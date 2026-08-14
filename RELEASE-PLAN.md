@@ -56,46 +56,66 @@ bump misses one.
 
 ## Phase 2 — Surface growth
 
-The heart of the release. Sequenced: the spike names the scope, then the
-scope gets built, then the spike's extension proves it.
+Scoped by the spike, not by prediction. A second extension ("Meridian", a
+fictional internal delivery system) was written outside this repository
+against the installed wheel alone, composed, and exercised. It needed **zero
+core changes** to sync work items, keep its own mapping table, run a
+scheduled job, contribute policy and identity, and serve a governed tool and
+specialist. Each item below is a wall it actually hit, in the order that
+blocks a real integration.
 
-- **T2.1 Second-extension spike.** Public commands added speculatively freeze
-  shapes nobody validated. Author a second extension in a separate
-  repository, clean-room, against the *installed* 0.2.1 artifacts, targeting
-  a real workplace need (work-item sync with manager approval). Timebox it.
-  Where it hits a wall, log the exact missing contract. That gap list — not
-  this plan — fixes the scope of T2.2 through T2.5. Expected outcome:
-  blocker and promise commands with their events, and a page-slot demand if
-  the dashboard requirement is real.
-- **T2.2 Public commands for blockers.** `WorkItems` exposes three task
-  operations against a 63-file service layer, which is the largest single
-  cause of future core changes. Extend the facade with blocker create and
-  update, template-copied from the task implementation: the same unforgeable
-  context grant, the same idempotency receipts, the same policy actions, the
-  same single write transaction through `services/blockers.py`. Never new SQL
-  in the facade.
-- **T2.3 Public commands for promises.** The same shape, using T2.2 as the
-  proven template, honoring the promise vocabulary (status, direction,
-  audience). Engagements ship only if T2.1 demanded them.
-- **T2.4 Event catalog growth.** Folded into the T2.2 and T2.3 commits: an
-  entity that gains a command gains its events in the same commit. Envelopes
-  stay content-free. Status transitions ride the `updated` event's change
-  summary instead of minting a type per transition. Record the rule in
-  `docs/EXTENSIONS.md`: a public command and its events ship together or not
-  at all.
-- **T2.5 Frontend page slot.** *(Conditional on T2.1 demand.)* The
-  organization-dashboard scenario is the one scenario the assessment could
-  not satisfy, and the Atlas reference already works around it with a
-  deep-link to a core page anchor. Add an optional `pages` field to
-  `FrontendExtension`, namespaced under `/ext/{extensionId}`, resolved by one
-  core catch-all route against the frozen registry, gated by the same
-  capability check as cards. The 0.2.1 host must reject a `pages`-using
-  package by core range rather than crash on the unknown field; that
-  forward-compatibility case belongs in the dual-host frontend contract.
-- **T2.6 Second extension ships.** Complete the T2.1 extension against the
-  grown surface, with the mandated test suite including the T0.2 check.
-  Acceptance: **zero core changes beyond the planned T2.2–T2.5 set.** Any
-  further core change it needs is a finding, not a patch.
+- **T2.2 Public commands past task work.** `WorkItems` is `create_task`,
+  `get_task`, `update_task`. Meridian's remote carries impediments, which are
+  blockers in Skein's own vocabulary, so the sync filed them as tasks: the
+  wrong entity, chosen because it was the only one on offer. Add blocker
+  commands first as the template, then promises, each through its existing
+  service with the same unforgeable context grant, idempotency receipt, and
+  single write transaction. Never new SQL in the facade.
+- **T2.3 Event catalog past task work.** Composition refuses
+  `skein.blocker.created` with `event 'x' selects unknown event types`. The
+  refusal is clean and fails closed, and it leaves an integration polling.
+  An entity that gains a command gains its events in the same commit;
+  envelopes stay content-free and a status change rides the `updated`
+  event's change summary.
+- **T2.4 Let an unattended integration queue a write for review.** The
+  sharpest finding, and the one this plan did not predict. A workplace rule
+  that returns `review` on an integration's write behaves like this:
+
+  | Path | Result | Durable proposal |
+  |---|---|---|
+  | Extension route | `409 REVIEW_REQUIRED` | none |
+  | Scheduled job | `POLICY_REVIEW_UNSUPPORTED` | none |
+  | Governed agent tool | `review_required` | **yes** |
+
+  So an unattended integration can be blocked but never queued, and only an
+  agent-invoked call can ask a human. That rules out the most likely
+  enterprise combination: sync work in on a schedule, and hold regulated
+  items for a manager. The machinery to fix it already exists — the tool path
+  stores executable arguments, rechecks policy at verdict time, and runs the
+  saved call under a fresh grant. A `WorkItems` command is typed and
+  serializable in exactly the same way. Give a reviewed command from a route
+  or job the same durable proposal, and return a queued result instead of an
+  error.
+- **T2.5 Carry the declared operation risk into the domain write.** A route
+  declares `effect=write, risk=high`, and the `work.task.create` decision
+  arrives at the policy engine with `risk='low', effect='none'`. Project type
+  and classification do arrive, so project rules work; a rule keyed on risk
+  silently never fires and has to be rewritten against the operation action,
+  which gates the whole sync rather than the item. Either propagate the
+  declared values or document the pattern and name the trap.
+- **T2.6 Frontend page slot.** *(Unchanged, still conditional.)* Meridian
+  deep-links to a core page anchor exactly as Atlas does, because that is the
+  only option. Add the slot when a dashboard outgrows a card.
+- **T2.7 Second extension ships.** Complete Meridian against the grown
+  surface with the mandated test suite, including `assert_import_boundary`,
+  which it already passes. Acceptance: zero core changes beyond the set
+  above.
+
+Smaller findings, worth one line each rather than a task: `execute_tool` is a
+coroutine and the authoring guide does not say so, which is the first thing
+an author hits when writing the mandated tool test; and `WorkItems` can only
+fetch a task by its Skein id, so every integration keeps its own id map and
+the idempotency key is write-only.
 
 ## Phase 3 — Convergence and operations
 
@@ -153,12 +173,13 @@ Strictly sequenced.
 
 ## Cut lines
 
-In slip order: T3.2, then T3.1, then T2.5 (only if the spike proved cards
-suffice), then T2.3.
+In slip order: T3.2, then T3.1, then T2.6 (the spike deep-linked to a core
+page the way Atlas does, so a card still suffices), then T2.5.
 
-Never cut: T0.2, T1.1, T1.4, T2.2 with T2.4 for at least one entity, T3.3,
-T4.1, T4.3. Those are the tasks where the tag either locks in the fix or
-locks in the flaw.
+Never cut: T2.2 and T2.3 for at least one entity, T2.4, T3.4, T4.1, T4.3.
+T2.4 joins this list on spike evidence: without it an unattended integration
+can be blocked but never queued, which is the most likely enterprise
+requirement of the set.
 
 ## Risks
 
@@ -168,6 +189,3 @@ locks in the flaw.
 - **Command scope creep** (T2.2, T2.3). The T2.1 gap list is the whole scope.
 - **Page-slot forward compatibility** (T2.5). Core-range rejection must fire
   before the unknown-field path, proved on both host trees.
-- **The spike stalls the critical path** (T2.1). Timebox it. If it overruns,
-  build the expected scope and let T2.6 validate afterwards — weaker
-  evidence, same shapes.
