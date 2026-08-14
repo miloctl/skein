@@ -16,6 +16,11 @@ keeps its existing `minimum_core` and needs no change.
 
 ## 0.2.2 — 2026-08-13
 
+The second tagged release, and the first that proves an upgrade: the Atlas
+reference extension passes every contract unchanged across the 0.2.1 to 0.2.2
+hop, and a database built by 0.2.1 reaches the same schema as a fresh 0.2.2
+build with its activity chain intact.
+
 ### Contracts
 
 - `WorkItems` gains blocker commands: `create_blocker`, `update_blocker`, and
