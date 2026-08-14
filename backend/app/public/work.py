@@ -33,6 +33,11 @@ class CommandContext:
     attributes: dict[str, Any] = field(default_factory=dict)
     actor: str = ""
     actor_kind: str = ""
+    # What the contribution declared about the operation performing this write.
+    # Without these the domain decision always read "none"/"low", so a
+    # workplace rule keyed on risk never fired on the write it meant to gate.
+    effect: str = "none"
+    risk: str = "low"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "attributes", MappingProxyType(dict(self.attributes)))
@@ -56,6 +61,8 @@ class _ExecutionGrant:
     actor_kind: str
     read_name: str
     read_strong: bool
+    effect: str = "none"
+    risk: str = "low"
 
 
 @dataclass(frozen=True)
@@ -104,6 +111,8 @@ def _command_signature(context: CommandContext) -> tuple[Any, ...]:
         deepcopy(dict(context.attributes)),
         context.actor,
         context.actor_kind,
+        context.effect,
+        context.risk,
     )
 
 
@@ -119,6 +128,8 @@ def _bind_execution_context[ExecutionContextT](
     actor_kind: str = "",
     read_name: str = "",
     read_strong: bool = False,
+    effect: str = "none",
+    risk: str = "low",
 ) -> ExecutionContextT:
     """Bind a core-created adapter object to one immutable provenance grant.
 
@@ -138,6 +149,8 @@ def _bind_execution_context[ExecutionContextT](
         actor_kind or subject.kind,
         read_name,
         read_strong,
+        effect,
+        risk,
     )
     registry = _BOUND_EXECUTIONS.setdefault(work_items, {})
     _remember_identity(registry, context, grant)
@@ -252,6 +265,8 @@ class WorkItems:
             attributes=attributes or {},
             actor=grant.actor,
             actor_kind=grant.actor_kind,
+            effect=grant.effect,
+            risk=grant.risk,
         )
         issued = _ISSUED_COMMANDS.setdefault(self, {})
         _remember_identity(
@@ -289,6 +304,8 @@ class WorkItems:
                 resource=resource,
                 origin=context.origin,
                 context=context.attributes,
+                tool_effect=context.effect,
+                tool_risk=context.risk,
             )
         )
         if decision.effect == PolicyEffect.DENY:

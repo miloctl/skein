@@ -1,7 +1,7 @@
 """Commands, events, and data boundaries used by private packages."""
 
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
@@ -2026,3 +2026,56 @@ def test_one_store_retention_leaves_another_store_alone(fresh_db, tmp_path, monk
         admin.backup(keep=1)
 
     assert neighbour.exists()
+
+
+def test_a_domain_write_carries_the_declared_operation_risk(fresh_db):
+    """A route declares what it does. Before this the domain decision always
+    read effect "none" and risk "low", so a workplace rule keyed on risk never
+    fired on the write it meant to gate."""
+    seen: list[tuple[str, str]] = []
+    router = APIRouter(prefix="/api/extensions/atlas.workplace")
+
+    @router.post("/sync")
+    def sync(services: ExtensionRouteServicesDep):
+        services.work_items.create_task(
+            CreateTaskCommand(title="Imported"), services.command_context()
+        )
+        return {"ok": True}
+
+    @dataclass(frozen=True)
+    class Recorder:
+        skein_policy_actions: tuple[str, ...] = ("work.task.create",)
+
+        def __call__(self, request: PolicyInput):
+            seen.append((request.tool_effect, request.tool_risk))
+            return None
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("atlas.workplace.recorder", Recorder()),),
+        routes=(
+            RouteContribution(
+                "atlas.workplace.routes",
+                router,
+                (
+                    RouteOperationContribution(
+                        "POST",
+                        "/api/extensions/atlas.workplace/sync",
+                        "atlas.integration.sync",
+                        PolicyResource("atlas"),
+                        "write",
+                        "high",
+                    ),
+                ),
+            ),
+        ),
+    )
+    settings = replace(AppSettings.from_config(), scheduler_enabled=False)
+    with TestClient(create_app(settings, (module,)), headers={"X-User": "tester"}) as client:
+        assert client.post("/api/extensions/atlas.workplace/sync").status_code == 200
+
+    assert seen == [("write", "high")]

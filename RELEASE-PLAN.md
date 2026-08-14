@@ -96,13 +96,6 @@ blocks a real integration.
   serializable in exactly the same way. Give a reviewed command from a route
   or job the same durable proposal, and return a queued result instead of an
   error.
-- **T2.5 Carry the declared operation risk into the domain write.** A route
-  declares `effect=write, risk=high`, and the `work.task.create` decision
-  arrives at the policy engine with `risk='low', effect='none'`. Project type
-  and classification do arrive, so project rules work; a rule keyed on risk
-  silently never fires and has to be rewritten against the operation action,
-  which gates the whole sync rather than the item. Either propagate the
-  declared values or document the pattern and name the trap.
 - **T2.6 Frontend page slot.** *(Unchanged, still conditional.)* Meridian
   deep-links to a core page anchor exactly as Atlas does, because that is the
   only option. Add the slot when a dashboard outgrows a card.

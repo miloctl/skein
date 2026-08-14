@@ -235,6 +235,8 @@ def dispatch_events(
                         namespace=_contribution.name,
                         receipt_namespace=f"event:{_contribution.name}",
                         correlation_id=f"{_event.event_id}:{_contribution.name}",
+                        effect=_contribution.effect,
+                        risk=_contribution.risk,
                     )
 
                 bounded = run_bounded_work_handler(
