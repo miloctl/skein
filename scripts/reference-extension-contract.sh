@@ -22,6 +22,8 @@ mkdir -p \
 # two real version identities from two real trees, with no rewriting. The
 # guard stops the rehearsal from ever comparing one implementation with
 # itself.
+PRIOR_CORE="0.2.0"
+export PRIOR_CORE
 prior_backend_tree="$(git rev-parse 00f71ad61becd1a3ed922d8a861809378fb59925:backend)"
 next_backend_tree="$(git rev-parse HEAD:backend)"
 if [[ "$prior_backend_tree" == "$next_backend_tree" ]]; then
@@ -44,10 +46,14 @@ UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
 mkdir -p "$tmp/core-next"
 tar --exclude=.venv --exclude=build --exclude='*.egg-info' -cf - -C backend . \
     | tar -xf - -C "$tmp/core-next"
-grep -q 'version = "0.2.1"' "$tmp/core-next/pyproject.toml" || {
-    echo "reference-extension-contract: HEAD must claim core 0.2.1" >&2
+# The next version comes from the source of truth, so a release bump does not
+# need an edit here. The guard is that the pair is two DIFFERENT identities.
+NEXT_CORE="$(sed -n 's/^version = "\(.*\)"/\1/p' "$tmp/core-next/pyproject.toml" | head -1)"
+export NEXT_CORE
+if [[ -z "$NEXT_CORE" || "$NEXT_CORE" == "$PRIOR_CORE" ]]; then
+    echo "reference-extension-contract: HEAD must claim a core version other than $PRIOR_CORE" >&2
     exit 1
-}
+fi
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
     uv build --quiet --wheel --out-dir "$tmp/next" "$tmp/core-next"
 
@@ -118,6 +124,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import asyncio
+import os
 
 from app import db
 from app.extensions import (
@@ -142,8 +149,9 @@ from app.services import blockers, crews, engagements, private_notes, review, us
 from atlas_skein import AtlasSettings, atlas_module
 from atlas_skein.integration import AtlasItem, MemoryAtlasClient
 
-assert version("skein") == "0.2.0"
-assert SKEIN_CORE_VERSION == "0.2.0"
+prior_core = os.environ["PRIOR_CORE"]
+assert version("skein") == prior_core
+assert SKEIN_CORE_VERSION == prior_core
 module = atlas_module(
     AtlasSettings(Path("../atlas-data/atlas.db").resolve()),
     MemoryAtlasClient((AtlasItem("ATLAS-OLD-CORE", "Old core sync"),)),
@@ -369,6 +377,7 @@ from dataclasses import replace
 from importlib.metadata import version
 from pathlib import Path
 import asyncio
+import os
 import sys
 
 from fastapi.testclient import TestClient
@@ -397,8 +406,9 @@ from app.services import users
 from app.extensions import EventExecutionContext
 from atlas_skein import AtlasSettings, atlas_module
 
-assert version("skein") == "0.2.1"
-assert SKEIN_CORE_VERSION == "0.2.1"
+next_core = os.environ["NEXT_CORE"]
+assert version("skein") == next_core
+assert SKEIN_CORE_VERSION == next_core
 assert (Path(db.__file__).resolve().parent / "py.typed").is_file()
 assert (db.MIGRATIONS_DIR / "018_identity_ownership.sql").is_file()
 assert (db.MIGRATIONS_DIR / "019_notification_sources.sql").is_file()
@@ -795,4 +805,4 @@ def schema(path):
 assert schema(sys.argv[1]) == schema(sys.argv[2]), "fresh and upgraded schemas differ"
 PY
 
-echo "reference-extension-contract: old core rejected; unchanged Atlas sync and strict source checks passed distinct 0.2.0 -> 0.2.1 implementations; 0.2.1 declared tool errors and reviewed local writes passed"
+echo "reference-extension-contract: old core rejected; unchanged Atlas sync and strict source checks passed distinct $PRIOR_CORE -> $NEXT_CORE implementations; $NEXT_CORE declared tool errors and reviewed local writes passed"
