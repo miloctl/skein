@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
 
-from .. import db
+from .. import config, db
 from ..public.errors import PublicError
 from . import lexicon, scope
 
@@ -316,6 +316,29 @@ def _check_reviewer(actor: str) -> None:
         raise ValueError(f"'{actor}' is an agent identity — proposals are judged by humans")
 
 
+def _check_separation(change: dict, actor: str) -> None:
+    """Refuse an approver who is the reason the proposal exists.
+
+    Approval only. Rejection stays open to everyone qualified, because a rule
+    that traps a proposal in the queue is worse than one person declining it.
+    Names are folded the way identity_names folds them, so a different case or
+    Unicode form is the same person here too.
+    """
+    if not config.REVIEW_SEPARATION:
+        return
+    from ..identity_names import fold_identity
+
+    folded = fold_identity(actor)
+    originators = {
+        fold_identity(str(change.get(column) or "")) for column in ("requested_by", "proposed_by")
+    }
+    if folded and folded in originators:
+        raise PermissionError(
+            "This proposal came from you. Separated review duties are on,"
+            " so a different qualified person must approve it."
+        )
+
+
 def _check_policy_approver(
     change: dict,
     groups: tuple[str, ...],
@@ -481,6 +504,7 @@ def _approve_change_locked(
         reviewer_groups,
         reviewer_capabilities,
     )
+    _check_separation(change, actor)
     qualifications: dict[str, Any] = _check_policy_approver(
         change,
         reviewer_groups,

@@ -543,6 +543,13 @@ def provider_key() -> str:
 # proposals that a human approves in the review inbox (approval-gate mode).
 AGENT_REVIEW = os.getenv("SKEIN_AGENT_REVIEW", "0") == "1"
 
+# With SKEIN_REVIEW_SEPARATION=1, the person a proposal came from cannot
+# approve it, so an approval always costs a second pair of eyes. Off by
+# default: at team scale the person who asked an agent to act is usually the
+# only one who can judge the result. A workplace policy rule that names
+# approver groups still applies, and both checks must pass.
+REVIEW_SEPARATION = os.getenv("SKEIN_REVIEW_SEPARATION", "0") == "1"
+
 # With SKEIN_TURN_GUARD=1, a chat turn that wrote nothing in answer to a
 # capture-prefixed message costs ONE extra model round trip to give the agent a
 # chance to file it. Off by default: the guard's honest note is free and needs
