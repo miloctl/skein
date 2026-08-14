@@ -1,5 +1,10 @@
 # Deploying Skein
 
+This file covers the docker-compose deployment. For OpenShift/Kubernetes
+with ArgoCD, use `deploy/k8s/` — its README carries the topology
+constraints, the restore procedure, and the identity-provider checklist.
+The private-repo split below applies to both.
+
 Run Skein from this public repo plus one small private repo per deployment.
 The private repo holds everything specific to your site. This repo never
 does. That split is what lets you upgrade by pulling, and reuse Skein at the

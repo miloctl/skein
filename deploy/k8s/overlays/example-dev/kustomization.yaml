@@ -1,0 +1,42 @@
+# Example only — copy into your private deploy repo and replace the
+# example.com values. Dev keeps the keyless posture: mock provider,
+# trusted-header auth, no Secret required.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: skein-dev
+
+resources:
+  - ../../base
+
+images:
+  - name: skein
+    newName: registry.example.com/skein/skein
+    newTag: 0.2.2
+  - name: skein-frontend
+    newName: registry.example.com/skein/skein-frontend
+    newTag: 0.2.2-dev
+
+configMapGenerator:
+  - name: skein-config
+    behavior: merge
+    literals:
+      - SKEIN_TZ=America/New_York
+      - SKEIN_AUTH_MODE=trusted-header
+      - SKEIN_CORS_ORIGINS=https://skein-dev.example.com
+
+patches:
+  - target:
+      kind: Route
+      name: skein-frontend
+    patch: |
+      - op: add
+        path: /spec/host
+        value: skein-dev.example.com
+  - target:
+      kind: Route
+      name: skein-backend
+    patch: |
+      - op: add
+        path: /spec/host
+        value: skein-api-dev.example.com

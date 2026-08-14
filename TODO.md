@@ -37,35 +37,29 @@ this file is only for accepted trade-offs that must eventually be repaid.
   'activity chain append failed' warnings, is the operation that tells a
   fallback from a smuggle.
 
-- **Single-replica posture is implied, not enforced or insured.**
-  Process-local rate limits, in-process locks, `claim_job`, and SQLite's
-  single writer are one deliberate fact: this design runs as one replica,
-  which is correct at team scale. Accepted until the OpenShift manifests
-  exist. Repay inside the deploy work: `replicas: 1` + `strategy:
-  Recreate` + one PVC, with a manifest comment naming every mechanism that
-  assumes it; a Litestream sidecar (container, not a code dependency)
-  streaming the SQLite WAL to S3-compatible storage, restore drill in the
-  runbook; `SKEIN_TRUST_PROXY_HOPS=1` behind the router;
-  `SKEIN_CORS_ORIGINS` set to the exact browser origin (scheme + host +
-  port — the live test showed 127.0.0.1 vs localhost is already a
-  mismatch); memory requests/limits sized for `next start` + uvicorn —
-  measure those two, never the dev server: `next dev` idles at ~2.3 GB RSS
-  and crashed twice on Node's default ~4.2 GB old-space cap during bursts
-  of edits, which is why `npm run dev` sets `--max-old-space-size`. That
-  number must NOT be copied into the container: a heap cap above the
-  cgroup limit makes Node grow into an OOM-kill instead of collecting
-  harder. Growth per compile measured at ~3 MB/page, so there is no leak
-  to size around;
-  `SKEIN_AUTH_MODE` oidc or api-key, trusted-header staying dev-only; and
-  a `v*` release tag on the deployed commit — the tag is what activates
-  the upgrade-path CI job (scripts/upgrade-path.sh baselines on the
-  newest one) and is the moment migrations stop being editable.
+- ~~Single-replica posture is implied, not enforced or insured.~~ Repaid
+  2026-08-14, most of it: `deploy/k8s/` pins `replicas: 1` +
+  `strategy: Recreate` + RWO on one PVC, with the manifest comment naming
+  every mechanism that assumes one process, and
+  `scripts/reference-deployment-contract.sh` renders both overlays in CI
+  and fails if any of it is lost. `SKEIN_TRUST_PROXY_HOPS=1`,
+  `SKEIN_CORS_ORIGINS`, oidc-mode auth and the memory-limit warning all
+  live in the base/overlays; images come from `scripts/publish-images.sh`
+  (a `v*` tag remains the release act, RELEASING.md). NOT shipped from the
+  sketch: the Litestream sidecar — the base mounts a second PVC as
+  `SKEIN_BACKUP_MIRROR` instead, and `deploy/k8s/README.md` forces the
+  written choice between independent storage and the reduced guarantee.
+  Litestream stays the upgrade path if off-cluster streaming is ever
+  wanted; the resource numbers stay starting sizes until measured under
+  real load.
 
 - **Dependency-update noise is handled by hand.** The `npm audit`
   high-severity in `brace-expansion` is dev-only and pre-existing; triaging
   its successors one by one is a treadmill. Repay with Renovate on the
   Gitea instance (grouped weekly PRs) — instance configuration, so it is
-  whoever runs the Gitea's to flip on. The CI half landed 2026-08-04:
+  whoever runs the Gitea's to flip on. The repo half landed 2026-08-14:
+  `renovate.json` (weekly, non-major updates grouped) waits for the
+  instance flip. The CI half landed 2026-08-04:
   `npm audit --omit=dev` gates pushes, so production dependencies block
   and dev-only noise does not.
 

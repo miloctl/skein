@@ -1,0 +1,36 @@
+# Overlays set spec.host on both Routes.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: skein-backend
+  annotations:
+    # The router kills idle connections at 30s. Chat SSE tolerates 180s of
+    # member silence and 300s to a provider's first token
+    # (routes/chat.py::MEMBER_TIMEOUT_S, team_agent.py::READ_TIMEOUT_S) and
+    # sends no keepalives — this value must stay above both, and runtime
+    # tuning can RAISE them (services/tuning.py). Mock mode streams
+    # instantly, so a too-low value only surfaces with a real provider.
+    haproxy.router.openshift.io/timeout: 330s
+spec:
+  to:
+    kind: Service
+    name: skein-backend
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: skein-frontend
+spec:
+  to:
+    kind: Service
+    name: skein-frontend
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

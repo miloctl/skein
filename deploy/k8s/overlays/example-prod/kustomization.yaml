@@ -1,0 +1,77 @@
+# Example only. Copy this overlay into your private deploy repo (the same
+# split deploy/README.md describes for compose) and replace every
+# example.com value. Secrets never go in git: create the skein-secrets
+# Secret out of band, or manage it with your cluster's secret operator.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: skein
+
+resources:
+  - ../../base
+
+images:
+  - name: skein
+    newName: registry.example.com/skein/skein
+    newTag: 0.2.2
+  # The frontend tag names the environment: its NEXT_PUBLIC_API_URL is
+  # baked at build time (scripts/publish-images.sh builds one per env).
+  - name: skein-frontend
+    newName: registry.example.com/skein/skein-frontend
+    newTag: 0.2.2-prod
+
+configMapGenerator:
+  - name: skein-config
+    behavior: merge
+    literals:
+      - SKEIN_TZ=America/New_York
+      - SKEIN_AUTH_MODE=oidc
+      # PingFederate: a JSON Web Token Access Token Manager is REQUIRED —
+      # opaque reference tokens cannot pass in-process validation
+      # (app/oidc.py). deploy/k8s/README.md carries the full IdP checklist.
+      - SKEIN_OIDC_ISSUER=https://sso.example.com
+      - SKEIN_OIDC_AUDIENCE=skein
+      - SKEIN_OIDC_CLIENT_ID=skein-web
+      - SKEIN_OIDC_ADMIN_GROUP=skein-admins
+      # Exact browser origin of the frontend Route — scheme + host, no
+      # trailing slash. A mismatch here is dead panels with 401s.
+      - SKEIN_CORS_ORIGINS=https://skein.example.com
+      - SKEIN_ADMINS=your-username
+      # Corporate CA for TLS to the IdP, mounted below. urllib honors this,
+      # REQUESTS_CA_BUNDLE does nothing here (app/oidc.py uses stdlib).
+      - SSL_CERT_FILE=/etc/skein-ca/ca.crt
+      - NO_PROXY=sso.example.com
+
+patches:
+  - target:
+      kind: Route
+      name: skein-frontend
+    patch: |
+      - op: add
+        path: /spec/host
+        value: skein.example.com
+  - target:
+      kind: Route
+      name: skein-backend
+    patch: |
+      - op: add
+        path: /spec/host
+        value: skein-api.example.com
+  # Corporate CA bundle for the backend's calls to PingFederate. Create the
+  # ConfigMap out of band: oc create configmap skein-ca --from-file=ca.crt
+  - target:
+      kind: Deployment
+      name: skein-backend
+    patch: |
+      - op: add
+        path: /spec/template/spec/volumes/-
+        value:
+          name: ca
+          configMap:
+            name: skein-ca
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts/-
+        value:
+          name: ca
+          mountPath: /etc/skein-ca
+          readOnly: true

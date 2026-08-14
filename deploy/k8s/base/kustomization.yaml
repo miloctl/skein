@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - backend.yaml
+  - frontend.yaml
+  - routes.yaml
+
+# The generator hash-suffixes the name, so a config change rolls the pods.
+# Overlays merge site values in with `behavior: merge`.
+configMapGenerator:
+  - name: skein-config
+    literals:
+      # The OpenShift router is one trusted hop. At 0 every caller shares
+      # the router's rate bucket; above the real depth the bucket key is
+      # spoofable (config.py).
+      - SKEIN_TRUST_PROXY_HOPS=1
+      # Second volume, so a lost data PVC does not take the backups with it.
+      # The anchor-log tamper check compares this copy against the local one
+      # (docs/FEATURES.md, tamper-evident provenance) — an independent
+      # storage backend is what makes that comparison mean something.
+      - SKEIN_BACKUP_MIRROR=/backup-mirror
+      # Keyless default. Overlays set a real provider and its Secret.
+      - SKEIN_MODEL_PROVIDER=mock
+
+# Overlays MUST set both images to the site registry and a version tag.
+# The frontend bakes NEXT_PUBLIC_API_URL at build time, so its tag names an
+# environment (0.2.2-prod), never a bare version — one frontend image cannot
+# serve two environments.
+images:
+  - name: skein
+  - name: skein-frontend

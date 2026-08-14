@@ -17,6 +17,12 @@ test_restore_drill_brings_both_databases_back):
    people.
 3. Scale back to one replica. Boot applies any migrations newer than the
    backup; the activity chain verifies from its anchor on /health.
+4. The anchor-log check (services/activity.py::check_anchor_log) now fires
+   daily: lines anchored after the backup date point at rows the restore
+   removed. That is correct signal — a restore IS a loss of history. Once
+   the restore is confirmed as the cause, trim both anchor logs to the
+   backup date (deploy/k8s/README.md, restore section). Never trim them
+   for any other reason: trimming is exactly what an attacker would do.
 """
 
 import json
@@ -262,6 +268,16 @@ def backup_if_stale() -> dict | None:
     if done:
         return None
     if not db.claim_job("backup", _today()):
+        # the claim commits before the copy, so a process killed between the
+        # two burns the day's claim with no file to show — and job_health only
+        # flags the backup stale at 48h, so without this line the lost day is
+        # invisible. (A copy still in flight on another process logs this
+        # once, then its file appears.)
+        log.error(
+            "backup claim for %s is taken but no backup file exists."
+            " A previous run was interrupted. POST /api/admin/backup runs one now.",
+            _today(),
+        )
         return None
     return backup()
 

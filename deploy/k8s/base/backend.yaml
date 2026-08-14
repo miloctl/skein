@@ -1,0 +1,153 @@
+# Single-replica by design, not by accident. One process is a load-bearing
+# assumption in: SQLite's single writer (WAL, db.py), the in-process
+# scheduler and its claim_job CAS (services/jobs.py), per-process rate-cap
+# windows (app/ratelimit.py), and the chat turn registry
+# (routes/chat.py::_inflight). Raising replicas corrupts none of the data
+# but double-fires none of the guarantees — do not raise it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skein-backend
+  labels:
+    app: skein-backend
+spec:
+  replicas: 1
+  # Recreate, never RollingUpdate: the data PVC is ReadWriteOnce, and the
+  # old pod must be fully gone before the new one applies migrations as the
+  # sole writer. The cost is seconds of downtime per upgrade — accepted, see
+  # deploy/k8s/README.md. A surge pod either wedges Pending on the volume
+  # attach or runs a second writer on the same node.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: skein-backend
+  template:
+    metadata:
+      labels:
+        app: skein-backend
+    spec:
+      # 210s: an agent chat turn tolerates 180s of member silence
+      # (routes/chat.py) — the default 30s grace kills mid-turn transcripts.
+      terminationGracePeriodSeconds: 210
+      securityContext:
+        runAsNonRoot: true
+        # No runAsUser and no fsGroup: OpenShift restricted-v2 assigns both
+        # from the namespace range and REJECTS values outside it. A
+        # hardcoded fsGroup fails admission; the assigned one makes the
+        # PVCs group-writable, which is all the app needs.
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: backend
+          image: skein
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: skein-config
+            # Model keys, SKEIN_FORGE_WEBHOOK_SECRET, SKEIN_ICS_TOKEN.
+            # Optional: a keyless (mock) deployment needs no Secret at all.
+            - secretRef:
+                name: skein-secrets
+                optional: true
+          # Startup runs migrations plus catch-up jobs (a full DB backup on
+          # the first boot of a day) before uvicorn answers anything —
+          # /health included. The startup probe carries that whole window;
+          # liveness without it kills the pod mid-migration into a
+          # crash-loop that can never finish.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+          # Starting sizes, not measured ones. Measure uvicorn under real
+          # load and tighten (TODO.md, single-replica posture).
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: backup-mirror
+              mountPath: /backup-mirror
+            # readOnlyRootFilesystem leaves no scratch space for provider
+            # SDKs and stdlib tempfile.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: skein-data
+        - name: backup-mirror
+          persistentVolumeClaim:
+            claimName: skein-backup-mirror
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: skein-backend
+  labels:
+    app: skein-backend
+spec:
+  selector:
+    app: skein-backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+# Block storage only (RWO). SQLite runs WAL unconditionally (db.py), and
+# WAL coordinates writers through a memory-mapped -shm file that is unsafe
+# on NFS — an NFS-backed class risks silent database corruption. Never bind
+# this claim to an RWX/NFS storage class.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: skein-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+# The mirror only earns its place on a storage backend independent of
+# skein-data — same class, same array means one fault takes both copies and
+# the anchor-log comparison proves nothing. Pick the class in the overlay,
+# or accept the reduced guarantee in writing (deploy/k8s/README.md).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: skein-backup-mirror
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

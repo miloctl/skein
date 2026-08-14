@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skein-frontend
+  labels:
+    app: skein-frontend
+spec:
+  # Stateless — RollingUpdate is fine here; only the backend is pinned to
+  # Recreate.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: skein-frontend
+  template:
+    metadata:
+      labels:
+        app: skein-frontend
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: frontend
+          # The tag names an environment (see base/kustomization.yaml):
+          # NEXT_PUBLIC_API_URL is baked into the bundle at build time.
+          image: skein-frontend
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+          # Sized for `next start` (standalone), never the dev server —
+          # `next dev` idles at ~2.3 GB and proves nothing here. Never set
+          # --max-old-space-size above the cgroup limit: a heap cap past
+          # the limit makes Node grow into an OOM-kill instead of
+          # collecting harder.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: skein-frontend
+  labels:
+    app: skein-frontend
+spec:
+  selector:
+    app: skein-frontend
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http

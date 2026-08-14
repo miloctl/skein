@@ -76,3 +76,19 @@ def test_restore_drill_brings_both_databases_back(fresh_db):
     notes = private_notes.list_notes("manager", "dana")
     assert [n["body"] for n in notes] == ["the private note that must survive"]
     assert activity.verify_chain()["ok"] is True
+
+
+def test_interrupted_backup_claim_is_an_error_not_a_silent_skip(fresh_db, caplog):
+    """claim_job commits before the copy, so a process killed between the two
+    leaves the day claimed with no file — and the next backup_if_stale used to
+    return None silently, losing the day with /health still green for 48h."""
+    import logging
+
+    from app import db
+    from app.services import admin
+
+    assert db.claim_job("backup", admin._today())  # the claimer that "died"
+    with caplog.at_level(logging.ERROR, logger="app.services.admin"):
+        assert admin.backup_if_stale() is None
+    assert any("backup claim" in r.message for r in caplog.records)
+    assert not (admin._backups_dir() / f"platform-{admin._today()}.db").exists()

@@ -1,6 +1,24 @@
 # Releasing Skein
 
-## Where a release goes is not settled yet
+## Container images go to the deployment's own registry
+
+The Kubernetes deployment (`deploy/k8s/`) pulls versioned images from a
+registry that the target cluster can reach — for the first deployment,
+the workplace-internal registry. `scripts/publish-images.sh` builds and
+pushes them: one backend image per version, one frontend image per
+version per environment (the frontend bakes its API URL at build time).
+Log in to the registry, then run it from the release tag:
+
+```bash
+SKEIN_REGISTRY=<registry>/<path> ./scripts/publish-images.sh X.Y.Z \
+    prod=<backend-route-url>,<frontend-route-url>
+```
+
+The script refuses a version that does not match `backend/pyproject.toml`,
+the same guard the CI publish job carries. No image has shipped through it
+yet — the first push proves it.
+
+## Where the wheel and npm package go is not settled yet
 
 Nothing has been published. `v0.2.1` and `v0.2.2` are tags on a local
 `main`; neither has reached a remote, the `publish` job in
@@ -83,6 +101,9 @@ one pass of human eyes on what it changed.
 3. Tag the release commit: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 4. Watch the tag run. The publish job runs after every other job passes.
 5. Check that the registry shows the new wheel and host archive.
+6. Push the container images with `scripts/publish-images.sh` (first
+   section). A deployment pulls by version tag, so ArgoCD sees the release
+   only after this step and the overlay's image tag bump.
 
 The first tag that reaches a remote proves this section, and until one
 does, treat steps 4 and 5 as untested. The Gitea publish job needs its
