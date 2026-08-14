@@ -72,12 +72,10 @@ compatible behavior.
   makes `services/review.py` refuse a verdict from the proposal's originating
   requester. Policy-named approver sets keep working and compose with it:
   both must pass.
-- **T1.4 Version-identity hardening.** `SKEIN_CORE_VERSION` falls back to a
-  hardcoded string when package metadata is missing, and a stale fallback
-  misreports compatibility to every module range check — the exact failure a
-  second release makes possible. Pin the fallback to `backend/pyproject.toml`
-  with a test, and warn when composition used the fallback instead of
-  installed metadata.
+The version bump in T4.2 is a trio: `backend/pyproject.toml`,
+`frontend/package.json`, and `FALLBACK_CORE_VERSION` in
+`app/extensions/contracts.py`. `tests/test_release_contract.py` fails if the
+bump misses one.
 
 ## Phase 2 — Surface growth
 
