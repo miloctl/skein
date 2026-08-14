@@ -26,6 +26,11 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- Composition logs a warning when no installed `skein` distribution names the
+  core version and the source fallback is used instead. Every module
+  compatibility range is checked against that number, so a guessed one can
+  refuse a valid private package.
+
 ### Operations
 
 ## 0.2.1 — 2026-08-13

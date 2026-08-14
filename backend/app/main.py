@@ -16,7 +16,12 @@ from starlette.concurrency import run_in_threadpool
 
 from . import config, db, ratelimit
 from .extensions import AppSettings, ExtensionRegistry, SkeinModule
-from .extensions.contracts import JobContribution, JobExecutionContext
+from .extensions.contracts import (
+    CORE_VERSION_IS_INSTALLED,
+    SKEIN_CORE_VERSION,
+    JobContribution,
+    JobExecutionContext,
+)
 from .extensions.core import core_module
 from .extensions.fastapi import contributed_route_policy, enforce_mutation_policy
 from .extensions.registry import validate_core_tool_names
@@ -838,6 +843,14 @@ def create_app(
     """
     explicit_settings = settings is not None
     selected_settings = settings or AppSettings.from_config()
+    if not CORE_VERSION_IS_INSTALLED:
+        # Every module compatibility range is checked against this number, so a
+        # composition that guessed it can reject a valid private package.
+        log.warning(
+            "no installed skein distribution: composing as core %s from the"
+            " source fallback. Install the wheel to report the real version.",
+            SKEIN_CORE_VERSION,
+        )
     registry = ExtensionRegistry.build((core_module(), *tuple(modules)))
     from .tools import ALL_TOOLS
 

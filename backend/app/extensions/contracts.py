@@ -26,10 +26,19 @@ if TYPE_CHECKING:
     from ..public.work import CommandContext, WorkItems
 
 
+# What a source tree with no installed distribution reports as its version.
+# tests/test_release_contract.py pins this literal to backend/pyproject.toml:
+# every module compatibility range is checked against SKEIN_CORE_VERSION, so a
+# stale literal here refuses a valid private package, or composes one the core
+# cannot satisfy, with no other symptom.
+FALLBACK_CORE_VERSION = "0.2.1"
+
 try:
     SKEIN_CORE_VERSION = package_version("skein")
+    CORE_VERSION_IS_INSTALLED = True
 except PackageNotFoundError:
-    SKEIN_CORE_VERSION = "0.2.1"
+    SKEIN_CORE_VERSION = FALLBACK_CORE_VERSION
+    CORE_VERSION_IS_INSTALLED = False
 EXTENSION_API_VERSION = "1.0"
 
 
