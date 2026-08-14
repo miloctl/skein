@@ -14,6 +14,27 @@ A contract entry names the version a package must declare to use it. Additive
 contracts keep extension API 1.0: a package that does not use the new contract
 keeps its existing `minimum_core` and needs no change.
 
+## Unreleased
+
+### Behavior
+
+- `fold_identity` now normalizes before it strips and composes after. The
+  old order was not idempotent: a compatibility character that decomposes
+  into whitespace ("¯" becomes space plus combining macron) kept the
+  space, and a stripped zero-width joiner left a base and its mark
+  uncomposed. Two spellings that render the same could fold to two
+  identities. Property tests (`tests/test_identity_fold.py`) hold the fold
+  to idempotence, case, compatibility forms, and invisible characters. A
+  roster with names that only now fold equal surfaces them through the
+  existing conflict quarantine, `python -m app.identity_audit`.
+
+### Operations
+
+- CI gates backend line coverage at 90% and prints frontend coverage.
+  Local `pytest` is unchanged. `RELEASING.md` now records the release
+  procedure. `./scripts/mutation-test.sh <module>` runs on-demand mutation
+  testing over `app/services/`.
+
 ## 0.2.2 — 2026-08-13
 
 The second tagged release, and the first that proves an upgrade: the Atlas

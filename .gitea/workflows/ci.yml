@@ -39,7 +39,11 @@ jobs:
         env:
           SKEIN_MODEL_PROVIDER: mock
           SKEIN_SCHEDULER: "0"
-        run: pytest -q -n auto
+        # The coverage gate lives here, not in addopts: coverage adds ~45%
+        # to a run, so local `pytest` stays fast and this step holds the
+        # floor. 90 is a ratchet — measured 91% on 2026-08-14; raise it when
+        # the number rises, never lower it to make a commit pass.
+        run: pytest -q -n auto --cov=app --cov-fail-under=90
       - name: Upgrade path
         # the clone above is shallow and tagless; the baseline tag's commit
         # must be reachable for the worktree. Skips itself until the first
@@ -71,7 +75,9 @@ jobs:
         run: ./scripts/lint.sh frontend
       - name: Test
         working-directory: frontend
-        run: npm test
+        # Coverage is report-only here: at 53% a threshold is a tripwire,
+        # not a ratchet. Gate it once the number is worth defending.
+        run: npm run test:coverage
       - name: Audit production dependencies
         # --omit=dev on purpose: dev-only advisories (brace-expansion and
         # kin) are Renovate's business, not a blocked deploy

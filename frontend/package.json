@@ -13,12 +13,13 @@
     "lint": "eslint --cache",
     "knip": "knip",
     "test": "NODE_OPTIONS=--no-experimental-webstorage vitest run",
+    "test:coverage": "NODE_OPTIONS=--no-experimental-webstorage vitest run --coverage --coverage.reporter=text-summary",
     "test:watch": "NODE_OPTIONS=--no-experimental-webstorage vitest"
   },
   "dependencies": {
-    "@skein/extension-api": "file:packages/extension-api",
     "@assistant-ui/react": "^0.14.27",
     "@assistant-ui/react-markdown": "^0.14.6",
+    "@skein/extension-api": "file:packages/extension-api",
     "canvas-confetti": "^1.9.4",
     "next": "16.2.11",
     "react": "19.2.4",
@@ -36,6 +37,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6.0.5",
+    "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9",
     "eslint-config-next": "16.2.11",
     "jsdom": "^29.1.1",

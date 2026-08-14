@@ -892,3 +892,40 @@ def test_an_unchained_row_does_not_suppress_the_digest_walk(fresh_db):
     # the DIGEST break is reported, not just the count that used to mask it
     assert result["broken_at"] == 2
     assert "does not match its digest" in result["reason"]
+
+
+# --- properties: the hash design holds for ALL content, not chosen examples --
+
+from hypothesis import HealthCheck, given, settings  # noqa: E402
+from hypothesis import strategies as st  # noqa: E402
+
+_field = st.text(min_size=0, max_size=80)
+
+
+@given(actor=_field.filter(bool), action=_field, detail=_field, moved=st.text("ab", min_size=1))
+def test_content_cannot_imitate_a_field_boundary(actor, action, detail, moved):
+    """Length-prefixing is the design claim in db.activity_hash: shifting
+    characters across a field boundary must always change the digest, or
+    ('ab','c') and ('a','bc') would be the same ledger row."""
+    base = db.activity_hash(1, "2026-08-14T00:00:00", actor, action + moved, detail, "genesis")
+    shifted = db.activity_hash(1, "2026-08-14T00:00:00", actor + moved, action, detail, "genesis")
+    assert base != shifted
+
+
+@settings(
+    deadline=None,
+    max_examples=25,
+    # deliberate fixture reuse: the ledger is append-only, so every example
+    # extends the same chain and a full verify still passes — the property
+    # is stronger against one long mixed-content chain than many short ones
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+@given(rows=st.lists(st.tuples(_field.filter(bool), _field, _field), min_size=1, max_size=4))
+def test_any_text_round_trips_through_the_chain(fresh_db, rows):
+    """Newlines, quotes, bidi controls, emoji — whatever lands in a detail
+    string must chain and verify. A character class that broke verification
+    would let an attacker write an uncheckable row on purpose."""
+    for actor, action, detail in rows:
+        db.log_activity(actor, action, detail)
+    result = activity.verify_chain()
+    assert result["ok"], result

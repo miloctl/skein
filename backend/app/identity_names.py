@@ -29,9 +29,19 @@ class RuntimeIdentityScope:
 
 
 def fold_identity(name: str) -> str:
-    """Normalize one identity for every ownership comparison."""
-    folded = unicodedata.normalize("NFKC", (name or "").strip())
-    return "".join(c for c in folded if unicodedata.category(c) != "Cf").casefold()
+    """Normalize one identity for every ownership comparison.
+
+    The order is load-bearing (tests/test_identity_fold.py holds the
+    properties). NFKC first, because compatibility characters can decompose
+    INTO whitespace ("¯" becomes space + combining macron) — stripping
+    before normalizing left that space in, and the fold of a fold was a
+    different string. NFKC again after the Cf strip, because a removed
+    ZWJ reunites a base with its combining mark and the pair must compose
+    the way the plain spelling does, or the two spellings stay two names.
+    """
+    folded = unicodedata.normalize("NFKC", name or "")
+    folded = "".join(c for c in folded if unicodedata.category(c) != "Cf")
+    return unicodedata.normalize("NFKC", folded.casefold()).strip()
 
 
 def activate_runtime_machine_subjects(
