@@ -61,17 +61,13 @@ compatible behavior.
   deadline, so the grant needs a request-scoped close. A late call returns
   `EXECUTION_CONTEXT_CLOSED`, matching the workflow-action behavior. Removes
   the matching entry from `docs/ROADMAP.md`.
-- **T1.2 SQLite authorizer on `ExtensionStore`.** The core-path refusal is a
-  path-string check, bypassed in the boundary audit by `ATTACH DATABASE` and
-  by hardlink. Deny `SQLITE_ATTACH` on store connections. The trust model
-  does not change: an in-process module is trusted code, and the
-  documentation must keep saying so.
 - **T1.3 Separated review duties.** By default the human who prompted an
   agent can approve that agent's proposal. A workplace that needs separation
   must write a policy rule today. Add `SKEIN_REVIEW_SEPARATION=1`, which
   makes `services/review.py` refuse a verdict from the proposal's originating
   requester. Policy-named approver sets keep working and compose with it:
   both must pass.
+
 The version bump in T4.2 is a trio: `backend/pyproject.toml`,
 `frontend/package.json`, and `FALLBACK_CORE_VERSION` in
 `app/extensions/contracts.py`. `tests/test_release_contract.py` fails if the

@@ -1689,6 +1689,24 @@ def test_extension_store_refuses_both_core_database_paths(fresh_db):
             ExtensionStore(path).migrate(())
 
 
+def test_extension_store_refuses_attach_to_another_database(fresh_db, tmp_path):
+    """The path check only sees the file this store opened, so one ATTACH
+    would reach a core database from a connection that already passed it."""
+    import sqlite3
+
+    store = ExtensionStore(tmp_path / "atlas.db")
+    store.migrate(
+        (ExtensionMigration(1, "create-links", ("CREATE TABLE work_links (id INTEGER)",)),)
+    )
+
+    with pytest.raises(sqlite3.DatabaseError, match="not authorized"):
+        store.execute(f"ATTACH DATABASE '{fresh_db.DB_PATH}' AS core")
+
+    # The authorizer must not cost the store its own tables.
+    store.execute("INSERT INTO work_links (id) VALUES (1)")
+    assert store.query_one("SELECT id FROM work_links") == {"id": 1}
+
+
 def test_composition_applies_extension_migrations_before_routes(fresh_db, tmp_path):
     store = ExtensionStore(tmp_path / "atlas.db")
     router = APIRouter(prefix="/api/extensions/atlas.workplace")

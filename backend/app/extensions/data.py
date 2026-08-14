@@ -14,6 +14,18 @@ from .. import config, db
 from .contracts import ExtensionMigration
 
 
+def _deny_attach(action: int, *_rest: object) -> int:
+    """Refuse ATTACH on an extension connection.
+
+    The path check in _make_sure_is_separate only sees the file this store
+    opened, so one ATTACH statement would reach a core database from a
+    connection that passed it. This closes that statement, not the trust
+    model: an in-process module runs as the Skein process and can still open
+    any file that process can.
+    """
+    return sqlite3.SQLITE_DENY if action == sqlite3.SQLITE_ATTACH else sqlite3.SQLITE_OK
+
+
 class ExtensionStore:
     """A store that never opens the core or private Skein database."""
 
@@ -37,6 +49,9 @@ class ExtensionStore:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 5000")
+        # After the PRAGMAs: an authorizer set before them denies nothing here,
+        # but every statement the extension runs passes through it.
+        connection.set_authorizer(_deny_attach)
         return connection
 
     def migrate(self, migrations: Sequence[ExtensionMigration]) -> None:

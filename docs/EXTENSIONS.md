@@ -615,11 +615,12 @@ their transaction invariants.
 Use `ExtensionStore` for a small extension-owned SQLite database. Its
 migration stream is namespaced and independent from core migration numbers.
 
-The store checks its configured path and refuses the core database paths.
-This check prevents accidents. It is not an isolation boundary: an
-in-process module runs with the same operating-system permissions as Skein
-and can open any file the process can. Keep untrusted code out of the
-module list and use a sidecar service for it.
+The store checks its configured path and refuses the core database paths. Its
+connections also refuse `ATTACH`, because the path check sees only the file
+the store opened. Both checks prevent accidents. They are not an isolation
+boundary: an in-process module runs with the same operating-system
+permissions as Skein and can open any file the process can. Keep untrusted
+code out of the module list and use a sidecar service for it.
 
 Core `0.2.0` supplies `connect`, `execute`, `query`, and `query_one`. The
 `transaction` helper requires core `0.2.1`. A package with a `0.2.0` floor

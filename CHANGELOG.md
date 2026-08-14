@@ -26,6 +26,10 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- `ExtensionStore` connections refuse `ATTACH`. The configured-path check
+  sees only the file the store opened, so one `ATTACH` statement reached a
+  core database from a connection that had already passed it. Both checks
+  prevent accidents and neither is an isolation boundary.
 - Composition logs a warning when no installed `skein` distribution names the
   core version and the source fallback is used instead. Every module
   compatibility range is checked against that number, so a guessed one can
