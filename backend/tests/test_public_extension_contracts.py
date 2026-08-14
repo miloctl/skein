@@ -33,9 +33,17 @@ from app.extensions.data import ExtensionStore
 from app.extensions.fastapi import ExtensionRouteServices
 from app.extensions.policy import PolicyInput, PolicySubject
 from app.main import create_app
-from app.public import CommandContext, CreateTaskCommand, PublicError, UpdateTaskCommand, WorkItems
+from app.public import (
+    CommandContext,
+    CreateBlockerCommand,
+    CreateTaskCommand,
+    PublicError,
+    UpdateBlockerCommand,
+    UpdateTaskCommand,
+    WorkItems,
+)
 from app.public.events import dispatch_events
-from app.public.work import _bind_execution_context
+from app.public.work import _bind_execution_context, _execute_reviewed_command
 
 
 def _context(work_items: WorkItems, **changes) -> CommandContext:
@@ -2198,3 +2206,114 @@ def test_a_rejected_held_write_never_lands(fresh_db):
     )
 
     assert fresh_db.query_one("SELECT 1 AS present FROM tasks") is None
+
+
+def test_a_blocker_is_a_blocker_not_a_task(fresh_db):
+    """The spike's remote carried impediments, and the only public command was
+    create_task, so the sync filed them as tasks: the wrong entity, chosen
+    because it was the only one offered."""
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    context = _context(facade)
+
+    view = facade.create_blocker(
+        CreateBlockerCommand(
+            title="Vendor certificate has not arrived",
+            detail="Blocks the payments cutover",
+            impact="high",
+            idempotency_key="meridian:MER-2",
+        ),
+        context,
+    )
+
+    assert view.title == "Vendor certificate has not arrived"
+    assert view.impact == "high"
+    assert view.status == "open"
+    assert view.origin == "extension:atlas.workplace.sync"
+    assert fresh_db.query_one("SELECT 1 AS present FROM tasks") is None
+
+    # the key protects the second sync of the same remote item
+    again = facade.create_blocker(
+        CreateBlockerCommand(title="Different title", idempotency_key="meridian:MER-2"),
+        context,
+    )
+    assert again.id == view.id
+    assert len(fresh_db.query("SELECT id FROM blockers")) == 1
+
+
+def test_a_blocker_command_emits_its_own_events(fresh_db):
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    context = _context(facade)
+
+    view = facade.create_blocker(CreateBlockerCommand(title="Held at customs"), context)
+    facade.update_blocker(
+        UpdateBlockerCommand(blocker_id=view.id, status="resolved", resolution="cleared"),
+        context,
+    )
+
+    events = fresh_db.query("SELECT event_type, payload FROM extension_outbox ORDER BY rowid")
+    assert [row["event_type"] for row in events] == [
+        "skein.blocker.created",
+        "skein.blocker.updated",
+    ]
+    # the envelope names fields, never the blocker's own words
+    assert "Held at customs" not in events[0]["payload"]
+    assert facade.get_blocker(view.id, context).status == "resolved"
+
+
+def test_a_blocker_update_cannot_set_the_escalation_state(fresh_db):
+    """Escalation is the scheduled sweep's decision. A caller that could set
+    it would move the escalation clock the sweep owns."""
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    context = _context(facade)
+    view = facade.create_blocker(CreateBlockerCommand(title="Waiting on legal"), context)
+
+    with pytest.raises(PublicError) as raised:
+        facade.update_blocker(UpdateBlockerCommand(blocker_id=view.id, status="escalated"), context)
+
+    assert raised.value.code == "BLOCKER_UPDATE_REJECTED"
+    assert facade.get_blocker(view.id, context).status == "open"
+
+
+def test_a_held_blocker_write_resumes_on_approval(fresh_db):
+    from app.services import review as review_service
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        service_identities=(
+            ServiceIdentityContribution("atlas.workplace.sync-identity", "atlas-sync"),
+        ),
+        policies=(
+            PolicyContribution(
+                "atlas.workplace.hold",
+                lambda request: (
+                    PolicyDecision(PolicyEffect.REVIEW, ("Held.",))
+                    if request.action == "work.blocker.create"
+                    else None
+                ),
+            ),
+        ),
+    )
+    registry = ExtensionRegistry.build((module,))
+    facade = WorkItems(registry.policy_engine)
+
+    with pytest.raises(PublicError) as raised:
+        facade.create_blocker(CreateBlockerCommand(title="Regulated impediment"), _context(facade))
+    assert raised.value.code == "REVIEW_REQUIRED"
+    assert fresh_db.query_one("SELECT 1 AS present FROM blockers") is None
+
+    review_service.approve_change(
+        raised.value.review_id,
+        actor="manager",
+        policy_registry=registry,
+        extension_executor=lambda invocation, change_id: _execute_reviewed_command(
+            invocation, registry
+        ),
+    )
+
+    row = fresh_db.query_one("SELECT title, origin FROM blockers")
+    assert row["title"] == "Regulated impediment"
+    assert row["origin"] == "extension:atlas.workplace.sync"

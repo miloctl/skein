@@ -412,7 +412,7 @@ the activity chain. Keep these commands in the deployment upgrade procedure.
 
 ## Use public work commands
 
-`WorkItems` is the first public command and query facade. It validates policy
+`WorkItems` is the public command and query facade for tasks and blockers. It validates policy
 and uses the existing service write path. That shared path preserves
 provenance and writes a versioned outbox event in the same transaction for
 human, agent, and integration callers.
@@ -431,6 +431,13 @@ def import_work(context: JobExecutionContext):
     )
     return {"created": 1, "task_id": task.id}
 ```
+
+A blocker is Skein's word for an impediment. Use `CreateBlockerCommand` and
+`UpdateBlockerCommand` rather than filing one as a task: the entity carries
+its own impact, escalation clock, and resolution. A blocker update can only
+resolve it or correct its wording. Escalation belongs to the scheduled sweep,
+so a command that set it would move a clock the sweep owns. Blocker commands
+need `minimum_core = "0.2.2"`.
 
 Extensions receive typed views. They do not receive SQLite rows or a core
 connection. Propose a new public command when an extension needs a stable core
@@ -594,10 +601,15 @@ All shared task writes create version 1 domain events in the SQLite outbox.
 Each event has an ID, type, schema version, time, actor, origin, resource
 reference, safe change summary, visibility, and correlation data.
 
-The version 1 catalog has two event types:
+The version 1 catalog has these event types:
 
 - `skein.task.created`
 - `skein.task.updated`
+- `skein.blocker.created`
+- `skein.blocker.updated`
+
+An entity that has a public command has its events. The blocker pair needs
+core `0.2.2`.
 
 `app.public.events.EVENT_TYPES` carries the same list. Composition rejects a
 subscription to an event type or schema version outside the catalog.

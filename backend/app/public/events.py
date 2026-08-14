@@ -22,7 +22,12 @@ log = logging.getLogger("skein.extensions.events")
 # The complete version 1 catalog. Composition validates every subscription
 # against it, so a new emitter that is not added here is unreachable for
 # every subscriber.
-EVENT_TYPES = ("skein.task.created", "skein.task.updated")
+EVENT_TYPES = (
+    "skein.task.created",
+    "skein.task.updated",
+    "skein.blocker.created",
+    "skein.blocker.updated",
+)
 EVENT_SCHEMA_VERSIONS = (1,)
 
 

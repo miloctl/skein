@@ -18,6 +18,16 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- `WorkItems` gains blocker commands: `create_blocker`, `update_blocker`, and
+  `get_blocker`, with `CreateBlockerCommand`, `UpdateBlockerCommand`, and
+  `BlockerView`. An impediment from an external system is a blocker in
+  Skein's vocabulary, and the facade previously offered only tasks, so an
+  integration filed it as the wrong entity. An update resolves a blocker or
+  corrects its wording; escalation stays with the scheduled sweep that owns
+  the clock. Needs `minimum_core = "0.2.2"`.
+- The event catalog gains `skein.blocker.created` and `skein.blocker.updated`,
+  emitted from the shared blocker write path so every caller produces them.
+  Composition still refuses a subscription outside the catalog.
 - A public work command that policy holds for review is now durable. A rule
   that returns `review` on `work.task.create` or `work.task.update` stores the
   command, and `PublicError.review_id` names the proposal a human approves;
