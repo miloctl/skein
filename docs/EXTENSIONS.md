@@ -11,6 +11,56 @@ must explicitly select each trusted module.
 The fictional [Atlas example](../examples/workplace-extension/README.md)
 uses every supported contract.
 
+## How it works
+
+Skein does not find your code. Your code starts Skein.
+
+Most applications are extended by editing them. Skein works the other way
+around. Skein is a library that your private code calls. Your code creates
+the application and hands Skein a list of your additions. Skein never scans
+installed packages, and it never loads a module the deployment did not name.
+Your whole connection to core is one small file in your own repository, shown
+under "Compose a backend module" below.
+
+That list is one `SkeinModule`. Each entry adds one thing and declares what
+that thing does. The declaration names the identity it runs as, the
+permission it needs, and whether it reads or writes. It also gives a risk
+level and a time limit. Skein reads these declarations when the application
+starts. A duplicate name, a missing permission, or an unsupported core
+version stops the application there, in front of the person who deployed it.
+
+One permission system covers core screens, contributed routes, agent tools,
+scheduled jobs, and workflow steps. Your rules join that system. A rule
+answers `permit`, `deny`, or `review`. A rule can make a decision stricter.
+It can never make one looser, so a workplace permit never removes a core
+denial.
+
+This is one write, from an integration through to the database:
+
+```mermaid
+flowchart TD
+    START[Your route or scheduled job starts] --> GATE1{Is this operation<br/>allowed at all?}
+    GATE1 -->|no| STOP1[Refused. Nothing runs.]
+    GATE1 -->|yes| CALL[Your code calls a public<br/>command such as create_task]
+    CALL --> GATE2{What do the rules say<br/>about this write?}
+    GATE2 -->|deny| STOP2[Refused. Nothing is written.]
+    GATE2 -->|review| HOLD[Skein saves the exact command<br/>and answers with a review number]
+    GATE2 -->|permit| WRITE[Skein writes the row]
+    HOLD --> HUMAN{A qualified person answers}
+    HUMAN -->|approve| WRITE
+    HUMAN -->|reject| STOP3[Nothing is written.]
+    WRITE --> RECORD[Skein records the author,<br/>writes the activity row,<br/>and emits a domain event]
+```
+
+The `review` branch is what lets an unattended integration ask a person.
+Skein stores the command itself, so approval runs that exact command later.
+Your integration stays the recorded author, and the reviewer is recorded
+beside it.
+
+Your extension owns its own database file, its own routes under its
+namespace, its own rules, and its own content files. Core owns its tables,
+its pages, and every module outside the three named below.
+
 ## Supported boundaries
 
 The backend extension API version is `1.0`. Import backend contracts only from
