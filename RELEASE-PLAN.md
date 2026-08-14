@@ -52,7 +52,10 @@ Four rules govern every task below.
 The version bump in T4.2 is a trio: `backend/pyproject.toml`,
 `frontend/package.json`, and `FALLBACK_CORE_VERSION` in
 `app/extensions/contracts.py`. `tests/test_release_contract.py` fails if the
-bump misses one.
+bump misses one. Raise the Meridian reference's `minimum_core` to `0.2.2` in
+the same release: it calls blocker and promise commands that ship in 0.2.2,
+and its floor reads `0.2.1` only because the tree carrying them still calls
+itself that.
 
 ## Phase 2 — Surface growth
 
@@ -64,13 +67,14 @@ scheduled job, contribute policy and identity, and serve a governed tool and
 specialist. Each item below is a wall it actually hit, in the order that
 blocks a real integration.
 
-- **T2.6 Frontend page slot.** *(Unchanged, still conditional.)* Meridian
-  deep-links to a core page anchor exactly as Atlas does, because that is the
-  only option. Add the slot when a dashboard outgrows a card.
-- **T2.7 Second extension ships.** Complete Meridian against the grown
-  surface with the mandated test suite, including `assert_import_boundary`,
-  which it already passes. Acceptance: zero core changes beyond the set
-  above.
+The second extension shipped and is the evidence this phase is done. It lives
+outside this repository, needs no core change, and its thirteen checks pass
+against the installed wheel. Every wall the spike hit is now a contract.
+
+The frontend page slot stays unbuilt. The reference deep-links to a core page
+anchor the way Atlas does, and a card still carries what its dashboard needs.
+The admission rule holds: add the slot when a real dashboard outgrows a card,
+with one core use and one private-package use in the same change.
 
 ## Phase 3 — Convergence and operations
 
