@@ -1,0 +1,86 @@
+# The gates that only run when someone pushes, run on a clock instead.
+#
+# ci.yml is push-only by security design, so between pushes nothing checks
+# main. The two things that rot without a commit are dependency advisories
+# (published against code that has not changed) and the toolchain the jobs
+# install unpinned. This catches both.
+#
+# Inside the push-only rule: schedule runs the default branch, which is
+# trusted code that already passed ci.yml. It never runs pull_request code.
+#
+# WHO READS THIS: Gitea does not mail a failed scheduled run anywhere by
+# default. Whoever maintains the repo checks the Actions tab on Monday, or
+# this job is write-only and a red week goes unseen. If the team grows past
+# one maintainer, add a notification step rather than assuming someone looks.
+#
+# NOT HERE, on purpose:
+# - The e2e job. It runs with retries: 0 and a known flake under CPU
+#   starvation, and an unattended weekly red trains people to ignore red.
+#   It stays on push, where a human is already watching.
+# - A mutation sweep. TODO.md records suite-wide mutation testing as decided
+#   against; scripts/mutation-test.sh is the on-demand form the record
+#   prefers, and RELEASING.md says when to run it.
+name: weekly
+on:
+  schedule:
+    # Monday 06:00 UTC — a failure is waiting at the start of the week
+    # rather than discovered mid-release.
+    - cron: "0 6 * * 1"
+  # so a change to this file can be proved without waiting for Monday
+  workflow_dispatch:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        run: |
+          base="${{ github.server_url }}"
+          git clone --depth 50 "${base%%://*}://${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}@${base#*://}/${{ github.repository }}.git" .
+          git checkout "$GITHUB_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - name: Install
+        working-directory: backend
+        # deliberately uncached, unlike ci.yml: resolving the dependency
+        # tree fresh is half of what this run exists to check
+        run: pip install -e ".[dev]"
+      - name: Lint
+        run: ./scripts/lint.sh backend
+      - name: Test
+        working-directory: backend
+        env:
+          SKEIN_MODEL_PROVIDER: mock
+          SKEIN_SCHEDULER: "0"
+        run: pytest -q -n auto --cov=app --cov-fail-under=90
+      - name: Audit production dependencies
+        run: ./scripts/audit-deps.sh backend
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        run: |
+          base="${{ github.server_url }}"
+          git clone --depth 50 "${base%%://*}://${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}@${base#*://}/${{ github.repository }}.git" .
+          git checkout "$GITHUB_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+      - name: Lint
+        env:
+          SKIP_TSC: "1"
+        run: ./scripts/lint.sh frontend
+      - name: Test
+        working-directory: frontend
+        run: npm run test:coverage
+      - name: Audit production dependencies
+        run: ./scripts/audit-deps.sh frontend
+      - name: Build
+        working-directory: frontend
+        run: npm run build
