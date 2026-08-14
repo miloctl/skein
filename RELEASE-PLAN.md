@@ -52,10 +52,7 @@ Four rules govern every task below.
 The version bump in T4.2 is a trio: `backend/pyproject.toml`,
 `frontend/package.json`, and `FALLBACK_CORE_VERSION` in
 `app/extensions/contracts.py`. `tests/test_release_contract.py` fails if the
-bump misses one. Raise the Meridian reference's `minimum_core` to `0.2.2` in
-the same release: it calls blocker and promise commands that ship in 0.2.2,
-and its floor reads `0.2.1` only because the tree carrying them still calls
-itself that.
+bump misses one.
 
 ## Phase 2 — Surface growth
 
@@ -67,9 +64,11 @@ scheduled job, contribute policy and identity, and serve a governed tool and
 specialist. Each item below is a wall it actually hit, in the order that
 blocks a real integration.
 
-The second extension shipped and is the evidence this phase is done. It lives
-outside this repository, needs no core change, and its thirteen checks pass
-against the installed wheel. Every wall the spike hit is now a contract.
+The second extension proved this phase and was then deleted: it needed no
+core change, and its thirteen checks passed against the installed wheel.
+Every wall it hit is now a contract, pinned by core tests that run in CI. A
+future release that wants an independently authored extension again should
+build one against a published wheel rather than resurrect that one.
 
 The frontend page slot stays unbuilt. The reference deep-links to a core page
 anchor the way Atlas does, and a card still carries what its dashboard needs.
@@ -78,8 +77,8 @@ with one core use and one private-package use in the same change.
 
 ## Phase 3 — Convergence and operations
 
-Independent of Phase 2. T3.3 must land before the tag because it changes a
-public contract shape.
+Independent of the surface work, and both remaining tasks are optional for
+this release except the publishing channel.
 
 - **T3.1 Stock tools onto the contribution harness, tranche 1.** Core tools
   bypass the `ToolContribution` harness: no schemas, no per-tool timeout, and
@@ -116,35 +115,44 @@ Strictly sequenced.
   `minimum_core`; `tests/test_release_contract.py` pins the new surface; this
   file and `docs/ROADMAP.md` hold nothing this release shipped.
 - **T4.2 Tag and publish.** Version bump in one commit —
-  `backend/pyproject.toml`, `frontend/package.json`, and the T1.4 fallback,
-  which the T1.4 test enforces as a trio. Finalize the CHANGELOG from its
+  `backend/pyproject.toml`, `frontend/package.json`, and
+  `FALLBACK_CORE_VERSION`, which `tests/test_release_contract.py` enforces as
+  a trio. Finalize the CHANGELOG from its
   running section. Tag. Publish through T3.4.
   Note: the tag is also the moment core migrations stop being editable
   (`TODO.md`, single-replica entry).
 - **T4.3 Upgrade rehearsal on the published pair.** Point the reference
   contracts at the published 0.2.1 and 0.2.2 artifacts instead of a
-  `sed`-synthesized version identity. `scripts/upgrade-path.sh` finds two
-  `v*` tags and stops skipping itself. **The release is done when** the
-  unchanged Atlas artifacts pass every contract on published 0.2.2, the T2.6
-  extension does the same, and migrations from `021_` up apply over a 0.2.1
-  database with schema equality against a fresh build and an intact activity
-  chain.
+  `sed`-synthesized version identity. `scripts/upgrade-path.sh` already runs
+  against the `v0.2.1` baseline; a second tag makes it a real release pair.
+  Atlas is the artifact for this hop: it keeps a `0.2.0` floor, uses none of
+  the new commands, and must pass untouched. **The release is done when** the
+  unchanged Atlas artifacts pass every contract on published 0.2.2, and
+  migrations from `021_` up apply over a 0.2.1 database with schema equality
+  against a fresh build and an intact activity chain.
 
-## Cut lines
+## What is left
 
-In slip order: T3.2, then T3.1, then T2.6 (the spike deep-linked to a core
-page the way Atlas does, so a card still suffices), then T2.5.
+`T3.4` is the only remaining task that cannot be cut. Without a publishing
+channel the release has nowhere to publish, and every consumer keeps building
+from a source checkout. It needs the package registry enabled on the Gitea
+instance and a `packages:write` secret, so it starts outside this repository.
 
-Never cut: T2.2 and T2.3 for at least one entity, T2.4, T3.4, T4.1, T4.3.
-T2.4 joins this list on spike evidence: without it an unattended integration
-can be blocked but never queued, which is the most likely enterprise
-requirement of the set.
+`T4.1` through `T4.3` are the release itself, in order, and `T4.3` is the
+definition of done.
+
+`T3.1` and `T3.2` are the two this plan would drop first, and the
+recommendation is to drop both from this release. `T3.1` buys internal
+consistency rather than workplace capability and can ride along whenever a
+stock tool is next touched for another reason. `T3.2` has a real design
+tension to resolve first: an outbox envelope is content-free by contract and
+a delivery channel needs the body.
 
 ## Risks
 
-- **Review-shape unification corrupts pending reviews** (T3.1). Dual-read at
-  verdict time. The test seeds an old-shape pending row from a running 0.2.1
-  instance, never a hand-written facsimile.
-- **Command scope creep** (T2.2, T2.3). The T2.1 gap list is the whole scope.
-- **Page-slot forward compatibility** (T2.5). Core-range rejection must fire
-  before the unknown-field path, proved on both host trees.
+- **Review-shape unification corrupts pending reviews** (`T3.1`, if it is
+  done at all). Dual-read at verdict time. The test seeds an old-shape
+  pending row from a running 0.2.1 instance, never a hand-written facsimile.
+- **The registry is proved by the release it is meant to carry** (`T3.4`).
+  Publish the existing 0.2.1 artifacts first, so the tag reuses a path that
+  already works instead of debugging a release and a pipeline at once.
