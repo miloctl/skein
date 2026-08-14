@@ -164,10 +164,21 @@ skein.rest.<method>.<literal-path-segments>
 
 For example, `PATCH /api/tasks/{task_id}` is
 `skein.rest.patch.tasks`. A policy rule can return `permit`, `deny`, or
-`review`. A deny returns `POLICY_DENIED`. Direct routes cannot resume a review
-safely. A review on a direct route returns `POLICY_REVIEW_UNSUPPORTED` and does
-not run the operation. Use a governed tool or workflow when the operation
-needs durable human review.
+`review`. A deny returns `POLICY_DENIED`.
+
+Where a review goes next depends on what the rule named. A rule on a **public
+work command** holds the command: Skein stores it, answers
+`REVIEW_REQUIRED` with the `review_id` that a human can approve, and runs the
+exact saved command on approval under a new grant. This works from a route, a
+scheduled job, a governed tool, an event subscriber, and a workflow action, so
+an unattended integration can hold a regulated write for a manager instead of
+failing it. Record the `review_id`: the write has not happened yet, and a
+retry creates a second proposal unless the command carries an idempotency key.
+
+A rule on the **operation action itself** — the REST action, a contributed
+route operation, or a scheduled job — has no request to resume, so it returns
+`POLICY_REVIEW_UNSUPPORTED` and does not run the operation. Name the command
+action when the intent is to hold one write for approval.
 
 The existing strong-identity, administrator, visibility, authority, and review
 checks still run. A workplace permit cannot remove a core denial. Deny is

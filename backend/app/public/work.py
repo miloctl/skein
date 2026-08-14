@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .. import db
 from ..extensions.policy import (
+    PolicyDecision,
     PolicyEffect,
     PolicyEngine,
     PolicyInput,
@@ -157,6 +158,85 @@ def _bind_execution_context[ExecutionContextT](
     return context
 
 
+class _HeldForReview(Exception):
+    """Carry a held command out of its write transaction before queueing it.
+
+    The proposal cannot be written inside the transaction it is refusing: that
+    transaction rolls back on the refusal and takes the proposal with it, so
+    the caller is told to seek approval for a review that no longer exists.
+    """
+
+    def __init__(
+        self,
+        context: CommandContext,
+        request: PolicyInput,
+        decision: PolicyDecision,
+        command: dict[str, Any],
+        obligations: tuple[str, ...],
+    ) -> None:
+        super().__init__("held for review")
+        self.context = context
+        self.request = request
+        self.decision = decision
+        self.command = command
+        self.obligations = obligations
+
+
+@dataclass(frozen=True)
+class _ResumedCommand:
+    """The execution boundary a verdict issues for one approved command."""
+
+    review_id: int
+
+
+def _execute_reviewed_command(invocation: dict[str, Any], registry: Any) -> dict[str, Any]:
+    """Run one approved public command under a fresh, core-issued grant.
+
+    The grant the caller held is gone: a route closes its grant with the
+    response, and a job closes its own at the deadline. This mints a new one
+    from the stored provenance so the write keeps the integration as its
+    author, with the reviewer recorded separately by the review service.
+    """
+    from ..extensions.policy import policy_subject_from_data
+
+    name = str(invocation.get("command") or "")
+    if name not in ("create_task", "update_task"):
+        raise ValueError("the reviewed command is not supported")
+    saved_subject = invocation.get("subject")
+    if not isinstance(saved_subject, dict):
+        raise ValueError("the reviewed command identity is invalid")
+    subject = registry.refresh_subject(policy_subject_from_data(saved_subject))
+    work_items = WorkItems(registry.policy_engine)
+    execution = _ResumedCommand(int(invocation.get("review_id") or 0))
+    _bind_execution_context(
+        work_items,
+        execution,
+        subject=subject,
+        namespace=str(invocation.get("namespace") or ""),
+        receipt_namespace=str(invocation.get("receipt_namespace") or ""),
+        correlation_id=str(invocation.get("correlation_id") or ""),
+        actor=str(invocation.get("actor") or ""),
+        actor_kind=str(invocation.get("actor_kind") or ""),
+        effect=str(invocation.get("effect") or "none"),
+        risk=str(invocation.get("risk") or "low"),
+    )
+    context = work_items._issue_context(
+        execution,
+        project_type=str(invocation.get("project_type") or ""),
+        attributes=dict(invocation.get("attributes") or {}),
+    )
+    arguments = dict(invocation.get("arguments") or {})
+    if name == "create_task":
+        view = work_items._create_task_locked(
+            CreateTaskCommand(**arguments), context, approved=True
+        )
+    else:
+        view = work_items._update_task_locked(
+            UpdateTaskCommand(**arguments), context, approved=True
+        )
+    return view.model_dump(mode="json")
+
+
 class CreateTaskCommand(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -296,18 +376,20 @@ class WorkItems:
         context: CommandContext,
         action: str,
         resource: PolicyResource,
+        *,
+        command: dict[str, Any] | None = None,
+        approved: bool = False,
     ) -> None:
-        decision = self._policy.decide(
-            PolicyInput(
-                subject=context.subject,
-                action=action,
-                resource=resource,
-                origin=context.origin,
-                context=context.attributes,
-                tool_effect=context.effect,
-                tool_risk=context.risk,
-            )
+        request = PolicyInput(
+            subject=context.subject,
+            action=action,
+            resource=resource,
+            origin=context.origin,
+            context=context.attributes,
+            tool_effect=context.effect,
+            tool_risk=context.risk,
         )
+        decision = self._policy.decide(request)
         if decision.effect == PolicyEffect.DENY:
             raise PublicError(
                 "POLICY_DENIED",
@@ -316,6 +398,13 @@ class WorkItems:
                 obligations=decision.obligations,
             )
         if decision.effect == PolicyEffect.REVIEW:
+            if approved:
+                # review.approve_change refreshed the requester, evaluated the
+                # current policy, and checked the reviewer immediately before
+                # this call. A second decision here could name approvers the
+                # review service never checked, so run the one verdict that
+                # already qualified. A deny above still refuses.
+                return
             obligations = (
                 *decision.obligations,
                 *(f"approver-group:{group}" for group in decision.approver_groups),
@@ -324,12 +413,79 @@ class WorkItems:
                     for capability in decision.approver_capabilities
                 ),
             )
+            if command is not None:
+                raise _HeldForReview(context, request, decision, command, obligations)
             raise PublicError(
                 "REVIEW_REQUIRED",
                 "A policy review is required before this action.",
                 status_code=409,
                 obligations=obligations,
             )
+
+    def _held_error(self, held: _HeldForReview) -> PublicError:
+        review_id = self._queue_command(held.context, held.request, held.decision, held.command)
+        return PublicError(
+            "REVIEW_REQUIRED",
+            "A policy review is required before this action.",
+            status_code=409,
+            obligations=held.obligations,
+            review_id=review_id,
+        )
+
+    def _queue_command(
+        self,
+        context: CommandContext,
+        request: PolicyInput,
+        decision: PolicyDecision,
+        command: dict[str, Any],
+    ) -> int:
+        """Store one reviewed command so a human can approve and run it.
+
+        Without this a route answers 409 and a job answers
+        POLICY_REVIEW_UNSUPPORTED, and neither leaves anything for a reviewer:
+        an unattended integration could be stopped but never asked.
+        """
+        from ..extensions.policy import policy_subject_data
+        from ..services import review as review_service
+
+        invocation = {
+            **command,
+            "subject": policy_subject_data(context.subject),
+            "namespace": context.namespace,
+            "receipt_namespace": context.receipt_namespace,
+            "correlation_id": context.correlation_id,
+            "actor": context.actor,
+            "actor_kind": context.actor_kind,
+            "project_type": context.project_type,
+            "attributes": dict(context.attributes),
+            "effect": context.effect,
+            "risk": context.risk,
+        }
+        proposal = review_service.propose_extension_invocation(
+            "public_command",
+            {
+                "command": command["command"],
+                "namespace": context.namespace,
+                "action": request.action,
+                "resource_type": request.resource.type,
+                "resource_id": request.resource.id,
+            },
+            invocation,
+            summary=f"Run {command['command']} from {context.namespace}",
+            actor=context.execution_actor,
+            requested_by=context.subject.name if context.subject.kind == "human" else "",
+            policy_obligations=decision.obligations,
+            approver_groups=decision.approver_groups,
+            approver_capabilities=decision.approver_capabilities,
+            review_visibility=(
+                request.resource.classification
+                if request.resource.classification in scope.TIERS
+                else scope.WORKSPACE
+            ),
+            review_crew_id=int(request.resource.attributes.get("crew_id") or 0),
+            policy_input=request,
+        )
+        return int(proposal["id"])
 
     def _permits(
         self,
@@ -553,10 +709,19 @@ class WorkItems:
     def create_task(self, command: CreateTaskCommand, context: CommandContext) -> TaskView:
         # Keep linked-project resolution, policy, idempotency, and creation in
         # one serialized write boundary.
-        with db.transaction():
-            return self._create_task_locked(command, context)
+        try:
+            with db.transaction():
+                return self._create_task_locked(command, context)
+        except _HeldForReview as held:
+            raise self._held_error(held) from None
 
-    def _create_task_locked(self, command: CreateTaskCommand, context: CommandContext) -> TaskView:
+    def _create_task_locked(
+        self,
+        command: CreateTaskCommand,
+        context: CommandContext,
+        *,
+        approved: bool = False,
+    ) -> TaskView:
         self._require_issued_context(context)
         viewer = self._viewer(context)
         link_attributes = self._relationship_context(
@@ -574,6 +739,7 @@ class WorkItems:
             "classification": command.visibility,
             "crew_id": command.crew_id,
         }
+        resumable = {"command": "create_task", "arguments": command.model_dump(mode="json")}
         self._authorize(
             context,
             "work.task.create",
@@ -583,6 +749,8 @@ class WorkItems:
                 classification=command.visibility,
                 attributes=requested_attributes,
             ),
+            command=resumable,
+            approved=approved,
         )
         if command.status != "todo":
             self._authorize(
@@ -594,6 +762,8 @@ class WorkItems:
                     classification=command.visibility,
                     attributes=requested_attributes,
                 ),
+                command=resumable,
+                approved=approved,
             )
         try:
             with db.transaction():
@@ -646,6 +816,18 @@ class WorkItems:
             raise PublicError("TASK_CREATE_REJECTED", str(exc)) from exc
 
     def update_task(self, command: UpdateTaskCommand, context: CommandContext) -> TaskView:
+        try:
+            return self._update_task_locked(command, context)
+        except _HeldForReview as held:
+            raise self._held_error(held) from None
+
+    def _update_task_locked(
+        self,
+        command: UpdateTaskCommand,
+        context: CommandContext,
+        *,
+        approved: bool = False,
+    ) -> TaskView:
         self._require_issued_context(context)
         try:
             # BEGIN IMMEDIATE serializes the authoritative target lookup,
@@ -696,6 +878,11 @@ class WorkItems:
                         classification=attributes["classification"],
                         attributes=requested_attributes,
                     ),
+                    command={
+                        "command": "update_task",
+                        "arguments": command.model_dump(mode="json"),
+                    },
+                    approved=approved,
                 )
                 work.update_task(
                     command.task_id,

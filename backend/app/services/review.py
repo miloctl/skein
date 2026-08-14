@@ -268,7 +268,7 @@ def propose_extension_invocation(
     policy_input=None,
 ) -> dict:
     """Create one review and keep its executable arguments out of the queue."""
-    if kind not in ("tool", "workflow", "mcp_tool", "core_tool"):
+    if kind not in ("tool", "workflow", "mcp_tool", "core_tool", "public_command"):
         raise ValueError("extension review kind is not supported")
     stored_invocation = {**invocation, "kind": kind}
     encoded = json.dumps(stored_invocation)
@@ -289,7 +289,9 @@ def propose_extension_invocation(
             public_payload,
             summary,
             actor=actor,
-            origin="agent" if kind in ("tool", "mcp_tool", "core_tool") else "human",
+            origin=(
+                "agent" if kind in ("tool", "mcp_tool", "core_tool", "public_command") else "human"
+            ),
             requested_by=requested_by,
             policy_obligations=policy_obligations,
             approver_groups=approver_groups,
@@ -899,6 +901,11 @@ def _current_extension_review(
                 "arguments": validated.model_dump(mode="json"),
             },
         )
+    if kind == "public_command":
+        # The saved policy input already names the command, its resource, and
+        # the project the write lands in. Re-decide against the CURRENT
+        # subject so a group the reviewer lost since the proposal counts.
+        return _CurrentExtensionReview(current)
     if kind == "mcp_tool":
         from ..agents.mcp_tools import reviewed_policy_contract
 

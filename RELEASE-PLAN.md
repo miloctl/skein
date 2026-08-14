@@ -77,25 +77,6 @@ blocks a real integration.
   An entity that gains a command gains its events in the same commit;
   envelopes stay content-free and a status change rides the `updated`
   event's change summary.
-- **T2.4 Let an unattended integration queue a write for review.** The
-  sharpest finding, and the one this plan did not predict. A workplace rule
-  that returns `review` on an integration's write behaves like this:
-
-  | Path | Result | Durable proposal |
-  |---|---|---|
-  | Extension route | `409 REVIEW_REQUIRED` | none |
-  | Scheduled job | `POLICY_REVIEW_UNSUPPORTED` | none |
-  | Governed agent tool | `review_required` | **yes** |
-
-  So an unattended integration can be blocked but never queued, and only an
-  agent-invoked call can ask a human. That rules out the most likely
-  enterprise combination: sync work in on a schedule, and hold regulated
-  items for a manager. The machinery to fix it already exists — the tool path
-  stores executable arguments, rechecks policy at verdict time, and runs the
-  saved call under a fresh grant. A `WorkItems` command is typed and
-  serializable in exactly the same way. Give a reviewed command from a route
-  or job the same durable proposal, and return a queued result instead of an
-  error.
 - **T2.6 Frontend page slot.** *(Unchanged, still conditional.)* Meridian
   deep-links to a core page anchor exactly as Atlas does, because that is the
   only option. Add the slot when a dashboard outgrows a card.

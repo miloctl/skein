@@ -18,6 +18,15 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- A public work command that policy holds for review is now durable. A rule
+  that returns `review` on `work.task.create` or `work.task.update` stores the
+  command, and `PublicError.review_id` names the proposal a human approves;
+  approval runs the exact saved command under a new grant with the integration
+  still recorded as its author. Before this a route answered `409` and a job
+  answered `POLICY_REVIEW_UNSUPPORTED` and neither left anything to approve,
+  so an unattended integration could be stopped but never asked. A rule on the
+  operation action itself still returns `POLICY_REVIEW_UNSUPPORTED`: there is
+  no request to resume. Needs `minimum_core = "0.2.2"` to read `review_id`.
 - `ExtensionStore(path, include_in_backup=True)` puts an extension-owned
   database into the daily core backup. Previously nothing in core copied it,
   so every private package's data survived on deployment-side discipline
@@ -54,6 +63,9 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+- Core migration 021 widens the reviewed-invocation kinds so a held public
+  command can be stored. It rebuilds `extension_review_invocations` and copies
+  every existing row.
 - `SKEIN_REVIEW_SEPARATION=1` refuses an approver who is the person a
   proposal came from, so an approval costs a second pair of eyes without a
   policy rule. Off by default. A policy rule that names `approver_groups`
