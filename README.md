@@ -70,8 +70,13 @@ Workplace deployments can compose trusted private modules without changing
 this source tree. The backend accepts explicit typed contributions for routes,
 jobs, policy, identity, tools, specialists, events, extension-owned migrations,
 and workflow actions. The frontend accepts trusted build-time navigation and
-dashboard contributions. See [extension authoring](docs/EXTENSIONS.md) and the
-[fictional Atlas package](examples/workplace-extension/README.md).
+dashboard contributions. Skein does not find that code: the private
+composition root starts Skein and hands it the module list, so an upgrade
+never meets a local edit. Read
+[how it works](docs/EXTENSIONS.md#how-it-works) first for the model and the
+write path, then [extension authoring](docs/EXTENSIONS.md) for the contracts
+and the [fictional Atlas package](examples/workplace-extension/README.md) for
+a worked example.
 
 Key mechanics:
 
