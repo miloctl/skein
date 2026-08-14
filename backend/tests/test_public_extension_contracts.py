@@ -13,6 +13,7 @@ from app.extensions import (
     EventExecutionContext,
     ExtensionMigration,
     ExtensionRegistry,
+    ExtensionRouteServicesDep,
     ExtensionValidationError,
     JobExecutionContext,
     MigrationContribution,
@@ -1705,6 +1706,64 @@ def test_extension_store_refuses_attach_to_another_database(fresh_db, tmp_path):
     # The authorizer must not cost the store its own tables.
     store.execute("INSERT INTO work_links (id) VALUES (1)")
     assert store.query_one("SELECT id FROM work_links") == {"id": 1}
+
+
+def test_a_route_grant_does_not_outlive_its_response(fresh_db):
+    """A route declares no deadline, so the request teardown is the only thing
+    that ends its authority. A thread the handler spawned would otherwise keep
+    writing core rows under the route's provenance after the response."""
+    held: dict[str, object] = {}
+    router = APIRouter(prefix="/api/extensions/atlas.workplace")
+
+    @router.post("/sync")
+    def sync(services: ExtensionRouteServicesDep):
+        context = services.command_context(project_type="standard")
+        held["services"] = services
+        held["context"] = context
+        task = services.work_items.create_task(
+            CreateTaskCommand(title="Written during the request"), context
+        )
+        return {"task_id": task.id}
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        routes=(
+            RouteContribution(
+                "atlas.workplace.routes",
+                router,
+                (
+                    RouteOperationContribution(
+                        "POST",
+                        "/api/extensions/atlas.workplace/sync",
+                        "atlas.integration.sync",
+                        PolicyResource("atlas"),
+                        "write",
+                        "high",
+                    ),
+                ),
+            ),
+        ),
+    )
+    settings = replace(AppSettings.from_config(), scheduler_enabled=False)
+    with TestClient(create_app(settings, (module,)), headers={"X-User": "tester"}) as client:
+        assert client.post("/api/extensions/atlas.workplace/sync").status_code == 200
+
+    for late_call in (
+        lambda: held["services"].command_context(),
+        lambda: held["services"].work_items.create_task(
+            CreateTaskCommand(title="Written after the response"), held["context"]
+        ),
+    ):
+        with pytest.raises(PublicError) as raised:
+            late_call()
+        assert raised.value.code == "EXECUTION_CONTEXT_CLOSED"
+
+    titles = [row["title"] for row in fresh_db.query("SELECT title FROM tasks")]
+    assert titles == ["Written during the request"]
 
 
 def test_composition_applies_extension_migrations_before_routes(fresh_db, tmp_path):

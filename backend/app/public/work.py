@@ -197,11 +197,33 @@ class TaskView(BaseModel):
     updated_at: str
 
 
+def _revoked_error() -> PublicError:
+    return PublicError(
+        "EXECUTION_CONTEXT_CLOSED",
+        "The request finished before this work request could run.",
+        status_code=403,
+    )
+
+
+def _close_execution(work_items: WorkItems) -> None:
+    """Revoke every grant and issued command bound to one facade.
+
+    A route has no deadline, so nothing else ends its authority: a thread the
+    handler spawned would keep writing core rows under the route's provenance
+    after the response, and after shutdown. Dropping the registries is what
+    revokes the authority; the flag only names the cause in the error.
+    """
+    work_items._closed = True
+    _BOUND_EXECUTIONS.pop(work_items, None)
+    _ISSUED_COMMANDS.pop(work_items, None)
+
+
 class WorkItems:
     """The public facade for task commands and queries."""
 
     def __init__(self, policy: PolicyEngine) -> None:
         self._policy = policy
+        self._closed = False
 
     def _issue_context(
         self,
@@ -211,6 +233,8 @@ class WorkItems:
         attributes: dict[str, Any] | None = None,
     ) -> CommandContext:
         """Create the provenance context used by one composed execution boundary."""
+        if self._closed:
+            raise _revoked_error()
         grant = _identity_payload(_BOUND_EXECUTIONS.get(self, {}), execution_context)
         if not isinstance(grant, _ExecutionGrant):
             raise PublicError(
@@ -238,6 +262,10 @@ class WorkItems:
         return context
 
     def _require_issued_context(self, context: CommandContext) -> None:
+        # A context minted before the close is still a live object the handler
+        # holds, so the write path re-checks the facade and not just the grant.
+        if self._closed:
+            raise _revoked_error()
         signature = _identity_payload(_ISSUED_COMMANDS.get(self, {}), context)
         if not isinstance(signature, _IssuedCommand) or signature.signature != _command_signature(
             context

@@ -48,12 +48,6 @@ a real extension needs them:
   feature must (`backend/fieldguide/knots.yaml`). Version 1 has no such
   slot, and a core knot for a surface only composed deployments have would
   be wrong in the default app.
-- An extension route grant lifecycle. `ExtensionRouteServicesDep` hands a
-  route a `WorkItems` that nothing ever closes: a thread the handler
-  spawns can write core rows after the response — and after shutdown —
-  under the route's provenance. Routes have no deadline, so the
-  owner-dispatch facade that closes tools, jobs, and subscribers does not
-  apply as-is; the grant needs a request-scoped close.
 
 Do not add these as empty slots. Add one narrow contract with one core use and
 one private-package use when the requirement appears.

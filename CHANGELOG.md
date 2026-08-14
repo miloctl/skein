@@ -26,6 +26,11 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- An extension route's work grant ends with its response. A route declares no
+  deadline, so a thread the handler started kept writing core rows under the
+  route's provenance after the response and after shutdown. A later call now
+  returns `EXECUTION_CONTEXT_CLOSED`. Use a `JobContribution` for background
+  work.
 - `ExtensionStore` connections refuse `ATTACH`. The configured-path check
   sees only the file the store opened, so one `ATTACH` statement reached a
   core database from a connection that had already passed it. Both checks
