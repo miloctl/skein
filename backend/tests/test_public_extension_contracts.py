@@ -2079,3 +2079,122 @@ def test_a_domain_write_carries_the_declared_operation_risk(fresh_db):
         assert client.post("/api/extensions/atlas.workplace/sync").status_code == 200
 
     assert seen == [("write", "high")]
+
+
+def test_an_unattended_integration_queues_its_held_write_for_approval(fresh_db):
+    """A route answered 409 and a job answered POLICY_REVIEW_UNSUPPORTED, and
+    neither left anything for a reviewer: an unattended sync could be stopped
+    by policy but never sent to a human."""
+    from app.services import users
+
+    users.ensure_user("manager")
+    router = APIRouter(prefix="/api/extensions/atlas.workplace")
+
+    @router.post("/sync")
+    def sync(services: ExtensionRouteServicesDep):
+        services.work_items.create_task(
+            CreateTaskCommand(title="Imported from Atlas"),
+            services.command_context(project_type="regulated"),
+        )
+        return {"ok": True}
+
+    @dataclass(frozen=True)
+    class NeedsManager:
+        skein_policy_actions: tuple[str, ...] = ("work.task.create",)
+
+        def __call__(self, request: PolicyInput):
+            if request.resource.attributes.get("project_type") == "regulated":
+                return PolicyDecision(
+                    PolicyEffect.REVIEW,
+                    ("A delivery manager must approve a regulated import.",),
+                )
+            return None
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("atlas.workplace.needs-manager", NeedsManager()),),
+        routes=(
+            RouteContribution(
+                "atlas.workplace.routes",
+                router,
+                (
+                    RouteOperationContribution(
+                        "POST",
+                        "/api/extensions/atlas.workplace/sync",
+                        "atlas.integration.sync",
+                        PolicyResource("atlas"),
+                        "write",
+                        "high",
+                    ),
+                ),
+            ),
+        ),
+    )
+    settings = replace(AppSettings.from_config(), scheduler_enabled=False)
+    app = create_app(settings, (module,))
+    with TestClient(app, headers={"X-User": "tester"}) as client:
+        held = client.post("/api/extensions/atlas.workplace/sync")
+        assert held.status_code == 409
+        assert held.json()["code"] == "REVIEW_REQUIRED"
+        review_id = held.json()["review_id"]
+        assert review_id > 0
+        assert fresh_db.query_one("SELECT 1 AS present FROM tasks") is None
+
+        pending = client.get("/api/review?status=pending").json()
+        assert [row["id"] for row in pending] == [review_id]
+
+        approved = client.post(f"/api/review/{review_id}/approve", json={"note": "checked"})
+        assert approved.status_code == 200
+
+    row = fresh_db.query_one("SELECT title, origin, created_by FROM tasks")
+    assert row["title"] == "Imported from Atlas"
+    # the integration stays the author; the reviewer is recorded on the change
+    assert row["origin"] == "extension:atlas.workplace.routes"
+    verdict = fresh_db.query_one(
+        "SELECT reviewed_by, status FROM pending_changes WHERE id = ?", (review_id,)
+    )
+    assert verdict["status"] == "approved"
+    assert verdict["reviewed_by"] == "tester"
+
+
+def test_a_rejected_held_write_never_lands(fresh_db):
+    from app.services import review as review_service
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        service_identities=(
+            ServiceIdentityContribution("atlas.workplace.sync-identity", "atlas-sync"),
+        ),
+        policies=(
+            PolicyContribution(
+                "atlas.workplace.hold",
+                lambda request: (
+                    PolicyDecision(PolicyEffect.REVIEW, ("Held.",))
+                    if request.action == "work.task.create"
+                    else None
+                ),
+            ),
+        ),
+    )
+    registry = ExtensionRegistry.build((module,))
+    facade = WorkItems(registry.policy_engine)
+    with pytest.raises(PublicError) as raised:
+        facade.create_task(CreateTaskCommand(title="held"), _context(facade))
+
+    assert raised.value.review_id > 0
+    review_service.reject_change(
+        raised.value.review_id,
+        "not this quarter",
+        actor="manager",
+        policy_registry=registry,
+    )
+
+    assert fresh_db.query_one("SELECT 1 AS present FROM tasks") is None

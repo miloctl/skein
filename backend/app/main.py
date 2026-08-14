@@ -713,6 +713,7 @@ async def public_error_handler(request: Request, exc: PublicError):
             "code": exc.code,
             "retryable": exc.retryable,
             "obligations": list(exc.obligations),
+            **({"review_id": exc.review_id} if exc.review_id else {}),
         },
     )
 

@@ -12,6 +12,7 @@ class PublicError(Exception):
         status_code: int = 400,
         retryable: bool = False,
         obligations: tuple[str, ...] = (),
+        review_id: int = 0,
     ) -> None:
         super().__init__(detail)
         self.code = code
@@ -19,3 +20,7 @@ class PublicError(Exception):
         self.status_code = status_code
         self.retryable = retryable
         self.obligations = tuple(obligations)
+        # A held write names the proposal a human can approve. Zero means the
+        # refusal queued nothing, which is every error except REVIEW_REQUIRED
+        # from a command a reviewer can resume.
+        self.review_id = review_id

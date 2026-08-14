@@ -28,6 +28,7 @@ REVIEW_ONLY = frozenset(
         ("extension_mcp_tool", "create"),
         ("extension_core_tool", "create"),
         ("extension_workflow", "create"),
+        ("extension_public_command", "create"),
     }
 )
 
@@ -50,6 +51,7 @@ CAPABILITY: dict[tuple[str, str], str] = {
     ("extension_mcp_tool", "create"): "run a governed remote tool",
     ("extension_core_tool", "create"): "run a governed stock tool",
     ("extension_workflow", "create"): "continue a workplace workflow",
+    ("extension_public_command", "create"): "run a held integration write",
     ("intake", "create"): "file an intake request",
     ("intake_edit", "update"): "change an intake request",
     ("lesson", "create"): "record a lesson",
