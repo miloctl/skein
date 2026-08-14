@@ -35,6 +35,20 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      # Same major as docker-compose.yml and the Dockerfile's pg_dump. The
+      # suite builds a template database and clones it per test, which needs a
+      # real server — there is no in-process substitute the way SQLite was.
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: skein
+          POSTGRES_PASSWORD: skein
+          POSTGRES_DB: skein
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U skein -d skein"
+          --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -57,6 +71,7 @@ jobs:
         env:
           SKEIN_MODEL_PROVIDER: mock
           SKEIN_SCHEDULER: "0"
+          SKEIN_DATABASE_URL: postgresql://skein:skein@localhost:5432/skein
         # the coverage ratchet: 90 against a measured 91. Raise it when the
         # number rises, never lower it to make a commit pass.
         run: pytest -q -n auto --cov=app --cov-fail-under=90
@@ -132,6 +147,21 @@ jobs:
     # backend, then the oidc sign-in against a stub IdP. Needs both
     # toolchains, so it is its own job.
     runs-on: ubuntu-latest
+    services:
+      # The walked backend is the real one, so it needs the real database.
+      # Both playwright configs seed into it.
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: skein
+          POSTGRES_PASSWORD: skein
+          POSTGRES_DB: skein
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U skein -d skein"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      SKEIN_DATABASE_URL: postgresql://skein:skein@localhost:5432/skein
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
