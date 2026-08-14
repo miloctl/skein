@@ -436,8 +436,13 @@ A blocker is Skein's word for an impediment. Use `CreateBlockerCommand` and
 `UpdateBlockerCommand` rather than filing one as a task: the entity carries
 its own impact, escalation clock, and resolution. A blocker update can only
 resolve it or correct its wording. Escalation belongs to the scheduled sweep,
-so a command that set it would move a clock the sweep owns. Blocker commands
-need `minimum_core = "0.2.2"`.
+so a command that set it would move a clock the sweep owns.
+
+A promise is a commitment with a direction, an audience, and a settlement
+status. `CreatePromiseCommand` records one and `UpdatePromiseCommand` settles
+it as `kept`, `missed`, or `withdrawn`. A promise settles once.
+
+Blocker and promise commands need `minimum_core = "0.2.2"`.
 
 Extensions receive typed views. They do not receive SQLite rows or a core
 connection. Propose a new public command when an extension needs a stable core
@@ -607,6 +612,8 @@ The version 1 catalog has these event types:
 - `skein.task.updated`
 - `skein.blocker.created`
 - `skein.blocker.updated`
+- `skein.promise.created`
+- `skein.promise.updated`
 
 An entity that has a public command has its events. The blocker pair needs
 core `0.2.2`.

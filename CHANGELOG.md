@@ -25,6 +25,12 @@ keeps its existing `minimum_core` and needs no change.
   integration filed it as the wrong entity. An update resolves a blocker or
   corrects its wording; escalation stays with the scheduled sweep that owns
   the clock. Needs `minimum_core = "0.2.2"`.
+- `WorkItems` gains promise commands: `create_promise`, `update_promise`, and
+  `get_promise`, with `CreatePromiseCommand`, `UpdatePromiseCommand`, and
+  `PromiseView`. A promise carries a direction, an audience, and a settlement
+  status that no other entity has. It settles once. Needs
+  `minimum_core = "0.2.2"`.
+- The event catalog gains `skein.promise.created` and `skein.promise.updated`.
 - The event catalog gains `skein.blocker.created` and `skein.blocker.updated`,
   emitted from the shared blocker write path so every caller produces them.
   Composition still refuses a subscription outside the catalog.
