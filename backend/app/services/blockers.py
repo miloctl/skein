@@ -258,12 +258,18 @@ def resolve_blocker(
         scope.assert_editable("blockers", row, actor, verb="resolve")
         if row["status"] == "resolved":
             raise ValueError(f"blocker #{blocker_id} is already resolved")
-        db.execute(
+        # The status check above decides this write, and the read took no
+        # lock — so the WHERE carries it too. Without the CAS both resolvers
+        # pass the check and both append, and the detail ends up with two
+        # "Resolved:" lines where the second caller should have been refused.
+        settled = db.execute_rowcount(
             "UPDATE blockers SET status = 'resolved', resolved_at = ?, updated_at = ?,"
             " detail = detail || CASE WHEN ? != '' THEN chr(10) || 'Resolved: ' || ? ELSE '' END"
-            " WHERE id = ?",
+            " WHERE id = ? AND status != 'resolved'",
             (db.now(), db.now(), resolution, resolution, blocker_id),
         )
+        if not settled:
+            raise ValueError(f"blocker #{blocker_id} is already resolved")
         task_unblocked = 0
         if row["task_id"]:
             # un-block the linked task that raise_blocker flipped

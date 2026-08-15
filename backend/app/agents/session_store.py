@@ -62,7 +62,17 @@ class OffLoopSessionManager(RepositorySessionManager):
         registry.add_callback(AgentInitializedEvent, lambda event: self.initialize(event.agent))
 
         async def append(event) -> None:
-            await run_in_threadpool(self.append_message, event.message, event.agent)
+            # LOCK_SESSION, the same lock session_log.py::log_exchange takes.
+            # The SDK derives message_id from its own message index, so a
+            # slash command bridged in while a model turn is appending derives
+            # the SAME id — and create_message's DO UPDATE then overwrites one
+            # message with the other, silently, with no row left to notice.
+            def locked() -> None:
+                with db.transaction():
+                    db.name_lock(db.LOCK_SESSION, self.session_id)
+                    self.append_message(event.message, event.agent)
+
+            await run_in_threadpool(locked)
 
         async def sync_agent(event) -> None:
             await run_in_threadpool(self.sync_agent, event.agent)
