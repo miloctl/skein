@@ -27,8 +27,15 @@ def _claim_week(job: str, week: str, force: bool) -> bool:
     return claimed or force
 
 
-def _existing_week_artifact(slug: str, today: date) -> int:
-    """Latest report for the claim. job_runs stores no artifact id."""
+def _existing_week_artifact(slug: str, today: date) -> int | None:
+    """Latest report for the claim. job_runs stores no artifact id, so the id
+    is recovered by matching the path.
+
+    None when no report matches: the claim outlives its artifact whenever the
+    row is deleted, or a pre-045 path never matched `YYYY-MM-DD-slug.md`. A
+    raise here answers every repeat press and every scheduler retry with a 500
+    for the rest of the claimed week. The repeat is still `skipped` — the CLAIM
+    is what stops the duplicate notification, not the report."""
     suffix = f"-{slug}.md"
     target = today.isocalendar()[:2]
     rows = db.query(
@@ -46,7 +53,7 @@ def _existing_week_artifact(slug: str, today: date) -> int:
             continue
         if artifact_day.isocalendar()[:2] == target:
             return int(row["id"])
-    raise RuntimeError(f"the {slug} claim has no report for {target[0]}-W{target[1]:02d}")
+    return None
 
 
 def _write_artifact(slug: str, title: str, markdown: str, actor: str) -> tuple[int, str]:

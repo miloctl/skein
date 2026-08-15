@@ -49,7 +49,11 @@ def test_an_already_run_ritual_returns_the_existing_artifact(client):
     }
 
 
-def test_a_concurrent_repeat_waits_for_the_ritual_report(monkeypatch):
+def test_a_concurrent_repeat_waits_for_the_ritual_report(monkeypatch, fresh_db):
+    """`fresh_db` because this claims a FIXED week (2035-W01) and job_runs
+    keeps the claim: without the reset the test passes once per database and
+    every later run finds the week already claimed, never enters the patched
+    run, and fails on `entered.wait`."""
     from datetime import date
     from threading import Event, Thread
 
@@ -88,6 +92,19 @@ def test_a_concurrent_repeat_waits_for_the_ritual_report(monkeypatch):
     assert len(outputs) == 2
     assert {row["artifact_id"] for row in outputs} == {outputs[0]["artifact_id"]}
     assert sum("skipped" in row for row in outputs) == 1
+
+
+def test_a_repeat_still_skips_when_the_report_is_gone(client):
+    """The claim outlives its artifact whenever the row is deleted. Raising
+    there answers the manual button AND every scheduler retry with a 500 for
+    the rest of the claimed week."""
+    first = client.post("/api/rituals/week-close").json()
+    db.execute("DELETE FROM artifacts WHERE id = ?", (first["artifact_id"],))
+
+    repeat = client.post("/api/rituals/week-close")
+    assert repeat.status_code == 200
+    assert repeat.json()["skipped"] == "already ran this week"
+    assert repeat.json()["artifact_id"] is None
 
 
 def test_a_later_day_in_the_same_week_links_the_existing_ritual(client, monkeypatch):

@@ -31,6 +31,8 @@ type Diff = {
 
 const REVIEW_PAGE = 50;
 const BATCH_LIMIT = 200;
+// no proposal id, so `review-${NO_CARD}` resolves to no element
+const NO_CARD = -1;
 
 function reviewIdFromUrl(): number | null {
   if (typeof window === "undefined") return null;
@@ -320,8 +322,26 @@ export default function ReviewPage() {
     { id: number; detail?: string }[]
   >([]);
   const [diffs, setDiffs] = useState<Record<number, Diff>>({});
-  const focusAfterVerdict = useRef(false);
+  // the id to focus once the judged rows leave the list, not a flag: a flag
+  // can only send focus to the top of the list, which is the wrong place for
+  // a reviewer working a queue deeper than one page
+  const focusAfterVerdict = useRef<number | null>(null);
   const deepLinkFocused = useRef(false);
+
+  const loadHistory = useCallback(() => {
+    api<Change[]>("/api/review?status=approved")
+      .then((h) => {
+        setHistory(h);
+        setHistoryError(null);
+      })
+      // swallowing this hid the whole section, and a missing "Recently
+      // approved" list reads as "nothing was approved" — a claim
+      .catch((e) =>
+        setHistoryError(
+          `Cannot load the recently approved list. ${actionError(e)}`,
+        ),
+      );
+  }, []);
 
   const load = useCallback(() => {
     const target = reviewIdFromUrl();
@@ -387,20 +407,32 @@ export default function ReviewPage() {
         setError(loadError(e));
       }
     })();
-    api<Change[]>("/api/review?status=approved")
-      .then((h) => {
-        setHistory(h);
-        setHistoryError(null);
-      })
-      // swallowing this hid the whole section, and a missing "Recently
-      // approved" list reads as "nothing was approved" — a claim
-      .catch((e) =>
-        setHistoryError(
-          `Cannot load the recently approved list. ${actionError(e)}`,
-        ),
-      );
-  }, []);
+    loadHistory();
+  }, [loadHistory]);
   useEffect(load, [load]);
+
+  // Drop judged rows and keep every page the reviewer has fetched. Calling
+  // load() instead rebuilds the list from the FIRST page, so a verdict cast on
+  // page 3 of a long queue throws pages 2 and 3 away under the reviewer.
+  const settle = useCallback(
+    (ids: number[]) => {
+      const judged = new Set(ids);
+      const current = changes ?? [];
+      const at = current.findIndex((row) => judged.has(row.id));
+      const rest = current.filter((row) => !judged.has(row.id));
+      setChanges(rest);
+      // the row that slid into the judged one's place, so the reviewer stays
+      // where they were working instead of at the top of page one. NO_CARD
+      // when nothing is left: it matches no element id, so the focus effect
+      // falls through to the queue heading.
+      focusAfterVerdict.current = (rest[at] ?? rest.at(-1))?.id ?? NO_CARD;
+      loadHistory();
+      // nothing loaded is left to judge — only a reload separates a truly
+      // empty queue from proposals filed while this page stayed open
+      if (rest.length === 0) load();
+    },
+    [changes, load, loadHistory],
+  );
 
   const loadMore = useCallback(async () => {
     if (nextAfter === null || moreBusy) return;
@@ -441,9 +473,11 @@ export default function ReviewPage() {
   }, [moreBusy, nextAfter]);
 
   useEffect(() => {
-    if (!focusAfterVerdict.current || changes === null) return;
-    focusAfterVerdict.current = false;
+    if (focusAfterVerdict.current === null || changes === null) return;
+    const next = focusAfterVerdict.current;
+    focusAfterVerdict.current = null;
     const target =
+      document.getElementById(`review-${next}`) ??
       document.querySelector<HTMLElement>("[data-review-card]") ??
       document.getElementById("review-queue-heading");
     target?.focus();
@@ -485,7 +519,8 @@ export default function ReviewPage() {
       // region holds one line.
       setBatchFailures(r.results.filter((x) => x.status === "error"));
       setSelected(new Set());
-      load();
+      // only the ids that actually settled — a failed one stays in the queue
+      settle(r.results.filter((x) => x.status !== "error").map((x) => x.id));
     } catch (e) {
       reportStatus(actionError(e));
     }
@@ -504,14 +539,13 @@ export default function ReviewPage() {
         method: "POST",
         body: JSON.stringify({ note }),
       });
-      focusAfterVerdict.current = true;
       reportStatus(
         `Proposal #${id} ${verb === "approve" ? "approved" : "rejected"}.`,
         "confirmation",
       );
       window.dispatchEvent(new Event("skein-attention-change"));
       setAsking(null);
-      load();
+      settle([id]);
     } catch (e) {
       reportStatus(actionError(e));
     }

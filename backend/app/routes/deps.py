@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import Depends, Header, HTTPException, Request
 
 from .. import config, db
-from ..services import scope
+from ..services import scope, wording
 from ..services.adoption import record_use
 from ..services.api_keys import PREFIX, verify_key
 from ..services.users import ensure_human_identity, is_agent, is_content_identity
@@ -465,11 +465,7 @@ def admin_user(
     _require_strong(strong)
     _stash(request, user, True, groups, authentication_source(request, authorization, True))
     if not _is_admin(user, groups, request):
-        raise HTTPException(
-            status_code=403,
-            detail=f"'{user}' is not an administrator. Ask whoever runs the"
-            " server to add the name to SKEIN_ADMINS.",
-        )
+        raise HTTPException(status_code=403, detail=wording.not_administrator(user))
     record_use(user, _surface(request, x_client), counts=request.method not in _READS)
     return user
 

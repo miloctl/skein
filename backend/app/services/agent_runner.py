@@ -73,8 +73,8 @@ _WAKE = (
 
 
 def _release(agent: str) -> None:
-    """Hand back today's claim. Same shape as rituals.py::_release_claim, and
-    the same reason: a failure that spent nothing must not eat the slot."""
+    """Hand back today's claim: a failure that spent nothing must not eat the
+    slot until tomorrow."""
     db.execute(
         "DELETE FROM job_runs WHERE job = ? AND run_key = ?",
         (f"agent-run:{agent}", db.today().isoformat()),

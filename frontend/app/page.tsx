@@ -954,7 +954,10 @@ export default function MyDay() {
           </ul>
         </Card>
 
-        <div className="md:col-span-2">
+        {/* empty:hidden — GuideHint renders nothing for an anonymous reader or
+            once every knot is tried, and a childless grid item still takes a
+            row, opening a gap between the cards above and below it */}
+        <div className="md:col-span-2 empty:hidden">
           <GuideHint />
         </div>
 

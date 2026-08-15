@@ -168,7 +168,7 @@ export default function Portfolio() {
   // place it was ever shown formatted-as-source
   const [readout, setReadout] = useState<number | null>(null);
   const [ritualOut, setRitualOut] = useState<{
-    artifactId: number;
+    artifactId: number | null;
     skipped: boolean;
   } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -651,7 +651,7 @@ export default function Portfolio() {
                   if (busyRef.current) return;
                   dismissStatus();
                   setBusy(true);
-                  api<{ artifact_id: number; skipped?: string }>(`/api/rituals/${r}`, {
+                  api<{ artifact_id: number | null; skipped?: string }>(`/api/rituals/${r}`, {
                     method: "POST",
                   })
                     .then((res) =>
@@ -677,14 +677,21 @@ export default function Portfolio() {
                     ? "This ritual already ran this week. Skein did not send duplicate notifications."
                     : "The ritual is complete."}
                 </p>
-                <Link
-                  href={`/artifacts?id=${ritualOut.artifactId}`}
-                  className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-3"
-                >
-                  {ritualOut.skipped
-                    ? "Read the existing report on Work → Reports"
-                    : "Read the report on Work → Reports"}
-                </Link>
+                {/* the id is null when the claim outlives its report (see
+                    services/rituals.py::_existing_week_artifact) — a link to
+                    `?id=null` opens Reports on an artifact that cannot load */}
+                {ritualOut.artifactId === null ? (
+                  <p>The report for this week is no longer stored.</p>
+                ) : (
+                  <Link
+                    href={`/artifacts?id=${ritualOut.artifactId}`}
+                    className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-3"
+                  >
+                    {ritualOut.skipped
+                      ? "Read the existing report on Work → Reports"
+                      : "Read the report on Work → Reports"}
+                  </Link>
+                )}
               </div>
             ) : null}
           </div>

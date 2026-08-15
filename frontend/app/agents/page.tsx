@@ -132,6 +132,11 @@ export default function Agents() {
   // label drift from the behaviour it describes.
   const [alwaysReview, setAlwaysReview] = useState<string[]>([]);
   const [inbox, setInbox] = useState<Inbox | null>(null);
+  // the agent whose inbox is open, held separately from the rows themselves so
+  // the section stays mounted while the next agent's rows are in flight. Keyed
+  // on `inbox` instead, a slow backend blanks the panel with nothing in its
+  // place, and a failed fetch leaves it gone with only a status toast.
+  const [inboxFor, setInboxFor] = useState<string | null>(null);
   const [bench, setBench] = useState<Persona[]>([]);
   const [traces, setTraces] = useState<FlockTrace[] | null>(null);
   const [entity, setEntity] = useState("task");
@@ -259,17 +264,22 @@ export default function Agents() {
 
   useEffect(load, [load]);
   useEffect(() => {
-    if (inbox) inboxHeading.current?.focus();
-  }, [inbox]);
+    if (inboxFor) inboxHeading.current?.focus();
+  }, [inboxFor]);
 
   const openInbox = (agent: string) => {
     const g = ++inboxGeneration.current;
     setInbox(null);
+    setInboxFor(agent);
     api<Inbox>(`/api/agents/${encodeURIComponent(agent)}/inbox`)
       .then((r) => {
         if (g === inboxGeneration.current) setInbox(r); // last click wins
       })
-      .catch((e) => reportStatus(actionError(e)));
+      .catch((e) => {
+        // close the section too, or it holds "Loading…" for good
+        if (g === inboxGeneration.current) setInboxFor(null);
+        reportStatus(actionError(e));
+      });
   };
 
   const changeAuthority = (agent: string, ent: string, lvl: string) => {
@@ -460,7 +470,7 @@ export default function Agents() {
                 <li
                   key={a.agent}
                   className={
-                    inbox?.agent === a.agent
+                    inboxFor === a.agent
                       ? "rounded-lg border border-thread-solid/40 bg-thread/5 p-2"
                       : "p-2"
                   }
@@ -468,8 +478,14 @@ export default function Agents() {
                   <div className="flex items-center justify-between">
                     <span className="font-medium">🤖 {a.agent}</span>
                     <button
-                      aria-expanded={inbox?.agent === a.agent}
-                      aria-controls="agent-inbox"
+                      aria-expanded={inboxFor === a.agent}
+                      // only the open row may point at #agent-inbox: the
+                      // section is unmounted for every other row, and an
+                      // aria-controls naming an absent id is a dead reference
+                      // a screen reader offers the user and cannot follow
+                      aria-controls={
+                        inboxFor === a.agent ? "agent-inbox" : undefined
+                      }
                       onClick={() => openInbox(a.agent)}
                       className="rounded bg-raised px-2 py-0.5 text-xs hover:bg-line"
                     >
@@ -510,10 +526,11 @@ export default function Agents() {
           )}
         </Card>
 
-        {inbox && (
+        {inboxFor && (
           <section
             id="agent-inbox"
             aria-labelledby="agent-inbox-heading"
+            aria-busy={inbox === null}
             className="rounded-xl border border-line bg-card p-4 shadow-card"
           >
             <h2
@@ -522,8 +539,11 @@ export default function Agents() {
               tabIndex={-1}
               className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3"
             >
-              Inbox — {inbox.agent}
+              Inbox — {inboxFor}
             </h2>
+            {inbox === null ? (
+              <p className="text-sm text-ink-3">Loading the inbox…</p>
+            ) : (
             <div className="space-y-3 text-sm">
               <div>
                 <p className="text-xs font-medium text-ink-3">
@@ -587,6 +607,7 @@ export default function Agents() {
                 </ul>
               </div>
             </div>
+            )}
           </section>
         )}
 

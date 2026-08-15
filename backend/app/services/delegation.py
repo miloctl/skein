@@ -476,7 +476,8 @@ def set_authority(
     agent = agent.strip()
     with db.transaction():
         # Identity comes first because users.rename_user takes that lock before
-        # it moves authority rows. Reversing the order closes a deadlock cycle.
+        # it moves authority rows. Reversed, this order forms a deadlock cycle
+        # with a concurrent rename.
         db.name_lock(db.LOCK_IDENTITY, fold(agent))
         # The stale check and upsert must serialize on a pair that may not have a
         # row yet. Otherwise an approval can overwrite a concurrent forbidden
@@ -575,7 +576,7 @@ def _authority_status(row: dict | None) -> dict:
         review_by and level in ("autonomous", "notify") and review_by < db.today().isoformat()
     )
     return {
-        **{key: value for key, value in row.items() if key != "fallback_review_by"},
+        **row,
         "review_by": review_by,
         "effective_level": "review" if expired else level,
         "review_expired": expired,

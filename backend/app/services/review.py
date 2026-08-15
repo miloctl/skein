@@ -9,7 +9,7 @@ from typing import Any
 
 from .. import config, db
 from ..public.errors import PublicError
-from . import lexicon, scope
+from . import lexicon, scope, wording
 
 
 @dataclass(frozen=True)
@@ -536,10 +536,7 @@ def _approve_change_locked(
                 "authority changes need a strong identity — approve with your personal API key"
             )
         if not administrator:
-            raise PermissionError(
-                "This authority change requires an administrator."
-                " Ask whoever runs the server to add your name to SKEIN_ADMINS."
-            )
+            raise PermissionError(wording.not_administrator(actor, "approve an authority change"))
 
     # resolve the handler BEFORE claiming — a stale entity/action must not
     # leave the row marked approved with nothing applied
@@ -1248,7 +1245,12 @@ def review_stats(viewer: scope.Viewer = scope.NOBODY) -> dict:
     )
     from . import users
 
-    by_proposer = [row for row in by_proposer if users.is_agent(row["proposed_by"])]
+    # people out, everything else in — NOT `is_agent`, which drops the system
+    # actors as well: review_authority files every promotion under `scheduler`,
+    # which owns no users row, so the whole authority entity disappears from
+    # this table while the entity aggregate above still counts it, and the two
+    # tables then disagree about one queue.
+    by_proposer = [row for row in by_proposer if not users.is_human(row["proposed_by"])]
     # the only list here that carries row TEXT. The aggregates above count
     # rows per entity and per proposer, which discloses nothing; `summary` is
     # built by the producer out of the target row's own title, so a rejected
@@ -1564,7 +1566,15 @@ def pending_changes_summary(
     resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
     allow_unclassified: bool = True,
 ) -> tuple[list[dict], int]:
-    """The first visible page and exact total from one queue scan."""
+    """The first visible page and exact total from one queue scan.
+
+    ponytail: the total is exact, so the scan reads and policy-filters EVERY
+    pending row — cost grows with queue depth, on the two hottest polled
+    endpoints (`/api/attention`, `/api/briefing`). Exactness is the point:
+    services/briefing.py::attention_count must equal what My Day prints, and
+    an estimate makes the badge lie. If a deployment ever files pending rows
+    faster than they are judged, cache the count per (viewer, queue head)
+    rather than trading it for an approximation."""
     first: list[dict] = []
     total = 0
     scan_after = 0
