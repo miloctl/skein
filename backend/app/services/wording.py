@@ -13,6 +13,20 @@ def count(n: int, word: str) -> str:
     return f"{n} {word}{'' if n == 1 else 's'}"
 
 
+def not_administrator(user: str, action: str = "") -> str:
+    """The ONE refusal for the not-an-administrator condition.
+
+    CLAUDE.md's one-condition-one-wording rule: routes/deps.py::admin_user and
+    the authority gate in services/review.py::_approve_change_locked refuse the
+    same fact, and two hand-written copies drifted to "your name" against "the
+    name". A new admin-only door calls this rather than writing a third."""
+    refused = f" and cannot {action}" if action else ""
+    return (
+        f"'{user}' is not an administrator{refused}."
+        " Ask whoever runs the server to add the name to SKEIN_ADMINS."
+    )
+
+
 def flatten(text: str, width: int = 0) -> str:
     """User text on its way into a MARKDOWN line, collapsed to one line.
 

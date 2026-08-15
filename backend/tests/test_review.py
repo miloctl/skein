@@ -341,8 +341,13 @@ def test_review_stats_never_groups_human_proposers(client):
     review.propose_change("note", "create", {"topic": "human", "content": "x"}, actor="mira")
     review.propose_change("note", "create", {"topic": "agent", "content": "x"}, actor="scout")
 
+    # `scheduler` owns no users row: review_authority files every promotion
+    # under it, so testing for is_agent drops the whole authority entity from
+    # this table while by_entity still counts it
+    review.propose_change("note", "create", {"topic": "job", "content": "x"}, actor="scheduler")
+
     names = {row["proposed_by"] for row in client.get("/api/review/stats").json()["by_proposer"]}
-    assert names == {"scout"}
+    assert names == {"scout", "scheduler"}
 
 
 def test_claim_at_and_active_review_stats(client, fresh_db):

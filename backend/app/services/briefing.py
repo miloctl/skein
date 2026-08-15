@@ -484,6 +484,11 @@ def my_day(
         needs["meetings_awaiting_outcome"] = row_filter("event", needs["meetings_awaiting_outcome"])
         needs["your_blockers"] = row_filter("blocker", needs["your_blockers"])
         needs["intake_to_triage"] = row_filter("intake", needs["intake_to_triage"])
+        # `review_filter is not None` means pending_reviews came back already
+        # filtered by review.pending_changes_summary, under the REVIEW policy.
+        # Re-running the briefing policy over the same rows judges them by the
+        # wrong surface, and the count below it (attention_count) filters once
+        # — a second pass here is how the badge and the list disagree.
         if mixed_filter is not None and review_filter is None:
             needs["pending_reviews"] = mixed_filter(needs["pending_reviews"])
         from .notifications import policy_filter as filter_notifications

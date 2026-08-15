@@ -606,7 +606,13 @@ def get_review(
             status,
             viewer,
             after=after,
-            # Preserve the pre-cursor response windows for existing clients.
+            # Settled windows (200/100) are the pre-cursor ones, held for
+            # existing clients. PENDING deliberately breaks that contract: the
+            # queue is worked FIFO, so this answers the OLDEST 50 ascending and
+            # `after` pages forward, where the pre-cursor response was the
+            # newest 200 descending. Do not "restore" the old window — a client
+            # that reads the bare array and never pages sees the oldest 50 by
+            # design, and docs/FEATURES.md states the FIFO order.
             limit=limit
             if limit is not None
             else (50 if status == "pending" else 200 if status else 100),

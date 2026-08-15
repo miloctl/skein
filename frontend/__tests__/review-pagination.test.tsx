@@ -120,6 +120,27 @@ describe("the pending review cursor", () => {
     expect(batches.flat()).toHaveLength(205);
   });
 
+  it("keeps the fetched pages after a verdict, and moves focus to the next row", async () => {
+    render(<ReviewPage />);
+    await screen.findByText("proposal 50");
+    fireEvent.click(screen.getByRole("button", { name: "More proposals" }));
+    await screen.findByText("proposal 55");
+
+    const approvals = screen.getAllByRole("button", { name: "Approve" });
+    // proposal 52, on the page the reviewer had to fetch: reloading from the
+    // first page would take 51..55 away with it
+    fireEvent.click(approvals[51]);
+
+    await waitFor(() => expect(screen.queryByText("proposal 52")).toBeNull());
+    expect(screen.getByText("proposal 55")).toBeTruthy();
+    expect(screen.getByText("proposal 1")).toBeTruthy();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByLabelText("Proposal #53: add a task"),
+      ),
+    );
+  });
+
   it("stops a batch selection at the server limit", async () => {
     state.rows = makeRows(201);
     window.history.replaceState({}, "", "/review?id=201");

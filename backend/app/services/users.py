@@ -575,6 +575,21 @@ def is_agent(name: str) -> bool:
     )
 
 
+def is_human(name: str) -> bool:
+    """Does ANY row with this name belong to a person?
+
+    NOT `not is_agent(...)`: a system actor writes under a name that has no
+    users row at all (`scheduler` files authority proposals), and asking the
+    negative way hides those rows from the surfaces that only mean to hide
+    people. Folded like is_agent above, for the same reason."""
+    target = fold(name)
+    if not target:
+        return False
+    return any(
+        fold(r["name"]) == target for r in db.query("SELECT name FROM users WHERE kind = 'human'")
+    )
+
+
 def is_content_identity(name: str) -> bool:
     """True when one unambiguous roster owner is persona or flock content."""
     target = fold(name)
