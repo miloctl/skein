@@ -1019,7 +1019,7 @@ def _r_activity_chain() -> list[dict]:
                 "high",
                 f"The activity chain does not verify{where}: {result['reason']}."
                 " A row was changed, removed, or added outside the chain after"
-                " it was written. Compare platform.db against the most recent"
+                " it was written. Compare the ledger against the most recent"
                 " backup in data/backups.",
                 {"broken_at": at, "reason": result["reason"]},
                 subject=f"seq:{at}" if at else "unchained",
@@ -1037,7 +1037,7 @@ def _r_activity_chain() -> list[dict]:
             f" {anchors['seq']}: {anchors['reason']}. The chain itself"
             " verifies, so the ledger and its marks were rewritten together,"
             " an older backup was restored, or the anchor log was changed."
-            " Compare the anchor log and platform.db against the copies in"
+            " Compare the anchor log and the ledger against the copies in"
             " data/backups and on the backup mirror.",
             {"anchored_seq": anchors["seq"], "reason": anchors["reason"]},
             subject=f"anchor:{anchors['seq']}",
@@ -1069,7 +1069,7 @@ def _r_ledger_adoptions() -> list[dict]:
             f"The nightly job {r['detail']}."
             " Compare the two counts. If the rows adopted are more than the rows"
             " expected, a row reached the database outside the service layer."
-            " Treat that as tampering and compare platform.db against the most"
+            " Treat that as tampering and compare the ledger against the most"
             " recent backup in data/backups.",
             {"seq": r["seq"], "detail": r["detail"], "created_at": r["created_at"]},
             subject=f"adopt:{r['seq']}",
