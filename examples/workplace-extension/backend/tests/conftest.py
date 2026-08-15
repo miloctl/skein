@@ -24,7 +24,7 @@ from atlas_skein.module import AtlasSettings, atlas_module  # noqa: E402
 
 
 @pytest.fixture()
-def atlas(tmp_path):
+def atlas():
     """One composed Atlas module with a fresh store and a fake remote.
 
     The core database is shared for the whole test session, so every test
@@ -38,7 +38,7 @@ def atlas(tmp_path):
         )
     )
     module = atlas_module(
-        AtlasSettings(store_path=tmp_path / "atlas.db"),
+        AtlasSettings(f"atlas-test-{suffix}"),
         client=client,
     )
     return module, client

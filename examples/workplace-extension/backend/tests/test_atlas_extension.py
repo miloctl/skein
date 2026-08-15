@@ -8,9 +8,6 @@ idempotency, provenance, data ownership, and disabling the extension.
 """
 
 import asyncio
-import os
-from pathlib import Path
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -166,7 +163,7 @@ def test_permitted_sync_writes_with_service_provenance(atlas):
         result = _sync_tool_result(app, origin="background")
         assert result.status == "completed"
         assert result.output == {"created": 2, "updated": 0}
-        store = ExtensionStore(module.migrations[0].store.path)
+        store = ExtensionStore(module.migrations[0].store.name)
         links = store.query("SELECT skein_task_id FROM work_links ORDER BY external_id")
         assert len(links) == 2
         task = api.get(f"/api/tasks/{links[0]['skein_task_id']}").json()
@@ -205,13 +202,15 @@ def test_task_events_deliver_once_per_subscriber(atlas):
         assert len(client.updates) == after_first_dispatch
 
 
-def test_the_extension_store_cannot_open_the_core_database(atlas):
+def test_the_extension_store_cannot_name_a_core_schema(atlas):
     module, _client = atlas
-    core_database = Path(os.environ["SKEIN_DATA_DIR"]) / "platform.db"
-    with pytest.raises(ValueError, match="core database"):
-        ExtensionStore(core_database).connect()
-    store_path = module.migrations[0].store.path
-    assert store_path != core_database
+    # An extension named `public` or `private` must land in a prefixed schema
+    # of its own, never in the core tables or the 1:1 notes.
+    assert ExtensionStore("public").schema == "ext_public"
+    assert ExtensionStore("private").schema == "ext_private"
+    with pytest.raises(ValueError, match="starts with a letter"):
+        ExtensionStore("7atlas")
+    assert module.migrations[0].store.schema.startswith("ext_")
 
 
 def test_the_http_client_refuses_bearer_tokens_over_plaintext():
