@@ -792,6 +792,25 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
     return JSONResponse(status_code=422, content={"detail": detail, "errors": errors})
 
 
+def public_health(settings: AppSettings | None = None):
+    """The unauthenticated payload: enough for a probe and a sign-in flow.
+
+    Everything else lives on /api/health behind identity. This endpoint is
+    on the perimeter's open list and the backend can sit on a public route,
+    so every field here is read by anonymous callers: provider, model, job
+    schedule and chain state are deployment topology and stay off it.
+    auth_error is the one fault detail that belongs here — a broken auth
+    config refuses every authenticated request with a 503, so an open
+    endpoint is the only place an operator can read the reason.
+    """
+    selected = settings or AppSettings.from_config()
+    return {
+        "ok": True,
+        "auth_mode": selected.auth_mode,
+        "auth_error": selected.auth_error,
+    }
+
+
 def health(specs: Sequence[JobSpec] = JOBS, settings: AppSettings | None = None):
     from .services.users import identity_ownership_error
 
@@ -929,7 +948,20 @@ def create_app(
             ]
         application.include_router(contribution.router, dependencies=dependencies)
     health_settings = selected_settings if explicit_settings else None
-    application.add_api_route("/health", lambda: health(specs, health_settings), methods=["GET"])
+    application.add_api_route("/health", lambda: public_health(health_settings), methods=["GET"])
+    # The full payload, behind identity: not in the perimeter's open list, so
+    # api-key and oidc deployments require a credential while trusted-header
+    # keeps its historical openness on the trusted network. CurrentUser, not
+    # AdminUser — the team-wide header already shows provider and model to
+    # everyone on the roster.
+    from .routes.deps import current_user
+
+    application.add_api_route(
+        "/api/health",
+        lambda: health(specs, health_settings),
+        methods=["GET"],
+        dependencies=[Depends(current_user)],
+    )
     return application
 
 

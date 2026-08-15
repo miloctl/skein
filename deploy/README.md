@@ -45,7 +45,7 @@ services:
       SKEIN_BACKUP_MIRROR: /backup-mirror
 ```
 
-`/health` reports `overlay_errors` when an overlay variable points at a
+`/api/health` reports `overlay_errors` when an overlay variable points at a
 directory that is not mounted — check it after the first start.
 
 ## CI on a self-hosted Gitea

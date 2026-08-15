@@ -195,7 +195,7 @@ def test_a_settings_read_failure_never_stops_the_build(fresh_db, real_provider, 
 def test_the_status_and_health_surfaces_report_the_effective_model(fresh_db, real_provider, client):
     settings.set_model_pick("opus", actor="admin")
     assert client.get("/api/agents/status").json()["model"] == "opus"
-    assert client.get("/health").json()["model"] == "opus"
+    assert client.get("/api/health").json()["model"] == "opus"
 
 
 def test_mock_reports_no_model_on_status(fresh_db, client):

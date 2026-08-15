@@ -176,7 +176,7 @@ def test_status_reports_the_strategy_and_hides_it_on_mock(client, monkeypatch):
 
 
 def test_health_reports_the_strategy(client):
-    assert client.get("/health").json()["context_strategy"] == "sliding"
+    assert client.get("/api/health").json()["context_strategy"] == "sliding"
 
 
 # ---- the team toggle ---------------------------------------------------------
@@ -470,7 +470,7 @@ def test_summarize_carries_the_hardened_prompt(fresh_db, monkeypatch):
 def test_health_follows_the_toggle(client, fresh_db):
     """/health and /api/agents/status must not disagree about one fact."""
     client.post("/api/settings/context-strategy", json={"strategy": "summarize"}, headers=_key())
-    assert client.get("/health").json()["context_strategy"] == "summarize"
+    assert client.get("/api/health").json()["context_strategy"] == "summarize"
 
 
 def test_the_toggle_is_rate_capped(client, fresh_db):

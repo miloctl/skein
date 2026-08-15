@@ -278,7 +278,10 @@ cmd_status() {
     fi
   done
   local health parsed
-  if health=$(curl -fsS --max-time 2 "http://localhost:$BACKEND_PORT/health" 2>/dev/null); then
+  # /api/health, not /health: provider and model moved behind identity. In
+  # trusted-header mode an anonymous GET still answers; in api-key or oidc
+  # mode this curl gets a 401 and the status line simply has no model row.
+  if health=$(curl -fsS --max-time 2 "http://localhost:$BACKEND_PORT/api/health" 2>/dev/null); then
     parsed=$(sed -n 's/.*"provider":"\([^"]*\)".*"model":"\([^"]*\)".*/provider \1 · model \2/p' <<<"$health")
     [ -n "$parsed" ] && printf '  %s%s%s\n' "$c_dim" "$parsed" "$c_off"
   fi

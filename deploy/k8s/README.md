@@ -54,9 +54,9 @@ one rather than quietly serving an empty database.
 `pg_read_file`, which reads its filesystem — so any SQL bug, and any
 extension (they supply raw SQL), escalates to command execution on that
 container. `base/postgres.yaml` creates the role with `NOSUPERUSER` on first
-boot. `/health` reports `database_warnings` if the backend connects as a
-superuser anyway, which is the only signal a deployment that skipped it
-gets. A managed PostgreSQL needs the same role created by hand.
+boot. `/api/health` reports `database_warnings` if the backend connects
+as a superuser anyway, which is the only signal a deployment that skipped
+it gets. A managed PostgreSQL needs the same role created by hand.
 
 Both passwords initialise the cluster on FIRST boot only. Changing the
 Secret later changes nothing in the database — use `ALTER ROLE` and update
@@ -218,15 +218,18 @@ Persona, playbook, and flock overlays translate from the compose pattern
 to one `configMapGenerator` per directory, mounted at
 `/overlay/<kind>` with the matching `SKEIN_*_DIR` variable. The
 directories are small (under 100 KB total), far inside the ConfigMap
-limit. `/health` reports `overlay_errors` when a variable points at a
+limit. `/api/health` reports `overlay_errors` when a variable points at a
 directory that is not mounted.
 
 ## Observability
 
-`/health` is the probe target and the diagnosis surface: auth, provider,
-timezone and overlay errors, per-job last-success with stale flags, and
-the activity-chain state. It returns 200 whenever the process and the
-database are up, even when degraded to mock — alert on its error fields,
-not on its status code. Logs go to stdout as plain lines. There is no
+`/health` is the probe target: open, and only `ok`, `auth_mode` and
+`auth_error` — the one fault readable without a credential, because a
+broken auth config refuses every authenticated request. `/api/health` is
+the diagnosis surface, behind identity: provider, timezone and overlay
+errors, per-job last-success with stale flags, database warnings, and
+the activity-chain state. Both return 200 whenever the process and the
+database are up, even when degraded to mock — alert on the error fields,
+not on the status code. Logs go to stdout as plain lines. There is no
 Prometheus endpoint: if the platform team requires metrics or JSON logs,
 that is new work — ask for their standard first.

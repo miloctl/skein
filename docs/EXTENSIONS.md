@@ -403,7 +403,7 @@ Restart Skein after you change persona or flock overlays so startup can
 validate the complete identity roster.
 
 An older database can contain two names that differ only by case or Unicode
-form. Skein reports this conflict on `/health`. It refuses both identities
+form. Skein reports this conflict on `/api/health`. It refuses both identities
 until an operator repairs the roster. Run this command on the server:
 
 ```sh
