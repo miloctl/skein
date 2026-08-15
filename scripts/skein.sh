@@ -53,7 +53,9 @@ logfile() { echo "$RUN/$1.log"; }
 # block.
 port_busy() {
   if command -v ss >/dev/null 2>&1; then
-    ss -ltnH "sport = :$1" 2>/dev/null | grep -q .
+    # No -q: under pipefail, grep -q exiting on the first line can hand ss a
+    # SIGPIPE, and the 141 reads as "port free" while something listens on it.
+    ss -ltnH "sport = :$1" 2>/dev/null | grep . >/dev/null
   else
     lsof -iTCP:"$1" -sTCP:LISTEN -t >/dev/null 2>&1
   fi
