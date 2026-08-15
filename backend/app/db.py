@@ -23,6 +23,7 @@ import psycopg
 from psycopg import IsolationLevel
 from psycopg import sql as pgsql
 from psycopg.rows import dict_row
+from psycopg.types.numeric import FloatLoader
 from psycopg_pool import ConnectionPool, PoolTimeout
 
 from . import config
@@ -222,6 +223,18 @@ def validate_date(label: str, value: str, allow_clear: bool = True) -> None:
 
 
 # ---- connection pool -------------------------------------------------------
+
+# PostgreSQL returns `numeric` for SUM over an integer column, for
+# ROUND(x::numeric, n), and for EXTRACT(epoch ...); psycopg loads that as
+# Decimal, which json.dumps refuses. Every service here is written for the
+# float SQLite returned, and the breakage lands on the json.dumps callers
+# only — FastAPI routes survive on jsonable_encoder, so a route stays green
+# while the agent tool beside it raises. Without this the findings job dies
+# on its own budget receipt (services/insights.py) and get_flow_metrics
+# raises whenever any task is complete (tools/portfolio.py).
+# Registered on the module adapters, so it covers every connection the pool
+# hands out.
+psycopg.adapters.register_loader("numeric", FloatLoader)
 
 _pool: ConnectionPool[DictConnection] | None = None
 
@@ -725,6 +738,26 @@ def _append_activity(
             prev,
         ),
     )
+
+
+def hold_activity_chain() -> None:
+    """Serialize this transaction against every ledger appender.
+
+    For the one writer that assigns seqs itself — services/activity.py's
+    adoption of unchained rows — rather than through _append_activity. It
+    reads the chain tail and hands out the seqs that follow it, so without
+    this an ordinary append between the read and the writes takes a seq the
+    adoption is about to assign, and the loser dies on the seq unique index.
+
+    Take it FIRST in the transaction. The flush at commit acquires the same
+    lock last, so a transaction that takes a row lock before this one and an
+    appender that takes them the other way round is a deadlock cycle — which
+    is exactly what the adoption did while it took no lock at all.
+    """
+    conn = _ambient.get()
+    if conn is None:
+        raise RuntimeError("hold_activity_chain needs an active transaction")
+    _advisory(conn, _ACTIVITY_LOCK)
 
 
 def _flush_activity(conn: DictConnection, queued: list[tuple[str, str, str, str]]) -> None:

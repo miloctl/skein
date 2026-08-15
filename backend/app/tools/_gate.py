@@ -217,7 +217,16 @@ def _gated_write_locked(
     # unreviewed writes — see docs/FLOCKS.md and agents/identity.py.
     if decision.effect == PolicyEffect.PERMIT:
         try:
-            result = direct()
+            # db.savepoint(), because this catch RETURNS: a return leaves the
+            # gate's transaction normally, so it COMMITS. A service that wrote
+            # and then raised loses its rollback — supersede_decision marks the
+            # old decision superseded, record_decision raises, and the row
+            # commits as superseded_by=NULL, the unrecoverable state
+            # services/collab.py warns about. The savepoint also keeps the
+            # failure receipt below writable: a failed statement aborts the
+            # whole transaction otherwise.
+            with db.savepoint():
+                result = direct()
         except ValueError as exc:
             receipts.record("failed", entity, str(exc), actor=actor)
             return json.dumps({"error": str(exc)})
@@ -241,38 +250,42 @@ def _gated_write_locked(
             )
         return json.dumps(result)
     try:
-        result = review.propose_change(
-            entity,
-            action,
-            payload,
-            summary=summary,
-            entity_id=entity_id,
-            actor=actor,
-            origin="agent",
-            requested_by=requester_identity(),
-            policy_obligations=decision.obligations,
-            approver_groups=decision.approver_groups,
-            approver_capabilities=decision.approver_capabilities,
-            policy_context={
-                "input": policy_input_data(policy_input),
-                "contract": {
-                    "entity": entity,
-                    "action": action,
-                    "entity_id": entity_id,
-                    "payload": payload,
-                },
-                "approval_fingerprint": approval_fingerprint(
-                    policy_input,
-                    decision,
-                    {
+        # Same reason as the direct() savepoint above: this catch RETURNS, so
+        # the gate's transaction commits whatever propose_change wrote before
+        # it raised, and the failure receipt below needs a live transaction.
+        with db.savepoint():
+            result = review.propose_change(
+                entity,
+                action,
+                payload,
+                summary=summary,
+                entity_id=entity_id,
+                actor=actor,
+                origin="agent",
+                requested_by=requester_identity(),
+                policy_obligations=decision.obligations,
+                approver_groups=decision.approver_groups,
+                approver_capabilities=decision.approver_capabilities,
+                policy_context={
+                    "input": policy_input_data(policy_input),
+                    "contract": {
                         "entity": entity,
                         "action": action,
                         "entity_id": entity_id,
                         "payload": payload,
                     },
-                ),
-            },
-        )
+                    "approval_fingerprint": approval_fingerprint(
+                        policy_input,
+                        decision,
+                        {
+                            "entity": entity,
+                            "action": action,
+                            "entity_id": entity_id,
+                            "payload": payload,
+                        },
+                    ),
+                },
+            )
     except ValueError as exc:
         receipts.record("failed", entity, str(exc), actor=actor)
         return json.dumps({"error": str(exc)})

@@ -368,11 +368,17 @@ def _store_pack(body: str, *, actor: str, crew_id: int) -> dict:
         1,
     )
     try:
-        db.execute(
-            "INSERT INTO context_packs (version, content, content_hash, created_by,"
-            " created_at, crew_id) VALUES (?, ?, ?, ?, ?, ?)",
-            (version, content, digest, actor, db.now(), crew_id or None),
-        )
+        # db.savepoint(), because the IntegrityError is CAUGHT: a failed
+        # statement aborts the whole transaction, so when this runs inside a
+        # caller's transaction (tools/portfolio.py publishes on first call
+        # under read_transaction) suppressing it kills every later statement,
+        # and the losing publisher takes the caller's request down with it.
+        with db.savepoint():
+            db.execute(
+                "INSERT INTO context_packs (version, content, content_hash, created_by,"
+                " created_at, crew_id) VALUES (?, ?, ?, ?, ?, ?)",
+                (version, content, digest, actor, db.now(), crew_id or None),
+            )
     except db.IntegrityError:
         # concurrent publisher won the version — serve theirs
         last = latest_pack(crew_id)

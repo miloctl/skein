@@ -952,3 +952,45 @@ def test_any_text_round_trips_through_the_chain(fresh_db, rows):
         db.log_activity(actor, action, detail)
     result = activity.verify_chain()
     assert result["ok"], result
+
+
+def test_adoption_does_not_deadlock_or_collide_with_ordinary_appends(fresh_db):
+    """Adoption assigns seqs itself, so it must hold the ledger lock.
+
+    Without it, adoption reads the tail and writes the seqs that follow while
+    ordinary appends do the same, and the two orders of the seq index entry
+    and the advisory lock form a deadlock cycle. Measured on the unfixed
+    code: DeadlockDetected on innocent business writes, and UniqueViolation
+    on the adoption itself. Neither is in db.BUSY_ERRORS, so both surface as
+    500s on requests that did nothing wrong."""
+    errors: list[tuple[str, str]] = []
+
+    def adopt():
+        try:
+            activity.adopt_unchained(actor="scheduler")
+        except Exception as exc:  # the failure IS the assertion
+            errors.append(("adopt", type(exc).__name__))
+
+    def append():
+        for i in range(6):
+            try:
+                with db.transaction():
+                    db.log_activity("probe", "ordinary", f"w{i}")
+            except Exception as exc:  # the failure IS the assertion
+                errors.append(("append", type(exc).__name__))
+
+    for _ in range(3):
+        for i in range(4):
+            db.execute(
+                "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",
+                ("probe", "orphan", f"o{i}", db.now()),
+            )
+        threads = [threading.Thread(target=adopt)]
+        threads += [threading.Thread(target=append) for _ in range(3)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+    assert errors == []
+    assert activity.verify_chain()["ok"]

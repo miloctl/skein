@@ -240,23 +240,31 @@ def _disposition(
         from .engagements import create_engagement
 
         try:
-            create_engagement(
-                name=row["title"],
-                project_class=row["project_class"] or "general",
-                summary=row["detail"],
-                kind=kind,
-                timebox_end=timebox_end,
-                outcome=outcome,
-                lead=lead,
-                kill_criteria=kill_criteria,
-                actor=actor,
-                origin=origin,
-                # the engagement's name IS the request's title and its summary
-                # IS the request's detail, so a workspace engagement here
-                # republishes a scoped request in full, and indexes it
-                visibility=row["visibility"],
-                crew_id=row["crew_id"] or 0,
-            )
+            # db.savepoint(), because the IntegrityError below is CAUGHT: a
+            # failed statement aborts the whole transaction, so without it
+            # every later statement — including the ledger flush at commit —
+            # raises InFailedSqlTransaction, and the disposition this function
+            # already wrote rolls back with it. The caller then gets a 500 for
+            # the one case this catch exists to turn into a note.
+            with db.savepoint():
+                create_engagement(
+                    name=row["title"],
+                    project_class=row["project_class"] or "general",
+                    summary=row["detail"],
+                    kind=kind,
+                    timebox_end=timebox_end,
+                    outcome=outcome,
+                    lead=lead,
+                    kill_criteria=kill_criteria,
+                    actor=actor,
+                    origin=origin,
+                    # the engagement's name IS the request's title and its
+                    # summary IS the request's detail, so a workspace
+                    # engagement here republishes a scoped request in full,
+                    # and indexes it
+                    visibility=row["visibility"],
+                    crew_id=row["crew_id"] or 0,
+                )
         except (ValueError, db.IntegrityError) as exc:
             # a name collision must not read as "work has started" — say so.
             # IntegrityError is the RACE: create_engagement pre-checks the
