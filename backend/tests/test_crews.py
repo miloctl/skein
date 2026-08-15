@@ -431,3 +431,36 @@ def test_the_steward_refusal_is_403_and_names_no_crew_detail(client, fresh_db):
     )
     assert r.status_code == 403, r.text
     assert "steward" in r.json()["detail"]
+
+
+def test_concurrent_fold_equal_names_make_only_one_crew(fresh_db):
+    """Two spellings that fold to one name cannot both become crews.
+
+    The unique index is on lower(name), and folding is users.fold — NFKC plus
+    zero-width stripping — which no collation reproduces, so the index cannot
+    back the collision scan up. Measured without the name lock: NFC and NFD
+    "Café Crew" both passed the scan and both inserted, leaving two crews that
+    render identically in the picker that decides who can read a row."""
+    import contextlib
+    import threading
+    import unicodedata
+
+    from app import db
+    from app.services import crews, users
+
+    for i in range(6):
+
+        def make(form: str, index: int = i) -> None:
+            name = unicodedata.normalize(form, f"Café Crew {index}")
+            # the refusal is the correct outcome for the loser
+            with contextlib.suppress(ValueError):
+                crews.create_crew(name, actor=f"person-{form}")
+
+        threads = [threading.Thread(target=make, args=(form,)) for form in ("NFC", "NFD")]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+    folded = [users.fold(row["name"]) for row in db.query("SELECT name FROM crews")]
+    assert len(folded) == len(set(folded))

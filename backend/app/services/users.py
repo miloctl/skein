@@ -927,6 +927,11 @@ def claim_content_identity(slug: str) -> dict:
     if not slug or fold(slug) not in _content_machine_claims():
         raise ValueError("that name is not configured persona or flock content")
     with db.transaction():
+        # FIRST, like every other claim in this file: the owner check below
+        # reads a row and then writes it, so two claims of the same name both
+        # read GENERIC_AGENT_OWNER and the loser overwrites the winner's
+        # committed ownership — the state the refusal below exists to prevent.
+        db.name_lock(db.LOCK_IDENTITY, fold(slug))
         refuse_ambiguous_identity(slug)
         row = db.query_row("SELECT name, kind, identity_owner FROM users WHERE name = ?", (slug,))
         if row["kind"] != "agent":
@@ -958,6 +963,10 @@ def claim_machine_identity(name: str, owner: str) -> dict:
     if owner.startswith("specialist:") and owner.removeprefix("specialist:") != name:
         raise ValueError("a specialist owner must use the specialist identity name")
     with db.transaction():
+        # FIRST — see claim_content_identity: without it two claims of one
+        # name both read GENERIC_AGENT_OWNER and the second silently takes
+        # ownership the first already committed.
+        db.name_lock(db.LOCK_IDENTITY, fold(name))
         refuse_ambiguous_identity(name)
         row = db.query_row("SELECT name, kind, identity_owner FROM users WHERE name = ?", (name,))
         if row["kind"] != "agent":

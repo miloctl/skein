@@ -43,3 +43,15 @@ def test_a_delete_that_cannot_deindex_keeps_the_note(client, fresh_db, monkeypat
         collab.delete_note(n["id"], actor="tester")
     assert fresh_db.query_one("SELECT * FROM notes WHERE id = ?", (n["id"],)) is not None
     assert client.get("/api/search", params={"q": "zebra"}).json()
+
+
+def test_notes_keyword_filter_ignores_case(client):
+    """A person typing a keyword must not have to match the author's capitals.
+
+    PostgreSQL LIKE is case-sensitive where SQLite's was not for ASCII, so
+    this silently returned nothing after the engine change — and an empty
+    result reads as "no such note", never as "wrong case"."""
+    client.post("/api/notes", json={"topic": "Infra", "content": "PostgreSQL vacuum tips"})
+    for keyword in ("PostgreSQL", "postgresql", "POSTGRESQL", "postgres", "infra", "INFRA"):
+        found = client.get(f"/api/notes?q={keyword}").json()
+        assert [row["topic"] for row in found] == ["Infra"], keyword

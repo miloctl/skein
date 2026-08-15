@@ -20,18 +20,21 @@ fi
 # would prove nothing. Names are suffixed with the PID so two runs on one
 # server cannot drop each other's.
 db_base="${SKEIN_DATABASE_URL%/*}"
-db_names=()
 new_db() {  # new_db <label> -> echoes a URL
     local name="skein_contract_$1_$$"
     psql "$SKEIN_DATABASE_URL" -qtAc "DROP DATABASE IF EXISTS \"$name\" WITH (FORCE)" >/dev/null
     psql "$SKEIN_DATABASE_URL" -qtAc "CREATE DATABASE \"$name\"" >/dev/null
-    db_names+=("$name")
     echo "$db_base/$name"
 }
 drop_dbs() {
     local name
-    for name in "${db_names[@]:-}"; do
-        [ -n "$name" ] || continue
+    # Names come from the catalog, not from a list new_db appends to: every
+    # new_db call runs inside "$(...)", so an append there mutates a SUBSHELL
+    # copy and the parent's list stays empty — this dropped nothing, and each
+    # run leaked five databases that never collided (the PID suffix) and so
+    # never surfaced. Reading them back also cleans up after a killed run.
+    for name in $(psql "$SKEIN_DATABASE_URL" -qtAc \
+            "SELECT datname FROM pg_database WHERE datname LIKE 'skein_contract_%_$$'"); do
         psql "$SKEIN_DATABASE_URL" -qtAc "DROP DATABASE IF EXISTS \"$name\" WITH (FORCE)" >/dev/null 2>&1 || true
     done
 }
@@ -91,10 +94,17 @@ fi
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
     uv build --quiet --wheel --out-dir "$tmp/next" "$tmp/core-next"
 
+# nullglob, so a build that produced NO wheel gives an empty array and the
+# count checks below fail. Without it bash leaves the unmatched pattern in
+# place as a literal, every array holds exactly one element, and all four
+# guards pass on zero wheels — the failure then surfaces at `uv pip install`
+# as a missing-file error naming a path with a `*` in it.
+shopt -s nullglob
 base_wheels=("$tmp/base-dist"/skein-*.whl)
 current_wheels=("$tmp/current"/skein-*.whl)
 next_wheels=("$tmp/next"/skein-*.whl)
 extension_wheels=("$tmp/extension"/atlas_skein_extension-*.whl)
+shopt -u nullglob
 [ "${#base_wheels[@]}" -eq 1 ]
 [ "${#current_wheels[@]}" -eq 1 ]
 [ "${#next_wheels[@]}" -eq 1 ]
