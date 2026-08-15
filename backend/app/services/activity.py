@@ -28,7 +28,7 @@ counts (its bump is a second write on a path the lock already refused), so the
 comparison errs toward reporting, which is the safe direction for this signal.
 
 WHAT THIS CATCHES, and what it does not. The digest is unkeyed and every input
-to it is stored in the row it protects, so anyone who can write platform.db can
+to it is stored in the row it protects, so anyone who can write the database can
 recompute the whole chain. Three marks in app_settings raise that cost — the
 last verified anchor, a monotonic high-water seq, and the pre-036 unchained
 baseline — but they live in the same file, so they do not defeat an attacker
@@ -173,7 +173,7 @@ def verify_chain(since_seq: int = 0, expected_prev: str = "") -> dict:
                 " unchained row and records an adopt_unchained receipt naming two"
                 " counts. If the rows adopted are more than the rows expected,"
                 " a row reached the database outside the service layer."
-                " Treat that as tampering and compare platform.db against the most"
+                " Treat that as tampering and compare the ledger against the most"
                 " recent backup in data/backups."
             ),
         )
