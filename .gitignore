@@ -17,3 +17,6 @@ backend/mutants/
 # every run, and CI measures coverage from a clean checkout)
 .coverage
 .coverage.*
+# setuptools metadata that `pip install -e` writes into src/ (the CI
+# extension step runs one) — regenerated on every install, never source
+*.egg-info/

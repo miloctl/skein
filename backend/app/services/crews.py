@@ -249,10 +249,10 @@ def assert_writable(crew_id: int, person: str) -> int:
     # caller's transaction is not enough on its own: READ COMMITTED takes a
     # fresh snapshot per statement, so a plain read here blocks nobody and
     # remove_member commits between this check and the caller's INSERT.
-    # Measured without it: 25 of 25 attempts scoped a note into a crew the
-    # author had just left. add_member and remove_member hold the same crew
-    # row, which is what the two now contend on — the members table has no
-    # single row for them to meet at.
+    # Measured without it: 6 of 6 removals committed inside that window, and
+    # each note landed scoped to a crew its author had just left. add_member
+    # and remove_member hold this same crew row, which is where the two
+    # contend — the members table has no single row for them to meet at.
     crew = _row(crew_id, hold=True)
     # membership FIRST: the not-active refusal names the crew, and checking
     # it first told a non-member that a crew by that id exists and what it is

@@ -913,7 +913,7 @@ def repair_identity_ownership(old: str, new: str) -> dict:
         # it waits instead of landing between the private move and the core
         # rename. Taking them inside rename_user would be too late: that call
         # is the last step, and the private move ahead of it is exactly the
-        # window a concurrent claim used to win.
+        # window a concurrent claim wins.
         for identity in sorted({fold(old), fold(new)}):
             db.name_lock(db.LOCK_IDENTITY, identity)
         conflicted = {

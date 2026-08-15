@@ -76,8 +76,11 @@ jobs:
           SKEIN_MODEL_PROVIDER: mock
           SKEIN_SCHEDULER: "0"
           SKEIN_DATABASE_URL: postgresql://skein:skein@localhost:5432/skein_ext
+        # psycopg, not psql: the self-hosted runner image does not ship a
+        # PostgreSQL client, and the backend install above already brought
+        # the driver.
         run: |
-          psql postgresql://skein:skein@localhost:5432/skein -c 'CREATE DATABASE skein_ext'
+          python -c "import psycopg; c = psycopg.connect('postgresql://skein:skein@localhost:5432/skein', autocommit=True); c.execute('CREATE DATABASE skein_ext')"
           pip install -e examples/workplace-extension
           pytest -q -p no:cacheprovider examples/workplace-extension/backend/tests
       - uses: astral-sh/setup-uv@v6
@@ -88,10 +91,13 @@ jobs:
       - name: Upgrade path
         # the clone above is shallow and tagless; the baseline tag's commit
         # must be reachable for the worktree. Skips itself until the first
-        # v* release tag exists.
+        # v* release tag exists. The psql guard is for the self-hosted
+        # runner image, which ships no PostgreSQL client — the script
+        # creates its databases with psql.
         env:
           SKEIN_DATABASE_URL: postgresql://skein:skein@localhost:5432/skein
         run: |
+          if ! command -v psql >/dev/null; then apt-get update -qq && apt-get install -y -qq postgresql-client; fi
           git fetch --tags --unshallow --quiet || git fetch --tags --quiet
           ./scripts/upgrade-path.sh
 
@@ -175,7 +181,11 @@ jobs:
           backend/.venv/bin/pip install -e "backend[dev]"
           npm --prefix frontend ci
       - name: Backend package contract
-        run: ./scripts/reference-extension-contract.sh
+        # psql guard: the self-hosted runner image ships no PostgreSQL
+        # client, and the script creates its databases with psql.
+        run: |
+          if ! command -v psql >/dev/null; then apt-get update -qq && apt-get install -y -qq postgresql-client; fi
+          ./scripts/reference-extension-contract.sh
       - name: Frontend package contract
         run: ./scripts/reference-frontend-contract.sh
       - name: Deployment contract

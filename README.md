@@ -125,11 +125,12 @@ port:
 SKEIN_FRONTEND_PORT=3100 docker compose up --build -d   # UI at :3100
 ```
 
-The database lives in the `skein-db` volume; artifacts and daily backups
-live in `skein-data`. Configure via `backend/.env` (picked up automatically;
-rebuild not needed for backend env changes — `docker compose up -d` again is
-enough. `SKEIN_HOST`, `SKEIN_API_TOKEN` and `SKEIN_FRONTEND_PORT` are baked
-into the frontend bundle and DO need `--build`).
+The database lives in the `skein-db` volume. Artifacts and daily backups
+live in `skein-data`. Configure via `backend/.env`, which is picked up
+automatically — a backend env change needs only `docker compose up -d`
+again, not a rebuild. `SKEIN_HOST`, `SKEIN_API_TOKEN` and
+`SKEIN_FRONTEND_PORT` are baked into the frontend bundle and DO need
+`--build`.
 
 **Ollama in Docker:** a container's `localhost` is not the host, so compose
 overrides `SKEIN_OLLAMA_HOST` to `http://host.docker.internal:11434`

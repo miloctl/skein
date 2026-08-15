@@ -230,3 +230,49 @@ def test_numeric_aggregates_load_as_float_not_decimal(fresh_db):
     for key, value in row.items():
         assert not isinstance(value, Decimal), f"{key} loaded as Decimal"
     json.dumps(row)  # the sink every agent tool goes through
+
+
+def test_nested_savepoints_unwind_their_own_level(fresh_db):
+    """A savepoint inside a savepoint discards only its own writes.
+
+    db.savepoint uses one fixed savepoint name, and the levels DO nest: the
+    agent gate wraps direct() in one, and a service under it can open its
+    own (engagements, intake). PostgreSQL shadows a re-declared name, so
+    each level unwinds itself — if that ever stopped holding, the inner
+    rollback would take the middle level's writes and queued ledger rows
+    with it."""
+    from app import db
+
+    with db.transaction():
+        db.execute(
+            "INSERT INTO job_runs (job, run_key, created_at) VALUES (?, ?, ?)",
+            ("outer", "a", db.now()),
+        )
+        with db.savepoint():
+            db.execute(
+                "INSERT INTO job_runs (job, run_key, created_at) VALUES (?, ?, ?)",
+                ("mid", "b", db.now()),
+            )
+            db.log_activity("probe", "mid_kept", "survives the inner rollback")
+            try:
+                with db.savepoint():
+                    db.execute(
+                        "INSERT INTO job_runs (job, run_key, created_at) VALUES (?, ?, ?)",
+                        ("inner", "c", db.now()),
+                    )
+                    db.log_activity("probe", "inner_discarded", "rolls back")
+                    raise ValueError("the inner unit fails")
+            except ValueError:
+                pass
+            db.execute(
+                "INSERT INTO job_runs (job, run_key, created_at) VALUES (?, ?, ?)",
+                ("after", "d", db.now()),
+            )
+
+    jobs = sorted(row["job"] for row in db.query("SELECT job FROM job_runs"))
+    assert jobs == ["after", "mid", "outer"]
+    actions = [
+        row["action"]
+        for row in db.query("SELECT action FROM activity WHERE actor = 'probe' ORDER BY seq")
+    ]
+    assert actions == ["mid_kept"]
