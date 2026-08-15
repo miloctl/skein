@@ -171,10 +171,13 @@ spec:
       port: 8000
       targetPort: http
 ---
-# Block storage only (RWO). SQLite runs WAL unconditionally (db.py), and
-# WAL coordinates writers through a memory-mapped -shm file that is unsafe
-# on NFS — an NFS-backed class risks silent database corruption. Never bind
-# this claim to an RWX/NFS storage class.
+# Block storage only (RWO). No database lives here any more — this volume
+# holds artifacts/, exports/ and the local backup copies. RWO is still
+# deliberate: one pod mounting it is what keeps the backup writer single,
+# and the failed attach of a second pod is what enforces `replicas: 1` and
+# `strategy: Recreate` (see the Deployment comment above for everything
+# else that pins one replica). An RWX class would not corrupt these files —
+# it would silently remove that enforcement.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
