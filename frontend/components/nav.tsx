@@ -94,8 +94,8 @@ export function Nav() {
   // two independent numbers — see the poll below for why they cannot be one
   const [attention, setAttention] = useState({ inbox: 0, yours: 0 });
   const [menuOpen, setMenuOpen] = useState(false);
-  // fetched lazily on first menu open — the nav must not add a request to
-  // every page load for a number that only matters inside the menu
+  // fetched lazily whenever the menu opens. Keeping the first answer forever
+  // showed another identity's progress after a same-tab name change.
   const [guideMeta, setGuideMeta] = useState<{
     tied_count: number;
     total: number;
@@ -151,10 +151,12 @@ export function Nav() {
     const tick = () => document.visibilityState === "visible" && poll();
     const t = setInterval(tick, 30_000);
     document.addEventListener("visibilitychange", tick);
+    window.addEventListener("skein-attention-change", poll);
     return () => {
       generation++; // invalidate in-flight responses
       clearInterval(t);
       document.removeEventListener("visibilitychange", tick);
+      window.removeEventListener("skein-attention-change", poll);
     };
   }, [gated]);
 
@@ -252,7 +254,7 @@ export function Nav() {
                 onClick={() => {
                   const opening = !menuOpen;
                   setMenuOpen(opening);
-                  if (opening && !guideMeta && !anonymous)
+                  if (opening && !anonymous)
                     api<{ tied_count: number; total: number }>(
                       "/api/field-guide/hint",
                     )

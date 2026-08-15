@@ -1016,9 +1016,10 @@ def get_whoami(user: CurrentUser, request: Request):
     """Who the API thinks you are and how strongly — the Settings page uses
     this to validate a pasted key without the user needing to know anything."""
     from ..services import api_keys
-    from .deps import is_named_admin
+    from .deps import _is_admin, is_named_admin
 
     strong = bool(getattr(request.state, "strong_auth", False))
+    groups = getattr(request.state, "auth_groups", [])
     return {
         "user": user,
         "strong": strong,
@@ -1028,7 +1029,11 @@ def get_whoami(user: CurrentUser, request: Request):
         # a surface that shows the crew controls on this flag shows exactly the
         # ones the server will accept. Gated on strong for the same reason
         # keys_minted is: an unproven identity is whatever the caller typed.
-        "admin": strong and is_named_admin(user, getattr(request.state, "auth_groups", [])),
+        "admin": strong and is_named_admin(user, groups),
+        # AdminUser also accepts the trusted-header scarcity fallback. Authority
+        # uses AdminUser, so its browser gate must use this result instead of the
+        # stricter crew-steward flag above or an accepted key holder is locked out.
+        "can_administer": strong and _is_admin(user, groups, request),
         # active only — after a revoke-all, Settings must show the bootstrap
         # command again, not "a key exists, paste it". Counted only for a
         # proven identity: a bare X-User names anyone, and the count is the

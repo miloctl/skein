@@ -149,6 +149,9 @@ export default function Planning() {
     return (
       <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
         <SectionTabs set="work" />
+        <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+          Planning
+        </h1>
         <p className="text-sm text-danger">{error}</p>
       </main>
     );
@@ -156,6 +159,9 @@ export default function Planning() {
     return (
       <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
         <SectionTabs set="work" />
+        <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+          Planning
+        </h1>
         <p className="text-sm text-ink-3">Loading…</p>
       </main>
     );
@@ -170,6 +176,9 @@ export default function Planning() {
       className="mx-auto w-full max-w-5xl xl:max-w-6xl space-y-4 p-4 sm:p-6"
     >
       <SectionTabs set="work" />
+      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+        Planning
+      </h1>
 
       {/* `load` re-runs after the week-open brief is filed, and a failure
           there left every number on this page standing with nothing saying
@@ -610,6 +619,7 @@ export default function Planning() {
                 out.skipped
                   ? "The week-open brief already ran this week."
                   : "Week-open brief filed. Everyone gets their own promises, stale decisions and due work.",
+                "confirmation",
               );
               load();
             } catch (e) {

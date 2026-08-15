@@ -27,7 +27,7 @@ export function GuideHint() {
 
   if (!s) return null;
   return (
-    <p className="order-last mt-6 flex flex-wrap items-baseline gap-x-2 text-xs text-ink-3">
+    <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-ink-3">
       <span>
         <span aria-hidden>🧶 </span>
         Something you have not tried yet:{" "}

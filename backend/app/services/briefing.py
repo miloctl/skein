@@ -158,7 +158,13 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "link": "/portfolio",
             }
         )
-    for n, similar in _coalesce(needs["notifications"])[:5]:
+    proposal_ids = {int(p["id"]) for p in needs["pending_reviews"]}
+    visible_notifications = [
+        notification
+        for notification in needs["notifications"]
+        if int(notification.get("pending_change_id") or 0) not in proposal_ids
+    ]
+    for n, similar in _coalesce(visible_notifications)[:5]:
         items.append(
             {
                 "kind": "notification",

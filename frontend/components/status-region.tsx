@@ -6,36 +6,41 @@ import { dismissStatus, getServerStatus, getStatus, subscribeStatus } from "@/li
 
 /** The single renderer for lib/status.ts, mounted once in the app shell.
  *
- *  role decides how assistive tech treats it, and the two cases genuinely
- *  differ: a failure of something the reader just asked for must interrupt
- *  ("alert" is assertive), a confirmation waits its turn ("status" is
- *  polite). window.alert() was announced; a plain styled div is not, so a
- *  replacement without a live role is a downgrade for a screen-reader
- *  user, not an upgrade.
- *
- *  key={id} remounts the node per message. Without it, two failures in a row
- *  with the same text change nothing in the DOM and the live region stays
- *  silent the second time. */
+ *  The two live nodes stay mounted before text arrives. Screen readers can miss
+ *  a region that is created with its first message already inside it. A keyed
+ *  child still replaces equal consecutive messages, so the second message is a
+ *  real DOM change without remounting the live region itself. */
 export function StatusRegion() {
   const status = useSyncExternalStore(subscribeStatus, getStatus, getServerStatus);
-  if (!status) return null;
-  const failure = status.tone === "failure";
+  const failure = status?.tone === "failure";
   return (
-    <div
-      key={status.id}
-      role={failure ? "alert" : "status"}
-      className={
-        "fixed bottom-4 left-1/2 z-50 flex max-w-[min(92vw,44rem)] -translate-x-1/2" +
-        " items-center gap-3 rounded-xl border px-4 py-2 text-xs shadow-float " +
-        (failure ? "border-danger/30 bg-danger/10 text-danger" : "border-line bg-card text-ink-2")
-      }
-    >
-      <span>{status.message}</span>
-      {failure && (
-        <button onClick={dismissStatus} className="shrink-0 text-xs underline">
-          dismiss
-        </button>
-      )}
-    </div>
+    <>
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {status?.tone === "confirmation" ? (
+          <span key={status.id}>{status.message}</span>
+        ) : null}
+      </div>
+      <div role="alert" aria-live="assertive" aria-atomic="true" className="sr-only">
+        {failure && status ? <span key={status.id}>{status.message}</span> : null}
+      </div>
+      {status ? (
+        <div
+          className={
+            "fixed bottom-4 left-1/2 z-50 flex max-w-[min(92vw,44rem)] -translate-x-1/2" +
+            " items-center gap-3 rounded-xl border px-4 py-2 text-xs shadow-float " +
+            (failure
+              ? "border-danger/30 bg-danger/10 text-danger"
+              : "border-line bg-card text-ink-2")
+          }
+        >
+          <span>{status.message}</span>
+          {failure && (
+            <button onClick={dismissStatus} className="shrink-0 text-xs underline">
+              dismiss
+            </button>
+          )}
+        </div>
+      ) : null}
+    </>
   );
 }

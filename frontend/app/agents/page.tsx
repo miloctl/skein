@@ -9,6 +9,7 @@ import { ManageToggle, useManageMode } from "@/components/manage-toggle";
 import { Card } from "@/components/card";
 import { FlockDiamond, type FlockTrace } from "@/components/flock-diamond";
 import { SectionTabs } from "@/components/section-tabs";
+import { PeekLink } from "@/components/task-peek";
 import { timeAgo } from "@/lib/time";
 
 type Persona = {
@@ -23,6 +24,8 @@ type Authority = { agent: string; entity: string; level: string };
 
 type AgentRow = {
   agent: string;
+  identity_owner: string;
+  delegatable: boolean;
   open_tasks: number;
   pending_proposals: number;
   last_seen: string | null;
@@ -37,6 +40,7 @@ type Trust = {
   rejected: number;
   approval_rate: number;
   recent_streak: number;
+  last_verified_verdict: string;
   current_level: string;
   suggestion: string;
 };
@@ -46,8 +50,13 @@ type Inbox = {
   delegated_tasks: {
     id: number;
     title: string;
+    description: string;
     status: string;
+    priority: string;
     sponsor: string;
+    due_date: string | null;
+    milestone_id: number | null;
+    engagement_id: number | null;
   }[];
   open_questions: { id: number; question: string; asked_by: string }[];
   rejected_proposals: {
@@ -112,7 +121,12 @@ export default function Agents() {
   const [entity, setEntity] = useState("task");
   const [level, setLevel] = useState("review");
   const [targetAgent, setTargetAgent] = useState("agent");
+  const [missionView, setMissionView] = useState<"work" | "all">("work");
   const [busy, setBusy] = useState(false);
+  const [identity, setIdentity] = useState<{
+    strong: boolean;
+    can_administer: boolean;
+  } | null>(null);
   const [memories, setMemories] = useState<
     { id: number; topic: string; content: string; user: string }[] | null
   >(null);
@@ -129,6 +143,13 @@ export default function Agents() {
     context_error: string;
   } | null>(null);
   const manage = useManageMode();
+  const canManageAuthority =
+    identity?.strong === true && identity.can_administer === true;
+  const missionAgents =
+    agents?.filter(
+      (agent) =>
+        missionView === "all" || agent.open_tasks > 0 || agent.pending_proposals > 0,
+    ) ?? [];
   // null until the status fetch settles: the authority copy below states a
   // rule that INVERTS with this flag, so guessing it tells the reader the
   // opposite of the truth about who can write without asking
@@ -142,6 +163,7 @@ export default function Agents() {
   const entityLabel = (ent: string) =>
     entities.find((e) => e.entity === ent)?.label ?? ent;
   const inboxGeneration = useRef(0);
+  const inboxHeading = useRef<HTMLHeadingElement>(null);
   // Every section here must distinguish "unknown" from "empty". Several
   // empty states are CLAIMS — "No reviewed proposals yet", "Nothing
   // remembered yet", "No rules yet — everything needs approval" — and on
@@ -175,6 +197,9 @@ export default function Agents() {
     api<Trust[]>("/api/agents/trust")
       .then(ok(setTrust, "trust"))
       .catch(fail("trust", "trust scores"));
+    api<{ strong: boolean; can_administer: boolean }>("/api/whoami")
+      .then(ok(setIdentity, "identity"))
+      .catch(fail("identity", "your identity"));
     api<{
       entities: { entity: string; label: string }[];
       always_review: string[];
@@ -215,9 +240,13 @@ export default function Agents() {
     errors[key] ? <p className="text-sm text-danger">{errors[key]}</p> : null;
 
   useEffect(load, [load]);
+  useEffect(() => {
+    if (inbox) inboxHeading.current?.focus();
+  }, [inbox]);
 
   const openInbox = (agent: string) => {
     const g = ++inboxGeneration.current;
+    setInbox(null);
     api<Inbox>(`/api/agents/${encodeURIComponent(agent)}/inbox`)
       .then((r) => {
         if (g === inboxGeneration.current) setInbox(r); // last click wins
@@ -368,6 +397,30 @@ export default function Agents() {
           </section>
         )}
         <Card title="Mission control">
+          {agents !== null && agents.length > 0 && (
+            <div
+              role="group"
+              aria-label="Agent list"
+              className="mb-3 flex gap-1 border-b border-line pb-3"
+            >
+              {(["work", "all"] as const).map((view) => (
+                <button
+                  key={view}
+                  type="button"
+                  aria-pressed={missionView === view}
+                  onClick={() => setMissionView(view)}
+                  className={
+                    "rounded-lg px-2.5 py-1 text-xs " +
+                    (missionView === view
+                      ? "bg-thread/15 font-medium text-thread"
+                      : "bg-raised text-ink-2 hover:bg-line")
+                  }
+                >
+                  {view === "work" ? "Has work" : "All agents"}
+                </button>
+              ))}
+            </div>
+          )}
           {agents === null ? (
             errors.agents ? (
               failed("agents")
@@ -379,13 +432,26 @@ export default function Agents() {
               No agent identities yet — delegate a task or let the chat agent
               write something.
             </p>
+          ) : missionAgents.length === 0 ? (
+            <p className="text-sm text-ink-3">
+              No agent has an open task or a pending proposal.
+            </p>
           ) : (
             <ul className="space-y-3 text-sm">
-              {agents.map((a) => (
-                <li key={a.agent}>
+              {missionAgents.map((a) => (
+                <li
+                  key={a.agent}
+                  className={
+                    inbox?.agent === a.agent
+                      ? "rounded-lg border border-thread-solid/40 bg-thread/5 p-2"
+                      : "p-2"
+                  }
+                >
                   <div className="flex items-center justify-between">
                     <span className="font-medium">🤖 {a.agent}</span>
                     <button
+                      aria-expanded={inbox?.agent === a.agent}
+                      aria-controls="agent-inbox"
                       onClick={() => openInbox(a.agent)}
                       className="rounded bg-raised px-2 py-0.5 text-xs hover:bg-line"
                     >
@@ -421,6 +487,81 @@ export default function Agents() {
             </ul>
           )}
         </Card>
+
+        {inbox && (
+          <section
+            id="agent-inbox"
+            aria-labelledby="agent-inbox-heading"
+            className="rounded-xl border border-line bg-card p-4 shadow-card"
+          >
+            <h2
+              id="agent-inbox-heading"
+              ref={inboxHeading}
+              tabIndex={-1}
+              className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3"
+            >
+              Inbox — {inbox.agent}
+            </h2>
+            <div className="space-y-3 text-sm">
+              <div>
+                <p className="text-xs font-medium text-ink-3">Delegated tasks</p>
+                <ul className="space-y-2 text-xs text-ink-2">
+                  {inbox.delegated_tasks.map((t) => (
+                    <li key={t.id}>
+                      <p>
+                        <PeekLink taskId={t.id}>
+                          #{t.id} {t.title}
+                        </PeekLink>{" "}
+                        [{t.status}]
+                      </p>
+                      {t.description && <p>{t.description}</p>}
+                      <p className="text-ink-3">
+                        Priority: {t.priority} · Sponsor: {t.sponsor || "none"}
+                        {t.due_date ? ` · Due: ${t.due_date}` : ""}
+                        {t.engagement_id ? ` · Engagement #${t.engagement_id}` : ""}
+                        {t.milestone_id ? ` · Milestone #${t.milestone_id}` : ""}
+                      </p>
+                    </li>
+                  ))}
+                  {inbox.delegated_tasks.length === 0 && (
+                    <li className="text-ink-3">none</li>
+                  )}
+                </ul>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-ink-3">
+                  Rejected proposals (learn from the notes)
+                </p>
+                <ul className="text-xs text-ink-2">
+                  {inbox.rejected_proposals.map((p) => (
+                    <li key={p.id}>
+                      #{p.id} {p.summary} — “{p.review_note || "no note"}”
+                    </li>
+                  ))}
+                  {inbox.rejected_proposals.length === 0 && (
+                    <li className="text-ink-3">none</li>
+                  )}
+                </ul>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-ink-3">
+                  Questions & notifications
+                </p>
+                <ul className="text-xs text-ink-2">
+                  {inbox.open_questions.map((q) => (
+                    <li key={q.id}>? {q.question}</li>
+                  ))}
+                  {inbox.notifications.map((n) => (
+                    <li key={n.id}>🔔 {n.message}</li>
+                  ))}
+                  {inbox.open_questions.length + inbox.notifications.length === 0 && (
+                    <li className="text-ink-3">none</li>
+                  )}
+                </ul>
+              </div>
+            </div>
+          </section>
+        )}
 
         <Card title="Authority — what each agent can do alone">
           <p className="mb-2 text-xs text-ink-3">
@@ -509,7 +650,7 @@ export default function Agents() {
                       {manage ? (
                         <select
                           value={g.level}
-                          disabled={busy}
+                          disabled={busy || !canManageAuthority}
                           onChange={(e) =>
                             changeAuthority(g.agent, g.entity, e.target.value)
                           }
@@ -545,6 +686,14 @@ export default function Agents() {
           )}
           {manage && (
             <div className="flex flex-wrap items-center gap-2 border-t border-line pt-2 text-sm">
+              <p className="w-full text-xs text-ink-3">
+                Changing authority needs administrator access and strong
+                identity. Use your deployment sign-in or a personal API key.
+                {identity === null && !errors.identity ? " Checking identity…" : ""}
+              </p>
+              {errors.identity && (
+                <p className="w-full text-xs text-danger">{errors.identity}</p>
+              )}
               <span className="text-xs text-ink-3">New rule:</span>
               {/* the record-type list failed to load, so the select below is
                 showing its fallback — say so, or the reader reads a short
@@ -560,6 +709,7 @@ export default function Agents() {
                 list="agent-names"
                 name="authority-agent"
                 aria-label="Agent name"
+                disabled={!canManageAuthority}
                 className="w-28 rounded border border-line-strong bg-transparent px-2 py-1 text-xs"
                 placeholder="agent name"
               />
@@ -573,6 +723,7 @@ export default function Agents() {
                 name="authority-entity"
                 value={entity}
                 aria-label="Record type (task, decision, note)"
+                disabled={!canManageAuthority}
                 onChange={(e) => setEntity(e.target.value)}
                 className="rounded border border-line-strong bg-transparent px-2 py-1 text-xs"
               >
@@ -589,6 +740,7 @@ export default function Agents() {
                 name="authority-level"
                 value={level}
                 aria-label="Authority level"
+                disabled={!canManageAuthority}
                 onChange={(e) => setLevel(e.target.value)}
                 className="rounded border border-line-strong bg-transparent px-2 py-1 text-xs"
               >
@@ -599,7 +751,7 @@ export default function Agents() {
                 ))}
               </select>
               <button
-                disabled={busy}
+                disabled={busy || !canManageAuthority}
                 onClick={setAuthority}
                 className="rounded-lg bg-thread-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
               >
@@ -609,8 +761,8 @@ export default function Agents() {
           )}
           {!manage && (
             <p className="text-xs text-ink-3">
-              Changing these needs “manager controls” (top right), a personal
-              API key, and administrator access.
+              Changing these needs “manager controls” (top right), administrator
+              access, and strong identity.
             </p>
           )}
         </Card>
@@ -673,14 +825,13 @@ export default function Agents() {
               {trust.map((t) => (
                 <li key={`${t.agent}-${t.entity}`}>
                   <span className="font-medium">{t.agent}</span> on {t.entity}:{" "}
-                  {t.approved}/{t.proposed} approved (
+                  {t.approved}/{t.proposed} approved in settled history (
                   {Math.round(t.approval_rate * 100)}%) ·{" "}
-                  {/* never a bare `streak 0` — a zero there reads as a score.
-                      The approvals row states the same condition in prose
-                      (app/review/page.tsx). */}
-                  {t.recent_streak === 0
-                    ? "last verdict was not an approval"
-                    : `streak ${t.recent_streak}`}
+                  {t.recent_streak > 0
+                    ? `${t.recent_streak} verified approval${t.recent_streak === 1 ? "" : "s"} in a row`
+                    : t.last_verified_verdict === "rejected"
+                      ? "last verified verdict was a rejection"
+                      : "no verified verdicts"}
                   {/* The level the streak is measured FROM. Without it the
                       promotion hint below names a destination with no origin,
                       and a reader cannot tell an agent one approval away from
@@ -780,57 +931,6 @@ export default function Agents() {
           )}
         </Card>
 
-        {inbox && (
-          <Card title={`Inbox — ${inbox.agent}`}>
-            <div className="space-y-3 text-sm">
-              <div>
-                <p className="text-xs font-medium text-ink-3">
-                  Delegated tasks
-                </p>
-                <ul className="text-xs text-ink-2">
-                  {inbox.delegated_tasks.map((t) => (
-                    <li key={t.id}>
-                      #{t.id} {t.title} [{t.status}] (sponsor: {t.sponsor})
-                    </li>
-                  ))}
-                  {inbox.delegated_tasks.length === 0 && (
-                    <li className="text-ink-3">none</li>
-                  )}
-                </ul>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-ink-3">
-                  Rejected proposals (learn from the notes)
-                </p>
-                <ul className="text-xs text-ink-2">
-                  {inbox.rejected_proposals.map((p) => (
-                    <li key={p.id}>
-                      #{p.id} {p.summary} — “{p.review_note || "no note"}”
-                    </li>
-                  ))}
-                  {inbox.rejected_proposals.length === 0 && (
-                    <li className="text-ink-3">none</li>
-                  )}
-                </ul>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-ink-3">
-                  Questions & notifications
-                </p>
-                <ul className="text-xs text-ink-2">
-                  {inbox.open_questions.map((q) => (
-                    <li key={q.id}>? {q.question}</li>
-                  ))}
-                  {inbox.notifications.map((n) => (
-                    <li key={n.id}>🔔 {n.message}</li>
-                  ))}
-                  {inbox.open_questions.length + inbox.notifications.length ===
-                    0 && <li className="text-ink-3">none</li>}
-                </ul>
-              </div>
-            </div>
-          </Card>
-        )}
         {/* LAST on the page, and full width: a diagram is 560-820 units
             wide and never scales its labels down, so a half-width column
             makes even a 3-member turn scroll. A full-width card mid-grid

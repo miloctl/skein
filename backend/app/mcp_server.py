@@ -220,7 +220,7 @@ def capture(text: str) -> str:
                 " Use the fb: prefix in the web palette with your personal API key."
             }
         )
-    kind, entity, payload = capture_svc.plan(text, actor=ACTOR)
+    kind, entity, payload = capture_svc.plan(text, actor=ACTOR, origin="agent")
     return gated_write(
         entity,
         "create",

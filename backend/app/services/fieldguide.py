@@ -376,9 +376,10 @@ def guide(person: str) -> dict:
     way to read anyone else's (docs/FIELD-GUIDE.md, self-scoped forever)."""
     named = _is_active_human(person)
     tied, dismissed = _state(person) if named else ({}, set())
+    registry_cards = registry()
     cards = []
     newly = []
-    for k in registry():
+    for k in registry_cards:
         t = tied.get(k["id"])
         card = {
             "id": k["id"],
@@ -409,10 +410,10 @@ def guide(person: str) -> dict:
     return {
         "cards": cards,
         "newly_tied": newly,
-        "suggestion": _suggestion(registry(), set(tied), dismissed) if named else None,
+        "suggestion": _suggestion(registry_cards, set(tied), dismissed) if named else None,
         # registry intersection — a retired card must not yield "27 of 26"
         "tied_count": len(set(tied) & {c["id"] for c in cards}),
-        "total": _tieable(cards),
+        "total": _tieable(registry_cards),
         # false = the roster hasn't met this name yet (or it's anonymous/agent)
         # — the UI can explain the all-untied page instead of implying deficit
         "known": named,

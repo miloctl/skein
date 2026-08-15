@@ -250,7 +250,14 @@ def test_agent_cannot_delegate_to_itself(fresh_db):
 
 
 def test_delegate_task_and_inbox(client, fresh_db):
-    t = client.post("/api/tasks", json={"title": "agent work"}).json()
+    t = client.post(
+        "/api/tasks",
+        json={
+            "title": "agent work",
+            "description": "Read the evidence and write the result.",
+            "due_date": "2026-08-31",
+        },
+    ).json()
     # a key: 'scribe' does not exist yet, and MINTING an agent identity takes
     # the scarce credential (routes/api.py::post_delegate)
     out = client.post(
@@ -264,10 +271,23 @@ def test_delegate_task_and_inbox(client, fresh_db):
 
     inbox = client.get("/api/agents/scribe/inbox").json()
     assert [x["id"] for x in inbox["delegated_tasks"]] == [t["id"]]
+    assert inbox["delegated_tasks"][0]["description"] == "Read the evidence and write the result."
+    assert inbox["delegated_tasks"][0]["due_date"] == "2026-08-31"
 
     mc = client.get("/api/agents").json()
     scribe = next(a for a in mc if a["agent"] == "scribe")
     assert scribe["open_tasks"] == 1
+    assert scribe["identity_owner"] == "generic-agent" and scribe["delegatable"] is True
+
+
+def test_mission_control_marks_machine_owned_identities_not_delegatable(client):
+    from app.services import users
+
+    users.ensure_agent_identity("mcp-reader")
+    users.claim_machine_identity("mcp-reader", "mcp")
+
+    row = next(a for a in client.get("/api/agents").json() if a["agent"] == "mcp-reader")
+    assert row["identity_owner"] == "mcp" and row["delegatable"] is False
 
 
 def test_reassign_ends_delegation(client, fresh_db):

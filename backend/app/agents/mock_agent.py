@@ -60,7 +60,7 @@ class MockAgent:
             # question the agent asked, and Mira's notification named the
             # agent. origin="agent" still records which path wrote it.
             agent_actor = self.persona or "agent"
-            kind, entity, payload = capture.plan(text, actor=self.user)
+            kind, entity, payload = capture.plan(text, actor=self.user, origin="agent")
             # threadpooled: this generator is iterated on the event loop
             # (chat SSE, the Slack route), and capture writes the database plus the
             # search index — inline, the keyless default path was the one

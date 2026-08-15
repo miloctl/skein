@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /** The attention count in the tab title, and what the nav does while the auth
@@ -12,6 +12,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *  simplifies it back to `document.title = ...`. */
 
 const count = { value: 0 };
+const calls = { attention: 0, guide: 0 };
+const guide = { total: 39 };
 // held distinct from `yours` so the badge and the title cannot be confused
 const INBOX = 7;
 
@@ -27,8 +29,14 @@ vi.mock("@/lib/api", async (importOriginal) => {
       // `inbox` is what the nav badge carries; `count` is the compatibility
       // alias the CLI reads. Equal values here would let a component that
       // reads the wrong field pass every assertion by coincidence.
-      if (path.startsWith("/api/attention"))
+      if (path.startsWith("/api/attention")) {
+        calls.attention += 1;
         return Promise.resolve({ count: 0, yours: count.value, inbox: INBOX });
+      }
+      if (path.startsWith("/api/field-guide/hint")) {
+        calls.guide += 1;
+        return Promise.resolve({ tied_count: 5, total: guide.total });
+      }
       if (path.endsWith("/worklog")) return Promise.resolve([]);
       if (path.startsWith("/api/agents")) return Promise.resolve([]);
       if (path.startsWith("/api/tasks/"))
@@ -53,6 +61,10 @@ import { setGated } from "@/lib/gated";
 beforeEach(() => {
   document.title = "Skein";
   window.history.pushState({}, "", "/dashboard");
+  window.localStorage.clear();
+  calls.attention = 0;
+  calls.guide = 0;
+  guide.total = 39;
 });
 afterEach(() => {
   count.value = 0;
@@ -157,5 +169,29 @@ describe("the Inbox badge", () => {
     });
     expect(inbox.textContent).toContain(String(INBOX));
     expect(document.title).toBe("(3) Skein");
+  });
+
+  it("refreshes when a verdict says the queue changed", async () => {
+    render(<Nav />);
+    await waitFor(() => expect(calls.attention).toBe(1));
+    act(() => window.dispatchEvent(new Event("skein-attention-change")));
+    await waitFor(() => expect(calls.attention).toBe(2));
+  });
+});
+
+describe("field-guide progress", () => {
+  it("loads a fresh count each time the identity menu opens", async () => {
+    window.localStorage.setItem("skein-user", "tester");
+    render(<Nav />);
+    const identity = screen.getByTitle("You — tester");
+
+    fireEvent.click(identity);
+    await screen.findByText("5/39");
+    fireEvent.click(identity);
+
+    guide.total = 40;
+    fireEvent.click(identity);
+    await screen.findByText("5/40");
+    expect(calls.guide).toBe(2);
   });
 });

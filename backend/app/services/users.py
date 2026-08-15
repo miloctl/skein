@@ -544,6 +544,16 @@ def get_theme(name: str) -> str:
     return row["theme"] if row else ""
 
 
+def is_delegatable_agent_identity(name: str, owner: str) -> bool:
+    if owner in ("", GENERIC_AGENT_OWNER):
+        return True
+    if owner == "core":
+        return name in ROSTER_CORE_AGENT_SUBJECTS
+    if owner == CONTENT_OWNER:
+        return fold(name) in _accepted_content_machine_claims()
+    return False
+
+
 def is_agent(name: str) -> bool:
     """Does ANY row with this name belong to an agent?
 

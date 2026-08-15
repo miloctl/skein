@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { actionError, api, getUser, loadError, subscribeUser } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
@@ -240,27 +240,36 @@ function VerdictAsk({
   const [note, setNote] = useState("");
   return (
     <div className="flex items-center gap-2">
-      <input
-        autoFocus
-        name="verdict-reason"
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && note.trim()) onSubmit(note.trim());
-          if (e.key === "Escape") onCancel();
-        }}
-        aria-label={
-          verb === "reject"
-            ? "Rejection reason — sent back to the proposer"
-            : "Reason for accepting on the sponsor's behalf"
-        }
-        placeholder={
-          verb === "reject"
-            ? "Why? — sent back to the proposer"
-            : `Why are you accepting for ${sponsor}? — goes on the record`
-        }
-        className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
-      />
+      <div className="min-w-0 flex-1">
+        <input
+          autoFocus
+          id="verdict-reason"
+          name="verdict-reason"
+          value={note}
+          maxLength={1000}
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && note.trim()) onSubmit(note.trim());
+            if (e.key === "Escape") onCancel();
+          }}
+          aria-describedby="verdict-reason-limit"
+          aria-label={
+            verb === "reject"
+              ? "Rejection reason — sent back to the proposer"
+              : "Reason for accepting on the sponsor's behalf"
+          }
+          placeholder={
+            verb === "reject"
+              ? "Why? — sent back to the proposer"
+              : `Why are you accepting for ${sponsor}? — goes on the record`
+          }
+          className="w-full rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
+        />
+        <p id="verdict-reason-limit" className="mt-1 text-[11px] text-ink-3">
+          Maximum 1,000 characters.
+          {note.length >= 800 ? ` ${1000 - note.length} remaining.` : ""}
+        </p>
+      </div>
       <button
         onClick={() => onSubmit(note.trim())}
         disabled={!note.trim()}
@@ -290,6 +299,7 @@ export default function ReviewPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [batchFailures, setBatchFailures] = useState<{ id: number; detail?: string }[]>([]);
   const [diffs, setDiffs] = useState<Record<number, Diff>>({});
+  const focusAfterVerdict = useRef(false);
 
   const load = useCallback(() => {
     api<Change[]>("/api/review?status=pending")
@@ -331,6 +341,13 @@ export default function ReviewPage() {
       .catch((e) => setHistoryError(`Cannot load the recently approved list. ${actionError(e)}`));
   }, []);
   useEffect(load, [load]);
+  useEffect(() => {
+    if (!focusAfterVerdict.current || changes === null) return;
+    focusAfterVerdict.current = false;
+    const target = document.querySelector<HTMLElement>("[data-review-card]") ??
+      document.getElementById("review-queue-heading");
+    target?.focus();
+  }, [changes]);
 
   const toggle = (id: number) => {
     setSelected((prev) => {
@@ -369,6 +386,12 @@ export default function ReviewPage() {
         method: "POST",
         body: JSON.stringify({ note }),
       });
+      focusAfterVerdict.current = true;
+      reportStatus(
+        `Proposal #${id} ${verb === "approve" ? "approved" : "rejected"}.`,
+        "confirmation",
+      );
+      window.dispatchEvent(new Event("skein-attention-change"));
       setAsking(null);
       load();
     } catch (e) {
@@ -391,7 +414,13 @@ export default function ReviewPage() {
   return (
     <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       <SectionTabs set="inbox" />
-      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Approvals</h1>
+      <h1
+        id="review-queue-heading"
+        tabIndex={-1}
+        className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink"
+      >
+        Approvals
+      </h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
         Proposed changes from agents (and careful humans). When you approve,
         Skein applies the change and records that a human verified it.
@@ -458,6 +487,9 @@ export default function ReviewPage() {
         {(changes ?? []).map((c) => (
           <li
             key={c.id}
+            data-review-card
+            tabIndex={-1}
+            aria-label={`Proposal #${c.id}: ${c.label}`}
             className="rounded-xl border border-line bg-card p-4 shadow-card"
           >
             <div className="mb-2 flex items-center justify-between">

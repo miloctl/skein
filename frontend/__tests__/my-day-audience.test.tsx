@@ -52,6 +52,15 @@ vi.mock("@/lib/api", async (importOriginal) => {
       if (path.startsWith("/api/briefing")) return Promise.resolve(briefing);
       if (path.startsWith("/api/onboarding"))
         return Promise.resolve({ steps: [], done: true });
+      if (path.startsWith("/api/field-guide/hint"))
+        return Promise.resolve({
+          suggestion: {
+            id: "growth",
+            feature: "Growth interests",
+            pitch: "Name where you want to grow.",
+            link: "/settings",
+          },
+        });
       return Promise.resolve({});
     },
   };
@@ -77,5 +86,14 @@ describe("My Day", () => {
     // the row itself is still shown — this is a framing fix, not a hiding one
     expect(screen.getByText(/intake #7/)).toBeTruthy();
     expect(screen.getByText(/Nobody assigned these to you/)).toBeTruthy();
+  });
+
+  it("places the field-guide hint before activity and names Capture directly", async () => {
+    render(<MyDay />);
+    const hint = await screen.findByText(/Something you have not tried yet/);
+    const activity = screen.getByText("Since yesterday");
+    expect(hint.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText(/Select Capture in the top bar/)).toBeTruthy();
+    expect(document.body.textContent).not.toContain("Ctrl+K");
   });
 });

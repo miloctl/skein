@@ -248,6 +248,7 @@ def _propose_change_locked(
             link="/review",
             source_entity=entity,
             source_id=entity_id,
+            pending_change_id=pid,
         )
     return {"id": pid, "status": "pending"}
 
@@ -983,9 +984,13 @@ def _clear_review_ping(change_id: int) -> None:
     """The review is handled — its "Review needed" ping must not keep
     nagging. Called AFTER the apply succeeds (a failed apply resets the
     proposal to pending and must keep its notification unread)."""
-    from .notifications import mark_read_matching
+    from .notifications import mark_pending_change_read, mark_read_matching
 
-    mark_read_matching(f"Review needed: #{change_id} ")
+    if mark_pending_change_read(change_id) == 0:
+        # Rows from before 002_link_review_notifications.sql have no typed
+        # link. Without this fallback, resolving one leaves its notification
+        # unread forever.
+        mark_read_matching(f"Review needed: #{change_id} ")
 
 
 def reject_change(
@@ -1232,6 +1237,9 @@ def review_stats(viewer: scope.Viewer = scope.NOBODY) -> dict:
         " COUNT(*) FILTER (WHERE status = 'rejected') AS rejected"
         " FROM pending_changes GROUP BY proposed_by ORDER BY proposed DESC"
     )
+    from . import users
+
+    by_proposer = [row for row in by_proposer if users.is_agent(row["proposed_by"])]
     # the only list here that carries row TEXT. The aggregates above count
     # rows per entity and per proposer, which discloses nothing; `summary` is
     # built by the producer out of the target row's own title, so a rejected

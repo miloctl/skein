@@ -391,20 +391,12 @@ Named here because the rest of that review shipped and these did not.
   capture chip still labels the `awaiting:` prefix `promise (to us)`.
   `one-wording.test.ts` cannot take the row until that label settles,
   so nothing stops the losing synonyms coming back.
-- **A live region that is mounted and filled in one tick** [S] —
-  `components/status-region.tsx` returns `null` with no message and
-  remounts per message, so the node is absent from the accessibility
-  tree until its text is already inside. That is the pattern NVDA and
-  JAWS most often miss, and on the exec-readout rerun the confirmation
-  is the only signal there is. Mount it empty and fill it.
 - **The focus ring is marginal in dark mode** [XS] — `--thread-solid`
   against `--surface-raised` measures 2.90 to 2.99 on loom, ledger,
   hermes and phosphor, under the 3:1 floor for a non-text indicator.
   Against the page background it passes everywhere, so only the inner
   edge is short. `scripts/check_theme_contrast.py` sweeps that token
   under white text, not this pairing.
-- **`/planning` has no h1** [XS] — every heading on the page is an `h2`.
-  The one axe finding in scope, pre-existing.
 - **`PARTY_CAP` caps parties, not items** [XS] — one party carrying 600
   open threads still reaches the page height the cap was added to fix.
 
@@ -417,7 +409,7 @@ review. Each names the condition that reopens it.
 |---|---|
 | Shadow authority level | Proposal volume overwhelms the review queue. The review queue *is* shadow mode today. |
 | `entity_links` table, registry, thread view | A 4th typed relationship with a named consumer. |
-| Attention budget, ack states, dedupe keys | Real duplicate-notification pain. Findings already dedupe weekly. |
+| Attention budget, ack states, dedupe keys | Proposal rows now suppress notifications through a typed relation. Revisit the broader system when another repeated-notification class has measured cost. |
 | Trust profile partitions by model version | A model swap causes a problem that review stats did not catch. |
 | Auto-quiet findings rules | The rule count or the noise grows beyond hand-tending. The maintainer retires rules at season end today. |
 | Stakeholder signed status pages | Real stakeholder demand AND real auth. Then build it as a push-generated static artifact, never by exposing the app. |

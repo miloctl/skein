@@ -6,7 +6,7 @@ import { useSyncExternalStore } from "react";
  *  intent instead: a per-browser toggle. Off by default — a developer never
  *  carries the manager cockpit unless they ask for it. Scope control, NOT
  *  authorization: the endpoints behind it are ordinary CurrentUser writes;
- *  only authority editing requires a personal key server-side. */
+ *  only authority editing requires strong administrator identity server-side. */
 const KEY = "skein-manage";
 
 function subscribe(cb: () => void) {
