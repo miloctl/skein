@@ -14,10 +14,19 @@ grep -q "name: atlas-skein-content" "$rendered"
 grep -q "atlas_delivery.yaml" "$rendered"
 grep -q "image: atlas-skein:1.0.0" "$rendered"
 grep -q "image: atlas-skein-frontend:1.0.0" "$rendered"
-grep -q "name: ATLAS_SKEIN_DATA" "$rendered"
+grep -q "name: ATLAS_SKEIN_STORE" "$rendered"
 grep -q "name: ATLAS_API_URL" "$rendered"
-grep -q "name: atlas-skein-data" "$rendered"
-grep -q "claimName: atlas-skein-data" "$rendered"
+grep -q "name: SKEIN_DATABASE_URL" "$rendered"
+# The extension store is a schema inside the Skein database. A PVC or a
+# file path here means the example regressed to the file-era wiring, which
+# the application no longer reads. An if, not `! grep`: set -e ignores a
+# failing negated command, so `! grep` can never fail the script.
+for regressed in "atlas-skein-data" "ATLAS_SKEIN_DATA"; do
+  if grep -q "$regressed" "$rendered"; then
+    echo "reference-deployment-contract: '$regressed' is file-era store wiring the app no longer reads" >&2
+    exit 1
+  fi
+done
 grep -q "fsGroup: 1000" "$rendered"
 grep -q "fsGroupChangePolicy: OnRootMismatch" "$rendered"
 grep -q "runAsNonRoot: true" "$rendered"
