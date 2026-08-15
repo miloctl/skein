@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 # every module compatibility range is checked against SKEIN_CORE_VERSION, so a
 # stale literal here refuses a valid private package, or composes one the core
 # cannot satisfy, with no other symptom.
-FALLBACK_CORE_VERSION = "0.2.3"
+FALLBACK_CORE_VERSION = "0.2.4"
 
 try:
     SKEIN_CORE_VERSION = package_version("skein")

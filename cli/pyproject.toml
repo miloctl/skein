@@ -1,6 +1,6 @@
 [project]
 name = "skein-cli"
-version = "0.2.3"
+version = "0.2.4"
 description = "Skein — the team platform from your terminal (stdlib only)"
 requires-python = ">=3.12"
 

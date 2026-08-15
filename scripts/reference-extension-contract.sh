@@ -4,22 +4,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# The old-core legs boot the 0.2.0 fixture, which is SQLite-backed. An
-# extension's migrations are ENGINE-SPECIFIC SQL, so the reference package's
-# PostgreSQL DDL cannot run there — the rehearsal's premise ("one package
-# across an old core and a new one") does not survive an engine change. Skip
-# with the reason rather than fail, and re-arm automatically: once the 0.2.0
-# fixture commits below are moved to a PostgreSQL-era release, this test
-# passes and the whole rehearsal runs again.
-if ! git show 00f71ad61becd1a3ed922d8a861809378fb59925:backend/app/config.py 2>/dev/null \
-        | grep -q "SKEIN_DATABASE_URL"; then
-    echo "reference-extension-contract: the prior-core fixture (0.2.0) is SQLite-backed,"
-    echo "reference-extension-contract: so an extension cannot run on both it and HEAD. Skipped."
-    echo "reference-extension-contract: re-arms when the fixture commits move to a PostgreSQL release."
-    exit 0
-fi
-
-
 python="backend/.venv/bin/python"
 [ -x "$python" ] || python="$(command -v python)"
 if [[ "$python" != /* ]]; then
@@ -64,15 +48,17 @@ mkdir -p \
     "$tmp/base" "$tmp/current" "$tmp/current-source" "$tmp/next" \
     "$tmp/extension" "$tmp/extension-source" "$tmp/run"
 
-# The 0.2.0 fixture is the newest commit whose backend both claims version
-# 0.2.0 and carries the complete trimmed extension API (test surfaces
-# included). HEAD claims its own version in committed metadata — the pair is
-# two real version identities from two real trees, with no rewriting. The
-# guard stops the rehearsal from ever comparing one implementation with
-# itself.
-PRIOR_CORE="0.2.0"
+# The prior-core fixture is the v0.2.3 release commit — the first
+# PostgreSQL-era version, pinned by SHA so a moved tag cannot silently change
+# what "prior" means. An extension's migrations are engine-specific SQL, so
+# no fixture from before the engine change can serve here: an older pin
+# turns every leg below into a false failure. HEAD claims its own version in
+# committed metadata — the pair is two real version identities from two real
+# trees, with no rewriting. The guard stops the rehearsal from ever
+# comparing one implementation with itself.
+PRIOR_CORE="0.2.3"
 export PRIOR_CORE
-prior_backend_tree="$(git rev-parse 00f71ad61becd1a3ed922d8a861809378fb59925:backend)"
+prior_backend_tree="$(git rev-parse dfb8a103d67cfff9cad23492f34f2a0e63bf70ee:backend)"
 next_backend_tree="$(git rev-parse HEAD:backend)"
 if [[ "$prior_backend_tree" == "$next_backend_tree" ]]; then
     echo "reference-extension-contract: backend implementations must differ" >&2
@@ -82,7 +68,7 @@ fi
 git archive d3b0f2ebbb6437b9ba34afb398d548ec955d3ae3 backend | tar -x -C "$tmp/base"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
     uv build --quiet --wheel --out-dir "$tmp/base-dist" "$tmp/base/backend"
-git archive 00f71ad61becd1a3ed922d8a861809378fb59925 backend \
+git archive dfb8a103d67cfff9cad23492f34f2a0e63bf70ee backend \
     | tar -x -C "$tmp/current-source"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
     uv build --quiet --wheel --out-dir "$tmp/current" "$tmp/current-source/backend"
@@ -136,7 +122,7 @@ requirement = Requirement(
     next(line.removeprefix("Requires-Dist: ") for line in extension.splitlines() if line.startswith("Requires-Dist: skein"))
 )
 assert Version("0.1.0") not in requirement.specifier
-assert Version("0.2.0") in requirement.specifier
+assert Version(os.environ["PRIOR_CORE"]) in requirement.specifier
 assert Version(os.environ["NEXT_CORE"]) in requirement.specifier
 PY
 
@@ -160,7 +146,6 @@ cp scripts/fixtures/legacy-content/flocks/legacy-team.yaml "$tmp/legacy-flocks/"
 (
     cd "$tmp/run"
     SKEIN_DATABASE_URL="${db_core_data}" \
-    ATLAS_SKEIN_DATA="$tmp/atlas-data/atlas.db" \
     SKEIN_PLAYBOOKS_DIR="$tmp/extension-source/content/playbooks" \
     SKEIN_PERSONAS_DIR="$tmp/extension-source/content/personas" \
     SKEIN_FLOCKS_DIR="$tmp/extension-source/content/flocks" \
@@ -201,7 +186,7 @@ prior_core = os.environ["PRIOR_CORE"]
 assert version("skein") == prior_core
 assert SKEIN_CORE_VERSION == prior_core
 module = atlas_module(
-    AtlasSettings(Path("../atlas-data/atlas.db").resolve()),
+    AtlasSettings("atlas-contract"),
     MemoryAtlasClient((AtlasItem("ATLAS-OLD-CORE", "Old core sync"),)),
 )
 try:
@@ -211,15 +196,15 @@ try:
                 module_id="next.workplace",
                 version="1.0.0",
                 extension_api="1.0",
-                minimum_core="0.2.1",
+                minimum_core="0.2.4",
                 maximum_core_exclusive="0.3.0",
             ),
         )
     )
 except ExtensionValidationError as exc:
-    assert "supports core versions from 0.2.1" in str(exc)
+    assert "supports core versions from 0.2.4" in str(exc)
 else:
-    raise AssertionError("core 0.2.0 accepted a package that requires core 0.2.1")
+    raise AssertionError("core 0.2.3 accepted a package that requires core 0.2.4")
 
 
 def review_playbook(request):
@@ -416,7 +401,6 @@ UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip install --quiet \
 (
     cd "$tmp/run"
     SKEIN_DATABASE_URL="${db_core_data}" \
-    ATLAS_SKEIN_DATA="$tmp/atlas-data/atlas.db" \
     SKEIN_PLAYBOOKS_DIR="$tmp/extension-source/content/playbooks" \
     SKEIN_PERSONAS_DIR="$tmp/extension-source/content/personas" \
     SKEIN_FLOCKS_DIR="$tmp/extension-source/content/flocks" \
@@ -458,16 +442,17 @@ next_core = os.environ["NEXT_CORE"]
 assert version("skein") == next_core
 assert SKEIN_CORE_VERSION == next_core
 assert (Path(db.__file__).resolve().parent / "py.typed").is_file()
-assert (db.MIGRATIONS_DIR / "018_identity_ownership.sql").is_file()
-assert (db.MIGRATIONS_DIR / "019_notification_sources.sql").is_file()
-assert (db.MIGRATIONS_DIR / "020_policy_projection_indexes.sql").is_file()
-assert (db.MIGRATIONS_DIR / "021_public_command_review.sql").is_file()
+# The installed wheel must carry the migrations directory: a packaging edit
+# that drops it boots a fresh database into "no such table" with no other
+# CI symptom, because every test tree runs from source.
+assert (db.MIGRATIONS_DIR / "001_baseline.sql").is_file()
 # An upgrade applies core migrations before it uses the new public contracts.
 # Application startup does this automatically. The artifact rehearsal uses
 # identity helpers before startup, so it applies the same step explicitly.
 db.init_db()
-# Migration 018 cannot infer private ownership from the old generic agent
-# rows. The deployment makes this one-time decision before application start.
+# Nothing can infer private ownership from a generic machine row (the seeds
+# above carry the schema's empty identity_owner). The deployment makes this
+# one-time decision before application start.
 for legacy_name, owner in (
     ("atlas.workplace.delivery-specialist", "specialist:atlas.workplace.delivery-specialist"),
     ("atlas-sync", "service:atlas.workplace.sync-identity"),
@@ -503,7 +488,7 @@ assert any(
     row["action"] == "system_identity_repair:RACE-OWNER->person-owner"
     for row in private_notes.list_audit("person-owner")
 )
-module = atlas_module(AtlasSettings(Path("../atlas-data/atlas.db").resolve()))
+module = atlas_module(AtlasSettings("atlas-contract"))
 
 
 class ReviewedWorkIn(BaseModel):
