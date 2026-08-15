@@ -1,6 +1,0 @@
-Metadata-Version: 2.4
-Name: atlas-skein-extension
-Version: 1.0.0
-Summary: Fictional workplace extension for the Skein extension contract
-Requires-Python: >=3.12
-Requires-Dist: skein<0.3.0,>=0.2.0

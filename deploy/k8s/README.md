@@ -193,7 +193,7 @@ storage backend. Decide one of these, in writing, in your deploy repo:
    deployment has — they are separate FILES, listed in the backup response.
 
    If the database itself is gone rather than damaged, create it first
-   (`createdb "$PGDATABASE"`); `pg_restore` loads into an existing database
+   (`createdb "$PGDATABASE"`). `pg_restore` loads into an existing database
    and does not make one.
 3. Scale back to one replica. Boot applies migrations newer than the
    backup.

@@ -32,9 +32,9 @@ MIGRATIONS_DIR = Path(__file__).resolve().parent / "core_migrations"
 
 log = logging.getLogger("skein")
 
-# Services catch this instead of importing psycopg, the same way they never
-# imported sqlite3 for it. Re-exported, not redefined: a subclass would not
-# match what the driver actually raises.
+# Services catch this instead of importing psycopg — the driver stays behind
+# this module. Re-exported, not redefined: a subclass would not match what
+# the driver actually raises.
 IntegrityError = psycopg.errors.IntegrityError
 UniqueViolation = psycopg.errors.UniqueViolation
 
@@ -508,8 +508,12 @@ def savepoint() -> Iterator[None]:
         with transaction():
             yield
         return
-    # This fixed internal name prevents caller-controlled SQL. Reviewed
-    # applies do not nest another reviewed apply, so one name is sufficient.
+    # This fixed internal name prevents caller-controlled SQL. Savepoints DO
+    # nest now (the agent gate wraps direct(), and a service under it can
+    # open its own), and one name still works: PostgreSQL shadows a
+    # re-declared savepoint name, so ROLLBACK TO and RELEASE bind to the most
+    # recent declaration and each level unwinds its own. Pinned by
+    # tests/test_db_transactions.py::test_nested_savepoints_unwind_their_own_level.
     callbacks = _on_commit.get()
     callback_count = len(callbacks) if callbacks is not None else 0
     queued = _pending_activity.get()
@@ -819,10 +823,10 @@ def log_activity(actor: str, action: str, detail: str = "") -> None:
         log.warning("activity chain append failed (%s: %s) — recording unchained", action, exc)
     # The fallback takes a fresh connection, so a fault that outlives the
     # first attempt raises here too — straight into a caller that had already
-    # committed its business write, losing the ledger row AND 500ing a write
-    # that actually happened. The docstring promised this path never raises;
-    # now it does not. A lost row still shows up: the unchained count and the
-    # chain marks are what report it.
+    # committed its business write. The catch below is what keeps the
+    # docstring's promise that this path never raises: losing the ledger row
+    # must not also 500 a write that actually happened. A lost row still
+    # shows up — the unchained count and the chain marks report it.
     try:
         execute(
             "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",

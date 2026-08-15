@@ -37,11 +37,17 @@ def delegate_task(
     if agent.strip() == actor and origin != "agent_verified":
         raise ValueError("an agent cannot delegate a task to itself — propose it instead")
     with db.transaction():
-        # FIRST, like submit_completion below: every check under this read
-        # decides a write, and the event emitted at the end carries the
-        # visibility read here. Without the hold a concurrent relink or
-        # visibility change lands between the read and the emit, and the
-        # event routes under a tier the task no longer has.
+        # Identity BEFORE the task row, because rename_user acquires in that
+        # order: LOCK_IDENTITY first, then row locks on the tasks it
+        # re-attributes. This call's advisory lock is transaction-scoped, so
+        # taking the task row first and the identity second closes a deadlock
+        # cycle with any concurrent rename touching the same task.
+        ensure_agent_identity(agent)
+        # Then the hold, like submit_completion below: every check under this
+        # read decides a write, and the event emitted at the end carries the
+        # visibility read here. Without it a concurrent relink or visibility
+        # change lands between the read and the emit, and the event routes
+        # under a tier the task no longer has.
         from . import policy_context
 
         policy_context.hold_resource("task", task_id)
@@ -70,7 +76,6 @@ def delegate_task(
             label="sponsor",
             author=task["created_by"],
         )
-        ensure_agent_identity(agent)
         db.execute(
             "UPDATE tasks SET delegated_agent = ?, sponsor = ?, assignee = ?, updated_at = ?"
             " WHERE id = ?",

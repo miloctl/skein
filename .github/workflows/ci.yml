@@ -87,8 +87,10 @@ jobs:
           SKEIN_MODEL_PROVIDER: mock
           SKEIN_SCHEDULER: "0"
           SKEIN_DATABASE_URL: postgresql://skein:skein@localhost:5432/skein_ext
+        # psycopg, not psql, so this step matches the Gitea twin — one client
+        # dependency across both CI hosts.
         run: |
-          psql postgresql://skein:skein@localhost:5432/skein -c 'CREATE DATABASE skein_ext'
+          python -c "import psycopg; c = psycopg.connect('postgresql://skein:skein@localhost:5432/skein', autocommit=True); c.execute('CREATE DATABASE skein_ext')"
           pip install -e examples/workplace-extension
           pytest -q -p no:cacheprovider examples/workplace-extension/backend/tests
       - name: Audit production dependencies

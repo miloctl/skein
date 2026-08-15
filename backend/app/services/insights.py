@@ -225,9 +225,7 @@ def forecast_calibration(window_days: int = 180) -> dict:
     """
     # DISTINCT ON (f.milestone_id) with ORDER BY f.day takes the EARLIEST
     # snapshot per milestone and carries that row's own forecast_date. Written
-    # as MIN(f.day) with a bare f.forecast_date it is a grouping error here,
-    # and it was previously a documented engine quirk that silently became an
-    # arbitrary row's value the moment a second aggregate was added.
+    # as MIN(f.day) with a bare f.forecast_date it is a grouping error.
     # UNIQUE (day, milestone_id) makes the earliest row unambiguous.
     rows = db.query(
         "SELECT DISTINCT ON (f.milestone_id)"

@@ -95,7 +95,7 @@ Three migrations: `003_crews.sql` (the crews tables), `004_visibility_tier.sql`
 and **no semicolon inside a comment** — `db.py::_statements` splits on `;`
 with no comment awareness, so the tail half becomes a statement and `init_db`
 fails on a fresh database. An apostrophe is fine: `--` runs to end of line and
-the engine opens no string literal there. Both migration headers say this; a
+the engine opens no string literal there. Both migration headers say this. A
 version of this paragraph that also forbade the apostrophe was wrong, and
 teaching a rule the runner does not have costs the next author a real
 debugging session.

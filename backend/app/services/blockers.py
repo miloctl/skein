@@ -260,8 +260,9 @@ def resolve_blocker(
             raise ValueError(f"blocker #{blocker_id} is already resolved")
         # The status check above decides this write, and the read took no
         # lock — so the WHERE carries it too. Without the CAS both resolvers
-        # pass the check and both append, and the detail ends up with two
-        # "Resolved:" lines where the second caller should have been refused.
+        # pass the check and both append: the detail ends up with two
+        # "Resolved:" lines, and the second caller must get the refusal above
+        # instead.
         settled = db.execute_rowcount(
             "UPDATE blockers SET status = 'resolved', resolved_at = ?, updated_at = ?,"
             " detail = detail || CASE WHEN ? != '' THEN chr(10) || 'Resolved: ' || ? ELSE '' END"
