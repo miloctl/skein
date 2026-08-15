@@ -56,6 +56,23 @@ def test_briefing_streams_tool_event(client):
     assert "My Day" in out
 
 
+def test_briefing_separates_personal_reviews_from_the_team_queue(client):
+    from app.services import review
+
+    review.propose_change(
+        "note",
+        "create",
+        {"topic": "mine", "content": "x"},
+        actor="agent",
+        requested_by="tester",
+    )
+    review.propose_change("note", "create", {"topic": "shared", "content": "x"}, actor="agent")
+
+    out = _read_chat(client, "/briefing")
+    assert "Reviews waiting on you: 1" in out
+    assert "Team queue \\u2014 pending reviews: 1" in out
+
+
 def test_help_lists_every_command(client):
     out = _read_chat(client, "/help")
     for c in commands.COMMANDS:

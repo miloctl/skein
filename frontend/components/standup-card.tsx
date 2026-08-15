@@ -38,6 +38,7 @@ export function StandupComposer({
         }),
       });
       setPosted(true);
+      reportStatus("Standup posted.", "confirmation");
       setTimeout(() => {
         setPosted(false);
         setToday("");

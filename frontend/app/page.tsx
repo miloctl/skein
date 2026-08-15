@@ -11,7 +11,7 @@ import { emptyState, loadingLine } from "@/lib/whimsy";
 import { Card } from "@/components/card";
 import { ReceiptLine } from "@/components/receipt";
 import { PeekLink } from "@/components/task-peek";
-import { Shortcut, ShortcutText } from "@/components/shortcut";
+import { ShortcutText } from "@/components/shortcut";
 
 type Row = Record<string, string | number | null>;
 
@@ -841,13 +841,8 @@ export default function MyDay() {
             ))}
             {b.your_work.tasks.length === 0 && (
               <li className="text-ink-3">
-                No tasks assigned to you — use quick capture
-                <span className="[@media(any-pointer:coarse)]:hidden">
-                  {" ("}
-                  <Shortcut />
-                  {")"}
-                </span>{" "}
-                and type &lsquo;todo: …&rsquo;.
+                No tasks assigned to you. Select Capture in the top bar and type
+                &lsquo;todo: …&rsquo;.
               </li>
             )}
             {b.your_work.due_soon.length > 0 && (
@@ -954,6 +949,10 @@ export default function MyDay() {
           </ul>
         </Card>
 
+        <div className="md:col-span-2">
+          <GuideHint />
+        </div>
+
         <Card title="Since yesterday">
           <ul className="space-y-1">
             {b.team.recent_activity.slice(0, 12).map((a) => (
@@ -970,8 +969,6 @@ export default function MyDay() {
           </ul>
         </Card>
       </div>
-
-      <GuideHint />
     </main>
   );
 }

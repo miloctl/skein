@@ -333,6 +333,18 @@ def test_review_stats(client):
     assert stats["recent_rejections"][0]["review_note"] == "not needed"
 
 
+def test_review_stats_never_groups_human_proposers(client):
+    from app.services import review, users
+
+    users.ensure_user("mira")
+    users.ensure_user("scout", kind="agent")
+    review.propose_change("note", "create", {"topic": "human", "content": "x"}, actor="mira")
+    review.propose_change("note", "create", {"topic": "agent", "content": "x"}, actor="scout")
+
+    names = {row["proposed_by"] for row in client.get("/api/review/stats").json()["by_proposer"]}
+    assert names == {"scout"}
+
+
 def test_claim_at_and_active_review_stats(client, fresh_db):
     from app.services import review
 
@@ -416,14 +428,15 @@ def test_review_resolution_clears_notification(client, fresh_db):
         "task", "create", {"title": "from an agent"}, actor="scout", origin="agent"
     )
     unread = fresh_db.query(
-        "SELECT * FROM notifications WHERE read_at IS NULL AND message LIKE ?",
-        (f"Review needed: #{p['id']}%",),
+        "SELECT pending_change_id FROM notifications"
+        " WHERE read_at IS NULL AND pending_change_id = ?",
+        (p["id"],),
     )
-    assert unread
+    assert unread == [{"pending_change_id": p["id"]}]
     review.approve_change(p["id"], actor="tester")
     still = fresh_db.query(
-        "SELECT * FROM notifications WHERE read_at IS NULL AND message LIKE ?",
-        (f"Review needed: #{p['id']}%",),
+        "SELECT id FROM notifications WHERE read_at IS NULL AND pending_change_id = ?",
+        (p["id"],),
     )
     assert not still
 
@@ -432,6 +445,10 @@ def test_reject_clears_notification_too(client, fresh_db):
     from app.services import review
 
     p = review.propose_change("task", "create", {"title": "x"}, actor="scout", origin="agent")
+    fresh_db.execute(
+        "UPDATE notifications SET pending_change_id = NULL WHERE pending_change_id = ?",
+        (p["id"],),
+    )
     review.reject_change(p["id"], "nope", actor="tester")
     still = fresh_db.query(
         "SELECT * FROM notifications WHERE read_at IS NULL AND message LIKE ?",

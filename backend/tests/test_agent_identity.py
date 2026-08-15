@@ -60,8 +60,16 @@ def test_whoami_reports_identity_strength(client, fresh_db):
     weak = client.get("/api/whoami", headers={"X-User": "chen"}).json()
     # admin is gated on strong for the same reason keys_minted is: an
     # unproven identity is whatever the caller typed into the name picker
-    assert weak == {"user": "chen", "strong": False, "admin": False, "keys_minted": 0}
+    assert weak == {
+        "user": "chen",
+        "strong": False,
+        "admin": False,
+        "can_administer": False,
+        "keys_minted": 0,
+    }
     key = create_key("chen", "t")["key"]
     strong = client.get("/api/whoami", headers={"Authorization": f"Bearer {key}"}).json()
     assert strong["user"] == "chen" and strong["strong"] is True
+    assert strong["admin"] is False
+    assert strong["can_administer"] is True
     assert strong["keys_minted"] == 1

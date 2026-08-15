@@ -31,7 +31,7 @@ knots:
     knot: Overhand
     set: loops
     pitch: One box that files todos, questions, blockers, decisions, and promises.
-    how: "Select Capture in the top bar. Try `todo: …`, `q: …`, or `blocked on …` — the preview shows what it will file as."
+    how: "Select Capture in the top bar. A captured task starts assigned to you. Try `todo: …`, `q: …`, or `blocked on …` — the preview shows what it will file as."
     link: /
     since: 2026-07-31
 
@@ -201,7 +201,7 @@ knots:
     knot: Rolling Hitch
     set: hitches
     pitch: A task handed to an agent, with a human sponsor on record.
-    how: Pick a task on Work → Browse and delegate it. You become the sponsor.
+    how: Pick a task on Work → Browse and delegate it. You become the sponsor. On Team → Agents, Has work shows identities with open tasks or pending proposals. Select All agents to inspect every identity.
     link: /dashboard
     since: 2026-07-31
 

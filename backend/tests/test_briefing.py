@@ -124,6 +124,22 @@ def test_briefing_team_notification_reason_label(client):
     assert items[0]["reason"] == "for the whole team — dismiss when read"
 
 
+def test_briefing_shows_a_pending_proposal_without_its_linked_notification(client, fresh_db):
+    from app.services import notifications, review
+
+    proposal = review.propose_change("task", "create", {"title": "one review row"}, actor="scout")
+    notifications.notify("team", "deployment moved to Friday", link="/")
+
+    briefing = client.get("/api/briefing").json()
+    proposals = [item for item in briefing["attention"] if item["kind"] == "proposal"]
+    notices = [item for item in briefing["attention"] if item["kind"] == "notification"]
+    assert [item["ref_id"] for item in proposals] == [proposal["id"]]
+    assert [item["label"] for item in notices] == ["deployment moved to Friday"]
+    assert fresh_db.query_one(
+        "SELECT pending_change_id FROM notifications WHERE message LIKE 'Review needed:%'"
+    ) == {"pending_change_id": proposal["id"]}
+
+
 def test_standup_suggestion_derives_from_activity(fresh_db):
     from app.services import briefing
 

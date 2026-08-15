@@ -16,6 +16,7 @@ const gate: { on: boolean | "never"; granted: boolean; entitiesFail: boolean } =
     granted: true,
     entitiesFail: false,
   };
+const identity = { strong: false, admin: false, can_administer: false };
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
@@ -42,7 +43,9 @@ vi.mock("@/lib/api", async (importOriginal) => {
       if (path === "/api/whoami")
         return Promise.resolve({
           user: "tester",
-          strong: false,
+          strong: identity.strong,
+          admin: identity.admin,
+          can_administer: identity.can_administer,
           mode: "trusted-header",
         });
       if (path === "/api/settings/context-strategy")
@@ -86,7 +89,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
         return Promise.resolve([
           {
             agent: "planner-agent",
-            open_tasks: 0,
+            open_tasks: 1,
             pending_proposals: 0,
             last_seen: null,
             authority: gate.granted
@@ -122,6 +125,10 @@ beforeEach(() => {
   gate.on = false;
   gate.granted = true;
   gate.entitiesFail = false;
+  identity.strong = false;
+  identity.admin = false;
+  identity.can_administer = false;
+  window.localStorage.clear();
 });
 
 describe("the Agents page and the review gate", () => {
@@ -167,6 +174,33 @@ describe("the Agents page and the review gate", () => {
     expect(screen.queryByText(GATE_ON_CLAIM)).toBeNull();
     expect(screen.queryByText(GATE_OFF_CLAIM)).toBeNull();
     expect(screen.queryByText(/\(gate off\)/)).toBeNull();
+  });
+});
+
+describe("authority identity requirements", () => {
+  it("states the requirement and disables writes for a weak identity", async () => {
+    window.localStorage.setItem("skein-manage", "1");
+    render(<AgentsPage />);
+
+    const set = (await screen.findByRole("button", {
+      name: "Set",
+    })) as HTMLButtonElement;
+    expect(set.disabled).toBe(true);
+    expect(
+      screen.getByText(/needs administrator access and strong identity/),
+    ).toBeTruthy();
+  });
+
+  it("enables authority writes for an accepted strong administrator", async () => {
+    identity.strong = true;
+    identity.can_administer = true;
+    window.localStorage.setItem("skein-manage", "1");
+    render(<AgentsPage />);
+
+    const set = (await screen.findByRole("button", {
+      name: "Set",
+    })) as HTMLButtonElement;
+    await waitFor(() => expect(set.disabled).toBe(false));
   });
 });
 

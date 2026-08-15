@@ -743,8 +743,14 @@ def test_api_key_mode_locks_admin_surfaces_until_admins_is_set(client, monkeypat
 
     hdr = _key("pat")
     monkeypatch.setattr(config, "AUTH_MODE", "api-key")
+    who = client.get("/api/whoami", headers=hdr).json()
+    assert who["admin"] is False
+    assert who["can_administer"] is False
     assert client.get("/api/admin/keys", headers=hdr).status_code == 403
     monkeypatch.setattr(config, "ADMINS", frozenset({"pat"}))
+    who = client.get("/api/whoami", headers=hdr).json()
+    assert who["admin"] is True
+    assert who["can_administer"] is True
     assert client.get("/api/admin/keys", headers=hdr).status_code == 200
 
 
@@ -779,6 +785,8 @@ def test_every_door_stashes_the_group_claims(client, monkeypatch, fresh_db):
 
     # CurrentUser (whoami), StrongUser (keys), AdminUser (admin keys) — all
     # three must agree that this caller is an administrator
-    assert client.get("/api/whoami", headers=hdr).json()["admin"] is True
+    who = client.get("/api/whoami", headers=hdr).json()
+    assert who["admin"] is True
+    assert who["can_administer"] is True
     assert client.get("/api/keys", headers=hdr).status_code == 200
     assert client.get("/api/admin/keys", headers=hdr).status_code == 200

@@ -131,7 +131,7 @@ def is_private_feedback(text: str) -> bool:
     return any(private_notes.FB_GUARD.match(ln) for ln in text.splitlines())
 
 
-def plan(text: str, *, actor: str = "system") -> tuple[str, str, dict]:
+def plan(text: str, *, actor: str = "system", origin: str = "human") -> tuple[str, str, dict]:
     """(kind, review-registry entity, payload) for one capture.
 
     The agent path PROPOSES this payload and the review registry applies it by
@@ -188,7 +188,7 @@ def plan(text: str, *, actor: str = "system") -> tuple[str, str, dict]:
             {
                 "title": body[:120],
                 "description": body if len(body) > 120 else "",
-                "assignee": "",
+                "assignee": actor if origin == "human" else "",
             },
         )
     return kind, "note", {"topic": body[:60], "content": body, "author": actor}
@@ -231,7 +231,7 @@ def capture(
         person, body = private_notes.parse_feedback(text)  # raises on bad format
         result = private_notes.add_note(actor, person, body, kind="feedback")
         return {"kind": "feedback", **result}
-    kind, _entity, _payload = plan(text, actor=actor)
+    kind, _entity, _payload = plan(text, actor=actor, origin=origin)
     body = PREFIX.sub("", text).strip() or text
     # one dict, splatted into every branch below (eight of them): the branches below are a
     # hand-written mirror of plan()'s payloads, so a tier added to one and
@@ -286,7 +286,7 @@ def capture(
         result = work.create_task(
             title=body[:120],
             description=body if len(body) > 120 else "",
-            assignee="",
+            assignee=actor if origin == "human" else "",
             actor=actor,
             origin=origin,
             **tier,

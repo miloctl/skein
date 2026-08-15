@@ -62,6 +62,7 @@ def notify(
     *,
     source_entity: str = "",
     source_id: int = 0,
+    pending_change_id: int = 0,
 ) -> dict | None:
     if tier not in TIERS:
         raise ValueError(f"tier must be one of {TIERS}")
@@ -91,11 +92,21 @@ def notify(
                 source_entity,
                 source_id,
                 policy_context.existing(source_entity, source_id),
+                pending_change_id,
             )
     rendered = message({"id": source_id}) if callable(message) else message
     if not rendered:
         return None
-    return _insert_notification(user, rendered, tier, link, source_entity, source_id, {})
+    return _insert_notification(
+        user,
+        rendered,
+        tier,
+        link,
+        source_entity,
+        source_id,
+        {},
+        pending_change_id,
+    )
 
 
 def _insert_notification(
@@ -106,12 +117,13 @@ def _insert_notification(
     source_entity: str,
     source_id: int,
     source_context: dict[str, str],
+    pending_change_id: int,
 ) -> dict:
     ts = db.now()
     nid = db.execute(
         "INSERT INTO notifications"
         ' ("user", tier, message, link, sent_at, created_at, source_entity, source_id,'
-        " source_policy_context) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        " source_policy_context, pending_change_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         " RETURNING id",
         (
             user,
@@ -123,6 +135,7 @@ def _insert_notification(
             source_entity,
             source_id or None,
             json.dumps(source_context, sort_keys=True, separators=(",", ":")),
+            pending_change_id or None,
         ),
     )
     if tier == "immediate":
@@ -272,6 +285,14 @@ def source_resource(row: dict) -> tuple[str, int]:
     """Return the canonical domain resource that produced a notification."""
     entity = str(row.get("source_entity") or "")
     return _SOURCE_ALIASES.get(entity, entity), int(row.get("source_id") or 0)
+
+
+def mark_pending_change_read(change_id: int) -> int:
+    """Clear the notification whose proposal is no longer pending."""
+    return db.execute_rowcount(
+        "UPDATE notifications SET read_at = ? WHERE read_at IS NULL AND pending_change_id = ?",
+        (db.now(), change_id),
+    )
 
 
 def mark_read_matching(prefix: str) -> int:

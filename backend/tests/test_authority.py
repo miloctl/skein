@@ -203,6 +203,7 @@ def test_trust_scores_streak_suggestion(client, fresh_db):
     trust = client.get("/api/agents/trust").json()
     row = next(r for r in trust if r["agent"] == "scribe")
     assert row["approved"] == 5 and row["recent_streak"] == 5
+    assert row["last_verified_verdict"] == "approved"
     # `notify`, because that is the rung review_authority files — a promotion
     # climbs one, and this line said `autonomous` for as long as it existed
     assert "notify" in row["suggestion"]
@@ -221,6 +222,21 @@ def test_weak_identity_verdicts_never_suggest_promotion(client, fresh_db):
     row = next(r for r in client.get("/api/agents/trust").json() if r["agent"] == "scribe")
     assert row["approved"] == 5  # verdicts still count as history
     assert row["recent_streak"] == 0 and row["suggestion"] == ""
+    assert row["last_verified_verdict"] == ""
+
+
+def test_trust_scores_names_the_last_verified_rejection(client):
+    from app.services import review, users
+    from app.services.api_keys import create_key
+
+    users.ensure_user("scribe", kind="agent")
+    p = review.propose_change("note", "create", {"topic": "x", "content": "c"}, actor="scribe")
+    headers = {"Authorization": f"Bearer {create_key('tester', 't')['key']}"}
+    client.post(f"/api/review/{p['id']}/reject", json={"note": "not ready"}, headers=headers)
+
+    row = next(r for r in client.get("/api/agents/trust").json() if r["agent"] == "scribe")
+    assert row["recent_streak"] == 0
+    assert row["last_verified_verdict"] == "rejected"
 
 
 def test_authority_half_life(client, fresh_db):

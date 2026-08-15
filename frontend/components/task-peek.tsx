@@ -473,8 +473,8 @@ function Delegate({ taskId, onDone }: { taskId: number; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api<{ agent: string }[]>("/api/agents")
-      .then((rows) => setAgents(rows.map((r) => r.agent)))
+    api<{ agent: string; delegatable: boolean }[]>("/api/agents")
+      .then((rows) => setAgents(rows.filter((r) => r.delegatable).map((r) => r.agent)))
       .catch(() => setAgents([]));
   }, []);
 

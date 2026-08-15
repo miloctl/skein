@@ -171,11 +171,16 @@ async def _briefing(
     b = await run_in_threadpool(read_briefing)
     n = b["needs_you"]
     lines = [f"**My Day — {b['user']}, {b['date']}**", ""]
+    personal_reviews = sum(
+        1 for item in b["attention"] if item["kind"] == "proposal" and item["audience"] == "you"
+    )
+    team_reviews = max(0, b["pending_reviews_total"] - personal_reviews)
     lines.append(f"- Open questions for you: {len(n['open_questions'])}")
-    lines.append(f"- Pending reviews: {len(n['pending_reviews'])}")
+    lines.append(f"- Reviews waiting on you: {personal_reviews}")
     lines.append(f"- Your unresolved blockers: {len(n['your_blockers'])}")
-    lines.append(f"- Intake awaiting triage: {len(n['intake_to_triage'])}")
     lines.append(f"- Your active tasks: {len(b['your_work']['tasks'])}")
+    lines.append(f"- Team queue — pending reviews: {team_reviews}")
+    lines.append(f"- Team queue — intake awaiting triage: {len(n['intake_to_triage'])}")
     esc = b["team"]["escalated_blockers"]
     if esc:
         lines.append("- ⛔ Team escalations: " + ", ".join(f"#{e['id']} {e['title']}" for e in esc))

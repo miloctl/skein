@@ -54,6 +54,27 @@ def test_capture_req_blocked_on_routes_to_intake_not_blockers(client):
     assert client.get("/api/blockers").json() == []
 
 
+def test_human_task_capture_returns_to_my_day(client):
+    out = client.post("/api/capture", json={"text": "todo: write the release note"}).json()
+
+    task = client.get(f"/api/tasks/{out['id']}").json()
+    assert task["assignee"] == "tester"
+    assert out["id"] in {
+        row["id"] for row in client.get("/api/briefing").json()["your_work"]["tasks"]
+    }
+
+
+def test_agent_task_capture_stays_unassigned(fresh_db):
+    from app.services import capture
+
+    kind, entity, payload = capture.plan("todo: inspect the queue", actor="scout", origin="agent")
+    assert (kind, entity, payload["assignee"]) == ("task", "task", "")
+
+    out = capture.capture("todo: inspect the queue", actor="scout", origin="agent")
+    task = fresh_db.query_row("SELECT assignee FROM tasks WHERE id = ?", (out["id"],))
+    assert task["assignee"] == ""
+
+
 def test_mock_agent_promise_capture_ack(client):
     out = client.post("/api/chat", json={"thread_id": "t", "message": "promised: report to legal"})
     assert "error" not in out.text.lower() or "Promise" in out.text

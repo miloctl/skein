@@ -23,6 +23,13 @@ def test_registry_is_valid_and_complete(fresh_db):
         assert k["link"].startswith("/")
 
 
+def test_hint_and_guide_use_the_same_tieable_total(fresh_db):
+    from app.services import fieldguide
+
+    _mint(fresh_db, "ava")
+    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 39
+
+
 def test_first_detection_seeds_silently(fresh_db):
     from app.services import capture, fieldguide
 

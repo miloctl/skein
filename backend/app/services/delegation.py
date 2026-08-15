@@ -9,7 +9,11 @@ from datetime import UTC, datetime, timedelta
 from .. import config, db
 from ..agents.identity import refuse_when_consultative
 from . import scope
-from .users import ensure_agent_identity, refuse_ambiguous_identity
+from .users import (
+    ensure_agent_identity,
+    is_delegatable_agent_identity,
+    refuse_ambiguous_identity,
+)
 
 LEVELS = ("autonomous", "notify", "review", "forbidden")
 
@@ -627,6 +631,7 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
             " ORDER BY reviewed_at DESC NULLS LAST, id DESC LIMIT ?",
             (r["agent"], r["entity"], TRUST_STREAK),
         )
+        r["last_verified_verdict"] = recent[0]["status"] if recent else ""
         streak = 0
         for row in recent:
             if row["status"] != "approved":
@@ -818,7 +823,9 @@ def review_authority(*, actor: str = "scheduler") -> dict:
 
 def mission_control() -> list[dict]:
     """One row per agent identity: what it holds, what it's waiting on."""
-    agents = db.query("SELECT name FROM users WHERE kind = 'agent' AND active = 1 ORDER BY name")
+    agents = db.query(
+        "SELECT name, identity_owner FROM users WHERE kind = 'agent' AND active = 1 ORDER BY name"
+    )
     out = []
     for a in agents:
         name = a["name"]
@@ -835,6 +842,8 @@ def mission_control() -> list[dict]:
         out.append(
             {
                 "agent": name,
+                "identity_owner": a["identity_owner"],
+                "delegatable": is_delegatable_agent_identity(name, a["identity_owner"]),
                 "open_tasks": open_tasks["n"] if open_tasks else 0,
                 "pending_proposals": pending["n"] if pending else 0,
                 "last_seen": last["ts"] if last else None,
@@ -875,7 +884,8 @@ def agent_inbox(
     tfrag, tp = ("1 = 1", []) if viewer is None else scope.visible_filter(viewer, "tasks")
     qfrag, qp = ("1 = 1", []) if viewer is None else scope.visible_filter(viewer, "questions")
     tasks = db.query(
-        "SELECT id, title, status, priority, sponsor FROM tasks"  # noqa: S608 — scope.visible_filter emits only bound marks
+        "SELECT id, title, description, status, priority, sponsor, due_date,"  # noqa: S608 — scope.visible_filter emits only bound marks
+        " milestone_id, engagement_id FROM tasks"
         f" WHERE delegated_agent = ? AND status != 'done' AND {tfrag}"
         " ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
         " WHEN 'medium' THEN 2 ELSE 3 END, id",
