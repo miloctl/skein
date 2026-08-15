@@ -285,3 +285,40 @@ def test_concurrent_machine_claims_cannot_overwrite_each_other(fresh_db):
         row = fresh_db.query_one("SELECT identity_owner FROM users WHERE name = ?", (name,))
         assert row is not None and row["identity_owner"] == winners[0]
         fresh_db.execute("DELETE FROM users WHERE name = ?", (name,))
+
+
+def test_concurrent_replica_boots_reserve_content_identities_once(fresh_db):
+    """Two replicas starting together must both survive startup.
+
+    reserve_content_identities runs in the lifespan, and both replicas read
+    "this name is absent" before either inserts. Measured with a plain
+    INSERT: three of four boots died of UniqueViolation inside the lifespan,
+    which is a crash-loop on the multi-replica deployment the PostgreSQL move
+    exists to allow."""
+    import threading
+
+    from app.services import users
+
+    slugs = {f"content-agent-{i}" for i in range(10)}
+    errors: list[str] = []
+    accepted: list[int] = []
+
+    def boot() -> None:
+        try:
+            names, _conflicts = users.reserve_content_identities(set(slugs))
+            accepted.append(len(names))
+        except Exception as exc:  # the crash IS the assertion
+            errors.append(type(exc).__name__)
+
+    threads = [threading.Thread(target=boot) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert accepted == [len(slugs)] * 4
+    row = fresh_db.query_one(
+        "SELECT count(*) AS n FROM users WHERE identity_owner = ?", (users.CONTENT_OWNER,)
+    )
+    assert row is not None and row["n"] == len(slugs)

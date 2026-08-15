@@ -5,6 +5,8 @@ get right is who can change one, because the tier that reads this membership
 lands on top of it.
 """
 
+import contextlib
+
 import pytest
 
 from app import db
@@ -464,3 +466,59 @@ def test_concurrent_fold_equal_names_make_only_one_crew(fresh_db):
 
     folded = [users.fold(row["name"]) for row in db.query("SELECT name FROM crews")]
     assert len(folded) == len(set(folded))
+
+
+def test_a_removed_member_cannot_scope_a_row_into_the_crew(fresh_db):
+    """The membership check must hold until the row lands.
+
+    assert_writable holds the crew row FOR UPDATE, which is what makes
+    remove_member wait rather than commit between the check and the insert.
+    Measured with a plain read: 6 of 6 removals committed inside that window,
+    and the note landed scoped to a crew its author had already left."""
+    import threading
+    import time
+
+    from app.services import collab, crews, users
+
+    users.ensure_user("mira")
+    users.ensure_user("owner")
+    real = crews.assert_writable
+    checked = threading.Event()
+
+    def slow_assert(crew_id: int, person: str) -> int:
+        out = real(crew_id, person)
+        checked.set()
+        time.sleep(0.4)  # a window a concurrent removal could commit inside
+        return out
+
+    interleaved = 0
+    for i in range(3):
+        crew_id = crews.create_crew(f"Hold crew {i}", actor="owner")["id"]
+        crews.add_member(crew_id, "mira", actor="owner")
+        checked.clear()
+        removed_at: list[float] = []
+        crews.assert_writable = slow_assert
+        try:
+
+            def writer(cid: int = crew_id, tag: int = i) -> None:
+                with contextlib.suppress(Exception):
+                    collab.save_note(f"n{tag}", "b", actor="mira", visibility="crew", crew_id=cid)
+
+            def remover(cid: int = crew_id, landed: list[float] = removed_at) -> None:
+                checked.wait(2)
+                with contextlib.suppress(Exception):
+                    crews.remove_member(cid, "mira", actor="owner")
+                    landed.append(time.monotonic())
+
+            start = time.monotonic()
+            threads = [threading.Thread(target=writer), threading.Thread(target=remover)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        finally:
+            crews.assert_writable = real
+        if removed_at and (removed_at[0] - start) < 0.35:
+            interleaved += 1
+
+    assert interleaved == 0

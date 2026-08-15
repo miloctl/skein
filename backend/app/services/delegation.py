@@ -37,6 +37,14 @@ def delegate_task(
     if agent.strip() == actor and origin != "agent_verified":
         raise ValueError("an agent cannot delegate a task to itself — propose it instead")
     with db.transaction():
+        # FIRST, like submit_completion below: every check under this read
+        # decides a write, and the event emitted at the end carries the
+        # visibility read here. Without the hold a concurrent relink or
+        # visibility change lands between the read and the emit, and the
+        # event routes under a tier the task no longer has.
+        from . import policy_context
+
+        policy_context.hold_resource("task", task_id)
         task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
         if not task:
             raise scope.missing("tasks", task_id)
@@ -52,8 +60,9 @@ def delegate_task(
                 "a private task has one reader, so it cannot be delegated."
                 " Pick a crew, or make this task visible to everyone on the roster."
             )
-        # The notification quotes this title. Read, mutation, policy snapshot,
-        # and notification insert therefore share the same serialized write.
+        # The notification quotes this title. The hold above is what makes the
+        # read, the mutation and the notice one serialized unit — the
+        # transaction alone would not, because a plain SELECT locks nothing.
         scope.assert_readable_by(
             task["visibility"],
             task["crew_id"],

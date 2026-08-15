@@ -607,10 +607,12 @@ def get_note(note_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict | None:
 def update_note(
     note_id: int, topic: str = "", content: str = "", *, actor: str = "", origin: str = "human"
 ) -> dict:
-    # The existence check and the re-index are one transaction, taking the
-    # same write lock delete_note takes. Split, this reads a live note,
-    # delete_note removes it and clears its index, and then the index_record
-    # below puts the deleted body back — searchable forever.
+    # What stops a deleted note's body from being re-indexed here is the
+    # RE-READ before index_record below (`new = ...; if new:`), not this
+    # transaction and not a lock — the existence check is a plain SELECT and
+    # takes nothing. Delete that re-read and this reads a live note,
+    # delete_note removes it and clears its index, and index_record puts the
+    # deleted body back, searchable forever.
     with db.transaction():
         row = db.query_one("SELECT * FROM notes WHERE id = ?", (note_id,))
         if not row:
@@ -656,11 +658,13 @@ def update_note(
 def delete_note(note_id: int, *, actor: str = "", origin: str = "human") -> dict:
     from .search import deindex_record
 
-    # The row delete and the index delete are one transaction, and update_note
-    # takes the same lock: split, a concurrent edit re-indexes the note after
-    # this deindex runs, and the FULL body of a deleted note stays queryable
-    # through search forever. That path also outlives the 300-char ledger
-    # snapshot below, which is deliberately bounded.
+    # The row delete and the index delete are one transaction, so neither
+    # lands without the other. What keeps a concurrent update_note from
+    # re-indexing the body after this deindex is that function's re-read
+    # before it indexes, not a lock either side takes. Without it the FULL
+    # body of a deleted note stays queryable through search forever — a path
+    # that also outlives the 300-char ledger snapshot below, which is
+    # deliberately bounded.
     with db.transaction():
         row = db.query_one("SELECT * FROM notes WHERE id = ?", (note_id,))
         if not row:

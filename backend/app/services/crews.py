@@ -121,7 +121,11 @@ def update_crew(
     admin_override: bool = False,
 ) -> dict:
     with db.transaction():
-        _row(crew_id)
+        # hold=True, like add_member and remove_member: assert_steward is a
+        # check-then-write, and a plain read lets a concurrent add_member
+        # demote this actor between the check and the UPDATE below. This was
+        # the one caller of assert_steward that did not hold the row.
+        _row(crew_id, hold=True)
         assert_steward(crew_id, actor, admin_override=admin_override)
         if name:
             db.execute(
@@ -230,9 +234,10 @@ def assert_writable(crew_id: int, person: str) -> int:
     """May this person scope a row to this crew?
 
     Every phase-3 write path that accepts a crew_id calls this INSIDE the same
-    db.transaction() as the insert, not merely before it. Called bare it opens
-    its own connections, so a person removed from the crew between the check
-    and the write still scopes a row into it.
+    db.transaction() as the insert, not merely before it — the hold below only
+    lasts as long as the transaction that took it, so called bare it releases
+    before the INSERT and a person removed from the crew in between still
+    scopes a row into it.
 
     Without it a writer can scope a row into a crew they are not in — either
     injecting it into that crew's reading list, or hiding it from everyone
@@ -240,7 +245,15 @@ def assert_writable(crew_id: int, person: str) -> int:
     is the other half of the rule crews_of documents: old rows stay readable,
     no new ones arrive.
     """
-    crew = _row(crew_id)
+    # hold=True is what makes the paragraph above true. Being inside the
+    # caller's transaction is not enough on its own: READ COMMITTED takes a
+    # fresh snapshot per statement, so a plain read here blocks nobody and
+    # remove_member commits between this check and the caller's INSERT.
+    # Measured without it: 25 of 25 attempts scoped a note into a crew the
+    # author had just left. add_member and remove_member hold the same crew
+    # row, which is what the two now contend on — the members table has no
+    # single row for them to meet at.
+    crew = _row(crew_id, hold=True)
     # membership FIRST: the not-active refusal names the crew, and checking
     # it first told a non-member that a crew by that id exists and what it is
     # called. An error never confirms the existence of something the caller

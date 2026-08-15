@@ -539,10 +539,14 @@ def _reconcile_session_strategy(thread_id: str, manager) -> None:
 
     try:
         repo = DatabaseSessionRepository()
-        # one transaction over the read-modify-write: a bridge write landing
-        # between read_agent and update_agent must not be folded into stale
-        # state
+        # The LOCK, not just the transaction, is what stops a bridge write
+        # from being folded into stale state: a transaction alone locks
+        # nothing, and session_log.py::log_exchange appends under this same
+        # LOCK_SESSION. Without taking it here, log_exchange commits between
+        # read_agent and update_agent and the replay offset written below is
+        # computed against a message list that no longer exists.
         with db.transaction():
+            db.name_lock(db.LOCK_SESSION, thread_id)
             agent = repo.read_agent(thread_id, SESSION_AGENT_ID)
             if agent is None:
                 return
