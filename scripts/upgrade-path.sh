@@ -39,7 +39,10 @@ fi
 # no database for HEAD's migrations to apply TO. Skip with the reason rather
 # than fail, and re-arm automatically — the moment a tag exists on this side of
 # the engine change, this test passes and the check runs again.
-if ! git show "$baseline:backend/app/config.py" 2>/dev/null | grep -q "SKEIN_DATABASE_URL"; then
+# grep reads to EOF on purpose (no -q): under pipefail, grep -q exiting on
+# the first match hands git show a SIGPIPE, the pipeline reports 141, and a
+# PostgreSQL-era baseline skips as if it predated the migration.
+if ! git show "$baseline:backend/app/config.py" 2>/dev/null | grep "SKEIN_DATABASE_URL" >/dev/null; then
     echo "upgrade-path: baseline $baseline predates the PostgreSQL migration, so there is no"
     echo "upgrade-path: upgrade path from it to HEAD. Skipped. This re-arms on the next release tag."
     exit 0
