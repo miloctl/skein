@@ -371,6 +371,14 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
     # agent's retry then hit the duplicate guard above, telling it to wait for
     # a verdict nobody had been asked for.
     with db.transaction():
+        # Hold the task: this files a proposal and pings the sponsor with a
+        # policy snapshot derived from the task's engagement, but writes no
+        # task row of its own — so without the hold a concurrent relink lands
+        # between the read and the notice, and the sponsor is told about a
+        # project the task no longer belongs to.
+        from . import policy_context
+
+        policy_context.hold_resource("task", task_id)
         task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
         if not task:
             raise scope.missing("tasks", task_id)

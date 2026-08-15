@@ -131,17 +131,29 @@ def _today() -> str:
     return db.today().isoformat()
 
 
+# EVERY extension schema, opted out ones included — see set_extension_stores.
 _EXTENSION_STORES: dict[str, str] = {}
+# The subset that gets a dump file of its own.
+_BACKED_UP_STORES: set[str] = set()
 
 
-def set_extension_stores(stores: dict[str, str]) -> None:
-    """Register the extension-owned schemas one composed app must back up.
+def set_extension_stores(stores: dict[str, str], dumped: set[str]) -> None:
+    """Register the extension-owned schemas, and which of them to dump.
+
+    `stores` is EVERY store. `dumped` is the subset with
+    include_in_backup=True. Both are needed, and registering only the second
+    is a leak: the core dump excludes exactly what it lists, so a schema
+    missing from `stores` is neither excluded from the core file nor written
+    to one of its own — it rides the core file off-box, which is the opposite
+    of what opting out asks for.
 
     The composition root calls this so the service layer never imports the
     extension layer, the way agents/narrator.py registers into digest.
     """
     _EXTENSION_STORES.clear()
     _EXTENSION_STORES.update(stores)
+    _BACKED_UP_STORES.clear()
+    _BACKED_UP_STORES.update(dumped)
 
 
 def _pg_env() -> dict[str, str]:
@@ -227,6 +239,8 @@ def backup(*, keep: int = 14, actor: str | None = None) -> dict:
     # Every schema this function dumps SEPARATELY must be excluded here, or it
     # travels in the core file too — and the core file is the one that goes
     # off-box, which is exactly what the private exclusion exists to prevent.
+    # EVERY extension schema is excluded, not only the dumped ones: a store
+    # that opted OUT of backup must not travel in the file that goes off-box.
     excluded = [f"--exclude-schema={config.PRIVATE_SCHEMA}"]
     excluded += [f"--exclude-schema={schema}" for schema in sorted(_EXTENSION_STORES.values())]
     _backup_one(excluded, dest, keep)
@@ -247,7 +261,7 @@ def backup(*, keep: int = 14, actor: str | None = None) -> dict:
     # own schema. The deployment owns any off-box copy of it.
     extension_paths = []
     for name, schema in sorted(_EXTENSION_STORES.items()):
-        if not _schema_has_rows(schema):
+        if name not in _BACKED_UP_STORES or not _schema_has_rows(schema):
             continue
         prefix = f"extension-{name}"
         store_dest = backups_dir / f"{prefix}-{_today()}.dump"

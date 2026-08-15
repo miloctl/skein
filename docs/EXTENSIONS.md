@@ -747,7 +747,10 @@ module runs as the Skein process on one connection role, so SQL that NAMES
 and use a sidecar service for it.
 
 The store supplies `execute`, `query`, `query_one`, `migrate`, and
-`transaction`, which nests. There is no `connect`: a raw connection would
+`transaction`, which nests. `execute` returns the first column of a
+`RETURNING` row, or 0 when the statement has none — an insert whose id you
+need must say `RETURNING id`, because there is no last-inserted-id to hand
+back. There is no `connect`: a raw connection would
 escape the schema scoping and the placeholder translation that make the rest
 of the contract hold.
 
@@ -1132,7 +1135,7 @@ scripts/reference-images-contract.sh
 The backend script builds and installs separate wheels in a normal virtual
 environment. It starts the installed application. It then moves the unchanged
 private package from core `0.2.0` to the current compatible artifact. That
-pair uses different backend source trees. It applies migrations 018 through 020.
+pair uses different backend source trees. It applies every pending core migration.
 It also runs the documented legacy identity-owner claims before startup.
 The script runs a real Atlas synchronization on both core versions. It checks
 the Atlas source against each compatible public interface with strict mypy.

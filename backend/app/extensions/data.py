@@ -98,6 +98,13 @@ class ExtensionStore:
                 )
 
     def execute(self, sql: str, params: Sequence[Any] = ()) -> int:
+        """Run a write. Returns the first column of the RETURNING row, else 0.
+
+        There is no last-inserted-id to hand back: an INSERT whose id you need
+        must ask for it with `RETURNING id`. Without one this returns 0, so
+        `new_id = store.execute("INSERT ...")` reads as a successful write and
+        yields a falsy id.
+        """
         with self._scope():
             return db.execute(sql, tuple(params))
 

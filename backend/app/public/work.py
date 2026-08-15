@@ -1446,6 +1446,9 @@ class WorkItems:
             # locks nothing. A concurrent relink cannot then move the task
             # under a stricter policy between the check and the write.
             with db.transaction():
+                from ..services import policy_context
+
+                policy_context.hold_resource("task", command.task_id)
                 current_row, viewer, current_attributes = self._task_state(command.task_id, context)
                 self._authorize(
                     context,

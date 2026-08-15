@@ -18,6 +18,20 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      # Same major as docker-compose.yml and the Dockerfile's pg_dump. The
+      # suite has no in-process substitute the way SQLite was — conftest exits
+      # without a reachable server.
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: skein
+          POSTGRES_PASSWORD: skein
+          POSTGRES_DB: skein
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U skein -d skein"
+          --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - name: Checkout
         run: |
@@ -39,6 +53,7 @@ jobs:
         env:
           SKEIN_MODEL_PROVIDER: mock
           SKEIN_SCHEDULER: "0"
+          SKEIN_DATABASE_URL: postgresql://skein:skein@localhost:5432/skein
         # The coverage gate lives here, not in addopts: coverage adds ~45%
         # to a run, so local `pytest` stays fast and this step holds the
         # floor. 90 is a ratchet — measured 91% on 2026-08-14; raise it when
@@ -53,6 +68,8 @@ jobs:
         # the clone above is shallow and tagless; the baseline tag's commit
         # must be reachable for the worktree. Skips itself until the first
         # v* release tag exists.
+        env:
+          SKEIN_DATABASE_URL: postgresql://skein:skein@localhost:5432/skein
         run: |
           git fetch --tags --unshallow --quiet || git fetch --tags --quiet
           ./scripts/upgrade-path.sh
@@ -95,6 +112,21 @@ jobs:
     # alone cannot detect missing wheel data, package-host drift, or a broken
     # Kustomize overlay.
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: skein
+          POSTGRES_PASSWORD: skein
+          POSTGRES_DB: skein
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U skein -d skein"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      # reference-extension-contract.sh and upgrade-path.sh each build several
+      # isolated app instances, and an instance is a DATABASE now.
+      SKEIN_DATABASE_URL: postgresql://skein:skein@localhost:5432/skein
     steps:
       - name: Checkout
         run: |

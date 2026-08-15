@@ -462,8 +462,9 @@ def approve_change(
     # Serialize current-state policy resolution, the verdict claim, and the
     # resulting write, so a project relink or a policy-relevant state change
     # cannot race a durable approval. Nested service transactions join this
-    # one. The boundary is the transaction PLUS the row holds inside it —
-    # services/policy_context.py::hold_resource — because a read alone locks
+    # one. The boundary is the transaction plus the target-row hold that
+    # _approve_change_locked takes once it knows what the proposal is about
+    # (services/policy_context.py::hold_resource) — a read alone locks
     # nothing.
     with db.transaction():
         result = _approve_change_locked(
@@ -498,6 +499,14 @@ def _approve_change_locked(
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
     if not change:
         raise db.NotFound(f"pending change #{change_id} not found")
+    # Hold the row the verdict is ABOUT, now that the proposal says which one.
+    # The policy is re-evaluated below against that row's current state, and a
+    # relink landing between the two would settle the proposal under a rule
+    # chosen for the project it used to belong to.
+    from . import policy_context
+
+    if change.get("source_id"):
+        policy_context.hold_resource(str(change["source_entity"]), int(change["source_id"]))
     _assert_judgeable(change, viewer)
     # settle the already-reviewed case before any gating, so a non-sponsor
     # isn't told to fetch a note for a verdict that already happened

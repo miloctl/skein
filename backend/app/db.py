@@ -4,11 +4,8 @@ compound writes one shared connection and a real BEGIN/COMMIT instead.
 Schema lives in app/core_migrations/*.sql.
 
 Service SQL is written with `?` placeholders and translated here (see
-_prepare). That is deliberate: the placeholder style is invisible to
-correctness as long as it is consistent, and rewriting ~1300 of them across
-56 service files would have meant classifying every `?` in the tree as SQL or
-not — regexes, docstrings and punctuation strings all carry one. One
-translation at the boundary has no such failure mode.
+_prepare). Keep writing `?`: the style only has to be consistent, and the
+translation is the one place that knows the driver.
 """
 
 import contextlib
@@ -45,12 +42,11 @@ UniqueViolation = psycopg.errors.UniqueViolation
 # CLAUDE.md. main.py maps each to that; a 500 would tell the client "bug, do
 # not retry", the opposite of the truth.
 #
-# The TYPE carries the classification now. Under SQLite this was a substring
-# test for "locked" on OperationalError, because one class covered both a held
-# write lock and a syntax error. TransactionRollback is the 40xxx family
-# (serialization failure, deadlock detected); PoolTimeout is the same condition
-# seen from the pool — every connection in use. Ordinary faults (bad SQL, a
-# missing column) are ProgrammingError and stay 500s.
+# The TYPE carries the classification, so nothing here parses a message.
+# TransactionRollback is the 40xxx family (serialization failure, deadlock
+# detected); PoolTimeout is the same condition seen from the pool — every
+# connection in use. Ordinary faults (bad SQL, a missing column) are
+# ProgrammingError and stay 500s.
 BUSY_ERRORS: tuple[type[Exception], ...] = (
     psycopg.errors.TransactionRollback,
     psycopg.errors.LockNotAvailable,
@@ -64,6 +60,11 @@ DictConnection = psycopg.Connection[dict[str, Any]]
 _ambient: ContextVar[DictConnection | None] = ContextVar("skein_txn", default=None)
 _on_commit: ContextVar[list[Callable[[], None]] | None] = ContextVar(
     "skein_txn_commits", default=None
+)
+# Ledger rows queued by log_activity inside a transaction, flushed as that
+# transaction's LAST statements — see _flush_activity.
+_pending_activity: ContextVar[list[tuple[str, str, str, str]] | None] = ContextVar(
+    "skein_txn_activity", default=None
 )
 
 
@@ -299,18 +300,24 @@ def _txn(isolation: IsolationLevel | None = None) -> Iterator[list[Callable[[], 
     ambient transaction. Yields the on_commit queue, which the caller runs
     only after the block commits."""
     callbacks: list[Callable[[], None]] = []
+    queued: list[tuple[str, str, str, str]] = []
     with pool().connection() as conn:
         previous = conn.isolation_level
         if isolation is not None:
             conn.isolation_level = isolation
         token = _ambient.set(conn)
         cb_token = _on_commit.set(callbacks)
+        act_token = _pending_activity.set(queued)
         try:
             # Rolls back and re-raises on an exception, so the callback loop
             # in the caller is skipped for a failed block.
             with conn.transaction():
                 yield callbacks
+                # INSIDE the transaction, and LAST. A rollback still drops
+                # these rows with the write they describe.
+                _flush_activity(conn, queued)
         finally:
+            _pending_activity.reset(act_token)
             _on_commit.reset(cb_token)
             _ambient.reset(token)
             # The pool resets the transaction on return, never this attribute,
@@ -366,6 +373,23 @@ LOCK_IDENTITY = 1
 LOCK_SESSION = 2
 LOCK_RECEIPT = 3
 
+# EVERY advisory lock is scoped to the current database by this expression.
+# PostgreSQL advisory locks are CLUSTER-global: the key space is shared by
+# every database on the server, so without this a dev database beside a
+# production one — or the test suite's per-worker databases — serialize on
+# each other's ledger and identity locks, and can deadlock across databases
+# that share nothing. A stable 32-bit hash of the database name is the first
+# key of every two-key acquisition below.
+_DB_KEY = "('x' || substr(md5(current_database()), 1, 8))::bit(32)::int"
+
+
+def _advisory(conn: DictConnection, key: int, *, xact: bool = True) -> None:
+    """Take one advisory lock, scoped to this database — see _DB_KEY."""
+    fn = "pg_advisory_xact_lock" if xact else "pg_advisory_lock"
+    # ::int on both keys: the two-key form is (int4, int4), and an unadorned
+    # Python int binds as bigint, which matches no overload.
+    conn.execute(f"SELECT {fn}({_DB_KEY}, %s::int)", (key,))
+
 
 def in_transaction() -> bool:
     """Whether the caller is inside db.transaction().
@@ -380,11 +404,9 @@ def in_transaction() -> bool:
 def name_lock(namespace: int, name: str) -> None:
     """Serialize the transactions that claim one `name` inside `namespace`.
 
-    SQLite gave this away: BEGIN IMMEDIATE took the database-wide write lock,
-    so a check-then-insert could not interleave with another one. PostgreSQL
-    holds no lock until a row is actually touched, so a read that decides
-    whether to insert protects nothing on its own — two claimants both read
-    "absent" and both proceed.
+    A read takes no lock, so a read that decides whether to insert protects
+    nothing on its own: two claimants both read "absent" and both proceed.
+    This is the lock that makes the pair atomic.
 
     Transaction-scoped, so it releases at commit or rollback with no unlock
     call to forget. hashtext() maps the name into the lock's integer key
@@ -397,7 +419,13 @@ def name_lock(namespace: int, name: str) -> None:
     conn = _ambient.get()
     if conn is None:
         raise RuntimeError("name_lock needs an active transaction")
-    conn.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", (namespace, name))
+    # Scoped to this database like every other advisory lock (_DB_KEY). The
+    # namespace and the folded name are combined into the second key, because
+    # the first is spent on the database identity.
+    conn.execute(
+        f"SELECT pg_advisory_xact_lock({_DB_KEY}, hashtext(%s))",
+        (f"{namespace}:{name}",),
+    )
 
 
 @contextmanager
@@ -443,6 +471,8 @@ def savepoint() -> Iterator[None]:
     # applies do not nest another reviewed apply, so one name is sufficient.
     callbacks = _on_commit.get()
     callback_count = len(callbacks) if callbacks is not None else 0
+    queued = _pending_activity.get()
+    activity_count = len(queued) if queued is not None else 0
     connection.execute("SAVEPOINT skein_review_apply")
     try:
         yield
@@ -452,9 +482,12 @@ def savepoint() -> Iterator[None]:
         connection.execute("RELEASE SAVEPOINT skein_review_apply")
         # SQL created after the savepoint no longer exists. Its deferred
         # effects must not run when the outer review-settlement transaction
-        # commits.
+        # commits — and the LEDGER rows queued inside the rolled-back unit
+        # must go with them, or the chain records writes that never happened.
         if callbacks is not None:
             del callbacks[callback_count:]
+        if queued is not None:
+            del queued[activity_count:]
         raise
 
 
@@ -463,7 +496,7 @@ def savepoint() -> Iterator[None]:
 # Two workers booting together must not both apply a migration. A session
 # advisory lock serializes them without a table to contend on — the arbitrary
 # constant only has to be stable and unique to this use.
-_MIGRATION_LOCK = 4_216_017_001
+_MIGRATION_LOCK = 4_216_017  # int4, see _advisory
 
 
 @contextmanager
@@ -481,18 +514,17 @@ def init_db() -> None:
     """Apply pending migrations in filename order; track in schema_version.
 
     Each migration runs inside ONE transaction together with its
-    schema_version insert, so a crash mid-migration rolls back cleanly —
-    PostgreSQL makes DDL transactional, which is what retires SQLite's
-    12-step table rebuild and the foreign_key_check that guarded it.
+    schema_version insert, so a crash mid-migration rolls back cleanly — DDL
+    is transactional here, so a half-applied file cannot exist.
 
     A migration file is executed WHOLE rather than split on semicolons, so it
     may contain them freely: in prose comments, in string literals, and inside
-    dollar-quoted function bodies. The SQLite splitter could do none of that.
+    dollar-quoted function bodies.
     """
     if config.DATABASE_ERROR:
         raise RuntimeError(config.DATABASE_ERROR)
     with _admin_conn() as conn:
-        conn.execute("SELECT pg_advisory_lock(%s)", (_MIGRATION_LOCK,))
+        _advisory(conn, _MIGRATION_LOCK, xact=False)
         try:
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS schema_version"
@@ -504,14 +536,24 @@ def init_db() -> None:
                 ).fetchone()
                 if already:
                     continue
-                with conn.transaction():
-                    conn.execute(path.read_text())
-                    conn.execute(
-                        "INSERT INTO schema_version (version, applied_at) VALUES (%s, %s)",
-                        (path.name, now()),
-                    )
+                try:
+                    with conn.transaction():
+                        conn.execute(path.read_text())
+                        conn.execute(
+                            "INSERT INTO schema_version (version, applied_at) VALUES (%s, %s)",
+                            (path.name, now()),
+                        )
+                except psycopg.Error as exc:
+                    # NAME THE FILE. The driver reports the failing statement
+                    # and nothing about which migration it came from, and a
+                    # boot that dies on "relation ... does not exist" with a
+                    # directory of files tells an operator nothing.
+                    raise type(exc)(f"{path.name}: {exc}") from exc
         finally:
-            conn.execute("SELECT pg_advisory_unlock(%s)", (_MIGRATION_LOCK,))
+            conn.execute(
+                f"SELECT pg_advisory_unlock({_DB_KEY}, %s::int)",
+                (_MIGRATION_LOCK,),
+            )
 
 
 def pending_migrations() -> list[str]:
@@ -552,9 +594,9 @@ def execute(sql: str, params: tuple = ()) -> int:
     """Run a write statement. Returns the first column of the RETURNING row
     when the statement has one, else 0.
 
-    sqlite3 handed back lastrowid for free; PostgreSQL has no such thing, so
-    an INSERT whose id the caller consumes must ask for it with RETURNING id.
-    A caller that forgets gets 0 rather than a wrong id."""
+    There is no last-inserted-id: an INSERT whose id the caller consumes must
+    ask for it with RETURNING id. A caller that forgets gets 0, never a wrong
+    id."""
     with _conn() as conn:
         cur = conn.execute(*_prepare(sql, params))
         if cur.description is None:
@@ -593,13 +635,14 @@ GENESIS_PREV = "0" * 64
 # this count is a row nothing in this process wrote.
 UNCHAINED_FALLBACKS = "activity_unchained_fallbacks"
 
-# SQLite serialized the chain for free: one writer at a time, database-wide.
-# PostgreSQL lets two appends read the same tail concurrently and write the
-# same seq with the same prev_hash, which forks the chain permanently at that
-# row. This lock is what replaces the global write lock, and it is held only
-# for the read-tail-then-insert — it auto-releases at commit, so a caller's
-# longer transaction does not keep it.
-_ACTIVITY_LOCK = 4_216_017_002
+# Two appends may otherwise read the same tail concurrently and write the same
+# seq with the same prev_hash, which forks the chain permanently at that row.
+# Transaction-scoped, so it releases at commit with no unlock to forget — and
+# because a transaction's rows are QUEUED and written at the very end
+# (_flush_activity), this is always the LAST lock a transaction takes. That
+# ordering is what keeps it out of every deadlock cycle: a lock taken last is
+# never held while waiting for another.
+_ACTIVITY_LOCK = 4_216_018  # int4, see _advisory
 
 
 def activity_hash(
@@ -636,7 +679,7 @@ def _append_activity(
     """Read the chain tail, link to it, insert. Caller is inside a
     transaction; the advisory lock makes the read-then-write atomic against
     every other appender."""
-    conn.execute("SELECT pg_advisory_xact_lock(%s)", (_ACTIVITY_LOCK,))
+    _advisory(conn, _ACTIVITY_LOCK)
     tail = conn.execute(
         "SELECT seq, hash FROM activity WHERE seq IS NOT NULL ORDER BY seq DESC LIMIT 1"
     ).fetchone()
@@ -657,6 +700,18 @@ def _append_activity(
     )
 
 
+def _flush_activity(conn: DictConnection, queued: list[tuple[str, str, str, str]]) -> None:
+    """Write a transaction's queued ledger rows, in the order they were made.
+
+    One advisory-lock acquisition for the whole batch rather than one per row,
+    and it happens after every other statement in the transaction — which is
+    what keeps the ledger lock out of every deadlock cycle.
+    """
+    for actor, action, detail, created_at in queued:
+        _append_activity(conn, actor, action, detail, created_at)
+    queued.clear()
+
+
 def log_activity(actor: str, action: str, detail: str = "") -> None:
     """Append to the provenance ledger, chained to the row before it.
 
@@ -670,8 +725,20 @@ def log_activity(actor: str, action: str, detail: str = "") -> None:
     the ledger, and a hole nobody was told about is the version that matters.
     """
     created_at = now()
+    queued = _pending_activity.get()
+    if queued is not None:
+        # QUEUED, not written here. The append takes a global advisory lock
+        # (_ACTIVITY_LOCK) that is held until commit, so writing it mid
+        # transaction lets a caller hold the ledger lock while it waits for a
+        # row — and any other transaction holding that row and then logging
+        # closes the cycle. Deferring makes the ledger lock the LAST one every
+        # transaction takes, and a lock taken last can never be held while
+        # waiting for another. The timestamp is captured NOW, so the row still
+        # records when the thing happened, not when the transaction ended.
+        queued.append((actor, action, detail, created_at))
+        return
     ambient = _ambient.get()
-    if ambient is not None:
+    if ambient is not None:  # pragma: no cover — a transaction always queues
         _append_activity(ambient, actor, action, detail, created_at)
         return
     try:

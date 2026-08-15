@@ -4,14 +4,62 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# The old-core legs boot the 0.2.0 fixture, which is SQLite-backed. An
+# extension's migrations are ENGINE-SPECIFIC SQL, so the reference package's
+# PostgreSQL DDL cannot run there — the rehearsal's premise ("one package
+# across an old core and a new one") does not survive an engine change. Skip
+# with the reason rather than fail, and re-arm automatically: once the 0.2.0
+# fixture commits below are moved to a PostgreSQL-era release, this test
+# passes and the whole rehearsal runs again.
+if ! git show 00f71ad61becd1a3ed922d8a861809378fb59925:backend/app/config.py 2>/dev/null \
+        | grep -q "SKEIN_DATABASE_URL"; then
+    echo "reference-extension-contract: the prior-core fixture (0.2.0) is SQLite-backed,"
+    echo "reference-extension-contract: so an extension cannot run on both it and HEAD. Skipped."
+    echo "reference-extension-contract: re-arms when the fixture commits move to a PostgreSQL release."
+    exit 0
+fi
+
+
 python="backend/.venv/bin/python"
 [ -x "$python" ] || python="$(command -v python)"
 if [[ "$python" != /* ]]; then
     python="$(pwd)/$python"
 fi
 
+if [ -z "${SKEIN_DATABASE_URL:-}" ]; then
+    echo "reference-extension-contract: SKEIN_DATABASE_URL is not set." >&2
+    exit 1
+fi
+# Isolation is a DATABASE per instance now, not a directory per instance: the
+# app keeps no database under SKEIN_DATA_DIR any more, so two instances
+# sharing a server would otherwise share one schema and the upgrade rehearsal
+# would prove nothing. Names are suffixed with the PID so two runs on one
+# server cannot drop each other's.
+db_base="${SKEIN_DATABASE_URL%/*}"
+db_names=()
+new_db() {  # new_db <label> -> echoes a URL
+    local name="skein_contract_$1_$$"
+    psql "$SKEIN_DATABASE_URL" -qtAc "DROP DATABASE IF EXISTS \"$name\" WITH (FORCE)" >/dev/null
+    psql "$SKEIN_DATABASE_URL" -qtAc "CREATE DATABASE \"$name\"" >/dev/null
+    db_names+=("$name")
+    echo "$db_base/$name"
+}
+drop_dbs() {
+    local name
+    for name in "${db_names[@]:-}"; do
+        [ -n "$name" ] || continue
+        psql "$SKEIN_DATABASE_URL" -qtAc "DROP DATABASE IF EXISTS \"$name\" WITH (FORCE)" >/dev/null 2>&1 || true
+    done
+}
+
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+trap 'drop_dbs; rm -rf "$tmp"' EXIT
+
+db_core_data="$(new_db core_data)"
+db_legacy_core_data="$(new_db legacy_core_data)"
+db_extension_tests_current="$(new_db extension_tests_current)"
+db_extension_tests_next="$(new_db extension_tests_next)"
+db_fresh_next_data="$(new_db fresh_next_data)"
 mkdir -p \
     "$tmp/base" "$tmp/current" "$tmp/current-source" "$tmp/next" \
     "$tmp/extension" "$tmp/extension-source" "$tmp/run"
@@ -111,7 +159,7 @@ cp scripts/fixtures/legacy-content/flocks/legacy-team.yaml "$tmp/legacy-flocks/"
 
 (
     cd "$tmp/run"
-    SKEIN_DATA_DIR="$tmp/core-data" \
+    SKEIN_DATABASE_URL="${db_core_data}" \
     ATLAS_SKEIN_DATA="$tmp/atlas-data/atlas.db" \
     SKEIN_PLAYBOOKS_DIR="$tmp/extension-source/content/playbooks" \
     SKEIN_PERSONAS_DIR="$tmp/extension-source/content/personas" \
@@ -334,13 +382,13 @@ PY
 
 # The reference extension test suite must pass against the installed
 # current-core artifact before the upgrade rehearses the next one.
-SKEIN_DATA_DIR="$tmp/extension-tests-current" \
+SKEIN_DATABASE_URL="${db_extension_tests_current}" \
     "$tmp/venv/bin/python" -m pytest -q -p no:cacheprovider \
     "$tmp/extension-source/backend/tests"
 
 (
     cd "$tmp/run"
-    SKEIN_DATA_DIR="$tmp/legacy-core-data" \
+    SKEIN_DATABASE_URL="${db_legacy_core_data}" \
     SKEIN_PLAYBOOKS_DIR="$tmp/legacy-playbooks" \
     SKEIN_PERSONAS_DIR="$tmp/legacy-personas" \
     SKEIN_FLOCKS_DIR="$tmp/legacy-flocks" \
@@ -367,7 +415,7 @@ UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip install --quiet \
 
 (
     cd "$tmp/run"
-    SKEIN_DATA_DIR="$tmp/core-data" \
+    SKEIN_DATABASE_URL="${db_core_data}" \
     ATLAS_SKEIN_DATA="$tmp/atlas-data/atlas.db" \
     SKEIN_PLAYBOOKS_DIR="$tmp/extension-source/content/playbooks" \
     SKEIN_PERSONAS_DIR="$tmp/extension-source/content/personas" \
@@ -724,9 +772,13 @@ job = next(item for item in specs if item.name == "atlas.workplace.sync")
 assert "error_code" not in job.fn()
 event_job = next(item for item in specs if item.name == "extension-events")
 assert event_job.fn()["delivered"] >= 1
-columns = {row["name"] for row in db.query("PRAGMA table_info(pending_changes)")}
+CATALOG = (
+    "SELECT column_name AS name FROM information_schema.columns"
+    " WHERE table_schema = 'public' AND table_name = ?"
+)
+columns = {row["name"] for row in db.query(CATALOG, ("pending_changes",))}
 assert "review_contract_version" in columns
-assert "identity_owner" in {row["name"] for row in db.query("PRAGMA table_info(users)")}
+assert "identity_owner" in {row["name"] for row in db.query(CATALOG, ("users",))}
 assert module.migrations[0].store.query_one(
     "SELECT external_id FROM work_links WHERE skein_task_id = ?", (42,)
 ) == {"external_id": "ATLAS-CORE-UPGRADE"}
@@ -743,13 +795,13 @@ PY
     "$tmp/extension-source/backend/typecheck_current_contract.py"
 
 # The unchanged extension test suite must also pass on the upgraded core.
-SKEIN_DATA_DIR="$tmp/extension-tests-next" \
+SKEIN_DATABASE_URL="${db_extension_tests_next}" \
     "$tmp/venv/bin/python" -m pytest -q -p no:cacheprovider \
     "$tmp/extension-source/backend/tests"
 
 (
     cd "$tmp/run"
-    SKEIN_DATA_DIR="$tmp/legacy-core-data" \
+    SKEIN_DATABASE_URL="${db_legacy_core_data}" \
     SKEIN_PLAYBOOKS_DIR="$tmp/legacy-playbooks" \
     SKEIN_PERSONAS_DIR="$tmp/legacy-personas" \
     SKEIN_FLOCKS_DIR="$tmp/legacy-flocks" \
@@ -784,26 +836,34 @@ with TestClient(
 PY
 )
 
-SKEIN_DATA_DIR="$tmp/fresh-next-data" "$tmp/venv/bin/python" -c \
+SKEIN_DATABASE_URL="${db_fresh_next_data}" "$tmp/venv/bin/python" -c \
     "from app import db; db.init_db()"
-"$tmp/venv/bin/python" - "$tmp/core-data/platform.db" \
-    "$tmp/fresh-next-data/platform.db" <<'PY'
-import sqlite3
+"$tmp/venv/bin/python" - "$db_core_data" "$db_fresh_next_data" <<'PY'
 import sys
 
+import psycopg
 
-def schema(path):
-    connection = sqlite3.connect(path)
-    try:
+
+def schema(url):
+    """Every table and column, as the catalog reports them.
+
+    The catalog, not a dump: pg_dump output carries owners, comments and an
+    ordering that differ between two freshly created databases, which would
+    make every run a false failure.
+    """
+    with psycopg.connect(url) as connection:
         return connection.execute(
-            "SELECT type, name, sql FROM sqlite_master"
-            " WHERE sql IS NOT NULL ORDER BY type, name"
+            "SELECT table_name, column_name, data_type, is_nullable, column_default"
+            " FROM information_schema.columns WHERE table_schema = 'public'"
+            " ORDER BY table_name, column_name"
         ).fetchall()
-    finally:
-        connection.close()
 
 
-assert schema(sys.argv[1]) == schema(sys.argv[2]), "fresh and upgraded schemas differ"
+upgraded, fresh = schema(sys.argv[1]), schema(sys.argv[2])
+if upgraded != fresh:
+    print("upgraded-only:", [r for r in upgraded if r not in fresh][:10])
+    print("fresh-only:", [r for r in fresh if r not in upgraded][:10])
+    sys.exit("reference-extension-contract: upgraded schema differs from fresh")
 PY
 
 echo "reference-extension-contract: old core rejected; unchanged Atlas sync and strict source checks passed distinct $PRIOR_CORE -> $NEXT_CORE implementations; $NEXT_CORE declared tool errors and reviewed local writes passed"

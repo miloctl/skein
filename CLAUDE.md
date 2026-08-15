@@ -56,17 +56,17 @@ model and constraints, is archived at
   section that contradicted the design doc it cited). A neighbouring item
   that needs the context gets one line naming what shipped, not a
   resurrected entry.
-- **A read takes no lock.** SQLite's `BEGIN IMMEDIATE` held a database-wide
-  write lock, so every check-then-write was atomic just by being in a
-  transaction. PostgreSQL locks nothing until a row is written, so a
-  transaction alone protects nothing: two callers both read "absent" and both
+- **A read takes no lock.** A transaction alone protects nothing: nothing is
+  locked until a row is written, so two callers both read "absent" and both
   insert. Any read whose RESULT decides a later write must hold something —
   `db.name_lock` for a key that may not exist yet (identity claims, session
   appends, idempotency receipts), `SELECT ... FOR UPDATE` for a row that does
   (crew steward floors), or `policy_context.hold_resource` when the decision
-  is a policy one. Take the lock FIRST in the transaction: the activity-chain
-  lock is taken late by `log_activity`, so a lock acquired after it inverts
-  the order and deadlocks. A swallowed database error needs `db.savepoint()`
+  is a policy one. Take it FIRST in the transaction, so every path acquires
+  locks in the same order — the ledger's own lock is deliberately last (its
+  rows are queued and written at commit), and a lock taken after another
+  transaction's is how a deadlock forms. A swallowed database error needs
+  `db.savepoint()`
   as well — a failed statement aborts the whole transaction, so suppressing
   it kills every later statement in the request.
 
@@ -95,7 +95,7 @@ docker run -d --name skein-db -p 5432:5432 \
 
 # backend (from backend/)
 uv venv .venv && uv pip install -e ".[dev]" --python .venv/bin/python   # deps
-.venv/bin/pytest                                        # tests
+.venv/bin/pytest      # tests — needs SKEIN_DATABASE_URL and the server above
 .venv/bin/ruff check app tests seed.py ../cli/skein_cli.py ../scripts   # lint
 .venv/bin/ruff format app tests seed.py ../cli/skein_cli.py ../scripts # format
 .venv/bin/mypy                                          # type check

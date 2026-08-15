@@ -101,7 +101,7 @@ def test_a_failing_migration_leaves_no_trace(scratch_db, tmp_path, monkeypatch):
     staged = _staged(tmp_path, monkeypatch)
     bad = staged / "999_bad.sql"
     bad.write_text("CREATE TABLE half_applied (id bigint);\nINSERT INTO no_such_table VALUES (1)")
-    with pytest.raises(psycopg.errors.UndefinedTable):
+    with pytest.raises(psycopg.errors.UndefinedTable, match="999_bad"):
         scratch_db.init_db()
     assert _table(scratch_db, "half_applied") is None
     assert (
@@ -155,7 +155,7 @@ def test_a_migration_that_breaks_a_foreign_key_is_refused(scratch_db, tmp_path, 
         "INSERT INTO tasks (title, milestone_id, created_at, updated_at)"
         " VALUES ('orphan', 4242, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')"
     )
-    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+    with pytest.raises(psycopg.errors.ForeignKeyViolation, match="999_orphan"):
         scratch_db.init_db()
     assert scratch_db.query_one("SELECT 1 AS x FROM tasks WHERE title = 'orphan'") is None
     assert (

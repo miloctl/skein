@@ -156,6 +156,11 @@ async def forge_webhook(
                 str(mapped.get("body") or ""),
             )
             if task_id:
+                # Held before the snapshot is read, so the relink this comment
+                # warns about waits instead of landing mid-decision.
+                from ..services.policy_context import hold_resource
+
+                hold_resource("task", task_id)
                 domain = existing("task", task_id)
                 enforce_decision(
                     registry.policy_engine.decide(

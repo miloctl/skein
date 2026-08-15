@@ -497,7 +497,7 @@ def flow_metrics(weeks: int = 8, *, name_people: bool = True) -> dict:
         # this list carries TITLES on top of the tier the counts above
         # share, and nudge_stale_wip notifies each assignee by name from it
         "SELECT id, title, assignee,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-        " CAST(EXTRACT(epoch FROM now() - updated_at::timestamptz) / 86400.0 AS INTEGER)"
+        " FLOOR(EXTRACT(epoch FROM now() - updated_at::timestamptz) / 86400.0)::int"
         " AS days_stale"
         f" FROM tasks WHERE status = 'in_progress' AND updated_at < ? AND {WORKSPACE_ONLY}"
         " ORDER BY updated_at",

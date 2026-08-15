@@ -734,7 +734,8 @@ def feed(viewer: str, limit: int = 50, before: int = 0) -> dict:
     is deliberately no way to pass a different person.
 
     Covers chained rows only (seq is the cursor — monotonic and gap-free by
-    construction, where rowid can be resequenced without breaking the chain).
+    construction: `id` is outside the digest, so ordering by it would let the
+    visible timeline disagree with the verified one).
 
     A row the nightly job ADOPTED takes a seq at the tail, so it enters this
     feed at its adoption time and not at its own created_at. On the first run

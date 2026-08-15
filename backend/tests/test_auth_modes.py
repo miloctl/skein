@@ -11,7 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 from threading import Event, Thread, current_thread
-from time import sleep
+from time import monotonic, sleep
 
 import pytest
 
@@ -341,8 +341,15 @@ def test_established_oidc_read_is_not_blocked_by_a_concurrent_writer(client, mon
     holder.start()
     try:
         assert holding.wait(timeout=2)
+        # TIMED. Without the bound this passes even when the read blocks: the
+        # holder releases after 5s and the request then succeeds, so the
+        # assertion below cannot tell "never waited" from "waited five
+        # seconds". The bound is what makes it about concurrency.
+        started = monotonic()
         response = client.get("/api/tasks", headers={"Authorization": "Bearer tok"})
+        waited = monotonic() - started
         assert response.status_code == 200
+        assert waited < 1, f"the read waited {waited:.1f}s for a concurrent writer"
     finally:
         release.set()
         holder.join(timeout=3)

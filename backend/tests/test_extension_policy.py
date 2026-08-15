@@ -4013,8 +4013,8 @@ def test_rejection_serializes_current_policy_with_the_verdict(fresh_db):
             # the policy input SAVED with the proposal, not a fresh read of
             # the task, so a concurrent relink cannot change it — that is what
             # "serializes current policy with the verdict" means, and the
-            # rejected status below is the assertion of it. Under SQLite the
-            # writer was simply held off by the global write lock.
+            # rejected status below is the assertion of it. A blocked writer
+            # was the old mechanism for the same outcome, not the promise.
             sleep(0.05)
         return PolicyDecision(
             PolicyEffect.REVIEW,
