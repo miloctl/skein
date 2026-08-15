@@ -35,6 +35,15 @@ class _Delegate:
         yield {"toolUseId": tool_use["toolUseId"], "status": "success", "content": []}
 
 
+class _ClaimDelegate(_Delegate):
+    async def stream(self, tool_use, _invocation_state, **_kwargs):
+        from app.services import delegation
+
+        self.called = True
+        delegation.claim_task(int(tool_use["input"]["task_id"]), actor="scout")
+        yield {"toolUseId": tool_use["toolUseId"], "status": "success", "content": []}
+
+
 def test_workplace_policy_can_deny_a_stock_read_tool(fresh_db):
     delegate = _Delegate()
     wrapper = GovernedCoreTool(delegate)
@@ -89,16 +98,16 @@ def test_stock_specialized_write_creates_a_resumable_review(fresh_db):
     receipts.start()
 
     async def run():
-        return [
-            event
-            async for event in wrapper._stream(
-                {"toolUseId": "write-1", "input": {"task_id": 42}},
-                {},
-                PolicySubject("mira"),
-                "agent",
-                "",
-            )
-        ]
+        stream = wrapper._stream(
+            {"toolUseId": "write-1", "input": {"task_id": 42}},
+            {},
+            PolicySubject("mira"),
+            "agent",
+            "",
+        )
+        event = await anext(stream)
+        await stream.aclose()
+        return [event]
 
     try:
         events = asyncio.run(run())
@@ -114,6 +123,34 @@ def test_stock_specialized_write_creates_a_resumable_review(fresh_db):
         "SELECT entity FROM pending_changes WHERE id = ?", (written[0]["ref"],)
     )
     assert row == {"entity": "extension_core_tool"}
+
+
+def test_stock_specialized_write_commits_before_the_terminal_event(fresh_db):
+    from app.services import delegation, users, work
+
+    users.ensure_user("mira")
+    task = work.create_task("Terminal claim", actor="mira")
+    delegation.delegate_task(task["id"], "scout", "mira", actor="mira")
+    wrapper = GovernedCoreTool(_ClaimDelegate("claim_delegated_task"), effect="write", risk="high")
+
+    async def run():
+        stream = wrapper._stream(
+            {"toolUseId": "terminal-claim", "input": {"task_id": task["id"]}},
+            {},
+            PolicySubject("mira"),
+            "scout",
+            "",
+        )
+        event = await anext(stream)
+        await stream.aclose()
+        return event
+
+    event = asyncio.run(run())
+
+    assert event["status"] == "success"
+    assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (task["id"],)) == {
+        "status": "in_progress"
+    }
 
 
 def test_stock_specialized_policy_and_delegate_share_one_transaction(fresh_db):

@@ -184,6 +184,33 @@ test.describe("desktop", () => {
  *  the chip shows the avatar alone and carries the name as sr-only text. Drop
  *  that text instead of hiding it and the button announces "You" to a screen
  *  reader, with no way to tell which identity is in force. */
+test("search results stay inside a 360px viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.route("**/api/search?*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        { entity: "note", entity_id: 7, title: "Vendor call", snippet: "Follow-up" },
+      ]),
+    }),
+  );
+  await page.goto("/");
+  await page.evaluate(() => window.localStorage.setItem("skein-user", "ava"));
+  await page.reload();
+
+  const search = page.getByLabel("Search Skein");
+  await search.fill("vendor");
+  await search.press("Enter");
+  const results = page.getByRole("region", { name: "Search results" });
+  await expect(results).toBeVisible();
+  const box = await results.boundingBox();
+
+  expect(box).not.toBeNull();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(360);
+});
+
 test("the identity chip announces who you are at phone width", async ({
   page,
 }) => {

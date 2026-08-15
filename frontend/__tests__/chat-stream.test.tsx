@@ -255,6 +255,25 @@ describe("the chat request carries the shared credential", () => {
     await mountAndCapture();
     await expect(drain()).rejects.toThrow("502 Bad Gateway");
   });
+
+  it("announces a missing chat before it reports that the message was not sent", async () => {
+    const seen = vi.fn();
+    window.addEventListener("skein-chat-missing", seen);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+        json: async () => ({ detail: "no chat" }),
+      }),
+    );
+    await mountAndCapture();
+
+    await expect(drain()).rejects.toThrow("Message not sent");
+    expect((seen.mock.calls[0][0] as CustomEvent).detail).toEqual({ threadId: "t1" });
+    window.removeEventListener("skein-chat-missing", seen);
+  });
 });
 
 describe("hydrating a thread's saved transcript", () => {

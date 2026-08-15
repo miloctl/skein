@@ -4,17 +4,24 @@ subject) because findings re-fire weekly as new rows."""
 from datetime import date, timedelta
 
 import pytest
+from conftest import _strong
 
 
-def _plant_finding(fresh_db, rule_id="aging_wip", subject="aging_wip", week=None):
+def _plant_finding(
+    fresh_db,
+    rule_id="aging_wip",
+    subject="aging_wip",
+    week=None,
+    severity="medium",
+):
     from app import db
     from app.services.insights import _week
 
     fid = db.execute(
         'INSERT INTO findings (rule_id, subject, severity, message, n, "window",'
-        " receipt, week, created_at) VALUES (?, ?, 'medium', 'msg', 1, 'w', '{}', ?, ?)"
+        " receipt, week, created_at) VALUES (?, ?, ?, 'msg', 1, 'w', '{}', ?, ?)"
         " RETURNING id",
-        (rule_id, subject, week or _week(), db.now()),
+        (rule_id, subject, severity, week or _week(), db.now()),
     )
     return fid
 
@@ -89,7 +96,7 @@ def test_digest_excludes_dispositioned(fresh_db):
 
 
 def test_convert_links_back_and_dispositions(client, fresh_db):
-    fid = _plant_finding(fresh_db)
+    fid = _plant_finding(fresh_db, severity="high")
     r = client.post(
         f"/api/findings/{fid}/convert",
         json={"kind": "task", "title": "chase the aging WIP"},
@@ -97,9 +104,101 @@ def test_convert_links_back_and_dispositions(client, fresh_db):
     )
     assert r.status_code == 200
     task = fresh_db.query_row("SELECT * FROM tasks")
+    assert r.json()["task_id"] == task["id"]
     assert task["source_finding_id"] == fid
+    assert task["priority"] == "high"
+    assert task["assignee"] == "manager"
     d = fresh_db.query_row("SELECT * FROM finding_dispositions")
     assert d["disposition"] == "converted" and f"#{task['id']}" in d["reason"]
+
+
+def test_positive_finding_conversion_uses_a_valid_task_priority(client, fresh_db):
+    fid = _plant_finding(fresh_db, subject="positive", severity="positive")
+    r = client.post(
+        f"/api/findings/{fid}/convert",
+        json={"kind": "task"},
+        headers={"X-User": "manager"},
+    )
+
+    assert r.status_code == 200
+    task = fresh_db.query_one(
+        "SELECT assignee, priority FROM tasks WHERE id = ?",
+        (r.json()["task_id"],),
+    )
+    assert task == {"assignee": "manager", "priority": "medium"}
+
+
+def test_chain_finding_conversion_needs_strong_identity(client, fresh_db):
+    fid = _plant_finding(
+        fresh_db,
+        rule_id="activity_chain_broken",
+        subject="seq:58",
+        severity="high",
+    )
+
+    weak = client.post(f"/api/findings/{fid}/convert", json={"kind": "task"})
+    assert weak.status_code == 403
+    assert "requires a personal API key" in weak.json()["detail"]
+    assert fresh_db.query_one("SELECT COUNT(*) AS count FROM tasks") == {"count": 0}
+
+    strong = client.post(
+        f"/api/findings/{fid}/convert",
+        json={"kind": "task"},
+        headers=_strong(client),
+    )
+    assert strong.status_code == 200
+    assert fresh_db.query_one(
+        "SELECT assignee, priority FROM tasks WHERE id = ?",
+        (strong.json()["task_id"],),
+    ) == {"assignee": "tester", "priority": "high"}
+
+
+def test_finding_conversion_rolls_back_if_disposition_fails(fresh_db, monkeypatch):
+    from app.services import insights
+
+    fid = _plant_finding(fresh_db)
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("disposition failed")
+
+    monkeypatch.setattr(insights, "disposition_finding", fail)
+    with pytest.raises(RuntimeError, match="disposition failed"):
+        insights.convert_finding(fid, "task", actor="manager")
+
+    assert fresh_db.query_one("SELECT COUNT(*) AS count FROM tasks") == {"count": 0}
+    assert fresh_db.query_one("SELECT COUNT(*) AS count FROM activity") == {"count": 0}
+
+
+def test_concurrent_finding_conversion_returns_one_task(fresh_db, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from time import sleep
+
+    from app.services import insights
+
+    fid = _plant_finding(fresh_db)
+    query_one = insights.db.query_one
+
+    def slow_finding_read(sql, params=()):
+        row = query_one(sql, params)
+        if sql.startswith("SELECT * FROM findings WHERE id = ?"):
+            sleep(0.05)
+        return row
+
+    monkeypatch.setattr(insights.db, "query_one", slow_finding_read)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(
+            executor.map(
+                lambda _index: insights.convert_finding(fid, "task", actor="manager"),
+                range(2),
+            )
+        )
+
+    assert {result["task_id"] for result in results} == {results[0]["task_id"]}
+    assert fresh_db.query_one("SELECT COUNT(*) AS count FROM tasks") == {"count": 1}
+    assert fresh_db.query_one(
+        "SELECT COUNT(*) AS count FROM finding_dispositions WHERE finding_id = ?",
+        (fid,),
+    ) == {"count": 1}
 
 
 def test_rule_stats_counts(fresh_db):

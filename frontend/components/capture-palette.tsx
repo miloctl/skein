@@ -57,7 +57,7 @@ const CHIPS: { prefix: string; label: string }[] = [
   { prefix: "blocked on", label: "blocker" },
   { prefix: "decision:", label: "decision" },
   { prefix: "promised:", label: "promise" },
-  { prefix: "awaiting:", label: "promise (to us)" },
+  { prefix: "awaiting:", label: "awaiting" },
   { prefix: "req:", label: "request" },
   { prefix: "note:", label: "note" },
   { prefix: "fb:", label: "private feedback" },
@@ -155,6 +155,7 @@ export function CapturePalette() {
         method: "POST",
         body: JSON.stringify({ text, ...tier }),
       });
+      window.dispatchEvent(new Event("skein-attention-change"));
       setResult(`Captured as ${r.kind} #${r.id}`);
       setText("");
       // the tier resets with the text. The dialog closes after each capture,

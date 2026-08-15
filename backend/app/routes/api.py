@@ -1942,22 +1942,24 @@ class FindingDispositionIn(BaseModel):
 CHAIN_RULES = ("activity_chain_broken", "ledger_rows_adopted")
 
 
+def _require_chain_finding_strong_identity(finding_id: int, request: Request) -> None:
+    from ..services import insights as insights_svc
+    from .deps import _require_strong
+
+    # Any disposition removes a finding from the digest. Under weak identity,
+    # whoever changed the ledger could silence its only push signal with a
+    # chosen header.
+    if insights_svc.finding_rule(finding_id) in CHAIN_RULES:
+        _require_strong(getattr(request.state, "strong_auth", False))
+
+
 @router.post("/findings/{finding_id}/disposition")
 def post_finding_disposition(
     finding_id: int, body: FindingDispositionIn, user: CurrentUser, request: Request
 ):
     from ..services import insights as insights_svc
-    from .deps import _require_strong
 
-    # Ordinary findings take CurrentUser, the way approvals do — any
-    # identified human may act on team work. The ledger rules are the
-    # exception: dismissing one drops it from the daily digest for good, and
-    # since adoption replaced the permanent chain alarm, that digest line is
-    # the only PUSH signal a smuggled row now produces. Under weak identity,
-    # whoever caused the adoption could silence the report of it with a
-    # chosen header.
-    if insights_svc.finding_rule(finding_id) in CHAIN_RULES:
-        _require_strong(getattr(request.state, "strong_auth", False))
+    _require_chain_finding_strong_identity(finding_id, request)
     return insights_svc.disposition_finding(
         finding_id, body.disposition, body.reason, body.deferred_until, actor=user
     )
@@ -1969,9 +1971,10 @@ class ConvertIn(BaseModel):
 
 
 @router.post("/findings/{finding_id}/convert")
-def post_finding_convert(finding_id: int, body: ConvertIn, user: CurrentUser):
+def post_finding_convert(finding_id: int, body: ConvertIn, user: CurrentUser, request: Request):
     from ..services import insights as insights_svc
 
+    _require_chain_finding_strong_identity(finding_id, request)
     return insights_svc.convert_finding(finding_id, body.kind, body.title, actor=user)
 
 

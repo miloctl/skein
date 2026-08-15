@@ -110,10 +110,9 @@ The rate-cap ratchet and the unbounded list reads shipped 2026-08-09
 Sized S or M by that review. Items 6 and 8 of the original list are gone. The
 engagement-close conclusion select shipped (`app/dashboard/page.tsx`). The
 portfolio commitments card now names its two audiences in the card title.
-Items 1 (nav search), 3 (delegate control in the task peek) and 7 (the
-Recently shipped strip) shipped 2026-08-08/09 and were dropped. The numbers
-below stay as the review transcripts cite them; item 9 continues the
-numbering and was found later, on 2026-08-09.
+Items 1 (nav search), 3 (delegate control in the task peek), 7 (the
+Recently shipped strip), and 9 (phone-width search results) shipped and were
+dropped. The remaining numbers stay as the review transcripts cite them.
 
 5. [S] Allocation inline form on the Capacity card, or an honest empty state.
 6. [S] `?` tooltips: ISO week format on the commitment card, season definition
@@ -125,17 +124,6 @@ numbering and was found later, on 2026-08-09.
    ergonomics one: nothing distinguishes "finished" from "never should have
    existed", which is why demo and validation rows accumulate. A `void`
    disposition, or accept it and say so in CORRECTIONS.
-9. [S] The search results panel is cut off at phone width. It is 320px wide
-   (`w-80` in `components/nav-search.tsx`) and anchored `right-0` to the
-   search field, whose right edge sits about 209px from the left of a 360px
-   viewport — so about a third of every result hangs off the left edge.
-   Measured at 360px on 2026-08-09: `left: -111`. This is invisible to
-   `e2e/responsive.spec.ts` because content off the LEFT edge does not grow
-   `scrollWidth`, so no overflow is reported and the walks stay green. The
-   fix is a positioning change, not a width one: anchor the panel to the
-   header or the viewport below `sm`, rather than to a field that is itself
-   near the left of the row.
-
 ## Manager and workflow (from the 2026-07-25 ideation run)
 
 Playbooks learn from ONE engagement: the plan is snapshot at kickoff, the
@@ -386,11 +374,6 @@ uncapped-on-both-sides census bullet at the top of this file.
 
 Named here because the rest of that review shipped and these did not.
 
-- **`docs/LEXICON.md` row 1a is decided and unenforced** [XS] — the
-  cockpit card and the FEATURES heading now say `awaiting`, and the
-  capture chip still labels the `awaiting:` prefix `promise (to us)`.
-  `one-wording.test.ts` cannot take the row until that label settles,
-  so nothing stops the losing synonyms coming back.
 - **The focus ring is marginal in dark mode** [XS] — `--thread-solid`
   against `--surface-raised` measures 2.90 to 2.99 on loom, ledger,
   hermes and phosphor, under the 3:1 floor for a non-text indicator.

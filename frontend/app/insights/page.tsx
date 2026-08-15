@@ -6,6 +6,7 @@ import { actionError, api, loadError } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import { Card } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
+import { openTaskPeek } from "@/components/task-peek";
 
 type Finding = {
   id: number;
@@ -135,10 +136,11 @@ export default function InsightsPage() {
 
   const convert = async (id: number, kind: "task" | "question") => {
     try {
-      await api(`/api/findings/${id}/convert`, {
+      const created = await api<{ task_id?: number }>(`/api/findings/${id}/convert`, {
         method: "POST",
         body: JSON.stringify({ kind }),
       });
+      if (kind === "task" && created.task_id) openTaskPeek(created.task_id);
       load();
     } catch (e) {
       reportStatus(actionError(e));
