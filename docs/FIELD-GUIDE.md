@@ -25,7 +25,7 @@ and judgment-laden surfaces; silent retroactive seeding; quiet cadence.
   counts whether kept or missed; a review counts whether approved or
   rejected).
 - **Structurally excluded** — no knots, no coverage, nothing: private 1:1
-  notes and the `fb:` journal (an unlock's existence is metadata private.db
+  notes and the `fb:` journal (an unlock's existence is metadata the private schema
   exists to hide), key requests, every `POST /api/feedback` surface (the
   eval corpus must never be incentivized), and agent identities (agents have
   trust scores; two reward systems would blur both).

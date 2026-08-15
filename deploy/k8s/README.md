@@ -15,14 +15,41 @@ pins the decisions below. If you change the base, keep that script true.
 
 ## Topology: one replica, Recreate, block storage
 
-The backend runs as exactly one process. SQLite has one writer, the
-scheduler runs in-process, rate caps and the chat turn registry live in
-process memory. The manifest pins `replicas: 1` and `strategy: Recreate`
-and names these mechanisms in a comment. Do not raise the replica count.
+The backend runs as exactly one process. The DATABASE no longer requires
+that — PostgreSQL takes concurrent writers, and the check-then-write paths
+hold real locks. Three things still do: the scheduler runs in-process,
+rate caps and the chat turn registry live in process memory, and artifacts
+and exports sit on a `ReadWriteOnce` volume that only one pod can mount.
+The manifest pins `replicas: 1` and `strategy: Recreate` and names these
+mechanisms in a comment. Do not raise the replica count until all three
+move.
 
-The data PVC must bind to block storage (`ReadWriteOnce`). SQLite runs in
-WAL mode, and WAL is unsafe on NFS. Do not bind the claim to an NFS or
-RWX storage class.
+The data PVC holds artifacts, exports and the local backup copies. It must
+bind to block storage (`ReadWriteOnce`), which is also what forces
+`Recreate`. The database has its own volume, claimed by the `skein-db`
+StatefulSet.
+
+## The database
+
+`base/postgres.yaml` runs one PostgreSQL StatefulSet with its own PVC. The
+image tag pins a MAJOR version, and it must match the `pg_dump` the backend
+image installs (`backend/Dockerfile`, `PG_MAJOR`): `pg_dump` refuses a
+server newer than itself, and the failure lands in the nightly backup job
+rather than at boot, so the daily copy just stops being written.
+
+Credentials live in a `skein-db-secret` the overlay provides
+(`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`). The backend composes
+them with the host from the ConfigMap into `SKEIN_DATABASE_URL`. There is
+no default: the backend refuses to start without it rather than quietly
+serving an empty database.
+
+`POSTGRES_PASSWORD` initialises the cluster on FIRST boot only. Changing
+the Secret later changes nothing in the database — use `ALTER ROLE` and
+update the Secret together.
+
+**If your organization offers a managed PostgreSQL**, delete
+`postgres.yaml` from the base, point `SKEIN_DB_HOST` at that server, and
+put its credentials in the same Secret. Nothing else changes.
 
 ## ArgoCD
 
@@ -34,8 +61,9 @@ migrations at startup as the sole writer.
 - **Upgrades take the service down** for the length of one pod restart.
   That is the cost of Recreate, and it is correct here. Do not move
   migrations to a pre-sync Job: the Job would fight the old pod for the
-  RWO volume and the SQLite write lock, and old code would then serve a
-  newer schema.
+  RWO data volume, and old code would then serve a newer schema. (Two pods
+  applying migrations at once is safe on its own — `init_db` takes an
+  advisory lock — but that is not the reason Recreate is here.)
 - **Roll forward only.** Migrations are append-only with no downgrades.
   After a sync has applied migrations, an ArgoCD rollback runs old code
   against a newer schema, and nothing tests that combination. Recovery
@@ -124,10 +152,20 @@ storage backend. Decide one of these, in writing, in your deploy repo:
 
 **Restore** (drilled in `tests/test_admin_backup.py`):
 
-1. Scale the backend to zero. SQLite must have no writer.
-2. Copy `platform-<date>.db` over `/data/platform.db` and
-   `private-<date>.db` over `/data/private.db`, both from the same date.
-   Use `oc debug` with the PVC mounted, or a one-off pod.
+1. Scale the backend to zero, so nothing writes during the load.
+2. Load both dumps of the SAME date — they reference each other's people:
+
+   ```
+   pg_restore --dbname "$SKEIN_DATABASE_URL" --clean --if-exists \
+       platform-<date>.dump
+   pg_restore --dbname "$SKEIN_DATABASE_URL" --clean --if-exists \
+       private-<date>.dump
+   ```
+
+   Run them from a pod that has the client tools and the backup volume —
+   `oc debug` on the backend deployment has both. Add one
+   `--schema=ext_<name>` dump per extension store if the deployment has
+   any.
 3. Scale back to one replica. Boot applies migrations newer than the
    backup.
 4. Expect the anchor-log finding. Every line anchored after the backup

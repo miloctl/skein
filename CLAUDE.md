@@ -1,7 +1,7 @@
 # Skein
 
 Internal coordination harness for an AI-enabled strike team (humans + AI
-agents). FastAPI + Strands Agents SDK + SQLite backend; Next.js 16 +
+agents). FastAPI + Strands Agents SDK + PostgreSQL backend; Next.js 16 +
 assistant-ui frontend. Brand: "Skein — many strands, one formation". The
 product is Skein everywhere — `SKEIN_*` env vars, `sk-skein-` key prefix,
 `skein://` MCP URIs, the `skein` CLI. The bare name `strands` belongs to the
@@ -56,6 +56,20 @@ model and constraints, is archived at
   section that contradicted the design doc it cited). A neighbouring item
   that needs the context gets one line naming what shipped, not a
   resurrected entry.
+- **A read takes no lock.** SQLite's `BEGIN IMMEDIATE` held a database-wide
+  write lock, so every check-then-write was atomic just by being in a
+  transaction. PostgreSQL locks nothing until a row is written, so a
+  transaction alone protects nothing: two callers both read "absent" and both
+  insert. Any read whose RESULT decides a later write must hold something —
+  `db.name_lock` for a key that may not exist yet (identity claims, session
+  appends, idempotency receipts), `SELECT ... FOR UPDATE` for a row that does
+  (crew steward floors), or `policy_context.hold_resource` when the decision
+  is a policy one. Take the lock FIRST in the transaction: the activity-chain
+  lock is taken late by `log_activity`, so a lock acquired after it inverts
+  the order and deadlocks. A swallowed database error needs `db.savepoint()`
+  as well — a failed statement aborts the whole transaction, so suppressing
+  it kills every later statement in the request.
+
 - **A filename names the behavior, not the session that made it.** This is
   what `app/services/` already does: 56 files, each named for its subject.
   Name a test for what it pins (`test_delegation.py`), never for the wave,
@@ -63,7 +77,7 @@ model and constraints, is archived at
   Dates belong in `docs/reviews/`, which holds closed transcripts only.
   Migrations are the one exception: `db.py` records applied migrations by
   filename in `schema_version`, so renaming one re-runs it on every existing
-  database, and the rerun bricks the boot (pinned in
+  database, and the rerun bricks the boot on "already exists" (pinned in
   `tests/test_migrations.py`). There is no safe recovery migration — one
   numbered after the renamed file runs too late (the runner walks in
   filename order), and moving the renamed file to the end reorders fresh
@@ -74,6 +88,11 @@ model and constraints, is archived at
 ## Commands
 
 ```bash
+# the database everything below needs (once)
+docker run -d --name skein-db -p 5432:5432 \
+  -e POSTGRES_USER=skein -e POSTGRES_PASSWORD=skein -e POSTGRES_DB=skein \
+  postgres:17-alpine
+
 # backend (from backend/)
 uv venv .venv && uv pip install -e ".[dev]" --python .venv/bin/python   # deps
 .venv/bin/pytest                                        # tests
@@ -114,7 +133,7 @@ that hasn't passed it will fail on push-to-main.
 - `backend/playbooks/*.yaml` — project-class templates (edited like code)
 - `backend/personas/*.md`, `backend/flocks/*.yaml` — the bench, and the groups
   of it that answer one message together (both edited like code)
-- `backend/data/` — gitignored: platform.db, artifacts/, backups/, exports/, and
+- `backend/data/` — gitignored: artifacts/, backups/, exports/, and
   sessions/ (pre-045 files, kept only until a cleanup release — live sessions
   are database rows via `agents/session_store.py`)
 - `frontend/app/` — pages; `frontend/components/` — UI; `frontend/lib/` — api client/config

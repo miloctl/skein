@@ -85,9 +85,10 @@ and note the anchor-log step at the end.
 
 If this tool is retired or abandoned, the data is not trapped:
 
-- The databases are single SQLite files on the data volume:
-  `platform.db` and `private.db`. Any SQLite client opens a backup copy.
-  The daily backups are the complete record.
+- The data is one PostgreSQL database on the `skein-db` volume. The daily
+  backups are the complete record: `platform-<date>.dump` and
+  `private-<date>.dump`, both standard `pg_dump` custom-format files that
+  `pg_restore` loads into any PostgreSQL server.
 - The export (Settings → "Backups (team)" → "Download export", or
   `GET /api/admin/export` with an admin credential) returns the work
   data as JSON — tasks, promises, decisions, and the rest of the shared

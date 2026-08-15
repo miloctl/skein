@@ -1,0 +1,123 @@
+# PostgreSQL, self-managed. Deliberately NOT an operator: this deployment
+# runs one small database for one small team, and an operator is a second
+# control plane to learn, upgrade and debug at 3am. If the org already offers
+# a managed PostgreSQL, delete this file, point SKEIN_DATABASE_URL at that
+# server, and nothing else here changes.
+#
+# The image tag pins a MAJOR version and must match the pg_dump the backend
+# image installs (backend/Dockerfile, PG_MAJOR). pg_dump refuses a server
+# newer than itself, and the failure lands in the nightly backup job rather
+# than at boot — the daily copy just stops being written.
+#
+# A StatefulSet, not a Deployment: it gives the volume a stable identity and
+# refuses to run two pods against one data directory, which is exactly the
+# mistake that corrupts a database cluster.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: skein-db
+  labels:
+    app: skein-db
+spec:
+  serviceName: skein-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: skein-db
+  template:
+    metadata:
+      labels:
+        app: skein-db
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            # POSTGRES_PASSWORD initialises the cluster on FIRST boot only.
+            # Changing it later changes nothing in the database; use ALTER
+            # ROLE and update the Secret together.
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: skein-db-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: skein-db-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: skein-db-secret
+                  key: POSTGRES_DB
+            # The image initialises into $PGDATA. A subdirectory, never the
+            # mount root: a PVC's lost+found makes the root non-empty, and
+            # initdb refuses a non-empty directory.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          # pg_isready, not a TCP check: the port accepts connections while
+          # the cluster is still recovering, and the backend would then boot
+          # into a refused query and crash-loop through its migrations.
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "$(POSTGRES_USER)", "-d", "$(POSTGRES_DB)"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "$(POSTGRES_USER)", "-d", "$(POSTGRES_DB)"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+          # Starting sizes, not measured ones — same honesty as the backend's.
+          # shared_buffers defaults to 128MB, so the limit must clear that
+          # plus per-connection work_mem or the OOM killer takes the cluster.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+  # volumeClaimTemplates, not a bare PVC: the volume belongs to the pod
+  # identity, and deleting the StatefulSet leaves it behind rather than
+  # taking the database with it.
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+# Headless: the StatefulSet addresses one pod, and there is nothing to load
+# balance across. The backend connects to skein-db:5432.
+apiVersion: v1
+kind: Service
+metadata:
+  name: skein-db
+  labels:
+    app: skein-db
+spec:
+  clusterIP: None
+  selector:
+    app: skein-db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres

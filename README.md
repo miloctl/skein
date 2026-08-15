@@ -42,7 +42,7 @@ URL is directly linkable.
 | | `/intake` | Engagement front door — submit → RICE-lite score → accept/defer/decline → what-if staffing |
 | | `/ingest` | Paste meeting notes. A deterministic pass turns them into proposals you batch-approve |
 | **Team** | `/agents` | Agents as teammates — mission control, authority matrix, trust scores, agent inboxes |
-| | `/people` | Manager layer — 1:1 briefs and the private feedback journal. Needs a personal key, and the records never leave `private.db` |
+| | `/people` | Manager layer — 1:1 briefs and the private feedback journal. Needs a personal key, and the records never leave the `private` schema |
 | | `/charter` | Decisions filtered to the charter category, each with a `review_by` date |
 | | `/activity` | The provenance ledger as one sentence per row, hash-chained and tamper-evident |
 | — | `/guide` | [Field guide](docs/FIELD-GUIDE.md) — every shipped feature as a card you tie by using it. The "what's new" surface |
@@ -53,7 +53,7 @@ URL is directly linkable.
 ## Architecture
 
 ```
-backend/   FastAPI + Strands Agents + SQLite (WAL, migrations, FTS5)
+backend/   FastAPI + Strands Agents + PostgreSQL (migrations, full text search)
   ├─ app/services/   ALL business logic — the single write path
   ├─ app/routes/     REST (human writes) + /api/chat SSE (agent writes)
   ├─ app/tools/      58 Strands @tool wrappers over the same services
@@ -62,7 +62,7 @@ backend/   FastAPI + Strands Agents + SQLite (WAL, migrations, FTS5)
   ├─ playbooks/      YAML project-class templates (prototype, incident, migration)
   ├─ personas/       the bench: one markdown file per specialist persona
   ├─ flocks/         YAML groups of personas, called with one message
-  └─ data/           gitignored: platform.db, sessions/, artifacts/, backups/, exports/
+  └─ data/           gitignored: artifacts/, backups/, exports/ (no database — that is PostgreSQL)
 
 frontend/  Next.js 16 + @assistant-ui/react + Tailwind
 ```
@@ -94,7 +94,7 @@ Key mechanics:
   `pending_changes` proposals that humans approve in `/review`.
 - **Programmatic automation** (no LLM): blocker auto-extraction from standups,
   hourly escalation sweep, RICE-lite intake scoring, rule-based quick capture,
-  FTS5 workspace search, deterministic daily digest, playbook instantiation
+  full-text workspace search, deterministic daily digest, playbook instantiation
   with lessons surfaced at kickoff, handoff package generation, daily backups,
   engagement health scoring, flow metrics, slip forecasting, auto-drafted
   weekly plans, decision half-life sweeps, versioned context packs.
@@ -125,8 +125,8 @@ port:
 SKEIN_FRONTEND_PORT=3100 docker compose up --build -d   # UI at :3100
 ```
 
-The SQLite database, chat sessions, artifacts, and daily backups live in the
-`skein-data` volume. Configure via `backend/.env` (picked up automatically;
+The database lives in the `skein-db` volume; artifacts and daily backups
+live in `skein-data`. Configure via `backend/.env` (picked up automatically;
 rebuild not needed for backend env changes — `docker compose up -d` again is
 enough. `SKEIN_HOST`, `SKEIN_API_TOKEN` and `SKEIN_FRONTEND_PORT` are baked
 into the frontend bundle and DO need `--build`).
@@ -154,9 +154,9 @@ docker compose up --build -d
 exist inside the container; uncomment the `/backup-mirror` volume + env lines
 in `docker-compose.yml` to mount your NAS path and re-enable it.
 
-For a ~10-person team this single-box setup is deliberate: SQLite in WAL mode
-handles this write volume easily, and one backend container means exactly one
-scheduler.
+For a ~10-person team this single-box setup is deliberate: one PostgreSQL
+container handles this write volume without noticing, and one backend
+container means exactly one scheduler.
 
 **Security model, stated plainly:** `SKEIN_AUTH_MODE` picks it. The default,
 `trusted-header`, is a trusted name picker (`X-User`) — teammates, not

@@ -84,7 +84,7 @@ vector at a third party. That is the argument for doing the sinks as
 phase 4 rather than alongside phase 3, and for `private` never becoming
 the default.
 
-`private.db` does not move. It is the strongest confidentiality the
+The `private` schema does not move. It is the strongest confidentiality the
 product has, and the journal stays in it.
 
 ### Schema
@@ -95,7 +95,7 @@ Three migrations: `003_crews.sql` (the crews tables), `004_visibility_tier.sql`
 and **no semicolon inside a comment** — `db.py::_statements` splits on `;`
 with no comment awareness, so the tail half becomes a statement and `init_db`
 fails on a fresh database. An apostrophe is fine: `--` runs to end of line and
-SQLite opens no string literal there. Both migration headers say this; a
+the engine opens no string literal there. Both migration headers say this; a
 version of this paragraph that also forbade the apostrophe was wrong, and
 teaching a rule the runner does not have costs the next author a real
 debugging session.
@@ -148,7 +148,7 @@ inventory:
 - `visible_filter(viewer, table, alias="")` returning a SQL fragment and
   its parameters, modeled on `activity.visible_actor_filter`. Positional
   `?` marks, because `db.query` takes a tuple. A viewer in NO crew is the
-  common case and SQLite has no `IN ()`, so the crew disjunct is dropped
+  common case and `IN ()` is not legal SQL, so the crew disjunct is dropped
   rather than emitted empty.
 - `Viewer(name, strong)`, built in `routes/deps.py` and nowhere else, plus
   `NOBODY` for every surface with no human behind it. The strength lives
@@ -195,7 +195,7 @@ inventory:
 - `WORKSPACE_ONLY` — what a JOB reads. Spliced as a literal because these are
   hand-written SQL strings with their own parameter tuples.
 
-Then a test walks `sqlite_master` and fails on any table that is in
+Then a test walks the catalog and fails on any table that is in
 neither set. The repository does this three times already —
 `admin.TABLES`/`admin.EXCLUDED`, `users._ATTRIBUTION`, and
 `tests/test_gate_coverage.py::UNGATED_WRITERS`. Each exists because an
@@ -335,9 +335,9 @@ frontend with no shared primitives to reuse.
 
 Phase 6 did NOT need the 12-step rebuild this file predicted. `UNIQUE(version)`
 was a standalone INDEX, not a table constraint, so `DROP INDEX` plus
-`CREATE UNIQUE INDEX ... (IFNULL(crew_id, 0), version)` changes the key without
-touching a row. `IFNULL`, not a bare `crew_id`: SQLite treats every NULL as
-distinct in a unique index, so two team packs could share version 1.
+`CREATE UNIQUE INDEX ... (COALESCE(crew_id, 0), version)` changes the key
+without touching a row. `COALESCE`, not a bare `crew_id`: a unique index
+treats every NULL as distinct, so two team packs could share version 1.
 
 ## Two cross-user reads phase 0 closed
 
