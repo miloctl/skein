@@ -105,6 +105,21 @@ def test_health_reports_auth_mode(client):
     assert h["auth_error"] == ""
 
 
+def test_full_health_needs_a_credential_in_api_key_mode(client, monkeypatch):
+    """The probe endpoint stays open; the topology endpoint closes.
+
+    /api/health carries provider, model, job schedule and chain state — on a
+    public route those must cost a credential in the modes that exist because
+    the header is self-asserted. /health stays answerable for the container
+    checks that can send nothing."""
+    from app import config
+
+    monkeypatch.setattr(config, "AUTH_MODE", "api-key")
+    assert client.get("/health").status_code == 200
+    assert client.get("/api/health").status_code == 401
+    assert client.get("/api/health", headers=_key()).status_code == 200
+
+
 def test_api_key_mode_never_trusts_the_header(client, monkeypatch):
     from app import config
 

@@ -229,7 +229,7 @@ def test_health_reports_the_embeddings_fault(monkeypatch, restore_config):
     from app.main import app
 
     with TestClient(app) as client:
-        body = client.get("/health").json()
+        body = client.get("/api/health").json()
     assert "OPENAI_API_KEY" in body["embeddings_error"]
     assert body["ok"] is True
 

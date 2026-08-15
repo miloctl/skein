@@ -231,7 +231,7 @@ def test_rest_api_survives_a_broken_provider(monkeypatch, restore_config):
     from app.main import app
 
     with TestClient(app) as client:
-        health = client.get("/health")
+        health = client.get("/api/health")
         assert health.status_code == 200
         assert health.json()["ok"] is True
         assert "nonsense" in health.json()["provider_error"]

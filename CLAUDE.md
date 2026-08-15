@@ -91,10 +91,11 @@ model and constraints, is archived at
 # the database everything below needs (once)
 # This makes `skein` the bootstrap SUPERUSER, which the deployment never
 # does — it runs deploy/postgres-init/10-app-role.sh to get a NOSUPERUSER
-# role, because a superuser can run shell commands through SQL. /health
-# reports `database_warnings` when the app connects as one, so a local
-# instance is expected to show that warning and a deployed one is not. To
-# rehearse the real privilege model instead, use `docker compose up db`.
+# role, because a superuser can run shell commands through SQL. The
+# authenticated /api/health reports `database_warnings` when the app
+# connects as one, so a local instance is expected to show that warning
+# and a deployed one is not. To rehearse the real privilege model
+# instead, use `docker compose up db`.
 docker run -d --name skein-db -p 5432:5432 \
   -e POSTGRES_USER=skein -e POSTGRES_PASSWORD=skein -e POSTGRES_DB=skein \
   postgres:17-alpine

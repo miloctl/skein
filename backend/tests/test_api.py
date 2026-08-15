@@ -3,7 +3,7 @@ missing dependency fails loudly. Depth lives in the per-behavior files."""
 
 
 def test_health(client):
-    body = client.get("/health").json()
+    body = client.get("/api/health").json()
     assert body["ok"] is True
     assert body["provider"] == "mock"
 

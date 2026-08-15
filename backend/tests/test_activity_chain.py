@@ -323,7 +323,7 @@ def test_verify_endpoint(client):
 
 
 def test_health_carries_the_chain_block(client):
-    assert "activity_chain" in client.get("/health").json()
+    assert "activity_chain" in client.get("/api/health").json()
 
 
 def test_findings_rule_fires_on_a_break(fresh_db):

@@ -148,7 +148,7 @@ def test_catch_up_job_uses_the_composed_registry(fresh_db):
     )
     settings = replace(AppSettings.from_config(), scheduler_enabled=False)
     with TestClient(create_app(settings, (module,)), headers={"X-User": "tester"}) as client:
-        names = {item["job"] for item in client.get("/health").json()["jobs"]}
+        names = {item["job"] for item in client.get("/api/health").json()["jobs"]}
         assert events == ["job"]
         assert "acme.workplace.sync" in names
 
@@ -700,7 +700,7 @@ def test_legacy_folded_identity_duplicates_fail_closed_and_have_a_repair_path(
         users.ensure_agent_identity("race-owner")
 
     with TestClient(create_app()) as client:
-        health = client.get("/health").json()
+        health = client.get("/api/health").json()
         assert health["identity_ownership_error"].startswith("1 conflicting identity group")
         assert client.get("/api/tasks", headers={"X-User": "RACE-OWNER"}).status_code == 403
         key = create_key("RACE-OWNER", "legacy collision")["key"]
@@ -1281,7 +1281,7 @@ def test_restart_does_not_activate_content_over_existing_human_or_generic_agent(
         with pytest.raises(ValueError, match="no flock"):
             flocks.get_flock("future-agent")
         assert (
-            client.get("/health")
+            client.get("/api/health")
             .json()["identity_ownership_error"]
             .startswith("2 conflicting identity groups")
         )
@@ -1369,7 +1369,7 @@ def test_legacy_overlay_agent_requires_explicit_content_claim(fresh_db, tmp_path
         with pytest.raises(ValueError, match="no persona"):
             personas.get_persona("legacy-reviewer")
         assert (
-            client.get("/health")
+            client.get("/api/health")
             .json()["identity_ownership_error"]
             .startswith("1 conflicting identity group")
         )

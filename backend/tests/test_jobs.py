@@ -61,5 +61,5 @@ def test_job_stale_finding_suppressed_when_scheduler_off(fresh_db, monkeypatch):
 
 
 def test_health_endpoint_reports_jobs(client):
-    body = client.get("/health").json()
+    body = client.get("/api/health").json()
     assert {j["job"] for j in body["jobs"]} >= {"daily-digest", "daily-backup", "findings"}

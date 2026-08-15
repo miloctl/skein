@@ -237,7 +237,7 @@ def test_health_reports_a_bad_zone_over_http(client, monkeypatch):
     """Reading the fault here is the whole reason it is surfaced."""
     monkeypatch.setattr(config, "TZ_NAME", "UTC")
     monkeypatch.setattr(config, "TZ_ERROR", "SKEIN_TZ=Mars/Base is not an IANA time zone name.")
-    body = client.get("/health").json()
+    body = client.get("/api/health").json()
     assert body["timezone"] == "UTC"
     assert "IANA" in body["timezone_error"]
 
@@ -245,7 +245,7 @@ def test_health_reports_a_bad_zone_over_http(client, monkeypatch):
 def test_health_reports_the_zone(client, monkeypatch):
     monkeypatch.setattr(config, "TZ_NAME", "America/New_York")
     monkeypatch.setattr(config, "TZ_ERROR", "")
-    body = client.get("/health").json()
+    body = client.get("/api/health").json()
     assert body["timezone"] == "America/New_York"
     assert body["timezone_error"] == ""
 

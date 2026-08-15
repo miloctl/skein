@@ -436,3 +436,21 @@ def test_health_reports_a_superuser_database_role(fresh_db, monkeypatch):
 
     monkeypatch.setattr(db, "query_one", lambda *a, **k: {"rolsuper": False})
     assert db.privilege_warnings() == []
+
+
+def test_public_health_carries_no_deployment_topology(client, fresh_db):
+    """The open /health answers anonymous callers on a public route.
+
+    Exactly three keys: enough for a probe (ok), a sign-in flow (auth_mode),
+    and the one fault that locks every authenticated surface (auth_error —
+    with auth broken, an open endpoint is the only place an operator can
+    read why). Everything else — provider, model, error strings, the job
+    schedule, chain state, database warnings — is deployment topology and
+    lives on /api/health behind identity. A new field added here reaches
+    anonymous readers, so this assertion is exact, not a subset check."""
+    body = client.get("/health").json()
+    assert sorted(body) == ["auth_error", "auth_mode", "ok"]
+
+    full = client.get("/api/health", headers={"X-User": "mira"}).json()
+    for key in ("provider", "model", "jobs", "activity_chain", "database_warnings"):
+        assert key in full

@@ -15,14 +15,18 @@ add `-n <namespace>`.
 Nothing routine. Backups, ledger verification, and cleanup run on an
 internal schedule. CI re-checks the code weekly. A bad model provider or
 a bad config value degrades the feature and reports itself — it does not
-take the service down. Check `/health` monthly. Upgrade when the
+take the service down. Check `/api/health` monthly. Upgrade when the
 maintainer publishes a release, on your own schedule.
 
 ## The monthly check
 
-Open `https://<backend-route-host>/health`. No credential is needed. The
-page always returns 200 when the process and the database are up — the
-content is the diagnosis, not the status code.
+Open `https://<backend-route-host>/api/health` with a credential — a
+personal API key, or a signed-in browser session. The page always returns
+200 when the process and the database are up: the content is the
+diagnosis, not the status code. The open `/health` endpoint answers the
+container probes and carries only `ok`, `auth_mode` and `auth_error` — if
+sign-in itself is broken, that is where the reason is readable without a
+credential.
 
 | Field | Healthy value | If not |
 |---|---|---|
@@ -43,7 +47,7 @@ content is the diagnosis, not the status code.
 3. ArgoCD syncs. The backend pod stops, restarts on the new version, and
    applies database migrations at startup. The service is down for the
    length of one pod restart. This is expected.
-4. Check `/health` after the sync.
+4. Check `/api/health` after the sync.
 
 Do not roll back through ArgoCD after a sync has completed. Migrations
 only move forward. If a release is faulty, the maintainer ships the next
@@ -61,13 +65,13 @@ deployment strategy is Recreate, on purpose — the database has one
 writer). Interrupted scheduled work re-runs on its next schedule, with
 one exception: a restart during the nightly job band (03:00–07:00 team
 time) can interrupt that day's backup after the day is already claimed.
-The next `/health` check still shows the job green until the stale flag
+The next `/api/health` check still shows the job green until the stale flag
 catches up, so after a restart in that window, look for a `backup claim`
 error line in the pod log — if it is there, run a manual backup (below).
 
 ## Backups
 
-Daily at 03:00 team time (the `timezone` field on `/health`). The last
+Daily at 03:00 team time (the `timezone` field on `/api/health`). The last
 14 stay on the data volume, the last 30 on the mirror volume
 (`/backup-mirror`). Before a risky change, take one by hand: sign in as
 an admin and use Settings → "Backups (team)" → "Back up now", or call
@@ -107,5 +111,5 @@ if JSON is wanted, then delete the ArgoCD Application and the namespace.
   (`/insights`, where the daily 06:50 findings surface) reports a ledger
   fault you cannot explain.
 - A job shows `"stale": true` and the pod log does not explain it.
-- An upgrade leaves `/health` with an error that the overlay values do
+- An upgrade leaves `/api/health` with an error that the overlay values do
   not explain.
