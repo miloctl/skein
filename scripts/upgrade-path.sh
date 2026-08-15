@@ -34,18 +34,47 @@ if [ -z "$baseline" ]; then
     exit 0
 fi
 
+# A baseline from before the PostgreSQL migration cannot be upgraded to HEAD:
+# its code writes a SQLite file and HEAD reads a PostgreSQL server, so there is
+# no database for HEAD's migrations to apply TO. Skip with the reason rather
+# than fail, and re-arm automatically — the moment a tag exists on this side of
+# the engine change, this test passes and the check runs again.
+if ! git show "$baseline:backend/app/config.py" 2>/dev/null | grep -q "SKEIN_DATABASE_URL"; then
+    echo "upgrade-path: baseline $baseline predates the PostgreSQL migration, so there is no"
+    echo "upgrade-path: upgrade path from it to HEAD. Skipped. This re-arms on the next release tag."
+    exit 0
+fi
+
+if [ -z "${SKEIN_DATABASE_URL:-}" ]; then
+    echo "upgrade-path: SKEIN_DATABASE_URL is not set. Set it to a PostgreSQL server." >&2
+    exit 1
+fi
+
 python="backend/.venv/bin/python"
 [ -x "$python" ] || python="$(command -v python)"
 
 tmp="$(mktemp -d)"
-trap 'git worktree remove --force "$tmp/base" 2>/dev/null || true; rm -rf "$tmp"' EXIT
+
+# One database per side. Isolation used to be a data directory; the app
+# keeps no database under SKEIN_DATA_DIR now, so two instances sharing a
+# server would share one schema and the comparison would prove nothing.
+db_base="${SKEIN_DATABASE_URL%/*}"
+upgraded_db="skein_upgrade_upgraded_$$"
+fresh_db="skein_upgrade_fresh_$$"
+for name in "$upgraded_db" "$fresh_db"; do
+    psql "$SKEIN_DATABASE_URL" -qtAc "DROP DATABASE IF EXISTS \"$name\" WITH (FORCE)" >/dev/null
+    psql "$SKEIN_DATABASE_URL" -qtAc "CREATE DATABASE \"$name\"" >/dev/null
+done
+trap 'psql "$SKEIN_DATABASE_URL" -qtAc "DROP DATABASE IF EXISTS \"$upgraded_db\" WITH (FORCE)" >/dev/null 2>&1 || true;
+      psql "$SKEIN_DATABASE_URL" -qtAc "DROP DATABASE IF EXISTS \"$fresh_db\" WITH (FORCE)" >/dev/null 2>&1 || true;
+      git worktree remove --force "$tmp/base" 2>/dev/null || true; rm -rf "$tmp"' EXIT
 
 echo "upgrade-path: baseline $baseline"
 git worktree add --detach "$tmp/base" "$baseline" >/dev/null
 
 # 1. a database as the baseline release built it, carrying chained rows —
 #    CI databases are otherwise always empty, which is the blind spot
-SKEIN_DATA_DIR="$tmp/upgraded" PYTHONPATH="$tmp/base/backend" "$python" - <<'PY'
+SKEIN_DATABASE_URL="$db_base/$upgraded_db" PYTHONPATH="$tmp/base/backend" "$python" - <<'PY'
 from app import db
 from app.services import engagements, work
 
@@ -66,24 +95,28 @@ db.execute("UPDATE tasks SET milestone_id = ? WHERE id = ?", (milestone, task["i
 PY
 
 # 2. HEAD boots it — the upgrade a deployment performs
-SKEIN_DATA_DIR="$tmp/upgraded" PYTHONPATH="backend" "$python" -c "from app import db; db.init_db()"
+SKEIN_DATABASE_URL="$db_base/$upgraded_db" PYTHONPATH="backend" "$python" -c "from app import db; db.init_db()"
 
 # 3. a fresh database from HEAD alone
-SKEIN_DATA_DIR="$tmp/fresh" PYTHONPATH="backend" "$python" -c "from app import db; db.init_db()"
+SKEIN_DATABASE_URL="$db_base/$fresh_db" PYTHONPATH="backend" "$python" -c "from app import db; db.init_db()"
 
 # 4. the two schemas must be identical, object by object
-"$python" - "$tmp/upgraded/platform.db" "$tmp/fresh/platform.db" <<'PY'
-import sqlite3
+"$python" - "$db_base/$upgraded_db" "$db_base/$fresh_db" <<'PY'
 import sys
 
+import psycopg
 
-def schema(path):
-    conn = sqlite3.connect(path)
-    rows = conn.execute(
-        "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name"
-    ).fetchall()
-    conn.close()
-    return {(t, n): s for t, n, s in rows}
+
+def schema(url):
+    """Every column, as the catalog reports it — not a dump, whose owners,
+    comments and ordering differ between two freshly created databases and
+    would make every run a false failure."""
+    with psycopg.connect(url) as conn:
+        rows = conn.execute(
+            "SELECT table_name, column_name, data_type, is_nullable, column_default"
+            " FROM information_schema.columns WHERE table_schema = 'public'"
+        ).fetchall()
+    return {(r[0], r[1]): r[2:] for r in rows}
 
 
 upgraded, fresh = schema(sys.argv[1]), schema(sys.argv[2])
@@ -92,16 +125,14 @@ for key in sorted(set(upgraded) | set(fresh)):
     a, b = upgraded.get(key), fresh.get(key)
     if a != b:
         diverged = True
-        print(f"DIVERGED {key[0]} {key[1]}:")
-        print(f"  upgraded: {a}")
-        print(f"  fresh:    {b}")
+        print(f"upgrade-path: {key[0]}.{key[1]} upgraded={a} fresh={b}")
 if diverged:
-    sys.exit(1)
+    sys.exit("upgrade-path: the upgraded schema differs from a fresh one")
 print("upgrade-path: schemas identical")
 PY
 
 # 5. the hash chain written at the baseline must verify after the upgrade
-SKEIN_DATA_DIR="$tmp/upgraded" PYTHONPATH="backend" "$python" - <<'PY'
+SKEIN_DATABASE_URL="$db_base/$upgraded_db" PYTHONPATH="backend" "$python" - <<'PY'
 from app import db
 from app.services import activity
 from app.agents.core_tools import _resource

@@ -341,7 +341,7 @@ def ensure_user(name: str, kind: str = "human", *, _owner: str = "") -> dict:
                 f"'{name}' already exists as a {existing['kind']} — bench persona"
                 " slugs cannot be shared across kinds"
             )
-        # INSERT OR IGNORE preserves the established idempotent contract for
+        # ON CONFLICT DO NOTHING preserves the established idempotent contract for
         # an exact existing name. Strict human and agent entry points validate
         # the returned kind below this compatibility layer.
         db.execute(
@@ -704,7 +704,7 @@ def rename_user(
     """Rename (or merge, when `new` already exists) a roster entry across
     every attribution column — the fix for 'Mira' vs 'mira'. History moves;
     the old row is deleted (merge) or renamed in place. Strong identity
-    required at the route; team-visible tables only (private.db is scoped
+    required at the route; team-visible tables only (the private schema is scoped
     by author name, so the author keeps access by renaming there too)."""
     old, new = _rename_names(old, new)
     # rename must honor the same identity walls ensure_user enforces —

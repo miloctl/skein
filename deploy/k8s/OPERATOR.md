@@ -93,8 +93,8 @@ If this tool is retired or abandoned, the data is not trapped:
   `GET /api/admin/export` with an admin credential) returns the work
   data as JSON — tasks, promises, decisions, and the rest of the shared
   tables. The export deliberately excludes chat transcripts,
-  private-visibility rows, and the private notes database. For a
-  complete copy, take the `.db` backups, not the export.
+  private-visibility rows, and the private schema. For a
+  complete copy, take the `.dump` backups, not the export.
 - With no model provider configured the app runs keyless indefinitely —
   abandonment degrades nothing except the agent features.
 

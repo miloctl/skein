@@ -293,7 +293,7 @@ def mark_read(user: str, notification_id: int = 0) -> dict:
     announcement for the whole roster.
 
     A dismiss the reader already made is not an error and not a second row:
-    INSERT OR IGNORE against the (notification_id, user) primary key, so a
+    ON CONFLICT DO NOTHING against the (notification_id, user) primary key, so a
     double click counts once.
     """
     now = db.now()

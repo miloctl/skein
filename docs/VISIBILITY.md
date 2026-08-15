@@ -403,8 +403,9 @@ full. It now filters on the READER, never on the subject.
 ## What this design does not do
 
 - It does not make Skein multi-tenant. One deployment stays one roster.
-- It does not move `private.db`. The journal keeps its file-level
-  isolation.
+- It does not move the private schema. The journal keeps its own schema,
+  which is what the core dump excludes and the off-box mirror never
+  receives.
 - It does not scope the activity ledger by content.
 - It does not make a crew an authorization boundary for administration.
   `AdminUser` stays deployment-wide. `crew_members.role = 'steward'`

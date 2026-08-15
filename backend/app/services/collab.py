@@ -689,7 +689,7 @@ def recent_activity(viewer: str, limit: int = 50) -> list[dict]:
     feed enforces. Includes pre-036 unchained rows (the feed cannot; its
     cursor is seq).
 
-    Ordered by seq, not id. `id` is the rowid and is NOT covered by the chain
+    Ordered by seq, not id. `id` is outside the chain digest
     digest, so ordering the provenance feed by it would let the visible
     timeline be resequenced while verification still reports intact."""
     from .activity import visible_actor_filter

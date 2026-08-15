@@ -183,3 +183,24 @@ def test_automation_ratio_counts_origins(client, fresh_db):
     ratio = insights.automation_ratio()
     assert ratio and ratio[-1]["total"] >= 2
     assert 0 < ratio[-1]["automation_share"] < 1
+
+
+def test_every_findings_rule_runs(fresh_db):
+    """Call each rule DIRECTLY, so a broken one fails here.
+
+    run_findings catches per rule and logs, which is right in production — one
+    broken rule must not take the weekly digest down — but it means a rule
+    whose SQL no longer parses returns silently forever, and silence is what a
+    clean run looks like. Every other test in this file goes through
+    run_findings, so none of them can tell the difference. A PostgreSQL
+    migration left `SUM(<boolean>)` in one rule and every suite still passed.
+    """
+    from app.services.insights import RULES
+
+    broken = []
+    for rule in RULES:
+        try:
+            rule()
+        except Exception as exc:
+            broken.append(f"{rule.__name__}: {type(exc).__name__}: {exc}")
+    assert not broken, "findings rules that cannot run:\n" + "\n".join(broken)

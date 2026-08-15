@@ -153,19 +153,33 @@ storage backend. Decide one of these, in writing, in your deploy repo:
 **Restore** (drilled in `tests/test_admin_backup.py`):
 
 1. Scale the backend to zero, so nothing writes during the load.
-2. Load both dumps of the SAME date — they reference each other's people:
+2. Load both dumps of the SAME date — they reference each other's people.
+   Run from a pod that has the client tools and the backup volume: `oc debug`
+   on the backend deployment has both.
 
    ```
-   pg_restore --dbname "$SKEIN_DATABASE_URL" --clean --if-exists \
+   # PG* variables, never --dbname with the URL: argv is world-readable in
+   # `ps` for every process on the node, and the URL carries the password.
+   export PGHOST=skein-db PGPORT=5432 PGUSER=… PGDATABASE=…
+   export PGPASSWORD=…            # from the skein-db-secret
+
+   # --no-owner: the dump records the role that owned each object, and a
+   # restore into a different role (a managed server, a renamed user) fails
+   # object by object without it.
+   # --dbname takes the NAME, not the URL: pg_restore must connect to restore
+   # at all, and the name carries no password into argv.
+   pg_restore --dbname "$PGDATABASE" --clean --if-exists --no-owner \
        platform-<date>.dump
-   pg_restore --dbname "$SKEIN_DATABASE_URL" --clean --if-exists \
+   pg_restore --dbname "$PGDATABASE" --clean --if-exists --no-owner \
        private-<date>.dump
    ```
 
-   Run them from a pod that has the client tools and the backup volume —
-   `oc debug` on the backend deployment has both. Add one
-   `--schema=ext_<name>` dump per extension store if the deployment has
-   any.
+   Restore one `extension-<name>-<date>.dump` per extension store the
+   deployment has — they are separate FILES, listed in the backup response.
+
+   If the database itself is gone rather than damaged, create it first
+   (`createdb "$PGDATABASE"`); `pg_restore` loads into an existing database
+   and does not make one.
 3. Scale back to one replica. Boot applies migrations newer than the
    backup.
 4. Expect the anchor-log finding. Every line anchored after the backup

@@ -378,7 +378,9 @@ def _r_mttr() -> list[dict]:
 
 def _escalated_share(since: str, until: str) -> tuple[int, float | None]:
     row = db.query_one(
-        f"SELECT COUNT(*) AS n, SUM(escalated_at IS NOT NULL) AS esc FROM blockers WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        "SELECT COUNT(*) AS n,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " COUNT(*) FILTER (WHERE escalated_at IS NOT NULL) AS esc"
+        f" FROM blockers WHERE {WORKSPACE_ONLY}"
         " AND status = 'resolved' AND resolved_at >= ? AND resolved_at < ?",
         (since, until),
     )
@@ -420,7 +422,7 @@ def _r_aging_wip() -> list[dict]:
     )
     aging = db.query(
         "SELECT t.id, t.title, m.project,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-        " CAST(EXTRACT(epoch FROM now() - t.updated_at::timestamptz) / 86400.0 AS INTEGER) AS days"
+        " FLOOR(EXTRACT(epoch FROM now() - t.updated_at::timestamptz) / 86400.0)::int AS days"
         # m.project is persisted into a findings row, which is never pruned and
         # is republished every week — the lock rides the ON clause because m is
         # the nullable side (services/scope.py::visible_filter)
@@ -652,7 +654,7 @@ def _r_intake_stall() -> list[dict]:
         ]
     old = db.query(
         "SELECT id, title, score,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-        " CAST(EXTRACT(epoch FROM now() - created_at::timestamptz) / 86400.0 AS INTEGER) AS days"
+        " FLOOR(EXTRACT(epoch FROM now() - created_at::timestamptz) / 86400.0)::int AS days"
         f" FROM intake_requests WHERE {WORKSPACE_ONLY} AND status IN ('submitted', 'scored')"
         " AND created_at < ?",
         (_iso(_today() - timedelta(days=14)),),
@@ -677,7 +679,7 @@ def _r_question_aging() -> list[dict]:
     out = []
     for q in db.query(
         "SELECT id, question, asked_by,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-        " CAST(EXTRACT(epoch FROM now() - created_at::timestamptz) / 86400.0 AS INTEGER) AS days"
+        " FLOOR(EXTRACT(epoch FROM now() - created_at::timestamptz) / 86400.0)::int AS days"
         f" FROM questions WHERE status = 'open' AND {WORKSPACE_ONLY} AND created_at < ?",
         (_iso(_today() - timedelta(days=5)),),
     ):

@@ -108,7 +108,10 @@ def _worker_db(worker_id):
             " -e POSTGRES_PASSWORD=skein -e POSTGRES_DB=skein postgres:17-alpine",
             returncode=1,
         )
-    name = f"skein_test_{worker_id}"
+    # The PID is part of the name: two pytest sessions against one server
+    # would otherwise share it, and the DROP below would take the other
+    # run's database out from under it mid-suite.
+    name = f"skein_test_{worker_id}_{os.getpid()}"
     # autocommit: CREATE/DROP DATABASE cannot run inside a transaction block.
     with psycopg.connect(base, autocommit=True) as admin:
         admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
@@ -205,7 +208,7 @@ def scratch_db(worker_id, _worker_db, monkeypatch):
     from app import config, db
 
     base = _worker_db.rsplit("/", 1)[0]
-    name = f"skein_scratch_{worker_id}_{abs(hash(monkeypatch)) % 10**8}"
+    name = f"skein_scratch_{worker_id}_{os.getpid()}_{abs(hash(monkeypatch)) % 10**6}"
     with psycopg.connect(_worker_db, autocommit=True) as admin:
         admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
         admin.execute(f'CREATE DATABASE "{name}"')
@@ -213,8 +216,11 @@ def scratch_db(worker_id, _worker_db, monkeypatch):
     config.DATABASE_URL = f"{base}/{name}"
     os.environ["SKEIN_DATABASE_URL"] = config.DATABASE_URL  # reloads, as in _worker_db
     db.close_pool()
-    db.init_db()
     try:
+        # INSIDE the try: a failure here would otherwise leave config and the
+        # environment pointed at a scratch database that is never dropped, and
+        # every later test in this worker would run against it.
+        db.init_db()
         yield db
     finally:
         db.close_pool()

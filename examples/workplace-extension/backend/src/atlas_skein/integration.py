@@ -291,9 +291,12 @@ class AtlasIntegration:
                 if self._complete_mapping(item, task):
                     created += 1
         with self._transaction():
+            # The SAME shape db.now() writes — ISO-8601, seconds, UTC. These are
+            # TEXT columns compared lexicographically across the tree, and
+            # now()::text renders a space separator that sorts before "T".
             self._execute(
                 "INSERT INTO sync_runs (created_count, updated_count, finished_at)"
-                " VALUES (?, ?, now()::text)",
+                " VALUES (?, ?, to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS+00:00'))",
                 (created, updated),
             )
         return {"created": created, "updated": updated}

@@ -78,6 +78,8 @@ jobs:
       - name: Audit production dependencies
         run: ./scripts/audit-deps.sh backend
       - name: Upgrade path
+        env:
+          SKEIN_DATABASE_URL: postgresql://skein:skein@localhost:5432/skein
         run: ./scripts/upgrade-path.sh
 
   frontend:
@@ -112,6 +114,21 @@ jobs:
     # wheel data, package-host drift, or a broken Kustomize overlay, and on
     # Gitea these four scripts run only after a change has already merged.
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: skein
+          POSTGRES_PASSWORD: skein
+          POSTGRES_DB: skein
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U skein -d skein"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      # reference-extension-contract.sh and upgrade-path.sh each build several
+      # isolated app instances, and an instance is a DATABASE now.
+      SKEIN_DATABASE_URL: postgresql://skein:skein@localhost:5432/skein
     steps:
       - uses: actions/checkout@v4
         with:

@@ -2108,6 +2108,7 @@ def patch_task(
     # route dependency remains an early refusal, while this check is the
     # authoritative decision that cannot race a concurrent project relink.
     with db.transaction():
+        policy_context.hold_resource("task", task_id)
         domain = work.task_update_policy_context(task_id, changes, actor=user)
         enforce_decision(
             decide(

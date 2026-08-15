@@ -226,7 +226,7 @@ def resolve_write(visibility: str, crew_id: int, *, actor: str) -> tuple[str, in
     also cannot be handed to anyone (assert_readable_by), because there is
     nobody who could read it.
 
-    It is still weaker than private.db, which no code path opens at all. The
+    It is still weaker than the private schema, which no other code path names. The
     difference is reversibility: a forgotten filter is a query you fix, a
     forgotten sink has already written the body somewhere permanent.
 
@@ -503,7 +503,7 @@ def visible_name(viewer: Viewer, table: str, column: str, alias: str = "") -> tu
     committed to everybody who plans against them, so filtering the row out
     makes the total lie — the same argument absences.away_today makes for a
     private PTO day. What must not travel is the engagement's name, which
-    GROUP_CONCAT(e.name) put on /api/capacity, /api/portfolio/conflicts,
+    string_agg(e.name, …) puts names on /api/capacity, /api/portfolio/conflicts,
     /api/allocations, /api/usage, the exec readout artifact on disk, and the
     team_capacity agent tool.
 

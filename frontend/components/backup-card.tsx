@@ -15,7 +15,7 @@ type BackupResult = {
 
 /** Manual backup and export, for administrators. The export is deliberately
  *  NOT the complete copy — services/admin.py::export excludes chat tables,
- *  private-visibility rows and private.db — so the copy below must say which
+ *  private-visibility rows and the private schema — so the copy below must say which
  *  half is which, or an operator exports-then-deletes and loses every chat
  *  (the deploy/k8s/OPERATOR.md exit section makes the same distinction). */
 export function BackupCard({

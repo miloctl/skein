@@ -54,20 +54,28 @@ def test_backup_carries_private_notes(fresh_db):
     assert admin.backup()["private_path"] is None
 
 
-def test_restore_drill_brings_both_schemas_back(fresh_db):
+def test_restore_drill_brings_both_schemas_back(scratch_db):
     """The documented restore procedure, executed: an untested backup is a
     hope. Back up both schemas, destroy the live ones, pg_restore the same
     dated pair over them, and verify the workspace, the private notes, AND
     the activity chain all survive the ride.
 
+    scratch_db, never fresh_db: this DROPs the public schema, and fresh_db is
+    shared by every test in the xdist worker — the drop would take all of them
+    with it.
+
     The restore is spelled out here rather than wrapped in a helper because
     deploy/k8s/README.md is what an operator follows at 3am; if the two ever
-    disagree, this test is the one that runs."""
+    disagree, this test is the one that runs. Its argv matches that runbook:
+    no --dbname (the URL carries the password and argv is world-readable),
+    and --no-owner so a restore into a different role still loads."""
     import subprocess
 
     from app import config, db
     from app.services import activity, admin, private_notes, work
 
+    restore = _pg_restore()  # before anything is destroyed, so a missing
+    # client tool fails the test instead of leaving a wrecked database behind
     task = work.create_task(title="survives the restore", actor="tester")
     private_notes.add_note("manager", "dana", "the private note that must survive")
     for i in range(2):
@@ -83,18 +91,14 @@ def test_restore_drill_brings_both_schemas_back(fresh_db):
     private_notes._schema_ready = False
 
     # the documented procedure: pg_restore the same-date pair
+    env = admin._pg_env()
     for dump in (out["path"], out["private_path"]):
         subprocess.run(  # noqa: S603 — fixed argv, no shell
-            [
-                _pg_restore(),
-                "--dbname",
-                config.DATABASE_URL,
-                "--no-owner",
-                "--clean",
-                "--if-exists",
-                dump,
-            ],
-            env=admin._pg_env(),
+            # --dbname takes the NAME, never the URL: pg_restore must connect
+            # to restore at all (without -d it just prints SQL), and the name
+            # carries no password into argv. _pg_env supplies the rest.
+            [restore, "--dbname", env["PGDATABASE"], "--clean", "--if-exists", "--no-owner", dump],
+            env=env,
             check=True,
             capture_output=True,
         )

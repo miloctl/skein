@@ -208,7 +208,7 @@ def capture(
         raise ValueError("nothing to capture")
     # fb: short-circuits BEFORE classification — feedback never becomes a
     # team-visible, FTS-indexed record. Human-only, strong-identity-only;
-    # no index_record, no activity log (audit lives inside private.db).
+    # no index_record, no activity log (the audit lives in the private schema).
     # Line-oriented and fail-closed: an fb: line buried in a multi-line
     # capture must never ride along into a task/note (it would land in FTS).
     from . import private_notes

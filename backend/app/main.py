@@ -852,13 +852,17 @@ def create_app(
 
     # Composition root: the service layer never imports the extension layer,
     # the same way agents/narrator.py registers itself into digest.
+    stores = {
+        contribution.name: contribution.store
+        for contribution in registry.migrations
+        if isinstance(contribution.store, ExtensionStore)
+    }
+    # EVERY store, plus the subset to dump. admin.backup excludes what it is
+    # given from the core file, so a store withheld here is not excluded —
+    # it rides the core dump off-box, which is the opposite of opting out.
     admin.set_extension_stores(
-        {
-            contribution.name: contribution.store.schema
-            for contribution in registry.migrations
-            if isinstance(contribution.store, ExtensionStore)
-            and contribution.store.include_in_backup
-        }
+        {name: store.schema for name, store in stores.items()},
+        {name for name, store in stores.items() if store.include_in_backup},
     )
     from .tools import ALL_TOOLS
 

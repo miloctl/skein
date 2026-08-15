@@ -268,7 +268,7 @@ export function CapturePalette() {
         </div>
         <div className="mt-2">
           {/* An `fb:` capture short-circuits in services/capture.py BEFORE the
-              tier is read, into private.db — a separate database no other code
+              tier is read, into the private schema — one no other code
               path opens. The tier IS still on the wire — submit sends the
               whole state — and the server discards it, so a picker reading
               "Platform only" would state a choice that has no effect. It

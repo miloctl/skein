@@ -567,12 +567,13 @@ def test_runner_sweep_serializes_policy_and_notification(fresh_db, monkeypatch):
             policy_entered.set()
             assert writer_attempted.wait(5)
             # The relink is allowed to COMMIT here. What the sweep guarantees
-            # is a stable snapshot, not a blocked writer: _due reads inside
-            # db.read_transaction() (REPEATABLE READ), so the relink is
-            # invisible to this run and the decision below still sees the
-            # project type it was entered with. `swept == 1` at the bottom is
-            # that guarantee; under SQLite the same outcome came from the
-            # writer being held off by the global write lock.
+            # is that the decision and the work it authorizes come from ONE
+            # read: agent_runner._due resolves each task's policy attributes
+            # once, at the top, and the run acts on those. (Not a read
+            # snapshot — sweep() wraps _due in db.transaction(), and
+            # read_transaction joins an ambient one rather than raising its
+            # isolation.) `swept == 1` at the bottom is that guarantee; a
+            # blocked writer was SQLite's mechanism for it, not the promise.
             sleep(0.05)
         return None
 
@@ -632,8 +633,9 @@ def test_runner_final_policy_check_and_daily_claim_share_one_transaction(fresh_d
             policy_entered.set()
             assert writer_attempted.wait(5)
             # As above: the relink may commit here. The run's consistency
-            # comes from the read snapshot, not from holding the writer off,
-            # and `ran is True` plus the daily claim below is what that means.
+            # comes from resolving the attributes once, not from holding the
+            # writer off, and `ran is True` plus the daily claim below is what
+            # that means.
             sleep(0.05)
         return None
 
