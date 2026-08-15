@@ -63,6 +63,17 @@ spec:
             # initdb refuses a non-empty directory.
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
+            # Read by the initdb script, not by the server.
+            - name: SKEIN_APP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: skein-db-secret
+                  key: SKEIN_APP_USER
+            - name: SKEIN_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: skein-db-secret
+                  key: SKEIN_APP_PASSWORD
           # pg_isready, not a TCP check: the port accepts connections while
           # the cluster is still recovering, and the backend would then boot
           # into a refused query and crash-loop through its migrations.
@@ -93,6 +104,13 @@ spec:
           volumeMounts:
             - name: pgdata
               mountPath: /var/lib/postgresql/data
+            # initdb runs *.sql here on the first boot of an empty volume.
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: init
+          configMap:
+            name: skein-db-init
   # volumeClaimTemplates, not a bare PVC: the volume belongs to the pod
   # identity, and deleting the StatefulSet leaves it behind rather than
   # taking the database with it.
@@ -121,3 +139,34 @@ spec:
     - name: postgres
       port: 5432
       targetPort: postgres
+---
+# initdb runs this ONCE, on the first boot of an empty volume. It creates the
+# role the application actually connects as.
+#
+# The application must NOT be a superuser. A superuser can COPY ... FROM
+# PROGRAM, which executes shell commands on this pod as the postgres OS user,
+# and pg_read_file, which reads its filesystem — so every SQL bug, and every
+# buggy extension (ExtensionStore takes raw SQL), escalates from "reads some
+# rows" to running commands on the database container. SQLite had no
+# SQL-reachable exec primitive at all; this restores the bound.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: skein-db-init
+data:
+  # A shell script, not a .sql file: the entrypoint runs both, and this way
+  # the credentials stay in psql variables passed by the shell rather than in
+  # meta-commands whose quoting is easy to get subtly wrong.
+  10-app-role.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+      -v app_user="$SKEIN_APP_USER" -v app_password="$SKEIN_APP_PASSWORD" \
+      -v dbname="$POSTGRES_DB" <<-'EOSQL'
+        CREATE ROLE :"app_user" LOGIN PASSWORD :'app_password'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+        GRANT CONNECT ON DATABASE :"dbname" TO :"app_user";
+        -- CREATE as well as USAGE: the application applies its own migrations
+        -- at startup, so it must be able to create tables in this schema.
+        GRANT USAGE, CREATE ON SCHEMA public TO :"app_user";
+    EOSQL

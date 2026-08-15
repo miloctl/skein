@@ -420,3 +420,19 @@ def test_the_agent_inbox_tool_takes_no_name():
         "my_agent_inbox must take no parameters — it reads its own identity"
         " from agent_identity() and the caller's viewer from requester_viewer()"
     )
+
+
+def test_health_reports_a_superuser_database_role(fresh_db, monkeypatch):
+    """A superuser connection is a standing privilege fault, and /health is
+    where it has to show — a deployment that skipped the NOSUPERUSER role has
+    no other signal, and the cost is that any SQL bug can run shell commands
+    on the database host."""
+    from app import db
+
+    monkeypatch.setattr(db, "query_one", lambda *a, **k: {"rolsuper": True})
+    warnings = db.privilege_warnings()
+    assert warnings and "superuser" in warnings[0]
+    assert "NOSUPERUSER" in warnings[0]
+
+    monkeypatch.setattr(db, "query_one", lambda *a, **k: {"rolsuper": False})
+    assert db.privilege_warnings() == []
