@@ -413,6 +413,10 @@ def adopt_unchained(actor: str = "scheduler") -> dict:
     smuggled rows silently.
     """
     with db.transaction():
+        # FIRST in the transaction, before the tail read the seqs come from.
+        # db.py's flush takes this same lock last, so taking it after any
+        # write here would close a deadlock cycle with every ordinary append.
+        db.hold_activity_chain()
         orphans = db.query(
             "SELECT id, actor, action, detail, created_at FROM activity"
             # created_at first: the seqs land at the tail either way, but the

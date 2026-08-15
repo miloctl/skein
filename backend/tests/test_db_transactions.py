@@ -1,6 +1,7 @@
 """The ambient-connection transaction context manager: rollback, nesting, and the compound services that depend on it being atomic."""
 
 import threading
+from decimal import Decimal
 
 import pytest
 
@@ -203,3 +204,29 @@ def test_the_helpers_return_their_connections_to_the_pool(fresh_db):
     assert stats["pool_size"] <= pool.max_size
     # nothing is still checked out once the helpers have returned
     assert stats.get("pool_available", 0) >= 1
+
+
+def test_numeric_aggregates_load_as_float_not_decimal(fresh_db):
+    """SUM, ROUND(::numeric) and EXTRACT(epoch) must not reach a caller as
+    Decimal.
+
+    Decimal is not JSON-serializable, and the services are written for the
+    float SQLite returned. The break lands only on the json.dumps callers:
+    FastAPI routes survive on jsonable_encoder, so the REST surface stays
+    green while every agent tool returning the same numbers raises
+    TypeError. Without the numeric loader in db.py the findings job dies on
+    its own budget receipt and get_flow_metrics raises whenever a task is
+    complete."""
+    import json
+
+    from app import db
+
+    row = db.query_one(
+        "SELECT SUM(n)::bigint AS total, ROUND(AVG(n)::numeric, 1) AS mean,"
+        " EXTRACT(epoch FROM now()) AS epoch"
+        " FROM (SELECT 1 AS n UNION ALL SELECT 2) t"
+    )
+    assert row is not None
+    for key, value in row.items():
+        assert not isinstance(value, Decimal), f"{key} loaded as Decimal"
+    json.dumps(row)  # the sink every agent tool goes through
