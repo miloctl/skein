@@ -182,6 +182,10 @@ morning sweep, which notifies each delegated task's sponsor rather than filing
   proposals. Build this when one has, and shape the bundle around what that
   week actually filed. Its first named consumer stays the flock synthesis
   step, which is built with no tools and therefore cannot propose anything.
+- Rejected proposals nag agent inboxes forever. Superseded completion rework
+  now drops out — a rejected `task_completion` disappears once a later one for
+  the same task is approved — so what remains is every other entity, and every
+  rejection nobody re-submits. An `acked_at` column ends those.
 - Notify-tier writes link to an empty `/review`.
 - The review registry has no registration-time assertion on apply-handler
   signatures — a mismatched handler surfaces at apply time as a caught
@@ -381,6 +385,71 @@ Named here because the rest of that review shipped and these did not.
   under white text, not this pairing.
 - **`PARTY_CAP` caps parties, not items** [XS] — one party carrying 600
   open threads still reaches the page height the cap was added to fix.
+
+## From the live product study (2026-08-15)
+
+Drained from the study transcripts in `docs/reviews/2026-08-15-product-study-*`
+when they closed. Everything else in those files either shipped on
+`proposed-features` or was refused there with a reason.
+
+**Reachability — a bounded read with no route to the rest.** Each of these
+stores rows that no surface can reach. They share a shape and are worth
+sizing together, but they are not one build: the study refused a global
+history center, so each surface keeps its own bound.
+
+- **Unread notifications past the first 20** [S] — `services/briefing.py`
+  reads `ORDER BY id DESC LIMIT 20` and My Day renders at most five groups.
+  Retention prunes only READ rows older than 90 days, so an unread row past
+  the window is stored with no count and no route to it. Advances when a live
+  reader exceeds 20 unread rows.
+- **The Insights findings feed** [S] — `services/insights.py` calls
+  `list_findings(weeks=4, limit=50)` with no cursor. A condition that persists
+  can also mint a duplicate finding in a later week, so the bound is reached
+  sooner than the row count suggests.
+- **The agent inbox rejection window** [S] — ten rows, and the superseded
+  `task_completion` anti-join that shipped clears only one cause. See the
+  `acked_at` item under "Agent layer" for the rest.
+- **Divergent bounds across surfaces** [M, decision first] — reports, chats,
+  findings, notifications, decisions, requests and agent notes each have a
+  different reachability limit. Name one rule before building seven cursors.
+
+**Named, blocked on a decision rather than on effort.**
+
+- **Engagement outcome recording** [S, blocked] — an engagement with no
+  intended outcome sends the manager to Chat instead of offering the write
+  next to the empty field. Blocked until the canonical outcome write surface
+  and its return path are named.
+- **Legacy and aggregate review-notification repair** [M] — migration 002
+  types new proposal notifications, so pre-002 rows still sit beside their
+  proposals untyped. Separately, a batch ingest summary keeps claiming
+  "1 proposal awaiting review" after that proposal is rejected. Needs a typed
+  batch identity and an idempotent repair, not a second filter.
+- **The rest of the verified-trust contract** [S] — the shipped half stopped
+  inferring a last verdict from a zero streak. Reviewer name, verdict time and
+  identity strength on rejected inbox rows did not ship.
+
+**Daily-surface ergonomics, each with study evidence.**
+
+- **My Day active-task window** [S] — capped at 200 active tasks with no
+  overflow count, and the sort carries no final task-id key, so equal-ranked
+  rows order unstably between reads. The instability is the smaller half and
+  the cheaper fix.
+- **Full task editing in the task panel** [M] — the inline editor exposes
+  title, assignee and due date. Priority, description, status, `waiting_on`,
+  commitment week and visibility have no path. Needs a field set and a
+  visibility-transition rule before it is built.
+- **Browse filters and task pagination** [M] — 28 open tasks render as one
+  unfiltered list about 900px tall, over 600 accessibility nodes on the seeded
+  instance, with no source, engagement or owner filter.
+- **Settings information architecture** [S] — personal setup, operator setup
+  and administrator controls share one page, so a keyless reader scans
+  disabled sections to find the two rows that apply to them.
+- **Planning action placement** [S] — evidence and the control that resolves
+  it sit on different pages for the health draft, capacity allocation and the
+  incident path. Item 5 above covers the capacity form only.
+- **Engagement-level model-cost attribution** [M] — every model call sits
+  under `(unlinked)`. Honest, and empty unless people hand-maintain chat
+  links, so this needs an automatic link before the surface earns its space.
 
 ## Cut, with re-entry triggers
 
