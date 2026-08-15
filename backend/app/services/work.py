@@ -19,6 +19,7 @@ WEEK_RE = re.compile(r"^\d{4}-W(0[1-9]|[1-4]\d|5[0-3])$")
 # a row the system wrote that its own UI could not edit.
 TITLE_LEN = 200
 DESCRIPTION_LEN = 4000
+TASK_LIST_LIMIT = 500
 
 
 def _event_actor_kind(origin: str) -> str:
@@ -1362,8 +1363,19 @@ def downstream(
     }
 
 
-def list_tasks_joined(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
-    """Browse listing: tasks with their milestone title, priority-ordered."""
+def list_tasks_joined(
+    viewer: scope.Viewer = scope.NOBODY,
+    *,
+    status: str = "",
+    order: str = "priority",
+    limit: int = TASK_LIST_LIMIT,
+    offset: int = 0,
+) -> list[dict]:
+    """Browse listing: tasks with their visible milestone title."""
+    if status not in ("", "open", "done"):
+        raise ValueError("status must be open or done")
+    if order not in ("priority", "completed"):
+        raise ValueError("order must be priority or completed")
     # Two filters, two placements. `t` is the LEFT JOIN's driving side, so it
     # belongs in WHERE. `m` is the nullable side and belongs in the ON clause —
     # in WHERE it would drop every task with no milestone and turn the join
@@ -1375,7 +1387,7 @@ def list_tasks_joined(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     wtfrag, wtp = scope.visible_filter(viewer, "tasks", alias="waiting_task")
     wbfrag, wbp = scope.visible_filter(viewer, "blockers", alias="waiting_blocker")
     wpfrag, wpp = scope.visible_filter(viewer, "promises", alias="waiting_promise")
-    rows = db.query(
+    sql = (
         f"SELECT t.*, m.id AS visible_milestone_id, m.title AS milestone_title,"  # noqa: S608 — scope.visible_filter emits only bound marks
         " e.id AS visible_engagement_id,"
         " COALESCE(waiting_task.id, waiting_blocker.id, waiting_promise.id)"
@@ -1389,11 +1401,22 @@ def list_tasks_joined(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
         " LEFT JOIN promises waiting_promise ON t.waiting_on_type = 'promise'"
         f" AND waiting_promise.id = t.waiting_on_id AND {wpfrag}"
         f" WHERE {frag}"
-        " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
-        " WHEN 'medium' THEN 2 ELSE 3 END, t.id LIMIT 500",
-        (*mp, *ep, *wtp, *wbp, *wpp, *vp),
     )
-    return [_redact_hidden_task_links(row) for row in rows]
+    params: list[str | int] = [*mp, *ep, *wtp, *wbp, *wpp, *vp]
+    if status == "open":
+        sql += " AND t.status != 'done'"
+    elif status == "done":
+        sql += " AND t.status = 'done'"
+    if order == "completed":
+        sql += " ORDER BY t.completed_at DESC NULLS LAST, t.id DESC"
+    else:
+        sql += (
+            " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
+            " WHEN 'medium' THEN 2 ELSE 3 END, t.id"
+        )
+    sql += " LIMIT ? OFFSET ?"
+    params.extend((limit, offset))
+    return [_redact_hidden_task_links(row) for row in db.query(sql, tuple(params))]
 
 
 def list_tasks(
@@ -1435,7 +1458,7 @@ def list_tasks(
         params.append(assignee)
     sql += (
         " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
-        " WHEN 'medium' THEN 2 ELSE 3 END, t.id"
-        " LIMIT 500"  # Browse renders these unpaginated — bound the dump
+        " WHEN 'medium' THEN 2 ELSE 3 END, t.id LIMIT ?"
     )
+    params.append(TASK_LIST_LIMIT)  # Browse renders these unpaginated — bound the dump
     return [_redact_hidden_task_links(row) for row in db.query(sql, tuple(params))]

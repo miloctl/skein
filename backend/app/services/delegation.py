@@ -4,13 +4,14 @@ scores computed from the review inbox — promotion is suggested, never automati
 
 import json
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from .. import config, db
 from ..agents.identity import refuse_when_consultative
 from . import scope
 from .users import (
     ensure_agent_identity,
+    fold,
     is_delegatable_agent_identity,
     refuse_ambiguous_identity,
 )
@@ -114,8 +115,11 @@ def delegate_task(
 
 
 def _check_not_forbidden(actor: str) -> None:
-    """The delegation trio bypasses gated_write by design (working your own
-    delegation is direct), but the kill switch must still hold."""
+    """The delegation trio uses its sponsor grant, not matrix elevation.
+
+    An expired matrix grant cannot cancel a human's task-specific delegation.
+    The forbidden kill switch still stops the complete delegated loop.
+    """
     if authority_level(actor, "task") == "forbidden":
         raise ValueError(f"'{actor}' is forbidden on tasks — ask a human to lift it")
 
@@ -470,15 +474,35 @@ def set_authority(
     origin: str = "human",
 ) -> dict:
     agent = agent.strip()
+    with db.transaction():
+        # Identity comes first because users.rename_user takes that lock before
+        # it moves authority rows. Reversing the order closes a deadlock cycle.
+        db.name_lock(db.LOCK_IDENTITY, fold(agent))
+        # The stale check and upsert must serialize on a pair that may not have a
+        # row yet. Otherwise an approval can overwrite a concurrent forbidden
+        # kill switch after it checked the old level.
+        db.name_lock(db.LOCK_AUTHORITY, f"{len(agent)}:{agent}{entity}")
+        return _set_authority_locked(agent, entity, level, expected_current, actor, origin)
+
+
+def _set_authority_locked(
+    agent: str,
+    entity: str,
+    level: str,
+    expected_current: str,
+    actor: str,
+    origin: str,
+) -> dict:
     if not agent or agent == "anonymous":
         raise ValueError("agent name is required")
     if level not in LEVELS:
         raise ValueError(f"level must be one of {LEVELS}")
     # streak-filed proposals pin the from-level: a stale proposal must never
     # override what a human set in the meantime — above all the kill switch
-    if expected_current and authority_level(agent, entity) != expected_current:
+    current = authority_level(agent, entity)
+    if expected_current and current != expected_current:
         raise ValueError(
-            f"{agent}/{entity} is now '{authority_level(agent, entity)}',"
+            f"{agent}/{entity} is now '{current}',"
             f" not '{expected_current}' — this proposal is stale. Re-run the review"
         )
     # the kill switch must not be self-serviceable: an agent identity (e.g. a
@@ -513,10 +537,9 @@ def set_authority(
         ensure_agent_identity(agent)
     elif existing_agent["kind"] != "agent":
         raise ValueError(f"'{agent}' is already owned by a human identity")
-    # authority half-life: elevated grants carry a review-by date (90d
-    # default) — "nothing in Skein is trusted forever, not decisions, not
-    # agents." The authority_stale findings rule nags past it; reconfirm by
-    # re-granting.
+    # Elevated grants stop acting alone after this date. The configured level
+    # stays on the row for audit, while tools/_gate.py forces the expired grant
+    # through review until a human re-grants it.
     review_by = None
     if level in ("autonomous", "notify"):
         from datetime import timedelta
@@ -534,19 +557,52 @@ def set_authority(
     return {"agent": agent, "entity": entity, "level": level, "review_by": review_by}
 
 
-def authority_level(agent: str, entity: str) -> str:
-    """Default is 'review' — new agents earn autonomy, they don't start with it."""
+def _authority_status(row: dict | None) -> dict:
+    if row is None:
+        return {
+            "level": "review",
+            "effective_level": "review",
+            "review_by": None,
+            "review_expired": False,
+        }
+    level = row["level"]
+    review_by = row["review_by"]
+    if level in ("autonomous", "notify") and not review_by:
+        review_by = (
+            date.fromisoformat(db.local_day(row["updated_at"])) + timedelta(days=90)
+        ).isoformat()
+    expired = bool(
+        review_by and level in ("autonomous", "notify") and review_by < db.today().isoformat()
+    )
+    return {
+        **{key: value for key, value in row.items() if key != "fallback_review_by"},
+        "review_by": review_by,
+        "effective_level": "review" if expired else level,
+        "review_expired": expired,
+    }
+
+
+def authority_status(agent: str, entity: str) -> dict:
+    """Configured and effective authority from one date-aware resolver."""
     row = db.query_one(
-        "SELECT level FROM agent_authority WHERE agent = ? AND entity = ?",
+        "SELECT * FROM agent_authority WHERE agent = ? AND entity = ?",
         (agent, entity),
     )
-    return row["level"] if row else "review"
+    return _authority_status(row)
+
+
+def authority_level(agent: str, entity: str) -> str:
+    """The configured level. Stale proposals compare against the stored grant."""
+    return authority_status(agent, entity)["level"]
 
 
 def authority_matrix(agent: str = "") -> list[dict]:
+    sql = "SELECT * FROM agent_authority"
     if agent:
-        return db.query("SELECT * FROM agent_authority WHERE agent = ? ORDER BY entity", (agent,))
-    return db.query("SELECT * FROM agent_authority ORDER BY agent, entity")
+        rows = db.query(sql + " WHERE agent = ? ORDER BY entity", (agent,))
+    else:
+        rows = db.query(sql + " ORDER BY agent, entity")
+    return [_authority_status(row) for row in rows]
 
 
 def trust_blocked() -> str:
@@ -558,9 +614,15 @@ def trust_blocked() -> str:
     Deterministic and observed, never predicted: the second case counts real
     verdicts rather than guessing what the auth mode will produce."""
     if not config.AGENT_REVIEW:
-        # with the gate off, a review-level write applies directly and files
-        # no proposal at all — so there is no verdict to earn trust with
-        # (tools/_gate.py takes the direct branch on `not config.AGENT_REVIEW`)
+        # Expired elevated grants still wait for a verdict. Current grants take
+        # the direct path, so only those expired pairs can earn trust while the
+        # deployment-wide gate is off.
+        if any(row["review_expired"] for row in authority_matrix()):
+            return (
+                "The review gate is off, so current grants apply directly and record no verdict."
+                " Expired elevated grants still wait for review. To collect verdicts for every"
+                " agent write, set SKEIN_AGENT_REVIEW=1."
+            )
         return (
             "The review gate is off, so agent writes apply directly and record no verdict."
             " Trust cannot increase. To collect verdicts, set SKEIN_AGENT_REVIEW=1."
@@ -645,7 +707,14 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
         r["approval_rate"] = round(r["approved"] / r["proposed"], 2) if r["proposed"] else 0
         r["recent_streak"] = streak
         r["rejection_streak"] = rejection_streak
-        r["current_level"] = authority_level(r["agent"], r["entity"])
+        authority = authority_status(r["agent"], r["entity"])
+        r["configured_level"] = authority["level"]
+        # Keep the existing field's configured-level meaning for API clients.
+        # Expiration is additive data, not a silent demotion in old clients.
+        r["current_level"] = authority["level"]
+        r["effective_level"] = authority["effective_level"]
+        r["review_by"] = authority["review_by"]
+        r["review_expired"] = authority["review_expired"]
         # The rung review_authority ACTUALLY files, and the same predicate it
         # asks. This said "autonomous" where a promotion climbs one rung to
         # `notify`, and it skipped promotion_blocked entirely — so it offered
@@ -660,8 +729,8 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
         r["suggestion"] = (
             f"{streak} straight approvals — consider promoting to notify"
             if streak >= TRUST_STREAK
-            and r["current_level"] == "review"
-            and not promotion_blocked(r["agent"], r["entity"], r["current_level"], judged)
+            and r["configured_level"] == "review"
+            and not promotion_blocked(r["agent"], r["entity"], r["configured_level"], judged)
             else ""
         )
     return rows
@@ -772,11 +841,11 @@ def review_authority(*, actor: str = "scheduler") -> dict:
         target = None
         why = ""
         if r["recent_streak"] >= TRUST_STREAK and not promotion_blocked(
-            r["agent"], r["entity"], r["current_level"], seen
+            r["agent"], r["entity"], r["configured_level"], seen
         ):
             target = "notify"
             why = f"{r['recent_streak']} straight strong-verdict approvals"
-        elif r["rejection_streak"] >= DEMOTION_STREAK and r["current_level"] in (
+        elif r["rejection_streak"] >= DEMOTION_STREAK and r["configured_level"] in (
             "autonomous",
             "notify",
         ):
@@ -793,10 +862,10 @@ def review_authority(*, actor: str = "scheduler") -> dict:
                 "agent": r["agent"],
                 "entity": r["entity"],
                 "level": target,
-                "expected_current": r["current_level"],
+                "expected_current": r["configured_level"],
             },
             summary=f"authority: {r['agent']}/{r['entity']}"
-            f" {r['current_level']} -> {target} ({why})"
+            f" {r['configured_level']} -> {target} ({why})"
             + (
                 " — notify means direct writes with an FYI, no pre-review"
                 if target == "notify"
@@ -944,11 +1013,19 @@ def agent_inbox(
     # everything — a rejection it cannot read is a correction it cannot act on.
     from .review import _readable
 
+    # Keep the rejected verdict for trust, but remove resolved completion rework
+    # from this action list. A later generic task update is not acceptance.
     rejected = db.query(
-        "SELECT id, entity, entity_id, summary, review_note, reviewed_by,"
-        " review_visibility, review_crew_id, review_owner, policy_context"
-        " FROM pending_changes"
-        " WHERE proposed_by = ? AND status = 'rejected' ORDER BY id DESC LIMIT 10",
+        "SELECT p.id, p.entity, p.entity_id, p.summary, p.review_note, p.reviewed_by,"
+        " p.review_visibility, p.review_crew_id, p.review_owner, p.policy_context"
+        " FROM pending_changes p"
+        " WHERE p.proposed_by = ? AND p.status = 'rejected'"
+        " AND NOT (p.entity = 'task_completion' AND EXISTS ("
+        " SELECT 1 FROM pending_changes later"
+        " WHERE later.id > p.id"
+        " AND later.entity = 'task_completion' AND later.entity_id = p.entity_id"
+        " AND later.status = 'approved'))"
+        " ORDER BY p.id DESC LIMIT 10",
         (agent,),
     )
     if viewer is not None:

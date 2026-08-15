@@ -130,9 +130,13 @@ function LessonsCard() {
         setError("");
         // only from the unfiltered read: a filtered one knows about one class
         if (!cls)
-          setClasses([
-            ...new Set(r.map((l) => String(l.project_class || "")).filter(Boolean)),
-          ].sort());
+          setClasses(
+            [
+              ...new Set(
+                r.map((l) => String(l.project_class || "")).filter(Boolean),
+              ),
+            ].sort(),
+          );
       })
       .catch((e) => {
         if (!live) return;
@@ -419,6 +423,12 @@ const COLLECTIONS = [
 ];
 
 function fetchCollection(name: string): Promise<Row[]> {
+  if (name === "tasks")
+    // One server snapshot keeps a concurrent completion from putting a task in
+    // both state slices, or in neither, until the next refresh.
+    return api<{ open: Row[]; done: Row[] }>("/api/tasks/browse").then(
+      ({ open, done }) => [...open, ...done],
+    );
   if (name !== "events") return api<Row[]>(`/api/${name}`);
   // calendar shows what's ahead — without the cutoff the card fills with
   // the 50 oldest events and never today's
@@ -495,10 +505,8 @@ const SHIPPED_WINDOW_DAYS = 7;
 
 /** Done tasks from the last week, newest first. A module function, not an
  * expression in the component body: the clock read belongs outside render,
- * the way lib/time.ts::timeAgo holds its own. The rows are already in the
- * Tasks payload and thrown away by that section's filter, so this costs no
- * request. completed_at is a UTC timestamp, so the window compares instants
- * rather than slicing a date out of a string. */
+ * the way lib/time.ts::timeAgo holds its own. completed_at is a UTC timestamp,
+ * so the window compares instants rather than slicing a date out of a string. */
 function shippedRecently(tasks: Row[] | undefined): Row[] {
   const cutoff = Date.now() - SHIPPED_WINDOW_DAYS * 86_400_000;
   return (tasks ?? [])
@@ -507,7 +515,9 @@ function shippedRecently(tasks: Row[] | undefined): Row[] {
       const at = Date.parse(String(t.completed_at));
       return Number.isFinite(at) && at >= cutoff;
     })
-    .sort((a, b) => String(b.completed_at).localeCompare(String(a.completed_at)));
+    .sort((a, b) =>
+      String(b.completed_at).localeCompare(String(a.completed_at)),
+    );
 }
 
 export default function Dashboard() {

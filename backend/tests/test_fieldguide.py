@@ -15,7 +15,7 @@ def test_registry_is_valid_and_complete(fresh_db):
     from app.services import fieldguide
 
     cards = fieldguide.registry()
-    assert len(cards) == 40
+    assert len(cards) == 42
     ids = {k["id"] for k in cards}
     assert ids == set(fieldguide.PREDICATES)
     for k in cards:
@@ -27,7 +27,7 @@ def test_hint_and_guide_use_the_same_tieable_total(fresh_db):
     from app.services import fieldguide
 
     _mint(fresh_db, "ava")
-    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 39
+    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 41
 
 
 def test_first_detection_seeds_silently(fresh_db):
@@ -143,6 +143,23 @@ def test_mark_ties_readonly_features_via_route(client, fresh_db):
     client.get("/api/search", params={"q": "anything"})
     g = fieldguide.guide("tester")
     assert any(c["id"] == "search" and c["tied"] for c in g["cards"])
+
+
+def test_reports_page_ties_the_read_only_history_knot(client, fresh_db):
+    from app.services import fieldguide
+
+    _mint(fresh_db, "tester")
+    client.get("/api/artifacts/page")
+    card = next(row for row in fieldguide.guide("tester")["cards"] if row["id"] == "reports")
+    assert card["tied"] is True
+
+
+def test_authority_change_ties_the_half_life_knot(fresh_db):
+    from app.services import delegation, fieldguide
+
+    _mint(fresh_db, "ava")
+    delegation.set_authority("scout", "task", "review", actor="ava")
+    assert fieldguide.PREDICATES["authority_half_life"]("ava")
 
 
 def test_unadopted_is_nameless_and_respects_grace(fresh_db):

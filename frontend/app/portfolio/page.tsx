@@ -167,7 +167,10 @@ export default function Portfolio() {
   // reader (Work → Reports), and a <pre> dump beside the button was the one
   // place it was ever shown formatted-as-source
   const [readout, setReadout] = useState<number | null>(null);
-  const [ritualOut, setRitualOut] = useState<number | null>(null);
+  const [ritualOut, setRitualOut] = useState<{
+    artifactId: number;
+    skipped: boolean;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   // a ref beside the state: the click guards below read it synchronously, and
   // a second click inside the same tick would otherwise see the stale value
@@ -648,14 +651,15 @@ export default function Portfolio() {
                   if (busyRef.current) return;
                   dismissStatus();
                   setBusy(true);
-                  // These two routes pass force=True, and _claim_week returns
-                  // `claimed or force` — so a button run always runs and always
-                  // files an artifact. The {skipped} shape belongs to the
-                  // scheduler's call, which never reaches a browser.
-                  api<{ artifact_id: number }>(`/api/rituals/${r}`, {
+                  api<{ artifact_id: number; skipped?: string }>(`/api/rituals/${r}`, {
                     method: "POST",
                   })
-                    .then((res) => setRitualOut(res.artifact_id))
+                    .then((res) =>
+                      setRitualOut({
+                        artifactId: res.artifact_id,
+                        skipped: Boolean(res.skipped),
+                      }),
+                    )
                     .catch((e) => reportStatus(actionError(e)))
                     .finally(() => setBusy(false));
                 }}
@@ -667,14 +671,21 @@ export default function Portfolio() {
           </div>
           <div aria-live="polite">
             {ritualOut ? (
-              <p className="mt-3 text-xs">
+              <div className="mt-3 text-xs">
+                <p>
+                  {ritualOut.skipped
+                    ? "This ritual already ran this week. Skein did not send duplicate notifications."
+                    : "The ritual is complete."}
+                </p>
                 <Link
-                  href={`/artifacts?id=${ritualOut}`}
+                  href={`/artifacts?id=${ritualOut.artifactId}`}
                   className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-3"
                 >
-                  Read it on Work → Reports
+                  {ritualOut.skipped
+                    ? "Read the existing report on Work → Reports"
+                    : "Read the report on Work → Reports"}
                 </Link>
-              </p>
+              </div>
             ) : null}
           </div>
         </Card>

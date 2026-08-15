@@ -32,6 +32,11 @@ type Artifact = {
 
 type Body = Artifact & { markdown: string };
 
+type ArtifactPage = {
+  items: Artifact[];
+  next_before: number | null;
+};
+
 /** What each kind IS, in the words the rest of the app uses for it. A bare
  *  `readout` is a column value, not a name a reader has met.
  *
@@ -52,11 +57,6 @@ const kindLabel = (kind: string) => KIND_LABEL[kind] ?? kind;
 
 const PARAM = "id";
 
-/** services/handoff.py::list_artifacts caps the unfiltered read here. Kept in
- *  step by the card title, which stops calling the length a total once the
- *  response is exactly this long. */
-const ARTIFACT_PAGE = 50;
-
 /** window.location, not useSearchParams: the latter puts the route behind a
  *  Suspense boundary for a value that is never prerendered — the reasoning
  *  components/task-peek.tsx and app/auth/callback record. */
@@ -73,6 +73,9 @@ export default function ArtifactsPage() {
   // never arrived (the idiom app/portfolio/page.tsx records).
   const [list, setList] = useState<Artifact[] | null>(null);
   const [listError, setListError] = useState("");
+  const [nextBefore, setNextBefore] = useState<number | null>(null);
+  const [olderBusy, setOlderBusy] = useState(false);
+  const [olderError, setOlderError] = useState("");
   const [openId, setOpenId] = useState<number | null>(null);
   // Both carry the id they belong to. A second click while the first read is
   // in flight resolves in whatever order the network returns, and keying the
@@ -84,14 +87,15 @@ export default function ArtifactsPage() {
   );
 
   useEffect(() => {
-    api<Artifact[]>("/api/artifacts")
-      .then((rows) => {
-        setList(rows);
+    api<ArtifactPage>("/api/artifacts/page")
+      .then((page) => {
+        setList(page.items);
+        setNextBefore(page.next_before);
         setListError("");
         // A link from elsewhere names an artifact; anything else opens the
         // newest, because a reader arriving at Reports wants today's, not a
         // list to click before reading anything.
-        const first = idFromUrl() ?? rows[0]?.id ?? null;
+        const first = idFromUrl() ?? page.items[0]?.id ?? null;
         setOpenId((cur) => cur ?? first);
         // REPLACE, so the first history entry already names what is open.
         // Pushed instead, Back would return to a bare /artifacts, and popstate
@@ -117,6 +121,19 @@ export default function ArtifactsPage() {
       .then((data) => setBody({ id, data }))
       .catch((e) => setBodyError({ id, message: loadError(e) }));
   }, [openId]);
+
+  const loadOlder = useCallback(() => {
+    if (nextBefore === null || olderBusy) return;
+    setOlderBusy(true);
+    setOlderError("");
+    api<ArtifactPage>(`/api/artifacts/page?before=${nextBefore}`)
+      .then((page) => {
+        setList((current) => [...(current ?? []), ...page.items]);
+        setNextBefore(page.next_before);
+      })
+      .catch((e) => setOlderError(loadError(e)))
+      .finally(() => setOlderBusy(false));
+  }, [nextBefore, olderBusy]);
 
   const open = useCallback((id: number) => {
     setOpenId(id);
@@ -170,14 +187,11 @@ export default function ArtifactsPage() {
         </EmptyState>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,17rem)_minmax(0,1fr)]">
-          {/* `list_artifacts` returns `ORDER BY id DESC LIMIT 50`, and the
-              digest files one every day — so past 50 this is a page, not a
-              total, and a bare count would read as one (services/handoff.py) */}
           <Card
             title={
-              list.length >= ARTIFACT_PAGE
-                ? `Reports (newest ${list.length})`
-                : `Reports (${list.length})`
+              nextBefore === null
+                ? `Reports (${list.length})`
+                : `Reports (${list.length} loaded)`
             }
           >
             <ul className="space-y-1">
@@ -205,6 +219,22 @@ export default function ArtifactsPage() {
                 </li>
               ))}
             </ul>
+            {nextBefore !== null ? (
+              <button
+                type="button"
+                onClick={loadOlder}
+                disabled={olderBusy}
+                aria-busy={olderBusy}
+                className="mt-3 rounded-lg bg-raised px-3 py-1.5 text-xs font-medium text-ink-2 hover:bg-line disabled:opacity-50"
+              >
+                {olderBusy ? "Loading…" : "Older reports"}
+              </button>
+            ) : null}
+            {olderError ? (
+              <p aria-live="polite" className="mt-2 text-xs text-danger">
+                {olderError}
+              </p>
+            ) : null}
           </Card>
 
           {/* the list and the pane are a master/detail pair: picking a row

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /** Reports is a master/detail pair driven by `?id=`, so the two ways to change
@@ -7,28 +7,30 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *  was a bare /artifacts and Back left the pane loading forever with nothing
  *  selected. */
 
-const BASE = { engagement_id: null, kind: "digest", title: "Digest", path: "/d.md", created_by: "scheduler", created_at: "2026-08-09T07:00:00+00:00" };
-
 const ROWS = [
   { id: 7, engagement_id: null, kind: "digest", title: "Digest 2026-08-09", path: "/d/7.md", created_by: "scheduler", created_at: "2026-08-09T07:00:00+00:00" },
   { id: 6, engagement_id: null, kind: "ritual", title: "Week open 2026-08-05", path: "/d/6.md", created_by: "ava", created_at: "2026-08-05T06:30:00+00:00" },
 ];
 
-const ORIGINAL = [...ROWS];
+const OLDER = [
+  { id: 5, engagement_id: null, kind: "digest", title: "Digest 2026-08-04", path: "/d/5.md", created_by: "scheduler", created_at: "2026-08-04T07:00:00+00:00" },
+];
 
-const mode = { failList: false };
+const mode = { failList: false, hasOlder: false };
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...real,
     api: (path: string) => {
-      if (path === "/api/artifacts")
+      if (path === "/api/artifacts/page")
         return mode.failList
           ? Promise.reject(new Error("artifacts service exploded"))
-          : Promise.resolve(ROWS);
+          : Promise.resolve({ items: ROWS, next_before: mode.hasOlder ? 6 : null });
+      if (path.startsWith("/api/artifacts/page?before="))
+        return Promise.resolve({ items: OLDER, next_before: null });
       const id = Number(path.split("/").pop());
-      const row = ROWS.find((r) => r.id === id);
+      const row = [...ROWS, ...OLDER].find((r) => r.id === id);
       return Promise.resolve({ ...row, markdown: `# Body of ${id}` });
     },
   };
@@ -40,6 +42,7 @@ import ArtifactsPage from "@/app/artifacts/page";
 
 beforeEach(() => {
   mode.failList = false;
+  mode.hasOlder = false;
   window.history.replaceState({}, "", "/artifacts");
 });
 
@@ -69,21 +72,17 @@ describe("the Reports page", () => {
     expect(screen.queryByText("Loading…")).toBeNull();
   });
 
-  it("labels the count as a page once the read is capped", async () => {
-    // list_artifacts returns ORDER BY id DESC LIMIT 50, and the digest files
-    // one a day — past the cap the length is a page, not a total
-    // EXACTLY the cap: list_artifacts is `ORDER BY id DESC LIMIT 50`, so 50 is
-    // the only length that means "there may be more". At 52 the assertion also
-    // passes with `>` instead of `>=`, and 52 is a length no code path emits.
-    ROWS.length = 0;
-    ROWS.push(...Array.from({ length: 50 }, (_, i) => ({ ...BASE, id: 100 + i })));
-    try {
-      render(<ArtifactsPage />);
-      await waitFor(() => expect(screen.getByText(/Reports \(newest/)).toBeTruthy());
-    } finally {
-      ROWS.length = 0;
-      ROWS.push(...ORIGINAL);
-    }
+  it("appends older reports without changing the open report or URL", async () => {
+    mode.hasOlder = true;
+    render(<ArtifactsPage />);
+    await screen.findByText("Body of 7");
+
+    fireEvent.click(screen.getByRole("button", { name: "Older reports" }));
+
+    expect(await screen.findByText("Digest 2026-08-04")).toBeTruthy();
+    expect(screen.getByText("Body of 7")).toBeTruthy();
+    expect(new URL(window.location.href).searchParams.get("id")).toBe("7");
+    expect(screen.queryByRole("button", { name: "Older reports" })).toBeNull();
   });
 });
 

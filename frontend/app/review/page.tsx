@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { actionError, api, getUser, loadError, subscribeUser } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
@@ -22,6 +28,16 @@ type Diff = {
   current: Record<string, unknown>;
   proposed: Record<string, unknown>;
 };
+
+const REVIEW_PAGE = 50;
+const BATCH_LIMIT = 200;
+
+function reviewIdFromUrl(): number | null {
+  if (typeof window === "undefined") return null;
+  const raw = new URLSearchParams(window.location.search).get("id");
+  const id = Number(raw);
+  return raw && Number.isInteger(id) && id > 0 ? id : null;
+}
 
 type Change = {
   id: number;
@@ -296,41 +312,81 @@ export default function ReviewPage() {
   const [history, setHistory] = useState<Change[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [nextAfter, setNextAfter] = useState<number | null>(null);
+  const [moreBusy, setMoreBusy] = useState(false);
+  const [moreError, setMoreError] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [batchFailures, setBatchFailures] = useState<{ id: number; detail?: string }[]>([]);
+  const [batchFailures, setBatchFailures] = useState<
+    { id: number; detail?: string }[]
+  >([]);
   const [diffs, setDiffs] = useState<Record<number, Diff>>({});
   const focusAfterVerdict = useRef(false);
+  const deepLinkFocused = useRef(false);
 
   const load = useCallback(() => {
-    api<Change[]>("/api/review?status=pending")
-      .then(async (rows) => {
-        setChanges(rows);
+    const target = reviewIdFromUrl();
+    void (async () => {
+      try {
+        const loaded: Change[] = [];
+        const entries: [number, Diff][] = [];
+        const targetPending =
+          target === null ||
+          (
+            await api<Change[]>(
+              `/api/review?status=pending&limit=1&after=${target - 1}`,
+            )
+          ).some((row) => row.id === target);
+        let page: Change[] = [];
+        let after = 0;
+        do {
+          const cursor = after ? `&after=${after}` : "";
+          page = await api<Change[]>(
+            `/api/review?status=pending&limit=${REVIEW_PAGE}${cursor}`,
+          );
+          loaded.push(...page);
+          after = page.at(-1)?.id ?? 0;
+          if (page.length > 0)
+            // Mark each page separately. The endpoint accepts at most 200 ids,
+            // while a deep link can load more than four pages.
+            api("/api/review/seen", {
+              method: "POST",
+              body: JSON.stringify({ ids: page.map((row) => row.id) }),
+            }).catch(() => {});
+          await Promise.all(
+            page
+              .filter((row) => row.action === "update")
+              .map(async (row) => {
+                try {
+                  const result = await api<{ diff: Diff | null }>(
+                    `/api/review/${row.id}/diff`,
+                  );
+                  if (result.diff) entries.push([row.id, result.diff]);
+                } catch {}
+              }),
+          );
+        } while (
+          targetPending &&
+          target !== null &&
+          !loaded.some((row) => row.id === target) &&
+          page.length === REVIEW_PAGE &&
+          after < target
+        );
+        setChanges(loaded);
+        setNextAfter(page.length === REVIEW_PAGE ? after : null);
+        setMoreError("");
         setError(null); // a recovered backend must not leave the old banner above fresh data
-        if (rows.length > 0)
-          // a human is now looking — starts the active-review clock
-          api("/api/review/seen", {
-            method: "POST",
-            body: JSON.stringify({ ids: rows.map((r) => r.id) }),
-          }).catch(() => {});
+        if (target !== null && !targetPending) {
+          document.getElementById("review-queue-heading")?.focus();
+          deepLinkFocused.current = true;
+        }
         // one state commit for all diffs: a setDiffs per row re-renders
         // the whole page once per pending change
-        const entries: [number, Diff][] = [];
-        await Promise.all(
-          rows
-            .filter((r) => r.action === "update")
-            .map(async (r) => {
-              try {
-                const d = await api<{ diff: Diff | null }>(`/api/review/${r.id}/diff`);
-                if (d.diff) entries.push([r.id, d.diff]);
-              } catch {}
-            }),
-        );
         setDiffs(Object.fromEntries(entries));
-      })
-      .catch((e) => {
-        setChanges([]);           // settled, with the error shown below
+      } catch (e) {
+        setChanges([]); // settled, with the error shown below
         setError(loadError(e));
-      });
+      }
+    })();
     api<Change[]>("/api/review?status=approved")
       .then((h) => {
         setHistory(h);
@@ -338,22 +394,79 @@ export default function ReviewPage() {
       })
       // swallowing this hid the whole section, and a missing "Recently
       // approved" list reads as "nothing was approved" — a claim
-      .catch((e) => setHistoryError(`Cannot load the recently approved list. ${actionError(e)}`));
+      .catch((e) =>
+        setHistoryError(
+          `Cannot load the recently approved list. ${actionError(e)}`,
+        ),
+      );
   }, []);
   useEffect(load, [load]);
+
+  const loadMore = useCallback(async () => {
+    if (nextAfter === null || moreBusy) return;
+    setMoreBusy(true);
+    setMoreError("");
+    try {
+      const rows = await api<Change[]>(
+        `/api/review?status=pending&limit=${REVIEW_PAGE}&after=${nextAfter}`,
+      );
+      setChanges((current) => [...(current ?? []), ...rows]);
+      setNextAfter(
+        rows.length === REVIEW_PAGE ? (rows.at(-1)?.id ?? null) : null,
+      );
+      if (rows.length > 0)
+        api("/api/review/seen", {
+          method: "POST",
+          body: JSON.stringify({ ids: rows.map((row) => row.id) }),
+        }).catch(() => {});
+      const entries: [number, Diff][] = [];
+      await Promise.all(
+        rows
+          .filter((row) => row.action === "update")
+          .map(async (row) => {
+            try {
+              const result = await api<{ diff: Diff | null }>(
+                `/api/review/${row.id}/diff`,
+              );
+              if (result.diff) entries.push([row.id, result.diff]);
+            } catch {}
+          }),
+      );
+      setDiffs((current) => ({ ...current, ...Object.fromEntries(entries) }));
+    } catch (e) {
+      setMoreError(loadError(e));
+    } finally {
+      setMoreBusy(false);
+    }
+  }, [moreBusy, nextAfter]);
+
   useEffect(() => {
     if (!focusAfterVerdict.current || changes === null) return;
     focusAfterVerdict.current = false;
-    const target = document.querySelector<HTMLElement>("[data-review-card]") ??
+    const target =
+      document.querySelector<HTMLElement>("[data-review-card]") ??
       document.getElementById("review-queue-heading");
     target?.focus();
   }, [changes]);
+  useEffect(() => {
+    if (deepLinkFocused.current || changes === null) return;
+    const id = reviewIdFromUrl();
+    if (id === null) return;
+    const target = document.getElementById(`review-${id}`);
+    if (target) {
+      target.focus();
+      deepLinkFocused.current = true;
+    } else if (nextAfter === null) {
+      document.getElementById("review-queue-heading")?.focus();
+      deepLinkFocused.current = true;
+    }
+  }, [changes, nextAfter]);
 
   const toggle = (id: number) => {
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
-      else next.add(id);
+      else if (next.size < BATCH_LIMIT) next.add(id);
       return next;
     });
   };
@@ -361,10 +474,12 @@ export default function ReviewPage() {
   const approveBatch = async () => {
     if (selected.size === 0) return;
     try {
-      const r = await api<{ results: { id: number; status: string; detail?: string }[] }>(
-        "/api/review/approve-batch",
-        { method: "POST", body: JSON.stringify({ ids: [...selected] }) },
-      );
+      const r = await api<{
+        results: { id: number; status: string; detail?: string }[];
+      }>("/api/review/approve-batch", {
+        method: "POST",
+        body: JSON.stringify({ ids: [...selected] }),
+      });
       // one row per failure, in the page: a batch of 20 can fail 20
       // different ways, each naming a different proposal, and the status
       // region holds one line.
@@ -378,7 +493,10 @@ export default function ReviewPage() {
 
   // rejecting — and accepting on a sponsor's behalf — needs a reason the
   // record will keep; asked inline, not via a browser prompt
-  const [asking, setAsking] = useState<{ id: number; verb: "approve" | "reject" } | null>(null);
+  const [asking, setAsking] = useState<{
+    id: number;
+    verb: "approve" | "reject";
+  } | null>(null);
 
   const act = async (id: number, verb: "approve" | "reject", note = "") => {
     try {
@@ -400,7 +518,8 @@ export default function ReviewPage() {
   };
 
   // acceptance verdicts belong to the sponsor; anyone else must say why
-  const forSponsor = (c: Change) => (c.sponsor && c.sponsor !== me ? c.sponsor : "");
+  const forSponsor = (c: Change) =>
+    c.sponsor && c.sponsor !== me ? c.sponsor : "";
 
   // dismissing the reason input hands focus back to the button that opened
   // it — a keyboard user must not be dropped at the top of the page
@@ -408,11 +527,18 @@ export default function ReviewPage() {
     if (!asking) return;
     const { id, verb } = asking;
     setAsking(null);
-    setTimeout(() => document.getElementById(`verdict-${verb}-${id}`)?.focus(), 0);
+    setTimeout(
+      () => document.getElementById(`verdict-${verb}-${id}`)?.focus(),
+      0,
+    );
   };
 
   return (
-    <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
+    <main
+      id="content"
+      tabIndex={-1}
+      className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6"
+    >
       <SectionTabs set="inbox" />
       <h1
         id="review-queue-heading"
@@ -438,7 +564,10 @@ export default function ReviewPage() {
                 ? "1 proposal was not approved:"
                 : `${batchFailures.length} proposals were not approved:`}
             </p>
-            <button onClick={() => setBatchFailures([])} className="shrink-0 text-xs underline">
+            <button
+              onClick={() => setBatchFailures([])}
+              className="shrink-0 text-xs underline"
+            >
               dismiss
             </button>
           </div>
@@ -455,6 +584,11 @@ export default function ReviewPage() {
       {selected.size > 0 && (
         <div className="mb-4 flex items-center gap-3 rounded-xl border border-line bg-raised px-4 py-2 text-sm">
           <span>{selected.size} selected</span>
+          {selected.size === BATCH_LIMIT ? (
+            <span className="text-ink-3">
+              Select at most {BATCH_LIMIT} proposals at one time.
+            </span>
+          ) : null}
           <button
             onClick={approveBatch}
             className="rounded-lg bg-ok-solid px-3 py-1 text-sm font-medium text-white hover:opacity-90"
@@ -477,8 +611,8 @@ export default function ReviewPage() {
         <EmptyState>
           {emptyState("review")}
           <span className="mt-1 block text-xs">
-            When agents (or careful humans) propose changes, they wait here
-            for a person to approve them.
+            When agents (or careful humans) propose changes, they wait here for
+            a person to approve them.
           </span>
         </EmptyState>
       )}
@@ -487,6 +621,7 @@ export default function ReviewPage() {
         {(changes ?? []).map((c) => (
           <li
             key={c.id}
+            id={`review-${c.id}`}
             data-review-card
             tabIndex={-1}
             aria-label={`Proposal #${c.id}: ${c.label}`}
@@ -498,12 +633,17 @@ export default function ReviewPage() {
                   type="checkbox"
                   checked={selected.has(c.id)}
                   onChange={() => toggle(c.id)}
-                  disabled={!!forSponsor(c)}
+                  disabled={
+                    !!forSponsor(c) ||
+                    (!selected.has(c.id) && selected.size >= BATCH_LIMIT)
+                  }
                   aria-label={`Select #${c.id} ${c.label} for batch approval`}
                   title={
                     forSponsor(c)
                       ? `sponsored by ${c.sponsor} — accept individually with a reason`
-                      : undefined
+                      : !selected.has(c.id) && selected.size >= BATCH_LIMIT
+                        ? `Select at most ${BATCH_LIMIT} proposals at one time`
+                        : undefined
                   }
                   className="h-4 w-4 disabled:opacity-40"
                 />
@@ -526,7 +666,9 @@ export default function ReviewPage() {
                           same-page query is a full navigation that discards all
                           of it. The panel opens either way, so nothing here
                           shows the loss (components/task-peek.tsx). */}
-                      <PeekLink taskId={c.entity_id}>task #{c.entity_id}</PeekLink>
+                      <PeekLink taskId={c.entity_id}>
+                        task #{c.entity_id}
+                      </PeekLink>
                     </>
                   ) : (
                     ` #${c.entity_id}`
@@ -540,40 +682,47 @@ export default function ReviewPage() {
                 {c.requested_by ? ` · asked by ${c.requested_by}` : ""}
                 {c.sponsor
                   ? ` · sponsor ${c.sponsor}${forSponsor(c) ? " (accept individually with a reason)" : ""}`
-                  : ""} ·{" "}
-                <time dateTime={c.created_at} title={c.created_at}>{timeAgo(c.created_at)}</time>
+                  : ""}{" "}
+                ·{" "}
+                <time dateTime={c.created_at} title={c.created_at}>
+                  {timeAgo(c.created_at)}
+                </time>
               </span>
             </div>
             {/* below the header row, not inside it: that row is
                 justify-between, and a third child there lands at the right
                 edge and shoves the byline into the middle */}
-            {c.record ? <TrackRecord record={c.record} label={c.label} /> : null}
-            {c.summary && <p className="mb-2 text-sm text-ink-2">{c.summary}</p>}
+            {c.record ? (
+              <TrackRecord record={c.record} label={c.label} />
+            ) : null}
+            {c.summary && (
+              <p className="mb-2 text-sm text-ink-2">{c.summary}</p>
+            )}
             {c.evidence ? <AcceptanceEvidence evidence={c.evidence} /> : null}
             {diffs[c.id] ? (
               <div className="mb-3 overflow-x-auto">
-              <table className="w-full rounded-lg bg-raised text-xs">
-                <thead>
-                  <tr className="text-left text-ink-3">
-                    <th className="p-2">field</th>
-                    <th className="p-2">current</th>
-                    <th className="p-2">proposed</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.keys(diffs[c.id].proposed).map((k) => (
-                    <tr key={k} className="align-top">
-                      <td className="p-2 font-medium">{k}</td>
-                      <td className="p-2 text-danger">
-                        {cell(diffs[c.id].current[k])}
-                      </td>
-                      <td className="p-2 text-ok">
-                        {cell(diffs[c.id].proposed[k])}
-                      </td>
+                <table className="w-full rounded-lg bg-raised text-xs">
+                  <thead>
+                    <tr className="text-left text-ink-3">
+                      <th className="p-2">field</th>
+                      <th className="p-2">current</th>
+                      <th className="p-2">proposed</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {Object.keys(diffs[c.id].proposed).map((k) => (
+                      <tr key={k} className="align-top">
+                        <td className="p-2 font-medium">{k}</td>
+                        <td className="p-2 text-danger">
+                          {cell(diffs[c.id].current[k])}
+                        </td>
+                        <td className="p-2 text-ok">
+                          {cell(diffs[c.id].proposed[k])}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             ) : (
               /* a create proposal's payload IS the change — render it as
@@ -592,7 +741,9 @@ export default function ReviewPage() {
                   </tbody>
                 </table>
                 {Object.keys(c.payload).length === 0 && (
-                  <p className="text-xs text-ink-3">No fields — see the summary above.</p>
+                  <p className="text-xs text-ink-3">
+                    No fields — see the summary above.
+                  </p>
                 )}
               </div>
             )}
@@ -634,17 +785,36 @@ export default function ReviewPage() {
           </li>
         ))}
       </ul>
+      {nextAfter !== null ? (
+        <button
+          type="button"
+          onClick={loadMore}
+          disabled={moreBusy}
+          aria-busy={moreBusy}
+          className="mt-4 rounded-lg bg-raised px-3 py-1.5 text-sm font-medium text-ink-2 hover:bg-line disabled:opacity-50"
+        >
+          {moreBusy ? "Loading…" : "More proposals"}
+        </button>
+      ) : null}
+      {moreError ? (
+        <p aria-live="polite" className="mt-2 text-sm text-danger">
+          {moreError}
+        </p>
+      ) : null}
 
       {(history.length > 0 || historyError) && (
         <>
           <h2 className="mb-2 mt-8 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
             Recently approved
           </h2>
-          {historyError && <p className="text-xs text-danger">{historyError}</p>}
+          {historyError && (
+            <p className="text-xs text-danger">{historyError}</p>
+          )}
           <ul className="space-y-1">
             {history.slice(0, 10).map((c) => (
               <li key={c.id} className="text-xs text-ink-3">
-                ✅ #{c.id} {c.summary} <span className="text-ink-3">by {c.proposed_by}</span>
+                ✅ #{c.id} {c.summary}{" "}
+                <span className="text-ink-3">by {c.proposed_by}</span>
                 {c.reviewed_override && c.sponsor
                   ? ` · accepted by ${c.reviewed_by} for ${c.sponsor}`
                   : ""}

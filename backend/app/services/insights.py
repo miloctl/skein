@@ -920,27 +920,20 @@ def _r_plan_drift() -> list[dict]:
 
 
 def _r_authority_stale() -> list[dict]:
-    """Elevated authority grants past their review-by date. The nudge, not a
-    demotion state machine — the human reconfirms (re-grants) or demotes."""
-    # NULL review_by falls back to updated_at + 90d — a grant written straight
-    # to SQL, or restored from an old backup, must still expire to a nag.
-    # to_char, not a date: review_by is TEXT 'YYYY-MM-DD' and the bound value
-    # is too, so the fallback has to come back as the same shape or the
-    # comparison is between a date and a string and never matches.
-    stale = db.query(
-        "SELECT agent, entity, level, review_by, updated_by FROM agent_authority"
-        " WHERE level IN ('autonomous', 'notify')"
-        " AND COALESCE(review_by,"
-        "   to_char(updated_at::timestamptz + interval '90 days', 'YYYY-MM-DD')) < ?",
-        (_iso(_today()),),
-    )
+    """Configured elevated grants whose effective level now requires review."""
+    from .delegation import authority_matrix
+
+    # The gate and this finding must use the same fallback date. A restored
+    # elevated row with no review_by cannot stay effective while the finding
+    # describes a different date.
+    stale = [grant for grant in authority_matrix() if grant["review_expired"]]
     return [
         _finding(
             "authority_stale",
             "medium",
-            f"Agent '{g['agent']}' has held {g['level']} authority over"
-            f" {g['entity']} past its review date ({g['review_by']}) —"
-            " reconfirm the grant or demote it to review.",
+            f"Agent '{g['agent']}' has configured {g['level']} authority over"
+            f" {g['entity']} past its review date ({g['review_by']})."
+            " Effective authority now requires review. Reconfirm the grant or set it to review.",
             {"agent": g["agent"], "entity": g["entity"], "granted_by": g["updated_by"]},
             n=1,
             subject=f"authority-{g['agent']}-{g['entity']}",

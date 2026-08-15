@@ -457,6 +457,7 @@ def approve_change(
     viewer: scope.Viewer = scope.NOBODY,
     reviewer_groups: tuple[str, ...] = (),
     reviewer_capabilities: tuple[str, ...] = (),
+    administrator: bool = False,
     extension_executor: Callable[[dict, int], dict] | None = None,
     policy_registry=None,
 ) -> dict:
@@ -476,6 +477,7 @@ def approve_change(
             viewer=viewer,
             reviewer_groups=reviewer_groups,
             reviewer_capabilities=reviewer_capabilities,
+            administrator=administrator,
             extension_executor=extension_executor,
             policy_registry=policy_registry,
         )
@@ -493,6 +495,7 @@ def _approve_change_locked(
     viewer: scope.Viewer = scope.NOBODY,
     reviewer_groups: tuple[str, ...] = (),
     reviewer_capabilities: tuple[str, ...] = (),
+    administrator: bool = False,
     extension_executor: Callable[[dict, int], dict] | None = None,
     policy_registry=None,
 ) -> dict | _ApprovalFailure:
@@ -525,12 +528,18 @@ def _approve_change_locked(
         reviewer_groups,
         reviewer_capabilities,
     )
-    # the direct authority endpoint requires a personal key; the proposal
-    # path must not be the weaker door to the same lever
-    if change["entity"] == "authority" and not strong:
-        raise ValueError(
-            "authority changes need a strong identity — approve with your personal API key"
-        )
+    # The direct authority endpoint requires an administrator. The proposal
+    # path must not be the weaker door to the same kill switch.
+    if change["entity"] == "authority":
+        if not strong:
+            raise ValueError(
+                "authority changes need a strong identity — approve with your personal API key"
+            )
+        if not administrator:
+            raise PermissionError(
+                "This authority change requires an administrator."
+                " Ask whoever runs the server to add your name to SKEIN_ADMINS."
+            )
 
     # resolve the handler BEFORE claiming — a stale entity/action must not
     # leave the row marked approved with nothing applied
@@ -1328,6 +1337,64 @@ def _governing_tier(change: dict) -> tuple[str, int | None, str] | str | None:
     )
 
 
+def _governing_tiers(rows: list[dict]) -> list[tuple[str, int | None, str] | str | None]:
+    """Resolve target tiers in one query per table for a collection read."""
+    resolved: dict[int, tuple[str, int | None, str] | str | None] = {}
+    waiting: dict[tuple[str, int], list[int]] = {}
+    for index, change in enumerate(rows):
+        if any(change["entity"] == entity for entity, _action in lexicon.REVIEW_ONLY):
+            resolved[index] = (
+                str(change.get("review_visibility") or scope.WORKSPACE),
+                change.get("review_crew_id"),
+                str(change.get("review_owner") or change.get("requested_by") or ""),
+            )
+            continue
+        table = _TARGET_TABLE.get(change["entity"])
+        if table not in scope.CLASSIFIED:
+            resolved[index] = None
+            continue
+        try:
+            payload = json.loads(change["payload"]) if change.get("payload") else {}
+        except (TypeError, ValueError):
+            payload = {}
+        row_id = change["entity_id"]
+        if not row_id and change["entity"] in _CREATE_PARENT:
+            table, parent_key = _CREATE_PARENT[change["entity"]]
+            row_id = payload.get(parent_key)
+        if row_id:
+            waiting.setdefault((table, int(row_id)), []).append(index)
+            continue
+        crew = payload.get("crew_id")
+        resolved[index] = (
+            str(payload.get("visibility") or scope.WORKSPACE),
+            crew if isinstance(crew, int) else None,
+            str(payload.get("author") or ""),
+        )
+
+    by_table: dict[str, set[int]] = {}
+    for table, row_id in waiting:
+        by_table.setdefault(table, set()).add(row_id)
+    found: dict[tuple[str, int], tuple[str, int | None, str]] = {}
+    for table, ids in by_table.items():
+        marks = ", ".join("?" for _ in ids)
+        author = scope.CLASSIFIED[table]
+        for row in db.query(
+            f"SELECT id, visibility, crew_id, {author} AS author FROM {table}"  # noqa: S608 — table and column come from constant maps
+            f" WHERE id IN ({marks})",
+            tuple(ids),
+        ):
+            found[(table, int(row["id"]))] = (
+                row["visibility"],
+                row["crew_id"],
+                row["author"] or "",
+            )
+    for waiting_key, indexes in waiting.items():
+        tier: tuple[str, int | None, str] | str = found.get(waiting_key, "gone")
+        for index in indexes:
+            resolved[index] = tier
+    return [resolved[index] for index in range(len(rows))]
+
+
 def _readable(rows: list[dict], viewer: scope.Viewer) -> list[dict]:
     """Drop proposals whose target row the viewer may not read.
 
@@ -1354,8 +1421,7 @@ def _readable(rows: list[dict], viewer: scope.Viewer) -> list[dict]:
     arrive here on their own.
     """
     out = []
-    for r in rows:
-        tier = _governing_tier(r)
+    for r, tier in zip(rows, _governing_tiers(rows), strict=True):
         if tier is None:
             # no scoped row to be judged by (weekly_plan, authority, playbook).
             # Keeping these is what makes the queue usable at all.
@@ -1450,15 +1516,146 @@ def filter_policy_resources(
     return result
 
 
-def list_changes(status: str = "pending", viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
-    if status:
+REVIEW_PAGE_LIMIT = 50
+_REVIEW_SCAN_BATCH = 200
+
+
+def pending_changes_page(
+    viewer: scope.Viewer = scope.NOBODY,
+    *,
+    after: int = 0,
+    limit: int = REVIEW_PAGE_LIMIT,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+    allow_unclassified: bool = True,
+) -> list[dict]:
+    """Oldest readable pending proposals after one stable id cursor."""
+    if after < 0:
+        raise ValueError("after must be zero or a positive proposal id")
+    if limit < 1 or limit > _REVIEW_SCAN_BATCH:
+        raise ValueError(f"limit must be between 1 and {_REVIEW_SCAN_BATCH}")
+    visible: list[dict] = []
+    scan_after = after
+    while len(visible) < limit:
         rows = db.query(
-            "SELECT * FROM pending_changes WHERE status = ? ORDER BY id DESC LIMIT 200",
-            (status,),
+            "SELECT * FROM pending_changes WHERE status = 'pending' AND id > ? ORDER BY id LIMIT ?",
+            (scan_after, _REVIEW_SCAN_BATCH),
+        )
+        if not rows:
+            break
+        readable = _readable(rows, viewer)
+        if resource_filter is not None:
+            readable = filter_policy_resources(
+                readable,
+                resource_filter,
+                allow_unclassified=allow_unclassified,
+                viewer=viewer,
+            )
+        visible.extend(readable)
+        scan_after = int(rows[-1]["id"])
+        if len(rows) < _REVIEW_SCAN_BATCH:
+            break
+    return visible[:limit]
+
+
+def pending_changes_summary(
+    viewer: scope.Viewer = scope.NOBODY,
+    *,
+    limit: int = REVIEW_PAGE_LIMIT,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+    allow_unclassified: bool = True,
+) -> tuple[list[dict], int]:
+    """The first visible page and exact total from one queue scan."""
+    first: list[dict] = []
+    total = 0
+    scan_after = 0
+    while True:
+        rows = db.query(
+            "SELECT * FROM pending_changes WHERE status = 'pending' AND id > ? ORDER BY id LIMIT ?",
+            (scan_after, _REVIEW_SCAN_BATCH),
+        )
+        if not rows:
+            return first, total
+        visible = _readable(rows, viewer)
+        if resource_filter is not None:
+            visible = filter_policy_resources(
+                visible,
+                resource_filter,
+                allow_unclassified=allow_unclassified,
+                viewer=viewer,
+            )
+        total += len(visible)
+        if len(first) < limit:
+            first.extend(visible[: limit - len(first)])
+        if len(rows) < _REVIEW_SCAN_BATCH:
+            return first, total
+        scan_after = int(rows[-1]["id"])
+
+
+def _settled_changes_page(
+    status: str,
+    viewer: scope.Viewer,
+    limit: int,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None,
+    allow_unclassified: bool,
+) -> list[dict]:
+    """Newest readable history after scope and workplace policy filtering."""
+    visible: list[dict] = []
+    before = 0
+    while len(visible) < limit:
+        where = "WHERE id < ?" if before else "WHERE 1 = 1"
+        params: list[str | int] = []
+        if before:
+            params.append(before)
+        if status:
+            where += " AND status = ?"
+            params.append(status)
+        params.append(_REVIEW_SCAN_BATCH)
+        rows = db.query(
+            f"SELECT * FROM pending_changes {where} ORDER BY id DESC LIMIT ?",  # noqa: S608 — where contains only static clauses
+            tuple(params),
+        )
+        if not rows:
+            break
+        readable = _readable(rows, viewer)
+        if resource_filter is not None:
+            readable = filter_policy_resources(
+                readable,
+                resource_filter,
+                allow_unclassified=allow_unclassified,
+                viewer=viewer,
+            )
+        visible.extend(readable)
+        before = int(rows[-1]["id"])
+        if len(rows) < _REVIEW_SCAN_BATCH:
+            break
+    return visible[:limit]
+
+
+def list_changes(
+    status: str = "pending",
+    viewer: scope.Viewer = scope.NOBODY,
+    *,
+    after: int = 0,
+    limit: int = 200,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+    allow_unclassified: bool = True,
+) -> list[dict]:
+    if status == "pending":
+        rows = pending_changes_page(
+            viewer,
+            after=after,
+            limit=limit,
+            resource_filter=resource_filter,
+            allow_unclassified=allow_unclassified,
         )
     else:
-        rows = db.query("SELECT * FROM pending_changes ORDER BY id DESC LIMIT 100")
-    rows = _readable(rows, viewer)
+        rows = _settled_changes_page(
+            status,
+            viewer,
+            limit,
+            resource_filter,
+            allow_unclassified,
+        )
     # only the pairs on THIS page: trust_scores computes for every pair in
     # the settled history, and a queue of 200 rows from one proposer would
     # otherwise pay for every agent the deployment has ever had.
@@ -1616,7 +1813,7 @@ def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
             "approval_rate": t["approval_rate"],
             "streak": t["recent_streak"],
             "streak_blocked": blocked,
-            "level": t["current_level"],
+            "level": t.get("effective_level", t["current_level"]),
             # said at the verdict, where the approval that earns it happens.
             # Only when this verdict is the one that closes the streak AND a
             # promotion is actually available from here — trust_scores makes

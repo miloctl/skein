@@ -759,6 +759,10 @@ _UNFILTERED_READS = {
         "reads the tier that decides who may see or judge a proposal. It IS"
         " the filter for pending_changes, which carries no tier of its own"
     ),
+    "review.py::_governing_tiers": (
+        "the batched collection form of _governing_tier. It reads only tier"
+        " columns, then scope.can_read filters each pending_changes row"
+    ),
     "blockers.py::resolve_blocker": (
         "the tasks waiting on this blocker, to tell their assignees it cleared."
         " An assignee is a name work.py:186 and work.py:348 already checked as"

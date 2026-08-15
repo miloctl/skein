@@ -182,7 +182,6 @@ morning sweep, which notifies each delegated task's sponsor rather than filing
   proposals. Build this when one has, and shape the bundle around what that
   week actually filed. Its first named consumer stays the flock synthesis
   step, which is built with no tools and therefore cannot propose anything.
-- Rejected proposals nag agent inboxes forever. An `acked_at` column ends it.
 - Notify-tier writes link to an empty `/review`.
 - The review registry has no registration-time assertion on apply-handler
   signatures — a mismatched handler surfaces at apply time as a caught

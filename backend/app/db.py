@@ -413,6 +413,8 @@ LOCK_IDENTITY = 1
 LOCK_SESSION = 2
 LOCK_RECEIPT = 3
 LOCK_CREW = 4
+LOCK_AUTHORITY = 5
+LOCK_JOB = 6
 
 # EVERY advisory lock is scoped to the current database by this expression.
 # PostgreSQL advisory locks are CLUSTER-global: the key space is shared by

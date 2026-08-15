@@ -326,6 +326,15 @@ def _is_admin(user: str, groups: list[str], request: Request | None = None) -> b
     )
 
 
+def is_administrator(user: str, request: Request) -> bool:
+    """Whether this resolved request passed the AdminUser identity rules."""
+    return bool(getattr(request.state, "strong_auth", False)) and _is_admin(
+        user,
+        list(getattr(request.state, "auth_groups", ())),
+        request,
+    )
+
+
 def is_named_admin(user: str, groups: list[str]) -> bool:
     """Administrator by CONFIGURATION, without the scarcity fallback above.
 

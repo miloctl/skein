@@ -37,8 +37,8 @@ type Briefing = {
   // `attention` IS those rows, already grouped by the judgment each one asks
   // for and carrying its own reason line, and rendering both would ask the
   // reader to notice they are the same work twice. The payload still carries
-  // it for `skein my-day` and the /briefing chat command, which have no
-  // grouped renderer — see services/briefing.py.
+  // it for compatible clients and the /briefing chat command. This page and
+  // `skein my-day` render the shared attention projection.
   attention: AttentionItem[];
   // the count the header prints, computed server-side beside the rows so it
   // cannot disagree with the tab title (services/briefing.py)

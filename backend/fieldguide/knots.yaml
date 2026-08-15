@@ -49,7 +49,7 @@ knots:
     knot: Figure-Eight Loop
     set: loops
     pitch: Done tasks feed cycle time, throughput, and the slip forecast.
-    how: Mark any task of yours done on Work → Browse.
+    how: Mark any task of yours done on Work → Browse. Open work stays in Tasks, and work from the last 7 days stays in Recently shipped.
     link: /dashboard
     since: 2026-07-31
 
@@ -182,9 +182,19 @@ knots:
     knot: Artillery Loop
     set: loops
     pitch: The whole platform without a browser — same DB, same provenance.
-    how: "`pipx install ./cli`, then `skein my-day`. Settings shows the key setup."
+    how: "`pipx install ./cli`, then `skein my-day`. The command uses the same Needs you and Team queues as the web page. Settings shows the key setup."
     link: /settings
     since: 2026-07-31
+
+  - id: reports
+    feature: Read report history
+    knot: Gasket Coil
+    set: loops
+    ties: mark
+    pitch: Every old report stays on the line, ready when the current page rolls on.
+    how: Open Work → Reports. Select Older reports to continue through the archive.
+    link: /artifacts
+    since: 2026-08-15
 
   - id: ingest
     feature: Meeting-notes ingestion
@@ -222,7 +232,7 @@ knots:
     knot: Round Turn & Two Half-Hitches
     set: hitches
     pitch: The agent worked; the worklog shows it; your verdict finishes the job.
-    how: When your delegated task lands in Approvals, read the worklog and rule on it — accept or reject both count.
+    how: When your delegated task lands in Approvals, read the worklog and rule on it. If you reject it, the correction leaves the active agent inbox after you approve its replacement.
     link: /review
     since: 2026-07-31
 
@@ -330,7 +340,7 @@ knots:
     knot: Turk's Head
     set: stoppers
     pitch: Someone proposed; a human verified. Approve and reject both count.
-    how: Inbox → Approvals. A rejection carries a note back to the proposer.
+    how: Inbox → Approvals starts with the oldest pending proposal. Select More proposals to continue. A rejection carries a note back to the proposer.
     link: /review
     since: 2026-07-31
 
@@ -341,9 +351,19 @@ knots:
     set: manager
     role: manager
     pitch: Monday brief and Friday close-out — the week gets opened and settled on purpose.
-    how: Run one yourself from manager controls on Work → Health. A scheduler run does not count as yours.
+    how: Run one yourself from manager controls on Work → Health. If it already ran, Skein links the existing report and sends no duplicate notifications. A scheduler run does not count as yours.
     link: /portfolio
     since: 2026-07-31
+
+  - id: authority_half_life
+    feature: Renew agent authority
+    knot: Safety Knot
+    set: manager
+    role: manager
+    pitch: Trust gets a watch, not a throne.
+    how: On Team → Agents, check each elevated grant. After 90 days, re-grant it or keep the required human review.
+    link: /agents
+    since: 2026-08-15
 
   - id: readout
     feature: Exec readout

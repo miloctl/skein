@@ -237,6 +237,66 @@ def test_rejection_keeps_task_open_and_feeds_trust(client, fresh_db):
     delegation.submit_completion(tid, "fixed and green", actor="scout")
 
 
+def test_approved_rework_leaves_history_but_not_an_active_agent_correction(client, fresh_db):
+    from app.services import delegation
+
+    tid = _delegated_task(fresh_db)
+    delegation.claim_task(tid, actor="scout")
+    rejected = delegation.submit_completion(tid, "first attempt", actor="scout")["proposal_id"]
+    client.post(
+        f"/api/review/{rejected}/reject",
+        json={"note": "the acceptance check failed"},
+        headers=_strong(client, "mira"),
+    )
+    approved = delegation.submit_completion(tid, "corrected attempt", actor="scout")["proposal_id"]
+    client.post(
+        f"/api/review/{approved}/approve",
+        json={},
+        headers=_strong(client, "mira"),
+    )
+
+    assert delegation.agent_inbox("scout")["rejected_proposals"] == []
+    history = fresh_db.query(
+        "SELECT id, status FROM pending_changes WHERE id IN (?, ?) ORDER BY id",
+        (rejected, approved),
+    )
+    assert history == [
+        {"id": rejected, "status": "rejected"},
+        {"id": approved, "status": "approved"},
+    ]
+    score = next(
+        row
+        for row in delegation.trust_scores()
+        if row["agent"] == "scout" and row["entity"] == "task_completion"
+    )
+    assert score["approved"] == 1
+    assert score["rejected"] == 1
+
+
+def test_replacement_agent_completion_resolves_the_original_correction(client, fresh_db):
+    from app.services import delegation
+
+    tid = _delegated_task(fresh_db)
+    delegation.claim_task(tid, actor="scout")
+    rejected = delegation.submit_completion(tid, "first attempt", actor="scout")["proposal_id"]
+    client.post(
+        f"/api/review/{rejected}/reject",
+        json={"note": "give this to a replacement"},
+        headers=_strong(client, "mira"),
+    )
+    delegation.delegate_task(tid, "fixer", "mira", actor="mira")
+    replacement = delegation.submit_completion(tid, "replacement attempt", actor="fixer")[
+        "proposal_id"
+    ]
+    client.post(
+        f"/api/review/{replacement}/approve",
+        json={},
+        headers=_strong(client, "mira"),
+    )
+
+    assert delegation.agent_inbox("scout")["rejected_proposals"] == []
+
+
 def test_agent_cannot_delegate_to_itself(fresh_db):
     from app.services import users, work
 

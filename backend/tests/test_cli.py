@@ -22,6 +22,114 @@ def test_cli_trailer_regex():
     assert cli.TRAILER.findall(msg) == [("Closes", "12"), ("Refs", "7")]
 
 
+def test_my_day_renders_the_shared_attention_projection(monkeypatch, capsys, tmp_path):
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
+    briefing = {
+        "user": "mira",
+        "date": "2026-08-15",
+        "attention": [
+            {
+                "group": "review",
+                "audience": "you",
+                "label": "proposal #9: update the task",
+                "reason": "proposed by agent — applies only after a human verdict",
+            },
+            {
+                "group": "commit",
+                "audience": "you",
+                "label": "promise #4: send the report",
+                "reason": "due 2026-08-15",
+            },
+            {
+                "group": "notice",
+                "audience": "you",
+                "label": "The deploy is complete.",
+                "reason": "for you — dismiss when read",
+            },
+            {
+                "group": "decide",
+                "audience": "team",
+                "label": "intake #3: API request",
+                "reason": "needs an accept, defer, or decline",
+            },
+        ],
+        "pending_reviews_total": 4,
+        "needs_you": {
+            "notifications": [{"message": "Proposal #9 needs review"}],
+        },
+        "your_work": {"tasks": []},
+        "team": {"todays_events": []},
+    }
+    monkeypatch.setattr(cli, "api", lambda *a, **k: briefing)
+
+    cli.cmd_my_day(Namespace(cached=False))
+    out = capsys.readouterr().out
+
+    assert out.count("proposal #9: update the task") == 1
+    assert "Proposal #9 needs review" not in out
+    assert "The deploy is complete." in out
+    assert "[Promise] promise #4" in out
+    assert "[commit]" not in out
+    assert "3 more proposals await a verdict" in out
+    assert "## Needs you" in out
+    assert "## Team queues" in out
+
+
+def test_task_list_asks_the_server_for_open_rows(monkeypatch, capsys):
+    cli = _load_cli()
+    paths = []
+
+    def request(method, path, body=None):
+        paths.append(path)
+        return {"open": [], "done": []} if path == "/api/tasks/browse" else []
+
+    monkeypatch.setattr(cli, "api", request)
+    cli.cmd_tasks(Namespace(action="list", all=False))
+    cli.cmd_tasks(Namespace(action="list", all=True))
+    assert paths == ["/api/tasks?status=open", "/api/tasks/browse"]
+    assert capsys.readouterr().out == ""
+
+
+def test_task_all_combines_the_browse_slices_without_duplicates(monkeypatch, capsys):
+    cli = _load_cli()
+    task = {
+        "id": 7,
+        "priority": "low",
+        "status": "done",
+        "title": "one row",
+        "assignee": "",
+    }
+    monkeypatch.setattr(
+        cli,
+        "api",
+        lambda *args, **kwargs: {"open": [task], "done": [task]},
+    )
+    cli.cmd_tasks(Namespace(action="list", all=True))
+    assert capsys.readouterr().out.count("#7 one row") == 1
+
+
+def test_review_list_carries_the_pending_cursor(monkeypatch, capsys):
+    cli = _load_cli()
+    paths = []
+    rows = [
+        {"id": 8, "summary": "first", "proposed_by": "agent"},
+        {"id": 9, "summary": "second", "proposed_by": "agent"},
+    ]
+
+    def request(method, path, body=None):
+        paths.append(path)
+        return rows
+
+    monkeypatch.setattr(cli, "api", request)
+    monkeypatch.setattr(cli, "load_config", lambda: {"key": "configured"})
+    cli.cmd_review(Namespace(action="list", id=None, note="", after=7, limit=2))
+    out = capsys.readouterr().out
+    assert paths == ["/api/review?status=pending&after=7&limit=2"]
+    assert "More proposals can follow" in out
+    assert "--after 9" in out
+
+
 def test_cli_settle_says_promise(monkeypatch, capsys):
     """The reader's word is promise (docs/LEXICON.md row 1); `commitment`
     stays on the wire only. The frontend sweep in one-wording.test.ts cannot

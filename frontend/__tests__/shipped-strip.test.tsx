@@ -11,7 +11,8 @@ import { describe, expect, it, vi } from "vitest";
  *  plan lists done work only when it was committed to a week. */
 
 const DAY = 86_400_000;
-const iso = (daysAgo: number) => new Date(Date.now() - daysAgo * DAY).toISOString();
+const iso = (daysAgo: number) =>
+  new Date(Date.now() - daysAgo * DAY).toISOString();
 
 const rows = {
   tasks: [
@@ -24,7 +25,12 @@ const rows = {
     },
     // 8 days: the boundary. At 30 the test passed with the window widened
     // to 14 or 21, which is most of the ways this constant gets edited.
-    { id: 2, title: "shipped just outside the window", status: "done", completed_at: iso(8) },
+    {
+      id: 2,
+      title: "shipped just outside the window",
+      status: "done",
+      completed_at: iso(8),
+    },
     { id: 3, title: "still open", status: "in_progress", completed_at: null },
     // done, but the forge never told us when — undated work cannot be placed
     // in a 7-day window, and guessing "recent" would invent a ship date
@@ -37,10 +43,13 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return {
     ...real,
     api: (path: string) => {
+      if (path === "/api/tasks/browse")
+        return Promise.resolve({
+          open: rows.tasks.filter((row) => row.status !== "done"),
+          done: rows.tasks.filter((row) => row.status === "done"),
+        });
       const key = path.replace("/api/", "").split("?")[0];
-      return Promise.resolve(
-        key === "tasks" ? rows.tasks : key === "pulse" ? null : [],
-      );
+      return Promise.resolve(key === "pulse" ? null : []);
     },
   };
 });
