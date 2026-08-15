@@ -711,7 +711,13 @@ def search_notes(keyword: str = "", viewer: scope.Viewer = scope.NOBODY) -> list
         # came back whatever its tier — the exact shape visible_filter's
         # docstring names as failing silently.
         return db.query(
-            f"SELECT * FROM notes WHERE (topic LIKE ? OR content LIKE ?)"  # noqa: S608 — scope.visible_filter emits only bound marks
+            # ILIKE, not LIKE: this keyword is typed by a person, and
+            # PostgreSQL LIKE is case-sensitive where SQLite's was not for
+            # ASCII. Searching "postgres" for a note titled "PostgreSQL"
+            # returned nothing at all — an empty result reads as "no such
+            # note", not as "wrong case". The LIKEs that match code-generated
+            # markers (fieldguide, chat_threads) stay case-exact on purpose.
+            f"SELECT * FROM notes WHERE (topic ILIKE ? OR content ILIKE ?)"  # noqa: S608 — scope.visible_filter emits only bound marks
             f" AND {frag} ORDER BY id DESC LIMIT 25",
             (like, like, *vp),
         )

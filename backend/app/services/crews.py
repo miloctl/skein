@@ -68,6 +68,14 @@ def _clean_name(name: str, crew_id: int = 0) -> str:
     # `user = 'team'` as a broadcast, so a crew by that name reads as one.
     users.refuse_reserved_name(name)
     folded = users.fold(name)
+    # The scan below decides whether the caller may write this name, and no
+    # index can back it up: the unique index is on lower(name), and folding is
+    # users.fold — NFKC plus zero-width stripping — which no collation
+    # reproduces. Without this lock, concurrent creates of the NFC and NFD
+    # spellings of one name both read "no collision" and both insert, leaving
+    # two crews whose names render identically in the picker that decides who
+    # can read a row. users.ensure_user closes the same hole the same way.
+    db.name_lock(db.LOCK_CREW, folded)
     for row in db.query("SELECT id, name FROM crews"):
         if row["id"] != crew_id and users.fold(row["name"]) == folded:
             raise ValueError(f"a crew named '{row['name']}' already exists")
@@ -82,8 +90,9 @@ def create_crew(name: str, *, summary: str = "", actor: str, origin: str = "huma
     belongs in it.
     """
     with db.transaction():
-        # inside the transaction, not before it: the crew row hold is what makes
-        # the check-then-insert atomic, and the index is only the backstop
+        # inside the transaction, not before it: _clean_name takes the name
+        # lock that makes its check-then-insert atomic, and a lock outside the
+        # transaction would release before the INSERT it protects.
         name = _clean_name(name)
         now = db.now()
         crew_id = db.execute(

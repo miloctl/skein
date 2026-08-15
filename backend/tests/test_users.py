@@ -247,3 +247,41 @@ def test_an_overlay_persona_slug_is_reserved_from_humans(fresh_db, tmp_path, mon
     monkeypatch.setattr(config, "PERSONAS_OVERLAY", tmp_path)
     with pytest.raises(ValueError, match="reserved for a bench persona"):
         users.ensure_user("fixer2")
+
+
+def test_concurrent_machine_claims_cannot_overwrite_each_other(fresh_db):
+    """Two owners claiming one generic agent row: exactly one wins.
+
+    The claim reads identity_owner, refuses if another concern already holds
+    it, and then writes — a check-then-write with no index behind it.
+    Measured without the identity lock: both claims read GENERIC_AGENT_OWNER,
+    both reported success, and the loser's UPDATE overwrote ownership the
+    winner had already committed, which is the state the refusal exists to
+    prevent."""
+    import threading
+
+    from app.services import users
+
+    winners: list[str] = []
+
+    def claim(owner: str) -> None:
+        try:
+            users.claim_machine_identity("shared-agent", owner)
+            winners.append(owner)
+        except ValueError:
+            pass  # the refusal is the correct outcome for the loser
+
+    for round_ in range(6):
+        name = "shared-agent"
+        users.ensure_agent_identity(name)
+        winners.clear()
+        owners = [f"service:alpha{round_}", f"service:beta{round_}"]
+        threads = [threading.Thread(target=claim, args=(owner,)) for owner in owners]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert len(winners) == 1, winners
+        row = fresh_db.query_one("SELECT identity_owner FROM users WHERE name = ?", (name,))
+        assert row is not None and row["identity_owner"] == winners[0]
+        fresh_db.execute("DELETE FROM users WHERE name = ?", (name,))
