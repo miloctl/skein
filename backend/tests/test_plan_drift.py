@@ -48,7 +48,9 @@ def test_an_evening_finish_west_of_utc_is_not_a_slip(client, fresh_db, monkeypat
             # the next UTC day. Done ON TIME by every reading a person has.
             local_evening = f"{m['due_date']}T20:00:00-04:00"
             utc = (
-                db.query_one("SELECT datetime(?) AS u", (local_evening,))["u"].replace(" ", "T")
+                db.query_one("SELECT (?::timestamp)::text AS u", (local_evening,))["u"].replace(
+                    " ", "T"
+                )
                 + "+00:00"
             )
             db.execute(

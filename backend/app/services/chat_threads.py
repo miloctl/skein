@@ -18,6 +18,7 @@ import shutil
 
 from .. import config, db
 from . import scope
+from .users import fold
 
 _THREAD_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 TITLE_LEN = 60
@@ -87,8 +88,9 @@ def claim_thread(thread_id: str, owner: str) -> str:
         raise db.NotFound(f"no chat '{thread_id}' for {owner}")
     now = db.now()
     db.execute(
-        "INSERT OR IGNORE INTO chat_threads (id, owner, title, created_at, updated_at)"
-        " VALUES (?, ?, 'New chat', ?, ?)",
+        "INSERT INTO chat_threads (id, owner, title, created_at, updated_at)"
+        " VALUES (?, ?, 'New chat', ?, ?)"
+        " ON CONFLICT DO NOTHING",
         (thread_id, owner, now, now),
     )
     row = db.query_one("SELECT owner FROM chat_threads WHERE id = ?", (thread_id,))
@@ -194,8 +196,9 @@ def log_message(thread_id: str, owner: str, role: str, content: str) -> None:
         return
     now = db.now()
     db.execute(
-        "INSERT OR IGNORE INTO chat_threads (id, owner, title, created_at, updated_at)"
-        " VALUES (?, ?, 'New chat', ?, ?)",
+        "INSERT INTO chat_threads (id, owner, title, created_at, updated_at)"
+        " VALUES (?, ?, 'New chat', ?, ?)"
+        " ON CONFLICT DO NOTHING",
         (thread_id, owner, now, now),
     )
     row = db.query_one("SELECT owner FROM chat_threads WHERE id = ?", (thread_id,))
@@ -231,7 +234,7 @@ MESSAGE_LIMIT = 1000
 def list_threads(owner: str) -> list[dict]:
     return db.query(
         "SELECT id, title, folder, engagement_id, created_at, updated_at FROM chat_threads"
-        " WHERE owner = ? ORDER BY updated_at DESC, rowid DESC LIMIT ?",
+        " WHERE owner = ? ORDER BY updated_at DESC, id DESC LIMIT ?",
         (owner, THREAD_LIMIT),
     )
 
@@ -285,7 +288,8 @@ def create_folder(owner: str, name: str) -> dict:
         raise ValueError("folder name is required")
     existing = _snap_folder(owner, name)
     db.execute(
-        "INSERT OR IGNORE INTO chat_folders (owner, name, created_at) VALUES (?, ?, ?)",
+        "INSERT INTO chat_folders (owner, name, created_at) VALUES (?, ?, ?)"
+        " ON CONFLICT DO NOTHING",
         (owner, existing, db.now()),
     )
     return {"name": existing}
@@ -325,21 +329,25 @@ def _snap_folder(owner: str, wanted: str) -> str:
     was filed. A decision computed over a truncated list is the bug
     api_keys.active_key_count exists to avoid, one file over.
     """
-    # skfold, not lower(): SQLite's lower() is ASCII-only, so "Été" and "été"
-    # were two folders again — the exact duplicate this function exists to
-    # stop. db.py registers it from services/users.py::fold.
-    row = db.query_one(
-        "SELECT name FROM chat_folders WHERE owner = ? AND skfold(name) = skfold(?)",
-        (owner, wanted),
-    )
-    if row:
-        return str(row["name"])
-    legacy = db.query_one(
-        "SELECT folder AS name FROM chat_threads"
-        " WHERE owner = ? AND folder != '' AND skfold(folder) = skfold(?) LIMIT 1",
-        (owner, wanted),
-    )
-    return str(legacy["name"]) if legacy else wanted
+    # Folded in Python, not in SQL. PostgreSQL's lower() is Unicode-aware, so
+    # it would fold "Été"/"été" together — but it still is not users.fold(),
+    # which also applies NFKC and strips zero-width joiners. One folding rule, in one place, or a
+    # name can be the same person here and a different one on the roster.
+    #
+    # Both queries stay UNCAPPED: this reads one owner's folders, and the
+    # docstring above is about a scan that stopped finding matches past
+    # FOLDER_LIMIT.
+    target = fold(wanted)
+    for row in db.query("SELECT name FROM chat_folders WHERE owner = ?", (owner,)):
+        if fold(row["name"]) == target:
+            return str(row["name"])
+    for row in db.query(
+        "SELECT DISTINCT folder AS name FROM chat_threads WHERE owner = ? AND folder != ''",
+        (owner,),
+    ):
+        if fold(row["name"]) == target:
+            return str(row["name"])
+    return wanted
 
 
 def update_thread(
@@ -386,7 +394,8 @@ def update_thread(
             wanted = _snap_folder(owner, wanted)
             # register it: a folder emptied later must not vanish
             db.execute(
-                "INSERT OR IGNORE INTO chat_folders (owner, name, created_at) VALUES (?, ?, ?)",
+                "INSERT INTO chat_folders (owner, name, created_at) VALUES (?, ?, ?)"
+                " ON CONFLICT DO NOTHING",
                 (owner, wanted, db.now()),
             )
         db.execute(

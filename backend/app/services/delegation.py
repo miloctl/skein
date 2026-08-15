@@ -201,7 +201,8 @@ def report_progress(task_id: int, note: str, *, actor: str, origin: str = "agent
     tier, cid = scope.inherit(task)
     wid = db.execute(
         "INSERT INTO task_worklog (task_id, author, note, origin, created_at,"
-        " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        " RETURNING id",
         (task_id, actor, note, origin, db.now(), tier, cid),
     )
     db.log_activity(actor, "report_progress", scope.detail(tier, f"task #{task_id}", note[:80]))
@@ -229,7 +230,7 @@ def list_worklog(
     so this door opens onto crew and workspace rows only."""
     # Clamped HERE, not at each door: every caller that forwards a
     # model-supplied limit would otherwise have to remember, and the MCP twin
-    # (app/mcp_server.py) did not. A negative LIMIT in SQLite means NO limit,
+    # (app/mcp_server.py) did not. A negative LIMIT is refused outright,
     # so an unclamped value pulls every note on the task into a context window.
     limit = max(1, min(int(limit or 50), 50))
     # A party to the delegation reads it whatever the tier says — the write
@@ -540,7 +541,7 @@ def trust_blocked() -> str:
         )
     settled = (
         db.query_one(
-            "SELECT COUNT(*) AS n, SUM(reviewed_strong = 1 AND reviewed_override = 0) AS strong"
+            "SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE reviewed_strong = 1 AND reviewed_override = 0) AS strong"
             " FROM pending_changes WHERE status != 'pending'"
         )
         # an aggregate always returns one row, but query_one is typed Optional
@@ -582,8 +583,8 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
     rows = db.query(
         "SELECT p.proposed_by AS agent, p.entity,"
         " COUNT(*) AS proposed,"
-        " SUM(p.status = 'approved') AS approved,"
-        " SUM(p.status = 'rejected') AS rejected"
+        " COUNT(*) FILTER (WHERE p.status = 'approved') AS approved,"
+        " COUNT(*) FILTER (WHERE p.status = 'rejected') AS rejected"
         " FROM pending_changes p JOIN users u ON u.name = p.proposed_by AND u.kind = 'agent'"
         " WHERE p.status != 'pending'"
         " GROUP BY p.proposed_by, p.entity ORDER BY proposed DESC"
@@ -601,7 +602,7 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
         recent = db.query(
             "SELECT status FROM pending_changes WHERE proposed_by = ? AND entity = ?"
             " AND status != 'pending' AND reviewed_strong = 1 AND reviewed_override = 0"
-            " ORDER BY reviewed_at DESC, id DESC LIMIT ?",
+            " ORDER BY reviewed_at DESC NULLS LAST, id DESC LIMIT ?",
             (r["agent"], r["entity"], TRUST_STREAK),
         )
         streak = 0
@@ -934,7 +935,7 @@ def agent_inbox(
     notifications = db.query(
         "SELECT id, message, link, created_at, source_entity, source_id,"
         " source_policy_context FROM notifications"
-        " WHERE user = ? AND read_at IS NULL ORDER BY id DESC LIMIT 20",
+        ' WHERE "user" = ? AND read_at IS NULL ORDER BY id DESC LIMIT 20',
         (agent,),
     )
     from .notifications import policy_filter as filter_notifications
@@ -960,13 +961,14 @@ def agent_inbox(
     # filtered on its own tier.
     last_notes: list[dict] = []
     if viewer is None and tasks:
-        # bare `note`/`created_at` beside MAX(id) resolve to the row that
-        # HELD the max — a documented SQLite guarantee for min/max aggregates,
-        # not the undefined pick other engines make of a bare column
+        # DISTINCT ON picks the whole row that held the max id per task. A
+        # bare `note` beside MAX(id) is a grouping error, and an engine that
+        # accepts it is free to answer with any row in the group.
         last_notes = db.query(
-            "SELECT task_id, MAX(id) AS id, note, created_at FROM task_worklog"  # noqa: S608 — the interpolation below emits bound marks only
+            "SELECT DISTINCT ON (task_id) task_id, id, note, created_at"  # noqa: S608 — the interpolation below emits bound marks only
+            " FROM task_worklog"
             f" WHERE author = ? AND task_id IN ({','.join('?' * len(tasks))})"
-            " GROUP BY task_id ORDER BY task_id",
+            " ORDER BY task_id, id DESC",
             (agent, *[t["id"] for t in tasks]),
         )
     return {

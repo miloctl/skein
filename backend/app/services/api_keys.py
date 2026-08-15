@@ -20,7 +20,8 @@ def _hash(key: str) -> str:
 def create_key(owner: str, label: str = "") -> dict:
     key = PREFIX + secrets.token_hex(20)
     kid = db.execute(
-        "INSERT INTO api_keys (key_hash, prefix, owner, label, created_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO api_keys (key_hash, prefix, owner, label, created_at) VALUES (?, ?, ?, ?, ?)"
+        " RETURNING id",
         (_hash(key), key[: len(PREFIX) + 6], owner, label, db.now()),
     )
     db.log_activity(owner, "create_api_key", f"#{kid} {label}")
@@ -54,7 +55,7 @@ def request_key(user: str) -> dict:
         # requester may ask again. The per-person read (009) governs whose FEED
         # shows it; this governs whether a second request is a duplicate.
         pending = db.query_one(
-            "SELECT id FROM notifications WHERE user = 'team' AND message LIKE ?"
+            "SELECT id FROM notifications WHERE \"user\" = 'team' AND message LIKE ?"
             " AND read_at IS NULL"
             " AND id NOT IN (SELECT notification_id FROM notification_reads)",
             (prefix + "%",),

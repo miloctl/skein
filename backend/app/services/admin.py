@@ -1,5 +1,5 @@
-"""Backups and export. SQLite's .backup API gives consistent copies even
-mid-write; exports are JSON snapshots for portability.
+"""Backups and export. pg_dump writes a consistent snapshot from a single
+transaction even mid-write; exports are JSON snapshots for portability.
 
 Ops note: backups default to the same volume as the live databases, so
 losing that volume loses both together. Put them elsewhere: on OpenShift,
@@ -10,11 +10,10 @@ directory does the same job.
 
 Restore procedure (drilled in tests/test_admin_backup.py::
 test_restore_drill_brings_both_databases_back):
-1. Scale the deployment to zero replicas — SQLite must have no writer.
-2. Copy platform-<date>.db over <data>/platform.db and private-<date>.db
-   over <data>/private.db (oc cp into the PVC via a debug pod, or plain cp
-   on a host). BOTH files, from the SAME date: they reference each other's
-   people.
+1. Scale the deployment to zero replicas, so nothing writes during the load.
+2. pg_restore --clean --if-exists both dumps of the SAME date:
+   platform-<date>.dump and private-<date>.dump. Both, and matching: they
+   reference each other's people.
 3. Scale back to one replica. Boot applies any migrations newer than the
    backup; the activity chain verifies from its anchor on /health.
 4. The anchor-log check (services/activity.py::check_anchor_log) now fires
@@ -29,8 +28,11 @@ import json
 import logging
 import os
 import re
-import sqlite3
+import shutil
+import subprocess
 from pathlib import Path
+
+from psycopg.conninfo import conninfo_to_dict
 
 from .. import config, db
 
@@ -38,14 +40,12 @@ log = logging.getLogger(__name__)
 
 # Every real table is either exported (TABLES) or excluded here with its
 # reason — test_admin_export.py::test_export_accounts_for_every_table walks
-# sqlite_master and fails on a table in neither set, so a new migration
+# the catalog and fails on a table in neither set, so a new migration
 # cannot silently fall out of the export.
 EXCLUDED = frozenset(
     {
         # derived: rebuilt from the exported rows on each record's next write
-        # (search_index_* FTS shadow tables ride with search_index)
         "search_index",
-        "search_ids",
         "embeddings",
         "schema_version",
         # durable operational delivery state; events carry public identifiers,
@@ -59,7 +59,7 @@ EXCLUDED = frozenset(
         # after a restore
         "api_keys",
         # owner-scoped conversation state stays out of portable exports on
-        # purpose; sqlite backups still carry it
+        # purpose; the pg_dump backups still carry it
         "chat_threads",
         "chat_messages",
         "chat_folders",
@@ -124,18 +124,18 @@ def _backups_dir() -> Path:
     return d
 
 
-_DATED_BACKUP = re.compile(r"\d{4}-\d{2}-\d{2}\.db")
+_DATED_BACKUP = re.compile(r"\d{4}-\d{2}-\d{2}\.dump")
 
 
 def _today() -> str:
     return db.today().isoformat()
 
 
-_EXTENSION_STORES: dict[str, Path] = {}
+_EXTENSION_STORES: dict[str, str] = {}
 
 
-def set_extension_stores(stores: dict[str, Path]) -> None:
-    """Register the extension-owned databases one composed app must back up.
+def set_extension_stores(stores: dict[str, str]) -> None:
+    """Register the extension-owned schemas one composed app must back up.
 
     The composition root calls this so the service layer never imports the
     extension layer, the way agents/narrator.py registers into digest.
@@ -144,16 +144,52 @@ def set_extension_stores(stores: dict[str, Path]) -> None:
     _EXTENSION_STORES.update(stores)
 
 
-def _backup_one(src: sqlite3.Connection, dest: Path, keep: int, prefix: str = "") -> None:
-    tmp = dest.with_suffix(".db.tmp")
+def _pg_env() -> dict[str, str]:
+    """PG* variables for pg_dump, parsed from SKEIN_DATABASE_URL.
+
+    The URL is NOT passed on the command line: it carries the password, and
+    argv is world-readable in `ps` for every process on the node.
+    """
+    info = conninfo_to_dict(config.DATABASE_URL)
+    env = dict(os.environ)
+    for key, var in (
+        ("user", "PGUSER"),
+        ("password", "PGPASSWORD"),
+        ("host", "PGHOST"),
+        ("port", "PGPORT"),
+        ("dbname", "PGDATABASE"),
+    ):
+        value = info.get(key)
+        if value is not None:
+            env[var] = str(value)
+    return env
+
+
+def _backup_one(args: list[str], dest: Path, keep: int, prefix: str = "") -> None:
+    """One pg_dump into dest, then prune that prefix's older copies.
+
+    Custom format (-Fc), not plain SQL: pg_restore can then load it selectively
+    and in dependency order, which a flat script cannot do.
+    """
+    binary = shutil.which("pg_dump")
+    if binary is None:
+        raise RuntimeError(
+            "pg_dump is not installed. Install the PostgreSQL client tools"
+            " that match the server major version."
+        )
+    tmp = dest.with_suffix(".dump.tmp")
     try:
-        target = sqlite3.connect(tmp)
-        with target:
-            src.backup(target)
-        target.close()
+        # check=True: a failed dump must not be renamed over a good backup.
+        # absolute path from which(), never a bare name: the argv is fixed and
+        # there is no shell, so the resolved binary is the only variable left.
+        subprocess.run(  # noqa: S603 — fixed argv, no shell, values are not caller input
+            [binary, "--format=custom", "--file", str(tmp), *args],
+            env=_pg_env(),
+            check=True,
+            capture_output=True,
+        )
         os.replace(tmp, dest)  # atomic: no truncated file can masquerade as a backup
     finally:
-        src.close()
         tmp.unlink(missing_ok=True)
     # An explicit prefix keeps one store's retention off another's files: every
     # extension backup starts with "extension-", so the derived prefix would
@@ -166,7 +202,7 @@ def _backup_one(src: sqlite3.Connection, dest: Path, keep: int, prefix: str = ""
     # and "acme.data-archive" (extensions/registry.py::_IDENTIFIER).
     kept = sorted(
         path
-        for path in dest.parent.glob(f"{prefix}-*.db")
+        for path in dest.parent.glob(f"{prefix}-*.dump")
         if _DATED_BACKUP.fullmatch(path.name.removeprefix(f"{prefix}-"))
     )
     for old in kept[:-keep]:
@@ -175,11 +211,11 @@ def _backup_one(src: sqlite3.Connection, dest: Path, keep: int, prefix: str = ""
 
 
 def backup(*, keep: int = 14, actor: str | None = None) -> dict:
-    """Both databases, or the backup is not one: platform.db holds the
-    workspace, private.db holds the 1:1 notes — the one store that exists
+    """Every schema, or the backup is not one: the core schema holds the
+    workspace, `private` holds the 1:1 notes — the one store that exists
     nowhere else (deliberately outside exports), so a backup that skips it
-    silently loses the most personal data on the first disk loss. The
-    private backup stays out of the off-box mirror — see the note below.
+    silently loses the most personal data on the first disk loss. The private
+    dump stays out of the off-box mirror — see the note below.
 
     actor is the person behind a MANUAL backup (the route passes it); the
     scheduled run passes none. The distinction is load-bearing twice: the
@@ -187,33 +223,38 @@ def backup(*, keep: int = 14, actor: str | None = None) -> dict:
     field-guide `backup` predicate reads it — a scheduler run must not tie
     the card for anybody."""
     backups_dir = _backups_dir()
-    dest = backups_dir / f"platform-{_today()}.db"
-    _backup_one(db.connect(), dest, keep)
+    dest = backups_dir / f"platform-{_today()}.dump"
+    # Every schema this function dumps SEPARATELY must be excluded here, or it
+    # travels in the core file too — and the core file is the one that goes
+    # off-box, which is exactly what the private exclusion exists to prevent.
+    excluded = [f"--exclude-schema={config.PRIVATE_SCHEMA}"]
+    excluded += [f"--exclude-schema={schema}" for schema in sorted(_EXTENSION_STORES.values())]
+    _backup_one(excluded, dest, keep)
     mirrored = _mirror(dest)
 
     private_path = None
-    if Path(config.PRIVATE_DB_PATH).exists():
-        private_dest = backups_dir / f"private-{_today()}.db"
-        _backup_one(sqlite3.connect(config.PRIVATE_DB_PATH), private_dest, keep)
+    if _schema_has_rows(config.PRIVATE_SCHEMA):
+        private_dest = backups_dir / f"private-{_today()}.dump"
+        _backup_one([f"--schema={config.PRIVATE_SCHEMA}"], private_dest, keep)
         # deliberately NOT mirrored: SKEIN_BACKUP_MIRROR is an off-box copy,
         # and 1:1 notes stay on the box — the local backup adds no reader
-        # (whoever runs the server can read private.db itself), the mirror
+        # (whoever runs the server can read the schema itself), the mirror
         # would. tests/test_privacy.py pins both halves.
         private_path = str(private_dest)
 
     # Extension stores are deliberately NOT mirrored: SKEIN_BACKUP_MIRROR is an
     # off-box copy, and core cannot know what a private package keeps in its
-    # own database. The deployment owns any off-box copy of it.
+    # own schema. The deployment owns any off-box copy of it.
     extension_paths = []
-    for name, store_path in sorted(_EXTENSION_STORES.items()):
-        if not Path(store_path).exists():
+    for name, schema in sorted(_EXTENSION_STORES.items()):
+        if not _schema_has_rows(schema):
             continue
         prefix = f"extension-{name}"
-        store_dest = backups_dir / f"{prefix}-{_today()}.db"
-        _backup_one(sqlite3.connect(store_path), store_dest, keep, prefix)
+        store_dest = backups_dir / f"{prefix}-{_today()}.dump"
+        _backup_one([f"--schema={schema}"], store_dest, keep, prefix)
         extension_paths.append(str(store_dest))
 
-    kept = len(sorted(backups_dir.glob("platform-*.db")))
+    kept = len(sorted(backups_dir.glob("platform-*.dump")))
     if actor:
         db.log_activity(actor, "backup", dest.name)
     return {
@@ -223,6 +264,19 @@ def backup(*, keep: int = 14, actor: str | None = None) -> dict:
         "kept": min(kept, keep),
         "mirrored": mirrored,
     }
+
+
+def _schema_has_rows(schema: str) -> bool:
+    """Whether a schema exists with at least one table.
+
+    A schema is created ahead of its first row, so its EXISTENCE says
+    nothing. A dump of an empty schema is a valid but pointless file, and it
+    would make the first real backup look like a repeat."""
+    row = db.query_one(
+        "SELECT 1 AS present FROM information_schema.tables WHERE table_schema = ? LIMIT 1",
+        (schema,),
+    )
+    return row is not None
 
 
 def mirror_dir() -> Path | None:
@@ -256,7 +310,7 @@ def _mirror(dest: Path) -> str | None:
         shutil.copy2(dest, tmp)
         os.replace(tmp, mdir / dest.name)
         prefix = dest.name.split("-", 1)[0]
-        for old in sorted(mdir.glob(f"{prefix}-*.db"))[:-30]:
+        for old in sorted(mdir.glob(f"{prefix}-*.dump"))[:-30]:
             old.unlink()
         return str(mdir / dest.name)
     except Exception as exc:
@@ -267,11 +321,12 @@ def _mirror(dest: Path) -> str | None:
 def backup_if_stale() -> dict | None:
     """Daily hook, multi-process safe via the job_runs claim."""
     backups_dir = _backups_dir()
-    done = (backups_dir / f"platform-{_today()}.db").exists() and (
-        # private.db appears with the first 1:1 note — the day it does, the
-        # platform file existing must not skip the first private backup
-        not Path(config.PRIVATE_DB_PATH).exists()
-        or (backups_dir / f"private-{_today()}.db").exists()
+    done = (backups_dir / f"platform-{_today()}.dump").exists() and (
+        # the private schema gets its first table with the first 1:1 note —
+        # the day it does, the platform file existing must not skip the first
+        # private backup
+        not _schema_has_rows(config.PRIVATE_SCHEMA)
+        or (backups_dir / f"private-{_today()}.dump").exists()
     )
     if done:
         return None

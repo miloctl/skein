@@ -1,46 +1,45 @@
 """The ambient-connection transaction context manager: rollback, nesting, and the compound services that depend on it being atomic."""
 
-import sqlite3
 import threading
 
 import pytest
 
 
-def test_a_write_lock_timeout_reports_the_lock_not_the_rollback(fresh_db, monkeypatch):
-    """A BEGIN IMMEDIATE that times out opened no transaction, so the handler's
-    ROLLBACK raises "cannot rollback - no transaction is active" and REPLACES
-    the real "database is locked". sqlite3.OperationalError has no handler in
-    main.py, so the caller gets a 500 and whoever runs the server gets the
-    wrong diagnosis to chase."""
+def test_a_lock_timeout_surfaces_as_load_not_as_a_rollback_failure(fresh_db):
+    """A statement that gives up waiting for a row lock must raise the LOCK
+    error, classified as load.
+
+    Under SQLite this was a BEGIN IMMEDIATE that timed out, where an
+    unguarded ROLLBACK in the cleanup raised "cannot rollback - no transaction
+    is active" and REPLACED the real "database is locked". The cleanup path is
+    different now, and the property it has to keep is the same: the error the
+    caller sees names the contention, and db.BUSY_ERRORS classes it as load so
+    main.py answers 503 rather than 500."""
+    import psycopg
+
     from app import db
 
-    real_connect = db.connect
-
-    def impatient():
-        conn = real_connect()
-        conn.execute("PRAGMA busy_timeout = 50")  # 5000 default would stall the suite
-        return conn
-
-    monkeypatch.setattr(db, "connect", impatient)
+    db.execute(
+        "INSERT INTO job_runs (job, run_key, created_at) VALUES (?, ?, ?)",
+        ("lockme", "k", db.now()),
+    )
     holding, release = threading.Event(), threading.Event()
 
-    def hold_the_write_lock():
-        conn = real_connect()
-        conn.isolation_level = None
-        conn.execute("BEGIN IMMEDIATE")
-        holding.set()
-        release.wait(10)
-        conn.execute("ROLLBACK")
-        conn.close()
+    def hold_the_row():
+        with db.transaction():
+            db.query("SELECT job FROM job_runs WHERE job = ? FOR UPDATE", ("lockme",))
+            holding.set()
+            release.wait(10)
 
-    holder = threading.Thread(target=hold_the_write_lock)
+    holder = threading.Thread(target=hold_the_row)
     holder.start()
     try:
-        assert holding.wait(5), "the holder thread never took the write lock"
-        with pytest.raises(sqlite3.OperationalError) as exc, db.transaction():
-            pass  # BEGIN IMMEDIATE raises before the body ever runs
-        assert "locked" in str(exc.value)
-        assert "cannot rollback" not in str(exc.value)
+        assert holding.wait(5), "the holder thread never took the row lock"
+        with pytest.raises(psycopg.errors.LockNotAvailable) as exc, db.transaction():
+            db.execute("SET LOCAL lock_timeout = '50ms'")
+            db.query("SELECT job FROM job_runs WHERE job = ? FOR UPDATE", ("lockme",))
+        assert "lock" in str(exc.value).lower()
+        assert isinstance(exc.value, db.BUSY_ERRORS)
     finally:
         release.set()
         holder.join(10)
@@ -73,33 +72,31 @@ def test_transaction_commits_and_nests(fresh_db):
     assert db.query_row("SELECT COUNT(*) AS n FROM notes")["n"] == 1
 
 
-def test_read_transaction_uses_a_deferred_snapshot(fresh_db, monkeypatch):
+def test_read_transaction_holds_one_snapshot(fresh_db):
+    """Every read in the block sees the same instant.
+
+    REPEATABLE READ, not the engine default: under READ COMMITTED each
+    statement takes a fresh snapshot, so a commit landing mid-block makes two
+    counts that must agree disagree. Pinned by behaviour rather than by the
+    SQL emitted, because the isolation level is the contract and the statement
+    that sets it is not."""
     from app import db
 
-    statements: list[str] = []
-    real_connect = db.connect
-
-    class TrackingConnection:
-        def __init__(self):
-            object.__setattr__(self, "connection", real_connect())
-
-        def __getattr__(self, name):
-            return getattr(self.connection, name)
-
-        def __setattr__(self, name, value):
-            setattr(self.connection, name, value)
-
-        def execute(self, sql, parameters=()):
-            statements.append(sql)
-            return self.connection.execute(sql, parameters)
-
-    monkeypatch.setattr(db, "connect", TrackingConnection)
+    def insert_and_commit():
+        db.execute(
+            "INSERT INTO job_runs (job, run_key, created_at) VALUES (?, ?, ?)",
+            ("snapshot", "k", db.now()),
+        )
 
     with db.read_transaction():
-        assert db.query_row("SELECT 1 AS value") == {"value": 1}
-
-    assert "BEGIN" in statements
-    assert "BEGIN IMMEDIATE" not in statements
+        before = db.query_row("SELECT COUNT(*) AS n FROM job_runs")["n"]
+        writer = threading.Thread(target=insert_and_commit)
+        writer.start()
+        writer.join(5)
+        after = db.query_row("SELECT COUNT(*) AS n FROM job_runs")["n"]
+    assert before == after, "a committed write leaked into an open read snapshot"
+    # and the row really was committed — the snapshot hid it, nothing dropped it
+    assert db.query_row("SELECT COUNT(*) AS n FROM job_runs")["n"] == before + 1
 
 
 def test_playbook_instantiate_is_atomic(fresh_db, monkeypatch):
@@ -184,29 +181,25 @@ def test_index_record_defers_embeds_to_commit(fresh_db, monkeypatch):
     assert embedded == [("note", 1), ("note", 3)]
 
 
-def test_the_helpers_close_their_connections(fresh_db, monkeypatch):
-    """sqlite3's `with conn:` scopes the transaction and never closes — written
-    that way the three helpers leaked one connection per call into a reference
-    cycle (Connection ↔ cursors) that refcounting cannot free: 84k open fds
-    measured over 30k queries between gc runs, each holding a WAL reader mark
-    that stalls checkpoints."""
+def test_the_helpers_return_their_connections_to_the_pool(fresh_db):
+    """A helper that leaks its connection exhausts the pool.
+
+    Under SQLite the same bug leaked file descriptors — 84k open fds measured
+    over 30k queries — because the connection context manager scopes the
+    TRANSACTION and never closes. Here the ceiling is the pool: once max_size
+    connections are checked out and never returned, the next caller waits for
+    PoolTimeout instead of running."""
     from app import db
 
-    handed_out = []
-    real_connect = db.connect
-
-    def tracking_connect():
-        conn = real_connect()
-        handed_out.append(conn)
-        return conn
-
-    monkeypatch.setattr(db, "connect", tracking_connect)
-    db.query("SELECT 1 AS one")
-    db.execute(
-        "INSERT INTO job_runs (job, run_key, created_at) VALUES (?, ?, ?)", ("t", "k", db.now())
-    )
-    db.execute_rowcount("UPDATE job_runs SET run_key = run_key WHERE job = ?", ("t",))
-    assert len(handed_out) == 3
-    for conn in handed_out:
-        with pytest.raises(sqlite3.ProgrammingError):
-            conn.execute("SELECT 1")
+    pool = db.pool()
+    for i in range(pool.max_size + 5):
+        db.query("SELECT 1 AS one")
+        db.execute(
+            "INSERT INTO job_runs (job, run_key, created_at) VALUES (?, ?, ?)",
+            ("t", f"k{i}", db.now()),
+        )
+        db.execute_rowcount("UPDATE job_runs SET run_key = run_key WHERE job = ?", ("t",))
+    stats = pool.get_stats()
+    assert stats["pool_size"] <= pool.max_size
+    # nothing is still checked out once the helpers have returned
+    assert stats.get("pool_available", 0) >= 1

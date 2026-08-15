@@ -1,10 +1,11 @@
-"""Programmatic search: FTS5 always, optional embeddings when configured.
+"""Programmatic search: PostgreSQL full text always, optional embeddings
+when configured.
 
 `index_record` is called by every service on write, so the index is always
 current. Embeddings are a pluggable enhancement gated on config.EMBED_READY
 (SKEIN_EMBEDDINGS=1 plus a valid SKEIN_EMBED_PROVIDER setup — openai,
 openai_compatible, or ollama): vectors are stored alongside and blended into
-results; otherwise hybrid search degrades cleanly to FTS-only.
+results; otherwise hybrid search degrades cleanly to full-text-only.
 """
 
 import json
@@ -15,11 +16,6 @@ from collections.abc import Callable
 from .. import config, db
 from . import scope
 
-
-def _fts_quote(q: str) -> str:
-    return '"' + q.replace('"', '""') + '"'
-
-
 _SHORT_ID = re.compile(r"^(?:#(\d{1,18})|([a-z_]+)(?:\s+#?|#)(\d{1,18}))$", re.ASCII)
 
 
@@ -29,17 +25,16 @@ def _short_id_hit(q: str) -> dict | None:
     people. Bare `#N` means task, matching what the trailers mean by it.
     The index row IS the kind list: an unknown word or missing id falls
     through to FTS, and a new entity is covered the day it is first indexed.
-    ASCII + 18-digit cap keep every match inside SQLite's integer range, so
-    an oversized id is an FTS miss, never an OverflowError. A separator is
+    ASCII + 18-digit cap keep every match inside a bigint, so an oversized
+    id is a search miss, never an OverflowError. A separator is
     required ("task 42", never "task42") so a literal token in a body is
     not reinterpreted as a ref."""
     m = _SHORT_ID.match(q.strip().lower())
     if not m:
         return None
     row = db.query_one(
-        "SELECT s.entity, s.entity_id, s.title, substr(s.body, 1, 120) AS snippet"
-        " FROM search_ids i JOIN search_index s ON s.rowid = i.id"
-        " WHERE i.entity = ? AND i.entity_id = ?",
+        "SELECT entity, entity_id, title, substr(body, 1, 120) AS snippet"
+        " FROM search_index WHERE entity = ? AND entity_id = ?",
         (m.group(2) or "task", int(m.group(1) or m.group(3))),
     )
     return {**row, "rank": None} if row else None
@@ -79,21 +74,17 @@ def _tier_of(entity: str, entity_id: int) -> tuple[str, int | None] | None:
 def visible_hits(hits: list[dict], viewer: "scope.Viewer") -> list[dict]:
     """Drop the hits this viewer may not read.
 
-    The FTS table has no tier of its own, and it CANNOT get one cheaply:
-    `entity` and `entity_id` are UNINDEXED in fts5, so a predicate on them
-    scans the whole virtual table, and adding a column means dropping and
-    rebuilding the index plus its five shadow tables. So the tier is read off
-    the source rows instead.
+    The index carries no tier of its own. Adding one would mean reindexing
+    every row on any visibility change, and the tier would then be a second
+    copy that can go stale — so it is read off the source rows instead.
 
     Without this every crew row was world-readable through search, /ask, the
     MCP search_workspace tool, and the by-id fetch — which voids every filter
     the list endpoints apply.
 
-    One query per TABLE, not per hit. db.connect() runs four PRAGMAs (db.py),
-    so a per-hit read costs a connection — and this filters BEFORE the
-    `limit * 4` over-fetch is truncated, so a 20-result page probes 80 rows.
-    Measured at 81 connections and 38ms per search; grouped by table it is 3
-    and 1.9ms.
+    One query per TABLE, not per hit: this filters BEFORE the `limit * 4`
+    over-fetch is truncated, so a 20-result page probes 80 rows, and a per-hit
+    read is 80 round trips against 3.
     """
     want: dict[str, set[int]] = {}
     for h in hits:
@@ -148,15 +139,11 @@ def _is_private(entity: str, entity_id: int) -> bool:
 
 
 def index_record(entity: str, entity_id: int, title: str, body: str) -> None:
-    # by rowid via search_ids, never WHERE entity = ?: entity/entity_id are
-    # UNINDEXED in FTS5, so that predicate scans the whole virtual table —
-    # under the write lock, on every service write (migration 043).
-    # INVARIANT: every search_index row has a search_ids twin. A row written
-    # to search_index directly occupies a rowid that INSERT OR IGNORE can
-    # mint next, and the DELETE below then destroys the bystander silently.
-    # One transaction: two writers of the same record interleaving these
-    # statements would collide on the explicit rowid insert (IntegrityError);
-    # BEGIN IMMEDIATE serializes them instead.
+    # (entity, entity_id) is the upsert key and carries the UNIQUE index the
+    # ON CONFLICT clause needs — dropping that index turns every reindex into
+    # a duplicate row rather than an update.
+    # tsv is a GENERATED column: nothing here writes it, and nothing may, or
+    # the index and the text beside it can disagree.
     with db.transaction():
         if _is_private(entity, entity_id):
             # and remove any row a previous, non-private version left behind:
@@ -164,26 +151,20 @@ def index_record(entity: str, entity_id: int, title: str, body: str) -> None:
             deindex_record(entity, entity_id)
             return
         db.execute(
-            "INSERT OR IGNORE INTO search_ids (entity, entity_id) VALUES (?, ?)",
-            (entity, entity_id),
-        )
-        sid = db.query_row(
-            "SELECT id FROM search_ids WHERE entity = ? AND entity_id = ?",
-            (entity, entity_id),
-        )["id"]
-        db.execute("DELETE FROM search_index WHERE rowid = ?", (sid,))
-        db.execute(
-            "INSERT INTO search_index (rowid, entity, entity_id, title, body)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (sid, entity, entity_id, title, body),
+            "INSERT INTO search_index (entity, entity_id, title, body)"
+            " VALUES (?, ?, ?, ?)"
+            " ON CONFLICT (entity, entity_id) DO UPDATE"
+            " SET title = excluded.title, body = excluded.body",
+            (entity, entity_id, title, body),
         )
     # The embed is an HTTP round-trip of up to ~5s. Callers run index_record
     # inside db.transaction() (review.approve_change, playbooks.instantiate,
-    # intake.disposition) — inline, the round-trip would hold SQLite's single
-    # write lock and stall every concurrent write for its duration. Deferred
-    # to after commit it holds nothing, and a rollback drops the embed along
-    # with the row it would have described. The FTS write above stays inside
-    # the transaction — it is the authoritative index.
+    # intake.disposition) — inline, the round-trip would hold the caller's
+    # transaction open for its duration, and every row it has written stays
+    # locked against concurrent updates. Deferred to after commit it holds
+    # nothing, and a rollback drops the embed along with the row it would have
+    # described. The index write above stays inside the transaction — it is
+    # the authoritative index.
     text = f"{title}\n{body}"
     if not db.on_commit(lambda: _maybe_embed(entity, entity_id, text)):
         _maybe_embed(entity, entity_id, text)
@@ -195,21 +176,14 @@ def deindex_record(entity: str, entity_id: int) -> None:
     orphaned embedding can't leak content (snippets come from search_index),
     but it outranks live records and silently burns a semantic result slot
     per query, forever."""
-    # One transaction, matching index_record: unwrapped, a concurrent
-    # index_record commits between the lookup and the DELETEs and re-inserts
-    # the row, leaving the full body of a deleted record queryable through
-    # search forever — nothing reaps it. It also holds the search_ids twin
-    # invariant that index_record's comment above depends on: a half-applied
-    # delete leaves a search_index row whose freed rowid INSERT OR IGNORE
-    # mints next, and the next index_record destroys that bystander.
+    # One transaction so the index row and its vector go together: between
+    # two statements a reader can otherwise see a deleted record still cited
+    # by search, or an embedding with nothing to cite.
     with db.transaction():
-        row = db.query_one(
-            "SELECT id FROM search_ids WHERE entity = ? AND entity_id = ?",
+        db.execute(
+            "DELETE FROM search_index WHERE entity = ? AND entity_id = ?",
             (entity, entity_id),
         )
-        if row:
-            db.execute("DELETE FROM search_index WHERE rowid = ?", (row["id"],))
-            db.execute("DELETE FROM search_ids WHERE id = ?", (row["id"],))
         db.execute(
             "DELETE FROM embeddings WHERE entity = ? AND entity_id = ?",
             (entity, entity_id),
@@ -272,7 +246,7 @@ def ask(
     note = ""
     if not hits:
         # natural phrasing rarely matches as a phrase — fall back to OR of
-        # the meaningful words, bm25-ranked, and say so
+        # the meaningful words, rank-ordered, and say so
         tokens = q.split()
         words = [w for w in tokens if len(w) > 2 and w.strip(".,;:!?").lower() not in _STOPWORDS]
         # One meaningful word is worth trying when the question carried more
@@ -281,9 +255,9 @@ def ask(
         # so re-running it costs a second scan for the same nothing.
         if words and (len(words) > 1 or len(words) != len(tokens)):
             hits = search(
-                " OR ".join(_fts_quote(w) for w in words),
+                q,
                 limit,
-                raw=True,
+                terms=words,
                 viewer=viewer,
                 row_filter=row_filter,
             )
@@ -308,28 +282,43 @@ def ask(
 def search(
     q: str,
     limit: int = 20,
-    raw: bool = False,
+    terms: list[str] | None = None,
     viewer: "scope.Viewer | None" = None,
     row_filter: Callable[[list[dict]], list[dict]] | None = None,
 ) -> list[dict]:
-    """raw=True passes q as a pre-built FTS expression (callers must quote
-    each term themselves — ask()'s OR fallback does)."""
+    """`terms` matches ANY of the given words instead of q as a phrase —
+    ask()'s fallback when the phrase itself found nothing."""
     if not q.strip():
         return []
+    if terms:
+        # `||` is OR between tsqueries. Built by OR-ing one PARAMETERIZED
+        # plainto_tsquery per word rather than by pasting a tsquery string
+        # together: a hand-built expression makes every search word a parse
+        # surface, and one stray `!` or `:*` from a user's question is then a
+        # syntax error on a public endpoint.
+        expr = " || ".join(["plainto_tsquery('english', ?)"] * len(terms))
+        params: tuple = tuple(terms)
+    else:
+        expr = "phraseto_tsquery('english', ?)"
+        params = (q,)
     hits = db.query(
-        "SELECT entity, entity_id, title,"
-        " snippet(search_index, 3, '<b>', '</b>', '…', 12) AS snippet,"
-        " bm25(search_index) AS rank"
-        " FROM search_index WHERE search_index MATCH ?"
-        " ORDER BY rank LIMIT ?",
+        f"WITH q AS (SELECT {expr} AS query)"  # noqa: S608 — expr is a fixed string repeated per term; every value is bound
+        " SELECT entity, entity_id, title,"
+        " ts_headline('english', body, q.query,"
+        " 'StartSel=<b>, StopSel=</b>, MaxWords=18, MinWords=6, MaxFragments=1')"
+        " AS snippet,"
+        " ts_rank_cd(tsv, q.query) AS rank"
+        " FROM search_index, q WHERE tsv @@ q.query"
+        # DESC, because ts_rank_cd scores a better match HIGHER.
+        " ORDER BY rank DESC LIMIT ?",
         # over-fetch, because the tier is checked AFTER the match: a page of
         # hits that are all scoped would otherwise come back empty
-        (q if raw else _fts_quote(q), limit * 4),
+        (*params, limit * 4),
     )
     hits = visible_hits(hits, viewer or scope.NOBODY)[:limit]
     # the by-id fetch is its own door: `note 4` resolves a row without
     # matching anything, so the tier has to be checked here too
-    direct = None if raw else _short_id_hit(q)
+    direct = None if terms else _short_id_hit(q)
     if direct and not visible_hits([direct], viewer or scope.NOBODY):
         direct = None
     if direct:
@@ -345,9 +334,8 @@ def search(
             if (s["entity"], s["entity_id"]) in seen:
                 continue
             row = db.query_one(
-                "SELECT s.title, substr(s.body, 1, 120) AS snippet"
-                " FROM search_ids i JOIN search_index s ON s.rowid = i.id"
-                " WHERE i.entity = ? AND i.entity_id = ?",
+                "SELECT title, substr(body, 1, 120) AS snippet"
+                " FROM search_index WHERE entity = ? AND entity_id = ?",
                 (s["entity"], s["entity_id"]),
             )
             if row and not visible_hits(
@@ -386,8 +374,10 @@ def _maybe_embed(entity: str, entity_id: int, text: str) -> None:
     try:
         vec = _embed(text)
         db.execute(
-            "INSERT OR REPLACE INTO embeddings (entity, entity_id, model, vector)"
-            " VALUES (?, ?, ?, ?)",
+            "INSERT INTO embeddings (entity, entity_id, model, vector)"
+            " VALUES (?, ?, ?, ?)"
+            " ON CONFLICT (entity, entity_id) DO UPDATE SET"
+            " model = excluded.model, vector = excluded.vector",
             (entity, entity_id, config.EMBED_MODEL, json.dumps(vec)),
         )
         _embed_warned = False
@@ -443,7 +433,8 @@ def semantic_search(q: str, limit: int = 10) -> list[dict]:
         qv = _embed(q)
         # the whole table for this model, JSON-parsed and cosine-scored in
         # Python on every request. Known and DEFERRED, not overlooked:
-        # SQLite has no vector index, so the real fix is a cached matrix
+        # There is no vector index here (pgvector is not installed), so the
+        # real fix is a cached matrix
         # with write invalidation or a bounded candidate set — its own
         # change. Gated behind EMBED_READY (off by default), so the keyless
         # deployment never pays it.

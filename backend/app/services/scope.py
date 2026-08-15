@@ -460,9 +460,9 @@ def visible_filter(viewer: Viewer, table: str, alias: str = "") -> tuple[str, li
 
     Positional `?` marks, because `db.query` takes a tuple.
 
-    A viewer in NO crew is the common case, and SQLite has no `IN ()` — the
-    crew disjunct is DROPPED rather than emitted empty, which is a syntax
-    error rather than a filter that matches nothing.
+    A viewer in NO crew is the common case, and `IN ()` is not legal SQL —
+    the crew disjunct is DROPPED rather than emitted empty, which would be a
+    syntax error rather than a filter that matches nothing.
     """
     author_column = CLASSIFIED.get(table)
     if author_column is None:
@@ -517,7 +517,7 @@ def visible_name(viewer: Viewer, table: str, column: str, alias: str = "") -> tu
 
 # ---------------------------------------------------------------------------
 # The inventory. Every table is here or in UNSCOPED, and
-# tests/test_scope.py walks sqlite_master and fails on anything in neither.
+# tests/test_scope.py walks the catalog and fails on anything in neither.
 #
 # An inventory is only as good as the direction CI checks. Both other
 # enumerate-everything structures here (services/admin.py::TABLES and
@@ -611,18 +611,12 @@ UNSCOPED: dict[str, str] = {
     ),
     # --- derived: the tier lives on the source row, not the copy ---
     "embeddings": "derived from search_index — a private row is never indexed, so never embedded",
-    "search_ids": "derived from search_index",
     "search_index": (
         "a private row is never indexed at all (search.index_record, pinned by"
         " test_a_private_row_reaches_the_index_table_itself). A crew row IS"
         " indexed and this table carries no tier — search.visible_hits reads"
         " the tier off each hit's SOURCE row instead"
     ),
-    "search_index_config": "FTS5 shadow table, rebuilt with search_index",
-    "search_index_content": "FTS5 shadow table, rebuilt with search_index",
-    "search_index_data": "FTS5 shadow table, rebuilt with search_index",
-    "search_index_docsize": "FTS5 shadow table, rebuilt with search_index",
-    "search_index_idx": "FTS5 shadow table, rebuilt with search_index",
     "health_snapshots": (
         "written by a job, and jobs read the workspace tier only — the same"
         " rule as forecast_snapshots below. It stores a health LETTER and a"
@@ -697,7 +691,8 @@ def unclassified() -> set[str]:
     live = {
         r["name"]
         for r in db.query(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+            "SELECT table_name AS name FROM information_schema.tables"
+            " WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
         )
     }
     return live - set(CLASSIFIED) - set(UNSCOPED)

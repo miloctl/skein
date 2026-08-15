@@ -19,6 +19,7 @@ report_progress, submit_for_acceptance) is direct by design — working your own
 delegation is not a proposal — and each one honors the forbidden kill switch.
 """
 
+import contextlib
 import json
 import os
 from collections.abc import Sequence
@@ -74,6 +75,12 @@ def _policy_refusal(
 ) -> str:
     """Return a JSON refusal, or an empty string when policy permits."""
     attributes: dict[str, Any] = {}
+    # Hold the row this decision is about before reading it — see
+    # services/policy_context.py::hold_resource. This runs first inside the
+    # tool's transaction, which is what keeps the lock order uniform.
+    if resource_id:
+        with contextlib.suppress(ValueError):
+            domain_policy_context.hold_resource(resource_type, int(resource_id))
     if resource_type == "task" and resource_id:
         # Policy context is non-content metadata. It must not use the caller's
         # content-visibility filter: a delegated agent can legitimately act on
@@ -302,7 +309,7 @@ def read_worklog(task_id: int, limit: int = 20) -> str:
     try:
         # actor=ACTOR is the door, and the limit is clamped in the service —
         # this twin passed the model's number straight into LIMIT, where a
-        # negative value means NO limit in SQLite
+        # negative value is refused outright and a huge one is a full scan
         return json.dumps(
             {
                 "task_id": task_id,

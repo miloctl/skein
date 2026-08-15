@@ -49,9 +49,10 @@ def remember(
             ):
                 raise ValueError(scope.missing_text("engagements", engagement_id))
         mid = db.execute(
-            "INSERT INTO memories (topic, content, user, thread_id, origin, created_by,"
+            'INSERT INTO memories (topic, content, "user", thread_id, origin, created_by,'
             " created_at, visibility, crew_id, engagement_id, source_kind, source_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " RETURNING id",
             (
                 topic,
                 content,
@@ -138,7 +139,7 @@ def recall(
     frag, vp = scope.visible_filter(viewer, "memories")
     # `user IN (?, '')`: an empty user is a memory addressed to the whole team,
     # which every branch must keep returning
-    owner, op = (" AND user IN (?, '')", [user]) if user else ("", [])
+    owner, op = (" AND \"user\" IN (?, '')", [user]) if user else ("", [])
     if engagement_id is None:
         eng, ep2 = "", []
     elif engagement_id:

@@ -260,9 +260,9 @@ def _seed_session(thread_id: str, manager_name: str) -> None:
     """Write a session the way a previous turn under `manager_name` would."""
     from strands.types.session import Session, SessionAgent, SessionType
 
-    from app.agents.session_store import SqliteSessionRepository
+    from app.agents.session_store import DatabaseSessionRepository
 
-    repo = SqliteSessionRepository()
+    repo = DatabaseSessionRepository()
     repo.create_session(Session(session_id=thread_id, session_type=SessionType.AGENT))
     repo.create_agent(
         thread_id,
@@ -278,9 +278,9 @@ def _seed_session(thread_id: str, manager_name: str) -> None:
 
 
 def _stored_state(thread_id: str) -> dict:
-    from app.agents.session_store import SqliteSessionRepository
+    from app.agents.session_store import DatabaseSessionRepository
 
-    return SqliteSessionRepository().read_agent(thread_id, "default").conversation_manager_state
+    return DatabaseSessionRepository().read_agent(thread_id, "default").conversation_manager_state
 
 
 def test_the_sdk_really_does_reject_a_foreign_manager_state():
@@ -404,7 +404,7 @@ def test_a_failed_reconcile_is_logged_not_swallowed(fresh_db, monkeypatch, caplo
     import logging
 
     from app.agents import team_agent
-    from app.agents.session_store import SqliteSessionRepository
+    from app.agents.session_store import DatabaseSessionRepository
 
     _seed_session("t-boom", "SlidingWindowConversationManager")
     monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
@@ -412,7 +412,7 @@ def test_a_failed_reconcile_is_logged_not_swallowed(fresh_db, monkeypatch, caplo
     def boom(*a, **k):
         raise OSError("database is locked")
 
-    monkeypatch.setattr(SqliteSessionRepository, "update_agent", boom)
+    monkeypatch.setattr(DatabaseSessionRepository, "update_agent", boom)
     with caplog.at_level(logging.WARNING):
         team_agent._reconcile_session_strategy("t-boom", team_agent._conversation_manager())
     assert any(r.levelno >= logging.WARNING for r in caplog.records)
@@ -491,9 +491,9 @@ def test_the_toggle_is_rate_capped(client, fresh_db):
 def _seed_messages(thread_id: str, roles: list[str]) -> None:
     from strands.types.session import SessionMessage
 
-    from app.agents.session_store import SqliteSessionRepository
+    from app.agents.session_store import DatabaseSessionRepository
 
-    repo = SqliteSessionRepository()
+    repo = DatabaseSessionRepository()
     for i, role in enumerate(roles):
         repo.create_message(
             thread_id,
@@ -508,7 +508,7 @@ def test_leaving_summarize_never_restores_an_assistant_first_history(fresh_db, m
     start the history on an assistant turn, which anthropic and bedrock reject
     outright — the thread then fails every turn until it outgrows the window."""
     from app.agents import team_agent
-    from app.agents.session_store import SqliteSessionRepository
+    from app.agents.session_store import DatabaseSessionRepository
 
     _seed_session("t-roles", "SummarizingConversationManager")
     # offset 3 lands on an assistant turn
@@ -518,7 +518,7 @@ def test_leaving_summarize_never_restores_an_assistant_first_history(fresh_db, m
     team_agent._reconcile_session_strategy("t-roles", team_agent._conversation_manager())
     offset = _stored_state("t-roles")["removed_message_count"]
 
-    restored = SqliteSessionRepository().list_messages("t-roles", "default", offset=offset)
+    restored = DatabaseSessionRepository().list_messages("t-roles", "default", offset=offset)
     assert restored[0].to_message()["role"] == "user"
     assert offset == 2  # walked BACK, so nothing on disk was dropped
 
@@ -555,9 +555,9 @@ def _seed_tool_messages(thread_id: str) -> None:
     at index 3 because the tool pair sits wholly inside the summarized range."""
     from strands.types.session import SessionMessage
 
-    from app.agents.session_store import SqliteSessionRepository
+    from app.agents.session_store import DatabaseSessionRepository
 
-    repo = SqliteSessionRepository()
+    repo = DatabaseSessionRepository()
     msgs = [
         {"role": "user", "content": [{"text": "do it"}]},
         {
@@ -581,7 +581,7 @@ def test_alignment_skips_an_orphaned_toolresult(fresh_db, monkeypatch):
     and the SDK then deletes it as an orphan on restore, putting the assistant
     turn first again. The role check alone is not the test."""
     from app.agents import team_agent
-    from app.agents.session_store import SqliteSessionRepository
+    from app.agents.session_store import DatabaseSessionRepository
 
     _seed_session("t-tools", "SummarizingConversationManager")
     _seed_tool_messages("t-tools")
@@ -593,7 +593,7 @@ def test_alignment_skips_an_orphaned_toolresult(fresh_db, monkeypatch):
 
     restored = [
         m.to_message()
-        for m in SqliteSessionRepository().list_messages("t-tools", "default", offset=offset)
+        for m in DatabaseSessionRepository().list_messages("t-tools", "default", offset=offset)
     ]
     assert restored[0]["role"] == "user"
     assert not any("toolResult" in c for c in restored[0]["content"])

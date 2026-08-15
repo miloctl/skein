@@ -884,10 +884,21 @@ def test_identity_repair_can_be_repeated_after_core_step_failure(fresh_db, monke
 
     with pytest.raises(RuntimeError, match="core step failed"):
         users.repair_identity_ownership("LEGACY", "person-legacy")
+    # ATOMIC: the private move and the core rename share one transaction now
+    # (one database), so a failed core step leaves NEITHER applied. The old
+    # two-file layout committed the private half first and left the halves
+    # disagreeing until an operator repeated the command.
+    #
+    # Read through SQL, not list_notes: every list_notes call WRITES an audit
+    # row for the author it is called with, and an audit row under the target
+    # name is exactly what recover_identity_ownership reads as "this identity
+    # is already taken" on the retry below.
     assert db.query_one("SELECT kind FROM users WHERE name = 'LEGACY'") == {"kind": "human"}
-    assert [note["body"] for note in private_notes.list_notes("person-legacy", "manager")] == [
-        "recover me"
-    ]
+    assert db.query("SELECT body FROM private.notes WHERE author = ?", ("person-legacy",)) == []
+    assert [
+        row["body"]
+        for row in db.query("SELECT body FROM private.notes WHERE author = ?", ("LEGACY",))
+    ] == ["recover me"]
 
     monkeypatch.setattr(users, "rename_user", real_rename)
     result = users.repair_identity_ownership("LEGACY", "person-legacy")

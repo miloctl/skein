@@ -1,25 +1,67 @@
-"""Thin SQLite layer. One connection per operation keeps this thread-safe
-under uvicorn without a pool; db.transaction() gives compound writes one
-shared connection instead. Schema lives in app/core_migrations/*.sql."""
+"""Thin PostgreSQL layer. Connections come from one pool and run in
+autocommit, so a single query costs one round trip; db.transaction() gives
+compound writes one shared connection and a real BEGIN/COMMIT instead.
+Schema lives in app/core_migrations/*.sql.
+
+Service SQL is written with `?` placeholders and translated here (see
+_prepare). That is deliberate: the placeholder style is invisible to
+correctness as long as it is consistent, and rewriting ~1300 of them across
+56 service files would have meant classifying every `?` in the tree as SQL or
+not — regexes, docstrings and punctuation strings all carry one. One
+translation at the boundary has no such failure mode.
+"""
 
 import contextlib
 import hashlib
 import logging
-import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, date, datetime, time, timedelta
+from functools import lru_cache
 from pathlib import Path
+from typing import Any
+
+import psycopg
+from psycopg import IsolationLevel
+from psycopg import sql as pgsql
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool, PoolTimeout
 
 from . import config
-from .config import DB_PATH
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "core_migrations"
 
 log = logging.getLogger("skein")
 
-_ambient: ContextVar[sqlite3.Connection | None] = ContextVar("skein_txn", default=None)
+# Services catch this instead of importing psycopg, the same way they never
+# imported sqlite3 for it. Re-exported, not redefined: a subclass would not
+# match what the driver actually raises.
+IntegrityError = psycopg.errors.IntegrityError
+UniqueViolation = psycopg.errors.UniqueViolation
+
+# LOAD, not fault: every one of these means the identical request succeeds on a
+# retry with nothing changed, which is the 503 + Retry-After contract in
+# CLAUDE.md. main.py maps each to that; a 500 would tell the client "bug, do
+# not retry", the opposite of the truth.
+#
+# The TYPE carries the classification now. Under SQLite this was a substring
+# test for "locked" on OperationalError, because one class covered both a held
+# write lock and a syntax error. TransactionRollback is the 40xxx family
+# (serialization failure, deadlock detected); PoolTimeout is the same condition
+# seen from the pool — every connection in use. Ordinary faults (bad SQL, a
+# missing column) are ProgrammingError and stay 500s.
+BUSY_ERRORS: tuple[type[Exception], ...] = (
+    psycopg.errors.TransactionRollback,
+    psycopg.errors.LockNotAvailable,
+    PoolTimeout,
+)
+
+# Parameterized with the row factory, so mypy knows a row is a dict and not
+# the driver default tuple — see pool().
+DictConnection = psycopg.Connection[dict[str, Any]]
+
+_ambient: ContextVar[DictConnection | None] = ContextVar("skein_txn", default=None)
 _on_commit: ContextVar[list[Callable[[], None]] | None] = ContextVar(
     "skein_txn_commits", default=None
 )
@@ -28,7 +70,7 @@ _on_commit: ContextVar[list[Callable[[], None]] | None] = ContextVar(
 def on_commit(fn: Callable[[], None]) -> bool:
     """Queue fn to run after the ambient transaction commits; a rollback
     drops it. Returns False when no transaction is active — the caller runs
-    the work inline. For side effects that must not hold the write lock
+    the work inline. For side effects that must not hold a write open
     (search's embedding HTTP call) and must not survive a rolled-back write.
     A raising callback is logged and swallowed — the write it followed
     committed, so the caller must never see its failure."""
@@ -178,122 +220,115 @@ def validate_date(label: str, value: str, allow_clear: bool = True) -> None:
         raise ValueError(f"{label} must be a real date (YYYY-MM-DD)") from exc
 
 
-def connect() -> sqlite3.Connection:
-    # A reviewed extension handler stays on its worker. Its public work calls
-    # return to the thread that owns the authorization transaction. The
-    # connection therefore remains single-owner even when a handler times out.
-    conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    # WAL takes an exclusive lock to SET, and does NOT honor busy_timeout —
-    # SQLite answers SQLITE_BUSY immediately. So several workers booting
-    # against a BRAND NEW database race here and all but one die on "database
-    # is locked". Once WAL is established the pragma is a no-op read and the
-    # race is gone, which is why only a fresh volume or a restore into an
-    # empty one ever sees it. The busy_timeout pragma below covers every
-    # statement after it, never this one.
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA synchronous = NORMAL")
-    conn.execute("PRAGMA busy_timeout = 5000")
-    # SQLite's own lower() is ASCII-only, so "Été" and "été" compare unequal
-    # and a case-insensitive lookup written with lower() silently stops
-    # folding the moment a name leaves ASCII. `skfold` exposes
-    # services/users.py::fold to SQL, so a query and a Python check cannot
-    # disagree about what one name is. Used by chat_threads::_snap_folder;
-    # users.py still folds in Python, and says so at each site.
-    conn.create_function("skfold", 1, _sqlite_fold, deterministic=True)
-    return conn
+# ---- connection pool -------------------------------------------------------
+
+_pool: ConnectionPool[DictConnection] | None = None
 
 
-def _sqlite_fold(value: str | None) -> str:
-    from .services.users import fold
+def pool() -> ConnectionPool[DictConnection]:
+    """The process-wide pool, opened on first use.
 
-    return fold(value or "")
-
-
-# SQLite checkpoints and DELETES the WAL when the last connection to the
-# database closes — and connection-per-operation (query/execute above) makes
-# nearly every write the last connection. Measured: one insert costs 11.99 ms
-# with no other connection open and 0.28 ms with one idle connection held, so
-# the app was 42x slower per write when NEARLY IDLE than under load. This one
-# connection exists only to keep the WAL alive between operations; application
-# code never receives it, it holds no transaction, and it cannot block a
-# checkpoint — the
-# 1000-page auto-checkpoint still bounds WAL size through the writers.
-_keepalive: sqlite3.Connection | None = None
-
-
-def open_keepalive() -> None:
-    global _keepalive
-    if _keepalive is None:
-        _keepalive = connect()
-
-
-def close_keepalive() -> None:
-    global _keepalive
-    if _keepalive is not None:
-        _keepalive.close()
-        _keepalive = None
-
-
-def _statements(sql: str) -> list[str]:
-    """Split a migration into statements. Convention: migrations contain no
-    semicolons inside string literals, trigger bodies, OR COMMENTS — a
-    semicolon in comment prose splits mid-comment and the tail half is a
-    syntax error at startup (bit a pre-squash migration)."""
-    return [s.strip() for s in sql.split(";") if s.strip()]
-
-
-def init_db() -> None:
-    """Apply pending migrations in filename order; track in schema_version.
-
-    Each migration runs inside ONE transaction (BEGIN IMMEDIATE) together with
-    its schema_version insert, so a crash mid-migration rolls back cleanly and
-    concurrent workers serialize on the write lock instead of double-applying.
-
-    Migrations run with foreign_keys OFF and a foreign_key_check before every
-    commit. With enforcement ON, the 12-step table rebuild (the only way to
-    widen a CHECK in SQLite) destroys data: DROP TABLE on a parent performs an
-    implicit DELETE that fires ON DELETE actions, nulling or cascading every
-    child row — and PRAGMA foreign_keys is a silent no-op inside a
-    transaction, so a migration cannot opt itself out. OFF makes rebuilds
-    safe; the check keeps a buggy migration from committing orphans.
+    autocommit is ON for every pooled connection, so a bare query() costs one
+    round trip instead of BEGIN + query + COMMIT. transaction() opens a real
+    block on top of it, which is the only place a multi-statement unit exists.
     """
-    conn = connect()
-    conn.isolation_level = None  # sqlite3's implicit BEGIN breaks BEGIN IMMEDIATE below
-    try:
-        conn.execute("PRAGMA foreign_keys = OFF")  # before BEGIN, where it still works
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS schema_version"
-            " (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
+    global _pool
+    if _pool is None:
+        if config.DATABASE_ERROR:
+            raise RuntimeError(config.DATABASE_ERROR)
+        _pool = ConnectionPool[DictConnection](
+            config.DATABASE_URL,
+            min_size=1,
+            # Every request thread and every sync @tool can hold one
+            # connection at once. Sized from the two knobs that already bound
+            # that number, so it cannot drift below them: a pool smaller than
+            # the thread pool turns a burst into a queue nobody configured.
+            max_size=config.THREAD_POOL + config.TOOL_THREADS + 4,
+            kwargs={"autocommit": True, "row_factory": dict_row},
+            open=True,
         )
-        for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                already = conn.execute(
-                    "SELECT 1 FROM schema_version WHERE version = ?", (path.name,)
-                ).fetchone()
-                if already:
-                    conn.execute("COMMIT")
-                    continue
-                for stmt in _statements(path.read_text()):
-                    conn.execute(stmt)
-                broken = conn.execute("PRAGMA foreign_key_check").fetchmany(5)
-                if broken:
-                    raise sqlite3.IntegrityError(
-                        f"{path.name} leaves broken foreign keys: "
-                        + ", ".join(f"{r[0]} row {r[1]} -> {r[2]}" for r in broken)
-                    )
-                conn.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
-                    (path.name, now()),
-                )
-                conn.execute("COMMIT")
-            except Exception:
-                conn.execute("ROLLBACK")
-                raise
-    finally:
-        conn.close()
+    return _pool
+
+
+def close_pool() -> None:
+    """Drop the pool. Shutdown, and the test suite between databases."""
+    global _pool
+    if _pool is not None:
+        _pool.close()
+        _pool = None
+
+
+@lru_cache(maxsize=4096)
+def _translate(sql: str) -> str:
+    """`?` placeholders to psycopg's `%s`, and literal `%` doubled.
+
+    ORDER IS LOAD-BEARING: doubling after the placeholder rewrite would turn
+    each fresh `%s` into `%%s`, which psycopg emits literally instead of
+    binding — every parameter would silently go unsent. Only reached when the
+    caller passes parameters; see _prepare."""
+    return sql.replace("%", "%%").replace("?", "%s")
+
+
+def _prepare(sql: str, params: tuple) -> tuple[str, tuple | None]:
+    """The (query, params) pair psycopg is given.
+
+    A parameterless query is passed through VERBATIM with params=None,
+    because psycopg only unescapes `%%` when parameters are present — doubling
+    it here would leave `LIKE 'x%%'` matching a literal percent sign in the
+    data."""
+    if not params:
+        return sql, None
+    return _translate(sql), params
+
+
+@contextmanager
+def _conn() -> Iterator[DictConnection]:
+    """The ambient transaction's connection, or a pooled one for a single
+    autocommit statement."""
+    ambient = _ambient.get()
+    if ambient is not None:
+        yield ambient
+        return
+    with pool().connection() as conn:
+        yield conn
+
+
+@contextmanager
+def _txn(isolation: IsolationLevel | None = None) -> Iterator[list[Callable[[], None]]]:
+    """One connection held for a real BEGIN/COMMIT block, published as the
+    ambient transaction. Yields the on_commit queue, which the caller runs
+    only after the block commits."""
+    callbacks: list[Callable[[], None]] = []
+    with pool().connection() as conn:
+        previous = conn.isolation_level
+        if isolation is not None:
+            conn.isolation_level = isolation
+        token = _ambient.set(conn)
+        cb_token = _on_commit.set(callbacks)
+        try:
+            # Rolls back and re-raises on an exception, so the callback loop
+            # in the caller is skipped for a failed block.
+            with conn.transaction():
+                yield callbacks
+        finally:
+            _on_commit.reset(cb_token)
+            _ambient.reset(token)
+            # The pool resets the transaction on return, never this attribute,
+            # so a leftover REPEATABLE READ would silently follow this
+            # connection into whatever checks it out next.
+            conn.isolation_level = previous
+
+
+def _run_callbacks(callbacks: list[Callable[[], None]]) -> None:
+    # Reached only after a successful COMMIT, with the connection returned to
+    # the pool — a callback never holds a write open. Isolated per callback:
+    # the write already committed, so a raising callback must not turn a
+    # successful write into a 500, and must not starve the ones queued after.
+    for cb in callbacks:
+        try:
+            cb()
+        except Exception:
+            log.exception("on_commit callback failed")
 
 
 @contextmanager
@@ -305,69 +340,95 @@ def transaction() -> Iterator[None]:
     if _ambient.get() is not None:
         yield
         return
-    conn = connect()
-    conn.isolation_level = None  # sqlite3's implicit BEGIN breaks BEGIN IMMEDIATE below
-    token = _ambient.set(conn)
-    callbacks: list[Callable[[], None]] = []
-    cb_token = _on_commit.set(callbacks)
-    try:
-        conn.execute("BEGIN IMMEDIATE")
+    with _txn() as callbacks:
         yield
-        conn.execute("COMMIT")
-    except BaseException:
-        # A BEGIN IMMEDIATE that times out on the write lock opened no
-        # transaction, so an unguarded ROLLBACK raises "cannot rollback - no
-        # transaction is active" and REPLACES the real "database is locked".
-        # sqlite3.OperationalError has no handler in main.py, so the caller
-        # gets a 500 and the operator gets the wrong diagnosis. Same guard
-        # log_activity already uses on the identical statement.
-        with contextlib.suppress(sqlite3.DatabaseError):
-            conn.execute("ROLLBACK")
-        raise
-    finally:
-        _on_commit.reset(cb_token)
-        _ambient.reset(token)
-        conn.close()
-    # reached only after a successful COMMIT (an exception propagates past
-    # here), with the connection closed — a callback never holds the lock.
-    # Isolated per callback: the write already committed, so a raising
-    # callback must not turn a successful write into a 500, and must not
-    # starve the callbacks queued after it.
-    for cb in callbacks:
-        try:
-            cb()
-        except Exception:
-            log.exception("on_commit callback failed")
+    _run_callbacks(callbacks)
 
 
 @contextmanager
 def read_transaction() -> Iterator[None]:
-    """Keep one read snapshot without reserving SQLite's single writer."""
+    """Keep one read snapshot across several queries.
+
+    REPEATABLE READ, not the default: under READ COMMITTED each statement
+    takes a fresh snapshot, so a concurrent write lands mid-block and two
+    counts that must agree do not. Readers block nothing either way."""
     if _ambient.get() is not None:
         yield
         return
-    conn = connect()
-    conn.isolation_level = None
-    token = _ambient.set(conn)
-    callbacks: list[Callable[[], None]] = []
-    cb_token = _on_commit.set(callbacks)
-    try:
-        conn.execute("BEGIN")
+    with _txn(IsolationLevel.REPEATABLE_READ) as callbacks:
         yield
-        conn.execute("COMMIT")
-    except BaseException:
-        with contextlib.suppress(sqlite3.DatabaseError):
-            conn.execute("ROLLBACK")
-        raise
-    finally:
-        _on_commit.reset(cb_token)
-        _ambient.reset(token)
-        conn.close()
-    for cb in callbacks:
+    _run_callbacks(callbacks)
+
+
+# Namespaces for name_lock, so two unrelated subsystems locking the same string
+# never contend. Add a constant here rather than passing a literal.
+LOCK_IDENTITY = 1
+LOCK_SESSION = 2
+LOCK_RECEIPT = 3
+
+
+def in_transaction() -> bool:
+    """Whether the caller is inside db.transaction().
+
+    Read by code that must behave differently when its statement is part of a
+    larger unit — a row lock only means something while a transaction holds
+    it (services/policy_context.py::resource_row).
+    """
+    return _ambient.get() is not None
+
+
+def name_lock(namespace: int, name: str) -> None:
+    """Serialize the transactions that claim one `name` inside `namespace`.
+
+    SQLite gave this away: BEGIN IMMEDIATE took the database-wide write lock,
+    so a check-then-insert could not interleave with another one. PostgreSQL
+    holds no lock until a row is actually touched, so a read that decides
+    whether to insert protects nothing on its own — two claimants both read
+    "absent" and both proceed.
+
+    Transaction-scoped, so it releases at commit or rollback with no unlock
+    call to forget. hashtext() maps the name into the lock's integer key
+    space; a collision between two different names only means they serialize
+    with each other, which costs a wait and never correctness.
+
+    MUST be called inside a transaction: outside one the lock would be taken
+    and released around the single statement, protecting nothing.
+    """
+    conn = _ambient.get()
+    if conn is None:
+        raise RuntimeError("name_lock needs an active transaction")
+    conn.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", (namespace, name))
+
+
+@contextmanager
+def schema_scope(schema: str) -> Iterator[None]:
+    """Run the block's db.* calls against `schema` instead of public.
+
+    SET LOCAL, so the search path reverts when the transaction ends and can
+    never follow a pooled connection to its next borrower. The explicit reset
+    covers the nested case, where the outer transaction commits later and the
+    statements after this block would otherwise still resolve to `schema`.
+
+    The identifier is composed with psycopg's quoting rather than an f-string:
+    a schema name reaches this from an extension's own manifest.
+    """
+    with transaction():
+        conn = _ambient.get()
+        if conn is None:  # pragma: no cover — transaction() just set it
+            raise RuntimeError("schema_scope needs an active transaction")
+        set_path = pgsql.SQL("SET LOCAL search_path TO {}")
+        conn.execute(set_path.format(pgsql.Identifier(schema)))
         try:
-            cb()
-        except Exception:
-            log.exception("on_commit callback failed")
+            yield
+        finally:
+            # Suppressed, because the block may have left the transaction
+            # ABORTED — and then this reset raises InFailedSqlTransaction and
+            # REPLACES the real error on the way out, so the caller is told
+            # "transaction is aborted" instead of which statement aborted it.
+            # The reset is only an optimisation anyway: SET LOCAL dies with
+            # the transaction regardless.
+            with contextlib.suppress(psycopg.Error):
+                conn.execute(set_path.format(pgsql.Identifier("public")))
 
 
 @contextmanager
@@ -397,41 +458,81 @@ def savepoint() -> Iterator[None]:
         raise
 
 
+# ---- migrations ------------------------------------------------------------
+
+# Two workers booting together must not both apply a migration. A session
+# advisory lock serializes them without a table to contend on — the arbitrary
+# constant only has to be stable and unique to this use.
+_MIGRATION_LOCK = 4_216_017_001
+
+
+@contextmanager
+def _admin_conn() -> Iterator[DictConnection]:
+    """A connection of its own for schema work, outside the pool.
+
+    Migrations run once at boot and hold a session lock across several
+    transactions. Borrowing a pooled connection for that would leave the lock
+    tied to whatever else checks it out next."""
+    with psycopg.connect(config.DATABASE_URL, autocommit=True, row_factory=dict_row) as conn:
+        yield conn
+
+
+def init_db() -> None:
+    """Apply pending migrations in filename order; track in schema_version.
+
+    Each migration runs inside ONE transaction together with its
+    schema_version insert, so a crash mid-migration rolls back cleanly —
+    PostgreSQL makes DDL transactional, which is what retires SQLite's
+    12-step table rebuild and the foreign_key_check that guarded it.
+
+    A migration file is executed WHOLE rather than split on semicolons, so it
+    may contain them freely: in prose comments, in string literals, and inside
+    dollar-quoted function bodies. The SQLite splitter could do none of that.
+    """
+    if config.DATABASE_ERROR:
+        raise RuntimeError(config.DATABASE_ERROR)
+    with _admin_conn() as conn:
+        conn.execute("SELECT pg_advisory_lock(%s)", (_MIGRATION_LOCK,))
+        try:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS schema_version"
+                " (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
+            )
+            for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
+                already = conn.execute(
+                    "SELECT 1 FROM schema_version WHERE version = %s", (path.name,)
+                ).fetchone()
+                if already:
+                    continue
+                with conn.transaction():
+                    conn.execute(path.read_text())
+                    conn.execute(
+                        "INSERT INTO schema_version (version, applied_at) VALUES (%s, %s)",
+                        (path.name, now()),
+                    )
+        finally:
+            conn.execute("SELECT pg_advisory_unlock(%s)", (_MIGRATION_LOCK,))
+
+
 def pending_migrations() -> list[str]:
     """Migration files not yet recorded in schema_version (all of them when
-    the database doesn't exist yet). Lets long-lived side processes (MCP)
+    the schema has never been applied). Lets long-lived side processes (MCP)
     refuse to start instead of racing the API server to apply schema."""
     names = [p.name for p in sorted(MIGRATIONS_DIR.glob("*.sql"))]
-    if not Path(DB_PATH).exists():
-        return names
-    conn = connect()
-    try:
-        has_table = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'"
-        ).fetchone()
-        if not has_table:
+    with _admin_conn() as conn:
+        has_table = conn.execute("SELECT to_regclass('public.schema_version') AS t").fetchone()
+        if not has_table or has_table["t"] is None:
             return names
-        applied = {
-            r["version"] for r in conn.execute("SELECT version FROM schema_version").fetchall()
-        }
-    finally:
-        conn.close()
+        applied = {r["version"] for r in conn.execute("SELECT version FROM schema_version")}
     return [n for n in names if n not in applied]
 
 
+# ---- query helpers ---------------------------------------------------------
+
+
 def query(sql: str, params: tuple = ()) -> list[dict]:
-    ambient = _ambient.get()
-    if ambient is not None:
-        return [dict(r) for r in ambient.execute(sql, params).fetchall()]
-    # closing(), not `with connect()`: sqlite3's connection context manager
-    # scopes the TRANSACTION and never closes. Written that way, these three
-    # helpers leaked every connection into a reference cycle (Connection ↔
-    # cursors) that refcounting cannot free — measured at 84k open fds over
-    # 30k queries between gc runs, each one holding a WAL reader mark that
-    # stalls checkpoints and starves writers of the lock.
-    with contextlib.closing(connect()) as conn:
-        rows = conn.execute(sql, params).fetchall()
-        return [dict(r) for r in rows]
+    with _conn() as conn:
+        return conn.execute(*_prepare(sql, params)).fetchall()
 
 
 def query_one(sql: str, params: tuple = ()) -> dict | None:
@@ -448,26 +549,25 @@ def query_row(sql: str, params: tuple = ()) -> dict:
 
 
 def execute(sql: str, params: tuple = ()) -> int:
-    """Run a write statement, return lastrowid."""
-    ambient = _ambient.get()
-    if ambient is not None:
-        return ambient.execute(sql, params).lastrowid or 0
-    with contextlib.closing(connect()) as conn:  # closing: see query()
-        cur = conn.execute(sql, params)
-        conn.commit()
-        return cur.lastrowid or 0
+    """Run a write statement. Returns the first column of the RETURNING row
+    when the statement has one, else 0.
+
+    sqlite3 handed back lastrowid for free; PostgreSQL has no such thing, so
+    an INSERT whose id the caller consumes must ask for it with RETURNING id.
+    A caller that forgets gets 0 rather than a wrong id."""
+    with _conn() as conn:
+        cur = conn.execute(*_prepare(sql, params))
+        if cur.description is None:
+            return 0
+        row = cur.fetchone()
+        return int(next(iter(row.values()))) if row else 0
 
 
 def execute_rowcount(sql: str, params: tuple = ()) -> int:
     """Run a write statement, return the number of affected rows (for
     compare-and-swap guards like `... WHERE status = 'pending'`)."""
-    ambient = _ambient.get()
-    if ambient is not None:
-        return ambient.execute(sql, params).rowcount
-    with contextlib.closing(connect()) as conn:  # closing: see query()
-        cur = conn.execute(sql, params)
-        conn.commit()
-        return cur.rowcount
+    with _conn() as conn:
+        return conn.execute(*_prepare(sql, params)).rowcount
 
 
 def claim_job(job: str, run_key: str) -> bool:
@@ -475,12 +575,15 @@ def claim_job(job: str, run_key: str) -> bool:
     accidental multi-worker deployments can't double-run them."""
     return (
         execute_rowcount(
-            "INSERT OR IGNORE INTO job_runs (job, run_key, created_at) VALUES (?, ?, ?)",
+            "INSERT INTO job_runs (job, run_key, created_at) VALUES (?, ?, ?)"
+            " ON CONFLICT DO NOTHING",
             (job, run_key, now()),
         )
         == 1
     )
 
+
+# ---- provenance ledger -----------------------------------------------------
 
 ACTIVITY_DOMAIN = b"skein-activity/v1"
 GENESIS_PREV = "0" * 64
@@ -489,6 +592,14 @@ GENESIS_PREV = "0" * 64
 # reports it beside the number of rows it chained — an adoption larger than
 # this count is a row nothing in this process wrote.
 UNCHAINED_FALLBACKS = "activity_unchained_fallbacks"
+
+# SQLite serialized the chain for free: one writer at a time, database-wide.
+# PostgreSQL lets two appends read the same tail concurrently and write the
+# same seq with the same prev_hash, which forks the chain permanently at that
+# row. This lock is what replaces the global write lock, and it is held only
+# for the read-tail-then-insert — it auto-releases at commit, so a caller's
+# longer transaction does not keep it.
+_ACTIVITY_LOCK = 4_216_017_002
 
 
 def activity_hash(
@@ -520,9 +631,12 @@ def activity_hash(
 
 
 def _append_activity(
-    conn: sqlite3.Connection, actor: str, action: str, detail: str, created_at: str
+    conn: DictConnection, actor: str, action: str, detail: str, created_at: str
 ) -> None:
-    """Read the chain tail, link to it, insert. Caller holds the write lock."""
+    """Read the chain tail, link to it, insert. Caller is inside a
+    transaction; the advisory lock makes the read-then-write atomic against
+    every other appender."""
+    conn.execute("SELECT pg_advisory_xact_lock(%s)", (_ACTIVITY_LOCK,))
     tail = conn.execute(
         "SELECT seq, hash FROM activity WHERE seq IS NOT NULL ORDER BY seq DESC LIMIT 1"
     ).fetchone()
@@ -530,7 +644,7 @@ def _append_activity(
     prev = tail["hash"] if tail else None
     conn.execute(
         "INSERT INTO activity (actor, action, detail, created_at, seq, hash, prev_hash)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        " VALUES (%s, %s, %s, %s, %s, %s, %s)",
         (
             actor,
             action,
@@ -546,42 +660,32 @@ def _append_activity(
 def log_activity(actor: str, action: str, detail: str = "") -> None:
     """Append to the provenance ledger, chained to the row before it.
 
-    Inside an ambient transaction the enclosing BEGIN IMMEDIATE already
-    serializes the read-tail-then-insert, and a failure rolls back the caller's
-    whole write — correct, and loud. Standalone the append takes its own
-    immediate transaction; if that fails, the row is recorded UNCHAINED rather
-    than raising into a caller's write.
+    Inside an ambient transaction the append joins it, so a failure rolls back
+    the caller's whole write — correct, and loud. Standalone it takes its own
+    transaction; if that fails, the row is recorded UNCHAINED rather than
+    raising into a caller's write.
 
-    ONE attempt, not several. BEGIN IMMEDIATE already waits out busy_timeout,
-    so every extra retry adds another full timeout to a request that is already
-    stuck — a retry budget here buys nothing and multiplies the worst-case
-    hang. The fallback is logged: an unchained row is a hole in the ledger, and
-    a hole nobody was told about is the version that matters.
+    ONE attempt, not several. A retry budget here buys nothing and multiplies
+    the worst-case hang. The fallback is logged: an unchained row is a hole in
+    the ledger, and a hole nobody was told about is the version that matters.
     """
     created_at = now()
     ambient = _ambient.get()
     if ambient is not None:
         _append_activity(ambient, actor, action, detail, created_at)
         return
-    conn = connect()
-    conn.isolation_level = None
     try:
-        conn.execute("BEGIN IMMEDIATE")
-        _append_activity(conn, actor, action, detail, created_at)
-        conn.execute("COMMIT")
+        with pool().connection() as conn, conn.transaction():
+            _append_activity(conn, actor, action, detail, created_at)
         return
-    except sqlite3.DatabaseError as exc:
-        with contextlib.suppress(sqlite3.DatabaseError):
-            conn.execute("ROLLBACK")
+    except psycopg.Error as exc:
         log.warning("activity chain append failed (%s: %s) — recording unchained", action, exc)
-    finally:
-        conn.close()
-    # The fallback opens a NEW connection with the same busy timeout, so a
-    # lock held past it raises here too — straight into a caller that had
-    # already committed its business write, losing the ledger row AND
-    # 500ing a write that actually happened. The docstring promised this
-    # path never raises; now it does not. A lost row still shows up: the
-    # unchained count and the chain marks are what report it.
+    # The fallback takes a fresh connection, so a fault that outlives the
+    # first attempt raises here too — straight into a caller that had already
+    # committed its business write, losing the ledger row AND 500ing a write
+    # that actually happened. The docstring promised this path never raises;
+    # now it does not. A lost row still shows up: the unchained count and the
+    # chain marks are what report it.
     try:
         execute(
             "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",
@@ -594,12 +698,13 @@ def log_activity(actor: str, action: str, detail: str = "") -> None:
         # warning exonerated every row adopted the same night, because one
         # receipt covers them all. Best-effort on purpose: a counter that
         # cannot be written must not lose the ledger row underneath it.
-        with contextlib.suppress(sqlite3.DatabaseError):
+        with contextlib.suppress(psycopg.Error):
             execute(
                 "INSERT INTO app_settings (key, value, updated_at) VALUES (?, '1', ?)"
                 " ON CONFLICT(key) DO UPDATE SET value ="
-                " CAST(CAST(value AS INTEGER) + 1 AS TEXT), updated_at = excluded.updated_at",
+                " CAST(CAST(app_settings.value AS INTEGER) + 1 AS TEXT),"
+                " updated_at = excluded.updated_at",
                 (UNCHAINED_FALLBACKS, now()),
             )
-    except sqlite3.DatabaseError as exc:
+    except psycopg.Error as exc:
         log.error("activity row LOST (%s: %s) — the write it describes did commit", action, exc)

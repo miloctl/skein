@@ -31,16 +31,19 @@ def log_exchange(thread_id: str, user_text: str, assistant_text: str) -> None:
         from strands.types.content import Message
         from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
 
-        from .session_store import SqliteSessionRepository
+        from .session_store import DatabaseSessionRepository
         from .team_agent import _conversation_manager
 
-        repo = SqliteSessionRepository()
+        repo = DatabaseSessionRepository()
         # everything below reads the session, derives next_id from it, and
-        # writes back. BEGIN IMMEDIATE is the lock: the whole read-modify-
-        # write commits atomically, across threads AND processes.
-        # Unserialized, concurrent commands read the same last id and write
-        # over each other — measured at 34 of 180 messages surviving.
+        # writes back. The LOCK is what makes that atomic across threads and
+        # processes — the transaction alone is not, because the read that
+        # derives next_id takes no lock of its own. Unserialized, concurrent
+        # commands read the same last id and write over each other: measured
+        # at 36 of 60 messages surviving without this lock.
+        # Keyed on the THREAD, so two different chats never wait on each other.
         with db.transaction():
+            db.name_lock(db.LOCK_SESSION, thread_id)
             messages: list = []
             if repo.read_agent(thread_id, _AGENT_ID) is None:
                 # a command-first thread must not lose its opening exchange

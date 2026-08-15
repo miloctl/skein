@@ -75,7 +75,7 @@ def test_unmatched_project_milestone_files_team_notification(fresh_db):
     from app.services import work
 
     work.create_milestone("lost milestone", project="ghost-project")
-    rows = db.query("SELECT * FROM notifications WHERE user = 'team' AND tier = 'digest'")
+    rows = db.query("SELECT * FROM notifications WHERE \"user\" = 'team' AND tier = 'digest'")
     assert any("ghost-project" in r["message"] for r in rows)
 
     db.execute("DELETE FROM notifications")
@@ -135,13 +135,11 @@ def test_case_variant_engagement_name_is_refused_by_the_schema(fresh_db):
     both pass the read. ux_engagements_name_nocase is what actually stops
     the second one — without it the pair forks usage rollups across two
     near-identical engagements."""
-    import sqlite3
-
     from app import db
     from app.services import engagements
 
     engagements.create_engagement("Alpha", actor="tester")
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(db.IntegrityError):
         # straight past the service pre-check, the way the losing racer does
         db.execute(
             "INSERT INTO engagements (name, created_at, updated_at) VALUES (?, ?, ?)",

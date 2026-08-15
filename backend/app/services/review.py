@@ -205,7 +205,8 @@ def _propose_change_locked(
         " proposed_by, origin, created_at, requested_by, policy_obligations,"
         " approver_groups, approver_capabilities, review_visibility, review_crew_id,"
         " review_owner, policy_context, review_contract_version)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        " RETURNING id",
         (
             entity,
             entity_id or None,
@@ -459,9 +460,11 @@ def approve_change(
     policy_registry=None,
 ) -> dict:
     # Serialize current-state policy resolution, the verdict claim, and the
-    # resulting write. This is intentionally a SQLite-sized boundary: it
-    # prevents project relinks or policy-relevant state changes from racing a
-    # durable approval. Nested service transactions join this one.
+    # resulting write, so a project relink or a policy-relevant state change
+    # cannot race a durable approval. Nested service transactions join this
+    # one. The boundary is the transaction PLUS the row holds inside it —
+    # services/policy_context.py::hold_resource — because a read alone locks
+    # nothing.
     with db.transaction():
         result = _approve_change_locked(
             change_id,
@@ -1198,18 +1201,19 @@ def review_stats(viewer: scope.Viewer = scope.NOBODY) -> dict:
     by_entity = db.query(
         "SELECT entity,"
         " COUNT(*) AS proposed,"
-        " SUM(status = 'approved') AS approved,"
-        " SUM(status = 'rejected') AS rejected,"
-        " SUM(status = 'pending') AS pending,"
+        " COUNT(*) FILTER (WHERE status = 'approved') AS approved,"
+        " COUNT(*) FILTER (WHERE status = 'rejected') AS rejected,"
+        " COUNT(*) FILTER (WHERE status = 'pending') AS pending,"
         " ROUND(AVG(CASE WHEN reviewed_at IS NOT NULL THEN"
-        " (julianday(reviewed_at) - julianday(created_at)) * 24 END), 1) AS avg_review_hours"
+        " (EXTRACT(epoch FROM reviewed_at::timestamptz - created_at::timestamptz) / 86400.0) * 24 END)::numeric, 1)"
+        " AS avg_review_hours"
         " FROM pending_changes GROUP BY entity ORDER BY proposed DESC"
     )
     by_proposer = db.query(
         "SELECT proposed_by,"
         " COUNT(*) AS proposed,"
-        " SUM(status = 'approved') AS approved,"
-        " SUM(status = 'rejected') AS rejected"
+        " COUNT(*) FILTER (WHERE status = 'approved') AS approved,"
+        " COUNT(*) FILTER (WHERE status = 'rejected') AS rejected"
         " FROM pending_changes GROUP BY proposed_by ORDER BY proposed DESC"
     )
     # the only list here that carries row TEXT. The aggregates above count
@@ -1227,7 +1231,7 @@ def review_stats(viewer: scope.Viewer = scope.NOBODY) -> dict:
     minutes = sorted(
         r["m"]
         for r in db.query(
-            "SELECT (julianday(reviewed_at) - julianday(claim_at)) * 24 * 60 AS m"
+            "SELECT (EXTRACT(epoch FROM reviewed_at::timestamptz - claim_at::timestamptz) / 86400.0) * 24 * 60 AS m"
             " FROM pending_changes WHERE reviewed_at IS NOT NULL AND claim_at IS NOT NULL"
         )
         if r["m"] is not None

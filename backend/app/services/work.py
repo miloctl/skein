@@ -108,7 +108,8 @@ def create_milestone(
         mid = db.execute(
             "INSERT INTO milestones (project, engagement_id, title, description, owner,"
             " due_date, origin, created_by, created_at, updated_at, visibility, crew_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " RETURNING id",
             (
                 project,
                 eng["id"] if eng else None,
@@ -384,7 +385,8 @@ def _create_task_locked(
             "INSERT INTO tasks (milestone_id, engagement_id, title, description, assignee,"
             " priority, due_date, origin, created_by, created_at, updated_at,"
             " visibility, crew_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " RETURNING id",
             (
                 milestone_id or None,
                 engagement_id or None,
@@ -844,7 +846,7 @@ def _update_task_locked(
     if committed_week == "-":
         fields["committed_week"] = None
     # "-" clears any clearable field — the single write path must be able to
-    # unset a wrong due date without hand-editing SQLite
+    # unset a wrong due date without hand-editing the database
     for clearable, empty in (("due_date", None), ("assignee", ""), ("description", "")):
         if fields.get(clearable) == "-":
             fields[clearable] = empty

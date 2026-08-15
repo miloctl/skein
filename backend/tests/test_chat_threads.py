@@ -70,11 +70,11 @@ def test_delete_removes_both_session_stores_precisely(client, fresh_db, tmp_path
     from strands.types.session import Session, SessionType
 
     from app import config
-    from app.agents.session_store import SqliteSessionRepository
+    from app.agents.session_store import DatabaseSessionRepository
     from app.services import chat_threads
 
     chat_threads.log_message("abc", "tester", "user", "mine")
-    repo = SqliteSessionRepository()
+    repo = DatabaseSessionRepository()
     for sid in ("abc", "abc--growth-mentor", "abc2"):
         repo.create_session(Session(session_id=sid, session_type=SessionType.AGENT))
     (config.SESSIONS_DIR / "session_abc").mkdir(parents=True, exist_ok=True)

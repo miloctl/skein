@@ -52,8 +52,9 @@ _HANDLER_POLICY = frozenset(
 )
 
 # These local domain mutations resolve policy from a row or parent that the
-# handler can change. Keep the decision and the write under one SQLite writer
-# lock. Chat, workflow, and integration routes are intentionally absent: they
+# handler can change. Keep the decision and the write in one transaction, with
+# the deciding row held for its duration (policy_context.hold_resource).
+# Chat, workflow, and integration routes are intentionally absent: they
 # have their own governed boundary and can perform external I/O.
 _ATOMIC_POLICY = frozenset(
     {

@@ -11,8 +11,9 @@ def _plant_finding(fresh_db, rule_id="aging_wip", subject="aging_wip", week=None
     from app.services.insights import _week
 
     fid = db.execute(
-        "INSERT INTO findings (rule_id, subject, severity, message, n, window,"
-        " receipt, week, created_at) VALUES (?, ?, 'medium', 'msg', 1, 'w', '{}', ?, ?)",
+        'INSERT INTO findings (rule_id, subject, severity, message, n, "window",'
+        " receipt, week, created_at) VALUES (?, ?, 'medium', 'msg', 1, 'w', '{}', ?, ?)"
+        " RETURNING id",
         (rule_id, subject, week or _week(), db.now()),
     )
     return fid
@@ -134,8 +135,9 @@ def test_deferred_until_must_be_a_date(fresh_db):
     from app.services.insights import disposition_finding
 
     fid = db.execute(
-        "INSERT INTO findings (rule_id, subject, severity, message, n, window,"
-        " receipt, week, created_at) VALUES ('r', 's', 'low', 'm', 1, 'w', '{}', '2026-W30', ?)",
+        'INSERT INTO findings (rule_id, subject, severity, message, n, "window",'
+        " receipt, week, created_at) VALUES ('r', 's', 'low', 'm', 1, 'w', '{}', '2026-W30', ?)"
+        " RETURNING id",
         (db.now(),),
     )
     with pytest.raises(ValueError, match="YYYY-MM-DD"):
@@ -149,8 +151,9 @@ def test_rule_stats_median_days(fresh_db):
     from app.services.insights import disposition_finding, rule_stats
 
     fid = db.execute(
-        "INSERT INTO findings (rule_id, subject, severity, message, n, window,"
-        " receipt, week, created_at) VALUES ('r1', 's', 'low', 'm', 1, 'w', '{}', '2026-W30', ?)",
+        'INSERT INTO findings (rule_id, subject, severity, message, n, "window",'
+        " receipt, week, created_at) VALUES ('r1', 's', 'low', 'm', 1, 'w', '{}', '2026-W30', ?)"
+        " RETURNING id",
         ("2026-07-20T00:00:00+00:00",),
     )
     disposition_finding(fid, "resolved", actor="m")

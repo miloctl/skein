@@ -175,7 +175,7 @@ def test_admin_backup_and_export(client):
 
     key = create_key("tester", "t")["key"]
     b = client.post("/api/admin/backup", headers={"Authorization": f"Bearer {key}"}).json()
-    assert b["path"].endswith(".db")
+    assert b["path"].endswith(".dump")  # pg_dump custom format
     e = client.get("/api/admin/export", headers={"Authorization": f"Bearer {key}"}).json()
     assert e["tables"]["users"] >= 1
 

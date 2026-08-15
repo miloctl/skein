@@ -57,7 +57,7 @@ def test_ship_it_recap_omits_zero_stats(fresh_db, monkeypatch):
         assert phrase not in note["content"]
     assert "·" not in note["content"]  # no orphaned separators when every stat is zero
     msg = fresh_db.query_one(
-        "SELECT message FROM notifications WHERE user = 'team' AND message LIKE '%Bare%shipped%'"
+        "SELECT message FROM notifications WHERE \"user\" = 'team' AND message LIKE '%Bare%shipped%'"
     )
     assert msg["message"] == f"Engagement #{e['id']} 'Bare' shipped. Open Skein for the recap."
     assert "·" not in msg["message"]

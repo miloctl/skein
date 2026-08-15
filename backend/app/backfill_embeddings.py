@@ -46,8 +46,10 @@ def main() -> None:
         try:
             vec = search._embed(f"{r['title']}\n{r['body']}")
             db.execute(
-                "INSERT OR REPLACE INTO embeddings (entity, entity_id, model, vector)"
-                " VALUES (?, ?, ?, ?)",
+                "INSERT INTO embeddings (entity, entity_id, model, vector)"
+                " VALUES (?, ?, ?, ?)"
+                " ON CONFLICT (entity, entity_id) DO UPDATE SET"
+                " model = excluded.model, vector = excluded.vector",
                 (r["entity"], r["entity_id"], config.EMBED_MODEL, json.dumps(vec)),
             )
             done += 1

@@ -138,14 +138,13 @@ def dispatch_events(
         # pending rows at the same age as delivered ones (services/retention.py).
         return {"delivered": 0, "failed": 0, "dead": 0}
     rows = db.query(
-        # (created_at, rowid), never (created_at, event_id): timestamps carry
+        # (created_at, seq), never (created_at, event_id): timestamps carry
         # one-second precision, and the random UUID tiebreak delivered a
-        # task's update before its creation for same-second pairs. rowid is
+        # task's update before its creation for same-second pairs. seq is
         # insertion order within the second, and the created_at prefix keeps
-        # idx_extension_outbox_delivery in play — a bare ORDER BY rowid was a
+        # idx_extension_outbox_delivery in play — a bare ORDER BY seq was a
         # full-table scan every minute.
-        "SELECT * FROM extension_outbox WHERE status = 'pending'"
-        " ORDER BY created_at, rowid LIMIT ?",
+        "SELECT * FROM extension_outbox WHERE status = 'pending' ORDER BY created_at, seq LIMIT ?",
         (limit,),
     )
     delivered = failed = dead = 0
@@ -269,8 +268,9 @@ def dispatch_events(
                         close()
                     raise _DeliveryRefused("ASYNC_HANDLER_UNSUPPORTED", terminal=True)
                 db.execute(
-                    "INSERT OR IGNORE INTO extension_event_deliveries"
-                    " (event_id, subscriber, delivered_at) VALUES (?, ?, ?)",
+                    "INSERT INTO extension_event_deliveries"
+                    " (event_id, subscriber, delivered_at) VALUES (?, ?, ?)"
+                    " ON CONFLICT DO NOTHING",
                     (event.event_id, contribution.name, db.now()),
                 )
                 db.execute(

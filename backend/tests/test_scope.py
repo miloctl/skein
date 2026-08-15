@@ -32,7 +32,7 @@ def test_the_inventory_has_no_stale_entries(client, fresh_db):
     live = {
         r["name"]
         for r in fresh_db.query(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+            "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
         )
     }
     ghosts = (set(scope.CLASSIFIED) | set(scope.UNSCOPED)) - live
@@ -64,7 +64,13 @@ def test_every_author_column_exists(client, fresh_db):
     """The filter emits this column name into SQL. A typo here is a 500 on
     every scoped read of that table."""
     for table, column in scope.CLASSIFIED.items():
-        have = {c["name"] for c in fresh_db.query(f"PRAGMA table_info({table})")}
+        have = {
+            c["name"]
+            for c in fresh_db.query(
+                "SELECT column_name AS name FROM information_schema.columns WHERE table_name = ?",
+                (table,),
+            )
+        }
         assert column in have, f"{table}.{column} does not exist"
 
 

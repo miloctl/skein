@@ -23,7 +23,7 @@ def _trace(members, ago_days=0):
     from datetime import timedelta
 
     db.execute(
-        "INSERT INTO flock_traces (thread_id, user, flock, members, created_at)"
+        'INSERT INTO flock_traces (thread_id, "user", flock, members, created_at)'
         " VALUES ('t', 'tester', 'engineering', ?, ?)",
         (
             json.dumps(members),
@@ -77,7 +77,7 @@ def test_a_malformed_trace_does_not_break_the_findings_run(fresh_db):
     """Every rule runs in one nightly pass. A row this cannot parse must cost
     its own finding, never the fifteen rules queued behind it."""
     db.execute(
-        "INSERT INTO flock_traces (thread_id, user, flock, members, created_at)"
+        'INSERT INTO flock_traces (thread_id, "user", flock, members, created_at)'
         " VALUES ('t', 'tester', 'engineering', 'not json', ?)",
         (db.now(),),
     )

@@ -81,57 +81,147 @@ def _reset_telemetry_buffers(monkeypatch):
     identity.reset_consults()
 
 
-@pytest.fixture(scope="session")
-def _schema_template(tmp_path_factory):
-    """Migrated-but-empty database, built once per worker and copied per test.
+# Filled by _worker_db; read by fresh_db.
+_BASELINE_TABLES: set[str] = set()
 
-    Replaying the migration corpus costs ~100 ms; copying the file it produces
-    costs ~0.3 ms. Every test still gets its own file, so isolation is
-    unchanged — only the way the schema arrives is different.
+
+@pytest.fixture(scope="session")
+def _worker_db(worker_id):
+    """One migrated database per xdist worker, reused by every test in it.
+
+    A database PER TEST would be correct and far too slow: CREATE DATABASE ...
+    TEMPLATE costs ~100 ms against the ~0.3 ms file copy the SQLite fixture
+    used, and 2000 of them is minutes. Per worker, migrations run once and
+    fresh_db truncates between tests instead — which keeps real COMMIT
+    semantics, unlike wrapping each test in a transaction that never commits
+    (db.on_commit callbacks would then never fire).
     """
+    import psycopg
+
     from app import config, db
 
-    path = tmp_path_factory.mktemp("schema") / "template.db"
-    db_path, private, data = db.DB_PATH, config.PRIVATE_DB_PATH, config.DATA_DIR
-    db.DB_PATH = path
-    config.DATA_DIR = path.parent
-    config.PRIVATE_DB_PATH = path.parent / "private.db"
-    try:
-        db.init_db()
-    finally:
-        db.DB_PATH, config.PRIVATE_DB_PATH, config.DATA_DIR = db_path, private, data
-    return path
+    base = config.DATABASE_URL
+    if not base:
+        pytest.exit(
+            "SKEIN_DATABASE_URL is not set. Start a server with:\n"
+            "  docker run -d --name skein-db -p 5432:5432 -e POSTGRES_USER=skein"
+            " -e POSTGRES_PASSWORD=skein -e POSTGRES_DB=skein postgres:17-alpine",
+            returncode=1,
+        )
+    name = f"skein_test_{worker_id}"
+    # autocommit: CREATE/DROP DATABASE cannot run inside a transaction block.
+    with psycopg.connect(base, autocommit=True) as admin:
+        admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+        admin.execute(f'CREATE DATABASE "{name}"')
+    url = base.rsplit("/", 1)[0] + f"/{name}"
+    config.DATABASE_URL, config.DATABASE_ERROR = url, ""
+    # The ENV too, not just the module attribute: several tests reload
+    # app.config to exercise a boot-time fault, and a reload re-reads
+    # SKEIN_DATABASE_URL — pointing the worker back at the developer's own
+    # database, where init_db then re-applies the baseline over a live schema.
+    os.environ["SKEIN_DATABASE_URL"] = url
+    db.close_pool()
+    db.init_db()
+    # The exact shape init_db produces. fresh_db drops anything a test adds on
+    # top, so a test that creates a table (scope's `probe`) cannot collide with
+    # the next test in the same worker — under SQLite each test had its own
+    # file and could not.
+    _BASELINE_TABLES.clear()
+    _BASELINE_TABLES.update(
+        r["t"]
+        for r in db.query(
+            "SELECT table_name AS t FROM information_schema.tables"
+            " WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+        )
+    )
+    yield url
+    db.close_pool()
+    with psycopg.connect(base, autocommit=True) as admin:
+        admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
 
 
 @pytest.fixture()
-def fresh_db(tmp_path, monkeypatch, _schema_template):
-    import shutil
-
+def fresh_db(tmp_path, monkeypatch, _worker_db):
     from app import config, db
 
-    shutil.copyfile(_schema_template, tmp_path / "test.db")
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(config, "PRIVATE_DB_PATH", tmp_path / "private.db")
     # SESSIONS_DIR is derived from DATA_DIR at import — left unpatched, session
     # files persist across tests within a worker while the DB resets, and a
     # test that restores a reused thread id reads a previous test's session
     monkeypatch.setattr(config, "SESSIONS_DIR", tmp_path / "sessions")
-    # Keep this call. It is what stops the template from ever going stale: a
-    # copy missing a migration gets it applied here, so adding a migration
-    # needs no change to the fixture. Against a current template it replays
-    # nothing and costs nothing measurable.
+    # TRUNCATE every table in one statement, so foreign keys never order it and
+    # one round trip covers the reset. RESTART IDENTITY because tests assert on
+    # ids ("task #1"), which a continuing sequence would break on the second
+    # test in a worker.
+    tables = db.query(
+        "SELECT quote_ident(table_schema) || '.' || quote_ident(table_name) AS t"
+        " FROM information_schema.tables"
+        " WHERE table_schema NOT IN ('pg_catalog', 'information_schema')"
+        "   AND table_type = 'BASE TABLE' AND table_name != 'schema_version'"
+    )
+    if tables:
+        names = ", ".join(r["t"] for r in tables)
+        db.execute(f"TRUNCATE {names} RESTART IDENTITY CASCADE")
+    extra = [
+        r["t"]
+        for r in db.query(
+            "SELECT quote_ident(table_name) AS t, table_name AS raw"
+            " FROM information_schema.tables"
+            " WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+        )
+        if r["t"].strip('"') not in _BASELINE_TABLES
+    ]
+    for name in extra:
+        db.execute(f"DROP TABLE IF EXISTS {name} CASCADE")
+    # Extension and private schemas are DROPPED, not truncated: their tables
+    # are created by the test itself (store.migrate, private_notes._ready), so
+    # truncating rows leaves the table behind and the next test's CREATE hits
+    # "already exists". Dropping returns the database to the shape init_db
+    # left it in.
+    owned = db.query(
+        "SELECT quote_ident(schema_name) AS s FROM information_schema.schemata"
+        " WHERE schema_name LIKE 'ext\\_%' OR schema_name = ?",
+        (config.PRIVATE_SCHEMA,),
+    )
+    for row in owned:
+        db.execute(f"DROP SCHEMA IF EXISTS {row['s']} CASCADE")
+    from app.services import private_notes
+
+    private_notes._schema_ready = False
+    yield db
+
+
+@pytest.fixture()
+def scratch_db(worker_id, _worker_db, monkeypatch):
+    """A throwaway database of this test's own, for tests that MUTATE schema.
+
+    fresh_db shares one database per worker and only truncates rows, so a test
+    that deletes a schema_version row or applies a staged migration corrupts
+    every test that follows it in that worker. Under SQLite each test had its
+    own file and this class of test was free.
+    """
+    import psycopg
+
+    from app import config, db
+
+    base = _worker_db.rsplit("/", 1)[0]
+    name = f"skein_scratch_{worker_id}_{abs(hash(monkeypatch)) % 10**8}"
+    with psycopg.connect(_worker_db, autocommit=True) as admin:
+        admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+        admin.execute(f'CREATE DATABASE "{name}"')
+    previous = config.DATABASE_URL
+    config.DATABASE_URL = f"{base}/{name}"
+    os.environ["SKEIN_DATABASE_URL"] = config.DATABASE_URL  # reloads, as in _worker_db
+    db.close_pool()
     db.init_db()
-    # db.py opens a connection per query and closes it. In WAL, closing the
-    # LAST connection runs a full checkpoint, and a test is the only case
-    # where every close is the last one — measured at 8.4 ms per write
-    # against 0.8 ms with this open. It reads nothing and holds no lock; it
-    # exists so the checkpoint happens once, at teardown, instead of per write.
-    sentinel = db.connect()
     try:
         yield db
     finally:
-        sentinel.close()
+        db.close_pool()
+        config.DATABASE_URL = previous
+        os.environ["SKEIN_DATABASE_URL"] = previous
+        with psycopg.connect(_worker_db, autocommit=True) as admin:
+            admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
 
 
 @pytest.fixture()
@@ -152,7 +242,7 @@ def _strong(client=None, name="tester"):
 
 def _unread_for(fresh_db, user, like):
     return fresh_db.query_one(
-        "SELECT * FROM notifications WHERE user = ? AND message LIKE ? AND read_at IS NULL",
+        'SELECT * FROM notifications WHERE "user" = ? AND message LIKE ? AND read_at IS NULL',
         (user, like),
     )
 

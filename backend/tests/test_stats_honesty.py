@@ -43,12 +43,12 @@ def test_flow_metrics_reports_the_real_median(fresh_db):
     a = work.create_task(title="fast", actor="mira")["id"]
     b = work.create_task(title="slow", actor="mira")["id"]
     fresh_db.execute(
-        "UPDATE tasks SET completed_at = date('now'), created_at = date('now', '-1 day')"
+        "UPDATE tasks SET completed_at = CURRENT_DATE::text, created_at = (CURRENT_DATE - 1)::text"
         " WHERE id = ?",
         (a,),
     )
     fresh_db.execute(
-        "UPDATE tasks SET completed_at = date('now'), created_at = date('now', '-9 day')"
+        "UPDATE tasks SET completed_at = CURRENT_DATE::text, created_at = (CURRENT_DATE - 9)::text"
         " WHERE id = ?",
         (b,),
     )

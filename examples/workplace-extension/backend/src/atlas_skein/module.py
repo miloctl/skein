@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
@@ -43,7 +42,9 @@ from .policy import atlas_directory, atlas_identity, atlas_policy, atlas_profile
 
 @dataclass(frozen=True)
 class AtlasSettings:
-    store_path: Path
+    # The store's NAME, not a path: core maps it to a schema of its own
+    # (ext_<name>) inside the Skein database.
+    store_name: str
     api_url: str = ""
     api_token: str = ""
 
@@ -70,7 +71,7 @@ def atlas_module(
     settings: AtlasSettings,
     client: AtlasClient | None = None,
 ) -> SkeinModule:
-    store = ExtensionStore(settings.store_path)
+    store = ExtensionStore(settings.store_name)
     selected_client = client
     if selected_client is None and settings.api_url:
         if not settings.api_token:
@@ -268,7 +269,7 @@ def atlas_module(
                         "create-sync-runs",
                         (
                             "CREATE TABLE sync_runs"
-                            " (id INTEGER PRIMARY KEY, created_count INTEGER NOT NULL,"
+                            " (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, created_count bigint NOT NULL,"
                             " updated_count INTEGER NOT NULL, finished_at TEXT NOT NULL)",
                         ),
                     ),

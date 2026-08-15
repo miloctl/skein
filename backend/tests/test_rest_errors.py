@@ -3,9 +3,20 @@
 import pytest
 
 
-def test_overflow_ints_are_400(client):
+def test_overflow_ints_are_refused_not_crashed(client):
+    """An id too large to exist is a 4xx, never a 500.
+
+    404 is in the set because it is the honest answer now: psycopg sends an
+    over-range integer as a numeric and the comparison simply matches no row,
+    where sqlite3 refused to bind it at all and raised OverflowError, which
+    main.py mapped to 400. Both say "your id is not a thing"; neither is a
+    server fault, and that is what this pins."""
     huge = 99999999999999999999999
-    assert client.patch(f"/api/tasks/{huge}", json={"status": "done"}).status_code in (400, 422)
+    assert client.patch(f"/api/tasks/{huge}", json={"status": "done"}).status_code in (
+        400,
+        404,
+        422,
+    )
     assert client.get("/api/adoption?weeks=999999999").status_code == 200  # clamped
     assert client.get("/api/findings?weeks=99999999999999999999").status_code in (200, 400, 422)
 

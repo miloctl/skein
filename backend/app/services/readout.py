@@ -170,7 +170,8 @@ def exec_readout(*, actor: str = "system") -> dict:
     else:
         aid = db.execute(
             "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?)"
+            " RETURNING id",
             (None, "readout", f"Exec readout {_today().isoformat()}", str(path), actor, db.now()),
         )
     db.log_activity(actor, "exec_readout", f"artifact #{aid}")

@@ -87,7 +87,7 @@ def test_stall_rule_windows_on_disposition_time_not_creation(fresh_db):
     for i in range(5):
         r = intake.submit_request(f"slow {i}", requester="mira", actor="mira")
         fresh_db.execute(
-            "UPDATE intake_requests SET created_at = datetime('now', '-50 days') WHERE id = ?",
+            "UPDATE intake_requests SET created_at = (now() - interval '50 days')::text WHERE id = ?",
             (r["id"],),
         )
         intake.disposition_request(r["id"], "declined", "too late", actor="mira")
@@ -107,15 +107,14 @@ def test_accept_degrades_when_the_engagement_name_collides_in_a_race(fresh_db, m
     read and the loser hits ux_engagements_name_nocase instead — uncaught
     that is a 500 for a caller-supplied name. Accept must degrade the same
     way either route."""
-    import sqlite3
-
+    from app import db
     from app.services import engagements, intake
 
     r = intake.submit_request("Ship the audit tool", requester="dana", actor="dana")
     intake.score_request(r["id"], 3, 3, 3, 3, actor="mgr")
 
     def racing_create(*_a, **_k):
-        raise sqlite3.IntegrityError("UNIQUE constraint failed: engagements.name")
+        raise db.UniqueViolation("duplicate key value violates unique constraint")
 
     monkeypatch.setattr(engagements, "create_engagement", racing_create)
     out = intake.disposition_request(r["id"], "accepted", "worth doing", actor="mgr")

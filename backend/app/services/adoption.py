@@ -12,7 +12,7 @@ from .. import db
 SURFACES = ("web", "cli", "chat", "slack", "mcp", "webhook", "api")
 
 # Buffered, not written per call: every authenticated request lands here, and
-# a per-call upsert takes SQLite's single write lock on the hot path. The buffer
+# a per-call upsert costs a round trip on the hot path. The buffer
 # drains on the first record_use after FLUSH_SECONDS, when adoption() reads,
 # and at app shutdown — on an idle process the tail sits buffered until one
 # of those. Counts buffered at a crash, and a batch whose write fails, are
@@ -32,13 +32,24 @@ _last_flush = float("-inf")
 
 def _write(batch: dict[tuple[str, str, str], int]) -> None:
     # suppression per row, not around the loop: one failing upsert must not
-    # drop the rest of the batch with it
+    # drop the rest of the batch with it.
+    #
+    # db.savepoint() is what makes that suppression SAFE. This runs inside the
+    # request's transaction (extensions/fastapi.py wraps mutating routes), and
+    # in PostgreSQL a failed statement aborts the whole transaction — so a
+    # swallowed error here left every later statement in the request failing
+    # with InFailedSqlTransaction, and telemetry took down the write it was
+    # only supposed to count. Rolling back to the savepoint discards the failed
+    # statement and nothing else.
     for (day, user, surface), n in batch.items():
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(Exception), db.savepoint():
             db.execute(
-                "INSERT INTO tool_usage (day, user, surface, actions) VALUES (?, ?, ?, ?)"
-                " ON CONFLICT (day, user, surface)"
-                " DO UPDATE SET actions = actions + excluded.actions",
+                # tool_usage.actions, not a bare `actions`: inside DO UPDATE
+                # the bare name is ambiguous between the target row and
+                # `excluded`, and PostgreSQL refuses it.
+                'INSERT INTO tool_usage (day, "user", surface, actions) VALUES (?, ?, ?, ?)'
+                ' ON CONFLICT (day, "user", surface)'
+                " DO UPDATE SET actions = tool_usage.actions + excluded.actions",
                 (day, user, surface, n),
             )
 
@@ -109,13 +120,13 @@ def adoption(weeks: int = 4) -> dict:
     # below is the team COUNT, computed on its own — the reach number without
     # the names.
     by_surface = db.query(
-        "SELECT surface, COUNT(DISTINCT user) AS users, SUM(actions) AS actions"
+        'SELECT surface, COUNT(DISTINCT "user") AS users, SUM(actions) AS actions'
         " FROM tool_usage WHERE day >= ? GROUP BY surface ORDER BY actions DESC",
         (cutoff,),
     )
     weekly_active = db.query_row(
-        "SELECT COUNT(DISTINCT t.user) AS n FROM tool_usage t"
-        " JOIN users u ON u.name = t.user AND u.active = 1 WHERE t.day >= ?",
+        'SELECT COUNT(DISTINCT t."user") AS n FROM tool_usage t'
+        ' JOIN users u ON u.name = t."user" AND u.active = 1 WHERE t.day >= ?',
         (week_ago,),
     )
     capture_total = db.query_row(
@@ -153,8 +164,9 @@ def snapshot_health() -> dict:
     # history is the direction the anti-surveillance rule refuses
     for h in engagement_health(name_assignees=False):
         db.execute(
-            "INSERT OR IGNORE INTO health_snapshots"
-            " (day, engagement_id, health, status, created_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO health_snapshots"
+            " (day, engagement_id, health, status, created_at) VALUES (?, ?, ?, ?, ?)"
+            " ON CONFLICT DO NOTHING",
             (day, h["id"], h["health"], h.get("status", ""), db.now()),
         )
         n += 1
@@ -171,9 +183,10 @@ def snapshot_forecasts() -> dict:
     for f in slip_forecast()["forecasts"]:
         try:
             db.execute(
-                "INSERT OR IGNORE INTO forecast_snapshots"
+                "INSERT INTO forecast_snapshots"
                 " (day, milestone_id, due_date, forecast_date, created_at)"
-                " VALUES (?, ?, ?, ?, ?)",
+                " VALUES (?, ?, ?, ?, ?)"
+                " ON CONFLICT DO NOTHING",
                 (day, f["milestone_id"], f["due_date"], f["forecast_date"], db.now()),
             )
             n += 1

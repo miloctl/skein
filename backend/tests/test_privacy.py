@@ -4,9 +4,17 @@ A canary string is written into private notes; every egress surface is then
 asserted canary-free. If any of these fail, private data is leaking."""
 
 import json
+import shutil
 from pathlib import Path
 
 CANARY = "CANARY-zx9q-private-feedback"
+
+
+def _pg_restore() -> str:
+    """Absolute path, so the argv carries no bare executable name."""
+    found = shutil.which("pg_restore")
+    assert found, "pg_restore must be installed to drill a restore"
+    return found
 
 
 def _setup_key(client, fresh_db):
@@ -111,8 +119,10 @@ def test_canary_absent_from_every_platform_table(client, fresh_db):
     a leak into any new table fails this without anyone remembering to add it."""
     headers = _write_private(client, fresh_db)
     _spray_canary(client, headers)
-    for t in fresh_db.query("SELECT name FROM sqlite_master WHERE type = 'table'"):
-        rows = fresh_db.query(f"SELECT * FROM {t['name']}")  # noqa: S608 — names from sqlite_master
+    for t in fresh_db.query(
+        "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+    ):
+        rows = fresh_db.query(f"SELECT * FROM {t['name']}")  # noqa: S608 — names from the catalog
         assert CANARY not in json.dumps(rows, default=str), f"canary leaked into {t['name']}"
 
 
@@ -159,7 +169,10 @@ def test_private_db_backed_up_but_never_mirrored(client, fresh_db, tmp_path, mon
 
     assert not any("private" in t for t in admin.TABLES)
     tables = [
-        r["name"] for r in fresh_db.query("SELECT name FROM sqlite_master WHERE type = 'table'")
+        r["name"]
+        for r in fresh_db.query(
+            "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+        )
     ]
     assert not any("private" in t for t in tables)
 
@@ -204,14 +217,33 @@ def test_key_minting_requires_strong_identity(client, fresh_db):
     assert client.get("/api/private/notes", headers={"X-User": "manager"}).status_code == 403
 
 
-def test_private_db_file_permissions(client, fresh_db):
-    import stat
+def test_the_core_backup_never_carries_the_private_schema(client, fresh_db):
+    """The 0600 file mode used to be the wall around 1:1 notes. With the notes
+    in a schema rather than a file of their own, the wall is the DUMP boundary:
+    the core backup is the copy that leaves the box (services/admin.py::_mirror),
+    and the private schema must not be in it. The private dump is written
+    separately and is never mirrored."""
+    import subprocess
 
     from app import config
+    from app.services import admin
 
     _write_private(client, fresh_db)
-    mode = stat.S_IMODE(Path(config.PRIVATE_DB_PATH).stat().st_mode)
-    assert mode == 0o600, f"private.db is {oct(mode)}, expected 0600"
+    out = admin.backup()
+    core = subprocess.run(  # noqa: S603 — fixed argv, no shell
+        [_pg_restore(), "--list", out["path"]],
+        env=admin._pg_env(),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert f"{config.PRIVATE_SCHEMA} " not in core, "the core dump carries the private schema"
+    assert "notes" not in [
+        line.split()[-1] for line in core.splitlines() if f" {config.PRIVATE_SCHEMA} " in line
+    ]
+    # and the private dump exists on its own, unmirrored
+    assert out["private_path"]
+    assert out["mirrored"] is None or config.PRIVATE_SCHEMA not in out["mirrored"]
 
 
 def test_feedback_parses_hyphenated_names(fresh_db):

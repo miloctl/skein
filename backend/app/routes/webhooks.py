@@ -144,9 +144,11 @@ async def forge_webhook(
         from .. import db
         from ..services.policy_context import existing
 
-        # One BEGIN IMMEDIATE holds the task-match, the policy snapshot, and
-        # the mutation. Without it a concurrent relink can move the task into
-        # a denied project between the decision and forge_event's write.
+        # One transaction holds the task-match, the policy snapshot, and the
+        # mutation, with the deciding row held inside it
+        # (policy_context.hold_resource). Without both, a concurrent relink
+        # moves the task into a denied project between the decision and
+        # forge_event's write.
         with db.transaction():
             task_id = forge.match_task(
                 str(mapped.get("branch") or ""),

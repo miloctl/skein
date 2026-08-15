@@ -117,12 +117,10 @@ def test_half_set_waiting_on_pair_is_refused_by_the_schema(fresh_db):
     """Both halves or neither: the service always writes the pair together,
     but a half-set pair from any other writer renders 'waiting on task
     #None' receipts and feeds NULL into the settled-target probe."""
-    import sqlite3
-
     from app import db
     from app.services import work
 
     t = work.create_task(title="probe")
     for sets in ("waiting_on_type = 'task'", "waiting_on_id = 99"):
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(db.IntegrityError):
             db.execute(f"UPDATE tasks SET {sets} WHERE id = ?", (t["id"],))  # noqa: S608

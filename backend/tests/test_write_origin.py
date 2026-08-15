@@ -37,15 +37,40 @@ def _origin_tables() -> list[str]:
     sweep on its first run instead of waiting for someone to remember."""
     return sorted(
         t["name"]
-        for t in db.query("SELECT name FROM sqlite_master WHERE type = 'table'")
-        if any(c["name"] == "origin" for c in db.query(f"PRAGMA table_info({t['name']})"))
+        for t in db.query(
+            "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+        )
+        if any(
+            c["name"] == "origin"
+            for c in db.query(
+                "SELECT column_name AS name FROM information_schema.columns WHERE table_name = ?",
+                (t["name"],),
+            )
+        )
     )
 
 
-def _origin_rows(tables: list[str]) -> dict[tuple[str, int], str]:
+def _origin_rows(tables: list[str]) -> dict[tuple[str, str], str]:
+    """Every origin-bearing row, keyed by table and PRIMARY KEY.
+
+    The key is built from the primary key rather than an `id` column, because
+    not every origin-bearing table has one (crew_members is keyed on
+    (crew_id, person)). sqlite's implicit rowid covered all of them; here the
+    catalog has to say what identifies a row."""
     rows = {}
     for t in tables:
-        for r in db.query(f"SELECT rowid AS rid, origin FROM {t}"):  # noqa: S608 — from sqlite_master
+        key_cols = [
+            r["name"]
+            for r in db.query(
+                "SELECT a.attname AS name FROM pg_index i"
+                " JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)"
+                " WHERE i.indrelid = ?::regclass AND i.indisprimary ORDER BY a.attnum",
+                (t,),
+            )
+        ]
+        assert key_cols, f"{t} has no primary key to identify its rows by"
+        key_sql = " || '|' || ".join(f"{c}::text" for c in key_cols)
+        for r in db.query(f"SELECT {key_sql} AS rid, origin FROM {t}"):  # noqa: S608 — from the catalog
             rows[(t, r["rid"])] = r["origin"]
     return rows
 

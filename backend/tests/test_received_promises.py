@@ -67,7 +67,7 @@ def test_the_chaser_nudges_the_person_waiting(client):
     out = promises.chase_received()
     assert out["nudged"] == 1
     assert out["escalated"] == 0
-    notes = db.query("SELECT * FROM notifications WHERE user = 'ava'")
+    notes = db.query("SELECT * FROM notifications WHERE \"user\" = 'ava'")
     assert any("Still open with legal" in n["message"] for n in notes)
     assert db.query_one("SELECT nudge_count FROM promises WHERE id = ?", (pid,))["nudge_count"] == 1
 
@@ -92,7 +92,7 @@ def test_two_silent_cycles_reach_the_team(client):
     )
     out = promises.chase_received()
     assert out["escalated"] == 1
-    team = db.query("SELECT * FROM notifications WHERE user = 'team'")
+    team = db.query("SELECT * FROM notifications WHERE \"user\" = 'team'")
     assert any("overdue and unanswered" in n["message"] for n in team)
 
     # a third cycle, and a fourth: the team hears once
@@ -105,7 +105,7 @@ def test_two_silent_cycles_reach_the_team(client):
             ),
         )
         assert promises.chase_received()["escalated"] == 0
-    assert len(db.query("SELECT * FROM notifications WHERE user = 'team'")) == 1
+    assert len(db.query("SELECT * FROM notifications WHERE \"user\" = 'team'")) == 1
 
 
 def test_the_team_escalation_names_nobody(client):
@@ -121,13 +121,17 @@ def test_the_team_escalation_names_nobody(client):
     )
     promises.chase_received()
 
-    team = " ".join(n["message"] for n in db.query("SELECT * FROM notifications WHERE user='team'"))
+    team = " ".join(
+        n["message"] for n in db.query("SELECT * FROM notifications WHERE \"user\"='team'")
+    )
     assert "the migration doc" in team, "the escalation must still say what is overdue"
     assert "dana" not in team
 
     # the PERSONAL nudge goes to the row's own author and still names the
     # party — that reader is the one chasing, and needs to know who to chase
-    mine = " ".join(n["message"] for n in db.query("SELECT * FROM notifications WHERE user='ava'"))
+    mine = " ".join(
+        n["message"] for n in db.query("SELECT * FROM notifications WHERE \"user\"='ava'")
+    )
     assert "dana" in mine
 
 
@@ -156,8 +160,8 @@ def test_an_agent_recorded_promise_is_chased_to_the_team(client):
         "the redlines", to_whom="legal", due_date=due, direction="received", actor="scout"
     )
     assert promises.chase_received()["nudged"] == 1
-    assert not db.query("SELECT * FROM notifications WHERE user = 'scout'")
-    assert db.query("SELECT * FROM notifications WHERE user = 'team'")
+    assert not db.query("SELECT * FROM notifications WHERE \"user\" = 'scout'")
+    assert db.query("SELECT * FROM notifications WHERE \"user\" = 'team'")
 
 
 def test_a_settled_promise_is_not_chased(client):
@@ -198,7 +202,7 @@ def test_a_scoped_promise_is_chased_but_never_escalated_to_the_team(client):
 
     assert out["nudged"] == 1  # the author is still chased
     assert out["escalated"] == 0
-    team = db.query("SELECT message FROM notifications WHERE user = 'team'")
+    team = db.query("SELECT message FROM notifications WHERE \"user\" = 'team'")
     assert not any("confidential" in n["message"] for n in team)
 
 
@@ -257,7 +261,9 @@ def test_a_scoped_promise_with_no_routable_reader_is_never_broadcast(client):
     out = promises.chase_received()
     assert out["nudged"] == 0
     assert out["unroutable"] == 1, "the skip must be reported, not silent"
-    team = " ".join(n["message"] for n in db.query("SELECT * FROM notifications WHERE user='team'"))
+    team = " ".join(
+        n["message"] for n in db.query("SELECT * FROM notifications WHERE \"user\"='team'")
+    )
     assert "40M floor" not in team
 
 
@@ -278,7 +284,9 @@ def test_the_escalation_withholds_a_body_that_carries_a_name(client):
         ((datetime.now(UTC) - timedelta(hours=promises.NUDGE_CYCLE_HOURS + 1)).isoformat(), pid),
     )
     assert promises.chase_received()["escalated"] == 1
-    team = " ".join(n["message"] for n in db.query("SELECT * FROM notifications WHERE user='team'"))
+    team = " ".join(
+        n["message"] for n in db.query("SELECT * FROM notifications WHERE \"user\"='team'")
+    )
     assert "dana" not in team
     assert "Plan the week" in team, "the reader still needs a way to find it"
 

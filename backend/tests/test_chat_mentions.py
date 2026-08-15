@@ -37,7 +37,7 @@ def _last_saved(client, thread):
 
 def _unread(fresh_db, person):
     rows = fresh_db.query(
-        "SELECT message FROM notifications WHERE user = ? AND read_at IS NULL", (person,)
+        'SELECT message FROM notifications WHERE "user" = ? AND read_at IS NULL', (person,)
     )
     return [r["message"] for r in rows]
 

@@ -71,7 +71,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     "chat": lambda u: _has("SELECT 1 FROM chat_threads WHERE owner = ?", (u,)),
     # one row per flock turn, written when the turn closes — a cancelled turn
     # ties it too, which is right: the person called a flock and it flew
-    "flocks": lambda u: _has("SELECT 1 FROM flock_traces WHERE user = ?", (u,)),
+    "flocks": lambda u: _has('SELECT 1 FROM flock_traces WHERE "user" = ?', (u,)),
     # tied by the chat route when a capture-prefixed turn actually writes —
     # the write lands under the AGENT's name, so no actor predicate can find it
     "chat_capture": None,
@@ -84,7 +84,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
         "SELECT 1 FROM chat_threads WHERE owner = ? AND engagement_id IS NOT NULL", (u,)
     ),
     "offweb": lambda u: _has(
-        "SELECT 1 FROM tool_usage WHERE user = ? AND surface IN ('cli', 'mcp')", (u,)
+        "SELECT 1 FROM tool_usage WHERE \"user\" = ? AND surface IN ('cli', 'mcp')", (u,)
     ),
     "ingest": lambda u: _act(u, "ingest_notes"),
     "delegate": lambda u: _act(u, "delegate_task"),
@@ -259,8 +259,9 @@ def detect(person: str) -> int:
             continue
         if hit:
             n += db.execute_rowcount(
-                "INSERT OR IGNORE INTO feature_unlocks (person, knot, kind, seen, first_at)"
-                " VALUES (?, ?, 'tied', ?, ?)",
+                "INSERT INTO feature_unlocks (person, knot, kind, seen, first_at)"
+                " VALUES (?, ?, 'tied', ?, ?)"
+                " ON CONFLICT DO NOTHING",
                 (person, k["id"], 1 if seeding else 0, db.now()),
             )
     # stamped at the END: a sweep that raised above must not buy hint() 15
@@ -283,8 +284,9 @@ def mark(person: str, knot: str) -> None:
             "SELECT 1 FROM feature_unlocks WHERE person = ? AND kind = 'tied'", (person,)
         )
         db.execute(
-            "INSERT OR IGNORE INTO feature_unlocks (person, knot, kind, seen, first_at)"
-            " VALUES (?, ?, 'tied', ?, ?)",
+            "INSERT INTO feature_unlocks (person, knot, kind, seen, first_at)"
+            " VALUES (?, ?, 'tied', ?, ?)"
+            " ON CONFLICT DO NOTHING",
             (person, knot, 1 if seeding else 0, db.now()),
         )
 
@@ -297,8 +299,9 @@ def dismiss(person: str, knot: str) -> dict:
     if not _is_active_human(person):
         raise ValueError("pick a name first — the guide is per-person")
     db.execute(
-        "INSERT OR IGNORE INTO feature_unlocks (person, knot, kind, seen, first_at)"
-        " VALUES (?, ?, 'dismissed', 1, ?)",
+        "INSERT INTO feature_unlocks (person, knot, kind, seen, first_at)"
+        " VALUES (?, ?, 'dismissed', 1, ?)"
+        " ON CONFLICT DO NOTHING",
         (person, knot, db.now()),
     )
     return {"dismissed": knot}

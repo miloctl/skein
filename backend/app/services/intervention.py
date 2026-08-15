@@ -229,7 +229,7 @@ def interventions(
         # the worse the state, the slower the page that exists to fix it.
         # Oldest escalation first: it has been shouting longest.
         f" FROM blockers b WHERE b.status = 'escalated' AND {bfrag}"
-        " ORDER BY b.escalated_at, b.created_at LIMIT 10",
+        " ORDER BY b.escalated_at NULLS FIRST, b.created_at LIMIT 10",
         tuple(bp),
     ):
         reach = len(downstream(b["task_id"], viewer)["unblocks"]) if b["task_id"] else 0
@@ -369,7 +369,7 @@ def interventions(
     #    on are the ones with nobody left to notice them.
     for d in db.query(
         f"SELECT id, title, decided_by, review_by FROM decisions"  # noqa: S608 — module constant
-        f" WHERE status = 'stale' AND {scope.WORKSPACE_ONLY} ORDER BY review_by LIMIT 10"
+        f" WHERE status = 'stale' AND {scope.WORKSPACE_ONLY} ORDER BY review_by NULLS FIRST LIMIT 10"
     ):
         out.append(
             {

@@ -1,5 +1,4 @@
 import logging
-import sqlite3
 from collections.abc import Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -410,7 +409,6 @@ async def lifespan(app: FastAPI):
 
     import_file_sessions()
     scheduler = None
-    keepalive_open = False
     runtime_subjects = {
         *(identity.subject for identity in registry.service_identities),
         *(specialist.name for specialist in registry.specialists),
@@ -478,10 +476,6 @@ async def lifespan(app: FastAPI):
         asyncio.get_running_loop().set_default_executor(
             ThreadPoolExecutor(max_workers=pools["tool_threads"], thread_name_prefix="skein-tool")
         )
-        # held for the process lifetime so writes stop paying WAL
-        # checkpoint-on-close — 42x per write when idle, measured (db.py)
-        db.open_keepalive()
-        keepalive_open = True
         scheduler = (
             _start_scheduler(specs, settings.timezone) if settings.scheduler_enabled else None
         )
@@ -507,8 +501,7 @@ async def lifespan(app: FastAPI):
         except Exception:
             log.exception("adoption flush failed")
         try:
-            if keepalive_open:
-                db.close_keepalive()
+            db.close_pool()
         finally:
             deactivate_runtime_machine_subjects(runtime_subject_token)
 
@@ -585,7 +578,7 @@ async def perimeter_auth(request: Request, call_next):
     if is_shared_token(auth, request):
         return await call_next(request)
     if auth.startswith(f"Bearer {PREFIX}"):
-        # verify_key and is_agent hit SQLite; oidc.validate does network I/O
+        # verify_key and is_agent hit the database; oidc.validate does network I/O
         # and RSA work. This middleware is async, so running any of it inline
         # blocks the event loop for EVERY concurrent request.
         owner = await run_in_threadpool(verify_key, auth[7:])
@@ -644,9 +637,7 @@ async def perimeter_auth(request: Request, call_next):
             return JSONResponse(status_code=403, content={"detail": INACTIVE})
         try:
             human = await run_in_threadpool(ensure_human_identity, name)
-        except sqlite3.OperationalError as exc:
-            if "locked" not in str(exc):
-                raise
+        except db.BUSY_ERRORS:
             return JSONResponse(
                 status_code=503,
                 content={
@@ -728,14 +719,13 @@ async def rate_limited_handler(request: Request, exc: ratelimit.RateLimited):
     )
 
 
-async def database_busy_handler(request: Request, exc: sqlite3.OperationalError):
-    # A held write lock past busy_timeout (db.py) is LOAD, not fault: the same
-    # request succeeds on a retry with nothing changed, which is the 503 +
-    # Retry-After contract. A 500 here told the operator "bug" and the client
-    # "do not retry" — both wrong. Every OTHER OperationalError (bad SQL) IS
-    # our own fault: re-raising hands it to the default 500 path unchanged.
-    if "locked" not in str(exc):
-        raise exc
+async def database_busy_handler(request: Request, exc: Exception):
+    # Serialization failure, deadlock, or an exhausted pool is LOAD, not fault:
+    # the same request succeeds on a retry with nothing changed, which is the
+    # 503 + Retry-After contract. A 500 here told the operator "bug" and the
+    # client "do not retry" — both wrong. Only the types in db.BUSY_ERRORS
+    # reach this; an ordinary fault (bad SQL) is a ProgrammingError and keeps
+    # its 500.
     return JSONResponse(
         status_code=503,
         content={"detail": "The database is busy. Wait 5 seconds, then send the request again."},
@@ -864,7 +854,7 @@ def create_app(
     # the same way agents/narrator.py registers itself into digest.
     admin.set_extension_stores(
         {
-            contribution.name: contribution.store.path
+            contribution.name: contribution.store.schema
             for contribution in registry.migrations
             if isinstance(contribution.store, ExtensionStore)
             and contribution.store.include_in_backup
@@ -914,7 +904,8 @@ def create_app(
     application.add_exception_handler(ValueError, cast(Any, value_error_handler))
     application.add_exception_handler(PublicError, cast(Any, public_error_handler))
     application.add_exception_handler(ratelimit.RateLimited, cast(Any, rate_limited_handler))
-    application.add_exception_handler(sqlite3.OperationalError, cast(Any, database_busy_handler))
+    for busy in db.BUSY_ERRORS:
+        application.add_exception_handler(busy, cast(Any, database_busy_handler))
     application.add_exception_handler(
         handoff.ArtifactUnreadable, cast(Any, artifact_unreadable_handler)
     )

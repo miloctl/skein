@@ -7,14 +7,13 @@ while the MCP process runs core-only.
 """
 
 import os
-from pathlib import Path
 
 from .module import AtlasSettings, atlas_module
 
 modules = (
     atlas_module(
         AtlasSettings(
-            Path(os.getenv("ATLAS_SKEIN_DATA", "/atlas-data/atlas-extension.db")),
+            os.getenv("ATLAS_SKEIN_STORE", "atlas-extension"),
             api_url=os.getenv("ATLAS_API_URL", ""),
             api_token=os.getenv("ATLAS_API_TOKEN", ""),
         )

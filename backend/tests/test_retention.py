@@ -17,11 +17,11 @@ def test_retention_prune(fresh_db):
         (old,),
     )
     fresh_db.execute(
-        "INSERT INTO notifications (user, message, read_at, created_at) VALUES ('a', 'm', ?, ?)",
+        "INSERT INTO notifications (\"user\", message, read_at, created_at) VALUES ('a', 'm', ?, ?)",
         (old, old),
     )
     fresh_db.execute(
-        "INSERT INTO notifications (user, message, created_at) VALUES ('a', 'unread', ?)",
+        "INSERT INTO notifications (\"user\", message, created_at) VALUES ('a', 'unread', ?)",
         (old,),
     )
     fresh_db.execute(

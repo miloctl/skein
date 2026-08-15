@@ -496,7 +496,8 @@ def _snapshot(created: dict, slug: str, start: date, actor: str) -> int:
     # and list_artifacts must not hand it to somebody who could not read them
     aid = db.execute(
         "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at,"
-        " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        " RETURNING id",
         (
             eng["id"],
             "plan-snapshot",

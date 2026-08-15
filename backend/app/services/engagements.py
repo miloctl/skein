@@ -41,7 +41,7 @@ def create_engagement(
     # case-insensitively against the OPEN list, so a case-variant of a closed
     # engagement's name would otherwise slip past both checks and fork usage
     # rollups across two near-identical engagements
-    if db.query_one("SELECT id FROM engagements WHERE name = ? COLLATE NOCASE", (name,)):
+    if db.query_one("SELECT id FROM engagements WHERE lower(name) = lower(?)", (name,)):
         raise ValueError(f"engagement '{name}' already exists")
     ts = db.now()
     # one transaction: scope.resolve_write's membership check must not be able
@@ -52,7 +52,8 @@ def create_engagement(
             "INSERT INTO engagements (name, project_class, summary, lead, started_at,"
             " kind, timebox_end, kill_criteria, outcome,"
             " origin, created_by, created_at, updated_at, visibility, crew_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " RETURNING id",
             (
                 name,
                 project_class,
@@ -182,7 +183,7 @@ def _update_engagement_locked(
     # create check closes must not reopen through rename. The id exclusion
     # keeps re-casing an engagement's OWN name ("alpha" -> "Alpha") legal.
     if renaming and db.query_one(
-        "SELECT id FROM engagements WHERE name = ? COLLATE NOCASE AND id != ?",
+        "SELECT id FROM engagements WHERE lower(name) = lower(?) AND id != ?",
         (name, engagement_id),
     ):
         raise ValueError(f"engagement '{name}' already exists")
@@ -405,7 +406,7 @@ def _ship_it_locked(engagement_id: int, *, actor: str, origin: str) -> None:
     if eng["started_at"] and eng["closed_at"]:
         delta = (
             db.query_one(
-                "SELECT ROUND(julianday(?) - julianday(?)) AS d",
+                "SELECT ROUND((EXTRACT(epoch FROM ?::timestamptz - ?::timestamptz) / 86400.0)::numeric) AS d",
                 (eng["closed_at"], eng["started_at"]),
             )
             or {}
@@ -548,7 +549,8 @@ def allocate(
     aid = db.execute(
         "INSERT INTO allocations (person, engagement_id, percent, starts_on, ends_on,"
         " origin, created_by, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        " RETURNING id",
         (
             person,
             engagement_id,
@@ -626,7 +628,7 @@ def capacity(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     name, np = scope.visible_name(viewer, "engagements", "e.name", alias="e")
     rows = db.query(
         "SELECT a.person, SUM(a.percent) AS total_percent,"  # noqa: S608 — scope.visible_name emits only bound marks
-        f" GROUP_CONCAT({name} || ' (' || a.percent || '%)', ', ') AS detail"
+        f" string_agg({name} || ' (' || a.percent || '%)', ', ') AS detail"
         " FROM allocations a JOIN engagements e ON e.id = a.engagement_id"
         " WHERE e.status != 'closed'"
         " AND (a.starts_on IS NULL OR a.starts_on <= ?)"
@@ -669,7 +671,8 @@ def record_lesson(
         lid = db.execute(
             "INSERT INTO lessons (engagement_id, project_class, lesson, recommendation,"
             " origin, created_by, created_at, visibility, crew_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " RETURNING id",
             (
                 engagement_id or None,
                 project_class,

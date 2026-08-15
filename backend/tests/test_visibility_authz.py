@@ -251,7 +251,7 @@ def test_a_scoped_blocker_gets_no_team_wide_funeral(fresh_db):
     old = (datetime.now(UTC) - timedelta(days=9)).isoformat()
     fresh_db.execute("UPDATE blockers SET created_at = ? WHERE id = ?", (old, bid))
     blockers.resolve_blocker(bid, actor="ava")
-    team = fresh_db.query("SELECT message FROM notifications WHERE user = 'team'")
+    team = fresh_db.query("SELECT message FROM notifications WHERE \"user\" = 'team'")
     assert not [n for n in team if "ZZSECRETZZ" in n["message"]]
 
 
@@ -616,6 +616,13 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
 
 # file::function -> why this read needs no tier filter.
 _UNFILTERED_READS = {
+    "policy_context.py::hold_resource": (
+        "takes a row lock and returns NOTHING — no column of the row reaches a"
+        " caller, so there is no tier to leak. It exists so a policy decision"
+        " and the write it authorizes see one state; filtering it by viewer"
+        " would let an unheld row change under a decision that was allowed to"
+        " proceed"
+    ),
     "policy_context.py::resource_row": (
         "loads one typed notification source inside the notification write"
         " transaction. The source-row builder and saved policy context use"

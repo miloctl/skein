@@ -65,7 +65,8 @@ def schedule_event(
         eid = db.execute(
             "INSERT INTO events (title, description, starts_at, ends_at, attendees,"
             " agenda, engagement_id, origin, created_by, created_at, visibility, crew_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " RETURNING id",
             (
                 title,
                 description,

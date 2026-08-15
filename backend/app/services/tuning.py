@@ -6,7 +6,7 @@ overrides it, and clearing returns to the env rather than to a hardcoded
 guess. The difference is that these are numbers with bounds, so every write
 is range-checked and some pairs are checked against each other.
 
-READ THROUGH, never cache. effective() hits SQLite on every call — a
+READ THROUGH, never cache. effective() hits the database on every call — a
 sub-millisecond indexed lookup by primary key. A module-level cache would be
 faster and wrong: the moment this app runs more than one worker, each process
 would hold its own copy and admins would see a change that only some requests

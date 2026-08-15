@@ -51,7 +51,8 @@ def _write_artifact(slug: str, title: str, markdown: str, actor: str) -> tuple[i
         )
         return int(existing["id"]), str(path)
     aid = db.execute(
-        "INSERT INTO artifacts (kind, title, path, created_by, created_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO artifacts (kind, title, path, created_by, created_at) VALUES (?, ?, ?, ?, ?)"
+        " RETURNING id",
         ("ritual", title, str(path), actor, db.now()),
     )
     return int(aid), str(path)
@@ -211,7 +212,7 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
             # person what THEY owe
             f"SELECT id, promise, due_date FROM promises"  # noqa: S608 — scope filters emit only bound marks
             f" WHERE status = 'open' AND direction = 'given' AND {WORKSPACE_ONLY}"
-            " AND created_by = ? AND (due_date IS NULL OR due_date <= ?) ORDER BY due_date",
+            " AND created_by = ? AND (due_date IS NULL OR due_date <= ?) ORDER BY due_date NULLS FIRST",
             (name, horizon),
         )
         decisions = db.query(
@@ -274,7 +275,7 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
         # (services/promises.py::chase_received) already watches it
         f" WHERE c.{WORKSPACE_ONLY} AND c.status = 'open' AND c.direction = 'given'"
         " AND (c.due_date IS NULL OR c.due_date <= ?)"
-        " ORDER BY c.due_date",
+        " ORDER BY c.due_date NULLS FIRST",
         (horizon,),
     )
     if agent_recorded:

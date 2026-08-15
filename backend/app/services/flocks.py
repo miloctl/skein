@@ -240,8 +240,9 @@ def record_trace(
     route's close path, which also runs on a cancelled stream — a turn the
     user stopped still produced spend, so it still owes a trace."""
     return db.execute(
-        "INSERT INTO flock_traces (thread_id, user, flock, members, synthesis, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
+        'INSERT INTO flock_traces (thread_id, "user", flock, members, synthesis, created_at)'
+        " VALUES (?, ?, ?, ?, ?, ?)"
+        " RETURNING id",
         (
             thread_id,
             user,
@@ -265,7 +266,7 @@ def list_traces(owner: str, thread_id: str = "", flock: str = "", limit: int = 2
     said must not happen. A default would make the next caller's omission
     silent, and this is the only caller there is.
     """
-    where: list[str] = ["user = ?"]
+    where: list[str] = ['"user" = ?']
     params: list[str | int] = [owner]
     if thread_id:
         where.append("thread_id = ?")

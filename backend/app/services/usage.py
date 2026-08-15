@@ -35,9 +35,8 @@ def row_from_agent(agent, thread_id: str, agent_name: str = "chief-of-staff") ->
     caller runs matters: the flock path extracts on the event loop in a
     cancelled-safe finally, then hands the row to routes/chat.py::_close_turn's threadpool.
     Written inline where it was extracted, one INSERT per member ran on the
-    loop that carries every open SSE stream, against SQLite's single write
-    lock — one lost lock race froze every chat in the process for up to
-    busy_timeout.
+    loop that carries every open SSE stream — a round trip per member, on the
+    thread every concurrent chat shares.
 
     Lives in the service layer, not in routes/chat.py where its callers are,
     because agents/team_agent.py's consult tool records its own sub-agent's
@@ -162,7 +161,7 @@ def record_chat_usage(
 def usage_summary() -> list[dict]:
     return db.query(
         "SELECT model_id, COUNT(*) AS calls, SUM(input_tokens) AS input_tokens,"
-        " SUM(output_tokens) AS output_tokens, ROUND(SUM(cost_usd), 4) AS cost_usd,"
+        " SUM(output_tokens) AS output_tokens, ROUND(SUM(cost_usd)::numeric, 4) AS cost_usd,"
         " COUNT(*) - COUNT(cost_usd) AS unpriced_calls"
         " FROM usage_log GROUP BY model_id"
     )
@@ -193,13 +192,17 @@ def engagement_costs(
         " t.engagement_id AS engagement_id,"
         " COUNT(*) AS calls,"
         " SUM(u.input_tokens) AS input_tokens, SUM(u.output_tokens) AS output_tokens,"
-        " ROUND(SUM(u.cost_usd), 4) AS cost_usd,"
+        " ROUND(SUM(u.cost_usd)::numeric, 4) AS cost_usd,"
         " COUNT(*) - COUNT(u.cost_usd) AS unpriced_calls"
         " FROM usage_log u"
         " LEFT JOIN chat_threads t ON t.id = u.thread_id"
         " LEFT JOIN engagements e ON e.id = t.engagement_id"
         " WHERE u.created_at >= ?"
-        " GROUP BY t.engagement_id ORDER BY cost_usd DESC NULLS LAST",
+        # e.id as well as t.engagement_id: the CASE above reads e.name and the
+        # tier columns inside `frag`, and grouping by the engagement's PRIMARY
+        # KEY is what makes every other e.* column legal here (functional
+        # dependency). Grouping by t.engagement_id alone is a grouping error.
+        " GROUP BY t.engagement_id, e.id ORDER BY cost_usd DESC NULLS LAST",
         (*fp, scope.OTHER_WORK, since),
     )
 
@@ -209,7 +212,7 @@ def month_to_date() -> dict:
     says how much of it the estimate cannot see."""
     start = db.today().replace(day=1).isoformat()
     row = db.query_row(
-        "SELECT ROUND(SUM(cost_usd), 4) AS cost_usd,"
+        "SELECT ROUND(SUM(cost_usd)::numeric, 4) AS cost_usd,"
         " COUNT(*) - COUNT(cost_usd) AS unpriced_calls, COUNT(*) AS calls"
         " FROM usage_log WHERE created_at >= ?",
         (start,),

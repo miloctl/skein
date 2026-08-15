@@ -619,6 +619,12 @@ class WorkItems:
         """
         if not key:
             return 0
+        # Serialize the whole check-then-insert for THIS key. Two commands
+        # carrying the same idempotency key both read "no receipt" otherwise,
+        # both write, and the loser dies on the receipts primary key — which
+        # is a 500 on a request whose entire purpose was to be safe to repeat.
+        # Keyed on the receipt, so unrelated commands never wait on each other.
+        db.name_lock(db.LOCK_RECEIPT, f"{context.receipt_namespace}|{key}")
         prior = db.query_one(
             "SELECT result_type, result_id FROM extension_command_receipts"
             " WHERE namespace = ? AND idempotency_key = ?",
@@ -1434,9 +1440,11 @@ class WorkItems:
     ) -> TaskView:
         self._require_issued_context(context)
         try:
-            # BEGIN IMMEDIATE serializes the authoritative target lookup,
-            # policy decision, and mutation. A concurrent relink cannot move
-            # the task under a stricter policy between the check and write.
+            # One transaction over the authoritative target lookup, the
+            # policy decision, and the mutation — with the target row HELD
+            # inside it (policy_context.hold_resource), because a read alone
+            # locks nothing. A concurrent relink cannot then move the task
+            # under a stricter policy between the check and the write.
             with db.transaction():
                 current_row, viewer, current_attributes = self._task_state(command.task_id, context)
                 self._authorize(

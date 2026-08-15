@@ -11,7 +11,7 @@ Two verifications, on purpose:
   answers "is the ledger intact", and it is the one an operator acts on.
 
 Rows can sit OUTSIDE the chain: pre-036 rows never carried a seq, and
-db.log_activity records a row unchained when the write lock cannot be taken (a
+db.log_activity records a row unchained when the chain lock cannot be taken (a
 business write must not 500 over bookkeeping). The nightly job ADOPTS them —
 assigns each the tail seq and hash, appends one chained receipt naming the
 rows, and lowers the unchained baseline to what remains. Adoption attests
@@ -386,9 +386,9 @@ def record_anchor() -> dict:
 def adopt_unchained(actor: str = "scheduler") -> dict:
     """Chain every row that sits outside the chain, and record a receipt.
 
-    One transaction: the BEGIN IMMEDIATE holds the write lock across
-    read-tail, the updates, and the receipt, so no chained append can
-    interleave and take a seq this function is about to assign. Only seq-NULL
+    One transaction holding db.py's activity advisory lock across read-tail,
+    the updates, and the receipt, so no chained append can interleave and take
+    a seq this function is about to assign. Only seq-NULL
     rows are ever touched — a row that carries a seq is immutable history.
 
     A smuggled row is adopted exactly like a lock-timeout fallback, on
@@ -451,7 +451,7 @@ def adopt_unchained(actor: str = "scheduler") -> dict:
         recorded = _int_setting(marks, db.UNCHAINED_FALLBACKS)
         accounted = legacy + recorded
         # The counter is best-effort — its bump is a second write, taken on a
-        # path the write lock already refused once (db.py), so it can be lost.
+        # path the chain append already failed once (db.py), so it can be lost.
         # It therefore UNDER-counts, and the comparison errs toward reporting
         # rather than toward silence. That is the safe direction for a tamper
         # signal, and the finding says so rather than claiming a verdict.
@@ -750,18 +750,19 @@ def feed(viewer: str, limit: int = 50, before: int = 0) -> dict:
     if before:
         where += " AND seq < ?"
         params.append(before)
-    # INDEXED BY: left alone, the optimizer picks idx_activity_actor and then
-    # sorts with a temp B-tree — and the visible actor set is most of the
-    # table, so that plan re-sorts nearly the whole ledger on every page. The
-    # seq index already IS the sort order; walking it descending stops at
-    # `limit` rows no matter how large the ledger grows. Hard couplings:
-    # idx_activity_seq lives in migrations/001_baseline.sql — rename or
-    # drop it and this query raises OperationalError instead of replanning —
-    # and it is partial on seq IS NOT NULL, so the WHERE above must keep that
-    # predicate first or SQLite rejects the index the same way.
+    # idx_activity_seq must stay the plan for this query. Given the choice the
+    # planner can pick idx_activity_actor and sort afterwards, and the visible
+    # actor set is most of the table — that plan re-sorts nearly the whole
+    # ledger on every page. The seq index already IS the sort order, so
+    # walking it descending stops at `limit` rows however large the ledger
+    # grows. The index is partial on seq IS NOT NULL, which is why the WHERE
+    # above keeps that predicate: without it the index does not apply. It
+    # lives in core_migrations/001_baseline.sql; dropping it costs a full sort
+    # here, silently. There is no INDEXED BY to force it — PostgreSQL has no
+    # planner hint, so the shape of the query is the whole lever.
     rows = db.query(
         f"SELECT seq, actor, action, detail, created_at FROM activity"  # noqa: S608 — placeholders built above
-        f" INDEXED BY idx_activity_seq WHERE {where} ORDER BY seq DESC LIMIT ?",
+        f" WHERE {where} ORDER BY seq DESC LIMIT ?",
         (*params, limit + 1),
     )
     has_more = len(rows) > limit

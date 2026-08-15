@@ -22,7 +22,7 @@ def test_resolve_blocker_unblocks_linked_task(fresh_db):
     assert work.list_tasks(status="blocked")[0]["id"] == t["id"]
     blockers.resolve_blocker(b["id"])
     assert work.list_tasks()[0]["status"] == "in_progress"
-    events = fresh_db.query("SELECT event_type, payload FROM extension_outbox ORDER BY rowid")
+    events = fresh_db.query("SELECT event_type, payload FROM extension_outbox ORDER BY seq")
     assert [row["event_type"] for row in events] == [
         "skein.task.created",
         "skein.task.updated",

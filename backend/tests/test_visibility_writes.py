@@ -297,7 +297,13 @@ def test_every_classified_table_has_both_columns(client, fresh_db):
     """The filter emits `visibility` AND `crew_id`. A table with one but not
     the other passes every crew-less test and 500s for the first crew member."""
     for table in scope.CLASSIFIED:
-        cols = {c["name"] for c in fresh_db.query(f"PRAGMA table_info({table})")}
+        cols = {
+            c["name"]
+            for c in fresh_db.query(
+                "SELECT column_name AS name FROM information_schema.columns WHERE table_name = ?",
+                (table,),
+            )
+        }
         assert {"visibility", "crew_id"} <= cols, table
 
 

@@ -76,7 +76,8 @@ def add_promise(
         cid = db.execute(
             "INSERT INTO promises (promise, to_whom, engagement_id, due_date, audience,"
             " direction, origin, created_by, created_at, updated_at, visibility, crew_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " RETURNING id",
             (
                 promise,
                 to_whom,

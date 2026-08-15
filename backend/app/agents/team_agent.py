@@ -535,10 +535,10 @@ def _reconcile_session_strategy(thread_id: str, manager) -> None:
     stood for stay out of the replay. That is a real loss of that condensed
     context, taken knowingly over failing the user's next few turns.
     """
-    from .session_store import SqliteSessionRepository
+    from .session_store import DatabaseSessionRepository
 
     try:
-        repo = SqliteSessionRepository()
+        repo = DatabaseSessionRepository()
         # one transaction over the read-modify-write: a bridge write landing
         # between read_agent and update_agent must not be folded into stale
         # state

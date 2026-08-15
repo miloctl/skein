@@ -166,7 +166,8 @@ def generate_handoff(
         return {"artifact_id": int(existing["id"]), "path": str(path), "markdown": markdown}
     aid = db.execute(
         "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at,"
-        " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        " RETURNING id",
         (
             engagement_id,
             "handoff",

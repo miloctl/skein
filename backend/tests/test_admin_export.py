@@ -31,13 +31,12 @@ def test_export_covers_new_tables(fresh_db):
 def test_export_accounts_for_every_table(fresh_db):
     """A migration that adds a table decides its export fate HERE, not by
     accident: feature_unlocks and mention_log fell out of exports for five
-    migrations because nothing noticed absence. FTS shadow tables
-    (search_index_*) ride with their virtual table's exclusion."""
+    migrations because nothing noticed absence."""
     from app.services.admin import EXCLUDED, TABLES
 
     rows = fresh_db.query(
-        "SELECT name FROM sqlite_master WHERE type = 'table'"
-        " AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'search_index_%'"
+        "SELECT table_name AS name FROM information_schema.tables"
+        " WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
     )
     real = {r["name"] for r in rows}
     unaccounted = real - set(TABLES) - EXCLUDED

@@ -54,12 +54,25 @@ def overlay_errors() -> list[str]:
     return out
 
 
-DB_PATH = DATA_DIR / "platform.db"
+# The PostgreSQL server. No default and no fallback: a default that resolved
+# would serve an empty database beside the real one, and the roster coming up
+# blank reads as data loss rather than as a missing setting. Fails CLOSED like
+# AUTH_MODE — db.py raises this string, and /health carries it.
+DATABASE_URL = os.getenv("SKEIN_DATABASE_URL", "").strip()
+DATABASE_ERROR = (
+    ""
+    if DATABASE_URL
+    else "SKEIN_DATABASE_URL is not set. Set it to the PostgreSQL connection URL."
+)
 # Author-private records (1:1 prep, feedback journal) live in a SEPARATE
-# database file that backup/export/FTS/MCP/agents never open. Excluded from
-# the daily backup chain by design — back it up manually and encrypted if at
-# all (it is small and reconstructible personal notes).
-PRIVATE_DB_PATH = Path(os.getenv("SKEIN_PRIVATE_DB", DATA_DIR / "private.db"))
+# SCHEMA that backup/export/search/MCP/agents never read. The separation is
+# STRUCTURAL, not privileged: one connection role reaches everything, so what
+# holds the line is that only services/private_notes.py names a `private.`
+# table. What the schema buys concretely is the dump boundary — the core
+# backup excludes it by name, and the off-box mirror never receives it.
+PRIVATE_SCHEMA = "private"
+# Pre-045 session FILES. Live sessions are database rows
+# (agents/session_store.py); this is only the one-time import path.
 SESSIONS_DIR = DATA_DIR / "sessions"
 SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -808,10 +821,14 @@ except ValueError:
     TRUST_PROXY_HOPS = 0
 
 # Thread-pool sizes, applied at startup (main.py lifespan). Measured, not
-# guessed: GIL handoff between threads parked on sqlite3's C boundary makes
-# throughput ANTI-scale with pool width — GET /api/tasks at 40 concurrent
-# callers measured 97 req/s with 8 threads against 68 with the default 40
-# (4 cores). Smaller is faster until requests queue on genuinely-blocking
+# guessed under SQLite: GIL handoff between threads parked on the driver's C
+# boundary made throughput ANTI-scale with pool width — GET /api/tasks at 40
+# concurrent callers measured 97 req/s with 8 threads against 68 with the
+# default 40 (4 cores). RE-MEASURE on PostgreSQL before trusting these
+# numbers: the driver, the round trip, and the connection pool are all
+# different now, and nobody has run the benchmark since. The pool sizes
+# derive from these two values (db.py::pool), so raising one raises that too.
+# Smaller is faster until requests queue on genuinely-blocking
 # work (a 5s embedding call), which is what raising this is for.
 #
 # THREAD_POOL is anyio's limiter: every sync route handler and every

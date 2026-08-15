@@ -126,8 +126,10 @@ def refuse_fold_collision(name: str, *, ignore: str = "") -> None:
     authority_level and trust key on the EXACT name, so a second agent row
     folding onto the first would answer to neither's kill switch.
 
-    Folds in Python, not in SQL. sqlite's lower() is ASCII-only, so it reads
-    `SCOÜT` and `scoüt` as different names while resolve_teammate and
+    Folds in Python, not in SQL. No collation reproduces users.fold — it is
+    NFKC plus zero-width stripping, not case folding — so SQL that compared
+    with lower() would read
+    `SCOÜT` and `scoüt` as one name here and resolve_teammate and
     mentions.scan read them as the same one — the collision then arrives
     through the very guard meant to stop it."""
     target = fold(name)
@@ -302,10 +304,13 @@ def identity_ownership_error() -> str:
 def ensure_user(name: str, kind: str = "human", *, _owner: str = "") -> dict:
     name = (name or "anonymous").strip()[:64] or "anonymous"
     effective_kind = kind if kind in ("human", "agent") else "human"
-    # The folded-name check and insert are one write transaction. SQLite has
-    # no Unicode case-fold collation for a unique index, so serialization is
-    # what prevents concurrent `Mira` and `MIRA` rows.
+    # The folded-name check and insert are one transaction, and the lock is
+    # what makes that mean something: there is no unique index on the FOLDED
+    # name (folding is users.fold — NFKC plus zero-width stripping — which no
+    # collation reproduces), so concurrent `Mira` and `MIRA` claims both read
+    # "absent" and both insert unless they serialize here.
     with db.transaction():
+        db.name_lock(db.LOCK_IDENTITY, fold(name))
         owner = HUMAN_OWNER
         if effective_kind == "agent":
             refuse_authenticated_name(name)
@@ -340,8 +345,9 @@ def ensure_user(name: str, kind: str = "human", *, _owner: str = "") -> dict:
         # an exact existing name. Strict human and agent entry points validate
         # the returned kind below this compatibility layer.
         db.execute(
-            "INSERT OR IGNORE INTO users (name, kind, identity_owner, created_at)"
-            " VALUES (?, ?, ?, ?)",
+            "INSERT INTO users (name, kind, identity_owner, created_at)"
+            " VALUES (?, ?, ?, ?)"
+            " ON CONFLICT DO NOTHING",
             (name, effective_kind, owner, db.now()),
         )
         row = db.query_row("SELECT * FROM users WHERE name = ?", (name,))
@@ -352,8 +358,9 @@ def ensure_human_identity(name: str) -> dict:
     """Reserve a human name and refuse any exact or folded machine owner."""
     normalized = (name or "anonymous").strip()[:64] or "anonymous"
     refuse_authenticated_name(normalized)
-    # Durable exact ownership needs no write lock. This is the steady-state
-    # OIDC path, so authenticated reads retain WAL's reader/writer concurrency.
+    # Durable exact ownership needs no lock at all. This is the steady-state
+    # OIDC path: an already-claimed name resolves on a plain read, and readers
+    # never wait for writers.
     existing = db.query_one("SELECT * FROM users WHERE name = ?", (normalized,))
     if existing is not None:
         refuse_human_machine_claim(normalized)
@@ -361,6 +368,7 @@ def ensure_human_identity(name: str) -> dict:
             raise ValueError(f"'{normalized}' is already owned by an agent identity")
         return existing
     with db.transaction():
+        db.name_lock(db.LOCK_IDENTITY, fold(normalized))
         existing = db.query_one("SELECT kind FROM users WHERE name = ?", (normalized,))
         if existing is not None and existing["kind"] != "human":
             raise ValueError(f"'{normalized}' is already owned by an agent identity")
@@ -373,12 +381,15 @@ def ensure_human_identity(name: str) -> dict:
 def ensure_agent_identity(name: str, *, owner: str = GENERIC_AGENT_OWNER) -> dict:
     """Reserve one exact name for machine use without reusing a human row.
 
-    Keep the collision check, insert, and final kind check under one immediate
-    transaction. Otherwise a concurrent human claim can land between the
-    first query and ``INSERT OR IGNORE`` and make a machine use the human row.
+    Keep the collision check, insert, and final kind check under one
+    transaction HOLDING THE IDENTITY LOCK. Otherwise a concurrent human claim
+    lands between the first query and the insert and makes a machine use the
+    human row — the transaction alone does not stop it, because a read takes
+    no lock.
     """
     normalized = (name or "anonymous").strip()[:64] or "anonymous"
     with db.transaction():
+        db.name_lock(db.LOCK_IDENTITY, fold(normalized))
         refuse_ambiguous_identity(normalized)
         folded = fold(normalized)
         if folded in _content_machine_claims() and folded not in _accepted_content_machine_claims():
@@ -421,13 +432,15 @@ def _reserve_core_agent_identity(name: str) -> dict:
     if name != "agent":
         raise ValueError("only the built-in agent has a core roster identity")
     with db.transaction():
+        db.name_lock(db.LOCK_IDENTITY, fold(name))
         refuse_ambiguous_identity(name)
         existing = db.query_one("SELECT kind FROM users WHERE name = ?", (name,))
         if existing is not None and existing["kind"] != "agent":
             raise ValueError(f"'{name}' is already owned by a human identity")
         db.execute(
-            "INSERT OR IGNORE INTO users (name, kind, identity_owner, created_at)"
-            " VALUES (?, 'agent', 'core', ?)",
+            "INSERT INTO users (name, kind, identity_owner, created_at)"
+            " VALUES (?, 'agent', 'core', ?)"
+            " ON CONFLICT DO NOTHING",
             (name, db.now()),
         )
         row = db.query_row("SELECT * FROM users WHERE name = ?", (name,))
@@ -526,7 +539,7 @@ def is_agent(name: str) -> bool:
     target = fold(name)
     if not target:
         return False
-    # folded in PYTHON, not in SQL. sqlite's lower() is ASCII-only, so it
+    # folded in PYTHON, not in SQL. No collation reproduces users.fold, so it
     # reads `SCOÜT` and `scoüt` as different names while resolve_teammate and
     # mentions.scan read them as the same one — the wall and the resolver must
     # not disagree about what two names being equal means.
@@ -567,7 +580,7 @@ def resolve_teammate(
     """Case-insensitive roster match; empty and 'team' (the broadcast
     target) pass through, as does self-attribution (name == actor — Slack
     and capture route foreign usernames through as themselves).
-    Notifications match `user = ?` exactly, so a typo'd THIRD-PARTY owner
+    Notifications match `"user" = ?` exactly, so a typo'd THIRD-PARTY owner
     looks handled but notifies nobody — refuse that here, once.
     allow_team=False for person-shaped data (allocations, absences) where
     'team' would be a phantom capacity row, not a broadcast."""
@@ -720,9 +733,15 @@ def rename_user(
     target = _validate_rename_target(old, new, row, identity_repair=_identity_repair)
     moved: dict[str, int] = {}
     with db.transaction():
-        # Repeat every ownership check after the immediate transaction starts.
-        # A concurrent create or rename can land after the compatibility checks
-        # above but before this write transaction.
+        # BOTH names, in sorted order. A rename claims the new name and
+        # releases the old one, so it races every create on either; taking the
+        # two locks in a fixed order is what stops two opposing renames from
+        # deadlocking on each other.
+        for identity in sorted({fold(old), fold(new)}):
+            db.name_lock(db.LOCK_IDENTITY, identity)
+        # Repeat every ownership check after the transaction starts. A
+        # concurrent create or rename can land after the compatibility checks
+        # above but before this one begins.
         current = db.query_one("SELECT * FROM users WHERE name = ?", (old,))
         if not current:
             raise db.NotFound(f"no user named '{old}'")
@@ -732,12 +751,14 @@ def rename_user(
         db.execute(
             "UPDATE tool_usage SET actions = actions + COALESCE((SELECT o.actions"
             " FROM tool_usage o WHERE o.day = tool_usage.day"
-            " AND o.surface = tool_usage.surface AND o.user = ?), 0) WHERE user = ?",
+            ' AND o.surface = tool_usage.surface AND o."user" = ?), 0)'
+            ' WHERE "user" = ?',
             (old, new),
         )
         db.execute(
-            "DELETE FROM tool_usage WHERE user = ? AND EXISTS (SELECT 1 FROM tool_usage n"
-            " WHERE n.day = tool_usage.day AND n.surface = tool_usage.surface AND n.user = ?)",
+            'DELETE FROM tool_usage WHERE "user" = ? AND EXISTS (SELECT 1 FROM tool_usage n'
+            " WHERE n.day = tool_usage.day AND n.surface = tool_usage.surface"
+            ' AND n."user" = ?)',
             (old, new),
         )
         # feature_unlocks (person, knot, kind): the target's existing unlock
@@ -790,15 +811,19 @@ def rename_user(
         # this fold the UPDATE below hits the primary key and the whole merge
         # raises IntegrityError, which has no handler and answers 500.
         db.execute(
-            "DELETE FROM notification_reads WHERE user = ? AND EXISTS"
+            'DELETE FROM notification_reads WHERE "user" = ? AND EXISTS'
             " (SELECT 1 FROM notification_reads n"
-            "  WHERE n.notification_id = notification_reads.notification_id AND n.user = ?)",
+            '  WHERE n.notification_id = notification_reads.notification_id AND n."user" = ?)',
             (old, new),
         )
         for table, cols in _ATTRIBUTION.items():
             for col in cols:
+                # The column name is QUOTED because `user` is one of them and
+                # is a reserved word — unquoted it parses as CURRENT_USER and
+                # the statement is a syntax error. Quoting every name from the
+                # constant map is one rule instead of a per-column exception.
                 n = db.execute_rowcount(
-                    f"UPDATE {table} SET {col} = ? WHERE {col} = ?",  # noqa: S608 — constant map
+                    f'UPDATE {table} SET "{col}" = ? WHERE "{col}" = ?',  # noqa: S608 — constant map
                     (new, old),
                 )
                 if n:
@@ -856,15 +881,24 @@ def rename_user(
 def repair_identity_ownership(old: str, new: str) -> dict:
     """Repair one quarantined identity without impersonating its owner.
 
-    Private ownership moves first and writes a private administrative audit.
-    The core rename follows with the reserved ``system`` actor. The two SQLite
-    stores cannot share a transaction. If the core step fails, fix its stated
-    cause and repeat the same command; the private move is idempotent.
+    Private ownership moves and writes a private administrative audit, then
+    the core rename follows with the reserved ``system`` actor — both in ONE
+    transaction, so a failure at either step leaves the identity exactly where
+    it was. Repeating the command is safe, and never necessary to reconcile a
+    half-applied repair: there is no half to apply.
     """
     old, new = _rename_names(old, new)
     from . import private_notes
 
     with db.transaction():
+        # Both identities, before anything is validated. The repair holds the
+        # TARGET name from here until it commits, so a machine claim racing for
+        # it waits instead of landing between the private move and the core
+        # rename. Taking them inside rename_user would be too late: that call
+        # is the last step, and the private move ahead of it is exactly the
+        # window a concurrent claim used to win.
+        for identity in sorted({fold(old), fold(new)}):
+            db.name_lock(db.LOCK_IDENTITY, identity)
         conflicted = {
             name for conflict in identity_ownership_conflicts() for name in conflict["names"]
         }

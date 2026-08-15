@@ -52,6 +52,10 @@ def _resource(arguments: dict[str, Any]) -> PolicyResource:
         entity = key.removesuffix("_id")
         if entity == "project":
             entity = "engagement"
+        # Hold the row this decision is about, before reading it. Same rule
+        # and same lock order as every other enforcement point — see
+        # services/policy_context.py::hold_resource.
+        policy_context.hold_resource(entity, value)
         attributes = (
             policy_context.existing("task", value)
             if entity == "task"
