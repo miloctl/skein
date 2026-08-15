@@ -195,11 +195,28 @@ def reserve_content_identities(slugs: set[str]) -> tuple[set[str], list[dict]]:
             folded = fold(slug)
             matches = [row for row in rows if fold(row["name"]) == folded]
             if not matches:
-                db.execute(
+                # ON CONFLICT, because this runs during startup (main.py) and
+                # two replicas booting together both read "no match" and both
+                # insert. A plain INSERT makes the loser die of UniqueViolation
+                # inside the lifespan, which is a crash-loop on the exact
+                # deployment shape the PostgreSQL move exists to allow. DO
+                # NOTHING also leaves the transaction usable, where a caught
+                # IntegrityError would abort it.
+                claimed = db.execute(
                     "INSERT INTO users (name, kind, identity_owner, created_at)"
-                    " VALUES (?, 'agent', ?, ?)",
+                    " VALUES (?, 'agent', ?, ?) ON CONFLICT (name) DO NOTHING"
+                    " RETURNING id",
                     (slug, CONTENT_OWNER, db.now()),
                 )
+                if not claimed:
+                    # Another replica created it first. Accept only if it made
+                    # the row this function would have made.
+                    won = db.query_one(
+                        "SELECT kind, identity_owner FROM users WHERE name = ?", (slug,)
+                    )
+                    if not won or won["kind"] != "agent" or won["identity_owner"] != CONTENT_OWNER:
+                        conflicts.append({"kind": "content-owner", "names": (slug,), "claim": slug})
+                        continue
                 rows.append({"name": slug, "kind": "agent", "identity_owner": CONTENT_OWNER})
                 accepted.add(slug)
                 continue

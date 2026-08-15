@@ -680,9 +680,18 @@ UNCHAINED_FALLBACKS = "activity_unchained_fallbacks"
 # seq with the same prev_hash, which forks the chain permanently at that row.
 # Transaction-scoped, so it releases at commit with no unlock to forget — and
 # because a transaction's rows are QUEUED and written at the very end
-# (_flush_activity), this is always the LAST lock a transaction takes. That
-# ordering is what keeps it out of every deadlock cycle: a lock taken last is
-# never held while waiting for another.
+# (_flush_activity), the ordinary path takes this LAST. That ordering is what
+# keeps it out of every deadlock cycle: a lock taken last is never held while
+# waiting for another.
+#
+# hold_activity_chain() is the one exception: it takes this FIRST, because it
+# assigns seqs from a tail read it has to serialize. That inverts the order,
+# so its transaction may only write rows no chained-append transaction takes
+# first. Today it writes the two unchained counters in app_settings, and the
+# only other writer of those runs on an autocommit connection below with no
+# ambient transaction — it holds no row lock while waiting for this one, so
+# there is no cycle. Adding a write to that function means checking this
+# again.
 _ACTIVITY_LOCK = 4_216_018  # int4, see _advisory
 
 

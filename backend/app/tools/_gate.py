@@ -90,10 +90,16 @@ def gated_write(
     summary: str = "",
     actor: str = "",
 ) -> str:
-    # Serialize authoritative context resolution, the workplace decision, and
-    # the resulting local mutation. Nested service transactions join this
-    # transaction. This prevents a concurrent relink from changing the policy
-    # domain after the decision but before the write.
+    # One transaction over context resolution, the workplace decision, and the
+    # resulting local mutation, so nested service transactions join it and the
+    # write is all-or-nothing.
+    #
+    # It does NOT stop a concurrent relink from moving the resource between
+    # the decision and the write: the context reads below are plain SELECTs,
+    # and a transaction alone locks nothing. REST enforcement closes that with
+    # policy_context.hold_resource on its atomic routes and MCP does the same;
+    # this path is the one that does not. Closing it means holding the
+    # resource row here FIRST, before the ledger lock the flush takes last.
     with db.transaction():
         return _gated_write_locked(
             entity,

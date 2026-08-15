@@ -235,9 +235,15 @@ def run_one(
         return _refused(agent, str(exc))
 
     # Evaluate the current delegated work and claim this run in one write
-    # transaction. A concurrent relink can finish before this transaction and
-    # become part of policy, or wait until the claim commits. It cannot change
-    # the project between the final policy decision and the daily claim.
+    # transaction, so a restart cannot re-spend the day's allowance.
+    #
+    # It does NOT pin the project: _due reads tasks with no lock, claim_job
+    # writes a different table, and a relink committing between them changes
+    # the project after the policy decision. Deliberate — the delegated set
+    # is variable and this runs once per agent per day, so holding every task
+    # in it costs more than the staleness it prevents. The consequence is
+    # bounded: one run proceeds under the previous project's policy, and the
+    # next day re-decides.
     with db.transaction():
         if not _due(agent, policy):
             return _refused(agent, "nothing delegated")

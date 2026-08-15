@@ -76,8 +76,12 @@ def _policy_refusal(
     """Return a JSON refusal, or an empty string when policy permits."""
     attributes: dict[str, Any] = {}
     # Hold the row this decision is about before reading it — see
-    # services/policy_context.py::hold_resource. This runs first inside the
-    # tool's transaction, which is what keeps the lock order uniform.
+    # services/policy_context.py::hold_resource. It runs first inside the
+    # transaction on the three WRITE tools that open one, which is what keeps
+    # the lock order uniform there. The read tools call this with no ambient
+    # transaction, where hold_resource returns without taking anything: a read
+    # has no write to protect, and a lock taken around a single statement
+    # would release before it could matter.
     if resource_id:
         with contextlib.suppress(ValueError):
             domain_policy_context.hold_resource(resource_type, int(resource_id))

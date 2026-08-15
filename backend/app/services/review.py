@@ -999,8 +999,15 @@ def reject_change(
     reviewer_capabilities: tuple[str, ...] = (),
     policy_registry=None,
 ) -> dict:
-    # Rejection is a durable policy verdict. Serialize current target lookup,
-    # reviewer qualification, and settlement just as approval does.
+    # Rejection is a durable policy verdict, settled by the same CAS approval
+    # uses (_claim, UPDATE ... WHERE status = 'pending'), so two reviewers
+    # cannot both settle one change.
+    #
+    # It does NOT hold the target row the way approve_change does: rejection
+    # writes nothing to the target, so a relink landing mid-decision can only
+    # record the refusal against a stale policy domain, never mutate the
+    # wrong row. Add hold_resource here if a rejection ever gains a target
+    # write.
     with db.transaction():
         return _reject_change_locked(
             change_id,

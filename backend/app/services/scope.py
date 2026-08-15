@@ -230,10 +230,13 @@ def resolve_write(visibility: str, crew_id: int, *, actor: str) -> tuple[str, in
     difference is reversibility: a forgotten filter is a query you fix, a
     forgotten sink has already written the body somewhere permanent.
 
-    A crew tier costs a membership check (crews.assert_writable), and that call
-    belongs INSIDE the caller's transaction: bare, it opens its own connection,
-    so a person removed from the crew between the check and the insert still
-    scopes a row into it.
+    A crew tier costs a membership check (crews.assert_writable), and that
+    call belongs INSIDE the caller's transaction — not because the
+    transaction locks anything on its own (it does not), but because
+    assert_writable holds the crew row FOR UPDATE, and a lock taken outside
+    the caller's transaction releases before the INSERT it protects. Called
+    bare, a person removed from the crew between the check and the insert
+    still scopes a row into it.
     """
     visibility = (visibility or WORKSPACE).strip().lower()
     if visibility == WORKSPACE:

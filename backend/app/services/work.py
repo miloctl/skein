@@ -446,7 +446,10 @@ def _visible_link(table: str, row_id: int, actor: str) -> dict:
         f"SELECT * FROM {table} WHERE id = ?",  # noqa: S608 -- table is a private constant
         (row_id,),
     )
-    if row is None:  # The caller holds the surrounding write transaction.
+    # Reachable: the caller's transaction takes no lock on this row, so a
+    # concurrent delete can land between the visibility read above and this
+    # one. The refusal below is the correct answer either way.
+    if row is None:
         raise ValueError(scope.missing_text(table, row_id))
     return row
 

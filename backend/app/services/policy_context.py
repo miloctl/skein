@@ -84,10 +84,13 @@ def resource_row(entity: str, entity_id: int) -> dict | None:
 def hold_resource(entity: str, entity_id: int) -> None:
     """Hold the row a policy decision is ABOUT, for the rest of the transaction.
 
-    Only the ENFORCEMENT entry points call this — enforce_mutation_policy for
-    REST and mcp_server._policy_refusal for MCP. Both run before anything else
-    in their transaction, which is what keeps the lock order uniform: the
-    resource row first, the activity-chain lock last. A read that merely
+    Call it FIRST in the transaction, before any other lock: the resource row
+    first, the activity-chain lock last, which is the order that keeps this
+    out of every deadlock cycle. The enforcement entry points
+    (enforce_mutation_policy for REST, mcp_server._policy_refusal for MCP) do
+    that, and so must the services that call it directly — blockers, review,
+    delegation, webhooks, core_tools, public/work and routes/api all do
+    today. A read that merely
     RENDERS (a notification body, an event payload) must NOT call it: those run
     after the caller has already appended to the ledger, and taking a row lock
     there inverts the order against a concurrent request and deadlocks.
@@ -95,7 +98,20 @@ def hold_resource(entity: str, entity_id: int) -> None:
     Without the hold the decision is a TOCTOU: a claim reads a task's project
     type, a concurrent relink moves it onto a regulated engagement, and the
     write lands under a rule chosen for the old type.
+
+    THE HOLD IS NOT UNIVERSAL, and the early return below is why. Only the
+    routes in fastapi.py::_ATOMIC_POLICY run inside a transaction — 26 of 87
+    mutation routes at the time of writing. On the rest this function does
+    nothing at all, and the TOCTOU above stays open. That is deliberate:
+    chat streams an SSE response, the webhooks and the backup route shell
+    out, and a row lock cannot be held across either. Do NOT read this
+    docstring as a guarantee that every policy decision is serialized
+    against a concurrent relink. Making one of those routes atomic means
+    adding it to _ATOMIC_POLICY, not calling this harder.
     """
+    # A silent return, not a raise: every caller above is an enforcement entry
+    # point that runs on both kinds of route, so raising would take down the
+    # 61 non-atomic ones for a lock they were never designed to hold.
     if entity_id <= 0 or not db.in_transaction():
         return
     selected = _TABLES.get(entity)
