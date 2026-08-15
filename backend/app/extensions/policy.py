@@ -120,9 +120,11 @@ class CorePolicy:
 
         from .. import config
         from ..agents.identity import force_review
-        from ..tools._gate import ALWAYS_REVIEW, effective_level
+        from ..tools._gate import ALWAYS_REVIEW, effective_authority
 
-        level = effective_level(request.agent or request.subject.name, request.resource.type)
+        level, expired = effective_authority(
+            request.agent or request.subject.name, request.resource.type
+        )
         if level == "forbidden":
             return PolicyDecision(
                 PolicyEffect.DENY,
@@ -131,6 +133,7 @@ class CorePolicy:
         if (
             request.resource.type in ALWAYS_REVIEW
             or force_review()
+            or expired
             or (level == "review" and config.AGENT_REVIEW)
         ):
             return PolicyDecision(

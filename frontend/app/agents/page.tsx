@@ -20,7 +20,14 @@ type Persona = {
   vibe: string;
 };
 
-type Authority = { agent: string; entity: string; level: string };
+type Authority = {
+  agent: string;
+  entity: string;
+  level: string;
+  effective_level?: string;
+  review_by?: string | null;
+  review_expired?: boolean;
+};
 
 type AgentRow = {
   agent: string;
@@ -41,7 +48,11 @@ type Trust = {
   approval_rate: number;
   recent_streak: number;
   last_verified_verdict: string;
+  configured_level?: string;
   current_level: string;
+  effective_level?: string;
+  review_by?: string | null;
+  review_expired?: boolean;
   suggestion: string;
 };
 
@@ -78,13 +89,17 @@ const LEVEL_LABEL: Record<string, string> = {
   forbidden: "not allowed",
 };
 
-/** With the review gate off, `review` writes apply directly: tools/_gate.py
- *  takes the direct path on `not config.AGENT_REVIEW` whatever the level, so
- *  autonomous, notify and review all collapse to "acts alone" and only
- *  forbidden still stops a write. A bare "needs approval" then promises a
+/** With the review gate off, a current `review` grant applies directly.
+ *  An expired elevated grant still waits for a human, and `forbidden` still
+ *  stops a write. A bare "needs approval" on a current review grant promises a
  *  checkpoint the deployment does not run. gateOn is null while the status
  *  fetch is unsettled — say nothing rather than guess. */
-const levelLabel = (level: string, gateOn: boolean | null, always = false) => {
+const levelLabel = (
+  level: string,
+  gateOn: boolean | null,
+  always = false,
+  forcedReview = false,
+) => {
   // "not allowed" is absolute and true in every configuration
   if (level === "forbidden") return LEVEL_LABEL.forbidden;
   // _gate.py takes the review path for ALWAYS_REVIEW entities BEFORE it reads
@@ -92,6 +107,7 @@ const levelLabel = (level: string, gateOn: boolean | null, always = false) => {
   // stored — and a row that renders "acts alone" over a destructive write is
   // the worst lie this card can tell
   if (always) return "needs approval (always)";
+  if (forcedReview) return "needs approval";
   if (gateOn === false && level === "review")
     return "needs approval (gate off)";
   return LEVEL_LABEL[level] ?? level;
@@ -148,7 +164,9 @@ export default function Agents() {
   const missionAgents =
     agents?.filter(
       (agent) =>
-        missionView === "all" || agent.open_tasks > 0 || agent.pending_proposals > 0,
+        missionView === "all" ||
+        agent.open_tasks > 0 ||
+        agent.pending_proposals > 0,
     ) ?? [];
   // null until the status fetch settles: the authority copy below states a
   // rule that INVERTS with this flag, so guessing it tells the reader the
@@ -322,7 +340,7 @@ export default function Agents() {
           <span>
             {status.review_gate
               ? "Review gate on — every agent write waits in Inbox → Approvals"
-              : "Review gate off — agent writes apply directly (authority rules still hold)"}
+              : "Review gate off — current grants write directly. Expired elevated grants still wait."}
           </span>
           {/* the effective strategy and any config fault are SEPARATE spans:
               rendering the fault instead of the strategy let the strip assert
@@ -466,20 +484,24 @@ export default function Agents() {
                   </p>
                   {a.authority.length > 0 && (
                     <p className="mt-1 flex flex-wrap gap-1">
-                      {a.authority.map((au) => (
-                        <span
-                          key={au.entity}
-                          title={`${au.entity}: ${au.level}`} /* raw pair stays in the tooltip */
-                          className={`rounded-full px-2 py-0.5 text-xs ${LEVEL_COLOR[au.level] ?? "bg-raised text-ink-2"}`}
-                        >
-                          {entityLabel(au.entity)}:{" "}
-                          {levelLabel(
-                            au.level,
-                            gateOn,
-                            alwaysReview.includes(au.entity),
-                          )}
-                        </span>
-                      ))}
+                      {a.authority.map((au) => {
+                        const effective = au.effective_level ?? au.level;
+                        return (
+                          <span
+                            key={au.entity}
+                            title={`${au.entity}: configured ${au.level}, effective ${effective}${au.review_by ? `, review date ${au.review_by}` : ""}`}
+                            className={`rounded-full px-2 py-0.5 text-xs ${LEVEL_COLOR[effective] ?? "bg-raised text-ink-2"}`}
+                          >
+                            {entityLabel(au.entity)}:{" "}
+                            {levelLabel(
+                              effective,
+                              gateOn,
+                              alwaysReview.includes(au.entity),
+                              au.review_expired,
+                            )}
+                          </span>
+                        );
+                      })}
                     </p>
                   )}
                 </li>
@@ -504,7 +526,9 @@ export default function Agents() {
             </h2>
             <div className="space-y-3 text-sm">
               <div>
-                <p className="text-xs font-medium text-ink-3">Delegated tasks</p>
+                <p className="text-xs font-medium text-ink-3">
+                  Delegated tasks
+                </p>
                 <ul className="space-y-2 text-xs text-ink-2">
                   {inbox.delegated_tasks.map((t) => (
                     <li key={t.id}>
@@ -518,8 +542,12 @@ export default function Agents() {
                       <p className="text-ink-3">
                         Priority: {t.priority} · Sponsor: {t.sponsor || "none"}
                         {t.due_date ? ` · Due: ${t.due_date}` : ""}
-                        {t.engagement_id ? ` · Engagement #${t.engagement_id}` : ""}
-                        {t.milestone_id ? ` · Milestone #${t.milestone_id}` : ""}
+                        {t.engagement_id
+                          ? ` · Engagement #${t.engagement_id}`
+                          : ""}
+                        {t.milestone_id
+                          ? ` · Milestone #${t.milestone_id}`
+                          : ""}
                       </p>
                     </li>
                   ))}
@@ -554,9 +582,8 @@ export default function Agents() {
                   {inbox.notifications.map((n) => (
                     <li key={n.id}>🔔 {n.message}</li>
                   ))}
-                  {inbox.open_questions.length + inbox.notifications.length === 0 && (
-                    <li className="text-ink-3">none</li>
-                  )}
+                  {inbox.open_questions.length + inbox.notifications.length ===
+                    0 && <li className="text-ink-3">none</li>}
                 </ul>
               </div>
             </div>
@@ -575,8 +602,9 @@ export default function Agents() {
               </>
             ) : (
               <>
-                The review gate is off, so an agent writes directly and only{" "}
-                <b>not allowed</b> stops it.{" "}
+                The review gate is off, so current grants write directly. An
+                expired elevated grant still waits for a human, and{" "}
+                <b>not allowed</b> stops every write.{" "}
                 {/* rendered from the served ALWAYS_REVIEW set, never typed here:
                   a hand-written list drifts from _gate.py the moment either
                   the set or a capability phrase changes, and this one already
@@ -646,6 +674,23 @@ export default function Agents() {
                           {" "}
                           · {entityLabel(g.entity)}
                         </span>
+                        {g.review_expired ? (
+                          <span className="block text-xs text-weld">
+                            configured: {levelLabel(g.level, gateOn)} ·
+                            effective:{" "}
+                            {levelLabel(
+                              g.effective_level ?? "review",
+                              gateOn,
+                              false,
+                              true,
+                            )}{" "}
+                            · review date {g.review_by} passed
+                          </span>
+                        ) : g.review_by ? (
+                          <span className="block text-xs text-ink-3">
+                            review by {g.review_by}
+                          </span>
+                        ) : null}
                       </span>
                       {manage ? (
                         <select
@@ -669,12 +714,13 @@ export default function Agents() {
                         </select>
                       ) : (
                         <span
-                          className={`rounded-full px-2 py-0.5 text-xs ${LEVEL_COLOR[g.level] ?? "bg-raised text-ink-2"}`}
+                          className={`rounded-full px-2 py-0.5 text-xs ${LEVEL_COLOR[g.effective_level ?? g.level] ?? "bg-raised text-ink-2"}`}
                         >
                           {levelLabel(
-                            g.level,
+                            g.effective_level ?? g.level,
                             gateOn,
                             alwaysReview.includes(g.entity),
+                            g.review_expired,
                           )}
                         </span>
                       )}
@@ -689,7 +735,9 @@ export default function Agents() {
               <p className="w-full text-xs text-ink-3">
                 Changing authority needs administrator access and strong
                 identity. Use your deployment sign-in or a personal API key.
-                {identity === null && !errors.identity ? " Checking identity…" : ""}
+                {identity === null && !errors.identity
+                  ? " Checking identity…"
+                  : ""}
               </p>
               {errors.identity && (
                 <p className="w-full text-xs text-danger">{errors.identity}</p>
@@ -841,9 +889,10 @@ export default function Agents() {
                   <span className="ml-1 text-xs text-ink-3">
                     · today:{" "}
                     {levelLabel(
-                      t.current_level,
+                      t.effective_level ?? t.current_level,
                       gateOn,
                       alwaysReview.includes(t.entity),
+                      t.review_expired,
                     )}
                   </span>
                   {/* text-ok, not a raw palette green: scripts/check_theme_contrast.py

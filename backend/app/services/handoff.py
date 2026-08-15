@@ -8,9 +8,8 @@ from .. import config, db
 from ..agents.identity import refuse_when_consultative
 from . import scope, wording
 
-# Newest first, so the cap drops the oldest report. Both branches carry it:
-# docs/CORRECTIONS.md states the rule as "on every branch", and the Reports
-# page reads the length to decide whether to call it a total.
+# The compatibility list and each cursor page use one bounded batch. The page
+# route scans more batches when policy denies rows, then returns at most this many.
 LIST_LIMIT = 50
 # A markdown report past this is our own generator's fault, not a caller's.
 MAX_ARTIFACT_BYTES = 8 * 1024 * 1024
@@ -272,19 +271,25 @@ def read_artifact(artifact_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict
 _NOT_A_REPORT = ("plan-snapshot",)
 
 
-def list_artifacts(engagement_id: int = 0, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
+def list_artifacts(
+    engagement_id: int = 0,
+    viewer: scope.Viewer = scope.NOBODY,
+    *,
+    before: int = 0,
+    limit: int = LIST_LIMIT,
+) -> list[dict]:
     # a row here carries a PATH to a markdown file holding the engagement's
     # work — generate_handoff tags it with that engagement's tier
     frag, vp = scope.visible_filter(viewer, "artifacts")
     marks = ", ".join("?" for _ in _NOT_A_REPORT)
+    sql = f"SELECT * FROM artifacts WHERE kind NOT IN ({marks}) AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+    params: list[str | int] = [*_NOT_A_REPORT, *vp]
     if engagement_id:
-        return db.query(
-            f"SELECT * FROM artifacts WHERE engagement_id = ? AND kind NOT IN ({marks})"  # noqa: S608 — scope.visible_filter emits only bound marks
-            f" AND {frag} ORDER BY id DESC LIMIT ?",
-            (engagement_id, *_NOT_A_REPORT, *vp, LIST_LIMIT),
-        )
-    return db.query(
-        f"SELECT * FROM artifacts WHERE kind NOT IN ({marks}) AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
-        " ORDER BY id DESC LIMIT ?",
-        (*_NOT_A_REPORT, *vp, LIST_LIMIT),
-    )
+        sql += " AND engagement_id = ?"
+        params.append(engagement_id)
+    if before:
+        sql += " AND id < ?"
+        params.append(before)
+    sql += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    return db.query(sql, tuple(params))

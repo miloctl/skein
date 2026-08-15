@@ -10,12 +10,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *  unconditionally — a false reassurance about a safety control, in the
  *  configuration that is the default. */
 
-const gate: { on: boolean | "never"; granted: boolean; entitiesFail: boolean } =
-  {
-    on: false,
-    granted: true,
-    entitiesFail: false,
-  };
+const gate: {
+  on: boolean | "never";
+  granted: boolean;
+  entitiesFail: boolean;
+  expired: boolean;
+} = {
+  on: false,
+  granted: true,
+  entitiesFail: false,
+  expired: false,
+};
 const identity = { strong: false, admin: false, can_administer: false };
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -94,7 +99,14 @@ vi.mock("@/lib/api", async (importOriginal) => {
             last_seen: null,
             authority: gate.granted
               ? [
-                  { agent: "planner-agent", entity: "task", level: "review" },
+                  {
+                    agent: "planner-agent",
+                    entity: "task",
+                    level: gate.expired ? "autonomous" : "review",
+                    effective_level: "review",
+                    review_by: gate.expired ? "2026-01-01" : null,
+                    review_expired: gate.expired,
+                  },
                   {
                     agent: "planner-agent",
                     entity: "note_delete",
@@ -125,6 +137,7 @@ beforeEach(() => {
   gate.on = false;
   gate.granted = true;
   gate.entitiesFail = false;
+  gate.expired = false;
   identity.strong = false;
   identity.admin = false;
   identity.can_administer = false;
@@ -297,5 +310,15 @@ describe("the authority rows", () => {
     expect(container.textContent).toMatch(/tasks \(add, change\)/);
     // the raw key survives only in the tooltip, never as the row text
     expect(container.textContent).not.toMatch(/ on note_delete/);
+  });
+
+  it("separates the configured grant from expired effective authority", async () => {
+    gate.on = false;
+    gate.expired = true;
+    const { container } = render(<AgentsPage />);
+    await waitFor(() => expect(container.textContent).toMatch(/review date 2026-01-01 passed/));
+    expect(container.textContent).toMatch(/configured: acts alone/);
+    expect(container.textContent).toMatch(/effective: needs approval/);
+    expect(container.textContent).not.toMatch(/effective: acts alone/);
   });
 });

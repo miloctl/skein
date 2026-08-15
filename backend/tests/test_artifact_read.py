@@ -39,6 +39,135 @@ def test_a_ritual_hands_back_an_id_that_reads_back(client):
     assert body["markdown"] == out["markdown"]
 
 
+def test_an_already_run_ritual_returns_the_existing_artifact(client):
+    first = client.post("/api/rituals/week-close?force=true").json()
+    repeat = client.post("/api/rituals/week-close").json()
+    assert repeat == {
+        "week": first["week"],
+        "skipped": "already ran this week",
+        "artifact_id": first["artifact_id"],
+    }
+
+
+def test_a_concurrent_repeat_waits_for_the_ritual_report(monkeypatch):
+    from datetime import date
+    from threading import Event, Thread
+
+    from app.services import rituals
+
+    monkeypatch.setattr(rituals.db, "today", lambda: date(2035, 1, 5))
+    original = rituals._week_close_run
+    entered = Event()
+    release = Event()
+    outputs: list[dict] = []
+    errors: list[Exception] = []
+
+    def slow_run(today, week, actor):
+        entered.set()
+        assert release.wait(5)
+        return original(today, week, actor)
+
+    def run():
+        try:
+            outputs.append(rituals.week_close(actor="tester"))
+        except Exception as exc:  # pragma: no cover — asserted empty below
+            errors.append(exc)
+
+    monkeypatch.setattr(rituals, "_week_close_run", slow_run)
+    first = Thread(target=run)
+    second = Thread(target=run)
+    first.start()
+    assert entered.wait(5)
+    second.start()
+    assert second.is_alive(), "the repeat did not wait for the claim transaction"
+    release.set()
+    first.join(5)
+    second.join(5)
+
+    assert errors == []
+    assert len(outputs) == 2
+    assert {row["artifact_id"] for row in outputs} == {outputs[0]["artifact_id"]}
+    assert sum("skipped" in row for row in outputs) == 1
+
+
+def test_a_later_day_in_the_same_week_links_the_existing_ritual(client, monkeypatch):
+    from datetime import date
+
+    from app.services import rituals
+
+    day = [date(2028, 1, 3)]
+    monkeypatch.setattr(rituals.db, "today", lambda: day[0])
+    first = client.post("/api/rituals/week-close").json()
+
+    day[0] = date(2028, 1, 5)
+    repeat = client.post("/api/rituals/week-close").json()
+    assert repeat["skipped"] == "already ran this week"
+    assert repeat["artifact_id"] == first["artifact_id"]
+
+
+def test_artifact_pages_reach_every_report(client, fresh_db):
+    expected = []
+    for i in range(75):
+        expected.append(
+            fresh_db.execute(
+                "INSERT INTO artifacts (kind, title, path, created_by, created_at)"
+                " VALUES ('digest', ?, ?, 'scheduler', ?) RETURNING id",
+                (f"cursor report {i}", f"/tmp/cursor-{i}.md", fresh_db.now()),
+            )
+        )
+
+    seen = []
+    before = 0
+    while True:
+        suffix = f"?before={before}" if before else ""
+        page = client.get(f"/api/artifacts/page{suffix}").json()
+        seen.extend(row["id"] for row in page["items"] if row["title"].startswith("cursor report"))
+        if page["next_before"] is None:
+            break
+        before = page["next_before"]
+
+    assert seen == sorted(expected, reverse=True)
+    assert len(seen) == len(set(seen)) == 75
+    assert client.get("/api/artifacts/page?before=-1").status_code == 422
+    assert isinstance(client.get("/api/artifacts").json(), list)
+
+
+def test_artifact_pages_scan_past_rows_that_workplace_policy_denies(client, fresh_db, monkeypatch):
+    from app.extensions.policy import PolicyDecision, PolicyEffect
+    from app.routes import api
+
+    ids = []
+    for i in range(75):
+        ids.append(
+            fresh_db.execute(
+                "INSERT INTO artifacts (kind, title, path, created_by, created_at)"
+                " VALUES ('digest', ?, ?, 'scheduler', ?) RETURNING id",
+                (f"policy report {i}", f"/tmp/policy-{i}.md", fresh_db.now()),
+            )
+        )
+    cutoff = sorted(ids, reverse=True)[49]
+
+    def decision(*args, **kwargs):
+        effect = (
+            PolicyEffect.DENY
+            if int(kwargs.get("resource_id") or 0) >= cutoff
+            else PolicyEffect.PERMIT
+        )
+        return PolicyDecision(effect, ())
+
+    monkeypatch.setattr(api, "decide", decision)
+    page = client.get("/api/artifacts/page").json()
+    visible = [row["id"] for row in page["items"] if row["title"].startswith("policy report")]
+    assert visible == sorted(ids, reverse=True)[50:]
+    assert page["next_before"] is None
+    compatible = [
+        row["id"]
+        for row in client.get("/api/artifacts").json()
+        if row["title"].startswith("policy report")
+    ]
+    assert compatible == visible
+
+
 def test_a_forced_rerun_reuses_its_row_instead_of_filing_a_second(client):
     """_write_artifact upserts on the path, so a same-day rerun overwrites the
     file. Returning a NEW id there would hand the reader an artifact that does

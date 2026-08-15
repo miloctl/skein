@@ -9,7 +9,7 @@ from datetime import timedelta
 from typing import Any
 
 from .. import db
-from . import notifications, scope
+from . import notifications, review, scope
 from .scope import WORKSPACE_ONLY
 
 
@@ -82,7 +82,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "audience": "you" if p.get("requested_by") == user else "team",
                 "label": f"proposal #{p['id']}: {p['summary']}",
                 "reason": f"proposed by {p['proposed_by']} — applies only after a human verdict",
-                "link": "/review",
+                "link": f"/review?id={p['id']}",
             }
         )
     for r in needs["intake_to_triage"]:
@@ -275,6 +275,8 @@ def my_day(
     mixed_filter: Callable[[list[dict]], list[dict]] | None = None,
     allow_unclassified: bool = True,
     resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+    review_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+    review_allow_unclassified: bool = True,
 ) -> dict:
     """`viewer`, not just `user`: these three lists are addressed to a person
     BY NAME, and a name is self-asserted in trusted-header mode. Keyed on the
@@ -283,7 +285,6 @@ def my_day(
     refuses. The filter also expires access the moment somebody leaves a crew
     — membership is checked at the write, and this read outlives it.
     """
-    from .review import _readable
     from .work import redact_task_relationships
 
     # The team's day (config.SKEIN_TZ): due_date and committed_week carry no
@@ -306,6 +307,31 @@ def my_day(
 
     from .schedule import meetings_awaiting_outcome
 
+    pending_rows, pending_total = review.pending_changes_summary(
+        viewer,
+        limit=review.REVIEW_PAGE_LIMIT,
+        resource_filter=review_filter,
+        allow_unclassified=review_allow_unclassified,
+    )
+    pending_reviews = [
+        {
+            key: row.get(key)
+            for key in (
+                "id",
+                "entity",
+                "entity_id",
+                "action",
+                "summary",
+                "proposed_by",
+                "requested_by",
+                "created_at",
+                "review_visibility",
+                "review_crew_id",
+                "review_owner",
+            )
+        }
+        for row in pending_rows
+    ]
     needs_you = {
         # meetings that have finished with nothing recorded. Viewer-scoped
         # like every other list here, and a NOTICE rather than a decide: the
@@ -316,26 +342,9 @@ def my_day(
             " ORDER BY id",
             (user, *q_p),
         ),
-        # LIMITed: a bulk ingest can legitimately file hundreds of proposals,
-        # and this payload rides the hottest page — the count carries the rest.
-        #
-        # Through review._readable, because `summary` is built by the producer
-        # out of the target row's own text. GET /api/review filters this way
-        # and this one did not, so the dashboard served the review queue's
-        # scoped summaries to every caller — the same leak, one reader over.
-        "pending_reviews": _readable(
-            db.query(
-                # requested_by rides along so `_attention` can tell a proposal
-                # this reader ASKED FOR from the shared queue anyone may work.
-                # It is the difference between "your agent is waiting on you"
-                # and "the team has a queue".
-                "SELECT id, entity, entity_id, action, summary, proposed_by,"
-                " requested_by, created_at, review_visibility, review_crew_id, review_owner,"
-                " policy_context"
-                " FROM pending_changes WHERE status = 'pending' ORDER BY id LIMIT 50"
-            ),
-            viewer,
-        ),
+        # The first page of the same FIFO queue that Approvals reads. The
+        # service scans past rows this viewer or workplace policy cannot read.
+        "pending_reviews": pending_reviews,
         "your_blockers": db.query(
             f"SELECT * FROM blockers WHERE status != 'resolved' AND owner = ? AND {b_f}"  # noqa: S608 — scope.visible_filter emits only bound marks
             " ORDER BY created_at",
@@ -357,9 +366,6 @@ def my_day(
             (user, user),
         ),
     }
-    pending_total = db.query_one(
-        "SELECT COUNT(*) AS n FROM pending_changes WHERE status = 'pending'"
-    )
     attention = _attention(user, needs_you, today, week)
     result: dict[str, Any] = {
         "user": user,
@@ -376,7 +382,7 @@ def my_day(
         ),
         # honest total alongside the LIMITed list — the header must not read
         # "50 things need you" while the nav badge says 300
-        "pending_reviews_total": pending_total["n"] if pending_total else 0,
+        "pending_reviews_total": pending_total,
         # The label `committed_week` stores, sent rather than recomputed in the
         # browser. It is the same string the ORDER BY above binds, so the "this
         # week" chip cannot disagree with the ordering it is explaining. A
@@ -478,7 +484,7 @@ def my_day(
         needs["meetings_awaiting_outcome"] = row_filter("event", needs["meetings_awaiting_outcome"])
         needs["your_blockers"] = row_filter("blocker", needs["your_blockers"])
         needs["intake_to_triage"] = row_filter("intake", needs["intake_to_triage"])
-        if mixed_filter is not None:
+        if mixed_filter is not None and review_filter is None:
             needs["pending_reviews"] = mixed_filter(needs["pending_reviews"])
         from .notifications import policy_filter as filter_notifications
 
@@ -512,7 +518,12 @@ def my_day(
     return result
 
 
-def attention_count(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
+def attention_count(
+    user: str,
+    viewer: scope.Viewer = scope.NOBODY,
+    review_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+    review_allow_unclassified: bool = True,
+) -> dict:
     """Two numbers, because two readers ask two different questions.
 
     `inbox` is the nav badge on Inbox and counts ONLY what lives there —
@@ -540,21 +551,25 @@ def attention_count(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
     header said 0 and whose body showed nothing to act on
     (`test_a_row_the_viewer_cannot_read_is_counted_by_neither`).
 
-    `inbox` is a count over the WHOLE queue, unreadable rows included. It is
-    the badge on a shared destination, and a per-viewer total would disagree
-    with my_day's `pending_reviews_total`, which is unfiltered for the same
-    reason. A count carries no title.
+    `inbox` counts the readable FIFO queue behind Approvals. My Day uses the
+    same count, so denied rows cannot make the badge promise work the page omits.
     """
     local_today = db.today()
     week = (local_today + timedelta(days=7)).isoformat()
     q_f, q_p = scope.visible_filter(viewer, "questions")
     b_f, b_p = scope.visible_filter(viewer, "blockers")
+    pending, pending_total = review.pending_changes_summary(
+        viewer,
+        limit=review.REVIEW_PAGE_LIMIT,
+        resource_filter=review_filter,
+        allow_unclassified=review_allow_unclassified,
+    )
+    requested_reviews = sum(1 for row in pending if row.get("requested_by") == user)
     row = db.query_one(
         "SELECT"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-        " (SELECT COUNT(*) FROM pending_changes WHERE status = 'pending')"
-        f" + (SELECT LEAST(COUNT(*), 10) FROM intake_requests"
+        f" (SELECT LEAST(COUNT(*), 10) FROM intake_requests"
         f"    WHERE {WORKSPACE_ONLY} AND status IN ('submitted', 'scored'))"
-        " AS inbox,"
+        " AS inbox_other,"
         # Notifications are counted by NEITHER arm, and that is the whole
         # reason this returns the same number My Day prints. `_attention` files
         # every notification under `notice` — "worth knowing", not "waiting on
@@ -565,19 +580,6 @@ def attention_count(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
         # an assigned question, an owned blocker, a sponsor's acceptance ask.
         f" (SELECT COUNT(*) FROM questions WHERE status = 'open' AND assigned_to = ? AND {q_f})"
         f" + (SELECT COUNT(*) FROM blockers WHERE status != 'resolved' AND owner = ? AND {b_f})"
-        # a proposal this reader ASKED FOR is addressed to them, and _attention
-        # marks it audience 'you' — without this arm the tab undercounts by
-        # exactly the rows the page puts under "Needs you".
-        #
-        # Counted inside the SAME `ORDER BY id LIMIT 50` window my_day reads,
-        # or a bulk ingest past the fiftieth row makes the tab say twelve over
-        # a page showing eleven. The one divergence left is `review._readable`,
-        # which my_day applies and no SQL can: a proposal whose target row was
-        # deleted drops from the page and is counted here. That is a row the
-        # reader asked for and can still reject, so counting it is the safer
-        # direction, and it cannot be closed without a viewer.
-        " + (SELECT COUNT(*) FROM (SELECT requested_by FROM pending_changes"
-        "     WHERE status = 'pending' ORDER BY id LIMIT 50) WHERE requested_by = ?)"
         f" + (SELECT COUNT(*) FROM promises WHERE status = 'open' AND direction = 'given'"
         f"    AND {WORKSPACE_ONLY} AND created_by = ?"
         "     AND due_date IS NOT NULL AND due_date <= ?)"
@@ -589,9 +591,9 @@ def attention_count(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
         # mark order, not argument order: the questions filter binds inside the
         # first subselect and the blockers filter inside the second, so each
         # scope tuple follows the `?` it qualifies
-        (user, *q_p, user, *b_p, user, user, week, user),
+        (user, *q_p, user, *b_p, user, week, user),
     )
     return {
-        "inbox": row["inbox"] if row else 0,
-        "yours": row["yours"] if row else 0,
+        "inbox": pending_total + (row["inbox_other"] if row else 0),
+        "yours": requested_reviews + (row["yours"] if row else 0),
     }

@@ -4686,7 +4686,8 @@ def test_portfolio_health_filters_each_project_on_rest(fresh_db):
 
 
 def test_rest_composites_filter_or_refuse_denied_projects(fresh_db):
-    from app.services import engagements, work
+    from app.extensions.policy import policy_input_data
+    from app.services import engagements, review, work
 
     standard = engagements.create_engagement("REST composite standard", project_class="standard")[
         "id"
@@ -4694,8 +4695,50 @@ def test_rest_composites_filter_or_refuse_denied_projects(fresh_db):
     regulated = engagements.create_engagement(
         "REST composite regulated secret", project_class="regulated"
     )["id"]
-    work.create_task("REST standard task", engagement_id=standard, assignee="mira")
-    work.create_task("REST regulated task secret", engagement_id=regulated, assignee="mira")
+    standard_task = work.create_task("REST standard task", engagement_id=standard, assignee="mira")[
+        "id"
+    ]
+    regulated_task = work.create_task(
+        "REST regulated task secret", engagement_id=regulated, assignee="mira"
+    )["id"]
+
+    def saved_context(task_id: int, project_type: str) -> dict:
+        return {
+            "input": policy_input_data(
+                PolicyInput(
+                    PolicySubject("agent", kind="agent"),
+                    "task.update",
+                    PolicyResource(
+                        "task",
+                        str(task_id),
+                        project_type=project_type,
+                        classification="workspace",
+                    ),
+                    "agent",
+                )
+            )
+        }
+
+    review.propose_change(
+        "task",
+        "update",
+        {"description": "REST standard proposal"},
+        summary="REST standard proposal",
+        entity_id=standard_task,
+        actor="agent",
+        notify_team=False,
+        policy_context=saved_context(standard_task, "standard"),
+    )
+    review.propose_change(
+        "task",
+        "update",
+        {"description": "REST regulated proposal secret"},
+        summary="REST regulated proposal secret",
+        entity_id=regulated_task,
+        actor="agent",
+        notify_team=False,
+        policy_context=saved_context(regulated_task, "regulated"),
+    )
     protected = {
         "skein.rest.get.search",
         "skein.rest.get.briefing",
@@ -4733,9 +4776,9 @@ def test_rest_composites_filter_or_refuse_denied_projects(fresh_db):
         flow_response = client.get("/api/portfolio/flow")
         inbox_response = client.get("/api/agents/agent/inbox")
         notifications_response = client.get("/api/notifications")
+        review_response = client.get("/api/review")
         opaque_responses = [
             client.get("/api/attention"),
-            client.get("/api/review"),
             client.get("/api/review/stats"),
             client.get("/api/pulse"),
             client.get(f"/api/engagements/{regulated}/brief"),
@@ -4751,6 +4794,9 @@ def test_rest_composites_filter_or_refuse_denied_projects(fresh_db):
     assert "regulated task secret" not in inbox_response.text
     assert notifications_response.status_code == 200
     assert "regulated task secret" not in notifications_response.text
+    assert review_response.status_code == 200
+    assert "REST standard proposal" in review_response.text
+    assert "REST regulated proposal secret" not in review_response.text
     assert flow_response.status_code == 403
     assert {response.status_code for response in opaque_responses} == {403}
 

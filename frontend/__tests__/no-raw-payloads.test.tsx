@@ -62,7 +62,7 @@ beforeEach(() => {
 
 describe("the Approvals diff table", () => {
   it("renders a list of ids as ids, not as a JSON array", async () => {
-    data["/api/review?status=pending"] = [
+    data["/api/review?status=pending&limit=50"] = [
       {
         id: 3,
         entity: "weekly_plan",

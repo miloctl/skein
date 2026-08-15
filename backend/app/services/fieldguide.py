@@ -86,6 +86,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     "offweb": lambda u: _has(
         "SELECT 1 FROM tool_usage WHERE \"user\" = ? AND surface IN ('cli', 'mcp')", (u,)
     ),
+    "reports": None,
     "ingest": lambda u: _act(u, "ingest_notes"),
     "delegate": lambda u: _act(u, "delegate_task"),
     "mention": lambda u: _has("SELECT 1 FROM mention_log WHERE mentioned_by = ?", (u,)),
@@ -137,6 +138,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
         (u,),
     ),
     "ritual": lambda u: _act(u, "week_open") or _act(u, "week_close"),
+    "authority_half_life": lambda u: _act(u, "set_authority"),
     "readout": lambda u: _act(u, "exec_readout"),
     "handoff": lambda u: _act(u, "generate_handoff"),
     "model_pick": lambda u: _act(u, "set_model_pick"),

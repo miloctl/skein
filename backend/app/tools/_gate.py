@@ -3,8 +3,9 @@
 Per (agent, entity) the authority matrix grants: autonomous (direct write),
 notify (direct write + team notification), review (proposal when
 SKEIN_AGENT_REVIEW=1, direct otherwise — the pre-matrix behavior), or
-forbidden (always refused). Default is review — agents earn autonomy through
-approved proposals, they don't start with it.
+forbidden (always refused). An expired elevated grant always returns to review.
+Default is review — agents earn autonomy through approved proposals, they don't
+start with it.
 
 One thing outranks the matrix: agents/identity.py::force_review, set for the
 duration of a flock member's turn. It forces the proposal path whatever the
@@ -28,7 +29,7 @@ from ..extensions.policy import (
     policy_input_data,
 )
 from ..services import blockers, lexicon, review, scope, work
-from ..services.delegation import authority_level
+from ..services.delegation import authority_status
 
 # irreversible verbs ALWAYS go through the review inbox, even with
 # SKEIN_AGENT_REVIEW off — a prompt-injected agent must never hard-delete
@@ -67,18 +68,17 @@ _FAMILY = {
 _NOT_A_FAMILY = {"task_completion"}
 
 
-def effective_level(actor: str, entity: str) -> str:
-    """The entity's own level, unless its family root is explicitly forbidden.
+def effective_authority(actor: str, entity: str) -> tuple[str, bool]:
+    """The effective level and whether an expired grant forced review.
 
-    ONLY forbidden propagates. authority_level returns the default "review"
-    when no row exists, so taking the strictest of the two made an ABSENT
-    parent override an explicit child grant — granting note_edit=autonomous
-    resolved to review, and the fine-grained grant the matrix exists to allow
-    became a no-op. A kill switch is absolute; a grant stays per-entity."""
+    ONLY forbidden propagates. An absent parent must not override a child
+    grant. Expiration stays per entity, while a family kill switch stays
+    absolute."""
     root = _FAMILY.get(entity)
-    if root and authority_level(actor, root) == "forbidden":
-        return "forbidden"
-    return authority_level(actor, entity)
+    if root and authority_status(actor, root)["effective_level"] == "forbidden":
+        return "forbidden", False
+    status = authority_status(actor, entity)
+    return status["effective_level"], bool(status["review_expired"])
 
 
 def gated_write(

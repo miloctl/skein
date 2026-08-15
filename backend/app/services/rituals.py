@@ -27,9 +27,26 @@ def _claim_week(job: str, week: str, force: bool) -> bool:
     return claimed or force
 
 
-def _release_claim(job: str, week: str) -> None:
-    """A crash mid-ritual must not eat the week's slot."""
-    db.execute("DELETE FROM job_runs WHERE job = ? AND run_key = ?", (job, week))
+def _existing_week_artifact(slug: str, today: date) -> int:
+    """Latest report for the claim. job_runs stores no artifact id."""
+    suffix = f"-{slug}.md"
+    target = today.isocalendar()[:2]
+    rows = db.query(
+        f"SELECT id, path FROM artifacts WHERE kind = 'ritual' AND path LIKE ?"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f" AND {WORKSPACE_ONLY} ORDER BY id DESC",
+        (f"%{suffix}",),
+    )
+    for row in rows:
+        name = Path(row["path"]).name
+        if not name.endswith(suffix):
+            continue
+        try:
+            artifact_day = date.fromisoformat(name[: -len(suffix)])
+        except ValueError:
+            continue
+        if artifact_day.isocalendar()[:2] == target:
+            return int(row["id"])
+    raise RuntimeError(f"the {slug} claim has no report for {target[0]}-W{target[1]:02d}")
 
 
 def _write_artifact(slug: str, title: str, markdown: str, actor: str) -> tuple[int, str]:
@@ -64,13 +81,18 @@ def week_close(*, actor: str = "scheduler", force: bool = False) -> dict:
     waiting. One packet, one notification, zero page-hopping."""
     today = db.today()
     week = f"{today.isocalendar().year}-W{today.isocalendar().week:02d}-close"
-    if not _claim_week("week_close", week, force):
-        return {"week": week, "skipped": "already ran this week"}
-    try:
+    with db.transaction():
+        # The job claim and artifact are one unit. Without this lock, a repeat can
+        # see the claim before the first request writes its report, and a forced
+        # pair can race the artifact path's check-then-insert.
+        db.name_lock(db.LOCK_JOB, f"week_close:{week}")
+        if not _claim_week("week_close", week, force):
+            return {
+                "week": week,
+                "skipped": "already ran this week",
+                "artifact_id": _existing_week_artifact("week-close", today),
+            }
         return _week_close_run(today, week, actor)
-    except Exception:
-        _release_claim("week_close", week)
-        raise
 
 
 def _week_close_run(today: date, week: str, actor: str) -> dict:
@@ -180,13 +202,15 @@ def week_open(*, actor: str = "scheduler", force: bool = False) -> dict:
     on them, tasks due. Personal notifications, team artifact."""
     today = db.today()
     week = f"{today.isocalendar().year}-W{today.isocalendar().week:02d}-open"
-    if not _claim_week("week_open", week, force):
-        return {"week": week, "skipped": "already ran this week"}
-    try:
+    with db.transaction():
+        db.name_lock(db.LOCK_JOB, f"week_open:{week}")
+        if not _claim_week("week_open", week, force):
+            return {
+                "week": week,
+                "skipped": "already ran this week",
+                "artifact_id": _existing_week_artifact("week-open", today),
+            }
         return _week_open_run(today, week, actor)
-    except Exception:
-        _release_claim("week_open", week)
-        raise
 
 
 def _week_open_run(today: date, week: str, actor: str) -> dict:

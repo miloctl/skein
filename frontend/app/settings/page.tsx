@@ -754,8 +754,9 @@ export default function SettingsPage() {
             </>
           ) : (
             <>
-              The review gate is off in this deployment, so a connected agent
-              writes directly: set an entity to <b>not allowed</b> on{" "}
+              The review gate is off in this deployment, so current grants write
+              directly. Expired elevated grants still wait for review. Set an
+              entity to <b>not allowed</b> on{" "}
               <a href="/agents" className="underline">
                 /agents
               </a>{" "}

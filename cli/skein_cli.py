@@ -321,18 +321,35 @@ def cmd_my_day(args):
         print(raw)
         return
     b = api("GET", "/api/briefing")
-    n = b["needs_you"]
-    out = [f"# My Day — {b['user']}, {b['date']}\n"]
-    for q in n["open_questions"]:
-        out.append(f"  ? #{q['id']} {q['question']} (from {q['asked_by']})")
-    for bl in n["your_blockers"]:
-        out.append(f"  ⛔ #{bl['id']} {bl['title']} [{bl['impact']}/{bl['status']}]")
-    for nt in n.get("notifications", []):
-        out.append(f"  🔔 {nt['message']}")
-    if n["pending_reviews"]:
-        out.append(f"  📥 {len(n['pending_reviews'])} pending review(s)")
-    if n["intake_to_triage"]:
-        out.append(f"  📨 {len(n['intake_to_triage'])} intake request(s) to triage")
+    attention = b.get("attention", [])
+    yours = [item for item in attention if item.get("audience", "you") == "you"]
+    team = [item for item in attention if item.get("audience") == "team"]
+    group_labels = {
+        "decide": "Decide",
+        "unblock": "Unblock",
+        "commit": "Promise",
+        "review": "Review",
+        "notice": "Notice",
+    }
+    shown_reviews = sum(1 for item in attention if item.get("group") == "review")
+    extra_reviews = max(0, int(b.get("pending_reviews_total") or 0) - shown_reviews)
+    out = [f"# My Day — {b['user']}, {b['date']}\n", "## Needs you"]
+    if yours:
+        for item in yours:
+            out.append(f"  [{group_labels.get(item['group'], item['group'])}] {item['label']}")
+            out.append(f"    {item['reason']}")
+    else:
+        out.append("  (none)")
+    if team or extra_reviews:
+        out.append("\n## Team queues")
+        for item in team:
+            out.append(f"  [{group_labels.get(item['group'], item['group'])}] {item['label']}")
+            out.append(f"    {item['reason']}")
+        if extra_reviews:
+            out.append(
+                f"  [Review] {extra_reviews} more proposal{'' if extra_reviews == 1 else 's'}"
+                " await a verdict in Inbox → Approvals."
+            )
     out.append("\n## Your tasks")
     for t in b["your_work"]["tasks"] or []:
         out.append(f"  [{t['priority']}/{t['status']}] #{t['id']} {t['title']}")
@@ -363,9 +380,14 @@ def cmd_tasks(args):
         api("PATCH", f"/api/tasks/{args.id}", {"status": "done"})
         print(f"task #{args.id} done")
         return
-    for t in api("GET", "/api/tasks"):
-        if t["status"] == "done" and not args.all:
-            continue
+    if args.all:
+        collection = api("GET", "/api/tasks/browse")
+        rows = list(
+            {task["id"]: task for task in [*collection["open"], *collection["done"]]}.values()
+        )
+    else:
+        rows = api("GET", "/api/tasks?status=open")
+    for t in rows:
         print(
             f"[{t['priority']}/{t['status']}] #{t['id']} {t['title']}"
             + (f" (@{t['assignee']})" if t["assignee"] else "")
@@ -598,14 +620,18 @@ def cmd_review(args):
                 " never feed promotion/demotion streaks — `skein config --key`"
             )
         return
-    rows = api("GET", "/api/review?status=pending")
+    after = int(getattr(args, "after", 0) or 0)
+    limit = int(getattr(args, "limit", 50) or 50)
+    rows = api("GET", f"/api/review?status=pending&after={after}&limit={limit}")
     for c in rows:
         sponsor = f" · sponsor {c['sponsor']}" if c.get("sponsor") else ""
         asked = f" · asked by {c['requested_by']}" if c.get("requested_by") else ""
         print(f"#{c['id']} {c['summary']} (by {c['proposed_by']}{asked}{sponsor})")
     if not rows:
         print("review queue is empty")
-    elif keyless:
+    elif len(rows) == limit:
+        print(f"\nMore proposals can follow. Run `skein review --after {rows[-1]['id']}`.")
+    if rows and keyless:
         print(
             "\nnote: no API key configured — verdicts still land (and count in"
             " approval rates), but only key-authenticated ones feed"
@@ -940,6 +966,8 @@ def main():
     c.add_argument("action", nargs="?", choices=["list", "approve", "reject"], default="list")
     c.add_argument("id", nargs="?", type=int)
     c.add_argument("-m", "--note", default="", help="verdict note (required for reject)")
+    c.add_argument("--after", type=int, default=0, help="list proposals after this id")
+    c.add_argument("--limit", type=int, default=50, help="proposals per page (1-200)")
     c.set_defaults(fn=cmd_review)
 
     c = sub.add_parser("answer", help="answer an open question")

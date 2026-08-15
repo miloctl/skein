@@ -262,6 +262,7 @@ def test_authority_half_life(client, fresh_db):
 
 
 def test_authority_stale_null_review_by_falls_back(fresh_db):
+    from app.services import delegation
     from app.services.insights import run_findings
 
     fresh_db.execute(
@@ -270,6 +271,182 @@ def test_authority_stale_null_review_by_falls_back(fresh_db):
     )
     hits = [f for f in run_findings(actor="t")["findings"] if f["rule_id"] == "authority_stale"]
     assert len(hits) == 1  # pre-017-style row (NULL review_by) still expires
+    grant = delegation.authority_status("old-agent", "task")
+    assert grant["review_by"] == "2020-03-31"
+    assert grant["effective_level"] == "review" and grant["review_expired"] is True
+
+
+def test_legacy_authority_fallback_uses_the_team_day(fresh_db, monkeypatch):
+    from zoneinfo import ZoneInfo
+
+    from app import config
+    from app.services import delegation
+
+    monkeypatch.setattr(config, "TZ", ZoneInfo("America/Los_Angeles"))
+    fresh_db.execute(
+        "INSERT INTO agent_authority (agent, entity, level, updated_by, updated_at)"
+        " VALUES ('west-agent', 'task', 'autonomous', 'm', '2026-01-01T00:30:00+00:00')"
+    )
+    assert delegation.authority_status("west-agent", "task")["review_by"] == "2026-03-31"
+
+
+def test_authority_changes_serialize_the_stale_check_and_kill_switch(fresh_db, monkeypatch):
+    from threading import Event, Thread, current_thread
+
+    from app.services import delegation
+
+    delegation.set_authority("locked-agent", "task", "review", actor="manager")
+    original = delegation.authority_level
+    checked = Event()
+    release = Event()
+    writer_done = Event()
+    errors: list[Exception] = []
+
+    def paused_level(agent, entity):
+        level = original(agent, entity)
+        if current_thread().name == "authority-approval":
+            checked.set()
+            assert release.wait(5)
+        return level
+
+    def approve():
+        try:
+            delegation.set_authority(
+                "locked-agent",
+                "task",
+                "autonomous",
+                "review",
+                actor="manager",
+            )
+        except Exception as exc:  # pragma: no cover — asserted empty below
+            errors.append(exc)
+
+    def forbid():
+        try:
+            delegation.set_authority("locked-agent", "task", "forbidden", actor="manager")
+        except Exception as exc:  # pragma: no cover — asserted empty below
+            errors.append(exc)
+        finally:
+            writer_done.set()
+
+    monkeypatch.setattr(delegation, "authority_level", paused_level)
+    approval = Thread(target=approve, name="authority-approval")
+    writer = Thread(target=forbid, name="authority-kill-switch")
+    approval.start()
+    assert checked.wait(5)
+    writer.start()
+    assert not writer_done.wait(0.1), "the kill switch bypassed the authority-pair lock"
+    release.set()
+    approval.join(5)
+    writer.join(5)
+
+    assert errors == []
+    assert delegation.authority_level("locked-agent", "task") == "forbidden"
+
+
+def test_expired_authority_forces_review_even_when_the_gate_is_off(client, fresh_db, monkeypatch):
+    import json
+
+    from app import config, db
+    from app.services import delegation
+    from app.tools.portfolio import add_promise
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", False)
+    delegation.set_authority("agent", "promise", "autonomous", actor="tester")
+    fresh_db.execute(
+        "UPDATE agent_authority SET review_by = ? WHERE agent = 'agent' AND entity = 'promise'",
+        (db.today().isoformat(),),
+    )
+    direct = json.loads(add_promise(promise="still inside the review date"))
+    assert direct["status"] == "open"
+
+    fresh_db.execute(
+        "UPDATE agent_authority SET review_by = '2020-01-01'"
+        " WHERE agent = 'agent' AND entity = 'promise'"
+    )
+    queued = json.loads(add_promise(promise="past the review date"))
+    assert queued["note"] == "queued for human review"
+    assert not fresh_db.query_one("SELECT id FROM promises WHERE promise = 'past the review date'")
+
+    row = delegation.authority_matrix("agent")[0]
+    assert row["level"] == "autonomous"
+    assert row["effective_level"] == "review"
+    assert row["review_expired"] is True
+    assert row["review_by"] == "2020-01-01"
+
+    from app.services import review
+
+    for i in range(5):
+        proposal = review.propose_change(
+            "promise",
+            "create",
+            {"promise": f"reviewed {i}"},
+            actor="agent",
+        )
+        client.post(
+            f"/api/review/{proposal['id']}/approve",
+            json={},
+            headers=_strong(client),
+        )
+    trust = next(
+        row
+        for row in delegation.trust_scores()
+        if row["agent"] == "agent" and row["entity"] == "promise"
+    )
+    assert trust["current_level"] == "autonomous"
+    assert trust["effective_level"] == "review"
+    assert delegation.review_authority(actor="scheduler")["filed"] == 0
+
+    delegation.set_authority("agent", "promise", "autonomous", actor="tester")
+    renewed = delegation.authority_matrix("agent")[0]
+    assert renewed["effective_level"] == "autonomous"
+    assert renewed["review_expired"] is False
+
+
+def test_expired_matrix_grant_does_not_cancel_a_sponsor_delegation(fresh_db):
+    from app.services import delegation, users, work
+
+    users.ensure_user("mira")
+    task = work.create_task(title="delegated exception", actor="mira")
+    delegation.delegate_task(task["id"], "scout", "mira", actor="mira")
+    delegation.set_authority("scout", "task", "autonomous", actor="mira")
+    fresh_db.execute(
+        "UPDATE agent_authority SET review_by = '2020-01-01'"
+        " WHERE agent = 'scout' AND entity = 'task'"
+    )
+
+    assert delegation.authority_status("scout", "task")["review_expired"] is True
+    assert delegation.claim_task(task["id"], actor="scout")["status"] == "in_progress"
+
+
+def test_only_an_administrator_can_approve_an_authority_change(client, fresh_db, monkeypatch):
+    from app import config
+    from app.services import delegation, review
+
+    monkeypatch.setattr(config, "ADMINS", ("admin",))
+    proposal = review.propose_change(
+        "authority",
+        "create",
+        {"agent": "scout", "entity": "promise", "level": "autonomous"},
+        actor="scheduler",
+        notify_team=False,
+    )
+
+    refused = client.post(
+        f"/api/review/{proposal['id']}/approve",
+        json={},
+        headers=_strong(client, "mira"),
+    )
+    assert refused.status_code == 403
+    assert delegation.authority_matrix("scout") == []
+
+    approved = client.post(
+        f"/api/review/{proposal['id']}/approve",
+        json={},
+        headers=_strong(client, "admin"),
+    )
+    assert approved.json()["status"] == "approved"
+    assert delegation.authority_matrix("scout")[0]["level"] == "autonomous"
 
 
 def test_mcp_writes_route_through_the_gate(client, fresh_db, monkeypatch):
@@ -320,18 +497,18 @@ def test_forbidden_covers_the_whole_entity_family(fresh_db):
     left note_edit and note_delete at the default, so an agent blocked from
     CREATING a note could still rewrite an existing one."""
     from app.services import delegation, users
-    from app.tools._gate import effective_level
+    from app.tools._gate import effective_authority
 
     users.ensure_user("scout", kind="agent")
     users.ensure_user("mira")
     delegation.set_authority("scout", "note", "forbidden", actor="mira")
 
     for entity in ("note", "note_edit", "note_delete"):
-        assert effective_level("scout", entity) == "forbidden", entity
+        assert effective_authority("scout", entity)[0] == "forbidden", entity
 
     # a fine-grained GRANT on the sibling still cannot loosen the family ban
     delegation.set_authority("scout", "note_edit", "autonomous", actor="mira")
-    assert effective_level("scout", "note_edit") == "forbidden"
+    assert effective_authority("scout", "note_edit")[0] == "forbidden"
 
 
 def test_mcp_capture_gates_on_the_classified_entity(fresh_db, monkeypatch):
@@ -396,15 +573,15 @@ def test_a_fine_grained_grant_is_not_defeated_by_an_absent_parent(fresh_db):
     strictest of entity and family root made an ABSENT parent override an
     explicit child grant — every fine-grained grant became a no-op."""
     from app.services import delegation, users
-    from app.tools._gate import effective_level
+    from app.tools._gate import effective_authority
 
     users.ensure_user("scout", kind="agent")
     users.ensure_user("mira")
     delegation.set_authority("scout", "note_edit", "autonomous", actor="mira")
-    assert effective_level("scout", "note_edit") == "autonomous"  # no `note` row exists
+    assert effective_authority("scout", "note_edit")[0] == "autonomous"  # no `note` row exists
 
     delegation.set_authority("scout", "note", "forbidden", actor="mira")
-    assert effective_level("scout", "note_edit") == "forbidden"  # the ban still wins
+    assert effective_authority("scout", "note_edit")[0] == "forbidden"  # the ban still wins
 
 
 def test_every_registry_mutator_has_a_family_entry():

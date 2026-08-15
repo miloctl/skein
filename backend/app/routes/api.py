@@ -2,7 +2,7 @@
 alongside agent tools — both go through app.services)."""
 
 import asyncio
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -64,7 +64,7 @@ from ..services import (
     weekly,
     work,
 )
-from .deps import AdminUser, CurrentUser, StrongUser, ViewerDep
+from .deps import AdminUser, CurrentUser, StrongUser, ViewerDep, is_administrator
 
 router = APIRouter(prefix="/api", route_class=PolicyAPIRoute)
 
@@ -254,12 +254,43 @@ def get_milestones(
         ]
 
 
+def _task_collection(
+    policy: projection_policy.ProjectionPolicy,
+    viewer: scope.Viewer,
+    *,
+    status: str,
+    order: str,
+) -> list[dict]:
+    visible: list[dict] = []
+    offset = 0
+    while len(visible) < work.TASK_LIST_LIMIT:
+        rows = work.list_tasks_joined(
+            viewer,
+            status=status,
+            order=order,
+            limit=work.TASK_LIST_LIMIT,
+            offset=offset,
+        )
+        if not rows:
+            break
+        contexts = work.task_collection_policy_contexts(rows, viewer)
+        visible.extend(
+            row for row in rows if policy.permits("task", int(row["id"]), contexts[int(row["id"])])
+        )
+        offset += len(rows)
+        if len(rows) < work.TASK_LIST_LIMIT:
+            break
+    return work.redact_task_relationships(visible[: work.TASK_LIST_LIMIT], viewer, policy.permits)
+
+
 @router.get("/tasks")
 def get_tasks(
     user: CurrentUser,
     viewer: ViewerDep,
     request: Request,
     subject: PolicySubjectDep,
+    status: Literal["", "open", "done"] = "",
+    order: Literal["priority", "completed"] = "priority",
 ):
     """Return only rows that the composed workplace policy permits."""
     with db.read_transaction():
@@ -270,12 +301,29 @@ def get_tasks(
             "rest",
             viewer,
         )
-        rows = work.list_tasks_joined(viewer)
-        contexts = work.task_collection_policy_contexts(rows, viewer)
-        permitted = [
-            row for row in rows if policy.permits("task", int(row["id"]), contexts[int(row["id"])])
-        ]
-        return work.redact_task_relationships(permitted, viewer, policy.permits)
+        return _task_collection(policy, viewer, status=status, order=order)
+
+
+@router.get("/tasks/browse")
+def get_task_browse(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    """One snapshot for Browse's independently bounded open and done slices."""
+    with db.read_transaction():
+        policy = projection_policy.ProjectionPolicy(
+            request.app.state.skein_registry.policy_engine,
+            subject,
+            "skein.rest.get.tasks",
+            "rest",
+            viewer,
+        )
+        return {
+            "open": _task_collection(policy, viewer, status="open", order="priority"),
+            "done": _task_collection(policy, viewer, status="done", order="completed"),
+        }
 
 
 @router.get("/tasks/{task_id}")
@@ -543,10 +591,28 @@ def get_review(
     request: Request,
     subject: PolicySubjectDep,
     status: str = "pending",
+    after: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int | None, Query(ge=1, le=200)] = None,
 ):
     with db.read_transaction():
-        _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.review")
-        return review.list_changes(status, viewer)
+        policy = projection_policy.ProjectionPolicy(
+            request.app.state.skein_registry.policy_engine,
+            subject,
+            "skein.rest.get.review",
+            "rest",
+            viewer,
+        )
+        return review.list_changes(
+            status,
+            viewer,
+            after=after,
+            # Preserve the pre-cursor response windows for existing clients.
+            limit=limit
+            if limit is not None
+            else (50 if status == "pending" else 200 if status else 100),
+            resource_filter=policy.permits,
+            allow_unclassified=policy.allows_unclassified(),
+        )
 
 
 @router.get("/engagements")
@@ -704,6 +770,54 @@ def get_playbooks():
     return playbooks.list_playbooks()
 
 
+def _artifact_page(
+    request: Request,
+    subject: Any,
+    viewer: scope.Viewer,
+    engagement_id: int,
+    before: int,
+) -> tuple[list[dict], int | None]:
+    # Workplace policy runs after the SQL visibility filter. Scan through
+    # denied rows, or one denied raw page makes every older report unreachable.
+    visible: list[dict] = []
+    scan_before = before
+    exhausted = False
+    while len(visible) <= handoff.LIST_LIMIT:
+        rows = handoff.list_artifacts(
+            engagement_id,
+            viewer,
+            before=scan_before,
+            limit=handoff.LIST_LIMIT,
+        )
+        if not rows:
+            exhausted = True
+            break
+        contexts = policy_context.resource_contexts(
+            [("artifact", int(row["id"])) for row in rows], viewer
+        )
+        visible.extend(
+            _permitted_collection(
+                request,
+                subject,
+                rows,
+                {row_id: value for (_entity, row_id), value in contexts.items()},
+                action="skein.rest.get.artifacts",
+                resource_type="artifact",
+            )
+        )
+        scan_before = int(rows[-1]["id"])
+        if len(rows) < handoff.LIST_LIMIT:
+            exhausted = True
+            break
+    items = visible[: handoff.LIST_LIMIT]
+    next_before = (
+        int(items[-1]["id"])
+        if items and (len(visible) > handoff.LIST_LIMIT or not exhausted)
+        else None
+    )
+    return items, next_before
+
+
 @router.get("/artifacts")
 def get_artifacts(
     user: CurrentUser,
@@ -713,18 +827,22 @@ def get_artifacts(
     engagement_id: int = 0,
 ):
     with db.read_transaction():
-        rows = handoff.list_artifacts(engagement_id, viewer)
-        contexts = policy_context.resource_contexts(
-            [("artifact", int(row["id"])) for row in rows], viewer
-        )
-        return _permitted_collection(
-            request,
-            subject,
-            rows,
-            {row_id: value for (_entity, row_id), value in contexts.items()},
-            action="skein.rest.get.artifacts",
-            resource_type="artifact",
-        )
+        return _artifact_page(request, subject, viewer, engagement_id, 0)[0]
+
+
+@router.get("/artifacts/page")
+def get_artifact_page(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    engagement_id: int = 0,
+    before: Annotated[int, Query(ge=0)] = 0,
+):
+    fieldguide.mark(user, "reports")
+    with db.read_transaction():
+        items, next_before = _artifact_page(request, subject, viewer, engagement_id, before)
+        return {"items": items, "next_before": next_before}
 
 
 @router.get("/artifacts/{artifact_id}")
@@ -1076,6 +1194,19 @@ def get_briefing(
         "rest",
         viewer,
     )
+    review_policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.review",
+        "rest",
+        viewer,
+    )
+
+    def permits_review(entity: str, entity_id: int, attributes: dict[str, str]) -> bool:
+        return policy.permits(entity, entity_id, attributes) and review_policy.permits(
+            entity, entity_id, attributes
+        )
+
     with db.read_transaction():
         return briefing.my_day(
             user,
@@ -1084,6 +1215,8 @@ def get_briefing(
             policy.filter_resources,
             policy.allows_unclassified(),
             policy.permits,
+            permits_review,
+            policy.allows_unclassified() and review_policy.allows_unclassified(),
         )
 
 
@@ -1103,7 +1236,32 @@ def get_attention(
     # prints, and that number is viewer-scoped (services/briefing.py).
     with db.read_transaction():
         _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.attention")
-        counts = briefing.attention_count(user, viewer)
+        briefing_policy = projection_policy.ProjectionPolicy(
+            request.app.state.skein_registry.policy_engine,
+            subject,
+            "skein.rest.get.briefing",
+            "rest",
+            viewer,
+        )
+        review_policy = projection_policy.ProjectionPolicy(
+            request.app.state.skein_registry.policy_engine,
+            subject,
+            "skein.rest.get.review",
+            "rest",
+            viewer,
+        )
+
+        def permits_review(entity: str, entity_id: int, attributes: dict[str, str]) -> bool:
+            return briefing_policy.permits(entity, entity_id, attributes) and review_policy.permits(
+                entity, entity_id, attributes
+            )
+
+        counts = briefing.attention_count(
+            user,
+            viewer,
+            permits_review,
+            briefing_policy.allows_unclassified() and review_policy.allows_unclassified(),
+        )
         return {"count": counts["yours"], **counts}
 
 
@@ -2810,6 +2968,7 @@ def post_approve(
         viewer=viewer,
         reviewer_groups=subject.groups,
         reviewer_capabilities=subject.capabilities,
+        administrator=is_administrator(user, request),
         extension_executor=lambda invocation, change_id: _execute_extension_review(
             request, invocation, change_id
         ),
@@ -2895,7 +3054,7 @@ def post_ingest(body: IngestIn, user: CurrentUser):
 
 
 class BatchApproveIn(BaseModel):
-    ids: list[int] = Field(max_length=200)  # matches the pending-list LIMIT
+    ids: list[int] = Field(max_length=200)  # matches GET /review's maximum page size
 
 
 @router.get("/review/{change_id}/diff")
@@ -2935,6 +3094,7 @@ def post_approve_batch(
                 viewer=viewer,
                 reviewer_groups=subject.groups,
                 reviewer_capabilities=subject.capabilities,
+                administrator=is_administrator(user, request),
                 extension_executor=lambda invocation, change_id: _execute_extension_review(
                     request, invocation, change_id
                 ),
