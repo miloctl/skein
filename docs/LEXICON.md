@@ -61,10 +61,10 @@ prefix, "we committed to") and the weekly commitment line (1b).
 
 | | |
 |---|---|
-| Words in use | **awaiting** (capture chip, prefix `awaiting:`, `waiting for:`) · **"open with other people"** (planning cockpit card) · **"received promise"** (services, comments) · **"promises made TO the team"** (docs/FEATURES.md) |
-| Where they split | The reader types `awaiting:`; the cockpit card that lists the result says something else; the backend and the docs each say a third and fourth thing |
+| Words in use | **awaiting** (capture chip, prefix `awaiting:`, `waiting for:`, planning cockpit, docs) · **received** (stored value, services, comments) |
+| Where they split | User-visible text says `awaiting`; the `direction` value and service code say `received` |
 | Code identifiers | one column, `promises.direction` in (`given`, `received`) — migration 007, deliberately the same table as row 1 |
-| **DECIDED** | **awaiting** for the user-visible noun, **received** for the stored value |
+| **DECIDED AND APPLIED** | **awaiting** for the user-visible noun, **received** for the stored value |
 
 Why: `awaiting:` is the word the reader types, which is the same test row 1
 applied to `promised:`. It is also the only one of the four that is a single
@@ -73,13 +73,9 @@ parenthetical. `received` stays in the column and in service code because
 `direction` is a pair and `given`/`received` reads as a pair — `awaiting`
 has no opposite that means `given`.
 
-Applied on the cockpit card, which now reads "Awaiting from other people".
-Two strings still lose: the FEATURES row heading `**Promises made TO the
-team**` (`docs/FEATURES.md`), and the capture chip's own label, which reads
-`promise (to us)` while the prefix beside it says `awaiting:` — a fifth
-reading, and the one the eye actually lands on. `one-wording.test.ts` sweeps
-`frontend/{app,components,lib}`, so adding this row to it fails on that chip
-label today. Settle the chip, then enforce the row.
+The planning cockpit, the FEATURES row, and the capture chip now say
+`awaiting`. `one-wording.test.ts` rejects the old chip label and pins the
+`awaiting:` chip to the decided noun.
 
 ### 1b. CARVE-OUT (DECIDED, applied): "the weekly commitment line" stays
 

@@ -64,6 +64,14 @@ function makeAdapter(threadId: string): ChatModelAdapter {
         } catch {
           /* non-JSON body: fall through to the status line */
         }
+        if (res.status === 404) {
+          window.dispatchEvent(
+            new CustomEvent("skein-chat-missing", { detail: { threadId } }),
+          );
+          throw new Error(
+            "Message not sent. This chat is not available. Select New chat. Then send the message again.",
+          );
+        }
         throw new Error(detail || `Backend error: ${res.status} ${res.statusText}`);
       }
 

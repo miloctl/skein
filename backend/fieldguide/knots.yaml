@@ -31,7 +31,7 @@ knots:
     knot: Overhand
     set: loops
     pitch: One box that files todos, questions, blockers, decisions, and promises.
-    how: "Select Capture in the top bar. A captured task starts assigned to you. Try `todo: …`, `q: …`, or `blocked on …` — the preview shows what it will file as."
+    how: "Select Capture in the top bar. Try `todo: …`, `q: …`, or `blocked on …`. The preview shows what it will file as. A task starts assigned to you, and My Day refreshes after capture."
     link: /
     since: 2026-07-31
 
@@ -131,7 +131,7 @@ knots:
     knot: Water Bowline
     set: loops
     pitch: Promises with an audience and a due date, ledgered until settled.
-    how: "`promised: demo to client by Friday` in quick capture."
+    how: "`promised: demo to client by Friday` records what your team owes. `awaiting: legal — redlines by Friday` records what somebody owes your team."
     link: /portfolio
     since: 2026-07-31
 
@@ -293,7 +293,7 @@ knots:
     knot: Zeppelin Bend
     set: bends
     pitch: The findings engine noticed something; you turned it into a tracked task.
-    how: On Work → Insights, convert a finding instead of nodding at it.
+    how: On Work → Insights, convert a finding. The task keeps the finding severity as its priority, starts assigned to you, and opens in the task panel.
     link: /insights
     since: 2026-07-31
 

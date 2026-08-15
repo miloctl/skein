@@ -1,5 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /** "Needs you" has to mean it.
  *
@@ -10,6 +10,8 @@ import { describe, expect, it, vi } from "vitest";
  *  services/briefing.py labels each row with an audience; this pins that the
  *  page renders the two audiences apart, and counts only the personal ones.
  */
+
+const mocks = vi.hoisted(() => ({ briefingCalls: 0 }));
 
 const briefing = {
   user: "tester",
@@ -49,7 +51,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return {
     ...real,
     api: (path: string) => {
-      if (path.startsWith("/api/briefing")) return Promise.resolve(briefing);
+      if (path.startsWith("/api/briefing")) {
+        mocks.briefingCalls += 1;
+        return Promise.resolve(briefing);
+      }
       if (path.startsWith("/api/onboarding"))
         return Promise.resolve({ steps: [], done: true });
       if (path.startsWith("/api/field-guide/hint"))
@@ -69,6 +74,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
 vi.mock("next/navigation", () => ({ usePathname: () => "/" }));
 
 import MyDay from "@/app/page";
+
+beforeEach(() => {
+  mocks.briefingCalls = 0;
+});
 
 describe("My Day", () => {
   it("keeps the shared queues out of the count that says 'needs you'", async () => {
@@ -95,5 +104,14 @@ describe("My Day", () => {
     expect(hint.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText(/Select Capture in the top bar/)).toBeTruthy();
     expect(document.body.textContent).not.toContain("Ctrl+K");
+  });
+
+  it("refreshes after Quick capture changes the daily record", async () => {
+    render(<MyDay />);
+    await waitFor(() => expect(mocks.briefingCalls).toBe(1));
+
+    act(() => window.dispatchEvent(new Event("skein-attention-change")));
+
+    await waitFor(() => expect(mocks.briefingCalls).toBe(2));
   });
 });

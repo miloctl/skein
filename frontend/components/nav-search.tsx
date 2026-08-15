@@ -292,7 +292,7 @@ export function NavSearch() {
           // role would promise arrow-key navigation that does not exist.
           aria-live="polite"
           aria-busy={busy}
-          className="absolute right-0 z-50 mt-1 max-h-96 w-80 overflow-y-auto rounded-xl border border-line bg-card p-3 shadow-card sm:w-96"
+          className="fixed inset-x-4 top-[calc(var(--nav-h)+var(--selvage-h,2px)+0.25rem)] z-50 max-h-96 w-auto overflow-y-auto rounded-xl border border-line bg-card p-3 shadow-card sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-1 sm:w-96"
         >
           {busy ? (
             <p className="text-sm text-ink-3">Searching…</p>

@@ -48,7 +48,7 @@ URL is directly linkable.
 | — | `/guide` | [Field guide](docs/FIELD-GUIDE.md) — every shipped feature as a card you tie by using it. The "what's new" surface |
 | — | `/settings` | Name, theme, API key, growth interests, team roster |
 | Ctrl+K anywhere (⌘K on a Mac) | — | Focus search in the top bar |
-| Capture button | — | Quick capture. Freeform text auto-routes to task, question, note, decision, blocker, a promise the team made (`promised:`), a promise made TO the team (`awaiting:`), request (`req:`) or private feedback (`fb:`) |
+| Capture button | — | Quick capture. Freeform text auto-routes to task, question, note, decision, blocker, promise (`promised:`), awaiting (`awaiting:`), request (`req:`), or private feedback (`fb:`) |
 
 ## Architecture
 

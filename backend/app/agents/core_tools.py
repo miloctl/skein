@@ -130,17 +130,23 @@ class GovernedCoreTool(AgentTool):
         **kwargs: Any,
     ):
         if self.effect == "write":
+            # Strands stops after the terminal tool event. Yielding it inside
+            # this transaction closes the generator and rolls the write back.
             with db.transaction():
-                async for event in self._run(
-                    tool_use,
-                    invocation_state,
-                    subject,
-                    actor,
-                    approved_fingerprint,
-                    approved_decision,
-                    **kwargs,
-                ):
-                    yield event
+                events = [
+                    event
+                    async for event in self._run(
+                        tool_use,
+                        invocation_state,
+                        subject,
+                        actor,
+                        approved_fingerprint,
+                        approved_decision,
+                        **kwargs,
+                    )
+                ]
+            for event in events:
+                yield event
             return
         async for event in self._run(
             tool_use,

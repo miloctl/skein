@@ -1438,8 +1438,8 @@ DISPOSITIONS = ("dismissed", "deferred", "converted", "resolved")
 
 def finding_rule(finding_id: int) -> str:
     """Which rule raised a finding, for a caller that must decide the identity
-    bar BEFORE dispositioning it (routes/api.py). A missing row returns "" and
-    lets disposition_finding raise the NotFound — two 404s for one id would
+    bar before removing it from the digest (routes/api.py). A missing row
+    returns "" and lets the service raise NotFound — two 404s for one id would
     otherwise disagree about whether it exists."""
     row = db.query_one("SELECT rule_id FROM findings WHERE id = ?", (finding_id,))
     return row["rule_id"] if row else ""
@@ -1490,15 +1490,77 @@ def disposition_finding(
 
 def convert_finding(finding_id: int, kind: str, title: str = "", *, actor: str = "system") -> dict:
     """One-click finding → work item, linked back via source_finding_id."""
-    finding = db.query_one("SELECT * FROM findings WHERE id = ?", (finding_id,))
-    if not finding:
-        raise db.NotFound(f"finding #{finding_id} not found")
-    text = title.strip() or finding["message"]
-    if kind == "task":
-        from .work import _emit_task_event, create_task
+    if kind not in {"task", "question"}:
+        raise ValueError("kind must be 'task' or 'question'")
+    with db.transaction():
+        # The row lock is the conversion claim. Without it, two requests both
+        # read "not converted" and create different work for one finding.
+        finding = db.query_one(
+            "SELECT * FROM findings WHERE id = ? FOR UPDATE",
+            (finding_id,),
+        )
+        if not finding:
+            raise db.NotFound(f"finding #{finding_id} not found")
+        linked = [
+            ("task", row)
+            for row in db.query(
+                f"SELECT * FROM tasks WHERE source_finding_id = ? AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+                " ORDER BY id LIMIT 2",
+                (finding_id,),
+            )
+        ] + [
+            ("question", row)
+            for row in db.query(
+                f"SELECT * FROM questions WHERE source_finding_id = ? AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+                " ORDER BY id LIMIT 2",
+                (finding_id,),
+            )
+        ]
+        if len(linked) > 1:
+            raise RuntimeError("a finding has multiple converted work items")
+        converted = db.query_one(
+            "SELECT 1 AS found FROM finding_dispositions"
+            " WHERE finding_id = ? AND disposition = 'converted' LIMIT 1",
+            (finding_id,),
+        )
+        if linked:
+            existing_kind, created = linked[0]
+            if existing_kind != kind:
+                raise ValueError(
+                    f"The finding is already converted to a {existing_kind}."
+                    f" Open the existing {existing_kind}."
+                )
+            if not converted:
+                disposition_finding(
+                    finding_id,
+                    "converted",
+                    reason=f"{kind} #{created['id']}",
+                    actor=actor,
+                )
+            result = {"finding_id": finding_id, "kind": kind, **created, "already_converted": True}
+            if kind == "task":
+                result["task_id"] = created["id"]
+            return result
+        if converted:
+            raise RuntimeError("a converted finding has no linked work item")
 
-        with db.transaction():
-            created = create_task(title=text[:120], description=text, actor=actor, origin="human")
+        text = title.strip() or finding["message"]
+        if kind == "task":
+            from .work import _emit_task_event, create_task
+
+            priority = (
+                finding["severity"]
+                if finding["severity"] in {"high", "medium", "low"}
+                else "medium"
+            )
+            created = create_task(
+                title=text[:120],
+                description=text,
+                assignee=actor,
+                priority=priority,
+                actor=actor,
+                origin="human",
+            )
             db.execute(
                 "UPDATE tasks SET source_finding_id = ? WHERE id = ?",
                 (finding_id, created["id"]),
@@ -1513,18 +1575,24 @@ def convert_finding(finding_id: int, kind: str, title: str = "", *, actor: str =
                 correlation_id="",
                 actor_kind="human",
             )
-    elif kind == "question":
-        from .collab import ask_question
+        else:
+            from .collab import ask_question
 
-        created = ask_question(text, asked_by=actor, actor=actor, origin="human")
-        db.execute(
-            "UPDATE questions SET source_finding_id = ? WHERE id = ?",
-            (finding_id, created["id"]),
+            created = ask_question(text, asked_by=actor, actor=actor, origin="human")
+            db.execute(
+                "UPDATE questions SET source_finding_id = ? WHERE id = ?",
+                (finding_id, created["id"]),
+            )
+        disposition_finding(
+            finding_id,
+            "converted",
+            reason=f"{kind} #{created['id']}",
+            actor=actor,
         )
-    else:
-        raise ValueError("kind must be 'task' or 'question'")
-    disposition_finding(finding_id, "converted", reason=f"{kind} #{created['id']}", actor=actor)
-    return {"finding_id": finding_id, "kind": kind, **created}
+        result = {"finding_id": finding_id, "kind": kind, **created}
+        if kind == "task":
+            result["task_id"] = created["id"]
+        return result
 
 
 def rule_stats() -> list[dict]:

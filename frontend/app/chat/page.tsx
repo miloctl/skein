@@ -39,6 +39,8 @@ function initialThread(): string {
 
 export default function ChatPage() {
   const [threadId, setThreadId] = useState<string>(initialThread);
+  const [missing, setMissing] = useState(false);
+  const recoveryRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     try {
@@ -46,7 +48,25 @@ export default function ChatPage() {
     } catch {}
   }, [threadId]);
 
+  useEffect(() => {
+    const onMissing = (event: Event) => {
+      const id = (event as CustomEvent<{ threadId?: string }>).detail?.threadId;
+      if (id !== threadId) return;
+      try {
+        sessionStorage.removeItem(LAST_KEY);
+      } catch {}
+      setMissing(true);
+    };
+    window.addEventListener("skein-chat-missing", onMissing);
+    return () => window.removeEventListener("skein-chat-missing", onMissing);
+  }, [threadId]);
+
+  useEffect(() => {
+    if (missing) recoveryRef.current?.focus();
+  }, [missing]);
+
   const open = (id: string) => {
+    setMissing(false);
     if (id === threadId) return;
     setActivePersona(null); // persona mode is per-conversation
     setThreadId(id);
@@ -74,6 +94,7 @@ export default function ChatPage() {
   }, []);
 
   const startNew = () => {
+    setMissing(false);
     setActivePersona(null);
     setThreadId(newId());
   };
@@ -129,9 +150,26 @@ export default function ChatPage() {
           </button>
           <ThreadTitle threadId={threadId} />
         </div>
-        <RuntimeProvider key={threadId} threadId={threadId}>
-          <Thread />
-        </RuntimeProvider>
+        {missing ? (
+          <div
+            role="alert"
+            className="flex shrink-0 items-center justify-between gap-3 border-b border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger sm:px-4"
+          >
+            <p>Message not sent. This chat is not available.</p>
+            <button
+              ref={recoveryRef}
+              type="button"
+              onClick={startNew}
+              className="shrink-0 rounded-lg border border-danger/40 px-2.5 py-1 font-medium hover:bg-danger/10"
+            >
+              New chat
+            </button>
+          </div>
+        ) : (
+          <RuntimeProvider key={threadId} threadId={threadId}>
+            <Thread />
+          </RuntimeProvider>
+        )}
       </main>
     </div>
   );

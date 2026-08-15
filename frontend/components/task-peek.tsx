@@ -87,10 +87,17 @@ function taskIdFromUrl(): number | null {
   return raw && Number.isInteger(id) && id > 0 ? id : null;
 }
 
-/** The one way to open the panel from a row. A plain <a href="?task=5"> would
+/** The one way to open the panel. A plain <a href="?task=5"> would
  *  reload the whole page for a same-page query change, so this pushes the
  *  entry itself and announces it — Back still closes the panel, because the
  *  entry is real history and not private state. */
+export function openTaskPeek(taskId: number) {
+  const url = new URL(window.location.href);
+  url.searchParams.set(PARAM, String(taskId));
+  window.history.pushState({}, "", url);
+  window.dispatchEvent(new Event("skein-peek"));
+}
+
 export function PeekLink({
   taskId,
   children,
@@ -107,10 +114,7 @@ export function PeekLink({
       type="button"
       onClick={() => {
         onActivate?.();
-        const url = new URL(window.location.href);
-        url.searchParams.set(PARAM, String(taskId));
-        window.history.pushState({}, "", url);
-        window.dispatchEvent(new Event("skein-peek"));
+        openTaskPeek(taskId);
       }}
       className={`text-left underline decoration-line-strong underline-offset-2 hover:decoration-ink-3 ${className}`}
     >

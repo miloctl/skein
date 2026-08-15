@@ -28,8 +28,22 @@ describe("quick capture and the promise label", () => {
     fireEvent.change(input, { target: { value: "promised: ship the beta" } });
     expect(screen.getByText("will file as: promise")).toBeTruthy();
 
+    const changed = vi.fn();
+    window.addEventListener("skein-attention-change", changed);
     fireEvent.click(screen.getByRole("button", { name: "Capture" }));
     expect(await screen.findByText("Captured as promise #7")).toBeTruthy();
+    expect(changed).toHaveBeenCalled();
     expect(screen.queryByText(/commitment/)).toBeNull();
+    window.removeEventListener("skein-attention-change", changed);
+  });
+
+  it("names an incoming promise awaiting", () => {
+    render(<CapturePalette />);
+    act(() => {
+      window.dispatchEvent(new Event("skein-capture-open"));
+    });
+
+    expect(screen.getByRole("button", { name: "awaiting" })).toBeTruthy();
+    expect(screen.queryByText("promise (to us)")).toBeNull();
   });
 });

@@ -394,7 +394,12 @@ export default function MyDay() {
         .catch(() => {});
     }
   }, []);
-  useEffect(load, [load]);
+  useEffect(() => {
+    load();
+    const refresh = () => load();
+    window.addEventListener("skein-attention-change", refresh);
+    return () => window.removeEventListener("skein-attention-change", refresh);
+  }, [load]);
 
   // The Ship It moment: confetti once per shipped engagement, per browser.
   useEffect(() => {

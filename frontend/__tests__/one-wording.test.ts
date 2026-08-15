@@ -93,6 +93,22 @@ describe("one condition, one wording across surfaces", () => {
 });
 
 describe("the decided lexicon (docs/LEXICON.md)", () => {
+  it("says awaiting, not promise to us, for an incoming promise", () => {
+    const offenders: string[] = [];
+    for (const file of files) {
+      readFileSync(file, "utf8")
+        .split("\n")
+        .forEach((line, i) => {
+          if (/promise \(to us\)/i.test(line))
+            offenders.push(`${file.slice(ROOT.length + 1)}:${i + 1}: ${line.trim()}`);
+        });
+    }
+    expect(offenders).toEqual([]);
+    expect(readFileSync(join(ROOT, "components", "capture-palette.tsx"), "utf8")).toContain(
+      '{ prefix: "awaiting:", label: "awaiting" }',
+    );
+  });
+
   it("says promise, not commitment, in user-visible text", () => {
     // one concept, one word — promise, end to end (the table, kind, and
     // API path renamed with it). What remains of `commitment` in source is
