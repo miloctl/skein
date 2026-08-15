@@ -13,3 +13,7 @@ tasks/
 backend/build/
 # mutmut's generated tree and result cache (scripts/mutation-test.sh)
 backend/mutants/
+# coverage's own SQLite artifact (embeds absolute local paths, changes on
+# every run, and CI measures coverage from a clean checkout)
+.coverage
+.coverage.*
