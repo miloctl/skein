@@ -1012,21 +1012,26 @@ def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
     perimeter middleware both consult is_active. Revoking keys alone left the
     oidc and header doors open, and an offboarded teammate kept strong read and
     write until someone separately disabled the IdP account."""
-    row = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
-    if not row:
-        raise ValueError("no user with that name")
-    if name == actor and not active:
-        raise ValueError("you cannot deactivate yourself")
-    db.execute("UPDATE users SET active = ? WHERE name = ?", (1 if active else 0, name))
-    revoked = 0
-    if not active:
-        from .api_keys import revoke_keys_for
+    # One transaction over the flag and the key revocation, because the
+    # paragraph above makes deactivation the offboarding switch: split, a
+    # failure after the UPDATE leaves someone off the roster holding live API
+    # keys, which is the exact door this is supposed to close.
+    with db.transaction():
+        row = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
+        if not row:
+            raise ValueError("no user with that name")
+        if name == actor and not active:
+            raise ValueError("you cannot deactivate yourself")
+        db.execute("UPDATE users SET active = ? WHERE name = ?", (1 if active else 0, name))
+        revoked = 0
+        if not active:
+            from .api_keys import revoke_keys_for
 
-        revoked = revoke_keys_for(name, actor=actor)
-    db.log_activity(
-        actor,
-        "set_user_active",
-        f"{name} -> {'active' if active else 'inactive'}"
-        + (f" ({revoked} key(s) revoked)" if revoked else ""),
-    )
+            revoked = revoke_keys_for(name, actor=actor)
+        db.log_activity(
+            actor,
+            "set_user_active",
+            f"{name} -> {'active' if active else 'inactive'}"
+            + (f" ({revoked} key(s) revoked)" if revoked else ""),
+        )
     return {"name": name, "active": bool(active), "keys_revoked": revoked}
