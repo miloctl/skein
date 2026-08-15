@@ -28,12 +28,12 @@ scripts/reference-extension-contract.sh
 
 The script builds separate Skein and Atlas wheels. It installs them into a
 normal virtual environment and starts the installed application. It rejects
-the old core. It then moves the unchanged Atlas package from core `0.2.0` to a
-compatible newer artifact built from a different source tree. The test keeps
-the private Atlas data. It runs a real Atlas synchronization on both cores.
-It also checks the Atlas source against both public interfaces with strict
-mypy. It applies migrations 018 through 020 and the required legacy
-identity-owner claims. Run
+the old core. It then moves the unchanged Atlas package from the prior
+release to a compatible newer artifact built from a different source tree.
+The test keeps the private Atlas data. It runs a real Atlas synchronization
+on both cores. It also checks the Atlas source against both public
+interfaces with strict mypy. It applies every pending core migration and the
+required legacy identity-owner claims. Run
 `scripts/upgrade-path.sh` to verify the historical base-to-current migrations,
 fresh-schema equality, and activity-chain integrity.
 

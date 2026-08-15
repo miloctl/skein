@@ -1134,7 +1134,7 @@ scripts/reference-images-contract.sh
 
 The backend script builds and installs separate wheels in a normal virtual
 environment. It starts the installed application. It then moves the unchanged
-private package from core `0.2.0` to the current compatible artifact. That
+private package from the prior release to the current compatible artifact. That
 pair uses different backend source trees. It applies every pending core migration.
 It also runs the documented legacy identity-owner claims before startup.
 The script runs a real Atlas synchronization on both core versions. It checks
