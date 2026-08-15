@@ -2103,10 +2103,10 @@ def patch_task(
     # amplifier — same cap as the create routes
     ratelimit.check("write", user)
     changes = body.model_dump()
-    # Resolve the target domain state and write under one SQLite write
-    # transaction. The generic route dependency remains an early refusal,
-    # while this check is the authoritative decision that cannot race a
-    # concurrent project relink.
+    # Resolve the target domain state and write in one transaction, with the
+    # target row held inside it (policy_context.hold_resource). The generic
+    # route dependency remains an early refusal, while this check is the
+    # authoritative decision that cannot race a concurrent project relink.
     with db.transaction():
         domain = work.task_update_policy_context(task_id, changes, actor=user)
         enforce_decision(

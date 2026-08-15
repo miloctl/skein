@@ -47,7 +47,7 @@ from app.public.events import dispatch_events  # noqa: E402
 
 def _module(tmp_path, client=None):
     return atlas_module(
-        AtlasSettings(tmp_path / "atlas-extension.db"),
+        AtlasSettings("atlas-extension"),
         client,
     )
 
@@ -169,7 +169,12 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
     assert task["status"] == "in_progress"
     assert task["origin"] == "extension:atlas.workplace.sync"
     assert (
-        fresh_db.query_one("SELECT 1 AS present FROM sqlite_master WHERE name = 'work_links'")
+        # the extension's table lives in ITS OWN schema; the core schema
+        # must not carry it
+        fresh_db.query_one(
+            "SELECT 1 AS present FROM information_schema.tables"
+            " WHERE table_schema = 'public' AND table_name = 'work_links'"
+        )
         is None
     )
     assert denied.status_code == 403
@@ -239,7 +244,7 @@ def test_concurrent_sync_uses_operation_scoped_idempotency_keys(fresh_db, tmp_pa
             AtlasItem("ATLAS-8", "Check rollout", "todo"),
         )
     )
-    store_path = tmp_path / "atlas-extension.db"
+    store_path = "atlas-extension"
     module = atlas_module(AtlasSettings(store_path), client)
     settings = replace(AppSettings.from_config(), scheduler_enabled=False)
     app = create_app(settings, (module,))
@@ -305,7 +310,7 @@ def test_route_and_job_share_one_extension_owned_sync_claim(
         lambda _claims: ("mira", ["atlas-integrations"]),
     )
     atlas_client = MemoryAtlasClient((AtlasItem("ATLAS-RACE", "One task"),))
-    store_path = tmp_path / "atlas-extension.db"
+    store_path = "atlas-extension"
     module = atlas_module(AtlasSettings(store_path), atlas_client)
     settings = replace(
         AppSettings.from_config(),
@@ -376,7 +381,7 @@ def test_failed_remote_delivery_keeps_mapping_for_cross_entry_retry(fresh_db, tm
             super().update_status(external_id, status, event_id)
 
     client = FailOnceClient()
-    store_path = tmp_path / "atlas-extension.db"
+    store_path = "atlas-extension"
     module = atlas_module(AtlasSettings(store_path), client)
     app = create_app(replace(AppSettings.from_config(), scheduler_enabled=False), (module,))
     with TestClient(app):
@@ -429,7 +434,7 @@ def test_failed_mapping_keeps_task_claim_for_cross_entry_retry(
     from app.public.work import _bind_execution_context
 
     client = MemoryAtlasClient((AtlasItem("ATLAS-MAP-RETRY", "One claimed task"),))
-    store_path = tmp_path / "atlas-extension.db"
+    store_path = "atlas-extension"
     module = atlas_module(AtlasSettings(store_path), client)
     app = create_app(replace(AppSettings.from_config(), scheduler_enabled=False), (module,))
     with TestClient(app):
@@ -455,17 +460,19 @@ def test_failed_mapping_keeps_task_claim_for_cross_entry_retry(
             ).command_context(project_type="standard")
 
         first = AtlasIntegration(client, ExtensionStore(store_path))
-        original_execute = first._execute
+        # the mapping write goes through _query now, because the INSERT has to
+        # report whether it actually created the link (RETURNING)
+        original_query = first._query
         failed = False
 
         def fail_mapping_once(sql, params=()):
             nonlocal failed
-            if not failed and sql.startswith("INSERT OR IGNORE INTO work_links"):
+            if not failed and sql.startswith("INSERT INTO work_links"):
                 failed = True
                 raise RuntimeError("mapping write failed")
-            return original_execute(sql, params)
+            return original_query(sql, params)
 
-        monkeypatch.setattr(first, "_execute", fail_mapping_once)
+        monkeypatch.setattr(first, "_query", fail_mapping_once)
         with pytest.raises(RuntimeError, match="mapping write failed"):
             first.sync(work_items, context("atlas.workplace.sync"))
 
@@ -511,7 +518,7 @@ def test_failed_claim_staging_requires_owner_replay_without_duplicate(
     from app.public.work import _bind_execution_context
 
     client = MemoryAtlasClient((AtlasItem("ATLAS-STAGE-RETRY", "One staged task"),))
-    store_path = tmp_path / "atlas-extension.db"
+    store_path = "atlas-extension"
     module = atlas_module(AtlasSettings(store_path), client)
     app = create_app(replace(AppSettings.from_config(), scheduler_enabled=False), (module,))
     with TestClient(app):

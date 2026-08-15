@@ -1,6 +1,14 @@
 """Backups and the off-box mirror guard."""
 
 import os
+import shutil
+
+
+def _pg_restore() -> str:
+    """Absolute path, so the argv carries no bare executable name."""
+    found = shutil.which("pg_restore")
+    assert found, "pg_restore must be installed to drill a restore"
+    return found
 
 
 def test_backup_mirror_guarded_to_production_data_dir(fresh_db, tmp_path, monkeypatch):
@@ -31,26 +39,31 @@ def test_backup_mirror_guarded_to_production_data_dir(fresh_db, tmp_path, monkey
 
 
 def test_backup_carries_private_notes(fresh_db):
-    """private.db is the one store that exists nowhere else — deliberately
-    outside exports — so a backup that skips it loses every 1:1 note on the
-    first disk loss. That was the shipped behavior until 2026-08-04."""
-    from app import config
+    """The private schema is the one store that exists nowhere else —
+    deliberately outside exports — so a backup that skips it loses every 1:1
+    note on the first disk loss."""
+    from app import config, db
     from app.services import admin, private_notes
 
     private_notes.add_note("manager", "dana", "irreplaceable 1:1 note")
     out = admin.backup()
     assert out["private_path"] and os.path.exists(out["private_path"])
-    # a database with no private notes yet has nothing to back up
-    os.unlink(config.PRIVATE_DB_PATH)
+    # a deployment with no private notes yet has nothing to back up
+    db.execute(f"DROP SCHEMA {config.PRIVATE_SCHEMA} CASCADE")
+    private_notes._schema_ready = False
     assert admin.backup()["private_path"] is None
 
 
-def test_restore_drill_brings_both_databases_back(fresh_db):
+def test_restore_drill_brings_both_schemas_back(fresh_db):
     """The documented restore procedure, executed: an untested backup is a
-    hope. Back up both databases, destroy the live ones, copy the backups
-    over them, and verify the workspace, the private notes, AND the activity
-    chain all survive the ride."""
-    import shutil
+    hope. Back up both schemas, destroy the live ones, pg_restore the same
+    dated pair over them, and verify the workspace, the private notes, AND
+    the activity chain all survive the ride.
+
+    The restore is spelled out here rather than wrapped in a helper because
+    deploy/k8s/README.md is what an operator follows at 3am; if the two ever
+    disagree, this test is the one that runs."""
+    import subprocess
 
     from app import config, db
     from app.services import activity, admin, private_notes, work
@@ -63,13 +76,29 @@ def test_restore_drill_brings_both_databases_back(fresh_db):
 
     out = admin.backup()
 
-    # the disaster: both live databases are gone
-    os.unlink(db.DB_PATH)
-    os.unlink(config.PRIVATE_DB_PATH)
+    # the disaster: both live schemas are gone
+    db.execute("DROP SCHEMA public CASCADE")
+    db.execute(f"DROP SCHEMA {config.PRIVATE_SCHEMA} CASCADE")
+    db.execute("CREATE SCHEMA public")
+    private_notes._schema_ready = False
 
-    # the documented procedure: copy the same-date pair back
-    shutil.copy2(out["path"], db.DB_PATH)
-    shutil.copy2(out["private_path"], config.PRIVATE_DB_PATH)
+    # the documented procedure: pg_restore the same-date pair
+    for dump in (out["path"], out["private_path"]):
+        subprocess.run(  # noqa: S603 — fixed argv, no shell
+            [
+                _pg_restore(),
+                "--dbname",
+                config.DATABASE_URL,
+                "--no-owner",
+                "--clean",
+                "--if-exists",
+                dump,
+            ],
+            env=admin._pg_env(),
+            check=True,
+            capture_output=True,
+        )
+    db.close_pool()  # the restore replaced the objects the pool's plans referred to
 
     restored = db.query_one("SELECT title FROM tasks WHERE id = ?", (task["id"],))
     assert restored and restored["title"] == "survives the restore"

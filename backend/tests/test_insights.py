@@ -9,7 +9,8 @@ def _mk_blocker(db, title, created_days_ago, resolved_days_ago, escalated=False)
     ts = db.now()
     bid = db.execute(
         "INSERT INTO blockers (title, status, resolved_at, escalated_at,"
-        " created_at, updated_at) VALUES (?, 'resolved', ?, ?, ?, ?)",
+        " created_at, updated_at) VALUES (?, 'resolved', ?, ?, ?, ?)"
+        " RETURNING id",
         (
             title,
             _ago(resolved_days_ago),

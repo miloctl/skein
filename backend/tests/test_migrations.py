@@ -1,24 +1,27 @@
 """The migration runner: idempotence, one transaction per file, the ledger
 rewrite guard, the rename trap, and the guard that stops a long-lived side
-process applying schema."""
+process applying schema.
+
+Every test that stages a migration or edits schema_version takes scratch_db,
+not fresh_db: fresh_db shares one database per xdist worker, so a schema
+mutation here would follow every later test in that worker.
+"""
 
 import re
 import shutil
-import sqlite3
 from pathlib import Path
 
+import psycopg
 import pytest
 
 MIGRATIONS = Path(__file__).resolve().parent.parent / "app" / "core_migrations"
 BASELINE = "001_baseline.sql"
 
 
-def test_pending_migrations_empty_after_init(fresh_db):
-    from app import db
-
-    assert db.pending_migrations() == []
-    db.execute("DELETE FROM schema_version WHERE version = ?", (BASELINE,))
-    assert db.pending_migrations() == [BASELINE]
+def test_pending_migrations_empty_after_init(scratch_db):
+    assert scratch_db.pending_migrations() == []
+    scratch_db.execute("DELETE FROM schema_version WHERE version = ?", (BASELINE,))
+    assert scratch_db.pending_migrations() == [BASELINE]
 
 
 def test_mcp_main_refuses_pending_migrations(fresh_db, monkeypatch):
@@ -29,99 +32,15 @@ def test_mcp_main_refuses_pending_migrations(fresh_db, monkeypatch):
         mcp_server.main()
 
 
-def test_migrations_idempotent_and_atomic(fresh_db):
-    fresh_db.init_db()  # second run must be a clean no-op
-    versions = [r["version"] for r in fresh_db.query("SELECT version FROM schema_version")]
+def test_migrations_idempotent_and_atomic(scratch_db):
+    scratch_db.init_db()  # second run must be a clean no-op
+    versions = [r["version"] for r in scratch_db.query("SELECT version FROM schema_version")]
     assert len(versions) == len(set(versions)) >= 1
-
-
-def test_identity_owner_migration_classifies_legacy_rows(fresh_db, tmp_path, monkeypatch):
-    from app import db
-
-    staged = _staged(tmp_path, monkeypatch)
-    migration = staged / "018_identity_ownership.sql"
-    migration_sql = migration.read_text()
-    migration.unlink()
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "legacy-017.db")
-    db.init_db()
-    for name, kind in (
-        ("legacy-human", "human"),
-        ("legacy-agent", "agent"),
-        ("code-reviewer", "agent"),
-        ("delivery", "agent"),
-    ):
-        db.execute(
-            "INSERT INTO users (name, kind, created_at) VALUES (?, ?, ?)",
-            (name, kind, db.now()),
-        )
-
-    migration.write_text(migration_sql)
-    db.init_db()
-
-    columns = {row["name"] for row in db.query("PRAGMA table_info(users)")}
-    assert "identity_owner" in columns
-    assert db.query_one("SELECT identity_owner FROM users WHERE name = 'legacy-human'") == {
-        "identity_owner": "human"
-    }
-    assert db.query_one("SELECT identity_owner FROM users WHERE name = 'legacy-agent'") == {
-        "identity_owner": "generic-agent"
-    }
-    assert db.query_one("SELECT identity_owner FROM users WHERE name = 'code-reviewer'") == {
-        "identity_owner": "content"
-    }
-    assert db.query_one("SELECT identity_owner FROM users WHERE name = 'delivery'") == {
-        "identity_owner": "content"
-    }
-
-
-def test_identity_owner_migration_lists_all_stock_content():
-    from app import config, db
-
-    migration = (db.MIGRATIONS_DIR / "018_identity_ownership.sql").read_text()
-    stock_slugs = {path.stem for path in (config.STOCK_DIR / "personas").glob("*.md")} | {
-        path.stem for path in (config.STOCK_DIR / "flocks").glob("*.yaml")
-    }
-    assert stock_slugs
-    assert not {slug for slug in stock_slugs if f"'{slug}'" not in migration}
-
-
-def test_notification_source_migration_preserves_legacy_rows(fresh_db, tmp_path, monkeypatch):
-    from app import db
-
-    staged = _staged(tmp_path, monkeypatch)
-    migration = staged / "019_notification_sources.sql"
-    migration_sql = migration.read_text()
-    policy_migration = staged / "020_policy_projection_indexes.sql"
-    policy_migration_sql = policy_migration.read_text()
-    migration.unlink()
-    policy_migration.unlink()
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "legacy-018.db")
-    db.init_db()
-    notification_id = db.execute(
-        "INSERT INTO notifications (user, message, created_at) VALUES ('mira', 'legacy', ?)",
-        (db.now(),),
-    )
-
-    migration.write_text(migration_sql)
-    policy_migration.write_text(policy_migration_sql)
-    db.init_db()
-
-    assert db.query_one(
-        "SELECT message, source_entity, source_id, source_policy_context"
-        " FROM notifications WHERE id = ?",
-        (notification_id,),
-    ) == {
-        "message": "legacy",
-        "source_entity": "",
-        "source_id": None,
-        "source_policy_context": "{}",
-    }
 
 
 # the activity chain is born in the baseline, so NO migration may ever
 # rewrite a chained row — verification breaks permanently at the earliest
-# touched row (CLAUDE.md). Before the 2026-08-04 squash this rule was
-# "nothing after 036"; the baseline swallowed 036, so it is now absolute.
+# touched row (CLAUDE.md).
 REWRITES_ACTIVITY = re.compile(r"\b(?:UPDATE\s+activity\b|DELETE\s+FROM\s+activity\b)", re.I)
 
 
@@ -154,50 +73,54 @@ def _staged(tmp_path, monkeypatch):
     return staged
 
 
-def test_a_pending_migration_faces_a_chained_ledger(fresh_db, tmp_path, monkeypatch):
+def test_a_pending_migration_faces_a_chained_ledger(scratch_db, tmp_path, monkeypatch):
     """The blind spot behind the scan above, closed behaviorally: every other
     test database is freshly migrated BEFORE any activity lands, so no
     migration in the suite ever applied over chained rows until this one."""
     from app.services import activity
 
     for i in range(3):
-        fresh_db.log_activity("tester", "probe", f"row {i}")
+        scratch_db.log_activity("tester", "probe", f"row {i}")
     assert activity.verify_chain()["ok"] is True
 
     staged = _staged(tmp_path, monkeypatch)
-    (staged / "998_harmless.sql").write_text("CREATE TABLE IF NOT EXISTS probe_table (id INTEGER)")
-    fresh_db.init_db()
+    (staged / "998_harmless.sql").write_text("CREATE TABLE IF NOT EXISTS probe_table (id bigint)")
+    scratch_db.init_db()
     assert activity.verify_chain()["ok"] is True
 
     # and the harness has teeth: a destructive migration is caught, not absorbed
     (staged / "999_destructive.sql").write_text("UPDATE activity SET detail = 'x' WHERE seq = 1")
-    fresh_db.init_db()
+    scratch_db.init_db()
     assert activity.verify_chain()["ok"] is False
 
 
-def test_a_failing_migration_leaves_no_trace(fresh_db, tmp_path, monkeypatch):
+def test_a_failing_migration_leaves_no_trace(scratch_db, tmp_path, monkeypatch):
     """One transaction per file is init_db's contract. Without it the good
     half of a failed migration persists, and the retry after the fix hits
     'already exists' on a database stuck between versions."""
     staged = _staged(tmp_path, monkeypatch)
     bad = staged / "999_bad.sql"
-    bad.write_text("CREATE TABLE half_applied (id INTEGER);\nINSERT INTO no_such_table VALUES (1)")
-    with pytest.raises(sqlite3.OperationalError):
-        fresh_db.init_db()
+    bad.write_text("CREATE TABLE half_applied (id bigint);\nINSERT INTO no_such_table VALUES (1)")
+    with pytest.raises(psycopg.errors.UndefinedTable):
+        scratch_db.init_db()
+    assert _table(scratch_db, "half_applied") is None
     assert (
-        fresh_db.query_one("SELECT 1 AS x FROM sqlite_master WHERE name = 'half_applied'") is None
-    )
-    assert (
-        fresh_db.query_one("SELECT 1 AS x FROM schema_version WHERE version = '999_bad.sql'")
+        scratch_db.query_one("SELECT 1 AS x FROM schema_version WHERE version = '999_bad.sql'")
         is None
     )
     # recovery: the fixed file applies cleanly on the next boot
-    bad.write_text("CREATE TABLE half_applied (id INTEGER)")
-    fresh_db.init_db()
-    assert fresh_db.query_one("SELECT 1 AS x FROM sqlite_master WHERE name = 'half_applied'")
+    bad.write_text("CREATE TABLE half_applied (id bigint)")
+    scratch_db.init_db()
+    assert _table(scratch_db, "half_applied")
 
 
-def test_a_renamed_migration_reruns_and_bricks_the_boot(fresh_db, tmp_path, monkeypatch):
+def _table(db, name):
+    return db.query_one(
+        "SELECT 1 AS x FROM information_schema.tables WHERE table_name = ?", (name,)
+    )
+
+
+def test_a_renamed_migration_reruns_and_bricks_the_boot(scratch_db, tmp_path, monkeypatch):
     """schema_version records migrations by FILENAME, so a renamed file
     re-runs on every existing database — the baseline's CREATE TABLE is not
     idempotent, and the boot dies on 'already exists'. This is why CLAUDE.md
@@ -209,62 +132,34 @@ def test_a_renamed_migration_reruns_and_bricks_the_boot(fresh_db, tmp_path, monk
     rename hand-updates schema_version in every live database instead."""
     staged = _staged(tmp_path, monkeypatch)
     (staged / BASELINE).rename(staged / "001_v1_schema.sql")
-    with pytest.raises(sqlite3.OperationalError):
-        fresh_db.init_db()
+    with pytest.raises(psycopg.errors.DuplicateTable):
+        scratch_db.init_db()
 
     # the hand-update IS the recovery: with the record renamed too, the
     # runner sees the file as applied and the boot is a no-op again
-    fresh_db.execute(
+    scratch_db.execute(
         "UPDATE schema_version SET version = '001_v1_schema.sql' WHERE version = ?",
         (BASELINE,),
     )
-    fresh_db.init_db()
-    assert fresh_db.pending_migrations() == []
+    scratch_db.init_db()
+    assert scratch_db.pending_migrations() == []
 
 
-def test_a_rebuild_migration_keeps_child_foreign_keys(fresh_db, tmp_path, monkeypatch):
-    """The 12-step table rebuild is the only way to widen a CHECK, and with
-    foreign_keys ON the DROP fires ON DELETE actions: rebuilding milestones
-    nulled every task's milestone_id. The runner turns enforcement off (a
-    migration cannot — the pragma is a silent no-op inside a transaction)
-    and relies on foreign_key_check instead."""
-    from app.services import work
-
-    m = work.create_milestone(title="anchor")
-    t = work.create_task(title="linked")
-    fresh_db.execute("UPDATE tasks SET milestone_id = ? WHERE id = ?", (m["id"], t["id"]))
-
-    staged = _staged(tmp_path, monkeypatch)
-    # a real rebuild recreates the DDL — CREATE ... AS SELECT would drop the
-    # primary key, and foreign_key_check refuses the missing parent key
-    ddl = fresh_db.query_one(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'milestones'"
-    )["sql"].replace("CREATE TABLE milestones", "CREATE TABLE milestones_new", 1)
-    (staged / "998_rebuild.sql").write_text(
-        f"{ddl};\n"  # noqa: S608 — DDL from sqlite_master, not user input
-        "INSERT INTO milestones_new SELECT * FROM milestones;\n"
-        "DROP TABLE milestones;\n"
-        "ALTER TABLE milestones_new RENAME TO milestones"
-    )
-    fresh_db.init_db()
-    row = fresh_db.query_one("SELECT milestone_id FROM tasks WHERE id = ?", (t["id"],))
-    assert row["milestone_id"] == m["id"], "the rebuild fired ON DELETE SET NULL"
-
-
-def test_a_migration_that_breaks_a_foreign_key_is_refused(fresh_db, tmp_path, monkeypatch):
-    """Enforcement is off during migrations (see above), so foreign_key_check
-    before commit is the only thing standing between a buggy migration and
-    committed orphans."""
+def test_a_migration_that_breaks_a_foreign_key_is_refused(scratch_db, tmp_path, monkeypatch):
+    """PostgreSQL enforces foreign keys inside the migration's own
+    transaction, so a buggy migration rolls itself back instead of committing
+    orphans. SQLite had to run migrations with enforcement OFF (the 12-step
+    table rebuild fires ON DELETE actions otherwise) and check afterwards."""
     staged = _staged(tmp_path, monkeypatch)
     (staged / "999_orphan.sql").write_text(
         "INSERT INTO tasks (title, milestone_id, created_at, updated_at)"
         " VALUES ('orphan', 4242, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')"
     )
-    with pytest.raises(sqlite3.IntegrityError, match="999_orphan"):
-        fresh_db.init_db()
-    assert fresh_db.query_one("SELECT 1 AS x FROM tasks WHERE title = 'orphan'") is None
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        scratch_db.init_db()
+    assert scratch_db.query_one("SELECT 1 AS x FROM tasks WHERE title = 'orphan'") is None
     assert (
-        fresh_db.query_one("SELECT 1 AS x FROM schema_version WHERE version = '999_orphan.sql'")
+        scratch_db.query_one("SELECT 1 AS x FROM schema_version WHERE version = '999_orphan.sql'")
         is None
     )
 

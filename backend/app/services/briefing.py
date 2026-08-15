@@ -136,7 +136,11 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
         f"SELECT id, promise, due_date, audience FROM promises"  # noqa: S608 — scope filters emit only bound marks
         f" WHERE status = 'open' AND direction = 'given' AND {WORKSPACE_ONLY}"
         " AND created_by = ? AND due_date IS NOT NULL AND due_date <= ?"
-        " ORDER BY due_date",
+        # NULLS FIRST is not decoration: PostgreSQL sorts NULL LAST on an
+        # ascending order, so undated work would fall to the bottom of a
+        # list that has always opened with it. Every ORDER BY in the tree
+        # that can see a NULL spells the placement out for this reason.
+        " ORDER BY due_date NULLS FIRST",
         (user, week),
     ):
         overdue = c["due_date"] < today
@@ -407,7 +411,7 @@ def my_day(
                     " CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
                     " WHEN 'medium' THEN 2 ELSE 3 END, due_date IS NULL, due_date LIMIT 200",
                     # `this_week` binds LAST: its placeholder is in ORDER BY, which
-                    # follows the scope filter's marks in the SQL text. SQLite binds
+                    # follows the scope filter's marks in the SQL text. Marks bind
                     # by position, not by clause.
                     # both ORDER BY marks bind after the filter's, in text order:
                     # the overdue test first, then the commitment test
@@ -428,14 +432,14 @@ def my_day(
             # the whole roster's My Day. LIMIT is not deliberate: unbounded,
             # a team with thousands of stale overdue rows served every one of
             # them as SELECT * on every dashboard load, for every user.
-            # ORDER BY due_date puts the most overdue first, so the cap drops
+            # ORDER BY due_date NULLS FIRST puts the most overdue first, so the cap drops
             # the least urgent. Reads idx_tasks_assignee_due (001_baseline.sql).
             "due_soon": redact_task_relationships(
                 db.query(
                     "SELECT * FROM tasks WHERE status != 'done' AND due_date IS NOT NULL"  # noqa: S608 — scope.visible_filter emits only bound marks
                     f" AND due_date <= ? AND {t_f}"
                     f" AND (assignee = ? OR (assignee = '' AND {WORKSPACE_ONLY}))"
-                    " ORDER BY due_date LIMIT 50",
+                    " ORDER BY due_date NULLS FIRST LIMIT 50",
                     (week, *t_p, user),
                 ),
                 viewer,
@@ -542,7 +546,7 @@ def attention_count(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
     row = db.query_one(
         "SELECT"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " (SELECT COUNT(*) FROM pending_changes WHERE status = 'pending')"
-        f" + (SELECT MIN(COUNT(*), 10) FROM intake_requests"
+        f" + (SELECT LEAST(COUNT(*), 10) FROM intake_requests"
         f"    WHERE {WORKSPACE_ONLY} AND status IN ('submitted', 'scored'))"
         " AS inbox,"
         # Notifications are counted by NEITHER arm, and that is the whole
@@ -571,9 +575,9 @@ def attention_count(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
         f" + (SELECT COUNT(*) FROM promises WHERE status = 'open' AND direction = 'given'"
         f"    AND {WORKSPACE_ONLY} AND created_by = ?"
         "     AND due_date IS NOT NULL AND due_date <= ?)"
-        # MIN(…, 5) mirrors `_attention`'s LIMIT 5 on the same query. Without
+        # LEAST(…, 5) mirrors `_attention`'s LIMIT 5 on the same query. Without
         # the cap the tab reads six and the page shows five.
-        f" + (SELECT MIN(COUNT(*), 5) FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"
+        f" + (SELECT LEAST(COUNT(*), 5) FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"
         "     AND decided_by = ?)"
         " AS yours",
         # mark order, not argument order: the questions filter binds inside the

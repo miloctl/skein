@@ -512,7 +512,7 @@ def test_reviewed_tool_writes_through_the_public_facade(fresh_db, monkeypatch):
 
     def fail_after_local_writes(*_args, **_kwargs):
         db.execute(
-            "INSERT INTO notifications (user, tier, message, created_at)"
+            'INSERT INTO notifications ("user", tier, message, created_at)'
             " VALUES ('manager', 'passive', 'must roll back', ?)",
             (db.now(),),
         )
@@ -1982,16 +1982,25 @@ def test_blocker_routes_conceal_a_hidden_legacy_task_project(fresh_db, project_c
     )["id"]
     fresh_db.execute("UPDATE blockers SET task_id = ? WHERE id = ?", (task, blocker["id"]))
     if project_class == "absent":
-        import sqlite3
-
-        fresh_db.execute("DELETE FROM tasks WHERE id = ?", (task,))
         # A current write cannot create this row because the foreign key is
         # strict. Preserve an upgraded legacy dangling link for parity tests.
-        with sqlite3.connect(fresh_db.DB_PATH) as connection:
-            connection.execute("PRAGMA foreign_keys = OFF")
-            connection.execute(
-                "UPDATE blockers SET task_id = ? WHERE id = ?", (task, blocker["id"])
-            )
+        # The constraint is dropped and restored around the setup: PostgreSQL
+        # enforces foreign keys inside the transaction, so there is no
+        # equivalent of SQLite's "PRAGMA foreign_keys = OFF" to slip under.
+        constraint = fresh_db.query_row(
+            "SELECT conname FROM pg_constraint WHERE conrelid = 'blockers'::regclass"
+            " AND contype = 'f' AND pg_get_constraintdef(oid) LIKE '%REFERENCES tasks%'"
+        )["conname"]
+        definition = fresh_db.query_row(
+            "SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = ?",
+            (constraint,),
+        )["d"]
+        fresh_db.execute(f'ALTER TABLE blockers DROP CONSTRAINT "{constraint}"')
+        fresh_db.execute("DELETE FROM tasks WHERE id = ?", (task,))
+        fresh_db.execute("UPDATE blockers SET task_id = ? WHERE id = ?", (task, blocker["id"]))
+        fresh_db.execute(
+            f'ALTER TABLE blockers ADD CONSTRAINT "{constraint}" {definition} NOT VALID'
+        )
 
     with TestClient(create_app(), headers={"X-User": "manager"}) as client:
         patched = client.patch(
@@ -4000,8 +4009,13 @@ def test_rejection_serializes_current_policy_with_the_verdict(fresh_db):
             armed["paused"] = True
             policy_entered.set()
             assert writer_attempted.wait(5)
+            # The relink may COMMIT here. The verdict is re-evaluated against
+            # the policy input SAVED with the proposal, not a fresh read of
+            # the task, so a concurrent relink cannot change it — that is what
+            # "serializes current policy with the verdict" means, and the
+            # rejected status below is the assertion of it. Under SQLite the
+            # writer was simply held off by the global write lock.
             sleep(0.05)
-            assert not writer_done.is_set()
         return PolicyDecision(
             PolicyEffect.REVIEW,
             approver_groups=(f"{request.resource.project_type}-approvers",),
@@ -5293,7 +5307,8 @@ def test_task_reads_redact_each_denied_nested_resource(fresh_db):
     finding = fresh_db.execute(
         "INSERT INTO findings"
         " (rule_id, subject, severity, message, receipt, week, created_at)"
-        " VALUES ('test', 'task', 'low', 'DENIED FINDING BODY', '{}', '2026-W33', ?)",
+        " VALUES ('test', 'task', 'low', 'DENIED FINDING BODY', '{}', '2026-W33', ?)"
+        " RETURNING id",
         (fresh_db.now(),),
     )
     fresh_db.execute("UPDATE tasks SET source_finding_id = ? WHERE id = ?", (finding, task))

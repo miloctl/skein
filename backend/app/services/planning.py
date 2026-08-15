@@ -116,8 +116,8 @@ def _top_unblocking_move(viewer: scope.Viewer) -> dict | None:
     is expensive. Step one ranks every candidate by its DIRECT waiter count in
     a single GROUP BY. Step two walks only the shortlist. Scoring every
     candidate cost two queries each — 602 on a workspace with 300 edges, each
-    one its own SQLite connection (services/scope.py records that a connection
-    costs two orders of magnitude more than the SELECT it carries), on a page
+    one its own round trip (services/scope.py records that the round trip
+    costs far more than the SELECT it carries), on a page
     whose own docstring promises it computes nothing twice.
 
     The shortlist can be wrong in one direction: a task with few direct

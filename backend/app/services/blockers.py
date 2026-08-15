@@ -135,7 +135,8 @@ def raise_blocker(
             "INSERT INTO blockers (title, detail, owner, impact, task_id, source,"
             " escalate_after_hours, origin, created_by, created_at, updated_at,"
             " visibility, crew_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " RETURNING id",
             (
                 title,
                 detail,
@@ -259,7 +260,7 @@ def resolve_blocker(
             raise ValueError(f"blocker #{blocker_id} is already resolved")
         db.execute(
             "UPDATE blockers SET status = 'resolved', resolved_at = ?, updated_at = ?,"
-            " detail = detail || CASE WHEN ? != '' THEN char(10) || 'Resolved: ' || ? ELSE '' END"
+            " detail = detail || CASE WHEN ? != '' THEN chr(10) || 'Resolved: ' || ? ELSE '' END"
             " WHERE id = ?",
             (db.now(), db.now(), resolution, resolution, blocker_id),
         )
@@ -438,6 +439,17 @@ def _sweep_escalations_locked() -> list[dict]:
         if created.tzinfo is None:
             created = created.replace(tzinfo=UTC)
         if now_dt - created >= timedelta(hours=b["escalate_after_hours"]):
+            # Hold the linked TASK before writing anything. The notice this
+            # sweep files carries a policy snapshot derived from the task's
+            # engagement, so a relink landing mid-sweep would file a notice
+            # whose body and whose snapshot describe different projects. Taken
+            # FIRST, ahead of the blocker write and the ledger append, so the
+            # lock order matches every enforcement path — see
+            # services/policy_context.py::hold_resource.
+            from . import policy_context
+
+            if b["task_id"]:
+                policy_context.hold_resource("task", int(b["task_id"]))
             claimed = db.execute_rowcount(
                 "UPDATE blockers SET status = 'escalated', escalated_at = ?, updated_at = ?"
                 " WHERE id = ? AND status = 'open'",

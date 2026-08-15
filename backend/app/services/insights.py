@@ -77,7 +77,7 @@ _p85 = stats.p85
 
 def _resolve_hours(since: str, until: str) -> list[float]:
     rows = db.query(
-        "SELECT (julianday(resolved_at) - julianday(created_at)) * 24 AS h"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        "SELECT (EXTRACT(epoch FROM resolved_at::timestamptz - created_at::timestamptz) / 86400.0) * 24 AS h"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         f" FROM blockers WHERE status = 'resolved' AND {WORKSPACE_ONLY}"
         " AND resolved_at >= ? AND resolved_at < ?",
         (since, until),
@@ -168,9 +168,10 @@ def review_trend(months: int = 6) -> list[dict]:
     since = _iso(_today() - timedelta(days=31 * months))
     return db.query(
         "SELECT substr(created_at, 1, 7) AS month, COUNT(*) AS proposed,"
-        " SUM(status = 'approved') AS approved, SUM(status = 'rejected') AS rejected,"
+        " COUNT(*) FILTER (WHERE status = 'approved') AS approved, COUNT(*) FILTER (WHERE status = 'rejected') AS rejected,"
         " ROUND(AVG(CASE WHEN reviewed_at IS NOT NULL THEN"
-        " (julianday(reviewed_at) - julianday(created_at)) * 24 END), 1) AS avg_review_hours"
+        " (EXTRACT(epoch FROM reviewed_at::timestamptz - created_at::timestamptz) / 86400.0) * 24 END)::numeric, 1)"
+        " AS avg_review_hours"
         " FROM pending_changes WHERE created_at >= ?"
         " GROUP BY month ORDER BY month",
         (since,),
@@ -181,17 +182,17 @@ def intake_funnel(weeks: int = 12) -> dict:
     since = _iso(_today() - timedelta(weeks=weeks))
     counts = db.query_one(
         "SELECT COUNT(*) AS submitted,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-        " SUM(status != 'submitted') AS scored_or_beyond,"
-        " SUM(status = 'accepted') AS accepted,"
-        " SUM(status = 'deferred') AS deferred,"
-        " SUM(status = 'declined') AS declined"
+        " COUNT(*) FILTER (WHERE status != 'submitted') AS scored_or_beyond,"
+        " COUNT(*) FILTER (WHERE status = 'accepted') AS accepted,"
+        " COUNT(*) FILTER (WHERE status = 'deferred') AS deferred,"
+        " COUNT(*) FILTER (WHERE status = 'declined') AS declined"
         f" FROM intake_requests WHERE {WORKSPACE_ONLY} AND created_at >= ?",
         (since,),
     )
     times = [
         r["d"]
         for r in db.query(
-            f"SELECT julianday(updated_at) - julianday(created_at) AS d"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            f"SELECT EXTRACT(epoch FROM updated_at::timestamptz - created_at::timestamptz) / 86400.0 AS d"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
             f" FROM intake_requests WHERE updated_at >= ? AND {WORKSPACE_ONLY}"
             " AND status IN ('accepted', 'deferred', 'declined')",
             (since,),
@@ -222,13 +223,15 @@ def forecast_calibration(window_days: int = 180) -> dict:
     Medians and an n, withheld under n=8 — docs/INSIGHTS.md, and the same bar
     the MTTR card holds.
     """
-    # MIN(f.day) is the ONLY aggregate here on purpose: SQLite then takes the
-    # bare f.forecast_date from the row that produced that minimum. Add a
-    # second aggregate (a COUNT, a MAX) and forecast_date silently becomes an
-    # arbitrary row's value — every error below is then wrong, with no error
-    # raised. UNIQUE (day, milestone_id) makes the minimum unambiguous.
+    # DISTINCT ON (f.milestone_id) with ORDER BY f.day takes the EARLIEST
+    # snapshot per milestone and carries that row's own forecast_date. Written
+    # as MIN(f.day) with a bare f.forecast_date it is a grouping error here,
+    # and it was previously a documented engine quirk that silently became an
+    # arbitrary row's value the moment a second aggregate was added.
+    # UNIQUE (day, milestone_id) makes the earliest row unambiguous.
     rows = db.query(
-        "SELECT f.milestone_id, MIN(f.day) AS first_day, f.forecast_date,"
+        "SELECT DISTINCT ON (f.milestone_id)"
+        " f.milestone_id, f.day AS first_day, f.forecast_date,"
         " m.completed_at"
         " FROM forecast_snapshots f JOIN milestones m ON m.id = f.milestone_id"
         # bounded on the MILESTONE's completion, never the snapshot's creation:
@@ -237,7 +240,7 @@ def forecast_calibration(window_days: int = 180) -> dict:
         # IN-WINDOW forecast — the converged one — which flatters the forecast
         # in exactly the way choosing the earliest snapshot exists to prevent
         " WHERE m.status = 'done' AND m.completed_at IS NOT NULL AND m.completed_at >= ?"
-        " GROUP BY f.milestone_id",
+        " ORDER BY f.milestone_id, f.day",
         (db.local_midnight_utc(_today() - timedelta(days=window_days)),),
     )
     errors: list[float] = []
@@ -339,7 +342,7 @@ def _r_mttr() -> list[dict]:
     ratio = cur["median_hours"] / prev["median_hours"]
     _, cut, _upper = _rolling_bounds()
     slowest = db.query(
-        "SELECT id, title, ROUND((julianday(resolved_at) - julianday(created_at)) * 24) AS hours"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        "SELECT id, title, ROUND((EXTRACT(epoch FROM resolved_at::timestamptz - created_at::timestamptz) / 86400.0) * 24) AS hours"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         f" FROM blockers WHERE status = 'resolved' AND {WORKSPACE_ONLY}"
         " AND resolved_at >= ? ORDER BY hours DESC LIMIT 3",
         (cut,),
@@ -417,7 +420,7 @@ def _r_aging_wip() -> list[dict]:
     )
     aging = db.query(
         "SELECT t.id, t.title, m.project,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-        " CAST(julianday('now') - julianday(t.updated_at) AS INTEGER) AS days"
+        " CAST(EXTRACT(epoch FROM now() - t.updated_at::timestamptz) / 86400.0 AS INTEGER) AS days"
         # m.project is persisted into a findings row, which is never pruned and
         # is republished every week — the lock rides the ON clause because m is
         # the nullable side (services/scope.py::visible_filter)
@@ -555,7 +558,7 @@ def _r_review_stall() -> list[dict]:
         db.query(
             "SELECT id, entity, entity_id, summary, proposed_by,"
             " review_visibility, review_crew_id, review_owner,"
-            " ROUND((julianday('now') - julianday(created_at)) * 24) AS hours"
+            " ROUND((EXTRACT(epoch FROM now() - created_at::timestamptz) / 86400.0) * 24) AS hours"
             " FROM pending_changes WHERE status = 'pending' ORDER BY created_at"
         ),
         scope.NOBODY,
@@ -581,7 +584,7 @@ def _r_review_stall() -> list[dict]:
 def _r_rejection_spike() -> list[dict]:
     prior_cut, cut, _upper = _rolling_bounds()
     cur = db.query_one(
-        "SELECT COUNT(*) AS n, SUM(status = 'rejected') AS rej FROM pending_changes"
+        "SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE status = 'rejected') AS rej FROM pending_changes"
         " WHERE status != 'pending' AND reviewed_at >= ?",
         (cut,),
     )
@@ -591,7 +594,7 @@ def _r_rejection_spike() -> list[dict]:
     if rate < 0.3:
         return []
     prev = db.query_one(
-        "SELECT COUNT(*) AS n, SUM(status = 'rejected') AS rej FROM pending_changes"
+        "SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE status = 'rejected') AS rej FROM pending_changes"
         " WHERE status != 'pending' AND reviewed_at >= ? AND reviewed_at < ?",
         (prior_cut, cut),
     )
@@ -628,7 +631,7 @@ def _r_intake_stall() -> list[dict]:
     times = [
         r["d"]
         for r in db.query(
-            f"SELECT julianday(updated_at) - julianday(created_at) AS d"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            f"SELECT EXTRACT(epoch FROM updated_at::timestamptz - created_at::timestamptz) / 86400.0 AS d"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
             f" FROM intake_requests WHERE updated_at >= ? AND {WORKSPACE_ONLY}"
             " AND status IN ('accepted', 'deferred', 'declined')",
             (since,),
@@ -649,7 +652,7 @@ def _r_intake_stall() -> list[dict]:
         ]
     old = db.query(
         "SELECT id, title, score,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-        " CAST(julianday('now') - julianday(created_at) AS INTEGER) AS days"
+        " CAST(EXTRACT(epoch FROM now() - created_at::timestamptz) / 86400.0 AS INTEGER) AS days"
         f" FROM intake_requests WHERE {WORKSPACE_ONLY} AND status IN ('submitted', 'scored')"
         " AND created_at < ?",
         (_iso(_today() - timedelta(days=14)),),
@@ -674,7 +677,7 @@ def _r_question_aging() -> list[dict]:
     out = []
     for q in db.query(
         "SELECT id, question, asked_by,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-        " CAST(julianday('now') - julianday(created_at) AS INTEGER) AS days"
+        " CAST(EXTRACT(epoch FROM now() - created_at::timestamptz) / 86400.0 AS INTEGER) AS days"
         f" FROM questions WHERE status = 'open' AND {WORKSPACE_ONLY} AND created_at < ?",
         (_iso(_today() - timedelta(days=5)),),
     ):
@@ -919,12 +922,16 @@ def _r_plan_drift() -> list[dict]:
 def _r_authority_stale() -> list[dict]:
     """Elevated authority grants past their review-by date. The nudge, not a
     demotion state machine — the human reconfirms (re-grants) or demotes."""
-    # NULL review_by falls back to updated_at + 90d — a grant that dodged
-    # migration 018 (direct SQL, restored backup) must still expire to a nag
+    # NULL review_by falls back to updated_at + 90d — a grant written straight
+    # to SQL, or restored from an old backup, must still expire to a nag.
+    # to_char, not a date: review_by is TEXT 'YYYY-MM-DD' and the bound value
+    # is too, so the fallback has to come back as the same shape or the
+    # comparison is between a date and a string and never matches.
     stale = db.query(
         "SELECT agent, entity, level, review_by, updated_by FROM agent_authority"
         " WHERE level IN ('autonomous', 'notify')"
-        " AND COALESCE(review_by, date(updated_at, '+90 days')) < ?",
+        " AND COALESCE(review_by,"
+        "   to_char(updated_at::timestamptz + interval '90 days', 'YYYY-MM-DD')) < ?",
         (_iso(_today()),),
     )
     return [
@@ -1324,9 +1331,18 @@ def run_findings(*, actor: str = "scheduler") -> dict:
                 continue  # dismissed/deferred by a human — findings re-fire
                 # weekly as NEW rows, so suppression keys on (rule, subject)
             fid = db.execute(
-                "INSERT OR IGNORE INTO findings (rule_id, subject, severity,"
-                " message, n, window, receipt, week, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO findings (rule_id, subject, severity,"
+                # "window" is a reserved word in PostgreSQL. Quoted, not
+                # renamed: the column name reaches the API through SELECT *,
+                # so a rename would change the response body and the frontend
+                # that reads it.
+                ' message, n, "window", receipt, week, created_at)'
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                # RETURNING with ON CONFLICT DO NOTHING yields no row when the
+                # finding was already recorded, so `if fid` below still means
+                # "a new row was created". The old driver answered that with
+                # a stale lastrowid from an earlier insert on the connection.
+                " ON CONFLICT DO NOTHING RETURNING id",
                 (
                     f["rule_id"],
                     f["subject"],
@@ -1454,7 +1470,8 @@ def disposition_finding(
     did = db.execute(
         "INSERT INTO finding_dispositions (finding_id, rule_id, subject, disposition,"
         " reason, deferred_until, created_by, origin, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        " RETURNING id",
         (
             finding_id,
             finding["rule_id"],
@@ -1536,7 +1553,8 @@ def rule_stats() -> list[dict]:
         days = [
             x["d"]
             for x in db.query(
-                "SELECT MIN(julianday(d.created_at)) - julianday(f.created_at) AS d"
+                "SELECT MIN(EXTRACT(epoch FROM"
+                " d.created_at::timestamptz - f.created_at::timestamptz) / 86400.0) AS d"
                 " FROM finding_dispositions d JOIN findings f ON f.id = d.finding_id"
                 " WHERE f.rule_id = ? GROUP BY d.finding_id",
                 (r["rule_id"],),

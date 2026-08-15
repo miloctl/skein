@@ -318,12 +318,12 @@ def allocation_conflicts(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     name, np = scope.visible_name(viewer, "engagements", "e.name", alias="e")
     return db.query(
         "SELECT a.person, SUM(a.percent) AS total_percent,"  # noqa: S608 — scope.visible_name emits only bound marks
-        f" GROUP_CONCAT({name} || ' (' || a.percent || '%)', ', ') AS detail"
+        f" string_agg({name} || ' (' || a.percent || '%)', ', ') AS detail"
         " FROM allocations a JOIN engagements e ON e.id = a.engagement_id"
         " WHERE e.status != 'closed'"
         " AND (a.starts_on IS NULL OR a.starts_on <= ?)"
         " AND (a.ends_on IS NULL OR a.ends_on >= ?)"
-        " GROUP BY a.person HAVING total_percent > 100"
+        " GROUP BY a.person HAVING SUM(a.percent) > 100"
         " ORDER BY total_percent DESC",
         (*np, today, today),
     )
@@ -358,7 +358,7 @@ def capacity_ahead(weeks: int = 6, viewer: scope.Viewer = scope.NOBODY) -> list[
         end = start + timedelta(days=6)
         rows = db.query(
             "SELECT a.person, SUM(a.percent) AS total_percent,"  # noqa: S608 — scope.visible_name emits only bound marks
-            f" GROUP_CONCAT({name} || ' (' || a.percent || '%)', ', ') AS detail"
+            f" string_agg({name} || ' (' || a.percent || '%)', ', ') AS detail"
             " FROM allocations a JOIN engagements e ON e.id = a.engagement_id"
             " WHERE e.status != 'closed'"
             # overlap, not containment: an allocation that covers ANY day of
@@ -421,7 +421,7 @@ def flow_metrics(weeks: int = 8, *, name_people: bool = True) -> dict:
     # number before it is a leak.
     done = db.query(
         "SELECT created_at, completed_at, committed_week,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-        " ROUND(julianday(completed_at) - julianday(created_at), 1) AS days"
+        " ROUND((EXTRACT(epoch FROM completed_at::timestamptz - created_at::timestamptz) / 86400.0)::numeric, 1) AS days"
         f" FROM tasks WHERE completed_at IS NOT NULL AND completed_at >= ? AND {WORKSPACE_ONLY}",
         (cutoff,),
     )
@@ -497,7 +497,8 @@ def flow_metrics(weeks: int = 8, *, name_people: bool = True) -> dict:
         # this list carries TITLES on top of the tier the counts above
         # share, and nudge_stale_wip notifies each assignee by name from it
         "SELECT id, title, assignee,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-        " CAST(julianday('now') - julianday(updated_at) AS INTEGER) AS days_stale"
+        " CAST(EXTRACT(epoch FROM now() - updated_at::timestamptz) / 86400.0 AS INTEGER)"
+        " AS days_stale"
         f" FROM tasks WHERE status = 'in_progress' AND updated_at < ? AND {WORKSPACE_ONLY}"
         " ORDER BY updated_at",
         (stale_cutoff,),
@@ -559,8 +560,9 @@ def slip_forecast() -> dict:
     # completed_at, not updated_at: post-done corrections (relinks, title
     # fixes) bump updated_at and would inflate every forecast
     history = db.query(
-        "SELECT ROUND(julianday(date(COALESCE(completed_at, updated_at)))"
-        " - julianday(due_date), 1) AS slip"
+        "SELECT ROUND((EXTRACT(epoch FROM"
+        " date_trunc('day', COALESCE(completed_at, updated_at)::timestamptz)"
+        " - due_date::timestamptz) / 86400.0)::numeric, 1) AS slip"
         " FROM milestones WHERE status = 'done' AND due_date IS NOT NULL"
     )
     slips = [r["slip"] for r in history if r["slip"] is not None]

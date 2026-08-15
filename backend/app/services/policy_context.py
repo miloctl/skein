@@ -60,7 +60,15 @@ def supports_resource(entity: str) -> bool:
 
 
 def resource_row(entity: str, entity_id: int) -> dict | None:
-    """Load one row through the closed policy resource table map."""
+    """Load one row through the closed policy resource table map.
+
+    Deliberately takes NO row lock. This read RENDERS — a notification body
+    and its provenance snapshot — and its consistency comes from the caller's
+    transaction, which has already written (and so already holds) the row it
+    is describing. Locking here as well inverts the lock order against a
+    concurrent update of the same task and deadlocks. The read that AUTHORIZES
+    a write is _task_context, and that one does hold its row.
+    """
     if entity_id <= 0:
         return None
     selected = _TABLES.get(entity)
@@ -71,6 +79,30 @@ def resource_row(entity: str, entity_id: int) -> dict | None:
         f"SELECT * FROM {table} WHERE id = ?",  # noqa: S608 -- closed table map
         (entity_id,),
     )
+
+
+def hold_resource(entity: str, entity_id: int) -> None:
+    """Hold the row a policy decision is ABOUT, for the rest of the transaction.
+
+    Only the ENFORCEMENT entry points call this — enforce_mutation_policy for
+    REST and mcp_server._policy_refusal for MCP. Both run before anything else
+    in their transaction, which is what keeps the lock order uniform: the
+    resource row first, the activity-chain lock last. A read that merely
+    RENDERS (a notification body, an event payload) must NOT call it: those run
+    after the caller has already appended to the ledger, and taking a row lock
+    there inverts the order against a concurrent request and deadlocks.
+
+    Without the hold the decision is a TOCTOU: a claim reads a task's project
+    type, a concurrent relink moves it onto a regulated engagement, and the
+    write lands under a rule chosen for the old type.
+    """
+    if entity_id <= 0 or not db.in_transaction():
+        return
+    selected = _TABLES.get(entity)
+    table = selected[0] if selected is not None else _UNSCOPED_RESOURCES.get(entity)
+    if table is None:
+        return
+    db.query(f"SELECT 1 FROM {table} WHERE id = ? FOR UPDATE", (entity_id,))  # noqa: S608 -- closed table map
 
 
 def engagement_linked_collection_contexts(
@@ -831,6 +863,8 @@ def for_route_scoped(
         entity_id = int(resource_id or 0)
     except ValueError:
         entity_id = 0
+    if entity_id:
+        hold_resource(entity, entity_id)
     current = existing_scoped(entity, entity_id, viewer) if entity_id else {}
     current_relationship_conflict = bool(current.get("relationship_conflict"))
     classification = str(current.get("classification") or "")

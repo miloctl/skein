@@ -57,7 +57,7 @@ async def slack_command(request: Request):
     from .deps import INACTIVE
 
     # threadpooled, all three: this is an async route on the loop that
-    # carries every open chat stream, and each of these opens a SQLite
+    # carries every open chat stream, and each of these takes a pooled
     # connection — the same rule routes/chat.py states at its top
     # every other write surface registers its writer (deps.py does it for
     # REST); without this, Slack captures logged under an unrostered name

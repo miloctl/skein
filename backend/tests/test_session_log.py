@@ -4,7 +4,7 @@ import pytest
 
 from app import config, db
 from app.agents import session_log
-from app.agents.session_store import SqliteSessionRepository
+from app.agents.session_store import DatabaseSessionRepository
 
 
 @pytest.fixture(autouse=True)
@@ -22,7 +22,7 @@ def _live(monkeypatch):
 
 
 def _messages(thread):
-    return SqliteSessionRepository().list_messages(thread, "default")
+    return DatabaseSessionRepository().list_messages(thread, "default")
 
 
 def _nothing_stored():
@@ -56,7 +56,7 @@ def test_agent_record_restores_on_next_turn(monkeypatch):
 
     _live(monkeypatch)
     session_log.log_exchange("t3", "/playbooks", "the playbooks")
-    agent = SqliteSessionRepository().read_agent("t3", "default")
+    agent = DatabaseSessionRepository().read_agent("t3", "default")
     assert agent is not None
     SlidingWindowConversationManager().restore_from_session(agent.conversation_manager_state)
     assert [m.message["role"] for m in _messages("t3")] == ["user", "assistant"]
@@ -98,7 +98,7 @@ def test_write_failure_is_swallowed_and_leaves_no_half_session(monkeypatch):
     def boom(self, *a, **k):
         raise OSError("disk full")
 
-    monkeypatch.setattr(SqliteSessionRepository, "create_message", boom)
+    monkeypatch.setattr(DatabaseSessionRepository, "create_message", boom)
     session_log.log_exchange("t8", "/briefing", "briefing text")  # must not raise
     assert _nothing_stored()
 
@@ -110,7 +110,7 @@ def test_stranded_user_turn_is_folded(monkeypatch):
     from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
 
     _live(monkeypatch)
-    repo = SqliteSessionRepository()
+    repo = DatabaseSessionRepository()
     repo.create_session(Session(session_id="t9", session_type=SessionType.AGENT))
     repo.create_agent(
         "t9",

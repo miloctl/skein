@@ -85,9 +85,9 @@ def test_rename_user_merges_into_existing(client, fresh_db):
     work.create_task(title="merge me", assignee="Mira", actor="Mira")
     out = users.rename_user("Mira", "mira", actor="tester")
     assert out["merged"] is True
-    row = fresh_db.query_one("SELECT SUM(actions) AS n FROM tool_usage WHERE user = 'mira'")
+    row = fresh_db.query_one("SELECT SUM(actions) AS n FROM tool_usage WHERE \"user\" = 'mira'")
     assert row["n"] == 2
-    assert not fresh_db.query("SELECT * FROM tool_usage WHERE user = 'Mira'")
+    assert not fresh_db.query("SELECT * FROM tool_usage WHERE \"user\" = 'Mira'")
     assert len([u for u in users.list_users(active_only=False) if u["name"].lower() == "mira"]) == 1
 
 
@@ -97,11 +97,20 @@ def test_attribution_map_matches_schema(client, fresh_db):
     from app.services.users import _ATTRIBUTION
 
     tables = {
-        r["name"] for r in fresh_db.query("SELECT name FROM sqlite_master WHERE type = 'table'")
+        r["name"]
+        for r in fresh_db.query(
+            "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+        )
     }
     for table, cols in _ATTRIBUTION.items():
         assert table in tables, table
-        have = {c["name"] for c in fresh_db.query(f"PRAGMA table_info({table})")}
+        have = {
+            c["name"]
+            for c in fresh_db.query(
+                "SELECT column_name AS name FROM information_schema.columns WHERE table_name = ?",
+                (table,),
+            )
+        }
         for col in cols:
             assert col in have, f"{table}.{col}"
 
@@ -155,9 +164,14 @@ def test_no_person_column_is_left_out_of_the_rename_map(client, fresh_db):
     from app.services.users import _ATTRIBUTION
 
     unlisted = set()
-    for row in fresh_db.query("SELECT name FROM sqlite_master WHERE type = 'table'"):
+    for row in fresh_db.query(
+        "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+    ):
         table = row["name"]
-        for col in fresh_db.query(f"PRAGMA table_info({table})"):
+        for col in fresh_db.query(
+            "SELECT column_name AS name FROM information_schema.columns WHERE table_name = ?",
+            (table,),
+        ):
             name = col["name"]
             if name not in _PERSON_SHAPED:
                 continue
@@ -176,7 +190,13 @@ def test_the_deliberate_absences_are_still_real_columns(client, fresh_db):
     from app.services.users import _ATTRIBUTION
 
     for (table, col), reason in _NOT_RENAMED.items():
-        have = {c["name"] for c in fresh_db.query(f"PRAGMA table_info({table})")}
+        have = {
+            c["name"]
+            for c in fresh_db.query(
+                "SELECT column_name AS name FROM information_schema.columns WHERE table_name = ?",
+                (table,),
+            )
+        }
         assert col in have, f"{table}.{col} is gone — delete its entry"
         assert col not in _ATTRIBUTION.get(table, ()), f"{table}.{col} is in both lists"
         assert reason.strip(), f"{table}.{col} needs a reason"

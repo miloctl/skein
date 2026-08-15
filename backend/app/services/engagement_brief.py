@@ -232,7 +232,7 @@ def _delegated(tasks: list[dict], viewer: scope.Viewer) -> list[dict]:
         return []
     marks = ",".join("?" * len(delegated))
     # aliased on BOTH sides: the fragment's columns are bare, so in the
-    # subquery they would bind to whichever table SQLite resolves them
+    # subquery they would bind to whichever table the planner resolves them
     # against. Naming the alias makes the two filters unambiguous.
     outer, vp = scope.visible_filter(viewer, "task_worklog", alias="w")
     inner, vp2 = scope.visible_filter(viewer, "task_worklog", alias="x")

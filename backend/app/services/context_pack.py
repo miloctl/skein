@@ -5,7 +5,6 @@ without asking anyone. Versions only bump when the content actually changes."""
 
 import hashlib
 import re
-import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 
@@ -336,10 +335,10 @@ def _crew_section(
 
 
 def latest_pack(crew_id: int = 0) -> dict | None:
-    # IFNULL, matching migration 005's index: the team pack stores crew_id NULL
+    # COALESCE, matching the baseline's index: the team pack stores crew_id NULL
     # and `crew_id = 0` matches no row in SQL
     return db.query_one(
-        "SELECT * FROM context_packs WHERE IFNULL(crew_id, 0) = ?"
+        "SELECT * FROM context_packs WHERE COALESCE(crew_id, 0) = ?"
         " ORDER BY version DESC, id DESC LIMIT 1",
         (crew_id,),
     )
@@ -374,7 +373,7 @@ def _store_pack(body: str, *, actor: str, crew_id: int) -> dict:
             " created_at, crew_id) VALUES (?, ?, ?, ?, ?, ?)",
             (version, content, digest, actor, db.now(), crew_id or None),
         )
-    except sqlite3.IntegrityError:
+    except db.IntegrityError:
         # concurrent publisher won the version — serve theirs
         last = latest_pack(crew_id)
         if last is None:

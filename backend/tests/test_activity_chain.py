@@ -215,7 +215,30 @@ def test_the_feed_orders_by_seq_not_rowid(fresh_db):
 
     users.ensure_user("tester")
     _log(3)
-    db.execute("UPDATE activity SET id = 500 WHERE seq = 1")
+    # Give seq 1 the HIGHEST id, so id order and seq order disagree. It cannot
+    # be done with an UPDATE any more — `id` is GENERATED ALWAYS, which is the
+    # schema refusing the resequencing this test used to perform — so the row
+    # is rewritten verbatim and takes a fresh id on the way back in. Ordering
+    # by id would now put seq 1 first.
+    row = db.query_row("SELECT * FROM activity WHERE seq = 1")
+    db.execute("DELETE FROM activity WHERE seq = 1")
+    db.execute(
+        "INSERT INTO activity (actor, action, detail, created_at, seq, hash, prev_hash)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            row["actor"],
+            row["action"],
+            row["detail"],
+            row["created_at"],
+            row["seq"],
+            row["hash"],
+            row["prev_hash"],
+        ),
+    )
+    assert (
+        db.query_row("SELECT MAX(id) AS m FROM activity")["m"]
+        == db.query_row("SELECT id AS m FROM activity WHERE seq = 1")["m"]
+    ), "seq 1 must hold the newest id for this test to mean anything"
     assert [r["seq"] for r in collab.recent_activity("tester")] == [3, 2, 1]
     assert activity.verify_chain()["ok"]
 
@@ -783,7 +806,7 @@ def test_an_adopted_row_is_tamper_evident_afterwards(fresh_db):
     Adoption ends both."""
     _log(2)
     rid = db.execute(
-        "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",
+        "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?) RETURNING id",
         ("tester", "test_action", "orphan", db.now()),
     )
     activity.nightly_verify()

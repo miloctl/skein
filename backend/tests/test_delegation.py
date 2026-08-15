@@ -30,7 +30,7 @@ def test_delegation_work_loop_end_to_end(client, fresh_db, monkeypatch):
     assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (t["id"],))["status"] == (
         "done"
     )
-    task_events = fresh_db.query("SELECT event_type, payload FROM extension_outbox ORDER BY rowid")
+    task_events = fresh_db.query("SELECT event_type, payload FROM extension_outbox ORDER BY seq")
     assert [row["event_type"] for row in task_events] == [
         "skein.task.created",
         "skein.task.updated",

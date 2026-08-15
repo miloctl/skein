@@ -52,7 +52,8 @@ def _ask_question_locked(
         scope.assert_readable_by(tier, cid, assigned_to, label="assignee", author=actor or asked_by)
         qid = db.execute(
             "INSERT INTO questions (asked_by, assigned_to, question, origin, created_by,"
-            " created_at, visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            " created_at, visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            " RETURNING id",
             (asked_by, assigned_to, question, origin, actor or asked_by, db.now(), tier, cid),
         )
         db.log_activity(actor or asked_by, "ask_question", f"#{qid}")
@@ -285,7 +286,8 @@ def _record_decision_locked(
         did = db.execute(
             "INSERT INTO decisions (title, context, decision, decided_by, review_by, category,"
             " origin, created_by, created_at, visibility, crew_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " RETURNING id",
             (
                 title,
                 context,
@@ -498,7 +500,8 @@ def post_standup(
         tier, cid = scope.resolve_write(visibility, crew_id, actor=actor or author)
         sid = db.execute(
             "INSERT INTO standups (author, yesterday, today, blockers, origin, created_by,"
-            " created_at, visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " created_at, visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " RETURNING id",
             (author, yesterday, today, blockers, origin, actor or author, db.now(), tier, cid),
         )
         index_record("standup", sid, f"{author}'s standup", f"{yesterday} {today} {blockers}")
@@ -573,7 +576,8 @@ def _save_note_locked(
         tier, cid = scope.resolve_write(visibility, crew_id, actor=actor or author)
         nid = db.execute(
             "INSERT INTO notes (topic, content, author, origin, created_by, created_at,"
-            " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            " RETURNING id",
             (topic, content, author, origin, actor or author or "system", db.now(), tier, cid),
         )
         db.log_activity(

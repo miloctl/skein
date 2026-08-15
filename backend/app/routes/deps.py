@@ -1,10 +1,9 @@
 import hmac
-import sqlite3
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request
 
-from .. import config
+from .. import config, db
 from ..services import scope
 from ..services.adoption import record_use
 from ..services.api_keys import PREFIX, verify_key
@@ -224,9 +223,7 @@ def _resolve(
                 if _cached(request, "auth_human_owner") == name:
                     return name, True, groups
                 return ensure_human_identity(name)["name"], True, groups
-            except sqlite3.OperationalError as exc:
-                if "locked" not in str(exc):
-                    raise
+            except db.BUSY_ERRORS as exc:
                 raise HTTPException(
                     status_code=503,
                     detail="The database is busy. Wait 5 seconds, then send the request again.",

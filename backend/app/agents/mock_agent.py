@@ -62,7 +62,7 @@ class MockAgent:
             agent_actor = self.persona or "agent"
             kind, entity, payload = capture.plan(text, actor=self.user)
             # threadpooled: this generator is iterated on the event loop
-            # (chat SSE, the Slack route), and capture writes SQLite plus the
+            # (chat SSE, the Slack route), and capture writes the database plus the
             # search index — inline, the keyless default path was the one
             # chat path that stalled every open stream on a busy ledger
             if self.gated_capture:

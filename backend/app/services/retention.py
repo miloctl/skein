@@ -68,19 +68,19 @@ def prune(*, actor: str = "scheduler") -> dict:
         # keeps it, which is the same promise the unread query makes them.
         "notifications": db.execute_rowcount(
             "DELETE FROM notifications WHERE created_at < ? AND ("
-            " (user != 'team' AND read_at IS NOT NULL)"
+            " (\"user\" != 'team' AND read_at IS NOT NULL)"
             # read_at counts for a team row too. `mark_read_matching` stamps it
             # when the THING a notification points at is settled — a fact about
             # the world, not about one reader — and that write also hides the
             # row from every unread list, so nobody can ever add the per-person
             # dismissal the arm below waits for. Without this disjunct every
             # "Review needed: #N" notification the product sends is permanent.
-            " OR (user = 'team' AND read_at IS NOT NULL)"
-            " OR (user = 'team' AND NOT EXISTS ("
+            " OR (\"user\" = 'team' AND read_at IS NOT NULL)"
+            " OR (\"user\" = 'team' AND NOT EXISTS ("
             "   SELECT 1 FROM users u WHERE u.kind = 'human' AND u.active = 1"
             "   AND u.name != 'anonymous'"
             "   AND NOT EXISTS (SELECT 1 FROM notification_reads r"
-            "     WHERE r.notification_id = notifications.id AND r.user = u.name)))"
+            '     WHERE r.notification_id = notifications.id AND r."user" = u.name)))'
             ")",
             (_cutoff(READ_NOTIFICATION_DAYS),),
         ),

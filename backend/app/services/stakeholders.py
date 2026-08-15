@@ -21,7 +21,7 @@ from . import activity, scope
 # leaving them out.
 #
 # The cap is per table and the ORDER BY beside it is load-bearing: without one
-# SQLite returns whichever rows it reaches first, so a party could vanish from
+# the engine returns whichever rows it reaches first, so a party could vanish from
 # a card whose title carries a count the reader reads as complete. Newest
 # first, because an open thread from this week is the one a brief is for.
 _LIMIT = 200

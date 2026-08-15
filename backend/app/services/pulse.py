@@ -97,8 +97,10 @@ def blocker_speedrun() -> list[dict]:
     rows = db.query(
         "SELECT impact,"
         " COUNT(*) AS cleared,"
-        " ROUND(AVG((julianday(resolved_at) - julianday(created_at)) * 24), 1) AS avg_hours,"
-        " ROUND(MIN((julianday(resolved_at) - julianday(created_at)) * 24), 1) AS best_hours"
+        " ROUND(AVG((EXTRACT(epoch FROM resolved_at::timestamptz - created_at::timestamptz) / 86400.0) * 24)::numeric, 1)"
+        " AS avg_hours,"
+        " ROUND(MIN((EXTRACT(epoch FROM resolved_at::timestamptz - created_at::timestamptz) / 86400.0) * 24)::numeric, 1)"
+        " AS best_hours"
         " FROM blockers WHERE status = 'resolved' AND resolved_at >= ?"
         " GROUP BY impact"
         " ORDER BY CASE impact WHEN 'critical' THEN 0 WHEN 'high' THEN 1"

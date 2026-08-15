@@ -110,8 +110,9 @@ def _insert_notification(
     ts = db.now()
     nid = db.execute(
         "INSERT INTO notifications"
-        " (user, tier, message, link, sent_at, created_at, source_entity, source_id,"
-        " source_policy_context) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ' ("user", tier, message, link, sent_at, created_at, source_entity, source_id,'
+        " source_policy_context) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        " RETURNING id",
         (
             user,
             tier,
@@ -144,8 +145,8 @@ def _insert_notification(
 # lives in `notification_reads` (009) — without that table the first teammate
 # to press dismiss cleared the announcement for everybody else.
 UNREAD_FOR = (
-    "user IN (?, 'team') AND read_at IS NULL"
-    " AND id NOT IN (SELECT notification_id FROM notification_reads WHERE user = ?)"
+    "\"user\" IN (?, 'team') AND read_at IS NULL"
+    ' AND id NOT IN (SELECT notification_id FROM notification_reads WHERE "user" = ?)'
 )
 
 
@@ -160,7 +161,7 @@ def list_notifications(
             (user, user, limit, offset),
         )
     return db.query(
-        "SELECT * FROM notifications WHERE user IN (?, 'team') ORDER BY id DESC LIMIT ? OFFSET ?",
+        "SELECT * FROM notifications WHERE \"user\" IN (?, 'team') ORDER BY id DESC LIMIT ? OFFSET ?",
         (user, limit, offset),
     )
 
@@ -298,22 +299,25 @@ def mark_read(user: str, notification_id: int = 0) -> dict:
     now = db.now()
     if notification_id:
         n = db.execute_rowcount(
-            "UPDATE notifications SET read_at = ? WHERE id = ? AND user = ?",
+            'UPDATE notifications SET read_at = ? WHERE id = ? AND "user" = ?',
             (now, notification_id, user),
         )
         n += db.execute_rowcount(
-            "INSERT OR IGNORE INTO notification_reads (notification_id, user, read_at)"
-            " SELECT id, ?, ? FROM notifications WHERE id = ? AND user = 'team'",
+            'INSERT INTO notification_reads (notification_id, "user", read_at)'
+            " SELECT id, ?, ? FROM notifications WHERE id = ? AND \"user\" = 'team'"
+            " ON CONFLICT DO NOTHING",
             (user, now, notification_id),
         )
     else:
         n = db.execute_rowcount(
-            "UPDATE notifications SET read_at = ? WHERE user = ? AND read_at IS NULL",
+            'UPDATE notifications SET read_at = ? WHERE "user" = ? AND read_at IS NULL',
             (now, user),
         )
         n += db.execute_rowcount(
-            "INSERT OR IGNORE INTO notification_reads (notification_id, user, read_at)"
-            " SELECT id, ?, ? FROM notifications WHERE user = 'team' AND read_at IS NULL",
+            'INSERT INTO notification_reads (notification_id, "user", read_at)'
+            " SELECT id, ?, ? FROM notifications"
+            " WHERE \"user\" = 'team' AND read_at IS NULL"
+            " ON CONFLICT DO NOTHING",
             (user, now),
         )
     return {"marked": n}

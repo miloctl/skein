@@ -172,9 +172,10 @@ def _scan_locked(
         if not _reaches(parent_tier, name):
             continue
         fresh = db.execute_rowcount(
-            "INSERT OR IGNORE INTO mention_log"
+            "INSERT INTO mention_log"
             " (entity, entity_id, person, mentioned_by, created_at)"
-            " VALUES (?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?)"
+            " ON CONFLICT DO NOTHING",
             (entity, entity_id, name, actor or "system", db.now()),
         )
         if fresh:

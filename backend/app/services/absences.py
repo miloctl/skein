@@ -54,7 +54,8 @@ def add_absence(
         aid = db.execute(
             "INSERT INTO absences (person, kind, starts_on, ends_on, note, origin,"
             " created_by, created_at, visibility, crew_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " RETURNING id",
             (person, kind, starts_on, ends_on, note, origin, actor, db.now(), tier, crew),
         )
         db.log_activity(

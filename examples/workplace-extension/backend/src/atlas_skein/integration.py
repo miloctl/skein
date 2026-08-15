@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
-import sqlite3
 from collections.abc import Iterator, Sequence
-from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
@@ -179,43 +177,24 @@ class AtlasIntegration:
     def __init__(self, client: AtlasClient, store: ExtensionStore) -> None:
         self.client = client
         self.store = store
-        self._active: ContextVar[sqlite3.Connection | None] = ContextVar(
-            f"atlas_store_{id(self)}",
-            default=None,
-        )
 
     @contextlib.contextmanager
     def _transaction(self) -> Iterator[None]:
-        """Use the ExtensionStore connection contract available in core 0.2.0."""
-        active = self._active.get()
-        if active is not None:
+        """One unit of extension-owned work.
+
+        Delegates to the store. A store is a SCHEMA in the Skein database now,
+        not a file of its own, so ExtensionStore.transaction() is the whole
+        contract — and it nests, which is what the re-entrancy guard that used
+        to live here provided.
+        """
+        with self.store.transaction():
             yield
-            return
-        with contextlib.closing(self.store.connect()) as connection:
-            connection.isolation_level = None
-            connection.execute("BEGIN IMMEDIATE")
-            token = self._active.set(connection)
-            try:
-                yield
-                connection.execute("COMMIT")
-            except Exception:
-                connection.execute("ROLLBACK")
-                raise
-            finally:
-                self._active.reset(token)
 
     def _execute(self, sql: str, params: Sequence[Any] = ()) -> int:
-        active = self._active.get()
-        if active is None:
-            return self.store.execute(sql, params)
-        cursor = active.execute(sql, tuple(params))
-        return int(cursor.lastrowid or 0)
+        return self.store.execute(sql, params)
 
     def _query(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
-        active = self._active.get()
-        if active is None:
-            return self.store.query(sql, params)
-        return [dict(row) for row in active.execute(sql, tuple(params)).fetchall()]
+        return self.store.query(sql, params)
 
     def _query_one(
         self,
@@ -231,10 +210,12 @@ class AtlasIntegration:
         context: CommandContext,
     ) -> dict[str, int]:
         result = self._sync_items(work, context)
-        # The core and extension stores cannot share one transaction. Commit
-        # the durable core mapping and outbound intent before network I/O.
-        # A retry from a different contribution then reuses the mapping and
-        # the same remote idempotency key instead of creating another task.
+        # Network I/O runs AFTER the mapping is committed, never inside the
+        # transaction that wrote it. A retry from a different contribution then
+        # reuses the mapping and the same remote idempotency key instead of
+        # creating another task — and a slow remote never holds a write open.
+        # (Core and extension data now live in one database, so this ordering
+        # is a deliberate choice rather than something the storage forces.)
         self._deliver_pending_statuses()
         return result
 
@@ -312,7 +293,7 @@ class AtlasIntegration:
         with self._transaction():
             self._execute(
                 "INSERT INTO sync_runs (created_count, updated_count, finished_at)"
-                " VALUES (?, ?, datetime('now'))",
+                " VALUES (?, ?, now()::text)",
                 (created, updated),
             )
         return {"created": created, "updated": updated}
@@ -328,15 +309,27 @@ class AtlasIntegration:
             if link is not None:
                 return {"linked_task_id": int(link["skein_task_id"])}
             self._execute(
-                "INSERT OR IGNORE INTO sync_claims"
-                " (external_id, owner_namespace, skein_task_id) VALUES (?, ?, NULL)",
+                "INSERT INTO sync_claims"
+                " (external_id, owner_namespace, skein_task_id) VALUES (?, ?, NULL)"
+                " ON CONFLICT DO NOTHING",
                 (external_id, owner_namespace),
             )
+            # FOR UPDATE, then LOOK AGAIN. Two syncs of the same item both read
+            # "no link" and both insert — one no-ops on the conflict. The lock
+            # is what makes the loser wait for the winner to finish linking,
+            # and the second read of work_links is what it sees when it wakes
+            # up. Without the pair, both callers create a task for one item.
             claim = self._query_one(
                 "SELECT owner_namespace, skein_task_id FROM sync_claims"
-                " WHERE external_id = ?",
+                " WHERE external_id = ? FOR UPDATE",
                 (external_id,),
             )
+            relinked = self._query_one(
+                "SELECT skein_task_id FROM work_links WHERE external_id = ?",
+                (external_id,),
+            )
+            if relinked is not None:
+                return {"linked_task_id": int(relinked["skein_task_id"])}
             if claim is None:
                 raise RuntimeError("The Atlas synchronization claim was not stored.")
             return claim
@@ -371,13 +364,15 @@ class AtlasIntegration:
 
     def _complete_mapping(self, item: AtlasItem, task: TaskView) -> bool:
         with self._transaction():
-            prior = self._query_one(
-                "SELECT skein_task_id FROM work_links WHERE external_id = ?",
-                (item.external_id,),
-            )
-            self._execute(
-                "INSERT OR IGNORE INTO work_links"
-                " (external_id, skein_task_id, classification) VALUES (?, ?, ?)",
+            # The INSERT reports whether it created the link — a read taken
+            # BEFORE it cannot. Two syncs of the same item both see "no prior
+            # link" and both count a creation, so one item is reported created
+            # twice while only one row exists. RETURNING yields a row only for
+            # the caller that actually inserted.
+            inserted = self._query(
+                "INSERT INTO work_links"
+                " (external_id, skein_task_id, classification) VALUES (?, ?, ?)"
+                " ON CONFLICT DO NOTHING RETURNING external_id",
                 (item.external_id, task.id, item.classification),
             )
             stored = self._query_one(
@@ -388,13 +383,14 @@ class AtlasIntegration:
                 raise RuntimeError("The Atlas work mapping conflicts with the Skein task.")
             self._record_status(item.external_id, task)
             self._execute("DELETE FROM sync_claims WHERE external_id = ?", (item.external_id,))
-            return prior is None
+            return bool(inserted)
 
     def _record_status(self, external_id: str, task: TaskView) -> None:
         event_id = f"atlas-status:{external_id}:{task.updated_at}:{task.status}"
         self._execute(
-            "INSERT OR IGNORE INTO status_outbox"
-            " (event_id, external_id, status, delivered) VALUES (?, ?, ?, 0)",
+            "INSERT INTO status_outbox"
+            " (event_id, external_id, status, delivered) VALUES (?, ?, ?, 0)"
+            " ON CONFLICT DO NOTHING",
             (event_id, external_id, task.status),
         )
 

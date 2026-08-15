@@ -398,7 +398,7 @@ def test_blocker_resolution_notification_has_one_task_source(fresh_db, monkeypat
 
     blockers.resolve_blocker(blocker["id"], resolution="key arrived", actor="tomas")
     stored = fresh_db.query_one(
-        "SELECT * FROM notifications WHERE user = 'mira' ORDER BY id DESC LIMIT 1"
+        "SELECT * FROM notifications WHERE \"user\" = 'mira' ORDER BY id DESC LIMIT 1"
     )
 
     assert stored["source_entity"] == "task"

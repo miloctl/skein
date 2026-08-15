@@ -9,7 +9,7 @@ import pytest
 from app import config, db
 from app.agents.session_store import (
     IMPORTED_FLAG,
-    SqliteSessionRepository,
+    DatabaseSessionRepository,
     delete_thread_sessions,
     import_file_sessions,
 )
@@ -34,7 +34,7 @@ def _msg(i, text="hi"):
 
 
 def test_round_trip_and_ordering(fresh_db):
-    repo = SqliteSessionRepository()
+    repo = DatabaseSessionRepository()
     _seed_session(repo)
     _seed_agent(repo)
     for i in (2, 0, 1):  # written out of order — the store owns ordering
@@ -53,7 +53,7 @@ def test_update_requires_a_row_and_keeps_created_at(fresh_db):
     from strands.types.exceptions import SessionException
     from strands.types.session import SessionAgent
 
-    repo = SqliteSessionRepository()
+    repo = DatabaseSessionRepository()
     _seed_session(repo)
     _seed_agent(repo)
     repo.create_message("s1", "default", _msg(0))
@@ -73,12 +73,12 @@ def test_update_requires_a_row_and_keeps_created_at(fresh_db):
         )
 
 
-def test_the_transaction_is_the_lock(fresh_db):
+def test_the_session_lock_serializes_appenders(fresh_db):
     """What replaced session_log's per-thread lock dict: writers doing
     read-last-id-then-append inside db.transaction() never lose a write —
     and unlike the lock, the guarantee holds across processes, because
     BEGIN IMMEDIATE serializes on the database, not the interpreter."""
-    repo = SqliteSessionRepository()
+    repo = DatabaseSessionRepository()
     _seed_session(repo)
     _seed_agent(repo)
     writers, per_writer = 4, 25
@@ -88,6 +88,12 @@ def test_the_transaction_is_the_lock(fresh_db):
         try:
             for _ in range(per_writer):
                 with db.transaction():
+                    # The transaction is NOT the lock. Deriving the next id
+                    # from a read and writing it back is only atomic while
+                    # something serializes the pair, and a plain SELECT takes
+                    # nothing — agents/session_log.py holds this same lock for
+                    # the same reason.
+                    db.name_lock(db.LOCK_SESSION, "s1")
                     stored = repo.list_messages("s1", "default")
                     nxt = stored[-1].message_id + 1 if stored else 0
                     repo.create_message("s1", "default", _msg(nxt))
@@ -116,7 +122,7 @@ def test_import_brings_files_over_once(fresh_db, tmp_path, monkeypatch):
     files.create_message("old-thread", "default", _msg(0, "from the file era"))
 
     import_file_sessions()
-    repo = SqliteSessionRepository()
+    repo = DatabaseSessionRepository()
     msgs = repo.list_messages("old-thread", "default")
     assert [m.message["content"] for m in msgs] == [[{"text": "from the file era"}]]
 
@@ -137,7 +143,7 @@ def test_a_corrupt_session_dir_does_not_brick_the_import(fresh_db, tmp_path, mon
 
 
 def test_deleting_a_thread_takes_its_persona_sessions(fresh_db):
-    repo = SqliteSessionRepository()
+    repo = DatabaseSessionRepository()
     for sid in ("t-del", "t-del--muse", "t-delta"):
         _seed_session(repo, sid)
     delete_thread_sessions("t-del")
@@ -151,7 +157,7 @@ def test_create_agent_twice_keeps_the_thread_history(fresh_db):
     REPLACE here deletes the old row to resolve the conflict, and
     session_messages CASCADEs off that PK — so the second concurrent first
     turn on a thread wiped the whole conversation the first one saved."""
-    repo = SqliteSessionRepository()
+    repo = DatabaseSessionRepository()
     _seed_session(repo)
     _seed_agent(repo)
     for i in range(3):

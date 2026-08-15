@@ -1,12 +1,13 @@
-"""SQLite-backed strands session store.
+"""Database-backed strands session store.
 
 Sessions lived as files under data/sessions/, written by the SDK on its own
 schedule while session_log.py bridged command turns in from outside —
 read-modify-writes over a shared directory that needed per-thread locks and
-still left bridge-vs-agent-turn as an accepted race. In the database,
-db.transaction()'s BEGIN IMMEDIATE is the serialization, across threads AND
-processes, and session data joins the same backup, export, and delete story
-as every other table.
+still left bridge-vs-agent-turn as an accepted race. In the database, session
+data joins the same backup, export, and delete story as every other table,
+and a caller that derives an id from a read serializes on
+db.name_lock(db.LOCK_SESSION, thread_id) — the transaction alone does not,
+because the read takes no lock (agents/session_log.py::log_exchange).
 
 The payload columns carry the SDK's own to_dict() JSON whole: the SDK owns
 the shape (and versions it), this module owns identity and ordering
@@ -42,10 +43,9 @@ class OffLoopSessionManager(RepositorySessionManager):
     The base register_hooks registers PLAIN lambdas, and the SDK invokes a
     non-coroutine callback inline (strands/hooks/registry.py) — inside
     stream_async, on the event loop. Every session INSERT (one message plus a
-    sync per message, so 2 + 2 per tool cycle each turn) then contended for
-    SQLite's single write lock on the loop that carries every open SSE
-    stream: one lost lock race froze every chat in the process for up to
-    busy_timeout (db.py). invoke_callbacks_async AWAITS a coroutine callback,
+    sync per message, so 2 + 2 per tool cycle each turn) then ran a round trip
+    on the loop that carries every open SSE stream, so one slow write stalled
+    all of them. invoke_callbacks_async AWAITS a coroutine callback,
     and the message events are dispatched through it and nowhere else, so an
     async wrapper moves the writes off the loop without changing their order
     — callbacks for one event are awaited sequentially in registration order.
@@ -74,10 +74,12 @@ class OffLoopSessionManager(RepositorySessionManager):
 
 def session_manager(thread_id: str) -> RepositorySessionManager:
     """The one constructor every agent-turn consumer uses (see build_agent)."""
-    return OffLoopSessionManager(session_id=thread_id, session_repository=SqliteSessionRepository())
+    return OffLoopSessionManager(
+        session_id=thread_id, session_repository=DatabaseSessionRepository()
+    )
 
 
-class SqliteSessionRepository(SessionRepository):
+class DatabaseSessionRepository(SessionRepository):
     """CRUD over the session tables, holding FileSessionManager's contract:
     create_agent and create_message are last-writer-wins (the file store
     overwrote silently, and a PK refusal here would turn a stale in-memory
@@ -89,7 +91,7 @@ class SqliteSessionRepository(SessionRepository):
         # concurrent first turns both construct a manager, and the loser
         # must join the session, not fail the user's message
         db.execute(
-            "INSERT OR IGNORE INTO sessions (session_id, payload) VALUES (?, ?)",
+            "INSERT INTO sessions (session_id, payload) VALUES (?, ?) ON CONFLICT DO NOTHING",
             (session.session_id, json.dumps(session.to_dict())),
         )
         return session
@@ -131,8 +133,10 @@ class SqliteSessionRepository(SessionRepository):
         self, session_id: str, agent_id: str, session_message: SessionMessage, **_kwargs: Any
     ) -> None:
         db.execute(
-            "INSERT OR REPLACE INTO session_messages"
-            " (session_id, agent_id, message_id, payload) VALUES (?, ?, ?, ?)",
+            "INSERT INTO session_messages"
+            " (session_id, agent_id, message_id, payload) VALUES (?, ?, ?, ?)"
+            " ON CONFLICT (session_id, agent_id, message_id)"
+            " DO UPDATE SET payload = excluded.payload",
             (
                 session_id,
                 agent_id,
@@ -178,10 +182,12 @@ class SqliteSessionRepository(SessionRepository):
         **_kwargs: Any,
     ) -> list[SessionMessage]:
         rows = db.query(
-            # LIMIT -1 is SQLite's "no limit"; OFFSET needs a LIMIT clause
+            # A NULL limit means ALL, so the bound parameter carries "no
+            # limit" and the SQL stays one string. A negative number is
+            # refused outright, so it cannot stand in for it.
             "SELECT payload FROM session_messages WHERE session_id = ? AND agent_id = ?"
             " ORDER BY message_id LIMIT ? OFFSET ?",
-            (session_id, agent_id, -1 if limit is None else limit, offset),
+            (session_id, agent_id, limit, offset),
         )
         return [SessionMessage.from_dict(json.loads(r["payload"])) for r in rows]
 
@@ -189,8 +195,10 @@ class SqliteSessionRepository(SessionRepository):
         self, session_id: str, multi_agent: "MultiAgentBase", **_kwargs: Any
     ) -> None:
         db.execute(
-            "INSERT OR REPLACE INTO session_multi_agents"
-            " (session_id, multi_agent_id, payload) VALUES (?, ?, ?)",
+            "INSERT INTO session_multi_agents"
+            " (session_id, multi_agent_id, payload) VALUES (?, ?, ?)"
+            " ON CONFLICT (session_id, multi_agent_id)"
+            " DO UPDATE SET payload = excluded.payload",
             (session_id, multi_agent.id, json.dumps(multi_agent.serialize_state())),
         )
 
@@ -260,7 +268,7 @@ def import_file_sessions() -> None:
             session = files.read_session(session_id)
             if session is None:
                 continue
-            store = SqliteSessionRepository()
+            store = DatabaseSessionRepository()
             with db.transaction():
                 store.create_session(session)
                 agents_dir = path / "agents"
@@ -281,7 +289,9 @@ def import_file_sessions() -> None:
             failed += 1
             log.exception("session import failed (session=%s)", session_id)
     db.execute(
-        "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, '1', ?)",
+        "INSERT INTO app_settings (key, value, updated_at) VALUES (?, '1', ?)"
+        " ON CONFLICT (key) DO UPDATE SET value = excluded.value,"
+        " updated_at = excluded.updated_at",
         (IMPORTED_FLAG, db.now()),
     )
     if imported or failed:

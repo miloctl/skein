@@ -1649,7 +1649,7 @@ def test_async_event_handlers_are_rejected_before_startup():
 
 
 def test_extension_store_owns_its_schema_and_migrations(fresh_db, tmp_path):
-    store = ExtensionStore(tmp_path / "atlas.db")
+    store = ExtensionStore("atlas")
     migrations = (
         ExtensionMigration(
             1,
@@ -1682,7 +1682,12 @@ def test_extension_store_owns_its_schema_and_migrations(fresh_db, tmp_path):
         {"version": 2, "name": "add-classification"},
     ]
     assert (
-        fresh_db.query_one("SELECT 1 AS present FROM sqlite_master WHERE name = 'work_links'")
+        # the extension's table lives in ITS OWN schema; the core schema
+        # must not carry it
+        fresh_db.query_one(
+            "SELECT 1 AS present FROM information_schema.tables"
+            " WHERE table_schema = 'public' AND table_name = 'work_links'"
+        )
         is None
     )
     changed = (
@@ -1693,28 +1698,43 @@ def test_extension_store_owns_its_schema_and_migrations(fresh_db, tmp_path):
         store.migrate(changed)
 
 
-def test_extension_store_refuses_both_core_database_paths(fresh_db):
-    from app import config, db
+def test_an_extension_store_can_never_name_a_core_schema(fresh_db):
+    """The `ext_` prefix is the whole protection: an extension is free to call
+    itself `public` or `private`, and neither can reach the core schema or the
+    1:1 notes. A name with no leading letter is refused outright, because it
+    would not be a legal identifier to quote."""
+    from app import config
+    from app.extensions.data import schema_for
 
-    for path in (db.DB_PATH, config.PRIVATE_DB_PATH):
-        with pytest.raises(ValueError, match="core database path"):
-            ExtensionStore(path).migrate(())
+    assert schema_for("public") != "public"
+    assert schema_for("private") != config.PRIVATE_SCHEMA
+    assert schema_for("atlas.data-archive") == "ext_atlas_data_archive"
+    for bad in ("", "  ", "1atlas", "-atlas"):
+        with pytest.raises(ValueError, match="starts with a letter"):
+            ExtensionStore(bad)
 
 
-def test_extension_store_refuses_attach_to_another_database(fresh_db, tmp_path):
-    """The path check only sees the file this store opened, so one ATTACH
-    would reach a core database from a connection that already passed it."""
-    import sqlite3
+def test_an_extension_stores_unqualified_names_stay_in_its_own_schema(fresh_db):
+    """search_path is what the SQLite ATTACH authorizer used to be: an
+    extension writing `users` gets ITS OWN users table, never the roster. It
+    is the same guarantee and the same limit — SQL that spells out
+    `public.users` still reaches core, exactly as an in-process module could
+    always open any file the process could."""
+    import psycopg
 
-    store = ExtensionStore(tmp_path / "atlas.db")
+    store = ExtensionStore("atlas")
     store.migrate(
-        (ExtensionMigration(1, "create-links", ("CREATE TABLE work_links (id INTEGER)",)),)
+        (ExtensionMigration(1, "create-links", ("CREATE TABLE work_links (id bigint)",)),)
     )
+    # the core roster exists, and is NOT what an unqualified name finds
+    fresh_db.execute(
+        "INSERT INTO users (name, kind, created_at) VALUES (?, ?, ?)",
+        ("mira", "human", fresh_db.now()),
+    )
+    with pytest.raises(psycopg.errors.UndefinedTable):
+        store.query("SELECT name FROM users")
 
-    with pytest.raises(sqlite3.DatabaseError, match="not authorized"):
-        store.execute(f"ATTACH DATABASE '{fresh_db.DB_PATH}' AS core")
-
-    # The authorizer must not cost the store its own tables.
+    # and the scoping must not cost the store its own tables
     store.execute("INSERT INTO work_links (id) VALUES (1)")
     assert store.query_one("SELECT id FROM work_links") == {"id": 1}
 
@@ -1778,7 +1798,7 @@ def test_a_route_grant_does_not_outlive_its_response(fresh_db):
 
 
 def test_composition_applies_extension_migrations_before_routes(fresh_db, tmp_path):
-    store = ExtensionStore(tmp_path / "atlas.db")
+    store = ExtensionStore("atlas")
     router = APIRouter(prefix="/api/extensions/atlas.workplace")
 
     @router.get("/links")
@@ -1827,7 +1847,7 @@ def test_composition_applies_extension_migrations_before_routes(fresh_db, tmp_pa
 
 
 def test_invalid_event_and_migration_contracts_are_rejected(tmp_path):
-    store = ExtensionStore(tmp_path / "atlas.db")
+    store = ExtensionStore("atlas")
     with pytest.raises(ExtensionValidationError, match="event type"):
         ExtensionRegistry.build(
             (
@@ -1985,8 +2005,8 @@ def test_a_declared_extension_store_is_backed_up_beside_the_core_databases(fresh
     it: every private package's data survived on deployment-side discipline."""
     from app.services import admin
 
-    store = ExtensionStore(tmp_path / "atlas.db")
-    skipped = ExtensionStore(tmp_path / "cache.db", include_in_backup=False)
+    store = ExtensionStore("atlas")
+    skipped = ExtensionStore("cache", include_in_backup=False)
     for owned in (store, skipped):
         owned.migrate((ExtensionMigration(1, "create-links", ("CREATE TABLE links (id INT)",)),))
     module = SkeinModule(
@@ -2027,7 +2047,7 @@ def test_one_store_retention_leaves_another_store_alone(fresh_db, tmp_path, monk
     overlapping = backups / "extension-atlas.workplace.data-archive-2000-01-01.db"
     overlapping.write_bytes(b"")
 
-    store = ExtensionStore(tmp_path / "atlas.db")
+    store = ExtensionStore("atlas")
     store.migrate((ExtensionMigration(1, "create-links", ("CREATE TABLE links (id INT)",)),))
     module = SkeinModule(
         module_id="atlas.workplace",
@@ -2261,7 +2281,7 @@ def test_a_blocker_command_emits_its_own_events(fresh_db):
         context,
     )
 
-    events = fresh_db.query("SELECT event_type, payload FROM extension_outbox ORDER BY rowid")
+    events = fresh_db.query("SELECT event_type, payload FROM extension_outbox ORDER BY seq")
     assert [row["event_type"] for row in events] == [
         "skein.blocker.created",
         "skein.blocker.updated",
@@ -2358,7 +2378,7 @@ def test_a_promise_command_carries_its_own_vocabulary(fresh_db):
     assert settled.status == "kept"
     assert facade.get_promise(view.id, context).status == "kept"
 
-    events = fresh_db.query("SELECT event_type, payload FROM extension_outbox ORDER BY rowid")
+    events = fresh_db.query("SELECT event_type, payload FROM extension_outbox ORDER BY seq")
     assert [row["event_type"] for row in events] == [
         "skein.promise.created",
         "skein.promise.updated",

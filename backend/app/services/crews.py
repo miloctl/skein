@@ -34,8 +34,17 @@ ROLES = ("member", "steward")
 # repetition actually was.
 
 
-def _row(crew_id: int) -> dict:
-    row = db.query_one("SELECT * FROM crews WHERE id = ?", (crew_id,))
+def _row(crew_id: int, *, hold: bool = False) -> dict:
+    """The crew, optionally HOLDING it for the rest of the transaction.
+
+    hold=True is what serializes membership changes. The steward floor is a
+    count-then-delete, and a plain read takes no lock: two concurrent removals
+    both counted two stewards, both passed the floor, and the crew ended with
+    none. Locking the parent crew row makes the pair atomic — the members
+    table has no single row for them to contend on.
+    """
+    suffix = " FOR UPDATE" if hold and db.in_transaction() else ""
+    row = db.query_one(f"SELECT * FROM crews WHERE id = ?{suffix}", (crew_id,))  # noqa: S608 — fixed literal
     if not row:
         raise db.NotFound(f"crew #{crew_id} not found")
     return row
@@ -44,7 +53,7 @@ def _row(crew_id: int) -> dict:
 def _clean_name(name: str, crew_id: int = 0) -> str:
     """Normalize and refuse a name that collides with an existing crew.
 
-    The NOCASE index in migration 003 is ASCII-only, so sqlite's collation
+    The baseline's lower(name) index is Unicode-aware, so the engine's own
     reads `Café` and `CAFÉ` as two names, and a fullwidth capital as different
     from its plain form. users.py::refuse_fold_collision exists for exactly
     that on the roster. A crew picker is how a writer chooses who reads a row,
@@ -73,13 +82,14 @@ def create_crew(name: str, *, summary: str = "", actor: str, origin: str = "huma
     belongs in it.
     """
     with db.transaction():
-        # inside the transaction, not before it: BEGIN IMMEDIATE is what makes
+        # inside the transaction, not before it: the crew row hold is what makes
         # the check-then-insert atomic, and the index is only the backstop
         name = _clean_name(name)
         now = db.now()
         crew_id = db.execute(
             "INSERT INTO crews (name, summary, origin, created_by, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?)"
+            " RETURNING id",
             (name, summary.strip()[:SUMMARY_LEN], origin, actor, now, now),
         )
         db.execute(
@@ -125,14 +135,14 @@ def list_crews(active_only: bool = True) -> list[dict]:
     settings page lists them all, and the picker in every create form reads
     the same payload."""
     rows = (
-        db.query("SELECT * FROM crews WHERE active = 1 ORDER BY name COLLATE NOCASE")
+        db.query("SELECT * FROM crews WHERE active = 1 ORDER BY lower(name)")
         if active_only
-        else db.query("SELECT * FROM crews ORDER BY name COLLATE NOCASE")
+        else db.query("SELECT * FROM crews ORDER BY lower(name)")
     )
     if not rows:
         return []
     members = db.query(
-        "SELECT crew_id, person, role FROM crew_members ORDER BY role DESC, person COLLATE NOCASE"
+        "SELECT crew_id, person, role FROM crew_members ORDER BY role DESC, lower(person)"
     )
     by_crew: dict[int, list[dict]] = {}
     for m in members:
@@ -145,8 +155,7 @@ def list_crews(active_only: bool = True) -> list[dict]:
 def get_crew(crew_id: int) -> dict:
     crew = dict(_row(crew_id))
     crew["members"] = db.query(
-        "SELECT person, role FROM crew_members WHERE crew_id = ?"
-        " ORDER BY role DESC, person COLLATE NOCASE",
+        "SELECT person, role FROM crew_members WHERE crew_id = ? ORDER BY role DESC, lower(person)",
         (crew_id,),
     )
     return crew
@@ -156,7 +165,7 @@ def crews_of(person: str) -> list[int]:
     """The crew ids this person belongs to — the whole read side of the
     visibility filter (docs/VISIBILITY.md).
 
-    Returns [] for someone in no crew, which is the COMMON case. SQLite has no
+    Returns [] for someone in no crew, which is the COMMON case. SQL has no
     `IN ()`, so a filter that interpolates this list must drop the disjunct
     rather than emit an empty one.
 
@@ -269,7 +278,10 @@ def add_member(
         # membership row for one would hand it a human's read scope.
         raise ValueError(f"'{person}' is an agent identity and cannot join a crew")
     with db.transaction():
-        crew = _row(crew_id)
+        # held for the same reason as remove_member: the steward floor below
+        # is a count-then-write, and a demotion racing a removal must not slip
+        # the crew to zero stewards between the two.
+        crew = _row(crew_id, hold=True)
         assert_steward(crew_id, actor, admin_override=admin_override)
         already = bool(
             db.query_one(
@@ -306,9 +318,9 @@ def remove_member(crew_id: int, person: str, *, actor: str, admin_override: bool
     # everywhere else resolve_teammate is called.
     person = users.resolve_teammate(person, actor, "person", allow_team=False)
     with db.transaction():
-        _row(crew_id)
+        _row(crew_id, hold=True)
         assert_steward(crew_id, actor, admin_override=admin_override)
-        # inside the transaction: read outside it, two concurrent removals
+        # under the crew lock taken above: unheld, two concurrent removals
         # both saw two stewards, both passed, and the crew ended with none
         if _stewards(crew_id) == [person]:
             raise ValueError("a crew needs one steward. Make someone else a steward first.")

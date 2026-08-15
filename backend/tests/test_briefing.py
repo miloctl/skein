@@ -177,9 +177,11 @@ def test_due_soon_reads_the_assignee_index(fresh_db):
     mirrors briefing.my_day's due_soon — if that query drifts, this still
     holds the index to its purpose."""
     plan = " ".join(
-        r["detail"]
+        # EXPLAIN returns one text column named "QUERY PLAN"; sqlite's
+        # EXPLAIN QUERY PLAN called it "detail"
+        r["QUERY PLAN"]
         for r in fresh_db.query(
-            "EXPLAIN QUERY PLAN SELECT * FROM tasks WHERE status != 'done'"
+            "EXPLAIN SELECT * FROM tasks WHERE status != 'done'"
             " AND due_date IS NOT NULL AND due_date <= ? AND assignee IN (?, '')"
             " ORDER BY due_date LIMIT 50",
             ("2026-01-01", "ava"),

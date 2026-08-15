@@ -698,7 +698,7 @@ async def _flock_stream(
 
 @router.post("/api/chat")
 async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: ViewerDep):
-    # Sync work (SQLite reads, disk session restore, transcript writes) goes
+    # Sync work (database reads, disk session restore, transcript writes) goes
     # through run_in_threadpool everywhere in this route: this coroutine and
     # its generators run on the event loop that carries every open SSE
     # stream, so one inline disk or DB stall freezes them all. main.py's

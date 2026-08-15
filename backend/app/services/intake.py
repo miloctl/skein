@@ -1,8 +1,6 @@
 """Engagement intake & triage. Scoring is programmatic RICE-lite:
 score = reach * impact * confidence / effort (each 1-5, effort >= 1)."""
 
-import sqlite3
-
 from .. import db
 from . import scope
 from .search import index_record
@@ -64,7 +62,8 @@ def submit_request(
         rid = db.execute(
             "INSERT INTO intake_requests (title, detail, requester, project_class,"
             " origin, created_by, created_at, updated_at, visibility, crew_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " RETURNING id",
             (
                 title,
                 detail,
@@ -258,7 +257,7 @@ def _disposition(
                 visibility=row["visibility"],
                 crew_id=row["crew_id"] or 0,
             )
-        except (ValueError, sqlite3.IntegrityError) as exc:
+        except (ValueError, db.IntegrityError) as exc:
             # a name collision must not read as "work has started" — say so.
             # IntegrityError is the RACE: create_engagement pre-checks the
             # name NOCASE and raises ValueError, but two accepts landing

@@ -37,7 +37,8 @@ def record_feedback(
     stored_by = "" if kind == "pulse" else actor
     fid = db.execute(
         "INSERT INTO feedback (kind, input, output, verdict, correction,"
-        " created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        " created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        " RETURNING id",
         (kind, input_text, output, verdict, correction, stored_by, db.now()),
     )
     if kind == "pulse":
