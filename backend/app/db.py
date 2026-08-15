@@ -251,6 +251,33 @@ def pool() -> ConnectionPool[DictConnection]:
     return _pool
 
 
+def privilege_warnings() -> list[str]:
+    """A warning when the application connects as a database SUPERUSER.
+
+    A superuser can COPY ... FROM PROGRAM, which runs shell commands on the
+    database host, and pg_read_file, which reads its filesystem. That turns
+    every SQL bug — and every extension, which supplies raw SQL — into command
+    execution. The deployment creates a NOSUPERUSER role for this
+    (deploy/k8s/base/postgres.yaml); a deployment that skipped it has no other
+    signal, so /health carries this the way it carries a bad model provider.
+
+    A warning, never a refusal: an existing deployment must not fail to boot
+    over its own historical credentials, and the operator needs the running
+    app to read the message on.
+    """
+    try:
+        row = query_one("SELECT rolsuper FROM pg_roles WHERE rolname = current_user")
+    except psycopg.Error:  # pragma: no cover — reported by the connection check
+        return []
+    if row and row["rolsuper"]:
+        return [
+            "Skein connects to PostgreSQL as a superuser. A superuser can run"
+            " shell commands on the database host through SQL. Create a role"
+            " with NOSUPERUSER and point SKEIN_DATABASE_URL at it."
+        ]
+    return []
+
+
 def close_pool() -> None:
     """Drop the pool. Shutdown, and the test suite between databases."""
     global _pool

@@ -39,6 +39,9 @@ for overlay in example-prod example-dev; do
   grep -q "image: postgres:17" "$rendered"      # matches backend/Dockerfile PG_MAJOR
   grep -q "name: SKEIN_DATABASE_URL" "$rendered"
   grep -q "pg_isready" "$rendered"              # port-open is not cluster-ready
+  grep -q "NOSUPERUSER" "$rendered"             # a superuser turns SQL into RCE
+  grep -q "SKEIN_APP_USER" "$rendered"          # the app connects as that role
+  grep -q "kind: NetworkPolicy" "$rendered"     # the 1:1 notes are on a network port now
   grep -q "timeout: 330s" "$rendered"           # router idle 30s < SSE silences
   grep -q "SKEIN_TRUST_PROXY_HOPS" "$rendered"
   ! grep -q "fsGroup:" "$rendered"              # restricted-v2 rejects any fixed value

@@ -74,16 +74,21 @@ spec:
                 configMapKeyRef:
                   name: skein-config
                   key: SKEIN_DB_PORT
+            # The APPLICATION role, not the bootstrap superuser that
+            # initialised the cluster. A superuser can COPY ... FROM PROGRAM,
+            # which runs shell commands on the database pod — see the reason
+            # written out in base/postgres.yaml. /health reports it if this
+            # ever points at a superuser again.
             - name: SKEIN_DB_USER
               valueFrom:
                 secretKeyRef:
                   name: skein-db-secret
-                  key: POSTGRES_USER
+                  key: SKEIN_APP_USER
             - name: SKEIN_DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: skein-db-secret
-                  key: POSTGRES_PASSWORD
+                  key: SKEIN_APP_PASSWORD
             - name: SKEIN_DB_NAME
               valueFrom:
                 secretKeyRef:

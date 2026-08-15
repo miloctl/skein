@@ -812,6 +812,9 @@ def health(specs: Sequence[JobSpec] = JOBS, settings: AppSettings | None = None)
         "model_warnings": unlisted_model_warnings() + config.menu_warnings(),
         "embeddings_error": config.EMBEDDINGS_ERROR,
         "overlay_errors": config.overlay_errors(),
+        # a database superuser is a standing privilege fault, not a config
+        # typo — db.privilege_warnings says what it costs and how to fix it
+        "database_warnings": db.privilege_warnings(),
         "identity_ownership_error": identity_ownership_error(),
         # the EFFECTIVE strategy, not the env default — the toggle overrides it,
         # and two surfaces disagreeing about one fact is the bug this avoids

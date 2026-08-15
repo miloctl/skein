@@ -1,3 +1,11 @@
+# Two database passwords are REQUIRED and have no defaults — compose refuses
+# to start without them:
+#   SKEIN_DB_ADMIN_PASSWORD  the bootstrap superuser, used once at init
+#   SKEIN_DB_PASSWORD        the role the app connects as (NOSUPERUSER)
+# A shipped default is a shipped credential: this file is documented for team
+# access over a VM hostname, and the one password nobody changes is the one
+# that came in the file.
+#
 # One knob for team access: set SKEIN_HOST to the VM's hostname/IP so
 # teammates' browsers can reach both services, e.g.
 #   SKEIN_HOST=my-vm.internal docker compose up --build
@@ -12,13 +20,23 @@ services:
     # image pull, not on the next deploy.
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: skein
-      POSTGRES_PASSWORD: ${SKEIN_DB_PASSWORD:-skein}
+      # The BOOTSTRAP superuser, used once to initialise the cluster.
+      POSTGRES_USER: skein_admin
+      POSTGRES_PASSWORD: ${SKEIN_DB_ADMIN_PASSWORD:?set SKEIN_DB_ADMIN_PASSWORD}
       POSTGRES_DB: skein
+      # The role the app connects as — created by the init script below with
+      # NOSUPERUSER, because a superuser can run shell commands on this
+      # container through SQL. /health reports it if the app ever connects as
+      # one anyway.
+      SKEIN_APP_USER: skein
+      SKEIN_APP_PASSWORD: ${SKEIN_DB_PASSWORD:?set SKEIN_DB_PASSWORD}
     volumes:
       - skein-db:/var/lib/postgresql/data
+      # The SAME script the Kubernetes ConfigMap carries, so dev rehearses the
+      # deployment's privilege model rather than a looser one.
+      - ./deploy/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U skein -d skein"]
+      test: ["CMD-SHELL", "pg_isready -U skein_admin -d skein"]
       interval: 5s
       timeout: 3s
       retries: 10

@@ -3,6 +3,7 @@ kind: Kustomization
 
 resources:
   - postgres.yaml
+  - network-policy.yaml
   - backend.yaml
   - frontend.yaml
   - routes.yaml

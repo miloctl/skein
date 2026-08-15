@@ -37,15 +37,30 @@ image installs (`backend/Dockerfile`, `PG_MAJOR`): `pg_dump` refuses a
 server newer than itself, and the failure lands in the nightly backup job
 rather than at boot, so the daily copy just stops being written.
 
-Credentials live in a `skein-db-secret` the overlay provides
-(`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`). The backend composes
-them with the host from the ConfigMap into `SKEIN_DATABASE_URL`. There is
-no default: the backend refuses to start without it rather than quietly
-serving an empty database.
+`skein-db-secret` carries FOUR keys, and the split is the point:
 
-`POSTGRES_PASSWORD` initialises the cluster on FIRST boot only. Changing
-the Secret later changes nothing in the database — use `ALTER ROLE` and
-update the Secret together.
+| key | who uses it |
+|---|---|
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` | the bootstrap superuser, used once by initdb |
+| `POSTGRES_DB` | the database name |
+| `SKEIN_APP_USER` / `SKEIN_APP_PASSWORD` | the role **the backend connects as** |
+
+The backend composes the app credentials with the host from the ConfigMap
+into `SKEIN_DATABASE_URL`. There is no default: it refuses to start without
+one rather than quietly serving an empty database.
+
+**The application role must not be a superuser.** A superuser can
+`COPY ... FROM PROGRAM`, which runs shell commands on the database pod, and
+`pg_read_file`, which reads its filesystem — so any SQL bug, and any
+extension (they supply raw SQL), escalates to command execution on that
+container. `base/postgres.yaml` creates the role with `NOSUPERUSER` on first
+boot. `/health` reports `database_warnings` if the backend connects as a
+superuser anyway, which is the only signal a deployment that skipped it
+gets. A managed PostgreSQL needs the same role created by hand.
+
+Both passwords initialise the cluster on FIRST boot only. Changing the
+Secret later changes nothing in the database — use `ALTER ROLE` and update
+the Secret together.
 
 **If your organization offers a managed PostgreSQL**, delete
 `postgres.yaml` from the base, point `SKEIN_DB_HOST` at that server, and
