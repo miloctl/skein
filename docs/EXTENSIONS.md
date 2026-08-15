@@ -346,7 +346,7 @@ missing, or conflicting legacy parents fail closed without exposing the
 parent ID or project class.
 
 Local domain writes keep context resolution, policy, and mutation in one
-SQLite write transaction. This rule covers REST, stock tools, MCP, public
+write transaction, with the deciding row held. This rule covers REST, stock tools, MCP, public
 commands, and verdict-time execution. External I/O uses its documented
 idempotency and completion contract instead of a database transaction.
 
@@ -397,7 +397,7 @@ Validated OIDC reads reserve human ownership before a handler runs. Weak
 trusted-header reads do not create roster rows and do not receive strong or
 private-data authority.
 Established OIDC users use a read-only ownership check. A first ownership
-claim can require the SQLite writer lock. Skein returns a retryable `503` if
+claim can wait on a row lock. Skein returns a retryable `503` if
 that lock is busy.
 Restart Skein after you change persona or flock overlays so startup can
 validate the complete identity roster.
@@ -524,7 +524,7 @@ it as `kept`, `missed`, or `withdrawn`. A promise settles once.
 
 Blocker and promise commands need `minimum_core = "0.2.2"`.
 
-Extensions receive typed views. They do not receive SQLite rows or a core
+Extensions receive typed views. They do not receive core rows or a core
 connection. Propose a new public command when an extension needs a stable core
 operation that is not available. Do not make every internal service public.
 
@@ -685,7 +685,7 @@ retrieval needs structured input, review, or a custom resource resolver.
 
 ## Subscribe to events
 
-All shared task writes create version 1 domain events in the SQLite outbox.
+All shared task writes create version 1 domain events in the durable outbox.
 Each event has an ID, type, schema version, time, actor, origin, resource
 reference, safe change summary, visibility, and correlation data.
 
@@ -736,26 +736,27 @@ their transaction invariants.
 
 ## Own extension data and migrations
 
-Use `ExtensionStore` for a small extension-owned SQLite database. Its
+Use `ExtensionStore` for a small extension-owned set of tables. Construct it
+with a NAME, and core gives it a schema of its own (`ext_<name>`). Its
 migration stream is namespaced and independent from core migration numbers.
 
-The store checks its configured path and refuses the core database paths. Its
-connections also refuse `ATTACH`, because the path check sees only the file
-the store opened. Both checks prevent accidents. They are not an isolation
-boundary: an in-process module runs with the same operating-system
-permissions as Skein and can open any file the process can. Keep untrusted
-code out of the module list and use a sidecar service for it.
+Unqualified names in the store's SQL resolve inside that schema and nowhere
+else. That prevents accidents. It is not an isolation boundary: an in-process
+module runs as the Skein process on one connection role, so SQL that NAMES
+`public.tasks` still reaches core. Keep untrusted code out of the module list
+and use a sidecar service for it.
 
-Core `0.2.0` supplies `connect`, `execute`, `query`, and `query_one`. The
-`transaction` helper requires core `0.2.1`. A package with a `0.2.0` floor
-must use `connect` when one operation needs an explicit SQLite transaction.
+The store supplies `execute`, `query`, `query_one`, `migrate`, and
+`transaction`, which nests. There is no `connect`: a raw connection would
+escape the schema scoping and the placeholder translation that make the rest
+of the contract hold.
 
 Use namespaced metadata only for sparse annotations with simple validation.
 Use extension-owned tables or an external store for indexed, relational, or
 invariant-rich data. Do not create a general entity-attribute-value store.
 
-Store stable Skein identifiers as external references. Do not create a foreign
-key into the core SQLite database. The public API, events, and commands define
+Store stable Skein identifiers as external references. Do not create a
+foreign key into a core table. The public API, events, and commands define
 the consistency boundary.
 
 Keep the mapping from your own identifier to the Skein one in that store.
@@ -986,9 +987,11 @@ Skein reads its configuration once, when `app.config` imports. Set every
 variable before the process imports `app`. A value set later has no effect.
 An installed deployment sets at least:
 
-- `SKEIN_DATA_DIR` holds the core SQLite database, artifacts, backups, and
-  exports. Always set it for an installed package. The default resolves
-  inside the installed package directory.
+- `SKEIN_DATABASE_URL` is the PostgreSQL connection URL. It is required:
+  there is no default, and the process refuses to start without it.
+- `SKEIN_DATA_DIR` holds artifacts, backups, and exports — no database.
+  Always set it for an installed package. The default resolves inside the
+  installed package directory.
 - `SKEIN_MODEL_PROVIDER` selects the model provider. The keyless `mock`
   provider is the default.
 - `SKEIN_AUTH_MODE` selects `trusted-header` (the default: the `X-User`

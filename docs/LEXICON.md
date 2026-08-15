@@ -454,7 +454,7 @@ the three.
 different sense — "search across the workspace" means the corpus, not an
 audience — which is exactly why it must not also name who can read a row.
 `private` is never shown because it is already taken: the People page's
-author-private journal lives in a separate `private.db` that no code path
+author-private journal lives in a separate `private` schema that no code path
 opens. A tier column earns less than a separate file (`docs/VISIBILITY.md`
 argues exactly this), so it must not reuse the word on the surface. "only you"
 says the same thing and claims nothing about the file layer.
@@ -499,5 +499,5 @@ access that either already exists or does not. Nothing changes hands).
 | **check** (user action) | **verify** (provenance) / **reconfirm** (charter, decisions) | CLAUDE.md reserves the last two |
 | **delete** (destruction) | **forget** (memories only) | CLAUDE.md |
 | **card** (guide UI) | **knot** (guide source) | see #6 |
-| **private** (the People journal — a separate `private.db` file no code path opens) | **only you** (the visibility tier, a column) | one is structural, one is a filter. `docs/VISIBILITY.md` refuses to let the column claim the word |
+| **private** (the People journal — a separate `private` schema no other code path names) | **only you** (the visibility tier, a column) | one is structural, one is a filter. `docs/VISIBILITY.md` refuses to let the column claim the word |
 | **crew** (a durable group of people) | **flock** (a named group of personas) | see the crew entry; the member word is `member` in both |

@@ -66,7 +66,7 @@ side effect review-gated, every model call accounted per member.
 ## Tech stack
 
 No new dependencies. Backend: FastAPI + the existing Strands agent layer +
-SQLite. Frontend: Next.js + Tailwind, hand-rolled SVG for the diamond — no
+PostgreSQL. Frontend: Next.js + Tailwind, hand-rolled SVG for the diamond — no
 graph library (the layout is fixed and small; physics would add jitter and
 a dependency for nothing).
 

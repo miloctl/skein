@@ -2,6 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
+  - postgres.yaml
   - backend.yaml
   - frontend.yaml
   - routes.yaml
@@ -20,6 +21,12 @@ configMapGenerator:
       # (docs/FEATURES.md, tamper-evident provenance) — an independent
       # storage backend is what makes that comparison mean something.
       - SKEIN_BACKUP_MIRROR=/backup-mirror
+      # The database. The HOST is here because it is not a secret; the
+      # credentials live in skein-db-secret, and the backend composes the two
+      # into SKEIN_DATABASE_URL (backend.yaml). Point this at a managed
+      # server and delete postgres.yaml to use one.
+      - SKEIN_DB_HOST=skein-db
+      - SKEIN_DB_PORT=5432
       # Keyless default. Overlays set a real provider and its Secret.
       - SKEIN_MODEL_PROVIDER=mock
 

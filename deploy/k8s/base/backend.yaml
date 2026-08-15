@@ -1,9 +1,12 @@
-# Single-replica by design, not by accident. One process is a load-bearing
-# assumption in: SQLite's single writer (WAL, db.py), the in-process
-# scheduler and its claim_job CAS (services/jobs.py), per-process rate-cap
-# windows (app/ratelimit.py), and the chat turn registry
-# (routes/chat.py::_inflight). Raising replicas corrupts none of the data
-# but double-fires none of the guarantees — do not raise it.
+# Single-replica by design, not by accident. The DATABASE no longer requires
+# it — PostgreSQL takes concurrent writers, and the check-then-write paths
+# hold real locks (db.py::name_lock, policy_context.hold_resource). What
+# still assumes one process: artifacts and exports on a ReadWriteOnce volume
+# (a second replica serves 404s for half of them), the in-process scheduler,
+# per-process rate-cap windows (app/ratelimit.py), and the chat turn registry
+# (routes/chat.py::_inflight). Raising replicas corrupts no data now, but it
+# double-fires the scheduler and halves every rate cap — do not raise it
+# until those three move.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -12,11 +15,11 @@ metadata:
     app: skein-backend
 spec:
   replicas: 1
-  # Recreate, never RollingUpdate: the data PVC is ReadWriteOnce, and the
-  # old pod must be fully gone before the new one applies migrations as the
-  # sole writer. The cost is seconds of downtime per upgrade — accepted, see
-  # deploy/k8s/README.md. A surge pod either wedges Pending on the volume
-  # attach or runs a second writer on the same node.
+  # Recreate, never RollingUpdate: the data PVC is ReadWriteOnce, so a surge
+  # pod wedges Pending on the volume attach. Migrations are safe either way
+  # now — init_db takes an advisory lock, so two booting pods serialize
+  # instead of racing — but the volume still admits one mounter. The cost is
+  # seconds of downtime per upgrade, accepted in deploy/k8s/README.md.
   strategy:
     type: Recreate
   selector:
@@ -50,6 +53,45 @@ spec:
           ports:
             - name: http
               containerPort: 8000
+          env:
+            # Composed here rather than stored whole, so the password stays in
+            # the Secret and the host stays in the ConfigMap. The backend
+            # refuses to start without it (config.py) — there is no default
+            # that could quietly serve an empty database instead.
+            # Host and port come from the ConfigMap through an explicit
+            # configMapKeyRef, NOT through envFrom: $() expansion only sees
+            # names defined earlier in THIS list, so an envFrom value would
+            # reach SKEIN_DATABASE_URL below as the literal text
+            # "$(SKEIN_DB_HOST)" and the pod would try to resolve that as a
+            # hostname.
+            - name: SKEIN_DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: skein-config
+                  key: SKEIN_DB_HOST
+            - name: SKEIN_DB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: skein-config
+                  key: SKEIN_DB_PORT
+            - name: SKEIN_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: skein-db-secret
+                  key: POSTGRES_USER
+            - name: SKEIN_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: skein-db-secret
+                  key: POSTGRES_PASSWORD
+            - name: SKEIN_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: skein-db-secret
+                  key: POSTGRES_DB
+            - name: SKEIN_DATABASE_URL
+              value: >-
+                postgresql://$(SKEIN_DB_USER):$(SKEIN_DB_PASSWORD)@$(SKEIN_DB_HOST):$(SKEIN_DB_PORT)/$(SKEIN_DB_NAME)
           envFrom:
             - configMapRef:
                 name: skein-config
@@ -90,6 +132,8 @@ spec:
             limits:
               memory: 1Gi
           volumeMounts:
+            # Artifacts, exports and the local backup copies. NO database:
+            # that is skein-db's own volume.
             - name: data
               mountPath: /data
             - name: backup-mirror
