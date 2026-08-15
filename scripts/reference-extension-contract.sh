@@ -59,6 +59,17 @@ mkdir -p \
 # committed metadata — the pair is two real version identities from two real
 # trees, with no rewriting. The guard stops the rehearsal from ever
 # comparing one implementation with itself.
+#
+# This pin advances when the SUPPORTED FLOOR moves, never once per release.
+# Do not convert it to "the newest tag other than HEAD" the way
+# upgrade-path.sh derives its baseline: the two answer different questions.
+# That one asks what a deployment runs today, so newest is right. This one
+# asks whether ONE unchanged extension spans the range its own metadata
+# claims (skein>=0.2.0,<0.3.0), so the fixture must be the FLOOR of that
+# range — deriving it from the newest tag shrinks the rehearsed span to a
+# single patch release and weakens the check silently with every tag.
+# NEXT_CORE is already read from HEAD's pyproject.toml below, so tagging
+# 0.2.5, 0.2.6 and onward needs no edit here at all.
 PRIOR_CORE="0.2.3"
 export PRIOR_CORE
 prior_backend_tree="$(git rev-parse dfb8a103d67cfff9cad23492f34f2a0e63bf70ee:backend)"
