@@ -12,7 +12,12 @@ name: ci
 on:
   push:
     branches: [main]
-    # a v* tag runs the publish job below; the other jobs guard themselves off
+    # A v* tag runs the publish job below AND every job it needs: — the gates
+    # do not guard themselves off, because a tag that published a wheel no
+    # test ran against is the failure the needs: exists to prevent. So every
+    # gate must pass at the tagged commit, scripts/upgrade-path.sh included:
+    # its baseline is the newest OTHER tag, which at a release commit is the
+    # release before it.
     tags: ["v*"]
 
 jobs:
@@ -59,6 +64,22 @@ jobs:
         # floor. 90 is a ratchet — measured 91% on 2026-08-14; raise it when
         # the number rises, never lower it to make a commit pass.
         run: pytest -q -n auto --cov=app --cov-fail-under=90
+      # The reference extension's own suite. It runs here as well as inside
+      # reference-extension-contract.sh because that script was its ONLY
+      # runner: while the script skipped across the engine migration, an API
+      # rename never reached the suite's conftest and the breakage sat
+      # unnoticed for weeks. Its own database — the suite shares one core
+      # database for the whole session while the main suite clones per
+      # worker, and pointing both at `skein` crosses their state.
+      - name: Reference extension tests
+        env:
+          SKEIN_MODEL_PROVIDER: mock
+          SKEIN_SCHEDULER: "0"
+          SKEIN_DATABASE_URL: postgresql://skein:skein@localhost:5432/skein_ext
+        run: |
+          psql postgresql://skein:skein@localhost:5432/skein -c 'CREATE DATABASE skein_ext'
+          pip install -e examples/workplace-extension
+          pytest -q -p no:cacheprovider examples/workplace-extension/backend/tests
       - uses: astral-sh/setup-uv@v6
       - name: Audit production dependencies
         # scripts/audit-deps.sh explains why this resolves the production
