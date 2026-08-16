@@ -10,6 +10,7 @@ import logging
 import time
 from collections.abc import Callable
 from datetime import date, timedelta
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -89,6 +90,10 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # that dies after the claim ties this too. Still the right probe:
     # tool_usage's 'chat' surface would tie on merely opening the page.
     "chat": lambda u: _has("SELECT 1 FROM chat_threads WHERE owner = ?", (u,)),
+    # Both features are reads. Their routes mark first use because no existing
+    # record can distinguish opening page help or speaking to this persona.
+    "page_help": None,
+    "bosun": None,
     # one row per flock turn, written when the turn closes — a cancelled turn
     # ties it too, which is right: the person called a flock and it flew
     "flocks": lambda u: _has('SELECT 1 FROM flock_traces WHERE "user" = ?', (u,)),
@@ -224,6 +229,19 @@ def registry() -> list[dict]:
     # a copy per caller — the cache must not be poisonable by a mutating one.
     # dict(k), not a bare list copy: the cards are the mutable part
     return [dict(k) for k in knots]
+
+
+def cards_for_path(path: str) -> list[dict]:
+    """Field-guide cards whose links lead to this route or one of its parents."""
+    if not path.startswith("/") or path.startswith("//") or "?" in path or "#" in path:
+        raise ValueError("path must be an in-app path")
+    route = path.rstrip("/") or "/"
+    return [
+        card
+        for card in registry()
+        if (link := urlsplit(str(card["link"])).path.rstrip("/") or "/") == route
+        or (link != "/" and route.startswith(f"{link}/"))
+    ]
 
 
 def _is_active_human(person: str) -> bool:

@@ -167,10 +167,20 @@ knots:
     feature: Chat & the bench
     knot: Spanish Bowline
     set: loops
-    pitch: The Chief of Staff, ten specialist personas, and slash commands that run without a model.
+    pitch: The Chief of Staff, the specialist bench, and slash commands that run without a model.
     how: "Open Chat. Try `/help`, or `/as growth-mentor …` to call the bench."
     link: /chat
     since: 2026-07-31
+
+  - id: page_help
+    feature: Page help
+    knot: Eskimo Bowline
+    set: loops
+    ties: mark
+    pitch: A loose end is easier to tie when the right knot is already beside it.
+    how: Open ? in the top bar. Read the page cards, or ask the Bosun.
+    link: /
+    since: 2026-08-16
 
   - id: flocks
     feature: Flocks
@@ -225,6 +235,16 @@ knots:
     since: 2026-07-31
 
   # ---- Hitches — attaching work to an agent ---------------------------
+  - id: bosun
+    feature: Bosun
+    knot: Marlinspike Hitch
+    set: hitches
+    ties: mark
+    pitch: Every deck needs someone who knows where each line runs.
+    how: Open the Bosun from this card. Ask how to use a Skein feature.
+    link: /chat?as=bosun
+    since: 2026-08-16
+
   - id: delegate
     feature: Delegate to an agent
     knot: Rolling Hitch
