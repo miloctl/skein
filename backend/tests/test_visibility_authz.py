@@ -441,6 +441,17 @@ _EXEMPT_FILES = {
 # name -> why the guard does not belong. An absence with no reason reads as an
 # oversight to the next reader (CLAUDE.md).
 _EXEMPT_FUNCTIONS = {
+    # An upload is owned like a CHAT THREAD, not like a scoped content row:
+    # services/uploads.py keys every read and write on created_by against the
+    # resolved name, which is the one filter that works in trusted-header mode
+    # too. scope.assert_editable would be the wrong check here — it resolves
+    # crews and tiers for a row this one deliberately never shares, and its
+    # private tier is unreadable to a nameless viewer, so the uploader could
+    # not reach their own file.
+    "uploads.py::save_upload": (
+        "inserts a new row and names the file after the id it just got back;"
+        " the caller addresses no existing id"
+    ),
     "work.py::_update_task_locked": (
         "the public update_task wrapper owns the transaction and inventory entry;"
         " this private implementation performs its guarded SQL inside that boundary"
@@ -616,6 +627,20 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
 
 # file::function -> why this read needs no tier filter.
 _UNFILTERED_READS = {
+    "uploads.py::used_bytes": (
+        "sums the SIZES of one person's own uploads to enforce their quota and"
+        " returns an integer. No row, title or path reaches a caller, and the"
+        " owner is the resolved name rather than anything the caller sent"
+    ),
+    "uploads.py::owned_upload": (
+        "the owner-scoped read an upload has INSTEAD of a viewer filter, keyed"
+        " on created_by like services/chat_threads.py keys on owner. A viewer"
+        " filter would be strictly worse here: an upload carries the private"
+        " tier, and scope.visible_filter drops the author arm for a nameless"
+        " viewer, so in trusted-header mode the uploader could not read back"
+        " the file they had just attached. A miss raises NotFound, so the"
+        " route cannot tell a caller that somebody else's row exists"
+    ),
     "policy_context.py::hold_resource": (
         "takes a row lock and returns NOTHING — no column of the row reaches a"
         " caller, so there is no tier to leak. It exists so a policy decision"

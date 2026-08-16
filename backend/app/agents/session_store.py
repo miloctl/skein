@@ -89,6 +89,46 @@ def session_manager(thread_id: str) -> RepositorySessionManager:
     )
 
 
+# The formats routes/chat.py can attach, and the marker each leaves behind.
+_ATTACHMENT_BLOCKS = ("document", "image", "video")
+
+
+def _without_attachment_bytes(payload: dict) -> dict:
+    """One persisted message, with any attached file reduced to its name.
+
+    An attached file reaches the model as a content block holding the whole
+    file. Stored as-is, it would sit in this row for the life of the thread
+    AND be replayed to the provider on every later turn of that thread — an
+    8 MB PDF billed once per message thereafter, for a file the turn that
+    needed it has already read.
+
+    So the bytes are a property of ONE turn, and the history keeps a name. The
+    agent re-reads the file through its own tool when a later turn needs it.
+    Redacted HERE rather than at the call site because this is the single
+    point every message the SDK persists passes through, including the ones
+    the summarizing conversation manager rewrites.
+    """
+    content = payload.get("message", {}).get("content")
+    if not isinstance(content, list):
+        return payload
+    if not any(isinstance(b, dict) and b.keys() & {*_ATTACHMENT_BLOCKS} for b in content):
+        return payload
+    trimmed = []
+    for block in content:
+        if not isinstance(block, dict):
+            trimmed.append(block)
+            continue
+        kind = next((k for k in _ATTACHMENT_BLOCKS if k in block), "")
+        if not kind:
+            trimmed.append(block)
+            continue
+        name = ""
+        if isinstance(block[kind], dict):
+            name = str(block[kind].get("name", ""))
+        trimmed.append({"text": f"[attached file: {name}]" if name else "[attached file]"})
+    return {**payload, "message": {**payload["message"], "content": trimmed}}
+
+
 class DatabaseSessionRepository(SessionRepository):
     """CRUD over the session tables, holding FileSessionManager's contract:
     create_agent and create_message are last-writer-wins (the file store
@@ -151,7 +191,7 @@ class DatabaseSessionRepository(SessionRepository):
                 session_id,
                 agent_id,
                 session_message.message_id,
-                json.dumps(session_message.to_dict()),
+                json.dumps(_without_attachment_bytes(session_message.to_dict())),
             ),
         )
 

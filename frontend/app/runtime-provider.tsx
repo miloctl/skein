@@ -5,6 +5,7 @@ import {
   AssistantRuntimeProvider,
   useLocalRuntime,
   useThreadRuntime,
+  type AttachmentAdapter,
   type ChatModelAdapter,
   type ThreadMessageLike,
 } from "@assistant-ui/react";
@@ -14,6 +15,77 @@ import { accessTokenSync, sessionRejected } from "@/lib/auth";
 import { reportStatus } from "@/lib/status";
 import { chatThreads } from "@/lib/chat-threads";
 import { outgoing } from "@/lib/persona";
+
+/** What POST /api/files accepts (backend services/uploads.py). Kept as
+ *  extensions rather than MIME types because that is what the backend keys
+ *  on, and a browser reports an empty `type` for several of these. */
+const ACCEPT =
+  ".pdf,.csv,.doc,.docx,.xls,.xlsx,.html,.txt,.md,.png,.jpg,.jpeg,.gif,.webp";
+
+/** Uploads the file when the message is SENT, not when it is picked.
+ *
+ *  Picking would leave a stored file behind for every attachment a person
+ *  reconsiders, and remove() would need a delete endpoint to clean up — one
+ *  that does not exist, because deleting a stored file is a destructive write
+ *  that belongs behind human review.
+ *
+ *  The artifact id rides in the attachment's own `id`, which is the field the
+ *  adapter owns (SimpleImageAttachmentAdapter fills it with a generated one).
+ *  `content` stays empty on purpose: the file goes to the model as a content
+ *  block the BACKEND builds from the id, so the bytes never travel through
+ *  the browser's message state or the stored transcript. */
+function makeAttachmentAdapter(): AttachmentAdapter {
+  return {
+    accept: ACCEPT,
+    async add({ file }) {
+      return {
+        id: `pending-${file.name}-${file.size}`,
+        type: "document",
+        name: file.name,
+        contentType: file.type,
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      };
+    },
+    async send(attachment) {
+      const body = new FormData();
+      body.append("file", attachment.file);
+      const auth = await bearer();
+      const res = await fetch(`${API_URL}/api/files`, {
+        method: "POST",
+        headers: {
+          ...userHeader(),
+          ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
+        },
+        body,
+      });
+      if (!res.ok) {
+        let detail = "";
+        try {
+          const parsed = await res.json();
+          detail = typeof parsed.detail === "string" ? parsed.detail : "";
+        } catch {
+          /* non-JSON body: fall through to the status line */
+        }
+        // thrown, not reported: assistant-ui keeps the composer's draft when
+        // send() rejects, so the message the person typed survives a refused
+        // attachment instead of being sent without it
+        throw new Error(detail || `The file was not attached (${res.status}).`);
+      }
+      const stored = await res.json();
+      return {
+        ...attachment,
+        id: String(stored.id),
+        name: stored.title,
+        status: { type: "complete" },
+        content: [],
+      };
+    },
+    async remove() {
+      // nothing is stored until send(), so there is nothing to take back
+    },
+  };
+}
 
 /** Streams from the FastAPI backend, which emits SSE lines of
  *  {"type": "text" | "tool" | "error" | "done", ...}.
@@ -45,7 +117,16 @@ function makeAdapter(threadId: string): ChatModelAdapter {
           ...userHeader(),
           ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
         },
-        body: JSON.stringify({ thread_id: threadId, message: text }),
+        // the ids the attachment adapter got back from POST /api/files. The
+        // backend resolves them owner-scoped and builds the model's content
+        // blocks, so no file content crosses this boundary twice.
+        body: JSON.stringify({
+          thread_id: threadId,
+          message: text,
+          attachments: (last.attachments ?? [])
+            .map((a) => Number(a.id))
+            .filter((id) => Number.isInteger(id) && id > 0),
+        }),
         signal: abortSignal,
       });
       if (!res.ok || !res.body) {
@@ -218,7 +299,8 @@ export function RuntimeProvider({
   children: ReactNode;
 }) {
   const adapter = useMemo(() => makeAdapter(threadId), [threadId]);
-  const runtime = useLocalRuntime(adapter);
+  const attachments = useMemo(() => makeAttachmentAdapter(), []);
+  const runtime = useLocalRuntime(adapter, { adapters: { attachments } });
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadHydrator threadId={threadId}>{children}</ThreadHydrator>

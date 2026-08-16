@@ -77,6 +77,10 @@ LIMITS = {
     "chat": 20,
     "write": 30,  # generic create-endpoint cap — content rows per person
     "artifact": 4,  # digest/readout/handoff each write a file per call
+    # its own bucket rather than `write`: one upload can be 8 MB of body and a
+    # file on the volume, so it is metered against disk and bandwidth rather
+    # than against the content rows a person files in a planning hour
+    "upload": 12,
     "verify": 2,  # full-chain walk over an unpruned table — the priciest read
     # per-row provenance. Ids are a dense integer space and this answers about
     # ONE row, so an uncapped GET is the mechanism that turns a per-row

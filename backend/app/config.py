@@ -95,21 +95,33 @@ SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 #                      would degrade a working keyless box to mock. Bedrock
 #                      resolves the ambient AWS chain, which is not readable
 #                      from here.
+# `attachments` is the media kinds this provider's strands model class can
+# actually format (strands/models/*.py::format_request_message_content), so
+# routes/chat.py asks the REGISTRY what an attachment may become instead of
+# branching on a provider name — team_agent._model() is the only place that
+# may do that. A kind absent here degrades to text, never to a request the
+# provider answers with a 400. ollama takes images only: its formatter has no
+# document branch at all. openai_compatible claims both because it shares the
+# OpenAI formatter; whether the SERVED model understands a document is the
+# operator's to know, and that failure is a model answer, not a crash.
 PROVIDERS: dict[str, dict] = {
     "mock": {
         "default_model": "mock",
+        "attachments": (),
         "base_url": "forbidden",
         "key_env": "",
         "key_required": False,
     },
     "anthropic": {
         "default_model": "claude-opus-4-8",
+        "attachments": ("image", "document"),
         "base_url": "forbidden",
         "key_env": "ANTHROPIC_API_KEY",
         "key_required": True,
     },
     "openai": {
         "default_model": "gpt-5",
+        "attachments": ("image", "document"),
         "base_url": "forbidden",
         "key_env": "OPENAI_API_KEY",
         "key_required": True,
@@ -124,6 +136,7 @@ PROVIDERS: dict[str, dict] = {
     # in SKEIN_MODEL_API_KEY.
     "openai_compatible": {
         "default_model": None,
+        "attachments": ("image", "document"),
         "base_url": "required",
         "key_env": "",
         "key_required": False,
@@ -133,6 +146,7 @@ PROVIDERS: dict[str, dict] = {
     # degrades to mock at boot.
     "ollama": {
         "default_model": "gpt-oss:120b-cloud",
+        "attachments": ("image",),
         "base_url": "forbidden",
         "key_env": "OLLAMA_API_KEY",
         "key_required": False,
@@ -145,6 +159,7 @@ PROVIDERS: dict[str, dict] = {
     # on-demand. Better to demand SKEIN_MODEL_ID than to ship one that 400s.
     "bedrock": {
         "default_model": None,
+        "attachments": ("image", "document"),
         "base_url": "forbidden",
         "key_env": "",
         "key_required": False,

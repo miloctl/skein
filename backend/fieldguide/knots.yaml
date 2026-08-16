@@ -496,3 +496,13 @@ knots:
     how: Link a chat to an engagement from the sidebar menu. That chat then recalls the engagement's own memories on top of the team's. Filing one back is a proposal a person approves.
     link: /chat
     since: 2026-08-10
+
+  - id: chat_attachment
+    feature: Attach a file to a question
+    knot: Timber Hitch
+    set: hitches
+    role: any
+    pitch: The document goes with the question, so the answer is about the thing in front of you.
+    how: "Select + beside the composer. A file is yours alone: no teammate reads it, and it never appears under Reports. The file goes to the model provider this deployment uses. On a keyless deployment, a text file is still read in full."
+    link: /chat
+    since: 2026-08-16

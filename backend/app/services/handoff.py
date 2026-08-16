@@ -291,7 +291,12 @@ def read_artifact(
 # gets through a MARKDOWN reader, so leaving it in put a raw JSON blob at the
 # top of a page whose subtitle promises digests and briefs — and it would eat
 # the LIST_LIMIT budget the card's count reasons about.
-_NOT_A_REPORT = ("plan-snapshot",)
+#
+# `upload` (services/uploads.py) for a second reason on top of that one: an
+# upload is a person's own attached file, it is usually not text at all, and
+# read_artifact would answer read_text() on a PDF with a 500. Uploads are read
+# back through their own owner-scoped route, never through this reader.
+_NOT_A_REPORT = ("plan-snapshot", "upload")
 
 
 def list_artifacts(

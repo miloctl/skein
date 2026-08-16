@@ -10,6 +10,7 @@ import {
 import {
   ThreadPrimitive,
   MessagePrimitive,
+  AttachmentPrimitive,
   ComposerPrimitive,
   useComposer,
   useComposerRuntime,
@@ -70,8 +71,36 @@ export const MarkdownText = () => (
   />
 );
 
+/** One attached file, in the composer and on the sent message. The name is a
+ *  filename the uploader chose, so it is rendered as text and never as a
+ *  link — services/uploads.py strips the control and bidi characters that
+ *  would let it disguise itself, and nothing here re-introduces markup. */
+const AttachmentChip = () => (
+  <AttachmentPrimitive.Root className="mb-1.5 mr-1.5 inline-flex max-w-full items-center gap-1.5 rounded-lg border border-line-strong bg-raised py-1 pl-2 pr-1 text-xs text-ink-2">
+    <span className="truncate">
+      <AttachmentPrimitive.Name />
+    </span>
+    <AttachmentPrimitive.Remove
+      aria-label="Remove this file"
+      className="flex min-h-6 min-w-6 items-center justify-center rounded leading-none hover:bg-card"
+    >
+      <span aria-hidden>×</span>
+    </AttachmentPrimitive.Remove>
+  </AttachmentPrimitive.Root>
+);
+
+/** The same chip on a message already sent, where there is nothing to remove. */
+const SentAttachmentChip = () => (
+  <AttachmentPrimitive.Root className="mb-1 ml-1.5 inline-flex max-w-full items-center rounded-lg border border-line-strong bg-raised px-2 py-1 text-xs text-ink-2">
+    <span className="truncate">
+      <AttachmentPrimitive.Name />
+    </span>
+  </AttachmentPrimitive.Root>
+);
+
 const UserMessage = () => (
-  <MessagePrimitive.Root className="flex justify-end py-2">
+  <MessagePrimitive.Root className="flex flex-col items-end py-2">
+    <MessagePrimitive.Attachments components={{ Attachment: SentAttachmentChip }} />
     <div className="max-w-[80%] rounded-2xl bg-thread-solid px-4 py-2.5 text-sm text-white">
       <MessagePrimitive.Parts />
     </div>
@@ -615,7 +644,16 @@ const Composer = () => {
           </span>
         </div>
       )}
-      <ComposerPrimitive.Root className="flex items-end gap-2 rounded-xl border border-line-strong bg-card p-2 shadow-card">
+      <ComposerPrimitive.Root className="rounded-xl border border-line-strong bg-card p-2 shadow-card">
+        <ComposerPrimitive.Attachments components={{ Attachment: AttachmentChip }} />
+        <div className="flex items-end gap-2">
+        <ComposerPrimitive.AddAttachment
+          aria-label="Attach a file"
+          title="Attach a file"
+          className="flex min-h-9 min-w-9 items-center justify-center rounded-lg border border-line-strong text-ink-2 transition hover:bg-raised disabled:opacity-40"
+        >
+          <span aria-hidden>+</span>
+        </ComposerPrimitive.AddAttachment>
         <ComposerPrimitive.Input
           {...inputHistory}
           name="message"
@@ -637,7 +675,11 @@ const Composer = () => {
         <ComposerPrimitive.Send className="rounded-lg bg-thread-solid px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-40">
           Send
         </ComposerPrimitive.Send>
+        </div>
       </ComposerPrimitive.Root>
+      <p className="mt-1.5 text-xs text-ink-3">
+        An attached file goes to the model provider this deployment uses.
+      </p>
     </div>
   );
 };

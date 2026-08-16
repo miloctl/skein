@@ -172,6 +172,23 @@ this file is only for accepted trade-offs that must eventually be repaid.
   dynamic agent topology, and evaluate then whether to wrap the strands
   tools in governance or extend `consult_specialist` instead.
 
+- **An uploaded file has no retention policy and no delete.** A file attached
+  in chat is stored until somebody removes it by hand, and nothing removes it:
+  `services/uploads.py` ships a per-person quota (100 MB) and no way to spend
+  it down. Accepted 2026-08-16 because deleting a stored file is a destructive
+  write, and the honest version of it is a reviewed one — the shape
+  `tools/_gate.py::ALWAYS_REVIEW` already gives note and memory deletion —
+  rather than a DELETE route added in the same commit that shipped the
+  upload. The quota is what bounds growth until then, and it binds per person,
+  so the failure mode is one person being told to clear space rather than a
+  volume filling. Repay by adding the reviewed delete (row, file, and the
+  quota it frees together, in one transaction), then decide retention: the
+  open question is whether a file outlives the chat thread that carried it,
+  and today it does, because the artifacts table has no link back to the
+  thread. In trusted-header mode an upload's privacy is only as strong as
+  `X-User`, which is the exposure class the field-guide entry above already
+  records — uploads join it and close the same way.
+
 Decided against, so the next review does not re-open them: Postgres (wrong
 scale — the services layer keeps the door open), Redis-backed rate limits
 (per-pod buckets are fine at one replica), a migration framework (the
