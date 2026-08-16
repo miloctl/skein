@@ -71,6 +71,9 @@ INVALID = [
     [{"id": "m", "price": {"input": True, "output": 2}}],
     [{"id": "m", "price": [1, 2]}],
     [{"id": "m", "params": "hot"}],
+    [{"id": "m", "attachments": "image"}],
+    [{"id": "m", "attachments": [1]}],
+    [{"id": "m", "attachments": ["video"]}],
     # pins the v1 decision: no cached_input until usage_log carries
     # cache-read tokens — a price nothing multiplies is a believed number
     # not in effect
@@ -94,6 +97,25 @@ def test_a_valid_registry_parses(monkeypatch):
     floaty = cfg.MODELS["float-tuned"]
     assert floaty["max_tokens"] == 4096 and isinstance(floaty["max_tokens"], int)
     assert floaty["context_tokens"] == 32768 and isinstance(floaty["context_tokens"], int)
+
+
+def test_attachments_is_declared_per_model_and_absence_differs_from_empty(monkeypatch):
+    """The provider knows what its formatter can express; only the operator
+    knows what the endpoint they pointed at is serving. Absent must stay
+    distinguishable from an empty list, or "use the provider default" and
+    "this model takes nothing" become the same entry."""
+    cfg = _reload(
+        monkeypatch,
+        [
+            {"id": "vision", "attachments": ["image"]},
+            {"id": "text-only", "attachments": []},
+            {"id": "unstated"},
+        ],
+    )
+    assert cfg.MODELS_ERROR == ""
+    assert cfg.MODELS["vision"]["attachments"] == ("image",)
+    assert cfg.MODELS["text-only"]["attachments"] == ()
+    assert cfg.MODELS["unstated"]["attachments"] is None
 
 
 def test_no_registry_means_no_menu_and_no_error(monkeypatch):

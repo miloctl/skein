@@ -32,7 +32,7 @@ from ..agents.identity import (
     set_requester_viewer,
     start_consults,
 )
-from ..agents.team_agent import build_agent, build_synthesizer, build_titler
+from ..agents.team_agent import build_agent, build_synthesizer, build_titler, model_in_force
 from ..extensions.fastapi import PolicyAPIRoute, subject_for
 from ..extensions.policy import (
     PolicyEngine,
@@ -114,7 +114,9 @@ _TEXT_FORMATS = {"txt", "md", "csv", "html"}
 _TEXT_INLINE_CHARS = 20_000
 
 
-def _attachment_prompt(message: str, ids: list[int], owner: str) -> tuple[Any, list[str]]:
+def _attachment_prompt(
+    message: str, ids: list[int], owner: str, model_id: str = ""
+) -> tuple[Any, list[str]]:
     """The turn's prompt, and the titles of the files that reached it.
 
     Returns the bare message when nothing is attached, so an ordinary turn
@@ -122,7 +124,10 @@ def _attachment_prompt(message: str, ids: list[int], owner: str) -> tuple[Any, l
     """
     if not ids:
         return message, []
-    accepted = config.PROVIDERS.get(config.EFFECTIVE_PROVIDER, {}).get("attachments", ())
+    # the MODEL in force, not the provider: a provider's formatter can express
+    # an image while the model it serves refuses one, and that mismatch is a
+    # 400 that kills the turn rather than a weaker answer (config.py)
+    accepted = config.attachment_support(model_id)
     blocks: list[dict] = []
     titles: list[str] = []
     # dict.fromkeys, not set(): the same file named twice costs one copy and
@@ -1121,7 +1126,17 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
     # Resolved BEFORE the agent is built: an id that is absent or belongs to
     # somebody else must be a 404 the client can act on, not an error frame
     # part-way through a stream whose user turn is already in the transcript.
-    prompt, attached = await run_in_threadpool(_attachment_prompt, message, req.attachments, user)
+    # A BENCH persona can override the model, and that override rides the same
+    # ladder the agent build uses — so an attachment is judged against what the
+    # turn actually runs on. An extension specialist is not on the bench and
+    # has no behavior row (personas.behavior raises for its slug); it runs the
+    # deployment model, which is what an empty override resolves to.
+    persona_model = ""
+    if persona and persona not in extension_specialists:
+        persona_model = (await run_in_threadpool(personas.behavior, persona))["model"]
+    prompt, attached = await run_in_threadpool(
+        _attachment_prompt, message, req.attachments, user, model_in_force(persona_model)
+    )
     try:
         # threadpool, not inline: build_agent restores the whole session
         # transcript from disk before it returns

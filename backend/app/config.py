@@ -95,15 +95,21 @@ SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 #                      would degrade a working keyless box to mock. Bedrock
 #                      resolves the ambient AWS chain, which is not readable
 #                      from here.
-# `attachments` is the media kinds this provider's strands model class can
-# actually format (strands/models/*.py::format_request_message_content), so
-# routes/chat.py asks the REGISTRY what an attachment may become instead of
-# branching on a provider name — team_agent._model() is the only place that
-# may do that. A kind absent here degrades to text, never to a request the
-# provider answers with a 400. ollama takes images only: its formatter has no
-# document branch at all. openai_compatible claims both because it shares the
-# OpenAI formatter; whether the SERVED model understands a document is the
-# operator's to know, and that failure is a model answer, not a crash.
+# `attachments` is the media kinds a chat attachment may become here
+# (routes/chat.py), read as a CAPABILITY so nothing outside team_agent._model()
+# branches on a provider name. A kind absent from the effective set degrades to
+# text, and the reader is told the model cannot open that file.
+#
+# It is set per provider ONLY where the model is ours to know. anthropic,
+# openai and bedrock serve model families that all accept these; ollama and
+# openai_compatible serve whatever the OPERATOR chose, so they declare nothing
+# and `attachments` on a SKEIN_MODELS entry is how a vision model turns it on.
+# The split is not pedantic: the provider's formatter and the served model are
+# different things, and claiming a capability the model lacks is not a worse
+# answer but a 400 that kills the whole turn (`this model does not support
+# image input` — ollama serving a text model, 2026-08-16).
+#
+# config.attachment_support() resolves the two layers and is what callers use.
 PROVIDERS: dict[str, dict] = {
     "mock": {
         "default_model": "mock",
@@ -136,7 +142,11 @@ PROVIDERS: dict[str, dict] = {
     # in SKEIN_MODEL_API_KEY.
     "openai_compatible": {
         "default_model": None,
-        "attachments": ("image", "document"),
+        # empty for the same reason ollama's is: this provider is whatever
+        # endpoint the operator pointed it at, serving whatever model they
+        # chose. The OpenAI formatter can express both, and the SERVED model
+        # is the one that answers 400. SKEIN_MODELS declares it per model.
+        "attachments": (),
         "base_url": "required",
         "key_env": "",
         "key_required": False,
@@ -146,7 +156,12 @@ PROVIDERS: dict[str, dict] = {
     # degrades to mock at boot.
     "ollama": {
         "default_model": "gpt-oss:120b-cloud",
-        "attachments": ("image",),
+        # EMPTY, though the formatter has an image branch: the operator picks
+        # which model ollama serves, and most are text-only — a text model
+        # answers an image with `this model does not support image input`
+        # (HTTP 400), which kills the whole turn. Declare `attachments` on the
+        # model's SKEIN_MODELS entry to turn it on for a vision model.
+        "attachments": (),
         "base_url": "forbidden",
         "key_env": "OLLAMA_API_KEY",
         "key_required": False,
@@ -304,8 +319,13 @@ except (ValueError, OverflowError):
 # schemas/skein_models.schema.json is the same contract for ConfigMap
 # editors; tests/test_model_registry.py pins the two against each other.
 _MODEL_ENTRY_FIELDS = frozenset(
-    {"id", "label", "detail", "max_tokens", "context_tokens", "price", "params"}
+    {"id", "label", "detail", "max_tokens", "context_tokens", "price", "params", "attachments"}
 )
+# What a chat attachment may become for this model (routes/chat.py). The
+# PROVIDER says what its formatter can express; only the operator knows what
+# the model they are serving actually accepts, and getting it wrong is a 400
+# that kills the turn rather than a degraded answer.
+_MODEL_ATTACHMENT_KINDS = ("image", "document")
 # price carries only keys the accounting multiplies (usage.py::cost_for reads
 # input and output). cached_input is deliberately absent until usage_log
 # carries cache-read tokens — a price nothing multiplies is a believed number
@@ -376,6 +396,24 @@ def _model_entry_faults(tag: str, mid: str | None, entry: dict, out: dict[str, d
     params = entry.get("params")
     if params is not None and not isinstance(params, dict):
         faults.append(f"{tag}: params must be a JSON object.")
+    # None (absent) and () (declared empty) are DIFFERENT: absent falls back to
+    # the provider, declared-empty refuses attachments for this model even
+    # where the provider allows them — which is how an operator turns them off
+    # for one old model on a capable provider.
+    attachments: tuple[str, ...] | None = None
+    raw_attachments = entry.get("attachments")
+    if raw_attachments is not None:
+        if not isinstance(raw_attachments, list) or not all(
+            isinstance(k, str) for k in raw_attachments
+        ):
+            faults.append(f"{tag}: attachments must be a JSON array of strings.")
+        elif unknown := sorted(set(raw_attachments) - set(_MODEL_ATTACHMENT_KINDS)):
+            faults.append(
+                f"{tag}: attachments has unknown kinds: {', '.join(unknown)}."
+                f" Use {' or '.join(_MODEL_ATTACHMENT_KINDS)}."
+            )
+        else:
+            attachments = tuple(dict.fromkeys(raw_attachments))
     if not faults and mid:
         out[mid] = {
             "id": mid,
@@ -385,6 +423,7 @@ def _model_entry_faults(tag: str, mid: str | None, entry: dict, out: dict[str, d
             "context_tokens": context_tokens,
             "price": pair,
             "params": params or {},
+            "attachments": attachments,
         }
     return faults
 
@@ -439,6 +478,28 @@ if EFFECTIVE_PROVIDER != "mock" and not MODEL_ID:
         " set SKEIN_MODEL_ID to whatever the endpoint serves"
     )
     EFFECTIVE_PROVIDER, MODEL_ID = "mock", "mock"
+
+
+def attachment_support(model_id: str = "") -> tuple[str, ...]:
+    """What a chat attachment may become for the model actually in use.
+
+    The MODEL's declaration wins whole when it has one, because only the
+    operator knows what the endpoint they chose is serving; otherwise the
+    provider default applies. A declared empty list therefore turns
+    attachments off for one model on an otherwise capable provider, and an
+    absent entry on ollama or openai_compatible means "no", not "unknown" —
+    guessing yes is a 400 that kills the turn, guessing no is a line telling
+    the reader the model cannot open that file.
+
+    Model ids reaching here come from SKEIN_MODEL_ID, the admin pick, or a
+    persona override, and each is a plain id — a miss just falls through to
+    the provider default, which is the same answer as before the entry
+    existed.
+    """
+    entry = MODELS.get(model_id or MODEL_ID)
+    if entry and entry["attachments"] is not None:
+        return entry["attachments"]
+    return tuple(PROVIDERS.get(EFFECTIVE_PROVIDER, {}).get("attachments", ()))
 
 
 def menu_warnings() -> list[str]:

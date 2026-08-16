@@ -87,6 +87,18 @@ def _picked_model() -> str:
         return ""
 
 
+def model_in_force(persona_model: str = "") -> str:
+    """The model id a turn actually runs on: persona > admin pick > env.
+
+    Exported so routes/chat.py can ask what a turn will run on BEFORE the
+    agent is built — it has to know the model to know whether an attachment
+    may be sent as an image (config.attachment_support). _model() below calls
+    the same function rather than repeating the ladder, because two copies of
+    a precedence rule is how one of them ends up a version behind.
+    """
+    return persona_model or _picked_model() or config.MODEL_ID
+
+
 def _model(model_id: str = "", temperature: float | None = None):
     """Build the configured model provider. THE only place in the codebase
     that branches on a provider name — everything else reads a capability off
@@ -123,7 +135,7 @@ def _model(model_id: str = "", temperature: float | None = None):
         raise ValueError(config.MODEL_PROVIDER_ERROR)
 
     key = config.provider_key()
-    mid = model_id or _picked_model() or config.MODEL_ID
+    mid = model_in_force(model_id)
     entry = config.MODELS.get(mid) or {}
     extra = {
         **entry.get("params", {}),
