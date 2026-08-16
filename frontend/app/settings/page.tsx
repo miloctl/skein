@@ -492,15 +492,21 @@ export default function SettingsPage() {
     () => CUSTOM_DEFAULT.weld,
   );
 
-  // the My Day checklist dismissal lives in this browser's localStorage;
-  // restoring is just deleting the flag (progress is recomputed server-side)
+  // A bearer can resolve to somebody other than the local name. The same
+  // server identity that owns My Day data must own its dismissal flag.
+  const checklistUser = who?.user ?? "";
   const checklistHidden = useSyncExternalStore(
     subscribeStorage,
-    () => window.localStorage.getItem(`skein-onboarded:${currentUser}`) === "1",
+    () =>
+      Boolean(
+        checklistUser &&
+          window.localStorage.getItem(`skein-onboarded:${checklistUser}`) === "1",
+      ),
     () => false,
   );
   const restoreChecklist = () => {
-    window.localStorage.removeItem(`skein-onboarded:${currentUser}`);
+    if (!checklistUser) return;
+    window.localStorage.removeItem(`skein-onboarded:${checklistUser}`);
     window.dispatchEvent(new Event("storage"));
   };
 

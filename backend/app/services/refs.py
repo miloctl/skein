@@ -21,6 +21,11 @@ it the task meaning, but a receipt that means a task says "task".
 """
 
 import re
+from collections.abc import Callable
+
+from . import policy_context, scope
+
+ResourceFilter = Callable[[str, int, dict[str, str]], bool]
 
 # entity word -> the surface that renders one row of it. `task` is the only
 # one with a panel (`?task=` opens it over whatever page the reader is on);
@@ -79,6 +84,57 @@ def refs(text: str) -> list[dict]:
         seen.add((entity, rid))
         out.append({"entity": entity, "id": rid})
     return out
+
+
+def readable_refs(
+    text: str,
+    viewer: scope.Viewer,
+    *,
+    resource_filter: ResourceFilter | None = None,
+    proposal_filter: ResourceFilter | None = None,
+    allow_unclassified_proposals: bool = True,
+) -> list[dict]:
+    """Return references whose current destination can show the target."""
+    parsed = refs(text)
+    resources = [
+        (str(ref["entity"]), int(ref["id"]))
+        for ref in parsed
+        if ref["entity"] != "proposal" and policy_context.supports_resource(str(ref["entity"]))
+    ]
+    contexts = policy_context.resource_contexts(resources, viewer)
+
+    def permits(
+        resource: tuple[str, int],
+        attributes: dict[str, str],
+        resource_policy: ResourceFilter | None,
+    ) -> bool:
+        if str(attributes.get("relationship_conflict") or "").lower() == "true":
+            return False
+        return resource_policy is None or resource_policy(resource[0], resource[1], attributes)
+
+    available = {
+        resource
+        for resource, attributes in contexts.items()
+        if permits(resource, attributes, resource_filter)
+    }
+
+    proposal_ids = {int(ref["id"]) for ref in parsed if ref["entity"] == "proposal"}
+    if proposal_ids:
+        from . import review
+
+        def proposal_permits(entity: str, entity_id: int, attributes: dict[str, str]) -> bool:
+            return permits((entity, entity_id), attributes, proposal_filter)
+
+        available.update(
+            ("proposal", int(row["id"]))
+            for row in review.pending_changes_by_ids(
+                proposal_ids,
+                viewer,
+                resource_filter=proposal_permits,
+                allow_unclassified=allow_unclassified_proposals,
+            )
+        )
+    return [ref for ref in parsed if (str(ref["entity"]), int(ref["id"])) in available]
 
 
 def receipt(text: str) -> dict:

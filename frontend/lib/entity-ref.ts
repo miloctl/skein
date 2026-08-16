@@ -31,7 +31,7 @@ const HREF: Record<string, (id: number) => string> = {
   question: () => "/dashboard#questions",
   decision: (id) => `/charter#charter-entry-${id}`,
   promise: () => "/portfolio#promises",
-  proposal: () => "/review",
+  proposal: (id) => `/review?id=${id}`,
   engagement: (id) => `/engagement/${id}`,
   lesson: (id) => `/dashboard#lesson-${id}`,
   finding: () => "/insights",

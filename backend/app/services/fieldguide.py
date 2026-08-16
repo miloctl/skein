@@ -9,11 +9,12 @@ import contextlib
 import logging
 import time
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import date, timedelta
 
 import yaml
 
 from .. import config, db
+from . import scope
 
 KNOTS_FILE = config.STOCK_DIR / "fieldguide" / "knots.yaml"
 SETS = ("loops", "hitches", "bends", "stoppers", "manager")
@@ -35,6 +36,21 @@ def _act(user: str, action: str, like: str = "") -> bool:
     return _has(sql, params)
 
 
+def _guided_first_week_predates(user: str, since: str) -> bool:
+    # Only evidence from before the card shipped is a backfill. A blanket silent
+    # mark also suppresses the one-time notice for every person who finishes now.
+    cutoff = db.local_midnight_utc(date.fromisoformat(since))
+    viewer = scope.Viewer.for_actor(user)
+    standup_visible, standup_params = scope.visible_filter(viewer, "standups")
+    return _has(
+        "SELECT 1 FROM activity WHERE actor = ? AND action = 'capture' AND created_at < ?",
+        (user, cutoff),
+    ) and _has(
+        f"SELECT 1 FROM standups WHERE author = ? AND created_at < ? AND {standup_visible}",  # noqa: S608 -- scope emits bound marks
+        (user, cutoff, *standup_params),
+    )
+
+
 # id -> first-use test. None = tied only via mark() (read-only features write
 # nothing to detect against). Detail-string predicates are pinned by tests in
 # test_fieldguide.py — if a service changes its activity wording, the test
@@ -42,6 +58,10 @@ def _act(user: str, action: str, like: str = "") -> bool:
 PREDICATES: dict[str, Callable[[str], bool] | None] = {
     "capture": lambda u: _act(u, "capture"),
     "standup": lambda u: _has("SELECT 1 FROM standups WHERE author = ?", (u,)),
+    "guided_first_week": lambda u: (
+        _act(u, "capture") and _has("SELECT 1 FROM standups WHERE author = ?", (u,))
+    ),
+    "todays_three": None,
     # trailing % : update_task's detail carries a channel suffix when a machine
     # wrote it (work.py's `note`), and an anchored pattern would silently stop
     # tying the day any human-actor caller passes one
@@ -260,11 +280,14 @@ def detect(person: str) -> int:
             log.exception("field-guide predicate %s crashed", k["id"])
             continue
         if hit:
+            silent = k["id"] == "guided_first_week" and _guided_first_week_predates(
+                person, str(k["since"])
+            )
             n += db.execute_rowcount(
                 "INSERT INTO feature_unlocks (person, knot, kind, seen, first_at)"
                 " VALUES (?, ?, 'tied', ?, ?)"
                 " ON CONFLICT DO NOTHING",
-                (person, k["id"], 1 if seeding else 0, db.now()),
+                (person, k["id"], 1 if seeding or silent else 0, db.now()),
             )
     # stamped at the END: a sweep that raised above must not buy hint() 15
     # minutes of silence on the strength of a sweep that never ran

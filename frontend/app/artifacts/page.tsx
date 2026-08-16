@@ -1,11 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { ArtifactMarkdown } from "@/components/artifact-markdown";
 import { Card, EmptyState } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
+import { PeekLink } from "@/components/task-peek";
 import { api, loadError } from "@/lib/api";
+import { type EntityRef, refHref } from "@/lib/entity-ref";
 import { timeAgo } from "@/lib/time";
 
 /** Reports: the record of every ritual that already ran.
@@ -30,7 +33,7 @@ type Artifact = {
   created_at: string;
 };
 
-type Body = Artifact & { markdown: string };
+type Body = Artifact & { markdown: string; threads?: EntityRef[] };
 
 type ArtifactPage = {
   items: Artifact[];
@@ -65,6 +68,25 @@ function idFromUrl(): number | null {
   const raw = new URLSearchParams(window.location.search).get(PARAM);
   const id = Number(raw);
   return raw && Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function ThreadLink({ thread }: { thread: EntityRef }) {
+  const label = `${thread.entity} #${thread.id}`;
+  const className =
+    "rounded-md border border-line bg-raised px-2 py-1 text-xs text-ink-2 hover:border-line-strong";
+  if (thread.entity === "task")
+    return (
+      <PeekLink taskId={thread.id} className={className}>
+        {label}
+      </PeekLink>
+    );
+  const href = refHref(thread);
+  if (!href) return <span className={className}>{label}</span>;
+  return (
+    <Link href={href} className={className}>
+      {label}
+    </Link>
+  );
 }
 
 export default function ArtifactsPage() {
@@ -267,6 +289,26 @@ export default function ArtifactsPage() {
                     {timeAgo(shown.created_at)}
                   </time>
                 </p>
+                {shown.threads?.length ? (
+                  <section
+                    aria-labelledby="report-threads-title"
+                    className="mb-4 rounded-lg border border-line bg-raised/50 p-3"
+                  >
+                    <h3
+                      id="report-threads-title"
+                      className="mb-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3"
+                    >
+                      Threads in this report
+                    </h3>
+                    <ul className="flex flex-wrap gap-1.5">
+                      {shown.threads.map((thread) => (
+                        <li key={`${thread.entity}-${thread.id}`}>
+                          <ThreadLink thread={thread} />
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
                 {/* the body is wide content (long lines, indented lists), so it
                     scrolls inside its own box rather than pushing the page
                     sideways */}

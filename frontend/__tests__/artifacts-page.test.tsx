@@ -16,6 +16,13 @@ const OLDER = [
   { id: 5, engagement_id: null, kind: "digest", title: "Digest 2026-08-04", path: "/d/5.md", created_by: "scheduler", created_at: "2026-08-04T07:00:00+00:00" },
 ];
 
+const THREADS = [
+  { entity: "task", id: 12 },
+  { entity: "decision", id: 4 },
+  { entity: "proposal", id: 8 },
+  { entity: "unknown", id: 9 },
+];
+
 const mode = { failList: false, hasOlder: false };
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -31,7 +38,11 @@ vi.mock("@/lib/api", async (importOriginal) => {
         return Promise.resolve({ items: OLDER, next_before: null });
       const id = Number(path.split("/").pop());
       const row = [...ROWS, ...OLDER].find((r) => r.id === id);
-      return Promise.resolve({ ...row, markdown: `# Body of ${id}` });
+      return Promise.resolve({
+        ...row,
+        markdown: `# Body of ${id}\n\nBare #99 stays text.`,
+        threads: id === 7 ? THREADS : [],
+      });
     },
   };
 });
@@ -83,6 +94,37 @@ describe("the Reports page", () => {
     expect(screen.getByText("Body of 7")).toBeTruthy();
     expect(new URL(window.location.href).searchParams.get("id")).toBe("7");
     expect(screen.queryByRole("button", { name: "Older reports" })).toBeNull();
+  });
+
+  it("links explicit typed threads without changing the report body", async () => {
+    render(<ArtifactsPage />);
+
+    expect(
+      await screen.findByRole("heading", { level: 3, name: "Threads in this report" }),
+    ).toBeTruthy();
+    const task = screen.getByText("task #12");
+    expect(task.closest("button")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "decision #4" }).getAttribute("href")).toBe(
+      "/charter#charter-entry-4",
+    );
+    expect(screen.getByRole("link", { name: "proposal #8" }).getAttribute("href")).toBe(
+      "/review?id=8",
+    );
+    const unknown = screen.getByText("unknown #9");
+    expect(unknown.closest("a, button")).toBeNull();
+    expect(screen.getByText("Bare #99 stays text.").closest("a, button")).toBeNull();
+
+    fireEvent.click(task.closest("button") as HTMLElement);
+    expect(new URL(window.location.href).searchParams.get("task")).toBe("12");
+    expect(screen.getByText("Body of 7")).toBeTruthy();
+  });
+
+  it("does not show a thread section when the report has no references", async () => {
+    window.history.replaceState({}, "", "/artifacts?id=6");
+    render(<ArtifactsPage />);
+
+    await screen.findByText("Body of 6");
+    expect(screen.queryByRole("heading", { name: "Threads in this report" })).toBeNull();
   });
 });
 

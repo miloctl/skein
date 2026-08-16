@@ -697,3 +697,73 @@ for (const path of ["/settings", "/agents"]) {
     expect(problems, JSON.stringify(problems, null, 2)).toEqual([]);
   });
 }
+
+test.describe("Guided First Week", () => {
+  test.use({
+    viewport: { width: 360, height: 800 },
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+  });
+
+  test("keeps setup first and the team disclosure operable at phone widths", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await page.goto("/");
+    await page.evaluate(() => window.localStorage.setItem("skein-user", "guided-browser-user"));
+
+    for (const width of [360, 390]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.evaluate(() =>
+        window.localStorage.removeItem("skein-onboarded:guided-browser-user"),
+      );
+      await page.goto("/");
+      await page.waitForLoadState("networkidle").catch(() => {});
+
+      const setup = page.getByRole("heading", {
+        level: 2,
+        name: /Your first-week setup/,
+      });
+      const needs = page.getByRole("heading", { level: 2, name: "Needs you" });
+      const work = page.getByRole("heading", { level: 2, name: "Your work" });
+      const toggle = page.getByRole("button", { name: /Show team context/ });
+      await expect(setup).toBeVisible();
+      await expect(toggle).toHaveText(/Show team context \(\d+ items?\)/);
+
+      const [setupBox, needsBox, workBox, toggleBox] = await Promise.all([
+        setup.boundingBox(),
+        needs.boundingBox(),
+        work.boundingBox(),
+        toggle.boundingBox(),
+      ]);
+      expect(setupBox?.y).toBeLessThan(needsBox!.y);
+      expect(needsBox?.y).toBeLessThan(workBox!.y);
+      expect(workBox?.y).toBeLessThan(toggleBox!.y);
+
+      await toggle.focus();
+      await page.keyboard.press("Enter");
+      await expect(page.getByRole("button", { name: /Hide team context/ })).toBeFocused();
+      await expect(page.getByRole("heading", { name: "Team today" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Since yesterday" })).toBeVisible();
+
+      const scan = await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag22aa"])
+        .analyze();
+      expect(
+        scan.violations.map((v) => ({ rule: v.id, impact: v.impact })),
+      ).toEqual([]);
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
+      ).toBeLessThanOrEqual(1);
+
+      await page.keyboard.press("Enter");
+      await expect(page.getByRole("heading", { name: "Since yesterday" })).toHaveCount(0);
+
+      const dismiss = page.getByRole("button", { name: "Dismiss first-week setup" });
+      await dismiss.focus();
+      await page.keyboard.press("Enter");
+      await expect(page.locator("main#content")).toBeFocused();
+    }
+  });
+});

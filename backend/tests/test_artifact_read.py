@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from app import db
-from app.services import handoff, scope
+from app import config, db
+from app.services import blockers, collab, handoff, review, scope, work
 
 
 def _readout(client) -> dict:
@@ -28,6 +28,102 @@ def test_reads_the_body_of_a_listed_artifact(client):
     # the file's own text, not the row: a reader gets what the generator wrote
     assert body["markdown"].strip()
     assert body["markdown"] == Path(art["path"]).read_text()
+    assert isinstance(body["threads"], list)
+
+
+def test_artifact_body_returns_only_current_readable_typed_threads(client):
+    task = work.create_task("Readable thread", actor="tester")
+    blocker = blockers.raise_blocker("Readable blocker", actor="tester")
+    proposal = review.propose_change(
+        "task",
+        "create",
+        {"title": "Proposed thread"},
+        actor="scout",
+        notify_team=False,
+    )
+    hidden = work.create_task(
+        "Private thread",
+        actor="tester",
+        visibility=scope.PRIVATE,
+    )
+    deleted = work.create_task("Deleted thread", actor="tester")
+    db.execute("DELETE FROM tasks WHERE id = ?", (deleted["id"],))
+
+    root = Path(config.DATA_DIR) / "artifacts"
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / "typed-thread-test.md"
+    path.write_text(
+        f"# Report\n\nTask #{task['id']} waits on blocker #{blocker['id']}. "
+        f"Task #{task['id']} appears twice. Proposal #{proposal['id']} is pending.\n"
+        f"Task #{hidden['id']} is private. Task #{deleted['id']} was deleted. "
+        "Decision #99999 is absent. Bare #9, sprint #5, and 'question #8' stay text.",
+        encoding="utf-8",
+    )
+    aid = db.execute(
+        "INSERT INTO artifacts (kind, title, path, created_by, created_at)"
+        " VALUES ('digest', 'Typed threads', ?, 'tester', ?) RETURNING id",
+        (str(path), db.now()),
+    )
+
+    body = client.get(f"/api/artifacts/{aid}").json()
+    assert body["threads"] == [
+        {"entity": "task", "id": task["id"]},
+        {"entity": "blocker", "id": blocker["id"]},
+        {"entity": "proposal", "id": proposal["id"]},
+    ]
+
+
+def test_artifact_threads_follow_each_destination_policy(client, monkeypatch):
+    from app.extensions.policy import PolicyDecision, PolicyEffect
+    from app.routes import api
+
+    task = work.create_task("Denied task thread", actor="tester")
+    blocker = blockers.raise_blocker("Readable blocker thread", actor="tester")
+    decision = collab.record_decision(
+        "Denied decision thread",
+        "Keep the destination closed",
+        review_by="2030-01-01",
+        category="charter",
+        actor="tester",
+    )
+    proposal = review.propose_change(
+        "task",
+        "create",
+        {"title": "Denied proposal thread"},
+        actor="scout",
+        notify_team=False,
+    )
+
+    root = Path(config.DATA_DIR) / "artifacts"
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / "policy-thread-test.md"
+    path.write_text(
+        f"Task #{task['id']}. Blocker #{blocker['id']}. "
+        f"Decision #{decision['id']}. Proposal #{proposal['id']}.",
+        encoding="utf-8",
+    )
+    aid = db.execute(
+        "INSERT INTO artifacts (kind, title, path, created_by, created_at)"
+        " VALUES ('digest', 'Policy threads', ?, 'tester', ?) RETURNING id",
+        (str(path), db.now()),
+    )
+
+    def destination_decision(_request, _subject, action, *_args, **_kwargs):
+        effect = (
+            PolicyEffect.DENY
+            if action
+            in {
+                "skein.rest.get.tasks",
+                "skein.rest.get.decisions",
+                "skein.rest.get.review",
+            }
+            else PolicyEffect.PERMIT
+        )
+        return PolicyDecision(effect)
+
+    monkeypatch.setattr(api, "decide", destination_decision)
+    body = client.get(f"/api/artifacts/{aid}").json()
+    assert body["threads"] == [{"entity": "blocker", "id": blocker["id"]}]
 
 
 def test_a_ritual_hands_back_an_id_that_reads_back(client):

@@ -51,6 +51,7 @@ from ..services import (
     provenance,
     pulse,
     readout,
+    refs,
     review,
     rituals,
     schedule,
@@ -776,6 +777,62 @@ def get_playbooks():
     return playbooks.list_playbooks()
 
 
+# entity -> (destination action, route resource type, id in path, per-row policy)
+_ARTIFACT_THREAD_DESTINATIONS = {
+    "task": ("skein.rest.get.tasks", "tasks", True, True),
+    "milestone": ("skein.rest.get.milestones", "milestones", False, True),
+    "blocker": ("skein.rest.get.blockers", "blockers", False, True),
+    "question": ("skein.rest.get.questions", "questions", False, False),
+    "decision": ("skein.rest.get.decisions", "decisions", False, False),
+    "promise": ("skein.rest.get.promises", "promises", False, True),
+    "engagement": ("skein.rest.get.engagements.brief", "engagements", True, True),
+    "lesson": ("skein.rest.get.lessons", "lessons", False, True),
+    "finding": ("skein.rest.get.insights", "insights", False, False),
+    "intake": ("skein.rest.get.intake", "intake", False, True),
+}
+
+
+def _artifact_thread_filter(request: Request, subject: Any) -> refs.ResourceFilter:
+    """Apply the same route and row policy as each thread destination."""
+    route_decisions: dict[tuple[str, str, str], bool] = {}
+
+    def permits(entity: str, entity_id: int, attributes: dict[str, str]) -> bool:
+        destination = _ARTIFACT_THREAD_DESTINATIONS.get(entity)
+        if destination is None:
+            return False
+        action, route_resource, id_in_path, row_policy = destination
+        route_id = str(entity_id) if id_in_path else ""
+        key = (action, route_resource, route_id)
+        if key not in route_decisions:
+            route_decisions[key] = (
+                decide(
+                    request,
+                    subject,
+                    action,
+                    route_resource,
+                    resource_id=route_id,
+                ).effect
+                == PolicyEffect.PERMIT
+            )
+        if not route_decisions[key] or not row_policy:
+            return route_decisions[key]
+        return (
+            decide(
+                request,
+                subject,
+                action,
+                entity,
+                resource_id=str(entity_id),
+                project_type=attributes.get("project_type", ""),
+                classification=attributes.get("classification", ""),
+                attributes=attributes,
+            ).effect
+            == PolicyEffect.PERMIT
+        )
+
+    return permits
+
+
 def _artifact_page(
     request: Request,
     subject: Any,
@@ -860,21 +917,38 @@ def get_artifact(
     subject: PolicySubjectDep,
 ):
     with db.read_transaction():
-        artifact = handoff.read_artifact(artifact_id, viewer)
-        domain = policy_context.existing_scoped("artifact", artifact_id, viewer)
-        enforce_decision(
-            decide(
-                request,
-                subject,
-                "skein.rest.get.artifacts",
-                "artifact",
-                resource_id=str(artifact_id),
-                project_type=domain.get("project_type", ""),
-                classification=domain.get("classification", ""),
-                attributes=domain,
-            )
+        _require_resource_policy(
+            request,
+            subject,
+            viewer,
+            "skein.rest.get.artifacts",
+            "artifact",
+            artifact_id,
         )
-        return artifact
+        review_route_permitted = (
+            decide(request, subject, "skein.rest.get.review", "review").effect
+            == PolicyEffect.PERMIT
+        )
+        review_policy = projection_policy.ProjectionPolicy(
+            request.app.state.skein_registry.policy_engine,
+            subject,
+            "skein.rest.get.review",
+            "rest",
+            viewer,
+        )
+
+        def proposal_permits(entity: str, entity_id: int, attributes: dict[str, str]) -> bool:
+            return review_route_permitted and review_policy.permits(entity, entity_id, attributes)
+
+        return handoff.read_artifact(
+            artifact_id,
+            viewer,
+            resource_filter=_artifact_thread_filter(request, subject),
+            proposal_filter=proposal_permits,
+            allow_unclassified_proposals=(
+                review_route_permitted and review_policy.allows_unclassified()
+            ),
+        )
 
 
 @router.get("/users")
@@ -1118,6 +1192,13 @@ def get_field_guide(user: CurrentUser):
 @router.get("/field-guide/hint")
 def get_field_guide_hint(user: CurrentUser):
     return fieldguide.hint(user)
+
+
+@router.post("/field-guide/todays-three")
+def post_field_guide_todays_three(user: CurrentUser):
+    # The fixed knot id prevents a client from minting arbitrary guide progress.
+    ratelimit.check("write", user)
+    fieldguide.mark(user, "todays_three")
 
 
 class DismissKnot(BaseModel):

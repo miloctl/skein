@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .. import config, db
 from ..agents.identity import refuse_when_consultative
+from . import refs as entity_refs
 from . import scope, wording
 
 # The compatibility list and each cursor page use one bounded batch. The page
@@ -193,7 +194,14 @@ class ArtifactUnreadable(RuntimeError):
     """
 
 
-def read_artifact(artifact_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
+def read_artifact(
+    artifact_id: int,
+    viewer: scope.Viewer = scope.NOBODY,
+    *,
+    resource_filter: entity_refs.ResourceFilter | None = None,
+    proposal_filter: entity_refs.ResourceFilter | None = None,
+    allow_unclassified_proposals: bool = True,
+) -> dict:
     """One artifact's body, for a reader who may see the row.
 
     Every generator here (handoff, the week rituals, the digest, the exec
@@ -253,7 +261,18 @@ def read_artifact(artifact_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict
             f"artifact #{artifact_id} is too large to read. Open the file on the server instead."
         )
     try:
-        return {**row, "markdown": path.read_text(encoding="utf-8")}
+        markdown = path.read_text(encoding="utf-8")
+        return {
+            **row,
+            "markdown": markdown,
+            "threads": entity_refs.readable_refs(
+                markdown,
+                viewer,
+                resource_filter=resource_filter,
+                proposal_filter=proposal_filter,
+                allow_unclassified_proposals=allow_unclassified_proposals,
+            ),
+        }
     except (OSError, UnicodeDecodeError) as e:
         # a generator writes UTF-8 markdown; anything else under data/artifacts
         # arrived by the same route the containment check is written against
