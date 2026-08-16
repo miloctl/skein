@@ -28,6 +28,7 @@ work is in `docs/ROADMAP.md` under "Open backlog".
 | `2026-08-15-product-study-findings.md` | Observations from four passes of live use, and the definition site for the D-numbered problems the proposals cite. Records what was seen and deliberately NOT built, which lives nowhere else. Findings describe the product at the time seen, not current behavior. Formerly `findings.md` at the repository root. |
 | `2026-08-15-product-study-proposals.md` | The P-numbered proposals with the evidence standard each had to meet, and the reason behind every deferral and refusal. Kept for the *why not*. Formerly `proposals.md` at the repository root. |
 | `2026-08-15-product-study-results.md` | What the study shipped, written at delivery, with the per-improvement reasoning `docs/FEATURES.md` compresses away. The feature table wins on any disagreement. Formerly `new_features.md` at the repository root. |
+| `2026-08-15-feature-round-study.md` | The second live study of that date: role-and-horizon walks plus a four-agent gamification panel, behind commits `6876725` and `7a244aa`. Records the rejected concepts (Personal Trail, Season Quests, Assists, Knot Trail) with their reasons, the per-feature review record, and the pre-merge branch review — including the quoted-title frame defect that `wording.quoted` now closes. |
 
 ## Deleted 2026-08-02
 
