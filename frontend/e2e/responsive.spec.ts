@@ -211,6 +211,34 @@ test("search results stay inside a 360px viewport", async ({ page }) => {
   expect(box!.x + box!.width).toBeLessThanOrEqual(360);
 });
 
+test("page help stays reachable in a narrow, short viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 320 });
+  await page.goto("/review");
+  await page.evaluate(() => window.localStorage.setItem("skein-user", "ava"));
+  await page.reload();
+
+  const trigger = page.getByRole("button", { name: "Help for this page" });
+  await trigger.click();
+  const dialog = page.getByRole("dialog", { name: "Help for this page" });
+  await expect(dialog).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close page help" })).toBeFocused();
+
+  const box = await dialog.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(320);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(320);
+
+  await dialog.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect(page.getByRole("link", { name: "Open the field guide" })).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+
 test("the identity chip announces who you are at phone width", async ({
   page,
 }) => {

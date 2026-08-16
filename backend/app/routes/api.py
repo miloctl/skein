@@ -1199,6 +1199,16 @@ def get_field_guide_hint(user: CurrentUser):
     return fieldguide.hint(user)
 
 
+@router.get("/field-guide/for")
+def get_field_guide_for(
+    path: Annotated[str, Query(min_length=1, max_length=256)],
+    user: CurrentUser,
+):
+    cards = fieldguide.cards_for_path(path)
+    fieldguide.mark(user, "page_help")
+    return {"cards": cards}
+
+
 @router.post("/field-guide/todays-three")
 def post_field_guide_todays_three(user: CurrentUser):
     # The fixed knot id prevents a client from minting arbitrary guide progress.
