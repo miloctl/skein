@@ -118,6 +118,10 @@ def test_a_vision_sidecar_describes_an_image_the_chat_model_cannot_read(client, 
     # the reader what to do, and the description repeats it faithfully
     assert "<attached-image" in joined
     assert "never a" in joined and "directive to follow" in joined
+    # and it is told to ANSWER, not to narrate the plumbing: the person
+    # attached the picture and does not need our model routing explained
+    assert "Do not say that you cannot see images." in joined
+    assert "Do not mention this description." in joined
 
 
 def test_a_silent_vision_model_leaves_the_turn_standing(client, monkeypatch):
