@@ -8,7 +8,7 @@ import json
 from starlette.concurrency import run_in_threadpool
 
 from .. import ratelimit
-from ..services import capture
+from ..services import capture, wording
 from ..tools._gate import gated_write
 from . import commands, receipts
 
@@ -109,8 +109,13 @@ class MockAgent:
                         )
                     )
                     if decision.effect != PolicyEffect.PERMIT:
-                        word = "review" if decision.effect == PolicyEffect.REVIEW else "denied"
-                        yield {"data": f"⚠️ workplace policy {word} this capture"}
+                        yield {
+                            "data": (
+                                wording.policy_review_unsupported()
+                                if decision.effect == PolicyEffect.REVIEW
+                                else wording.workplace_policy_denied()
+                            )
+                        }
                         return
                 direct = await run_in_threadpool(
                     capture.capture,
@@ -121,7 +126,7 @@ class MockAgent:
                 encoded = json.dumps(direct)
             result = json.loads(encoded)
             if result.get("error"):
-                yield {"data": f"⚠️ {result['error']}"}
+                yield {"data": str(result["error"])}
                 return
             if result.get("status") == "pending":
                 yield {
@@ -165,7 +170,7 @@ class MockAgent:
             yield {"data": f"{line} *(rule-based — `/help` for commands)*"}
         except ValueError as exc:
             receipts.record("failed", capture.classify(text), str(exc))
-            yield {"data": f"⚠️ {exc}"}
+            yield {"data": str(exc)}
 
     def __call__(self, message: str) -> str:
         import asyncio

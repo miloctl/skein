@@ -16,6 +16,8 @@ import json
 
 import pytest
 
+from app.services import wording
+
 SCENARIOS = [
     {
         "name": "plan-project-from-playbook",
@@ -64,7 +66,7 @@ SCENARIOS = [
         "expect_tables": {},
         "expect_pending": 0,
         "forbid": ["tasks", "pending_changes"],
-        "expect_error": "forbidden",
+        "expect_error": wording.write_policy_denied(),
     },
     {
         "name": "waiting-on-through-the-tool-layer",
@@ -117,7 +119,7 @@ def test_golden_trace(scenario, fresh_db, monkeypatch):
             pass
 
     if "expect_error" in scenario:
-        assert scenario["expect_error"] in last_error, f"wanted refusal, got: {last_error!r}"
+        assert last_error == scenario["expect_error"], f"wanted refusal, got: {last_error!r}"
 
     for table, count in scenario.get("expect_tables", {}).items():
         n = fresh_db.query_row(f"SELECT COUNT(*) AS n FROM {table}")["n"]  # noqa: S608

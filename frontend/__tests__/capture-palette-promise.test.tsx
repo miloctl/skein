@@ -46,4 +46,19 @@ describe("quick capture and the promise label", () => {
     expect(screen.getByRole("button", { name: "awaiting" })).toBeTruthy();
     expect(screen.queryByText("promise (to us)")).toBeNull();
   });
+
+  it("describes private feedback with the authentication property it needs", () => {
+    render(<CapturePalette />);
+    act(() => {
+      window.dispatchEvent(new Event("skein-capture-open"));
+    });
+
+    fireEvent.change(screen.getByLabelText("What to capture"), {
+      target: { value: "fb: dana — clear feedback" },
+    });
+    expect(
+      screen.getByText("will file as: private feedback (requires strong identity)"),
+    ).toBeTruthy();
+    expect(screen.queryByText(/needs your API key/)).toBeNull();
+  });
 });

@@ -28,7 +28,7 @@ from ..extensions.policy import (
     current_policy_subject,
     policy_input_data,
 )
-from ..services import blockers, lexicon, review, scope, work
+from ..services import blockers, lexicon, review, scope, wording, work
 from ..services.delegation import authority_status
 
 # irreversible verbs ALWAYS go through the review inbox, even with
@@ -209,13 +209,9 @@ def _gated_write_locked(
     )
     decision = current_policy_engine().decide(policy_input)
     if decision.effect == PolicyEffect.DENY:
-        # actor is passed even though the detail already names it: the live
-        # chip composes its own sentence ("forbidden for ...") and needs the
-        # name as data, not parsed back out of prose
-        receipts.record("refused", entity, f"{actor} is forbidden on {entity}", actor=actor)
-        return json.dumps(
-            {"error": f"writes to {entity} are forbidden for '{actor}' by the authority matrix"}
-        )
+        detail = wording.write_policy_denied()
+        receipts.record("refused", entity, detail, actor=actor)
+        return json.dumps({"error": detail})
     # force_review outranks the matrix and the SKEIN_AGENT_REVIEW flag, and is
     # outranked by forbidden above (a kill switch never softens into a
     # proposal). Without it a flock member that earned `autonomous` writes

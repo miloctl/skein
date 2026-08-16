@@ -18,6 +18,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
             user: "resolved-user",
             strong: true,
             admin: false,
+            can_administer: false,
             keys_minted: 1,
           })
         );

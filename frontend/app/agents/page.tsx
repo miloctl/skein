@@ -842,9 +842,8 @@ export default function Agents() {
             reads "1/1 approved (100%) · streak 0" and the manager has no way
             to learn why it never gets promoted */}
           <p className="mb-2 text-xs text-ink-3">
-            A streak counts only approvals made with a personal API key. A name
-            from the header alone can be set by anyone, so it must not walk an
-            agent toward acting alone.
+            A streak counts only approvals made with strong identity. A
+            self-asserted name does not move an agent toward acting alone.
           </p>
           {/* The deployment settings that make a streak unreachable, stated
               where the empty card is. Without this the card reads "no data
@@ -958,36 +957,74 @@ export default function Agents() {
                     )}
                   </span>
                   {forgetting === m.id ? (
-                    <span className="flex shrink-0 items-center gap-1 text-xs">
-                      <button
-                        autoFocus
-                        aria-label={`Forget for good: ${m.topic || m.content.slice(0, 40)}`}
-                        onClick={async () => {
-                          try {
-                            await api(`/api/memories/${m.id}`, {
-                              method: "DELETE",
-                            });
-                            setMemories((ms) =>
-                              (ms ?? []).filter((x) => x.id !== m.id),
+                    <span
+                      onKeyDown={(e) => {
+                        if (e.key !== "Escape") return;
+                        setForgetting(null);
+                        setTimeout(
+                          () =>
+                            document
+                              .getElementById(`forget-memory-${m.id}`)
+                              ?.focus(),
+                          0,
+                        );
+                      }}
+                      className="flex max-w-sm shrink-0 flex-col items-end gap-1 text-right text-xs"
+                    >
+                      <span id={`forget-memory-${m.id}-consequence`}>
+                        Forget this memory? It will stop steering agent chats
+                        and leave search. The activity record can retain up to
+                        200 characters, and backups can retain the memory.
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <button
+                          id={`confirm-forget-memory-${m.id}`}
+                          autoFocus
+                          aria-describedby={`forget-memory-${m.id}-consequence`}
+                          onClick={async () => {
+                            try {
+                              await api(`/api/memories/${m.id}`, {
+                                method: "DELETE",
+                              });
+                              setMemories((ms) =>
+                                (ms ?? []).filter((x) => x.id !== m.id),
+                              );
+                              setForgetting(null);
+                            } catch (e) {
+                              reportStatus(actionError(e));
+                              setTimeout(
+                                () =>
+                                  document
+                                    .getElementById(`confirm-forget-memory-${m.id}`)
+                                    ?.focus(),
+                                0,
+                              );
+                            }
+                          }}
+                          className="rounded bg-danger-solid px-2 py-0.5 font-medium text-white hover:opacity-90"
+                        >
+                          Forget memory
+                        </button>
+                        <button
+                          onClick={() => {
+                            setForgetting(null);
+                            setTimeout(
+                              () =>
+                                document
+                                  .getElementById(`forget-memory-${m.id}`)
+                                  ?.focus(),
+                              0,
                             );
-                          } catch (e) {
-                            reportStatus(actionError(e));
-                          }
-                          setForgetting(null);
-                        }}
-                        className="rounded bg-danger-solid px-2 py-0.5 font-medium text-white hover:opacity-90"
-                      >
-                        forget for good
-                      </button>
-                      <button
-                        onClick={() => setForgetting(null)}
-                        className="text-ink-3 hover:text-ink"
-                      >
-                        keep
-                      </button>
+                          }}
+                          className="text-ink-3 hover:text-ink"
+                        >
+                          Cancel forgetting
+                        </button>
+                      </span>
                     </span>
                   ) : (
                     <button
+                      id={`forget-memory-${m.id}`}
                       onClick={() => setForgetting(m.id)}
                       aria-label={`Forget memory: ${m.topic || m.content.slice(0, 40)}`}
                       className="shrink-0 rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"

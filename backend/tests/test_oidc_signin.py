@@ -144,7 +144,9 @@ def test_token_exchange_returns_a_validated_token(client, monkeypatch, fresh_db)
 
 
 @pytest.mark.parametrize("name", ["anonymous", "agent", "ci", "mcp", "system"])
-def test_token_exchange_refuses_synthetic_and_core_identities(client, monkeypatch, fresh_db, name):
+def test_token_exchange_refuses_synthetic_and_core_identities(
+    client, monkeypatch, fresh_db, name, caplog
+):
     _as_oidc(monkeypatch)
     _discovery(monkeypatch)
     monkeypatch.setattr(oidc, "exchange", lambda form: {"access_token": "reserved"})
@@ -153,7 +155,9 @@ def test_token_exchange_refuses_synthetic_and_core_identities(client, monkeypatc
     response = client.post("/api/auth/token", json={"refresh_token": "r1"})
 
     assert response.status_code == 403
-    assert "reserved for the system" in response.json()["detail"]
+    assert response.json()["detail"] == oidc.SIGNIN_UNUSABLE
+    assert name not in response.text
+    assert name not in caplog.text
     row = fresh_db.query_one("SELECT kind FROM users WHERE name = ?", (name,))
     if name == "agent":
         assert row == {"kind": "agent"}  # application startup owns it
@@ -195,7 +199,8 @@ def test_token_exchange_cannot_claim_pending_content_identity(
     response = client.post("/api/auth/token", json={"refresh_token": "r1"})
 
     assert response.status_code == 403
-    assert "reserved for a bench persona" in response.json()["detail"]
+    assert response.json()["detail"] == oidc.SIGNIN_UNUSABLE
+    assert "FUTURE-OIDC" not in response.text
     assert fresh_db.query_one("SELECT 1 FROM users WHERE name = 'FUTURE-OIDC'") is None
 
 
@@ -213,6 +218,26 @@ def test_token_refuses_a_token_it_cannot_validate(client, monkeypatch, fresh_db)
         json={"code": "c", "code_verifier": "v", "redirect_uri": "http://app/cb"},
     )
     assert r.status_code == 502
+    assert r.json()["detail"] == (
+        "The identity provider returned an unusable sign-in response."
+        " Ask whoever runs the server to check the server log. Then start the sign-in again."
+    )
+    assert "refused" not in r.text
+
+
+def test_missing_access_token_writes_a_safe_server_diagnostic(
+    client, monkeypatch, fresh_db, caplog
+):
+    _as_oidc(monkeypatch)
+    _discovery(monkeypatch)
+    monkeypatch.setattr(oidc, "exchange", lambda form: {"refresh_token": "provider-value"})
+
+    response = client.post("/api/auth/token", json={"refresh_token": "r1"})
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == oidc.SIGNIN_UNUSABLE
+    assert "omitted access_token" in caplog.text
+    assert "provider-value" not in caplog.text
 
 
 def test_token_accepts_a_refresh_token(client, monkeypatch, fresh_db):
@@ -251,7 +276,10 @@ def test_a_stale_code_is_the_callers_fault_not_a_server_fault(client, monkeypatc
         json={"code": "stale", "code_verifier": "v", "redirect_uri": "http://app/cb"},
     )
     assert r.status_code == 400
-    assert "invalid_grant" in r.json()["detail"]
+    assert r.json()["detail"] == (
+        "The identity provider refused the sign-in. Start the sign-in again."
+    )
+    assert "invalid_grant" not in r.text
 
 
 def test_an_unreachable_provider_is_a_503_not_a_refusal(client, monkeypatch, fresh_db):
@@ -264,6 +292,10 @@ def test_an_unreachable_provider_is_a_503_not_a_refusal(client, monkeypatch, fre
     monkeypatch.setattr(oidc, "exchange", down)
     r = client.post("/api/auth/token", json={"refresh_token": "r1"})
     assert r.status_code == 503
+    assert r.json()["detail"] == (
+        "Skein cannot reach the identity provider. Wait one minute, then start the sign-in again."
+    )
+    assert r.headers["Retry-After"] == "60"
 
 
 def test_a_non_numeric_lifetime_does_not_become_a_400_quoting_it(client, monkeypatch, fresh_db):
@@ -345,5 +377,47 @@ def test_idp_error_description_is_not_echoed_back(monkeypatch):
     monkeypatch.setattr(oidc.urllib.request, "urlopen", boom)
     with pytest.raises(oidc.OIDCError) as e:
         oidc.exchange({"grant_type": "refresh_token"})
-    assert "invalid_grant" in str(e.value)
+    assert str(e.value) == "The identity provider refused the sign-in. Start the sign-in again."
+    assert "invalid_grant" not in str(e.value)
     assert "SECRETVALUE" not in str(e.value)
+
+
+def test_token_endpoint_transient_http_errors_are_unavailable(monkeypatch):
+    _as_oidc(monkeypatch, token="https://idp.test/token")
+
+    for status in (429, 503):
+
+        def boom(request, timeout=None, status=status):
+            raise urllib.error.HTTPError(
+                "https://idp.test/token",
+                status,
+                "temporary",
+                {},
+                __import__("io").BytesIO(b'{"error":"temporarily_unavailable"}'),
+            )
+
+        monkeypatch.setattr(oidc.urllib.request, "urlopen", boom)
+        with pytest.raises(oidc.OIDCUnavailable):
+            oidc.exchange({"grant_type": "refresh_token"})
+
+
+def test_token_endpoint_log_allows_only_standard_oauth_error_codes(monkeypatch, caplog):
+    _as_oidc(monkeypatch, token="https://idp.test/token")
+    canary = "FORGED-LOG-LINE\noperator signed in"
+
+    def boom(request, timeout=None):
+        raise urllib.error.HTTPError(
+            "https://idp.test/token",
+            400,
+            "Bad Request",
+            {},
+            __import__("io").BytesIO(json.dumps({"error": canary}).encode()),
+        )
+
+    monkeypatch.setattr(oidc.urllib.request, "urlopen", boom)
+    with pytest.raises(oidc.OIDCRefused):
+        oidc.exchange({"grant_type": "authorization_code"})
+
+    assert canary not in caplog.text
+    assert "operator signed in" not in caplog.text
+    assert "HTTP 400" in caplog.text

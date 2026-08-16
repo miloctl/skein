@@ -23,26 +23,19 @@ export default defineConfig({
   },
   webServer: [
     {
-      // seed.py builds the demo team the walks assert against; the data dir
-      // is fresh per run so a rerun never sees yesterday's state
+      // The runner creates a disposable PostgreSQL database and seeds the demo
+      // team. SKEIN_DATA_DIR alone cannot isolate rows from a running dev app.
       command:
-        `bash -c 'rm -rf /tmp/skein-e2e && mkdir -p /tmp/skein-e2e && ` +
-        `cd ../backend && ` +
-        `SKEIN_DATA_DIR=/tmp/skein-e2e SKEIN_MODEL_PROVIDER=mock SKEIN_SCHEDULER=0 ` +
-        `.venv/bin/python seed.py && ` +
-        // a key for the walks that need STRONG identity: several surfaces
-        // render nothing without one, and a walk that scans them empty
-        // reports them clean
-        `SKEIN_DATA_DIR=/tmp/skein-e2e ` +
-        `.venv/bin/python -m app.bootstrap_key ava > /tmp/skein-e2e/ava.key && ` +
-        `SKEIN_DATA_DIR=/tmp/skein-e2e SKEIN_MODEL_PROVIDER=mock SKEIN_SCHEDULER=0 ` +
-        `SKEIN_CORS_ORIGINS=${APP} .venv/bin/uvicorn app.main:app --port 8600'`,
+        `bash -c 'rm -rf /tmp/skein-e2e && cd ../backend && ` +
+        `exec env SKEIN_DATA_DIR=/tmp/skein-e2e SKEIN_MODEL_PROVIDER=mock SKEIN_SCHEDULER=0 ` +
+        `SKEIN_CORS_ORIGINS=${APP} .venv/bin/python ../scripts/e2e-backend.py'`,
       url: `${API}/health`,
       // PW_REUSE: on a host that drops connects to unbound ports (the
       // IPv4 note above), playwright's port preflight hangs too. Pre-start
       // the servers by hand and set PW_REUSE=1 to skip the preflight. CI
       // never sets it, so CI always gets a fresh seeded stack.
       reuseExistingServer: !!process.env.PW_REUSE,
+      gracefulShutdown: { signal: "SIGTERM", timeout: 10_000 },
       timeout: 60_000,
     },
     {

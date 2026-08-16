@@ -32,6 +32,7 @@ from ..services import (
     projection_policy,
     scope,
     search,
+    wording,
 )
 
 # Handlers below call services through run_in_threadpool, never inline: these
@@ -76,8 +77,8 @@ def _write_refusal(
     if decision.effect == PolicyEffect.PERMIT:
         return ""
     if decision.effect == PolicyEffect.REVIEW:
-        return "⚠️ Workplace policy requires review. Use the governed work surface."
-    return "⚠️ Workplace policy denied this command."
+        return wording.policy_review_unsupported()
+    return wording.workplace_policy_denied()
 
 
 def _tool_event(name: str) -> Event:
@@ -183,7 +184,7 @@ async def _briefing(
     lines.append(f"- Team queue — intake awaiting triage: {len(n['intake_to_triage'])}")
     esc = b["team"]["escalated_blockers"]
     if esc:
-        lines.append("- ⛔ Team escalations: " + ", ".join(f"#{e['id']} {e['title']}" for e in esc))
+        lines.append("- Team escalations: " + ", ".join(f"#{e['id']} {e['title']}" for e in esc))
     for e in b["team"]["todays_events"]:
         lines.append(f"- 📅 {e['starts_at']}: {e['title']}")
     lines.append("\nFull detail on the My Day page.")
@@ -246,7 +247,7 @@ async def _plan(
     try:
         definition = await run_in_threadpool(playbooks.get_playbook, parts[0])
     except ValueError as exc:
-        yield {"data": f"⚠️ {exc}"}
+        yield {"data": str(exc)}
         return
     attributes = policy_context.playbook_context(parts[0], definition)
     refusal = _write_refusal(
@@ -287,7 +288,7 @@ async def _plan(
             )
         }
     except ValueError as exc:
-        yield {"data": f"⚠️ {exc}"}
+        yield {"data": str(exc)}
 
 
 async def _playbooks(
@@ -343,10 +344,7 @@ async def _remember(
         yield {"data": "Usage: `/remember <fact>`"}
         return
     if args.lower().startswith("fb:"):
-        yield {
-            "data": "Feedback notes are private — memories are team-visible."
-            " Use quick capture with your key instead."
-        }
+        yield {"data": wording.private_feedback_agent_refusal()}
         return
     refusal = _write_refusal(
         access,
@@ -371,7 +369,7 @@ async def _remember(
         )
         yield {"data": f"Remembered (#{m['id']}). {surfaced}"}
     except ValueError as exc:
-        yield {"data": f"⚠️ {exc}"}
+        yield {"data": str(exc)}
 
 
 COMMANDS: list[dict] = [

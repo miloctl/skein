@@ -44,7 +44,8 @@ def test_weak_verdicts_are_reported_as_not_counting(fresh_db, monkeypatch):
     _settle(strong=0)
     msg = delegation.trust_blocked()
     assert "Skein recorded 2 verdicts." in msg  # plural agrees with the number
-    assert "personal API key" in msg
+    assert "None used strong identity." in msg
+    assert "deployment sign-in" in msg and "personal API key" in msg
 
 
 def test_the_count_agrees_with_its_noun(fresh_db, monkeypatch):
@@ -72,7 +73,7 @@ def test_an_override_verdict_does_not_count_as_strong(fresh_db, monkeypatch):
     exclude it too — otherwise the card says trust can accrue and it cannot."""
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
     _settle(strong=1, override=1)
-    assert "personal API key" in delegation.trust_blocked()
+    assert "strong identity" in delegation.trust_blocked()
 
 
 def test_the_status_endpoint_carries_it(client, monkeypatch):

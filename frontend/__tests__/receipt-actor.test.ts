@@ -18,6 +18,7 @@ describe("receiptLine actor attribution", () => {
     // — the chip must carry the same ref-then-actor order or history and the
     // live view disagree about one fact
     expect(line).toContain("note #7 (code-reviewer) needs a human verdict");
+    expect(line).not.toMatch(/[🕓✅⛔📭🔕⚠]/u);
   });
 
   it("adds nothing when the server sent no actor", () => {
@@ -37,13 +38,13 @@ describe("receiptLine actor attribution", () => {
       ref: 0,
       actor: "code-reviewer",
     });
-    expect(line).toContain("note is forbidden for code-reviewer");
+    expect(line).toContain("Skein prevented code-reviewer from writing note");
     expect(line).not.toContain("(code-reviewer)");
   });
 
   it("keeps the refused fallback for the turn head's own refusal", () => {
     const line = receiptLine({ kind: "refused", entity: "note", detail: "", ref: 0 });
-    expect(line).toContain("forbidden for this agent");
+    expect(line).toContain("Skein prevented this agent from writing note");
   });
 
   it("suffixes a failed write", () => {

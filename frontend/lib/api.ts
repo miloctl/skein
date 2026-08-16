@@ -33,6 +33,17 @@ export const loadError = (error: unknown) =>
 export const actionError = (error: unknown) =>
   isUnreachable(error) ? backendUnreachable(error) : detail(error);
 
+export async function errorFromResponse(res: Response): Promise<Error> {
+  let message = `${res.status} ${res.statusText}`;
+  try {
+    const body = await res.json();
+    const served = body.detail;
+    if (typeof served === "string") message = served;
+    else if (served !== undefined) message = JSON.stringify(served);
+  } catch {}
+  return new Error(message);
+}
+
 const USER_KEY = "skein-user";
 const API_KEY_KEY = "skein-key";
 
@@ -154,14 +165,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // the shared token must not disturb a session that was never judged.
     const sent = headers.Authorization?.slice(7) ?? "";
     if (res.status === 401 && sent && sent === accessTokenSync()) sessionRejected(sent);
-    let detail = `${res.status} ${res.statusText}`;
-    try {
-      const d = (await res.json()).detail;
-      // FastAPI 422s send an array of objects — stringify, never "[object Object]"
-      if (typeof d === "string") detail = d;
-      else if (d !== undefined) detail = JSON.stringify(d);
-    } catch {}
-    throw new Error(detail);
+    throw await errorFromResponse(res);
   }
   return res.json();
 }

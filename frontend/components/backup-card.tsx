@@ -19,11 +19,11 @@ type BackupResult = {
  *  half is which, or an operator exports-then-deletes and loses every chat
  *  (the deploy/k8s/OPERATOR.md exit section makes the same distinction). */
 export function BackupCard({
-  strong,
-  admin,
+  canAdminister,
+  accessMessage,
 }: {
-  strong: boolean;
-  admin: boolean;
+  canAdminister: boolean;
+  accessMessage: string;
 }) {
   const [busy, setBusy] = useState("");
   const [line, setLine] = useState("");
@@ -76,7 +76,7 @@ export function BackupCard({
         shared work tables as JSON — it excludes chat transcripts and private
         notes. The backup files are the complete copy.
       </p>
-      {strong && admin ? (
+      {canAdminister ? (
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -97,7 +97,7 @@ export function BackupCard({
         </div>
       ) : (
         <p role="status" className="text-sm text-ink-3">
-          Needs your API key (step 2 above) and administrator access.
+          {accessMessage}
         </p>
       )}
       {/* always-mounted status node, same reason as the tunables section:

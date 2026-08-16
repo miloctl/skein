@@ -243,6 +243,34 @@ describe("how a session ends", () => {
     expect(stored.expires_at).toBeLessThan(Date.now());
   });
 
+  it("keeps the session when a refresh returns a retryable provider outage", async () => {
+    window.localStorage.setItem(
+      "skein-oidc",
+      JSON.stringify({
+        access_token: "expired",
+        refresh_token: "renew-me",
+        expires_at: Date.now() - 1_000,
+        user: "casey",
+      }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 503,
+        json: async () => ({
+          detail:
+            "Skein cannot reach the identity provider. Wait one minute, then start the sign-in again.",
+        }),
+      })),
+    );
+    const auth = await import("@/lib/auth");
+
+    expect(await auth.accessToken()).toBe("");
+    expect(window.localStorage.getItem("skein-oidc")).not.toBeNull();
+    expect(window.sessionStorage.getItem("skein-oidc-ended")).toBeNull();
+  });
+
   it("clears a stale reason when another tab signs back in", async () => {
     // the reason is per-tab and writeStored clears it only in the writing
     // tab: a tab that expired, watched a sign-in elsewhere, then watched a
