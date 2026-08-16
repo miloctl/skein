@@ -460,6 +460,13 @@ _EXEMPT_FUNCTIONS = {
         " which resolves authority and files the proposal; the row carries no"
         " tier a caller can move, and _document_row refuses any kind but document"
     ),
+    "uploads.py::delete_upload": (
+        "a person deleting their OWN attached file, keyed on created_by like"
+        " services/chat_threads.py::delete_thread keys on owner. The row"
+        " carries no tier a caller can move, and owned_upload raises NotFound"
+        " for anybody else's id, so there is nothing for assert_editable to"
+        " add"
+    ),
     "uploads.py::save_upload": (
         "inserts a new row and names the file after the id it just got back;"
         " the caller addresses no existing id"
@@ -649,6 +656,19 @@ _UNFILTERED_READS = {
         " that is not a workspace-tier document. Agent surfaces read at the"
         " workspace tier by construction (scope.NOBODY), and the kind check"
         " is what stops it reaching a person's private upload"
+    ),
+    # matched by the READ scanner as well, because its DELETE names the
+    # table. The row it deletes is loaded by owned_upload, which is
+    # owner-scoped and raises NotFound for anybody else.
+    "uploads.py::delete_upload": (
+        "deletes one of the caller's OWN uploads, keyed on created_by;"
+        " no column of the row reaches a caller"
+    ),
+    "uploads.py::list_uploads": (
+        "one person's OWN uploads, keyed on created_by — the surface that"
+        " makes the quota usable. A viewer filter would return nothing here:"
+        " an upload carries the private tier, and scope.visible_filter drops"
+        " the author arm for a nameless viewer"
     ),
     "uploads.py::used_bytes": (
         "sums the SIZES of one person's own uploads to enforce their quota and"

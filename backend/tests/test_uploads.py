@@ -156,6 +156,83 @@ def test_the_upload_is_recorded_in_the_ledger(client):
     assert row and f"#{aid}" in row["detail"] and row["actor"] == "tester"
 
 
+def test_lists_your_own_files_with_what_they_spent(client):
+    """The quota is unusable without this. An upload appears on no other
+    surface, so a person told they passed the limit has nothing to work from."""
+    _upload(client, "a.md", b"x" * 10)
+    _upload(client, "b.md", b"y" * 20)
+    body = client.get("/api/files").json()
+    assert [f["title"] for f in body["files"]] == ["b.md", "a.md"]  # newest first
+    assert body["used"] == 30
+    assert body["quota"] == uploads.QUOTA_BYTES
+
+
+def test_the_list_holds_only_your_own_files(client):
+    _upload(client, "mine.md", b"x")
+    assert client.get("/api/files", headers={"X-User": "mallory"}).json()["files"] == []
+
+
+def test_deleting_frees_the_quota_and_removes_the_file(client):
+    aid = _upload(client, "notes.md", b"x" * 40).json()["id"]
+    stored = Path(db.query_one("SELECT path FROM artifacts WHERE id = ?", (aid,))["path"])
+    assert client.delete(f"/api/files/{aid}").status_code == 200
+    assert not stored.exists()
+    body = client.get("/api/files").json()
+    assert body["files"] == [] and body["used"] == 0
+
+
+def test_a_deleted_file_cannot_be_downloaded(client):
+    aid = _upload(client, "notes.md", b"secret").json()["id"]
+    client.delete(f"/api/files/{aid}")
+    assert client.get(f"/api/files/{aid}/download").status_code == 404
+
+
+def test_a_teammate_cannot_delete_your_file(client):
+    aid = _upload(client, "notes.md", b"x").json()["id"]
+    r = client.delete(f"/api/files/{aid}", headers={"X-User": "mallory"})
+    # 404 like every other owner-scoped miss: another status confirms the row
+    assert r.status_code == 404
+    assert db.query_one("SELECT 1 FROM artifacts WHERE id = ?", (aid,))
+
+
+def test_a_row_whose_file_is_already_gone_can_still_be_deleted(client):
+    """A restored database beside an empty volume leaves rows holding quota
+    against files that do not exist. Refusing those traps the person: the
+    quota cannot be spent down and no upload succeeds again."""
+    aid = _upload(client, "notes.md", b"x" * 40).json()["id"]
+    Path(db.query_one("SELECT path FROM artifacts WHERE id = ?", (aid,))["path"]).unlink()
+    assert client.delete(f"/api/files/{aid}").status_code == 200
+    assert client.get("/api/files").json()["used"] == 0
+
+
+def test_deleting_clears_a_spent_quota(client, monkeypatch):
+    monkeypatch.setattr(uploads, "QUOTA_BYTES", 32)
+    aid = _upload(client, "a.md", b"x" * 24).json()["id"]
+    assert _upload(client, "b.md", b"y" * 24).status_code == 400
+    client.delete(f"/api/files/{aid}")
+    assert _upload(client, "b.md", b"y" * 24).status_code == 200
+
+
+def test_the_deletion_is_recorded_in_the_ledger(client):
+    aid = _upload(client, "notes.md", b"x").json()["id"]
+    client.delete(f"/api/files/{aid}")
+    row = db.query_one(
+        "SELECT * FROM activity WHERE action = 'delete_file' ORDER BY id DESC LIMIT 1"
+    )
+    assert row and f"#{aid}" in row["detail"] and row["actor"] == "tester"
+    # the filename never enters a ledger that cannot be edited afterwards
+    assert "notes.md" not in row["detail"]
+
+
+def test_no_agent_tool_can_delete_a_file(fresh_db):
+    """Absent beats reviewed: no code path from a model to file destruction is
+    stronger than a gated one, and nothing an agent does needs it."""
+    from app.tools import ALL_TOOLS
+
+    names = {getattr(t, "tool_name", getattr(t, "__name__", "")) for t in ALL_TOOLS}
+    assert not [n for n in names if "file" in n and "delete" in n]
+
+
 def test_a_stored_path_outside_the_artifact_root_is_refused(fresh_db):
     """The containment check is not about save_upload — it is about a restored
     or hand-edited row turning a stored string into a read of anything the

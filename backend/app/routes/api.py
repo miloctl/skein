@@ -987,6 +987,19 @@ def upload_file(user: CurrentUser, file: Annotated[UploadFile, File()]):
     return uploads.save_upload(file.filename or "file", _bounded_read(file.file), owner=user)
 
 
+@router.get("/files")
+def list_files(user: CurrentUser):
+    """Your own attached files, and what they have spent of the quota."""
+    return uploads.list_uploads(user)
+
+
+@router.delete("/files/{artifact_id}")
+def delete_file(artifact_id: int, user: CurrentUser):
+    # the `delete` bucket, like every other destructive REST write
+    ratelimit.check("delete", user)
+    return uploads.delete_upload(artifact_id, user)
+
+
 @router.get("/files/{artifact_id}/download")
 def download_file(artifact_id: int, user: CurrentUser):
     row = uploads.owned_upload(artifact_id, user)

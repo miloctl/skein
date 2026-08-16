@@ -154,7 +154,7 @@ def save_upload(filename: str, data: bytes, *, owner: str) -> dict:
         if used + len(data) > QUOTA_BYTES:
             raise ValueError(
                 f"your uploads would pass the {QUOTA_BYTES // (1024 * 1024)} MB limit."
-                " Delete an attached file, then attach this one."
+                " Open Settings, then delete an attached file."
             )
         title = safe_title(filename)
         # The row is inserted before the file exists, because the FILE IS
@@ -197,14 +197,14 @@ def owned_upload(artifact_id: int, owner: str) -> dict:
     return row
 
 
-def upload_bytes(row: dict) -> bytes:
-    """The stored file, with the same containment the artifact reader applies.
+def _contained_path(row: dict) -> Path:
+    """The file for an upload row, refused if it escapes the artifact root.
 
-    `path` is a stored string and this turns one into a file read. Every
-    writer is save_upload above, so the check is not about them — it is about
-    a restored or hand-edited row. resolve() runs BEFORE the containment test
-    so a symlink planted under the directory is followed to its target and
-    then refused.
+    `path` is a stored string, and every caller turns one into a file
+    operation. Every writer is save_upload above, so the check is not about
+    them — it is about a restored or hand-edited row. resolve() runs BEFORE
+    the containment test so a symlink planted under the directory is followed
+    to its target and then refused.
     """
     root = (Path(config.DATA_DIR) / "artifacts").resolve()
     try:
@@ -215,6 +215,12 @@ def upload_bytes(row: dict) -> bytes:
         raise db.NotFound(f"no attached file #{row['id']}") from e
     if not path.is_relative_to(root):
         raise db.NotFound(f"no attached file #{row['id']}")
+    return path
+
+
+def upload_bytes(row: dict) -> bytes:
+    """The stored file, with the same containment the artifact reader applies."""
+    path = _contained_path(row)
     # Past the containment check it is OUR state, never something a caller
     # sent, so it stays a 500 and shows up in the error rate — the same split
     # handoff.read_artifact makes. is_file() is False for a FIFO as well as
@@ -225,3 +231,52 @@ def upload_bytes(row: dict) -> bytes:
             " Check that the volume holding data/artifacts is mounted."
         )
     return path.read_bytes()
+
+
+def list_uploads(owner: str) -> dict:
+    """This person's own attached files, and what they have spent.
+
+    The quota is unusable without this. An upload is private, so it appears on
+    no other surface — a person told "your uploads would pass the limit" with
+    no list to work from cannot act on the sentence at all.
+    """
+    rows = db.query(
+        "SELECT id, title, mime, size, created_at FROM artifacts"
+        " WHERE kind = 'upload' AND created_by = ? ORDER BY id DESC",
+        (owner,),
+    )
+    return {
+        "files": rows,
+        "used": sum(int(r["size"]) for r in rows),
+        "quota": QUOTA_BYTES,
+        "max_file": MAX_UPLOAD_BYTES,
+    }
+
+
+def delete_upload(artifact_id: int, owner: str) -> dict:
+    """Delete one of your own attached files, and free the quota it held.
+
+    A human deleting their own private file, so it is a plain owner-scoped
+    REST delete rather than a reviewed one — the shape services/chat_threads.py
+    already uses for deleting a chat, which destroys strictly more. A review
+    here would ask a teammate to approve destroying something they cannot
+    read, and the proposal row would announce that the file exists.
+
+    There is deliberately no agent tool for this. Absent beats reviewed: no
+    code path from a model to file destruction is stronger than a gated one,
+    and nothing an agent does needs it.
+    """
+    with db.transaction():
+        # the same lock save_upload takes, in the same order: this changes
+        # what used_bytes returns, so an upload racing a delete must not read
+        # the quota mid-change
+        db.name_lock(db.LOCK_UPLOAD, owner)
+        row = owned_upload(artifact_id, owner)
+        path = _contained_path(row)
+        db.execute("DELETE FROM artifacts WHERE id = ?", (artifact_id,))
+        # missing_ok: a row whose file is already gone (a restored database
+        # beside an empty volume) is exactly the row somebody needs to delete
+        # to free a stuck quota. Refusing it there would trap them.
+        path.unlink(missing_ok=True)
+        db.log_activity(owner, "delete_file", f"artifact #{artifact_id} ({row['size']} bytes)")
+        return {"id": artifact_id, "deleted": True}

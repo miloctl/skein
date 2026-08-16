@@ -172,22 +172,29 @@ this file is only for accepted trade-offs that must eventually be repaid.
   dynamic agent topology, and evaluate then whether to wrap the strands
   tools in governance or extend `consult_specialist` instead.
 
-- **An uploaded file has no retention policy and no delete.** A file attached
-  in chat is stored until somebody removes it by hand, and nothing removes it:
-  `services/uploads.py` ships a per-person quota (100 MB) and no way to spend
-  it down. Accepted 2026-08-16 because deleting a stored file is a destructive
-  write, and the honest version of it is a reviewed one — the shape
-  `tools/_gate.py::ALWAYS_REVIEW` already gives note and memory deletion —
-  rather than a DELETE route added in the same commit that shipped the
-  upload. The quota is what bounds growth until then, and it binds per person,
-  so the failure mode is one person being told to clear space rather than a
-  volume filling. Repay by adding the reviewed delete (row, file, and the
-  quota it frees together, in one transaction), then decide retention: the
-  open question is whether a file outlives the chat thread that carried it,
-  and today it does, because the artifacts table has no link back to the
-  thread. In trusted-header mode an upload's privacy is only as strong as
-  `X-User`, which is the exposure class the field-guide entry above already
-  records — uploads join it and close the same way.
+- ~~An uploaded file has no retention policy and no delete.~~ The delete half
+  is repaid, 2026-08-16, and NOT in the shape this entry first sketched. A
+  reviewed delete was wrong on both axes: `ALWAYS_REVIEW` governs an AGENT
+  destroying SHARED content, and this is a person deleting their own private
+  file. The reviewer could not read what they were approving, and the proposal
+  row would itself announce that the file exists — the thing the 404-on-miss
+  design spends effort preventing. It is a plain owner-scoped REST delete
+  instead, the shape `services/chat_threads.py::delete_thread` already uses
+  for a chat, which destroys strictly more. `GET /api/files` and the Settings
+  card ship with it, because a quota with no list is a wall with no door.
+  There is deliberately NO agent tool for deletion: absent beats reviewed.
+
+  What stays open is retention, on purpose. A file lives until somebody
+  deletes it, and it outlives the chat thread that carried it — the artifacts
+  table has no link back to the thread, and cascading a file's death off a
+  conversation's would destroy more than the person asked to destroy. Auto
+  expiry is the other candidate and is not worth guessing a number for now:
+  revisit when real usage shows quotas filling with files nobody would miss,
+  which is also when "stale" can be defined from evidence rather than taste.
+  In trusted-header mode a spoofed `X-User` can delete another person's
+  files — the identical exposure chat deletion already carries, in the class
+  the field-guide entry above records, closing the same way with api-key or
+  oidc.
 
 Decided against, so the next review does not re-open them: Postgres (wrong
 scale — the services layer keeps the door open), Redis-backed rate limits

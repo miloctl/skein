@@ -20,6 +20,7 @@ import { signedInUser } from "@/lib/auth";
 import { reportStatus } from "@/lib/status";
 import { copyText } from "@/lib/clipboard";
 import { Card as Section } from "@/components/card";
+import { AttachedFilesCard } from "@/components/attached-files-card";
 import { BackupCard } from "@/components/backup-card";
 import { CrewsCard } from "@/components/crews-card";
 import {
@@ -1873,6 +1874,8 @@ export default function SettingsPage() {
           {tuneStatus}
         </p>
       </Section>
+
+      <AttachedFilesCard />
 
       <BackupCard
         canAdminister={canAdminister}
