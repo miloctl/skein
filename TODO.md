@@ -160,6 +160,18 @@ this file is only for accepted trade-offs that must eventually be repaid.
   written. Existing hash-chained activity rows cannot be rewritten, and stored
   reports keep the language in which they were generated.
 
+- **The strands-tools orchestration tools are refused without evaluation.**
+  `use_agent`, `swarm`, `graph`, `agent_graph`, and `workflow` are absent from
+  the `extra_tools.py` allowlist, so no deployment can enable them. Skein's
+  own primitives cover the same ground today: `consult_specialist` for
+  delegation (with its structural depth cap), flocks for fan-out, and the
+  planner sub-agent for decomposition — and the strands versions would bypass
+  the governance those primitives carry (`workflow` is also named in the
+  exclusion docstring for model-controlled file paths). Accepted 2026-08-16.
+  Revisit when a real task needs more than one level of delegation or a
+  dynamic agent topology, and evaluate then whether to wrap the strands
+  tools in governance or extend `consult_specialist` instead.
+
 Decided against, so the next review does not re-open them: Postgres (wrong
 scale — the services layer keeps the door open), Redis-backed rate limits
 (per-pod buckets are fine at one replica), a migration framework (the
