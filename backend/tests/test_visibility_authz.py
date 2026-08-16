@@ -448,6 +448,18 @@ _EXEMPT_FUNCTIONS = {
     # crews and tiers for a row this one deliberately never shares, and its
     # private tier is unreadable to a nameless viewer, so the uploader could
     # not reach their own file.
+    # A document carries the workspace tier and nothing else: create_document
+    # hard-codes it and _check_source REFUSES a source that is not shared, so
+    # there is no tier for a caller to choose and none to check against.
+    "documents.py::create_document": (
+        "inserts a new row at the workspace tier and names the file after the id"
+        " it just got back; the caller addresses no existing id"
+    ),
+    "documents.py::edit_document": (
+        "edits the BODY of a workspace-tier artifact through tools/_gate.py,"
+        " which resolves authority and files the proposal; the row carries no"
+        " tier a caller can move, and _document_row refuses any kind but document"
+    ),
     "uploads.py::save_upload": (
         "inserts a new row and names the file after the id it just got back;"
         " the caller addresses no existing id"
@@ -627,6 +639,17 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
 
 # file::function -> why this read needs no tier filter.
 _UNFILTERED_READS = {
+    "documents.py::_check_source": (
+        "reads ONLY the visibility of a candidate source in order to REFUSE"
+        " it. No column reaches a caller, and a source that is not workspace"
+        " is rejected — which is the opposite of a leak"
+    ),
+    "documents.py::_document_row": (
+        "loads the artifact an agent named so the edit can refuse anything"
+        " that is not a workspace-tier document. Agent surfaces read at the"
+        " workspace tier by construction (scope.NOBODY), and the kind check"
+        " is what stops it reaching a person's private upload"
+    ),
     "uploads.py::used_bytes": (
         "sums the SIZES of one person's own uploads to enforce their quota and"
         " returns an integer. No row, title or path reaches a caller, and the"

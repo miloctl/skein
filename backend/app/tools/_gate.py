@@ -48,6 +48,7 @@ ALWAYS_REVIEW = {"note_delete", "memory_forget", "event_cancel", "absence"}
 # test_authority pins this against the registry so a new mutator cannot be
 # added without one.
 _FAMILY = {
+    "document_edit": "document",
     "note_edit": "note",
     "note_delete": "note",
     "blocker_edit": "blocker",
