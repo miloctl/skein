@@ -99,29 +99,29 @@ def generate_handoff(
     ]
     for m in milestones:
         lines.append(
-            f"- [{m['status']}] #{m['id']} {wording.flatten(m['title'])}"
+            f"- [{m['status']}] #{m['id']} {wording.quoted(m['title'])}"
             + (f" — due {m['due_date']}" if m["due_date"] else "")
         )
     lines += ["", "## Open tasks"]
     lines += [
-        f"- [{t['status']}/{t['priority']}] #{t['id']} {wording.flatten(t['title'])}"
+        f"- [{t['status']}/{t['priority']}] #{t['id']} {wording.quoted(t['title'])}"
         f" (@{t['assignee'] or 'unassigned'})"
         for t in tasks
     ] or ["- none"]
     lines += ["", "## Unresolved blockers (this engagement)"]
     lines += [
-        f"- [{b['status']}/{b['impact']}] #{b['id']} {wording.flatten(b['title'])}"
+        f"- [{b['status']}/{b['impact']}] #{b['id']} {wording.quoted(b['title'])}"
         f" (owner: {b['owner'] or 'unowned'})"
         for b in blockers
     ] or ["- none"]
     lines += ["", "## Unanswered questions (team-wide)"]
     lines += [
-        f"- #{q['id']} {wording.flatten(q['question'])} (→ {q['assigned_to'] or 'unassigned'})"
+        f"- #{q['id']} {wording.quoted(q['question'])} (→ {q['assigned_to'] or 'unassigned'})"
         for q in questions
     ] or ["- none"]
     lines += ["", "## Recent decisions (with rationale)"]
     lines += [
-        f"- **{wording.flatten(d['title'])}** — {wording.flatten(d['decision'])}"
+        f"- **{wording.quoted(d['title'])}** — {wording.quoted(d['decision'])}"
         + (f" *(context: {d['context']})*" if d["context"] else "")
         for d in decisions
     ] or ["- none"]
@@ -131,8 +131,8 @@ def generate_handoff(
     ]
     lines += ["", "## Lessons relevant to this class"]
     lines += [
-        f"- {wording.flatten(les['lesson'])}"
-        + (f" → {wording.flatten(les['recommendation'])}" if les["recommendation"] else "")
+        f"- {wording.quoted(les['lesson'])}"
+        + (f" → {wording.quoted(les['recommendation'])}" if les["recommendation"] else "")
         for les in lessons
     ] or ["- none"]
 
@@ -198,6 +198,10 @@ def read_artifact(
     artifact_id: int,
     viewer: scope.Viewer = scope.NOBODY,
     *,
+    # The defaults apply viewer scope only. The REST route overrides all three
+    # with the destination-route workplace policy (routes/api.py::get_artifact)
+    # — a new caller (an agent tool, MCP) must do the same, or its threads
+    # skip every workplace rule the destinations enforce.
     resource_filter: entity_refs.ResourceFilter | None = None,
     proposal_filter: entity_refs.ResourceFilter | None = None,
     allow_unclassified_proposals: bool = True,

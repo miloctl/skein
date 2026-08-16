@@ -46,8 +46,6 @@ def test_artifact_body_returns_only_current_readable_typed_threads(client):
         actor="tester",
         visibility=scope.PRIVATE,
     )
-    deleted = work.create_task("Deleted thread", actor="tester")
-    db.execute("DELETE FROM tasks WHERE id = ?", (deleted["id"],))
 
     root = Path(config.DATA_DIR) / "artifacts"
     root.mkdir(parents=True, exist_ok=True)
@@ -55,7 +53,7 @@ def test_artifact_body_returns_only_current_readable_typed_threads(client):
     path.write_text(
         f"# Report\n\nTask #{task['id']} waits on blocker #{blocker['id']}. "
         f"Task #{task['id']} appears twice. Proposal #{proposal['id']} is pending.\n"
-        f"Task #{hidden['id']} is private. Task #{deleted['id']} was deleted. "
+        f"Task #{hidden['id']} is private. "
         "Decision #99999 is absent. Bare #9, sprint #5, and 'question #8' stay text.",
         encoding="utf-8",
     )
@@ -124,6 +122,68 @@ def test_artifact_threads_follow_each_destination_policy(client, monkeypatch):
     monkeypatch.setattr(api, "decide", destination_decision)
     body = client.get(f"/api/artifacts/{aid}").json()
     assert body["threads"] == [{"entity": "blocker", "id": blocker["id"]}]
+
+
+def test_artifact_threads_apply_row_level_policy_not_only_route_level(client, monkeypatch):
+    """A rule can permit the route and deny one row. Denying by action alone
+    is always caught by the cached route decision, so this fixture is the only
+    thing that exercises the row-level half of the thread filter."""
+    from app.extensions.policy import PolicyDecision, PolicyEffect
+    from app.routes import api
+
+    kept = work.create_task("Kept task thread", actor="tester")
+    denied = work.create_task("Row-denied task thread", actor="tester")
+
+    root = Path(config.DATA_DIR) / "artifacts"
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / "row-policy-thread-test.md"
+    path.write_text(
+        f"Task #{kept['id']} stays. Task #{denied['id']} is row-denied.",
+        encoding="utf-8",
+    )
+    aid = db.execute(
+        "INSERT INTO artifacts (kind, title, path, created_by, created_at)"
+        " VALUES ('digest', 'Row policy threads', ?, 'tester', ?) RETURNING id",
+        (str(path), db.now()),
+    )
+
+    def row_decision(_request, _subject, action, resource_type, **kwargs):
+        effect = (
+            PolicyEffect.DENY
+            if resource_type == "task" and kwargs.get("resource_id") == str(denied["id"])
+            else PolicyEffect.PERMIT
+        )
+        return PolicyDecision(effect)
+
+    monkeypatch.setattr(api, "decide", row_decision)
+    body = client.get(f"/api/artifacts/{aid}").json()
+    assert body["threads"] == [{"entity": "task", "id": kept["id"]}]
+
+
+def test_a_generated_report_does_not_thread_references_inside_titles(client):
+    """The fixture body comes from a real generator, not a hand-written file:
+    week_open interpolates task titles, and an unquoted title that says
+    "decision #N" minted a thread to a row the report never referenced."""
+    from app.services import collab, rituals, users
+
+    users.ensure_user("ava")
+    decision = collab.record_decision(
+        "Unreferenced decision",
+        "The report must not link this row",
+        actor="tester",
+    )
+    task = work.create_task(
+        f"Bob's chase of decision #{decision['id']} approval",
+        assignee="ava",
+        due_date=db.today().isoformat(),
+        actor="tester",
+    )
+
+    out = rituals.week_open(actor="tester", force=True)
+    body = client.get(f"/api/artifacts/{out['artifact_id']}").json()
+    threads = body["threads"]
+    assert {"entity": "task", "id": task["id"]} in threads
+    assert not any(t["entity"] == "decision" for t in threads)
 
 
 def test_a_ritual_hands_back_an_id_that_reads_back(client):

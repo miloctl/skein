@@ -67,6 +67,8 @@ beforeEach(() => {
   window.localStorage.removeItem("skein-onboarded:tester");
   window.localStorage.removeItem("skein-onboarded:local-user");
   window.localStorage.removeItem("skein-onboarded:resolved-user");
+  window.localStorage.removeItem("skein-guided-core-done:tester");
+  window.localStorage.removeItem("skein-guided-core-done:resolved-user");
   mocks.onboarding.steps = mocks.onboarding.steps.map((step) => ({
     ...step,
     done: step.id === "pick_name",
@@ -147,6 +149,42 @@ describe("Guided First Week", () => {
       expect(screen.queryByRole("button", { name: /team context/ })).toBeNull(),
     );
     expect(screen.getByText("Team queues")).toBeTruthy();
+  });
+
+  it("never collapses team context for a user this browser saw finish the core steps", async () => {
+    // The onboarding read is serial after the briefing, so without the cached
+    // verdict this user watched the guided layout flash on every load.
+    window.localStorage.setItem("skein-guided-core-done:tester", "1");
+    mocks.onboardingRequest = new Promise(() => {}); // never resolves
+
+    render(<MyDay />);
+
+    await waitFor(() => expect(screen.getByText("Team queues")).toBeTruthy());
+    expect(screen.getByText("Team today")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /team context/ })).toBeNull();
+  });
+
+  it("caches the core-steps verdict once onboarding reports them done", async () => {
+    mocks.onboarding.steps = mocks.onboarding.steps.map((step) =>
+      step.id === "first_capture" || step.id === "first_standup"
+        ? { ...step, done: true }
+        : step,
+    );
+
+    render(<MyDay />);
+
+    await waitFor(() => expect(screen.getByText("Team queues")).toBeTruthy());
+    expect(window.localStorage.getItem("skein-guided-core-done:tester")).toBe("1");
+  });
+
+  it("falls open to the full layout when the onboarding read fails", async () => {
+    mocks.onboardingRequest = Promise.reject(new Error("onboarding exploded"));
+
+    render(<MyDay />);
+
+    await waitFor(() => expect(screen.getByText("Team queues")).toBeTruthy());
+    expect(screen.getByText("Team today")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /team context/ })).toBeNull();
   });
 
   it("uses the existing dismissal to exit the guided layout", async () => {

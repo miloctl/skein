@@ -684,6 +684,30 @@ def resource_contexts(
                 key = (entity, int(row["id"]))
                 result[key] = contexts[int(row["id"])]
             continue
+        selected = _TABLES.get(entity)
+        if selected is not None and selected[1] in ("", "project_class"):
+            # one IN query per entity, the same SQL shape existing_scoped uses
+            # per row — an artifact naming twenty decisions must not cost
+            # twenty PK lookups inside one read transaction
+            table, project_source = selected
+            visible, params = scope.visible_filter(viewer, table, "value")
+            marks = ",".join("?" for _ in ids)
+            project_expression = (
+                "value.project_class" if project_source == "project_class" else "''"
+            )
+            rows = db.query(
+                f"SELECT value.id, value.visibility AS classification, value.crew_id,"  # noqa: S608 -- closed table map and scope marks
+                f" {project_expression} AS project_type"
+                f" FROM {table} value WHERE value.id IN ({marks}) AND {visible}",
+                (*sorted(ids), *params),
+            )
+            for row in rows:
+                result[(entity, int(row["id"]))] = {
+                    "classification": str(row.get("classification") or ""),
+                    "crew_id": str(row.get("crew_id") or ""),
+                    "project_type": str(row.get("project_type") or ""),
+                }
+            continue
         for entity_id in ids:
             context = existing_scoped(entity, entity_id, viewer)
             if context:

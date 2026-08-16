@@ -71,7 +71,7 @@ def build_digest() -> str:
     if esc:
         lines.append("## ⛔ Escalated blockers")
         lines += [
-            f"- #{b['id']} **{wording.flatten(b['title'])}** (owner: {b['owner'] or 'unowned'},"
+            f"- #{b['id']} **{wording.quoted(b['title'])}** (owner: {b['owner'] or 'unowned'},"
             f" impact: {b['impact']})"
             for b in esc
         ]
@@ -81,7 +81,7 @@ def build_digest() -> str:
     if stalled:
         lines.append(f"## 🐌 Stalled tasks (no update in {DIGEST_STALLED_DAYS}+ days)")
         lines += [
-            f"- #{t['id']} {wording.flatten(t['title'])} (@{t['assignee'] or 'unassigned'})"
+            f"- #{t['id']} {wording.quoted(t['title'])} (@{t['assignee'] or 'unassigned'})"
             for t in stalled
         ]
         lines.append("")
@@ -92,7 +92,7 @@ def build_digest() -> str:
     if open_q:
         lines.append("## ❓ Unanswered questions")
         lines += [
-            f"- #{q['id']} {wording.flatten(q['question'])} (→ {q['assigned_to'] or 'unassigned'})"
+            f"- #{q['id']} {wording.quoted(q['question'])} (→ {q['assigned_to'] or 'unassigned'})"
             for q in open_q
         ]
         lines.append("")
@@ -106,7 +106,7 @@ def build_digest() -> str:
     if due:
         lines.append("## 🎯 Milestones due within a week")
         lines += [
-            f"- #{m['id']} {wording.flatten(m['title'])} — due {m['due_date']} ({m['status']})"
+            f"- #{m['id']} {wording.quoted(m['title'])} — due {m['due_date']} ({m['status']})"
             for m in due
         ]
         lines.append("")
@@ -127,7 +127,7 @@ def build_digest() -> str:
     lines.append("## 📋 Today")
     lines.append(f"- Pending reviews awaiting a human: {pending['n'] if pending else 0}")
     lines += [
-        f"- 📅 {e['starts_at'][11:16] if len(e['starts_at']) > 10 else ''} {wording.flatten(e['title'])}"
+        f"- 📅 {e['starts_at'][11:16] if len(e['starts_at']) > 10 else ''} {wording.quoted(e['title'])}"
         for e in events
     ]
     all_clear = not (esc or stalled or open_q or due)

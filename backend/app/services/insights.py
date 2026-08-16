@@ -844,7 +844,7 @@ def _r_experiment_overdue() -> list[dict]:
         _finding(
             "experiment_overdue",
             "medium",
-            f"Experiment '{e['name']}' is past its timebox ({e['timebox_end']})"
+            f"Experiment {wording.quoted(e['name'])} is past its timebox ({e['timebox_end']})"
             " with no recorded conclusion — conclude it or extend it on purpose.",
             {"engagement_id": e["id"], "kill_criteria": e["kill_criteria"]},
             n=1,
@@ -902,7 +902,7 @@ def _r_plan_drift() -> list[dict]:
             _finding(
                 "plan_drift",
                 "medium",
-                f"'{e['name']}' has drifted from the {diff['playbook']} playbook:"
+                f"{wording.quoted(e['name'])} has drifted from the {diff['playbook']} playbook:"
                 f" {' and '.join(parts)}. Re-plan while there is time, or record"
                 f" why the plan was wrong.",
                 {
@@ -931,7 +931,7 @@ def _r_authority_stale() -> list[dict]:
         _finding(
             "authority_stale",
             "medium",
-            f"Agent '{g['agent']}' has configured {g['level']} authority over"
+            f"Agent {wording.quoted(g['agent'])} has configured {g['level']} authority over"
             f" {g['entity']} past its review date ({g['review_by']})."
             " Effective authority now requires review. Reconfirm the grant or set it to review.",
             {"agent": g["agent"], "entity": g["entity"], "granted_by": g["updated_by"]},
@@ -955,7 +955,7 @@ def _r_job_stale() -> list[dict]:
         _finding(
             "job_stale",
             "high",
-            f"Scheduled job '{j['job']}' has not succeeded within twice its period"
+            f"Scheduled job {wording.quoted(j['job'])} has not succeeded within twice its period"
             + (f" (last success {j['last_success']})." if j["last_success"] else "."),
             {"job": j["job"], "last_success": j["last_success"]},
             subject=j["job"],
@@ -973,7 +973,7 @@ def _r_feature_unadopted() -> list[dict]:
         _finding(
             "feature_unadopted",
             "low",
-            f"'{k['feature']}' has zero team-wide first-uses {UNADOPTED_GRACE_DAYS}+"
+            f"{wording.quoted(k['feature'])} has zero team-wide first-uses {UNADOPTED_GRACE_DAYS}+"
             f" days after entering the field guide ({k['since']}) — broken entry"
             " point, or a feature nobody wants? The how-to card is on /guide.",
             {"knot": k["id"], "link": k["link"], "since": k["since"]},
