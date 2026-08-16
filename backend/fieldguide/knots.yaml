@@ -506,3 +506,17 @@ knots:
     how: "Select + beside the composer. A file is yours alone: no teammate reads it, and it never appears under Reports. The file goes to the model provider this deployment uses. On a keyless deployment, a text file is still read in full. Settings shows every file you attached, and deletes the ones you no longer need."
     link: /chat
     since: 2026-08-16
+
+  - id: agent_document
+    feature: Ask for a written document
+    knot: Zeppelin Bend
+    set: bends
+    # ties when a person OPENS a document on Reports — the write itself is
+    # signed by the agent, so the ledger carries no per-person signal, and
+    # the read is the moment the feature reached its reader
+    ties: mark
+    role: any
+    pitch: The agent writes the report, and the report outlives the chat that asked for it.
+    how: "Ask the agent to write a document — a plan, a summary, a comparison. It saves under Work → Reports for the whole team, behind the same review gate as every agent write. A ```mermaid block in a document or a chat answer renders as a diagram."
+    link: /artifacts
+    since: 2026-08-16

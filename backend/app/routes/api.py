@@ -948,7 +948,7 @@ def get_artifact(
         def proposal_permits(entity: str, entity_id: int, attributes: dict[str, str]) -> bool:
             return review_route_permitted and review_policy.permits(entity, entity_id, attributes)
 
-        return handoff.read_artifact(
+        body = handoff.read_artifact(
             artifact_id,
             viewer,
             resource_filter=_artifact_thread_filter(request, subject),
@@ -957,6 +957,12 @@ def get_artifact(
                 review_route_permitted and review_policy.allows_unclassified()
             ),
         )
+        # AFTER the read succeeded: the agent_document knot ties on a person
+        # actually reading a document an agent wrote, and marking before the
+        # scope filter would tie it on a 404 probe
+        if body["kind"] == "document":
+            fieldguide.mark(user, "agent_document")
+        return body
 
 
 def _bounded_read(stream) -> bytes:
