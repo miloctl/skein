@@ -1522,6 +1522,34 @@ REVIEW_PAGE_LIMIT = 50
 _REVIEW_SCAN_BATCH = 200
 
 
+def pending_changes_by_ids(
+    proposal_ids: set[int],
+    viewer: scope.Viewer = scope.NOBODY,
+    *,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+    allow_unclassified: bool = True,
+) -> list[dict]:
+    """Return current pending proposals that this viewer can open."""
+    ids = sorted(value for value in proposal_ids if value > 0)
+    if not ids:
+        return []
+    marks = ",".join("?" for _ in ids)
+    rows = db.query(
+        f"SELECT * FROM pending_changes WHERE status = 'pending' AND id IN ({marks})"  # noqa: S608 -- controlled marks
+        " ORDER BY id",
+        tuple(ids),
+    )
+    readable = _readable(rows, viewer)
+    if resource_filter is None:
+        return readable
+    return filter_policy_resources(
+        readable,
+        resource_filter,
+        allow_unclassified=allow_unclassified,
+        viewer=viewer,
+    )
+
+
 def pending_changes_page(
     viewer: scope.Viewer = scope.NOBODY,
     *,

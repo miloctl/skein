@@ -15,7 +15,7 @@ def test_registry_is_valid_and_complete(fresh_db):
     from app.services import fieldguide
 
     cards = fieldguide.registry()
-    assert len(cards) == 42
+    assert len(cards) == 44
     ids = {k["id"] for k in cards}
     assert ids == set(fieldguide.PREDICATES)
     for k in cards:
@@ -27,7 +27,7 @@ def test_hint_and_guide_use_the_same_tieable_total(fresh_db):
     from app.services import fieldguide
 
     _mint(fresh_db, "ava")
-    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 41
+    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 43
 
 
 def test_first_detection_seeds_silently(fresh_db):
@@ -50,8 +50,43 @@ def test_organic_unlock_shows_once_then_settles(fresh_db):
     fieldguide.guide("ava")  # seed pass
     collab.post_standup(author="ava", yesterday="x", today="y", actor="ava")
     g = fieldguide.guide("ava")
-    assert [n["id"] for n in g["newly_tied"]] == ["standup"]
+    assert [n["id"] for n in g["newly_tied"]] == ["standup", "guided_first_week"]
     assert fieldguide.guide("ava")["newly_tied"] == []
+
+
+def test_guided_first_week_ties_only_after_capture_and_standup(fresh_db):
+    from app.services import capture, collab, fieldguide
+
+    _mint(fresh_db, "ava")
+    capture.capture("todo: learn the basics", actor="ava")
+    assert not fieldguide.PREDICATES["guided_first_week"]("ava")
+    collab.post_standup(author="ava", yesterday="x", today="y", actor="ava")
+    assert fieldguide.PREDICATES["guided_first_week"]("ava")
+
+    _mint(fresh_db, "ben")
+    collab.post_standup(author="ben", yesterday="x", today="y", actor="ben")
+    assert not fieldguide.PREDICATES["guided_first_week"]("ben")
+
+
+def test_guided_first_week_backfills_silently_for_veterans(fresh_db, monkeypatch):
+    from app.services import capture, collab, fieldguide, scope
+
+    _mint(fresh_db, "ava")
+    fieldguide.mark("ava", "search")
+    fieldguide.guide("ava")
+    monkeypatch.setattr(fresh_db, "now", lambda: "2026-08-14T12:00:00+00:00")
+    capture.capture("todo: historical setup", actor="ava", visibility=scope.PRIVATE)
+    collab.post_standup(
+        author="ava",
+        yesterday="x",
+        today="y",
+        actor="ava",
+        visibility=scope.PRIVATE,
+    )
+    guide = fieldguide.guide("ava")
+    card = next(row for row in guide["cards"] if row["id"] == "guided_first_week")
+    assert card["tied"] is True
+    assert "guided_first_week" not in {row["id"] for row in guide["newly_tied"]}
 
 
 def test_terminal_verb_predicates_pin_activity_wording(fresh_db):
@@ -154,6 +189,28 @@ def test_reports_page_ties_the_read_only_history_knot(client, fresh_db):
     assert card["tied"] is True
 
 
+def test_todays_three_route_ties_only_its_fixed_knot(client, fresh_db):
+    from app.services import fieldguide
+
+    _mint(fresh_db, "tester")
+    response = client.post("/api/field-guide/todays-three")
+    assert response.status_code == 200
+    tied = {row["id"] for row in fieldguide.guide("tester")["cards"] if row["tied"]}
+    assert tied == {"todays_three"}
+
+
+def test_todays_three_mark_is_rate_capped(client, fresh_db):
+    from app import ratelimit
+
+    _mint(fresh_db, "tester")
+    ratelimit.reset()
+    for _ in range(30):
+        assert client.post("/api/field-guide/todays-three").status_code == 200
+    response = client.post("/api/field-guide/todays-three")
+    assert response.status_code == 429
+    ratelimit.reset()
+
+
 def test_authority_change_ties_the_half_life_knot(fresh_db):
     from app.services import delegation, fieldguide
 
@@ -226,7 +283,10 @@ def test_hint_never_consumes_the_newly_tied_strip(fresh_db):
     fieldguide.guide("ava")  # seed pass
     collab.post_standup(author="ava", yesterday="x", today="y", actor="ava")
     fieldguide.hint("ava")  # My Day landing — must NOT mark seen
-    assert [n["id"] for n in fieldguide.guide("ava")["newly_tied"]] == ["standup"]
+    assert [n["id"] for n in fieldguide.guide("ava")["newly_tied"]] == [
+        "standup",
+        "guided_first_week",
+    ]
 
 
 def test_dismiss_route_rejects_unknown_knot(client, fresh_db):

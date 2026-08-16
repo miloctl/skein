@@ -1528,13 +1528,13 @@ export default function Dashboard() {
           rows={data.activity ?? []}
           empty="No activity yet."
           render={(a) => (
-            <li key={a.id} className="text-xs text-ink-3">
+            <li key={a.id} className="break-words text-xs text-ink-3">
               <span className="font-medium text-ink-2">{a.actor}</span>{" "}
               {String(a.action).replace("_", " ")} {a.detail}
               <time
                 dateTime={String(a.created_at)}
                 title={String(a.created_at)}
-                className="ml-1 text-ink-3"
+                className="ml-1 inline-block text-ink-3"
               >
                 {timeAgo(String(a.created_at))}
               </time>

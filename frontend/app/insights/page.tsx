@@ -192,7 +192,7 @@ export default function InsightsPage() {
         ) : (
           <ul className="space-y-2 text-sm">
             {d.findings.map((f) => (
-              <li key={f.id} className={f.disposition ? "opacity-60" : ""}>
+              <li key={f.id}>
                 <button
                   onClick={() => setOpen(open === f.id ? null : f.id)}
                   aria-expanded={open === f.id}

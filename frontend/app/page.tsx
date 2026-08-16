@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { actionError, api, getUser, loadError, setUser } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
@@ -55,7 +61,6 @@ type Briefing = {
   };
 };
 
-
 type Onboarding = {
   steps: {
     id: string;
@@ -68,6 +73,64 @@ type Onboarding = {
   complete: boolean;
   progress: string;
 };
+
+type TodaysThree = {
+  team_date: string;
+  task_ids: number[];
+};
+
+const TODAYS_THREE_EVENT = "skein-todays-three";
+
+function normalizeTodaysThree(
+  raw: string,
+  teamDate: string,
+  available: Set<number>,
+): TodaysThree {
+  let saved: Partial<TodaysThree> = {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === "object")
+      saved = parsed as Partial<TodaysThree>;
+  } catch {}
+
+  const taskIds: number[] = [];
+  const seen = new Set<number>();
+  if (saved.team_date === teamDate && Array.isArray(saved.task_ids)) {
+    for (const value of saved.task_ids) {
+      if (
+        typeof value !== "number" ||
+        !Number.isInteger(value) ||
+        value <= 0 ||
+        seen.has(value) ||
+        !available.has(value)
+      )
+        continue;
+      taskIds.push(value);
+      seen.add(value);
+      if (taskIds.length === 3) break;
+    }
+  }
+  return { team_date: teamDate, task_ids: taskIds };
+}
+
+function savedTodaysThreeDate(raw: string): string {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "team_date" in parsed &&
+      typeof parsed.team_date === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(parsed.team_date)
+    )
+      return parsed.team_date;
+  } catch {}
+  return "";
+}
+
+// An API key and the two team facts can stay incomplete for a fully active
+// browser user. Using onboarding.complete here would hide team context forever.
+const GUIDED_CORE_STEPS = new Set(["first_capture", "first_standup"]);
 
 /** Identity is the concept everything else hangs off — until a name is
  *  picked, the rest of My Day is noise. One question, then the real page. */
@@ -83,7 +146,11 @@ function WhoAreYou() {
     window.location.reload();
   };
   return (
-    <main id="content" tabIndex={-1} className="mx-auto flex min-h-[60vh] w-full max-w-md flex-col justify-center p-6">
+    <main
+      id="content"
+      tabIndex={-1}
+      className="mx-auto flex min-h-[60vh] w-full max-w-md flex-col justify-center p-6"
+    >
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
         Who are you?
       </h1>
@@ -155,7 +222,6 @@ function Dismiss({ id, onDone }: { id: number; onDone: () => void }) {
   );
 }
 
-
 /** What is open with the outside people attending one meeting.
  *
  *  Lazy: the request fires when the reader asks, not on every My Day load. A
@@ -167,7 +233,8 @@ function StakeholderBrief({ eventId }: { eventId: number }) {
   // party, each carrying its items. The planning cockpit reads the same
   // service and types it this way (app/planning/page.tsx)
   const [threads, setThreads] = useState<
-    { party: string; items: { kind: string; text: string; when: string }[] }[] | null
+    | { party: string; items: { kind: string; text: string; when: string }[] }[]
+    | null
   >(null);
   // a THIRD state. `[]` is what a meeting with no outside attendee returns,
   // so a failure written as `[]` renders "nothing is open" — a claim about the
@@ -227,7 +294,6 @@ function StakeholderBrief({ eventId }: { eventId: number }) {
     </div>
   );
 }
-
 
 /** What changed since this reader last looked.
  *
@@ -296,7 +362,11 @@ function SinceYouLooked() {
         {d.items.map((i) => (
           <li key={`${i.kind}${i.entity_id}`}>
             <span aria-hidden className="mr-1 text-ink-3">
-              {i.direction === "worse" ? "▼" : i.direction === "better" ? "▲" : "•"}
+              {i.direction === "worse"
+                ? "▼"
+                : i.direction === "better"
+                  ? "▲"
+                  : "•"}
             </span>
             {/* the glyph is the whole payload for a sighted reader and is
                 aria-hidden, so the word carries it for everyone else */}
@@ -311,7 +381,11 @@ function SinceYouLooked() {
               {i.headline}
             </Link>
             {i.receipts.map((r, n) => (
-              <ReceiptLine key={n} receipt={r} className="ml-4 block text-xs text-ink-3" />
+              <ReceiptLine
+                key={n}
+                receipt={r}
+                className="ml-4 block text-xs text-ink-3"
+              />
             ))}
           </li>
         ))}
@@ -336,12 +410,71 @@ function shouldWave() {
 export default function MyDay() {
   const [b, setB] = useState<Briefing | null>(null);
   const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
+  const [onboardingStatus, setOnboardingStatus] = useState<
+    "loading" | "ready" | "dismissed" | "failed"
+  >("loading");
+  const [teamContextOpen, setTeamContextOpen] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
+  const markedTodaysThree = useRef(false);
+  const todaysThreeKey =
+    b?.user && b.user !== "anonymous" ? `skein-todays-three:${b.user}` : "";
+  const todaysThreeRaw = useSyncExternalStore(
+    (cb) => {
+      window.addEventListener("storage", cb);
+      window.addEventListener(TODAYS_THREE_EVENT, cb);
+      return () => {
+        window.removeEventListener("storage", cb);
+        window.removeEventListener(TODAYS_THREE_EVENT, cb);
+      };
+    },
+    () => {
+      if (!todaysThreeKey) return "";
+      try {
+        return window.localStorage.getItem(todaysThreeKey) ?? "";
+      } catch {
+        return "";
+      }
+    },
+    () => "",
+  );
+  const availableTaskIds = new Set(
+    (b?.your_work.tasks ?? []).map((task) => Number(task.id)),
+  );
+  // One payload per resolved user keeps task text and past dates out of storage.
+  // The server's team date resets it, and the current rows remove stale ids.
+  const todaysThree = normalizeTodaysThree(
+    todaysThreeRaw,
+    b?.date ?? "",
+    availableTaskIds,
+  );
+  const normalizedTodaysThreeRaw = JSON.stringify(todaysThree);
+  const storedTodaysThreeDate = savedTodaysThreeDate(todaysThreeRaw);
+  useEffect(() => {
+    if (
+      !todaysThreeKey ||
+      !todaysThreeRaw ||
+      storedTodaysThreeDate > (b?.date ?? "") ||
+      todaysThreeRaw === normalizedTodaysThreeRaw
+    )
+      return;
+    try {
+      window.localStorage.setItem(todaysThreeKey, normalizedTodaysThreeRaw);
+      window.dispatchEvent(new Event(TODAYS_THREE_EVENT));
+    } catch {}
+  }, [
+    b?.date,
+    normalizedTodaysThreeRaw,
+    storedTodaysThreeDate,
+    todaysThreeKey,
+    todaysThreeRaw,
+  ]);
   /** Two setup steps happen on THIS page, not at a route (services/
    *  onboarding.py marks them with a leading "#"). They used to link to
    *  "/", so the first-run reader clicked the most inviting thing on the
    *  page and nothing at all happened. */
   const runStep = (link: string) => {
-    if (link === "#capture") window.dispatchEvent(new Event("skein-capture-open"));
+    if (link === "#capture")
+      window.dispatchEvent(new Event("skein-capture-open"));
     if (link === "#standup") document.getElementById("standup-today")?.focus();
   };
   const [error, setError] = useState<string | null>(null);
@@ -363,7 +496,10 @@ export default function MyDay() {
     },
     () => {
       try {
-        return window.localStorage.getItem(`skein-pulse-voted:${getUser()}`) === pulseWeek;
+        return (
+          window.localStorage.getItem(`skein-pulse-voted:${getUser()}`) ===
+          pulseWeek
+        );
       } catch {
         return false;
       }
@@ -375,24 +511,42 @@ export default function MyDay() {
     const g = ++generation.current;
     api<Briefing>("/api/briefing")
       .then((r) => {
-        if (g === generation.current) {
-          setB(r); // last request wins
-          setError(null); // a past blip must not brick a now-healthy page
+        if (g !== generation.current) return;
+        setB(r); // last request wins
+        setError(null); // a past blip must not brick a now-healthy page
+
+        // The bearer can resolve to a different person than the local name.
+        // Dismissal belongs to the server-resolved identity, like all page data.
+        const onboardKey = `skein-onboarded:${r.user}`;
+        if (window.localStorage.getItem(onboardKey) === "1") {
+          setOnboarding(null);
+          setOnboardingStatus("dismissed");
+          return;
         }
+        api<Onboarding>("/api/onboarding")
+          .then((o) => {
+            if (g !== generation.current) return;
+            // Dismissal can happen while this request is in flight. Re-checking
+            // prevents the late response from restoring the card and disclosure.
+            if (window.localStorage.getItem(onboardKey) === "1") {
+              setOnboarding(null);
+              setOnboardingStatus("dismissed");
+              return;
+            }
+            if (o.complete) window.localStorage.setItem(onboardKey, "1");
+            setOnboarding(o);
+            setOnboardingStatus("ready");
+          })
+          .catch(() => {
+            if (g === generation.current) {
+              setOnboarding(null);
+              setOnboardingStatus("failed");
+            }
+          });
       })
       .catch((e) => {
         if (g === generation.current) setError(loadError(e));
       });
-    // onboarding progress is per-user — key the dismissal that way too
-    const onboardKey = `skein-onboarded:${getUser()}`;
-    if (window.localStorage.getItem(onboardKey) !== "1") {
-      api<Onboarding>("/api/onboarding")
-        .then((o) => {
-          if (o.complete) window.localStorage.setItem(onboardKey, "1");
-          if (g === generation.current) setOnboarding(o);
-        })
-        .catch(() => {});
-    }
   }, []);
   useEffect(() => {
     load();
@@ -447,6 +601,43 @@ export default function MyDay() {
     load();
   };
 
+  const toggleTodaysThree = (id: number) => {
+    if (storedTodaysThreeDate > (b?.date ?? "")) {
+      reportStatus(
+        "The team date changed in another tab. Reload My Day, then select tasks again.",
+      );
+      return;
+    }
+    const selected = todaysThree.task_ids.includes(id);
+    if (!selected && todaysThree.task_ids.length >= 3) {
+      reportStatus(
+        "Today's Three already has three tasks. Remove one, then add another.",
+      );
+      return;
+    }
+    const taskIds = selected
+      ? todaysThree.task_ids.filter((taskId) => taskId !== id)
+      : [...todaysThree.task_ids, id];
+    try {
+      window.localStorage.setItem(
+        todaysThreeKey,
+        JSON.stringify({ team_date: b?.date ?? "", task_ids: taskIds }),
+      );
+      window.dispatchEvent(new Event(TODAYS_THREE_EVENT));
+    } catch {
+      reportStatus(
+        "Could not save Today's Three in this browser. Check that browser storage is enabled, then try again.",
+      );
+      return;
+    }
+    if (!selected && !markedTodaysThree.current) {
+      markedTodaysThree.current = true;
+      api("/api/field-guide/todays-three", { method: "POST" }).catch(() => {
+        markedTodaysThree.current = false;
+      });
+    }
+  };
+
   const resolveBlocker = async (id: number) => {
     try {
       await api(`/api/blockers/${id}/resolve`, {
@@ -476,7 +667,11 @@ export default function MyDay() {
 
   if (error && !b)
     return (
-      <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6 text-sm text-danger">
+      <main
+        id="content"
+        tabIndex={-1}
+        className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6 text-sm text-danger"
+      >
         {error}
       </main>
     );
@@ -503,6 +698,9 @@ export default function MyDay() {
   // the team day the server sorts by. Empty string matches no row, so an
   // older backend simply shows no chip.
   const thisWeek = b.this_week ?? "";
+  const todaysThreeTasks = todaysThree.task_ids
+    .map((id) => b.your_work.tasks.find((task) => Number(task.id) === id))
+    .filter((task): task is Row => Boolean(task));
   const attention = b.attention ?? [];
   // A server that sends no `audience` (an older backend behind a newer
   // bundle) falls back to "you": every row lands in one card, rather than the
@@ -512,7 +710,10 @@ export default function MyDay() {
   // review items in `attention` are LIMITed to 50; the honest total rides
   // separately so the overflow line below can name what the list cannot show
   const shownReviews = attention.filter((a) => a.group === "review").length;
-  const extraReviews = Math.max(0, (b.pending_reviews_total ?? 0) - shownReviews);
+  const extraReviews = Math.max(
+    0,
+    (b.pending_reviews_total ?? 0) - shownReviews,
+  );
   // the server's number, not a second one computed here: `/api/attention`
   // feeds the tab title from the same rule, and a browser-side count drifted
   // the moment either side capped, coalesced or added a group — the reader saw
@@ -520,16 +721,121 @@ export default function MyDay() {
   // filter is the fallback for a server that does not send it yet.
   const needsCount =
     b.attention_total ?? yours.filter((a) => a.group !== "notice").length;
-  const GROUP_META: Record<AttentionItem["group"], { title: string; tone: string }> = {
+  const guidedFirstWeek =
+    onboardingStatus === "loading" ||
+    Boolean(
+      onboarding?.steps.some((s) => GUIDED_CORE_STEPS.has(s.id) && !s.done),
+    );
+  const GROUP_META: Record<
+    AttentionItem["group"],
+    { title: string; tone: string }
+  > = {
     decide: { title: "Decide", tone: "bg-thread-solid" },
     unblock: { title: "Unblock", tone: "bg-danger" },
     commit: { title: "Promise", tone: "bg-weld" },
     review: { title: "Review", tone: "bg-thread-solid" },
     notice: { title: "Notice", tone: "bg-line-strong" },
   };
+  const teamQueueCard =
+    teamQueue.length > 0 || extraReviews > 0 ? (
+      <Card title="Team queues">
+        <p className="mb-2 text-xs text-ink-3">
+          Open to anyone on the team. Nobody assigned these to you.
+        </p>
+        <ul className="space-y-1.5 text-sm">
+          {teamQueue.map((a, i) => (
+            <li
+              key={`${a.kind}${a.ref_id}${i}`}
+              className="flex items-start justify-between gap-2"
+            >
+              <span>
+                <Link href={a.link} className="hover:underline">
+                  {a.label.replaceAll("**", "")}
+                </Link>
+                <span className="ml-2 block text-xs text-ink-3">
+                  {a.reason}
+                </span>
+              </span>
+              {a.kind === "notification" && (
+                <Dismiss id={a.ref_id} onDone={load} />
+              )}
+            </li>
+          ))}
+          {extraReviews > 0 && (
+            <li className="text-xs text-ink-3">
+              {extraReviews} more proposal
+              {extraReviews === 1 ? " waits" : "s wait"} in{" "}
+              <Link href="/review" className="underline">
+                Inbox → Approvals
+              </Link>
+              .
+            </li>
+          )}
+        </ul>
+      </Card>
+    ) : null;
+  const teamTodayCard = (
+    <Card title="Team today">
+      <ul className="space-y-2 text-sm">
+        {b.team.escalated_blockers.map((e) => (
+          <li key={e.id} className="flex items-center gap-2 text-danger">
+            <span
+              aria-hidden
+              className="knot-escalated size-2 shrink-0 rounded-full bg-danger"
+            />
+            <span>
+              Escalated: #{e.id} {e.title} (owner: {e.owner || "unowned"})
+            </span>
+          </li>
+        ))}
+        {b.team.todays_events.map((e) => (
+          <li key={e.id} className="flex items-baseline gap-2">
+            <span className="font-mono text-xs text-ink-3">
+              {String(e.starts_at).slice(11, 16)}
+            </span>
+            <div className="min-w-0">
+              {e.title}
+              <StakeholderBrief eventId={Number(e.id)} />
+            </div>
+          </li>
+        ))}
+        {b.team.escalated_blockers.length === 0 &&
+          b.team.todays_events.length === 0 && (
+            <li>
+              <div className="loom-idle mb-2" aria-hidden />
+              <p className="text-xs text-ink-3">
+                All threads even — no escalations, nothing scheduled today.
+              </p>
+            </li>
+          )}
+      </ul>
+    </Card>
+  );
+  const sinceYesterdayCard = (
+    <Card title="Since yesterday">
+      <ul className="space-y-1">
+        {b.team.recent_activity.slice(0, 12).map((a) => (
+          <li key={a.id} className="text-xs text-ink-3">
+            <span className="font-medium text-ink-2">{a.actor}</span>{" "}
+            {String(a.action).replace(/_/g, " ")} {a.detail}
+          </li>
+        ))}
+        {b.team.recent_activity.length === 0 && (
+          <li className="text-xs text-ink-3">Quiet so far.</li>
+        )}
+      </ul>
+    </Card>
+  );
+  const teamContextCount =
+    teamQueue.length +
+    extraReviews +
+    b.team.escalated_blockers.length +
+    b.team.todays_events.length +
+    Math.min(12, b.team.recent_activity.length);
 
   return (
     <main
+      ref={mainRef}
       id="content"
       tabIndex={-1}
       className="mx-auto flex w-full max-w-5xl flex-col p-4 sm:p-6 xl:max-w-6xl"
@@ -555,29 +861,43 @@ export default function MyDay() {
       </p>
 
       {onboarding && !onboarding.complete && (
-        <div className="order-last mb-4 mt-4 rounded-xl border border-thread-solid/25 bg-card p-4 text-sm shadow-card md:order-none md:mt-0">
+        <section
+          aria-labelledby="first-week-setup-title"
+          className="mb-4 rounded-xl border border-thread-solid/25 bg-card p-4 text-sm shadow-card"
+        >
           {(() => {
             // personal steps drive the checklist; team facts are a separate
             // strip — a new teammate is never handed team-level workflows
             const personal = onboarding.steps.filter((s) => s.scope !== "team");
-            const teamSteps = onboarding.steps.filter((s) => s.scope === "team");
+            const teamSteps = onboarding.steps.filter(
+              (s) => s.scope === "team",
+            );
             const total = personal.length;
             const doneN = personal.filter((s) => s.done).length;
             const pct = total ? (doneN / total) * 100 : 0;
             return (
               <>
                 <div className="mb-1 flex items-center justify-between">
-                  <span className="font-semibold text-ink">
+                  <h2
+                    id="first-week-setup-title"
+                    className="font-semibold text-ink"
+                  >
                     Your first-week setup{" "}
                     <span className="font-mono text-[11px] font-medium text-ink-3">
                       {doneN}/{total}
                     </span>
-                  </span>
+                  </h2>
                   <button
                     onClick={() => {
-                      window.localStorage.setItem(`skein-onboarded:${getUser()}`, "1");
+                      window.localStorage.setItem(
+                        `skein-onboarded:${b.user}`,
+                        "1",
+                      );
                       setOnboarding(null);
+                      setOnboardingStatus("dismissed");
+                      requestAnimationFrame(() => mainRef.current?.focus());
                     }}
+                    aria-label="Dismiss first-week setup"
                     className="text-xs text-ink-3 underline"
                     title="Bring it back anytime from Settings"
                   >
@@ -586,10 +906,11 @@ export default function MyDay() {
                 </div>
                 <div className="relative mb-5 mt-4 h-[3px] rounded-full bg-line">
                   <div
-                    className="h-full rounded-full transition-[width] duration-500"
+                    className="h-full rounded-full motion-safe:transition-[width] motion-safe:duration-500"
                     style={{
                       width: `${pct}%`,
-                      background: "linear-gradient(90deg, var(--thread-solid), var(--weld))",
+                      background:
+                        "linear-gradient(90deg, var(--thread-solid), var(--weld))",
                     }}
                   />
                   {personal.map((s, i) => (
@@ -597,9 +918,13 @@ export default function MyDay() {
                       key={s.id}
                       className={
                         "absolute top-1/2 size-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full " +
-                        (s.done ? "bg-thread-solid" : "border border-line-strong bg-card")
+                        (s.done
+                          ? "bg-thread-solid"
+                          : "border border-line-strong bg-card")
                       }
-                      style={{ left: `${total > 1 ? (i / (total - 1)) * 100 : 0}%` }}
+                      style={{
+                        left: `${total > 1 ? (i / (total - 1)) * 100 : 0}%`,
+                      }}
                     />
                   ))}
                   <span
@@ -652,7 +977,10 @@ export default function MyDay() {
                         {s.done ? (
                           <span>✓ {s.label}</span>
                         ) : (
-                          <Link href={s.link} className="underline hover:text-ink-2">
+                          <Link
+                            href={s.link}
+                            className="underline hover:text-ink-2"
+                          >
                             ○ {s.label}
                           </Link>
                         )}
@@ -663,14 +991,13 @@ export default function MyDay() {
               </>
             );
           })()}
-        </div>
+        </section>
       )}
 
       {b.team.recently_shipped.length > 0 && (
         <div className="order-last mb-4 mt-4 rounded-xl border border-ok/30 bg-ok/10 p-4 text-sm font-medium text-ok md:order-none md:mt-0">
-          🚢 Shipped:{" "}
-          {b.team.recently_shipped.map((e) => e.name).join(" · ")} — recap in
-          the knowledge base. Nice work, team.
+          🚢 Shipped: {b.team.recently_shipped.map((e) => e.name).join(" · ")} —
+          recap in the knowledge base. Nice work, team.
         </div>
       )}
 
@@ -687,7 +1014,10 @@ export default function MyDay() {
                 .map((g) => (
                   <div key={g}>
                     <p className="mb-1 flex items-center gap-1.5 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
-                      <span aria-hidden className={`h-0.5 w-3 rounded-full ${GROUP_META[g].tone}`} />
+                      <span
+                        aria-hidden
+                        className={`h-0.5 w-3 rounded-full ${GROUP_META[g].tone}`}
+                      />
                       {GROUP_META[g].title}
                     </p>
                     <ul className="space-y-1.5 text-sm">
@@ -721,14 +1051,18 @@ export default function MyDay() {
                             {a.kind === "meeting" && (
                               <span className="flex shrink-0 gap-1">
                                 <button
-                                  onClick={() => recordOutcome(a.ref_id, "recorded")}
+                                  onClick={() =>
+                                    recordOutcome(a.ref_id, "recorded")
+                                  }
                                   className="rounded bg-ok/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ok hover:bg-ok/20"
                                   title="something came out of it — write it up on Capture"
                                 >
                                   wrote it up
                                 </button>
                                 <button
-                                  onClick={() => recordOutcome(a.ref_id, "none")}
+                                  onClick={() =>
+                                    recordOutcome(a.ref_id, "none")
+                                  }
                                   className="rounded bg-ink-3/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ink-2 hover:bg-ink-3/20"
                                   title="nothing came out of it — this is what the weekly finding counts"
                                 >
@@ -748,53 +1082,7 @@ export default function MyDay() {
           )}
         </Card>
 
-        {/* The shared queues, named as shared. These rows are real work and
-            they belong on My Day — but nobody assigned them to this reader,
-            and putting them under "Needs you" was what taught people that the
-            heading does not mean what it says. */}
-        {/* rendered for the overflow line alone when the queue itself is
-            empty: every pending proposal can be one this reader asked for, and
-            the remainder past the 50-row cap has nowhere else to be said */}
-        {(teamQueue.length > 0 || extraReviews > 0) && (
-          <Card title="Team queues">
-            <p className="mb-2 text-xs text-ink-3">
-              Open to anyone on the team. Nobody assigned these to you.
-            </p>
-            <ul className="space-y-1.5 text-sm">
-              {teamQueue.map((a, i) => (
-                <li
-                  key={`${a.kind}${a.ref_id}${i}`}
-                  className="flex items-start justify-between gap-2"
-                >
-                  <span>
-                    <Link href={a.link} className="hover:underline">
-                      {a.label.replaceAll("**", "")}
-                    </Link>
-                    <span className="ml-2 block text-xs text-ink-3">
-                      {a.reason}
-                    </span>
-                  </span>
-                  {/* a team announcement is delivered to this card, and
-                      `/api/notifications/read` has no other caller anywhere in
-                      the product — without this control the row is permanent */}
-                  {a.kind === "notification" && (
-                    <Dismiss id={a.ref_id} onDone={load} />
-                  )}
-                </li>
-              ))}
-              {extraReviews > 0 && (
-                <li className="text-xs text-ink-3">
-                  {extraReviews} more proposal
-                  {extraReviews === 1 ? " waits" : "s wait"} in{" "}
-                  <Link href="/review" className="underline">
-                    Inbox → Approvals
-                  </Link>
-                  .
-                </li>
-              )}
-            </ul>
-          </Card>
-        )}
+        {!guidedFirstWeek && teamQueueCard}
 
         <Card title="Your work">
           <div className="mb-3 border-b border-line pb-3">
@@ -803,9 +1091,44 @@ export default function MyDay() {
               onPosted={load}
             />
           </div>
+          {b.your_work.tasks.length > 0 && (
+            <section
+              aria-labelledby="todays-three-title"
+              className="mb-3 rounded-lg border border-thread/25 bg-thread/5 p-3"
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <h3 id="todays-three-title" className="font-medium text-ink">
+                  Today&apos;s Three
+                </h3>
+                <span className="font-mono text-[11px] text-ink-3">
+                  {todaysThreeTasks.length}/3
+                </span>
+              </div>
+              {todaysThreeTasks.length === 0 ? (
+                <p className="mt-1 text-xs text-ink-3">
+                  Select up to three tasks for today. The full task order stays
+                  below.
+                </p>
+              ) : (
+                <ol className="mt-1 space-y-1 text-sm">
+                  {todaysThreeTasks.map((task, index) => (
+                    <li key={task.id} className="flex items-baseline gap-1.5">
+                      <span className="font-mono text-xs text-ink-3">
+                        {index + 1}.
+                      </span>
+                      <PeekLink taskId={Number(task.id)}>{task.title}</PeekLink>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+          )}
           <ul className="space-y-2 text-sm">
             {b.your_work.tasks.map((t) => (
-              <li key={t.id} className="flex items-center justify-between gap-2">
+              <li
+                key={t.id}
+                className="flex items-center justify-between gap-2"
+              >
                 <span>
                   <PeekLink taskId={Number(t.id)}>
                     <span className="text-ink-3">#{t.id}</span> {t.title}
@@ -825,6 +1148,25 @@ export default function MyDay() {
                   ) : null}
                 </span>
                 <span className="flex shrink-0 gap-1">
+                  <button
+                    type="button"
+                    aria-pressed={todaysThree.task_ids.includes(Number(t.id))}
+                    aria-label={`${
+                      todaysThree.task_ids.includes(Number(t.id))
+                        ? "Remove"
+                        : "Add"
+                    } task #${t.id} ${
+                      todaysThree.task_ids.includes(Number(t.id))
+                        ? "from"
+                        : "to"
+                    } Today's Three`}
+                    onClick={() => toggleTodaysThree(Number(t.id))}
+                    className="rounded bg-thread/10 px-2 py-1.5 text-xs text-thread hover:bg-thread/15 md:py-0.5"
+                  >
+                    {todaysThree.task_ids.includes(Number(t.id))
+                      ? "remove"
+                      : "add"}
+                  </button>
                   {t.status === "todo" && (
                     <button
                       onClick={() => patchTask(Number(t.id), "in_progress")}
@@ -887,7 +1229,10 @@ export default function MyDay() {
                             }),
                           });
                           try {
-                            window.localStorage.setItem(`skein-pulse-voted:${getUser()}`, pulseWeek);
+                            window.localStorage.setItem(
+                              `skein-pulse-voted:${getUser()}`,
+                              pulseWeek,
+                            );
                           } catch {}
                           window.dispatchEvent(new Event("storage"));
                         } catch (e) {
@@ -910,49 +1255,7 @@ export default function MyDay() {
           </ul>
         </Card>
 
-        <Card title="Team today">
-          <ul className="space-y-2 text-sm">
-            {b.team.escalated_blockers.map((e) => (
-              <li key={e.id} className="flex items-center gap-2 text-danger">
-                <span
-                  aria-hidden
-                  className="knot-escalated size-2 shrink-0 rounded-full bg-danger"
-                />
-                <span>
-                  Escalated: #{e.id} {e.title} (owner: {e.owner || "unowned"})
-                </span>
-              </li>
-            ))}
-            {b.team.todays_events.map((e) => (
-              <li key={e.id} className="flex items-baseline gap-2">
-                <span className="font-mono text-xs text-ink-3">
-                  {String(e.starts_at).slice(11, 16)}
-                </span>
-                {/* a DIV, not a span: StakeholderBrief expands into a list,
-                    and phrasing content cannot hold one. `min-w-0` so a long
-                    title wraps inside the flex row instead of pushing it. */}
-                <div className="min-w-0">
-                  {e.title}
-                  {/* what is open with the outside people in the room. The
-                      brief was an endpoint nothing called, and it is only
-                      useful in the hour before you speak to them — a digest of
-                      every open thread with everybody is a report nobody
-                      reads (services/stakeholders.py). */}
-                  <StakeholderBrief eventId={Number(e.id)} />
-                </div>
-              </li>
-            ))}
-            {b.team.escalated_blockers.length === 0 &&
-              b.team.todays_events.length === 0 && (
-                <li>
-                  <div className="loom-idle mb-2" aria-hidden />
-                  <p className="text-xs text-ink-3">
-                    All threads even — no escalations, nothing scheduled today.
-                  </p>
-                </li>
-              )}
-          </ul>
-        </Card>
+        {!guidedFirstWeek && teamTodayCard}
 
         {/* empty:hidden — GuideHint renders nothing for an anonymous reader or
             once every knot is tried, and a childless grid item still takes a
@@ -961,21 +1264,32 @@ export default function MyDay() {
           <GuideHint />
         </div>
 
-        <Card title="Since yesterday">
-          <ul className="space-y-1">
-            {b.team.recent_activity.slice(0, 12).map((a) => (
-              <li key={a.id} className="text-xs text-ink-3">
-                <span className="font-medium text-ink-2">
-                  {a.actor}
-                </span>{" "}
-                {String(a.action).replace(/_/g, " ")} {a.detail}
-              </li>
-            ))}
-            {b.team.recent_activity.length === 0 && (
-              <li className="text-xs text-ink-3">Quiet so far.</li>
+        {guidedFirstWeek && (
+          <div className="md:col-span-2">
+            <button
+              type="button"
+              aria-expanded={teamContextOpen}
+              aria-controls="guided-team-context"
+              onClick={() => setTeamContextOpen((open) => !open)}
+              className="w-full rounded-xl border border-line bg-card px-4 py-3 text-left text-sm font-medium text-ink shadow-card hover:border-line-strong"
+            >
+              {teamContextOpen ? "Hide" : "Show"} team context (
+              {teamContextCount} {teamContextCount === 1 ? "item" : "items"})
+            </button>
+            {teamContextOpen && (
+              <div
+                id="guided-team-context"
+                className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2"
+              >
+                {teamQueueCard}
+                {teamTodayCard}
+                {sinceYesterdayCard}
+              </div>
             )}
-          </ul>
-        </Card>
+          </div>
+        )}
+
+        {!guidedFirstWeek && sinceYesterdayCard}
       </div>
     </main>
   );

@@ -44,6 +44,25 @@ knots:
     link: /
     since: 2026-07-31
 
+  - id: guided_first_week
+    feature: Guided first week
+    knot: Double Bowline
+    set: loops
+    pitch: Your own line stays clear while the full formation waits one step back.
+    how: Complete one capture and one standup. Until then, My Day keeps team context behind Show team context. Select dismiss to use the full page now.
+    link: /
+    since: 2026-08-15
+
+  - id: todays_three
+    feature: Today's Three
+    knot: Trinity Knot
+    set: loops
+    ties: mark
+    pitch: Three strands held close enough to pull the day in one direction.
+    how: On My Day, select add beside up to three assigned tasks. The selection stays in this browser and resets on the next team date.
+    link: /
+    since: 2026-08-15
+
   - id: task_done
     feature: Finish a task
     knot: Figure-Eight Loop
@@ -191,8 +210,8 @@ knots:
     knot: Gasket Coil
     set: loops
     ties: mark
-    pitch: Every old report stays on the line, ready when the current page rolls on.
-    how: Open Work → Reports. Select Older reports to continue through the archive.
+    pitch: Every old report stays on the line, and its named threads lead back into the formation.
+    how: Open Work → Reports. Select a report. Threads in this report opens each current explicit reference that you can read. Select Older reports to continue through the archive.
     link: /artifacts
     since: 2026-08-15
 
