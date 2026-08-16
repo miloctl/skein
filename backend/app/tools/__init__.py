@@ -12,6 +12,7 @@ from .collab import (
     save_note,
     search_notes,
 )
+from .fieldguide import field_guide
 from .memory import forget_memory, recall_memories, remember
 from .platform import (
     edit_blocker,
@@ -125,6 +126,7 @@ ALL_TOOLS = [
     get_attention,
     get_findings,
     list_absences,
+    field_guide,
 ]
 
 # Production metadata for the composition-time policy wrapper. The receipt

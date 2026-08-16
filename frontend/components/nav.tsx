@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { SkeinMark } from "@/components/mark";
 import { NavSearch } from "@/components/nav-search";
+import { PageHelp } from "@/components/page-help";
 // identity/key changes notify via the storage event (cross-tab natively,
 // same-tab dispatched by the lib/api writers)
 import { api, getApiKey, getUser, subscribeUser } from "@/lib/api";
@@ -247,6 +248,7 @@ export function Nav() {
                 caller, so an unnamed one would search as nobody and read an
                 empty index as "the team has nothing" */}
             {!anonymous && <NavSearch />}
+            <PageHelp key={pathname} />
             <span aria-hidden className="hidden h-4 w-px bg-line md:block" />
             <div className="relative min-w-0">
               <button

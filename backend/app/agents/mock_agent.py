@@ -21,6 +21,7 @@ class MockAgent:
         persona: str = "",
         *,
         gated_capture: bool = True,
+        capture_freeform: bool = True,
         direct_policy=None,
         direct_subject=None,
         direct_origin: str = "human",
@@ -29,6 +30,7 @@ class MockAgent:
         self.user = user
         self.persona = persona
         self.gated_capture = gated_capture
+        self.capture_freeform = capture_freeform
         self.direct_policy = direct_policy
         self.direct_subject = direct_subject
         self.direct_origin = direct_origin
@@ -49,6 +51,15 @@ class MockAgent:
         if it is not None:
             async for event in it:
                 yield event
+            return
+
+        if not self.capture_freeform:
+            yield {
+                "data": (
+                    "This specialist does not run freeform work in deterministic mode."
+                    " Configure a live model provider to ask it a question."
+                )
+            }
             return
 
         yield {"current_tool_use": {"toolUseId": "mock-capture", "name": "capture"}}
