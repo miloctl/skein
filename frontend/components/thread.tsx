@@ -15,6 +15,7 @@ import remarkGfm from "remark-gfm";
 
 import { api } from "@/lib/api";
 import { argQuery, mentionQuery, type ArgItem } from "@/lib/slash";
+import { reportStatus } from "@/lib/status";
 import {
   findPersona,
   getActivePersona,
@@ -46,6 +47,8 @@ const AssistantMessage = () => (
     </div>
   </MessagePrimitive.Root>
 );
+
+const COMPOSE_LIMIT = 500;
 
 const SUGGESTIONS = [
   "Plan a launch for our new onboarding flow",
@@ -230,6 +233,22 @@ const Composer = () => {
     getActivePersona,
     () => null,
   );
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const prefill = url.searchParams.get("compose");
+    if (prefill) {
+      if (prefill.length <= COMPOSE_LIMIT) composer.setText(prefill);
+      else
+        reportStatus(
+          "The chat prefill is too long. Shorten it to 500 characters or fewer.",
+        );
+    }
+    if (url.searchParams.has("compose")) {
+      url.searchParams.delete("compose");
+      window.history.replaceState(null, "", url);
+    }
+  }, [composer]);
 
   useEffect(() => {
     chatCommands()

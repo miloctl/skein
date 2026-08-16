@@ -706,6 +706,15 @@ def build_agent(
             (item for item in extensions.specialists if item.name == persona), None
         )
 
+    beh: dict[str, Any] = {"model": "", "temperature": None, "tools": None}
+    if persona:
+        if contributed_specialist is not None:
+            beh["tools"] = list(contributed_specialist.tools)
+        else:
+            from ..services.personas import behavior
+
+            beh = behavior(persona)
+
     if config.EFFECTIVE_PROVIDER == "mock":
         from .mock_agent import MockAgent, MockExtensionSpecialist, MockFlockMember
 
@@ -737,7 +746,14 @@ def build_agent(
                 for name in contributed_specialist.context_sources
             )
             return MockExtensionSpecialist(contributed_specialist, context)
-        return MockAgent(thread_id, user, persona=persona)
+        return MockAgent(
+            thread_id,
+            user,
+            persona=persona,
+            # Mock has no tool loop. Smart capture here would bypass an explicit
+            # persona allowlist and let a read-only specialist write records.
+            capture_freeform=beh["tools"] is None,
+        )
 
     from strands import Agent, tool
 
@@ -748,15 +764,6 @@ def build_agent(
     from .core_tools import govern_core_tools
     from .extra_tools import extra_tools
     from .mcp_tools import mcp_tools
-
-    beh: dict[str, Any] = {"model": "", "temperature": None, "tools": None}
-    if persona:
-        if contributed_specialist is not None:
-            beh["tools"] = list(contributed_specialist.tools)
-        else:
-            from ..services.personas import behavior
-
-            beh = behavior(persona)
 
     @tool
     def plan_project(goal: str, project: str = "default") -> str:

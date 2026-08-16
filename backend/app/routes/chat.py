@@ -803,6 +803,8 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                 yield _sse({"type": "done"})
 
             return StreamingResponse(clash_stream(), media_type="text/event-stream")
+        if persona == "bosun":
+            await run_in_threadpool(fieldguide.mark, user, "bosun")
 
     # /flock <flock> <message>: resolved here for the same reason /as is —
     # an unknown slug must answer deterministically, before any model runs.

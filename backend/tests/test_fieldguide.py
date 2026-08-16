@@ -3,6 +3,18 @@ silent-seeded, the coverage signal is nameless. Detail-string predicates are
 pinned here — if a service reworders its activity line, these break loudly
 instead of a knot silently going untieable."""
 
+import json
+
+import pytest
+
+
+def _unwrap(tool):
+    for attr in ("original_function", "_tool_func", "func", "__wrapped__"):
+        fn = getattr(tool, attr, None)
+        if callable(fn):
+            return fn
+    return tool
+
 
 def _mint(db, name, kind="human"):
     db.execute(
@@ -15,7 +27,7 @@ def test_registry_is_valid_and_complete(fresh_db):
     from app.services import fieldguide
 
     cards = fieldguide.registry()
-    assert len(cards) == 44
+    assert len(cards) == 46
     ids = {k["id"] for k in cards}
     assert ids == set(fieldguide.PREDICATES)
     for k in cards:
@@ -23,11 +35,81 @@ def test_registry_is_valid_and_complete(fresh_db):
         assert k["link"].startswith("/")
 
 
+def test_field_guide_tool_returns_the_live_registry(fresh_db):
+    from app.services import fieldguide
+    from app.tools import ALL_TOOLS, field_guide
+
+    rows = json.loads(_unwrap(field_guide)())
+    assert len(rows) == len(fieldguide.registry())
+    assert set(rows[0]) == {"id", "feature", "knot", "pitch", "how", "link"}
+    assert all(row["link"].startswith("/") for row in rows)
+    names = {getattr(t, "tool_name", getattr(t, "__name__", "")) for t in ALL_TOOLS}
+    assert "field_guide" in names
+
+
+def test_cards_for_path_match_exact_and_nested_routes(fresh_db):
+    from app.services import fieldguide
+
+    exact = {row["id"] for row in fieldguide.cards_for_path("/review")}
+    nested = {row["id"] for row in fieldguide.cards_for_path("/review/42")}
+    root = {row["id"] for row in fieldguide.cards_for_path("/")}
+    chat = {row["id"] for row in fieldguide.cards_for_path("/chat")}
+
+    assert exact == nested == {"review", "sponsor_verdict"}
+    assert "capture" in root and "review" not in root
+    assert "bosun" in chat
+    assert fieldguide.cards_for_path("/reviews") == []
+
+
+def test_cards_for_path_rejects_non_paths_without_echoing_them(fresh_db):
+    from app.services import fieldguide
+
+    rejected = "https://example.test/review"
+    with pytest.raises(ValueError, match="in-app path") as exc:
+        fieldguide.cards_for_path(rejected)
+    assert rejected not in str(exc.value)
+
+
+def test_field_guide_for_route_does_not_consume_newly_tied_cards(client, fresh_db):
+    from app.services import fieldguide
+
+    _mint(fresh_db, "tester")
+    fieldguide.mark("tester", "search")
+    fieldguide.mark("tester", "review")
+
+    response = client.get("/api/field-guide/for", params={"path": "/review"})
+
+    assert response.status_code == 200
+    assert {row["id"] for row in response.json()["cards"]} == {"review", "sponsor_verdict"}
+    unseen = fresh_db.query_one(
+        "SELECT seen FROM feature_unlocks WHERE person = ? AND knot = ?",
+        ("tester", "review"),
+    )
+    assert unseen == {"seen": 0}
+
+
+def test_opening_page_help_ties_its_guide_card(client, fresh_db):
+    from app.services import fieldguide
+
+    _mint(fresh_db, "tester")
+    response = client.get("/api/field-guide/for", params={"path": "/review"})
+    assert response.status_code == 200
+    card = next(row for row in fieldguide.guide("tester")["cards"] if row["id"] == "page_help")
+    assert card["tied"] is True
+
+
+def test_field_guide_for_route_classifies_bad_paths_as_input_errors(client):
+    rejected = "//example.test/review"
+    response = client.get("/api/field-guide/for", params={"path": rejected})
+    assert response.status_code == 400
+    assert rejected not in response.text
+
+
 def test_hint_and_guide_use_the_same_tieable_total(fresh_db):
     from app.services import fieldguide
 
     _mint(fresh_db, "ava")
-    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 43
+    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 45
 
 
 def test_first_detection_seeds_silently(fresh_db):

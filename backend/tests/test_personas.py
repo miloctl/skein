@@ -11,12 +11,34 @@ def _read_chat(client, message):
         return resp.read().decode()
 
 
-def test_bench_loads_ten_personas():
+def test_bench_includes_the_bosun():
     roster = personas.list_personas()
-    assert len(roster) == 10
+    assert len(roster) == 11
     slugs = {p["slug"] for p in roster}
-    assert {"code-reviewer", "growth-mentor", "training-designer"} <= slugs
+    assert {"bosun", "code-reviewer", "growth-mentor", "training-designer"} <= slugs
     assert all(p["name"] and p["description"] and p["emoji"] for p in roster)
+
+
+def test_bosun_is_read_only_and_uses_the_field_guide():
+    bosun = personas.get_persona("bosun")
+    assert personas.behavior("bosun")["tools"] == ["field_guide"]
+    assert "field guide" in bosun["body"].lower()
+
+
+def test_using_the_bosun_ties_its_field_guide_card(client, fresh_db):
+    from app.services import fieldguide
+
+    out = _read_chat(client, "/as bosun How do I use reviews?")
+    assert "Bosun" in out
+    card = next(row for row in fieldguide.guide("tester")["cards"] if row["id"] == "bosun")
+    assert card["tied"] is True
+
+
+def test_mock_bosun_cannot_smart_capture_records(client, fresh_db):
+    out = _read_chat(client, "/as bosun todo: write despite the read-only persona")
+    assert "answers only with a model provider" in out
+    assert client.get("/api/tasks").json() == []
+    assert fresh_db.query("SELECT * FROM pending_changes") == []
 
 
 def test_get_persona_body_and_unknown():
@@ -31,7 +53,7 @@ def test_get_persona_body_and_unknown():
 
 def test_personas_rest(client):
     roster = client.get("/api/personas").json()
-    assert len(roster) == 10
+    assert len(roster) == 11
     assert "body" not in roster[0]
     one = client.get("/api/personas/growth-mentor").json()
     assert one["body"]
