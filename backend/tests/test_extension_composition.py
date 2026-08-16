@@ -1594,7 +1594,40 @@ def test_inbound_mcp_uses_core_dependencies_identity_and_workplace_policy(fresh_
     assert observed["decision"].effect == PolicyEffect.DENY
     assert observed["read"]["policy_effect"] == "deny"
     assert observed["write"]["policy_effect"] == "deny"
+    assert observed["read"]["error"] == (
+        "Workplace policy denied this action. Use an allowed action or ask an"
+        " administrator to change the policy."
+    )
+    assert observed["write"]["error"] == observed["read"]["error"]
     assert fresh_db.query_one("SELECT 1 AS present FROM task_worklog") is None
+
+
+@pytest.mark.parametrize(
+    ("effect", "expected"),
+    [
+        (
+            PolicyEffect.DENY,
+            "Workplace policy denied this action. Use an allowed action or ask an"
+            " administrator to change the policy.",
+        ),
+        (
+            PolicyEffect.REVIEW,
+            "Workplace policy requires review. This surface cannot resume the action."
+            " Use a governed tool or workflow.",
+        ),
+    ],
+)
+def test_inbound_mcp_uses_shared_policy_refusal_wording(monkeypatch, effect, expected):
+    from app import mcp_server
+
+    class FixedPolicy:
+        def decide(self, request):
+            return PolicyDecision(effect)
+
+    monkeypatch.setattr(mcp_server, "current_policy_engine", lambda: FixedPolicy())
+    result = json.loads(mcp_server._policy_refusal("skein.mcp.test", "task"))
+
+    assert result == {"error": expected, "policy_effect": effect.value}
 
 
 def test_inbound_mcp_task_list_applies_project_policy_per_row(fresh_db, monkeypatch):

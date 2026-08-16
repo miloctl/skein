@@ -641,9 +641,9 @@ def trust_blocked() -> str:
     if total and not strong:
         return (
             f"Skein recorded {total} verdict{'' if total == 1 else 's'}."
-            " Nobody used a personal API key to approve or reject."
-            " Only key-authenticated verdicts count toward a promotion streak."
-            " Before you approve, paste your key in Settings, step 2."
+            " None used strong identity. Only strong-identity verdicts count toward"
+            " a promotion streak. If deployment sign-in is available, use it before"
+            " you approve or reject. Otherwise, use a personal API key."
         )
     return ""
 

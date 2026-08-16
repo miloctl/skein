@@ -41,6 +41,12 @@ export function CrewsCard({
   const [error, setError] = useState("");
   const [newName, setNewName] = useState("");
   const [removing, setRemoving] = useState<string | null>(null);
+  const [changingRole, setChangingRole] = useState<{
+    crewId: number;
+    person: string;
+    from: CrewMember["role"];
+    to: CrewMember["role"];
+  } | null>(null);
   // keyed per crew: one shared flag disabled the Add and deactivate buttons of
   // every OTHER crew mid-write, pulling them out of the tab order
   const [busy, setBusy] = useState("");
@@ -110,14 +116,21 @@ export function CrewsCard({
     (admin ||
       crew.members.some((m) => m.person === me && m.role === "steward"));
 
+  const cancelRemoval = (crewId: number, person: string) => {
+    setRemoving(null);
+    requestAnimationFrame(() =>
+      document.getElementById(`remove-member-${crewId}-${person}`)?.focus(),
+    );
+  };
+
   return (
     <Section title="Crews">
       <p id={introId} className="mb-3 text-sm text-ink-3">
         A crew is a durable group of people. Crew membership decides who reads
         the work that is visible to that crew. Whoever makes a crew becomes its
-        steward, and a steward adds and removes members. To edit a crew you
-        need a working API key (step 2), and stewardship of the crew or
-        administrator access.
+        steward, and a steward adds and removes members. To edit a crew, use
+        strong identity. You must also be a crew steward or a named
+        administrator.
       </p>
 
       {strong && (
@@ -212,6 +225,15 @@ export function CrewsCard({
                 {crew.members.map((m) => (
                   <li
                     key={m.person}
+                    onKeyDown={(e) => {
+                      if (
+                        e.key !== "Escape" ||
+                        removing !== `${crew.id}:${m.person}`
+                      )
+                        return;
+                      e.stopPropagation();
+                      cancelRemoval(crew.id, m.person);
+                    }}
                     className="flex items-center gap-1 rounded-full bg-raised px-2 py-0.5 text-xs"
                   >
                     <span>{m.person}</span>
@@ -236,7 +258,7 @@ export function CrewsCard({
                             id={`rm-${crew.id}-${m.person}`}
                             className="text-[10px] text-ink-3"
                           >
-                            loses access to crew work they did not write
+                            After removal, {m.person} loses access to crew work they did not write.
                           </span>
                           <button
                             autoFocus
@@ -260,15 +282,16 @@ export function CrewsCard({
                             remove
                           </button>
                           <button
-                            aria-label={`Keep ${m.person} in ${crew.name}`}
-                            onClick={() => setRemoving(null)}
+                            aria-label="Cancel removal"
+                            onClick={() => cancelRemoval(crew.id, m.person)}
                             className="min-h-6 px-1 text-ink-3 hover:text-ink"
                           >
-                            keep
+                            cancel
                           </button>
                         </>
                       ) : (
                         <button
+                          id={`remove-member-${crew.id}-${m.person}`}
                           aria-label={`Remove ${m.person} from ${crew.name}`}
                           onClick={(e) => {
                             restoreTo.current = e.currentTarget;
@@ -284,8 +307,81 @@ export function CrewsCard({
               </ul>
 
               {canEdit(crew) && (
-                <form
-                  className="mt-2 flex flex-wrap items-center gap-1.5"
+                <>
+                  <p
+                    id={`add-${crew.id}-access`}
+                    className="mt-2 text-xs text-ink-3"
+                  >
+                    A new member can read existing and future work visible to {crew.name}.
+                  </p>
+                  {changingRole?.crewId === crew.id && (
+                    <div
+                      onKeyDown={(e) => {
+                        if (e.key !== "Escape") return;
+                        setChangingRole(null);
+                        requestAnimationFrame(() => restoreTo.current?.focus());
+                      }}
+                      className="mt-2 flex flex-wrap items-center gap-1.5 text-xs"
+                    >
+                      <span
+                        id={`change-role-${crew.id}-consequence`}
+                        className="text-ink-3"
+                      >
+                        {changingRole.to === "steward"
+                          ? `Change ${changingRole.person} from member to steward? ${changingRole.person} will be able to add and remove members and change roles.`
+                          : `Change ${changingRole.person} from steward to member? ${changingRole.person} will keep read access but lose permission to add and remove members or change roles.`}
+                      </span>
+                      <button
+                        autoFocus
+                        aria-label={`Change ${changingRole.person} to ${changingRole.to}`}
+                        aria-describedby={`change-role-${crew.id}-consequence`}
+                        disabled={!!busy}
+                        onClick={async () => {
+                          const { person, from, to } = changingRole;
+                          const ok = await act(
+                            `c${crew.id}`,
+                            () =>
+                              api(`/api/crews/${crew.id}/members`, {
+                                method: "POST",
+                                body: JSON.stringify({
+                                  person,
+                                  role: to,
+                                  expected_role: from,
+                                }),
+                              }),
+                            `${person}'s role in ${crew.name} changed to ${to}.`,
+                          );
+                          if (!ok) return;
+                          setChangingRole(null);
+                          (
+                            document.getElementById(
+                              `add-member-form-${crew.id}`,
+                            ) as HTMLFormElement | null
+                          )?.reset();
+                          requestAnimationFrame(() =>
+                            document.getElementById(`add-member-${crew.id}`)?.focus(),
+                          );
+                        }}
+                        className="rounded bg-danger-solid px-2 py-0.5 font-medium text-white hover:opacity-90 disabled:opacity-50"
+                      >
+                        Change role
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setChangingRole(null);
+                          requestAnimationFrame(() => restoreTo.current?.focus());
+                        }}
+                        className="min-h-6 px-1 text-ink-3 hover:text-ink"
+                      >
+                        Cancel role change
+                      </button>
+                    </div>
+                  )}
+                  <form
+                    id={`add-member-form-${crew.id}`}
+                    aria-describedby={`add-${crew.id}-access`}
+                    className="mt-1 flex flex-wrap items-center gap-1.5"
                   onSubmit={async (e) => {
                     e.preventDefault();
                     const form = e.currentTarget;
@@ -294,8 +390,28 @@ export function CrewsCard({
                     ).value.trim();
                     const role = (
                       form.elements.namedItem("role") as HTMLSelectElement
-                    ).value;
+                    ).value as CrewMember["role"];
                     if (!person) return;
+                    const existing = crew.members.find(
+                      (member) => member.person.toLowerCase() === person.toLowerCase(),
+                    );
+                    if (existing) {
+                      if (existing.role === role) {
+                        reportStatus(
+                          `${existing.person} is already a ${role} in ${crew.name}.`,
+                        );
+                        return;
+                      }
+                      restoreTo.current = document.activeElement as HTMLElement | null;
+                      setChangingRole({
+                        crewId: crew.id,
+                        person: existing.person,
+                        from: existing.role,
+                        to: role,
+                      });
+                      return;
+                    }
+                    setChangingRole(null);
                     const ok = await act(
                       `c${crew.id}`,
                       () =>
@@ -325,6 +441,7 @@ export function CrewsCard({
                     <option value="steward">steward</option>
                   </select>
                   <button
+                    id={`add-member-${crew.id}`}
                     type="submit"
                     aria-label={`Add to ${crew.name}`}
                     disabled={!!busy}
@@ -357,7 +474,8 @@ export function CrewsCard({
                   >
                     {crew.active ? "deactivate" : "reactivate"}
                   </button>
-                </form>
+                  </form>
+                </>
               )}
             </li>
           ))}

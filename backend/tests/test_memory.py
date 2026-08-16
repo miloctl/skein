@@ -83,7 +83,7 @@ def test_agent_remember_respects_forbidden_and_caps(fresh_db):
     import json as j
 
     from app.agents.identity import reset_agent_identity, set_agent_identity
-    from app.services import delegation, memory, users
+    from app.services import delegation, memory, users, wording
     from app.tools.memory import remember as remember_tool
 
     users.ensure_user("scribe", kind="agent")
@@ -92,9 +92,10 @@ def test_agent_remember_respects_forbidden_and_caps(fresh_db):
     token = set_agent_identity("scribe")
     try:
         out = j.loads(remember_tool(content="steering text"))
-        assert "forbidden" in out["error"]
+        assert out == {"error": wording.write_policy_denied()}
     finally:
         reset_agent_identity(token)
+    assert fresh_db.query_one("SELECT id FROM memories WHERE content = 'steering text'") is None
     with pytest.raises(ValueError, match="2000"):
         memory.remember("x" * 2001, actor="mira")
 

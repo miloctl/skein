@@ -13,12 +13,15 @@ generated in the browser, never stored here, and the server holds no client
 secret, so the web app remains a public client.
 """
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .. import config, oidc, ratelimit
 
 router = APIRouter(prefix="/api/auth")
+log = logging.getLogger("skein")
 
 
 @router.get("/config")
@@ -108,37 +111,47 @@ def post_token(body: TokenIn, request: Request):
     try:
         payload = oidc.exchange(form)
     except oidc.OIDCRefused as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=oidc.SIGNIN_REFUSED) from exc
     except oidc.OIDCUnavailable as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        log.warning("identity provider token exchange unavailable: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail=oidc.SIGNIN_UNAVAILABLE,
+            headers={"Retry-After": "60"},
+        ) from exc
     except oidc.OIDCError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        log.exception("identity provider token exchange failed", exc_info=exc)
+        raise HTTPException(status_code=502, detail=oidc.SIGNIN_UNUSABLE) from exc
 
     token = str(payload.get("access_token") or "")
     if not token:
-        raise HTTPException(
-            status_code=502, detail="the identity provider returned no access token."
-        )
+        log.error("identity provider token response omitted access_token")
+        raise HTTPException(status_code=502, detail=oidc.SIGNIN_UNUSABLE)
     # Validate before answering. Otherwise the browser stores a token that
     # every later request rejects, and the person sees a signed-in UI that
     # 401s on everything.
     try:
         name, _ = oidc.principal(oidc.validate(token))
     except oidc.OIDCUnavailable as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        log.warning("identity provider token validation unavailable: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail=oidc.SIGNIN_UNAVAILABLE,
+            headers={"Retry-After": "60"},
+        ) from exc
     except oidc.OIDCError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        log.exception("identity provider returned an unusable token", exc_info=exc)
+        raise HTTPException(status_code=502, detail=oidc.SIGNIN_UNUSABLE) from exc
     from ..services.users import ensure_human_identity, is_active
     from .deps import INACTIVE
 
     try:
         ensure_human_identity(name)
     except ValueError as exc:
-        raise HTTPException(
-            status_code=403,
-            detail=f"{exc} Set SKEIN_OIDC_USERNAME_CLAIM to a claim"
-            " that gives each person one name.",
-        ) from exc
+        # The rejected claim can contain provider-controlled text. Logging or
+        # returning it lets a claim forge a log line or reflect into the browser.
+        log.error("identity provider claim conflicts with a reserved identity")
+        raise HTTPException(status_code=403, detail=oidc.SIGNIN_UNUSABLE) from exc
     if not is_active(name):
         raise HTTPException(status_code=403, detail=INACTIVE)
     return {

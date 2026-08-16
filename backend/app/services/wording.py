@@ -13,6 +13,42 @@ def count(n: int, word: str) -> str:
     return f"{n} {word}{'' if n == 1 else 's'}"
 
 
+def strong_identity_required(subject: str = "This request") -> str:
+    """The shared recovery action for weak access to a strong-identity surface."""
+    return (
+        f"{subject} requires strong identity. If deployment sign-in is available, use it."
+        " Otherwise, use a personal API key."
+    )
+
+
+def private_feedback_agent_refusal() -> str:
+    return (
+        "Feedback notes are private and cannot pass through an agent."
+        " Use Quick capture or the People page with strong identity."
+    )
+
+
+def workplace_policy_denied() -> str:
+    return (
+        "Workplace policy denied this action. Use an allowed action or ask an"
+        " administrator to change the policy."
+    )
+
+
+def policy_review_unsupported() -> str:
+    return (
+        "Workplace policy requires review. This surface cannot resume the action."
+        " Use a governed tool or workflow."
+    )
+
+
+def write_policy_denied() -> str:
+    return (
+        "Policy denied this write. Use an allowed action or ask an administrator to"
+        " change the policy."
+    )
+
+
 def not_administrator(user: str, action: str = "") -> str:
     """The ONE refusal for the not-an-administrator condition.
 

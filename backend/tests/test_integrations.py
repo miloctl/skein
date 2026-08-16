@@ -165,6 +165,67 @@ def test_workplace_policy_can_deny_signed_slack_writes(fresh_db, monkeypatch):
     assert fresh_db.query_one("SELECT id FROM blockers") is None
 
 
+@pytest.mark.parametrize(
+    ("effect", "expected"),
+    [
+        (
+            "deny",
+            "Workplace policy denied this action. Use an allowed action or ask an"
+            " administrator to change the policy.",
+        ),
+        (
+            "review",
+            "Workplace policy requires review. This surface cannot resume the action."
+            " Use a governed tool or workflow.",
+        ),
+    ],
+)
+def test_signed_slack_capture_states_direct_policy_refusal(effect, expected, fresh_db, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import config
+    from app.extensions import (
+        PolicyContribution,
+        PolicyDecision,
+        PolicyEffect,
+        SkeinModule,
+    )
+    from app.main import create_app
+
+    def capture_rule(request):
+        if request.action == "task.create":
+            return PolicyDecision(PolicyEffect(effect), ("capture is governed",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.slack-capture", capture_rule),),
+    )
+    monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")
+    body = b"text=todo%3A%20policy%20capture&user_name=ava"
+    with TestClient(create_app(modules=(module,))) as client:
+        pending_before = fresh_db.query_one("SELECT COUNT(*) AS n FROM pending_changes")["n"]
+        activity_before = fresh_db.query_one("SELECT COUNT(*) AS n FROM activity")["n"]
+        response = client.post(
+            "/api/slack/command",
+            content=body,
+            headers=_slack_headers("shhh", body),
+        )
+        pending_after = fresh_db.query_one("SELECT COUNT(*) AS n FROM pending_changes")["n"]
+        activity_after = fresh_db.query_one("SELECT COUNT(*) AS n FROM activity")["n"]
+
+    assert response.status_code == 200
+    assert response.json()["text"] == expected
+    assert "⚠" not in response.text
+    assert pending_after == pending_before
+    assert activity_after == activity_before
+    assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'policy capture'") is None
+
+
 def test_api_token_gate(client, monkeypatch):
     from app import config
 

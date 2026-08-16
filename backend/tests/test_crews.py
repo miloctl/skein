@@ -173,6 +173,29 @@ def test_a_missing_crew_is_a_404(client, fresh_db):
     assert client.get("/api/crews/999").status_code == 404
 
 
+def test_role_change_rejects_a_stale_confirmation(client, fresh_db):
+    users.ensure_user("ava")
+    users.ensure_user("bo")
+    crew = crews.create_crew("Platform", actor="ava")
+    crews.add_member(crew["id"], "bo", actor="ava")
+    headers = _key(client, "ava")
+
+    crews.add_member(crew["id"], "bo", role="steward", actor="ava")
+    response = client.post(
+        f"/api/crews/{crew['id']}/members",
+        json={"person": "bo", "role": "member", "expected_role": "member"},
+        headers=headers,
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "The crew membership changed after this confirmation. Reload Settings, then confirm the role change again."
+    }
+    assert {m["person"]: m["role"] for m in crews.get_crew(crew["id"])["members"]}[
+        "bo"
+    ] == "steward"
+
+
 def test_a_sole_steward_cannot_demote_themselves(fresh_db):
     """The floor lived only in remove_member, so setting your own role to
     member locked the crew: nobody could edit it afterwards, including you."""

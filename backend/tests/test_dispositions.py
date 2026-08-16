@@ -129,6 +129,8 @@ def test_positive_finding_conversion_uses_a_valid_task_priority(client, fresh_db
 
 
 def test_chain_finding_conversion_needs_strong_identity(client, fresh_db):
+    from app.services import wording
+
     fid = _plant_finding(
         fresh_db,
         rule_id="activity_chain_broken",
@@ -138,7 +140,7 @@ def test_chain_finding_conversion_needs_strong_identity(client, fresh_db):
 
     weak = client.post(f"/api/findings/{fid}/convert", json={"kind": "task"})
     assert weak.status_code == 403
-    assert "requires a personal API key" in weak.json()["detail"]
+    assert weak.json()["detail"] == wording.strong_identity_required()
     assert fresh_db.query_one("SELECT COUNT(*) AS count FROM tasks") == {"count": 0}
 
     strong = client.post(

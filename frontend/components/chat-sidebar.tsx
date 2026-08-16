@@ -65,15 +65,18 @@ function MenuItem({
   icon,
   label,
   danger,
+  autoFocus,
   onClick,
 }: {
   icon: string;
   label: string;
   danger?: boolean;
+  autoFocus?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
+      autoFocus={autoFocus}
       onClick={onClick}
       className={
         "block w-full rounded px-2 py-1.5 text-left text-xs hover:bg-raised " +
@@ -115,6 +118,7 @@ export function ChatSidebar({
   const [loadError, setLoadError] = useState("");
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const [confirmingBulk, setConfirmingBulk] = useState(false);
+  const bulkDeleteTrigger = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(() => {
     // shared single-flight list (lib/chat-threads.ts) — ThreadTitle reads
@@ -180,11 +184,17 @@ export function ChatSidebar({
   useEffect(() => {
     if (!selectMode) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") exitSelect();
+      if (e.key !== "Escape") return;
+      if (confirmingBulk) {
+        setConfirmingBulk(false);
+        setTimeout(() => bulkDeleteTrigger.current?.focus(), 0);
+        return;
+      }
+      exitSelect();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [selectMode]);
+  }, [confirmingBulk, selectMode]);
 
   const refocusTrigger = (id: string) =>
     setTimeout(() => document.getElementById(`chat-menu-${id}`)?.focus(), 0);
@@ -352,6 +362,15 @@ export function ChatSidebar({
     .filter((f) => !folders.includes(f))
     .sort();
   const groups = ["", ...folders, ...filed];
+  const chats = `${selChats.size} chat${selChats.size === 1 ? "" : "s"}`;
+  const selectedFolders = `${selFolders.size} folder${selFolders.size === 1 ? "" : "s"}`;
+  const folderChats = selFolders.size === 1 ? "folder" : "folders";
+  const bulkDeleteLabel =
+    selChats.size && selFolders.size
+      ? `Delete ${chats} and ${selectedFolders}? This deletes the selected chats' messages and flock history. Other chats in the selected ${folderChats} will stay and become unfiled. Backups can still contain deleted chat data.`
+      : selChats.size
+        ? `Delete ${chats}? This deletes their messages and flock history. Backups can still contain deleted chat data.`
+        : `Delete ${selectedFolders}? Chats in the selected ${folderChats} will stay and become unfiled.`;
   const asideRef = useRef<HTMLElement>(null);
   useEffect(() => {
     // a panel over the page must take focus, or Tab walks the page behind it
@@ -424,19 +443,21 @@ export function ChatSidebar({
                 onClick={deleteSelected}
                 className="rounded bg-danger-solid px-2 py-1 font-medium text-white hover:opacity-90"
               >
-                {selChats.size
-                  ? "Really delete — transcripts gone"
-                  : "Really delete — chats stay, unfiled"}
+                {bulkDeleteLabel}
               </button>
               <button
-                onClick={() => setConfirmingBulk(false)}
+                onClick={() => {
+                  setConfirmingBulk(false);
+                  setTimeout(() => bulkDeleteTrigger.current?.focus(), 0);
+                }}
                 className="rounded px-2 py-1 text-ink-2 hover:bg-line"
               >
-                Keep
+                Cancel deletion
               </button>
             </>
           ) : (
             <button
+              ref={bulkDeleteTrigger}
               onClick={() => setConfirmingBulk(true)}
               disabled={selChats.size + selFolders.size === 0}
               className="rounded bg-danger/15 px-2 py-1 font-medium text-danger hover:bg-danger/20 disabled:opacity-40"
@@ -674,15 +695,17 @@ export function ChatSidebar({
                       {confirmingDelete === t.id ? (
                         <>
                           <MenuItem
+                            key="confirm-delete"
                             icon="🗑"
-                            label="Delete for good — transcript too"
+                            label="Delete this chat? This deletes its messages and flock history. Backups can still contain this chat data."
                             danger
+                            autoFocus
                             onClick={() => remove(t)}
                           />
                           <MenuItem
                             icon="↩"
-                            label="Keep it"
-                            onClick={() => setConfirmingDelete(null)}
+                            label="Cancel deletion"
+                            onClick={() => closeMenu(t.id)}
                           />
                         </>
                       ) : (

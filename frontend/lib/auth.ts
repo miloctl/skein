@@ -267,8 +267,11 @@ async function runCompleteSignIn(search: string): Promise<string> {
   const params = new URLSearchParams(search);
   const idpError = params.get("error");
   if (idpError) {
-    // the provider's own refusal, e.g. access_denied
-    throw new Error(`The identity provider refused the sign-in (${idpError}).`);
+    // The query value comes from the provider redirect and is never safe to
+    // reflect into the browser-visible refusal.
+    throw new Error(
+      "The identity provider refused the sign-in. Start the sign-in again.",
+    );
   }
   const code = params.get("code");
   const state = params.get("state");

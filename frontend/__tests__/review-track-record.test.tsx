@@ -141,12 +141,12 @@ describe("the proposer's record on the approvals row", () => {
       approval_rate: 1,
       streak: 0,
       streak_blocked:
-        "Skein recorded 8 verdicts. Nobody used a personal API key to approve or reject.",
+        "Skein recorded 8 verdicts. None used strong identity. Only strong-identity verdicts count toward a promotion streak. If deployment sign-in is available, use it before you approve or reject. Otherwise, use a personal API key.",
       level: "review",
       promotes_at: 0,
     });
     render(<ReviewPage />);
-    expect(await screen.findByText(/Nobody used a personal API key/)).toBeTruthy();
+    expect(await screen.findByText(/None used strong identity/)).toBeTruthy();
     expect(screen.queryByText(/in a row/)).toBeNull();
     expect(screen.queryByText(/was not an approval/)).toBeNull();
   });

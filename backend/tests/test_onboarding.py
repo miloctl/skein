@@ -39,6 +39,9 @@ IN_PAGE_ACTIONS = {"#capture", "#standup"}
 def test_onboarding_steps_are_actionable(client, fresh_db):
     steps = client.get("/api/onboarding").json()["steps"]
     assert all(s["hint"] for s in steps)
+    key_step = next(s for s in steps if s["id"] == "setup_key")
+    assert key_step["label"] == "Set up a personal API key for the CLI"
+    assert "deployment sign-in" in key_step["hint"]
     for s in steps:
         assert s["link"].startswith("/") or s["link"] in IN_PAGE_ACTIONS, s
         # "/" IS My Day, where the checklist renders: capture and standup

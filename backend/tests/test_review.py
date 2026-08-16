@@ -78,15 +78,15 @@ def test_agent_note_edit_flows_through_review(client, fresh_db, monkeypatch):
 
 def test_agent_edit_respects_forbidden_authority(fresh_db, monkeypatch):
     from app import config
-    from app.services import blockers, delegation, users
+    from app.services import blockers, delegation, users, wording
     from app.tools.platform import edit_blocker
 
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
     users._reserve_core_agent_identity("agent")
     b = blockers.raise_blocker(title="typo'd", owner="ava", actor="ava")
     delegation.set_authority("agent", "blocker_edit", "forbidden", actor="tester")
-    out = edit_blocker(blocker_id=b["id"], title="nope")
-    assert "forbidden" in out
+    out = json.loads(edit_blocker(blocker_id=b["id"], title="nope"))
+    assert out == {"error": wording.write_policy_denied()}
     assert (
         fresh_db.query_one("SELECT title FROM blockers WHERE id = ?", (b["id"],))["title"]
         == "typo'd"

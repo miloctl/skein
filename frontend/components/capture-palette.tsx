@@ -243,7 +243,7 @@ export function CapturePalette() {
               (kind
                 ? kind.startsWith("⚠")
                   ? kind
-                  : `will file as: ${kind}${kind === "private feedback" ? " (needs your API key)" : ""}`
+                  : `will file as: ${kind}${kind === "private feedback" ? " (requires strong identity)" : ""}`
                 : [
                     <span
                       key="kbd"

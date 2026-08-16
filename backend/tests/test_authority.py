@@ -133,14 +133,14 @@ def test_mcp_forbidden_authority_holds(client, fresh_db, monkeypatch):
     import json
 
     from app import mcp_server
-    from app.services import delegation
+    from app.services import delegation, wording
 
     monkeypatch.setattr(mcp_server, "ACTOR", "mcp-agent")
     delegation.set_authority("mcp-agent", "task", "forbidden", actor="tester")
     refused = json.loads(mcp_server.create_task("blocked by the kill switch"))
-    assert "forbidden" in refused.get("error", "")
+    assert refused == {"error": wording.write_policy_denied()}
     allowed = json.loads(mcp_server.log_decision("d", "text"))  # default review passes
-    assert "forbidden" not in str(allowed)
+    assert "error" not in allowed
 
 
 def test_authority_not_self_serviceable_by_agents(client, fresh_db):
@@ -159,6 +159,7 @@ def test_authority_matrix_gate(client, fresh_db, monkeypatch):
     import json as j
 
     from app import config
+    from app.services import wording
     from app.tools.portfolio import add_promise
 
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
@@ -182,7 +183,8 @@ def test_authority_matrix_gate(client, fresh_db, monkeypatch):
         json={"agent": "agent", "entity": "promise", "level": "forbidden"},
     )
     out = j.loads(add_promise(promise="p3"))
-    assert "forbidden" in out["error"]
+    assert out == {"error": wording.write_policy_denied()}
+    assert fresh_db.query_one("SELECT id FROM promises WHERE promise = 'p3'") is None
 
 
 def test_trust_scores_streak_suggestion(client, fresh_db):

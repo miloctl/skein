@@ -1066,6 +1066,33 @@ def test_a_late_receipt_still_names_the_specialist(client, monkeypatch):
     assert "queued for review: note #7 (code-reviewer)" in saved["content"]
 
 
+class _LateRefuser:
+    async def stream_async(self, message):
+        from app.agents import receipts
+        from app.services import wording
+
+        receipts.record(
+            "refused",
+            "note",
+            wording.write_policy_denied(),
+            actor="code-reviewer",
+        )
+        yield {"data": "The write was refused."}
+
+
+def test_a_saved_refusal_keeps_the_specialist_actor(client, monkeypatch):
+    from app.routes import chat as chat_route
+
+    users.ensure_user("code-reviewer", kind="agent")
+    monkeypatch.setattr(chat_route, "build_agent", lambda *a, **k: _LateRefuser())
+
+    out = _read_chat(client, "ask @code-reviewer to file a note", "ra-refused")
+    saved = client.get("/api/chats/ra-refused/messages", headers={"X-User": "tester"}).json()[-1]
+
+    assert '"actor": "code-reviewer"' in out
+    assert "refused: note (code-reviewer)" in saved["content"]
+
+
 def test_the_turn_heads_own_receipts_stay_unattributed(client, monkeypatch):
     """Differs-only: stamping every plain-turn receipt with the head's name
     adds noise to the path where attribution says nothing new — and "agent"

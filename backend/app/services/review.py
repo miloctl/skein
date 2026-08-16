@@ -532,9 +532,7 @@ def _approve_change_locked(
     # path must not be the weaker door to the same kill switch.
     if change["entity"] == "authority":
         if not strong:
-            raise ValueError(
-                "authority changes need a strong identity — approve with your personal API key"
-            )
+            raise ValueError(wording.strong_identity_required("Authority changes"))
         if not administrator:
             raise PermissionError(wording.not_administrator(actor, "approve an authority change"))
 

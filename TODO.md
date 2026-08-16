@@ -147,6 +147,19 @@ this file is only for accepted trade-offs that must eventually be repaid.
   the saved policy context at propose time and comparing at approve time, the
   way the core path compares its contract.
 
+- **Skein is English-only and has no locale catalog or language selector.**
+  Accepted 2026-08-16 while the English source text is corrected and simplified;
+  Do not extract inaccurate copy first. That preserves it behind opaque message keys.
+  Revisit when a deployment needs another language or the team selects a second
+  supported locale. Add personal UI language and a separate team default for
+  shared reports and notifications, keep route paths stable, retain English as
+  the fallback, and validate the system with a pseudo-locale before exposing a
+  selector. Migrate by surface into feature-scoped catalogs, add stable API error
+  codes before translating backend failures, and localize field-guide text by
+  knot ID instead of duplicating its registry. User-authored text stays as
+  written. Existing hash-chained activity rows cannot be rewritten, and stored
+  reports keep the language in which they were generated.
+
 Decided against, so the next review does not re-open them: Postgres (wrong
 scale — the services layer keeps the door open), Redis-backed rate limits
 (per-pod buckets are fine at one replica), a migration framework (the

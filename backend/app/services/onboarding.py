@@ -40,10 +40,11 @@ STEPS = (
     ),
     (
         "setup_key",
-        "Set up your personal API key",
+        "Set up a personal API key for the CLI",
         "/settings",
-        "Needed for private surfaces (1:1s page) and the CLI. Settings"
-        " shows the exact command to mint your first one.",
+        "The CLI requires a personal API key. A personal key also opens private"
+        " web surfaces when deployment sign-in is unavailable. Settings shows the"
+        " command to create your first key.",
         "you",
     ),
     (

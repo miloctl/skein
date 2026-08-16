@@ -91,6 +91,44 @@ def test_rename_user_merges_into_existing(client, fresh_db):
     assert len([u for u in users.list_users(active_only=False) if u["name"].lower() == "mira"]) == 1
 
 
+def test_rename_route_rejects_a_stale_merge_confirmation(client, fresh_db):
+    from app.services import api_keys, users
+
+    for name in ("operator", "Ava", "Bo"):
+        users.ensure_user(name)
+    key = api_keys.create_key("operator", label="test")["key"]
+
+    response = client.post(
+        "/api/users/Ava/rename",
+        json={"new_name": "Bo", "merge": False},
+        headers={"Authorization": f"Bearer {key}"},
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "The roster changed after this confirmation. Reload Settings, then confirm the action again."
+    }
+    names = {row["name"] for row in users.list_users(active_only=False)}
+    assert {"Ava", "Bo"} <= names
+
+
+def test_rename_route_keeps_the_existing_omitted_merge_contract(client, fresh_db):
+    from app.services import api_keys, users
+
+    for name in ("operator", "Ava", "Bo"):
+        users.ensure_user(name)
+    key = api_keys.create_key("operator", label="test")["key"]
+
+    response = client.post(
+        "/api/users/Ava/rename",
+        json={"new_name": "Bo"},
+        headers={"Authorization": f"Bearer {key}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["merged"] is True
+
+
 def test_attribution_map_matches_schema(client, fresh_db):
     """Every declared column exists. This is the FORWARD direction only — the
     test below is the one that catches a new column nobody added."""

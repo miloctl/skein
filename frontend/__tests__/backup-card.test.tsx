@@ -33,17 +33,45 @@ vi.mock("@/lib/api", async (importOriginal) => {
 import { BackupCard } from "@/components/backup-card";
 
 describe("BackupCard", () => {
-  it("shows the refusal line and no buttons without admin access", () => {
-    render(<BackupCard strong={true} admin={false} />);
+  it("shows the refusal line and no buttons without administrator access", () => {
+    render(<BackupCard
+        canAdminister={false}
+        accessMessage="You do not have administrator access. Ask an administrator for access."
+      />);
     expect(
-      screen.getByText(/administrator access/i),
+      screen.getByText(
+        "You do not have administrator access. Ask an administrator for access.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("shows identity checking instead of a weak-identity verdict while loading", () => {
+    render(
+      <BackupCard canAdminister={false} accessMessage="Checking identity…" />,
+    );
+    expect(screen.getByText("Checking identity…")).toBeTruthy();
+    expect(screen.queryByText(/requires strong identity/)).toBeNull();
+  });
+
+  it("states both requirements for weak identity", () => {
+    render(
+      <BackupCard
+        canAdminister={false}
+        accessMessage="This action requires strong identity and administrator access. If deployment sign-in is available, use it. Otherwise, use a personal API key. If the action is still unavailable, ask an administrator for access."
+      />,
+    );
+    expect(
+      screen.getByText(
+        "This action requires strong identity and administrator access. If deployment sign-in is available, use it. Otherwise, use a personal API key. If the action is still unavailable, ask an administrator for access.",
+      ),
     ).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("backs up on demand and names the file and the mirror", async () => {
     calls.length = 0;
-    render(<BackupCard strong={true} admin={true} />);
+    render(<BackupCard canAdminister={true} accessMessage="" />);
     fireEvent.click(screen.getByRole("button", { name: "Back up now" }));
     expect(
       await screen.findByText("Backup complete: platform-2026-08-14.db, mirrored off-box."),
@@ -64,7 +92,7 @@ describe("BackupCard", () => {
     URL.createObjectURL = vi.fn(() => "blob:test");
     URL.revokeObjectURL = vi.fn();
 
-    render(<BackupCard strong={true} admin={true} />);
+    render(<BackupCard canAdminister={true} accessMessage="" />);
     fireEvent.click(screen.getByRole("button", { name: "Download export" }));
     await screen.findByText(/Export saved as skein-export-/);
     expect(clicked).toHaveLength(1);
@@ -74,7 +102,7 @@ describe("BackupCard", () => {
 
   it("a failed backup reports the fault, not a fake success", async () => {
     mode.backup = "fail";
-    render(<BackupCard strong={true} admin={true} />);
+    render(<BackupCard canAdminister={true} accessMessage="" />);
     fireEvent.click(screen.getByRole("button", { name: "Back up now" }));
     expect(
       await screen.findByText(/backup service exploded/),

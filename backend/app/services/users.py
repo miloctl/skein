@@ -741,6 +741,7 @@ def rename_user(
     new: str,
     *,
     actor: str = "system",
+    expected_merge: bool | None = None,
     _identity_repair: bool = False,
 ) -> dict:
     """Rename (or merge, when `new` already exists) a roster entry across
@@ -788,6 +789,10 @@ def rename_user(
         if not current:
             raise db.NotFound(f"no user named '{old}'")
         target = _validate_rename_target(old, new, current, identity_repair=_identity_repair)
+        if expected_merge is not None and bool(target) != expected_merge:
+            raise db.Conflict(
+                "The roster changed after this confirmation. Reload Settings, then confirm the action again."
+            )
         # unique-keyed tables first: fold rather than collide
         # tool_usage (day, user, surface): sum counts into the target's rows
         db.execute(

@@ -249,6 +249,21 @@ specialist; naming the file or the API uses persona.
 
 ---
 
+### 10. Identity that can open private or privileged surfaces
+
+| | |
+|---|---|
+| Words in use | **personal API key** · **deployment sign-in** · **strong identity** |
+| Where they split | A personal API key and validated OIDC sign-in are two ways to establish the same property. Key-only copy incorrectly refuses or redirects a signed-in person. |
+| **DECIDED** | Use **strong identity** for the property. State the available methods as **deployment sign-in or a personal API key**. Keep key-specific wording for the CLI and `SKEIN_AUTH_MODE=api-key`. |
+
+Why: `routes/deps.py` treats a validated OIDC token and a personal API key as
+strong identity. The user-facing copy must describe that property unless the
+operation specifically needs the key itself, such as the CLI. A weak
+trusted-header name does not qualify.
+
+---
+
 ## States that LIE — found by the state-mapping pass, not wording bugs
 
 A wording review needs every state a user can reach, so the states were

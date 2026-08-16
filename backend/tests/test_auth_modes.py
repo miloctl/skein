@@ -662,7 +662,16 @@ def test_oidc_mode_sign_in_is_strong_identity(client, monkeypatch, fresh_db):
     )
     tasks = client.get("/api/tasks", headers=hdr).json()
     assert tasks[0]["created_by"] == "casey"
-    # a validated sign-in is STRONG: minting a first key needs no prior key
+    # a validated sign-in is STRONG: private records and feedback need no browser key
+    note = client.post(
+        "/api/private/notes",
+        json={"person": "casey", "body": "private from sso", "kind": "note"},
+        headers=hdr,
+    )
+    assert note.status_code == 200
+    feedback = client.post("/api/capture", json={"text": "fb: casey — clear feedback"}, headers=hdr)
+    assert feedback.status_code == 200 and feedback.json()["kind"] == "feedback"
+    # minting a first key for the CLI also needs no prior key
     assert client.post("/api/keys", json={"label": "cli"}, headers=hdr).status_code == 200
 
 

@@ -1,5 +1,3 @@
-import { readFile } from "node:fs/promises";
-
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
@@ -22,6 +20,8 @@ const PAGES = [
   { path: "/agents", name: "Team" },
   { path: "/settings", name: "Settings" },
 ];
+
+const E2E_KEY = "sk-skein-" + "0".repeat(40);
 
 type Fault = { kind: string; detail: string };
 
@@ -154,14 +154,7 @@ test("the crews card is operable with a keyboard and announces what it did", asy
 }) => {
   // The gap this closes: every other walk sets only skein-user, so the card
   // renders read-only and CI has never seen its interactive half at all.
-  const key = (await readFile("/tmp/skein-e2e/ava.key", "utf8")).match(
-    /sk-skein-\S+/,
-  )?.[0];
-  expect(
-    key,
-    "seed must mint a key for the strong-identity walks",
-  ).toBeTruthy();
-  await pickName(page, key);
+  await pickName(page, E2E_KEY);
 
   const faults = watch(page);
   await page.goto("/settings");
@@ -169,6 +162,7 @@ test("the crews card is operable with a keyboard and announces what it did", asy
 
   const platform = page.getByRole("button", {
     name: "Remove marcus from Platform",
+    exact: true,
   });
   await expect(platform).toBeVisible();
 
@@ -178,11 +172,13 @@ test("the crews card is operable with a keyboard and announces what it did", asy
   await page.keyboard.press("Enter");
   const confirm = page.getByRole("button", {
     name: "Confirm: remove marcus from Platform",
+    exact: true,
   });
   await expect(confirm).toBeFocused();
 
   // Escape cancels and hands focus back to the trigger it came from
   await page.keyboard.press("Escape");
+  await expect(confirm).toBeHidden();
   await expect(platform).toBeFocused();
 
   // and the write announces itself through the shared live region

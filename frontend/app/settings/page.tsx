@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import {
   API_URL,
   actionError,
   api,
   backendUnreachable,
+  errorFromResponse,
   getApiKey,
   getUser,
   isUnreachable,
@@ -15,6 +16,7 @@ import {
   setApiKey,
   setUser,
 } from "@/lib/api";
+import { signedInUser } from "@/lib/auth";
 import { reportStatus } from "@/lib/status";
 import { copyText } from "@/lib/clipboard";
 import { Card as Section } from "@/components/card";
@@ -46,6 +48,7 @@ type WhoAmI = {
   user: string;
   strong: boolean;
   admin: boolean;
+  can_administer: boolean;
   keys_minted: number;
 };
 
@@ -91,6 +94,12 @@ export default function SettingsPage() {
   const [gateOn, setGateOn] = useState<boolean | null>(null);
   const [whoError, setWhoError] = useState("");
   const [keyStatus, setKeyStatus] = useState<string>("");
+  const [keyError, setKeyError] = useState(false);
+  const [createdKey, setCreatedKey] = useState("");
+  const [creatingKey, setCreatingKey] = useState(false);
+  const [deletingKey, setDeletingKey] = useState(false);
+  const keyDeleteRef = useRef<HTMLButtonElement>(null);
+  const keyDeleteSnapshot = useRef("");
   const [interests, setInterests] = useState("");
   const [interestsSaved, setInterestsSaved] = useState("");
   const [interestsLoaded, setInterestsLoaded] = useState(false);
@@ -160,13 +169,17 @@ export default function SettingsPage() {
   const [tuneStatus, setTuneStatus] = useState("");
   const [tuneBusy, setTuneBusy] = useState("");
   const [tuneDraft, setTuneDraft] = useState<Record<string, string>>({});
+  const identityGeneration = useRef(0);
+  const adminGeneration = useRef(0);
   // `settled` is the knob that was just written, and ONLY its draft is
   // dropped. Clearing the whole map threw away half-typed values on every
   // other knob in the list, with nothing said — a save on knob A silently
   // reverted the reader's unsaved edit to knob B.
   const loadTunables = useCallback((settled?: string) => {
+    const current = adminGeneration.current;
     api<Tunable[]>("/api/settings/tuning")
       .then((r) => {
+        if (current !== adminGeneration.current) return;
         setTunables(r);
         setTuneLoadError("");
         if (settled)
@@ -177,6 +190,7 @@ export default function SettingsPage() {
           });
       })
       .catch((e) => {
+        if (current !== adminGeneration.current) return;
         setTunables(null);
         // the same helper the long-chat section uses, so a refusal the server
         // answered never reads as an unreachable backend. A non-administrator
@@ -184,15 +198,10 @@ export default function SettingsPage() {
         // them what they need — this must not re-word it (CLAUDE.md)
         setTuneLoadError(loadError(e));
       })
-      .finally(() => setTuneLoaded(true));
+      .finally(() => {
+        if (current === adminGeneration.current) setTuneLoaded(true);
+      });
   }, []);
-  // Gated on strong identity: this read is AdminUser, so firing it for
-  // every visitor put a 403 in the console on every settings load, and the
-  // e2e no-4xx sweep counted it on all six fabric packs. `who` arrives
-  // asynchronously, so this runs when identity resolves, not on mount.
-  useEffect(() => {
-    if (who?.strong) loadTunables();
-  }, [loadTunables, who?.strong]);
   useEffect(() => {
     // prefill: a write-only field can neither be reviewed nor cleared. If
     // the GET fails, the empty field must NOT be saveable — an empty save
@@ -206,6 +215,7 @@ export default function SettingsPage() {
   }, [currentUser]);
 
   const loadCtx = useCallback(() => {
+    const current = adminGeneration.current;
     api<{
       strategy: string;
       override: string;
@@ -214,33 +224,66 @@ export default function SettingsPage() {
       applies: boolean;
     }>("/api/settings/context-strategy")
       .then((r) => {
+        if (current !== adminGeneration.current) return;
         setCtx(r);
         setCtxLoadError("");
       })
       .catch((e) => {
+        if (current !== adminGeneration.current) return;
         setCtx(null);
         // a 401 behind SKEIN_API_TOKEN, or a 500 from a locked database, is a
         // server that answered — calling it unreachable sends the reader to
         // check something that is running
         setCtxLoadError(loadError(e)); // routes to backendUnreachable itself
       })
-      .finally(() => setCtxLoaded(true));
+      .finally(() => {
+        if (current === adminGeneration.current) setCtxLoaded(true);
+      });
   }, []);
-  useEffect(loadCtx, [loadCtx]);
 
   const loadPick = useCallback(() => {
+    const current = adminGeneration.current;
     api<ModelPick>("/api/settings/model")
       .then((r) => {
+        if (current !== adminGeneration.current) return;
         setPick(r);
         setPickLoadError("");
       })
       .catch((e) => {
+        if (current !== adminGeneration.current) return;
         setPick(null);
         setPickLoadError(loadError(e)); // routes to backendUnreachable itself
       })
-      .finally(() => setPickLoaded(true));
+      .finally(() => {
+        if (current === adminGeneration.current) setPickLoaded(true);
+      });
   }, []);
-  useEffect(loadPick, [loadPick]);
+
+  // These reads are AdminUser. Losing that capability invalidates both their
+  // controls and the protected values already returned to this browser.
+  useEffect(() => {
+    const current = ++adminGeneration.current;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled || current !== adminGeneration.current) return;
+      setTunables(null);
+      setCtx(null);
+      setPick(null);
+      setTuneLoaded(false);
+      setCtxLoaded(false);
+      setPickLoaded(false);
+      setTuneLoadError("");
+      setCtxLoadError("");
+      setPickLoadError("");
+      if (!who?.can_administer) return;
+      loadTunables();
+      loadCtx();
+      loadPick();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadCtx, loadPick, loadTunables, who?.can_administer]);
 
   useEffect(() => {
     api<{ review_gate: boolean }>("/api/agents/status")
@@ -249,12 +292,17 @@ export default function SettingsPage() {
   }, []);
 
   const refresh = useCallback(() => {
+    const current = ++identityGeneration.current;
+    setWho(null);
+    setWhoError("");
     api<WhoAmI>("/api/whoami")
       .then((w) => {
+        if (current !== identityGeneration.current) return;
         setWho(w);
         setWhoError("");
       })
       .catch((e) => {
+        if (current !== identityGeneration.current) return;
         // the failure carries its own diagnosis: a served 401 IS the revoked
         // verdict, in the server's words; an unreachable backend gets the one
         // wording. The old text blamed the key for both.
@@ -263,7 +311,17 @@ export default function SettingsPage() {
       });
   }, []);
 
-  useEffect(refresh, [refresh]);
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) refresh();
+    });
+    const unsubscribe = subscribeStorage(refresh);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [refresh]);
 
   const [roster, setRoster] = useState<
     { name: string; kind: string; active: number }[]
@@ -275,29 +333,48 @@ export default function SettingsPage() {
   }, []);
   useEffect(loadRoster, [loadRoster]);
 
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameConfirmation, setRenameConfirmation] = useState<{
+    from: string;
+    to: string;
+    merge: boolean;
+  } | null>(null);
+  const [accessConfirmation, setAccessConfirmation] = useState<{
+    name: string;
+    active: boolean;
+  } | null>(null);
+
   const setActive = async (name: string, active: boolean) => {
     try {
       await api(`/api/users/${encodeURIComponent(name)}/active`, {
         method: "POST",
         body: JSON.stringify({ active }),
       });
+      setAccessConfirmation(null);
       loadRoster();
     } catch (e) {
       reportStatus(actionError(e));
     }
   };
 
-  const [renaming, setRenaming] = useState<string | null>(null);
-  const [deactivating, setDeactivating] = useState<string | null>(null);
+  const prepareRename = (from: string, to: string) => {
+    const target = to.trim();
+    if (!target) return;
+    setRenaming(null);
+    setRenameConfirmation({
+      from,
+      to: target,
+      merge: roster.some((u) => u.name === target),
+    });
+  };
 
-  const renameUser = async (from: string, to: string) => {
-    if (!to.trim()) return;
+  const renameUser = async (from: string, to: string, merge: boolean) => {
     try {
       await api(`/api/users/${encodeURIComponent(from)}/rename`, {
         method: "POST",
-        body: JSON.stringify({ new_name: to.trim() }),
+        body: JSON.stringify({ new_name: to, merge }),
       });
-      setRenaming(null);
+      setRenameConfirmation(null);
       loadRoster();
     } catch (e) {
       reportStatus(actionError(e));
@@ -313,41 +390,89 @@ export default function SettingsPage() {
     const candidate = keyDraft.trim();
     if (!candidate) return;
     if (!candidate.startsWith("sk-skein-")) {
-      setKeyStatus("❌ that is not a Skein key — keys start with sk-skein-");
+      setKeyError(true);
+      setKeyStatus("This is not a Skein API key. Skein API keys start with sk-skein-.");
       return;
     }
-    setKeyStatus("testing…");
+    setKeyError(false);
+    setKeyStatus("Checking the key…");
     try {
       const res = await fetch(`${API_URL}/api/whoami`, {
         headers: { Authorization: `Bearer ${candidate}`, "X-Client": "web" },
       });
-      const w = res.ok ? ((await res.json()) as WhoAmI) : null;
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          setKeyError(true);
+          setKeyStatus(
+            "This key did not establish strong identity. Check the key, then try again.",
+          );
+          return;
+        }
+        throw await errorFromResponse(res);
+      }
+      const w = (await res.json()) as WhoAmI;
       // strong === true is EXACTLY the property being tested — a malformed
       // key falls through to weak identity and would otherwise "succeed"
-      if (!w || !w.strong) {
-        setKeyStatus(
-          "❌ that key is invalid or revoked — check for typos, or mint a new one",
-        );
+      if (!w.strong) {
+        setKeyError(true);
+        setKeyStatus("This key did not establish strong identity. Check it, then try again.");
         return;
       }
+      const signedInAs = signedInUser();
       setApiKey(candidate);
       setKeyDraft("");
+      setKeyError(false);
       setKeyStatus(
-        `Key works — you are authenticated as ${w.user}.` +
-          (w.user !== getUser() && getUser() !== "anonymous"
-            ? ` (note: your display name is ${getUser()} — the key's owner wins for private surfaces)`
-            : ""),
+        signedInAs
+          ? `Key works and is stored for ${w.user}. Deployment sign-in remains active as ${signedInAs}. The stored key takes effect after you sign out.`
+          : `Key works. This browser now uses it as ${w.user}.` +
+              (w.user !== getUser() && getUser() !== "anonymous"
+                ? ` Your display name remains ${getUser()}.`
+                : ""),
       );
-      refresh();
     } catch (e) {
-      setKeyStatus(`❌ ${actionError(e)}`);
+      setKeyError(true);
+      setKeyStatus(actionError(e));
     }
   };
 
   const clearKey = () => {
+    if (!keyDeleteSnapshot.current || getApiKey() !== keyDeleteSnapshot.current) {
+      keyDeleteSnapshot.current = "";
+      setDeletingKey(false);
+      setKeyError(true);
+      setKeyStatus(
+        "The stored key changed after this confirmation. Confirm the deletion again.",
+      );
+      return;
+    }
+    keyDeleteSnapshot.current = "";
     setApiKey("");
-    setKeyStatus("key removed from this browser");
-    refresh();
+    setDeletingKey(false);
+    setKeyError(false);
+    setKeyStatus("The browser no longer stores this key. No server key was revoked.");
+  };
+
+  const createPersonalKey = async () => {
+    if (creatingKey) return;
+    setCreatingKey(true);
+    try {
+      const result = await api<{ key: string }>("/api/keys", {
+        method: "POST",
+        body: JSON.stringify({ label: "CLI and git hooks" }),
+      });
+      setCreatedKey(result.key);
+      setWho((current) =>
+        current ? { ...current, keys_minted: current.keys_minted + 1 } : current,
+      );
+      setKeyError(false);
+      setKeyStatus("");
+    } catch (e) {
+      setKeyError(true);
+      setKeyStatus(actionError(e));
+    } finally {
+      setCreatingKey(false);
+    }
   };
 
   // hydration-safe: server snapshot says "no key", client corrects post-hydration
@@ -357,6 +482,12 @@ export default function SettingsPage() {
     () => false,
   );
   const strong = who?.strong ?? false;
+  const canAdminister = who?.can_administer ?? false;
+  const adminRequirement = strong
+    ? "You do not have administrator access. Ask an administrator for access."
+    : "This action requires strong identity and administrator access. If deployment sign-in is available, use it. Otherwise, use a personal API key. If the action is still unavailable, ask an administrator for access.";
+  const adminAccessMessage =
+    whoError || (who === null ? "Checking identity…" : adminRequirement);
 
   const rosterRows = (list: { name: string; kind: string; active: number }[]) =>
     list.map((u) => (
@@ -378,19 +509,85 @@ export default function SettingsPage() {
             </span>
           )}
         </span>
-        {strong && u.name !== who?.user && (
+        {canAdminister && u.name !== who?.user && (
           <span className="flex items-center gap-1.5">
-            {renaming === u.name ? (
+            {renameConfirmation?.from === u.name ? (
+              <span
+                onKeyDown={(e) => {
+                  if (e.key !== "Escape") return;
+                  setRenameConfirmation(null);
+                  setTimeout(
+                    () => document.getElementById(`rename-user-${u.name}`)?.focus(),
+                    0,
+                  );
+                }}
+                className="flex max-w-md flex-col items-end gap-1 text-right text-xs"
+              >
+                <span
+                  id={`rename-user-${u.name}-consequence`}
+                  className="text-ink-3"
+                >
+                  {renameConfirmation.merge
+                    ? `Merge ${u.name} into ${renameConfirmation.to}? Team-visible attribution and crew memberships will be combined under ${renameConfirmation.to}. Active personal API keys for ${u.name} will stay active under ${renameConfirmation.to}. Existing activity history under each name will stay as written. This merge cannot later be separated.`
+                    : `Rename ${u.name} to ${renameConfirmation.to}? Team-visible attribution and crew memberships will move to ${renameConfirmation.to}. Existing activity history will stay under ${u.name}.`}
+                </span>
+                <span className="flex items-center gap-1">
+                  <button
+                    autoFocus
+                    aria-describedby={`rename-user-${u.name}-consequence`}
+                    onClick={() =>
+                      renameUser(
+                        u.name,
+                        renameConfirmation.to,
+                        renameConfirmation.merge,
+                      )
+                    }
+                    className="rounded bg-danger-solid px-2 py-0.5 font-medium text-white hover:opacity-90"
+                  >
+                    {renameConfirmation.merge
+                      ? `Merge ${u.name} into ${renameConfirmation.to}`
+                      : `Rename ${u.name}`}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setRenameConfirmation(null);
+                      setTimeout(
+                        () =>
+                          document
+                            .getElementById(`rename-user-${u.name}`)
+                            ?.focus(),
+                        0,
+                      );
+                    }}
+                    className="text-ink-3 hover:text-ink"
+                  >
+                    Cancel {renameConfirmation.merge ? "merge" : "rename"}
+                  </button>
+                </span>
+              </span>
+            ) : renaming === u.name ? (
               <span className="flex items-center gap-1">
                 <input
                   autoFocus
                   name="rename-user"
                   aria-label={`Rename ${u.name} to`}
-                  placeholder="new name — merges if it exists"
+                  placeholder="new name"
                   onKeyDown={(e) => {
-                    if (e.key === "Escape") setRenaming(null);
+                    if (e.key === "Escape") {
+                      setRenaming(null);
+                      setTimeout(
+                        () =>
+                          document
+                            .getElementById(`rename-user-${u.name}`)
+                            ?.focus(),
+                        0,
+                      );
+                    }
                     if (e.key === "Enter")
-                      renameUser(u.name, (e.target as HTMLInputElement).value);
+                      prepareRename(
+                        u.name,
+                        (e.target as HTMLInputElement).value,
+                      );
                   }}
                   className="w-44 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 text-xs outline-none focus:border-thread-solid"
                 />
@@ -399,65 +596,107 @@ export default function SettingsPage() {
                     const input = e.currentTarget.parentElement?.querySelector(
                       "input",
                     ) as HTMLInputElement | null;
-                    if (input) renameUser(u.name, input.value);
+                    if (input) prepareRename(u.name, input.value);
                   }}
                   className="rounded bg-thread-solid px-2 py-0.5 text-xs font-medium text-white hover:opacity-90"
                 >
                   save
                 </button>
                 <button
-                  onClick={() => setRenaming(null)}
+                  onClick={() => {
+                    setRenaming(null);
+                    setTimeout(
+                      () =>
+                        document
+                          .getElementById(`rename-user-${u.name}`)
+                          ?.focus(),
+                      0,
+                    );
+                  }}
                   className="text-xs text-ink-3 hover:text-ink"
                 >
                   cancel
                 </button>
               </span>
-            ) : deactivating === u.name ? (
-              <span className="flex items-center gap-1 text-xs">
-                <span className="text-ink-3">
-                  history stays, keys revoked —
+            ) : accessConfirmation?.name === u.name ? (
+              <span
+                onKeyDown={(e) => {
+                  if (e.key !== "Escape") return;
+                  setAccessConfirmation(null);
+                  setTimeout(
+                    () =>
+                      document
+                        .getElementById(`access-user-${u.name}`)
+                        ?.focus(),
+                    0,
+                  );
+                }}
+                className="flex max-w-md flex-col items-end gap-1 text-right text-xs"
+              >
+                <span
+                  id={`access-user-${u.name}-consequence`}
+                  className="text-ink-3"
+                >
+                  {accessConfirmation.active
+                    ? `Reactivate ${u.name}? ${u.name} will regain access. Revoked personal API keys will stay revoked. Create a new key if ${u.name} needs one.`
+                    : `Deactivate ${u.name}? ${u.name} will lose access. History will stay. All personal API keys for ${u.name} will be revoked.`}
                 </span>
-                <button
-                  autoFocus
-                  aria-label={`Deactivate ${u.name} — history stays, keys revoked`}
-                  onClick={() => {
-                    setDeactivating(null);
-                    setActive(u.name, false);
-                  }}
-                  className="rounded bg-danger-solid px-2 py-0.5 font-medium text-white hover:opacity-90"
-                >
-                  deactivate
-                </button>
-                <button
-                  onClick={() => setDeactivating(null)}
-                  className="text-ink-3 hover:text-ink"
-                >
-                  keep
-                </button>
+                <span className="flex items-center gap-1">
+                  <button
+                    autoFocus
+                    aria-describedby={`access-user-${u.name}-consequence`}
+                    onClick={() =>
+                      setActive(u.name, accessConfirmation.active)
+                    }
+                    className="rounded bg-danger-solid px-2 py-0.5 font-medium text-white hover:opacity-90"
+                  >
+                    {accessConfirmation.active
+                      ? `Reactivate ${u.name}`
+                      : `Deactivate ${u.name}`}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setAccessConfirmation(null);
+                      setTimeout(
+                        () =>
+                          document
+                            .getElementById(`access-user-${u.name}`)
+                            ?.focus(),
+                        0,
+                      );
+                    }}
+                    className="text-ink-3 hover:text-ink"
+                  >
+                    Cancel access change
+                  </button>
+                </span>
               </span>
             ) : (
               <>
                 <button
-                  onClick={() => setRenaming(u.name)}
+                  id={`rename-user-${u.name}`}
+                  onClick={() => {
+                    setAccessConfirmation(null);
+                    setRenaming(u.name);
+                  }}
                   className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
                 >
                   rename…
                 </button>
-                {u.active ? (
-                  <button
-                    onClick={() => setDeactivating(u.name)}
-                    className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
-                  >
-                    deactivate…
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setActive(u.name, true)}
-                    className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
-                  >
-                    reactivate
-                  </button>
-                )}
+                <button
+                  id={`access-user-${u.name}`}
+                  onClick={() => {
+                    setRenaming(null);
+                    setRenameConfirmation(null);
+                    setAccessConfirmation({
+                      name: u.name,
+                      active: !Boolean(u.active),
+                    });
+                  }}
+                  className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                >
+                  {u.active ? "deactivate…" : "reactivate…"}
+                </button>
               </>
             )}
           </span>
@@ -559,30 +798,32 @@ export default function SettingsPage() {
         </div>
       </Section>
 
-      <Section title="2 · Personal API key (private surfaces + CLI)">
+      <Section title="2 · Strong identity and personal API key">
         <p className="mb-2 text-sm text-ink-3">
-          The 1:1s page (private prep, feedback journal) and admin export need a
-          key — a spoofable name is not enough for private data. The key also
-          powers the CLI and git hooks.
+          Deployment sign-in or a personal API key opens private web surfaces.
+          The CLI and git hooks require a personal API key. Team administration
+          also requires administrator access.
         </p>
         <p className="mb-3 text-sm">
           Status:{" "}
-          {strong ? (
+          {who === null ? (
+            <span className={whoError ? "font-medium text-danger" : "text-ink-3"}>
+              {whoError || "Checking strong identity…"}
+            </span>
+          ) : strong ? (
             <span className="font-medium text-ok">
-              ● strong identity active as {who?.user}
+              ● strong identity active as {who.user}
             </span>
           ) : hasBrowserKey ? (
             <span className="font-medium text-danger">
-              A key is stored in this browser but it is not working — paste a
-              fresh one below
+              The stored value did not establish strong identity. Delete it from
+              this browser, then save a valid personal API key.
             </span>
           ) : (
-            <span className="font-medium text-weld">
-              no key in this browser yet
-            </span>
+            <span className="font-medium text-weld">Strong identity is not active.</span>
           )}
         </p>
-        {!strong && (
+        {who !== null && !strong && (
           <div className="mb-3 rounded-lg bg-raised p-3 text-sm">
             {currentUser === "anonymous" ? (
               <p>
@@ -605,13 +846,15 @@ export default function SettingsPage() {
                           method: "POST",
                         },
                       );
+                      setKeyError(false);
                       setKeyStatus(
                         r.already_pending
                           ? "Already asked — the request is still on the team's My Day."
                           : "Asked — the request (with the exact command) is now on the team's My Day.",
                       );
                     } catch (e) {
-                      setKeyStatus(`❌ ${actionError(e)}`);
+                      setKeyError(true);
+                      setKeyStatus(actionError(e));
                     }
                   }}
                   className="mb-2 rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
@@ -646,6 +889,31 @@ export default function SettingsPage() {
             )}
           </div>
         )}
+        {who !== null && strong && who.keys_minted === 0 && !createdKey && (
+          <div className="mb-3 rounded-lg bg-raised p-3 text-sm">
+            <p className="mb-2">
+              No personal API key exists for {who.user}. Create one for the CLI
+              and git hooks.
+            </p>
+            <button
+              type="button"
+              onClick={createPersonalKey}
+              disabled={creatingKey}
+              className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
+            >
+              {creatingKey ? "Creating…" : "Create a personal API key"}
+            </button>
+          </div>
+        )}
+        {createdKey && (
+          <div
+            role="status"
+            className="mb-3 rounded-lg border border-weld/40 bg-weld/10 p-3"
+          >
+            <p className="mb-2 text-sm">Copy this key now. Skein will not show it again.</p>
+            <CopyLine text={createdKey} />
+          </div>
+        )}
         <div className="flex gap-2">
           <input
             name="personal-api-key"
@@ -666,27 +934,69 @@ export default function SettingsPage() {
             Test & save
           </button>
           {hasBrowserKey && (
-            /* "Delete", not "Remove": docs/LEXICON.md reserves delete for
-               destruction, and the 401 this screen exists to answer
-               (routes/deps.py::INVALID_KEY) sends the reader here to "delete
-               the stored key" — a button with a different verb is the reader
-               checking whether they are on the right screen. */
-            <button
-              onClick={clearKey}
-              className="rounded-lg bg-raised px-3 py-1.5 text-sm text-ink-2 hover:bg-line"
+            <span
+              onKeyDown={(e) => {
+                if (e.key !== "Escape" || !deletingKey) return;
+                keyDeleteSnapshot.current = "";
+                setDeletingKey(false);
+                requestAnimationFrame(() => keyDeleteRef.current?.focus());
+              }}
+              className="flex flex-wrap items-center gap-2"
             >
-              Delete
-            </button>
+              {deletingKey && (
+                <span
+                  id="delete-browser-key-consequence"
+                  className="max-w-sm text-xs text-danger"
+                >
+                  Delete this key from this browser? This does not revoke a
+                  server key.
+                </span>
+              )}
+              <button
+                ref={keyDeleteRef}
+                aria-describedby={
+                  deletingKey ? "delete-browser-key-consequence" : undefined
+                }
+                onClick={() => {
+                  if (deletingKey) {
+                    clearKey();
+                    return;
+                  }
+                  keyDeleteSnapshot.current = getApiKey();
+                  setDeletingKey(true);
+                }}
+                className="rounded-lg bg-raised px-3 py-1.5 text-sm text-ink-2 hover:bg-line"
+              >
+                {deletingKey ? "Delete from browser" : "Delete from browser…"}
+              </button>
+              {deletingKey && (
+                <button
+                  onClick={() => {
+                    keyDeleteSnapshot.current = "";
+                    setDeletingKey(false);
+                    requestAnimationFrame(() => keyDeleteRef.current?.focus());
+                  }}
+                  className="rounded px-2 py-1.5 text-sm text-ink-3 hover:text-ink"
+                >
+                  Cancel deletion
+                </button>
+              )}
+            </span>
           )}
         </div>
         {keyStatus && (
-          <p role="status" aria-live="polite" className="mt-2 text-sm">
+          <p
+            role={keyError ? "alert" : "status"}
+            aria-live="polite"
+            className={"mt-2 text-sm" + (keyError ? " text-danger" : "")}
+          >
             {keyStatus}
           </p>
         )}
         <p className="mt-2 text-xs text-ink-3">
-          Stored only in this browser (localStorage). OIDC sign-in replaces this
-          flow at deployment.
+          This browser stores the key in local storage. Deployment sign-in opens
+          private web surfaces, but the CLI and git hooks still use a personal
+          API key.
         </p>
       </Section>
 
@@ -789,15 +1099,17 @@ export default function SettingsPage() {
 
       <Section title="5 · Calendar feed (optional)">
         <p className="mb-2 text-sm text-ink-3">
-          Subscribe your calendar app to team events + milestone/promise due
-          dates. Use a local calendar client — hosted clients (Google) mirror
-          titles outside your network.
+          The feed includes team event titles and descriptions, plus milestone
+          and promise dates. A calendar app can copy this data outside the
+          network.
         </p>
         <CopyLine text={`${API_URL}/api/calendar.ics`} />
         <p className="mt-2 text-xs text-ink-3">
           If the API is token-locked, whoever runs the server sets
           SKEIN_ICS_TOKEN and the URL becomes …/api/calendar.ics?token=&lt;that
-          token&gt;.
+          token&gt;. The tokenized URL grants feed access only to a client that
+          can reach the Skein API. Treat the full URL as a credential. Do not
+          share it.
         </p>
       </Section>
 
@@ -1063,7 +1375,7 @@ export default function SettingsPage() {
               </p>
               <div className="mt-3 border-t border-line pt-3">
                 <button
-                  disabled={!strong}
+                  disabled={!canAdminister}
                   onClick={async () => {
                     try {
                       await api("/api/users/theme/default", {
@@ -1084,9 +1396,9 @@ export default function SettingsPage() {
                 <p className="mt-1 text-xs text-ink-3">
                   A default, never an override — anyone&apos;s personal choice
                   beats it.{" "}
-                  {strong
+                  {canAdminister
                     ? "Fresh browsers and anonymous visitors start here."
-                    : "Needs your API key (step 2 above) and administrator access."}
+                    : adminAccessMessage}
                 </p>
               </div>
             </div>
@@ -1097,13 +1409,16 @@ export default function SettingsPage() {
       <Section title="Model (team)">
         <p className="mb-3 text-sm text-ink-3">
           The model every chat runs on. Whoever runs the server curates the
-          menu. An administrator picks from it here, with a personal API key
-          (step 2). The pick applies to everyone from their next message.
+          menu. An administrator with strong identity selects it here. The
+          selection applies to everyone from their next message.
           {pick && pick.provider === "mock" && (
             <> No model is connected. This setting is not in use.</>
           )}
         </p>
-        {pickLoaded && !pick && (
+        {!canAdminister && (
+          <p className="text-sm text-ink-3">{adminAccessMessage}</p>
+        )}
+        {pickLoaded && !pick && canAdminister && (
           <p className="text-sm text-ink-3">{pickLoadError}</p>
         )}
         {pick && pick.menu_error && (
@@ -1148,7 +1463,7 @@ export default function SettingsPage() {
                   type="radio"
                   name="model-pick"
                   className="mt-1"
-                  disabled={!strong}
+                  disabled={!canAdminister}
                   checked={pick.model === m.id}
                   onChange={async () => {
                     try {
@@ -1214,7 +1529,7 @@ export default function SettingsPage() {
               )}
             {pick.override && (
               <button
-                disabled={!strong}
+                disabled={!canAdminister}
                 onClick={async () => {
                   try {
                     await api("/api/settings/model", {
@@ -1244,9 +1559,7 @@ export default function SettingsPage() {
               className="min-h-4 text-xs text-ink-3"
             >
               {pickStatus ||
-                (strong
-                  ? ""
-                  : "Needs your API key (step 2 above) and administrator access.")}
+                (canAdminister ? "" : adminAccessMessage)}
             </p>
           </div>
         )}
@@ -1256,13 +1569,16 @@ export default function SettingsPage() {
         <p className="mb-3 text-sm text-ink-3">
           A model holds only so much of a chat. When a chat outgrows
           that, Skein either drops the oldest messages or summarizes them. This
-          setting applies to everyone. Only an administrator can change it, with
-          a personal API key (step 2).
+          setting applies to everyone. Only an administrator with strong
+          identity can change it.
           {ctx && !ctx.applies && (
             <> No model is connected. This setting is not in use.</>
           )}
         </p>
-        {ctxLoaded && !ctx && (
+        {!canAdminister && (
+          <p className="text-sm text-ink-3">{adminAccessMessage}</p>
+        )}
+        {ctxLoaded && !ctx && canAdminister && (
           <p className="text-sm text-ink-3">{ctxLoadError}</p>
         )}
         {ctx && (
@@ -1294,7 +1610,7 @@ export default function SettingsPage() {
                     type="radio"
                     name="context-strategy"
                     className="mt-1"
-                    disabled={!strong}
+                    disabled={!canAdminister}
                     checked={ctx.strategy === o.id}
                     onChange={async () => {
                       try {
@@ -1328,7 +1644,7 @@ export default function SettingsPage() {
               ))}
             {ctx.override && (
               <button
-                disabled={!strong}
+                disabled={!canAdminister}
                 onClick={async () => {
                   try {
                     await api("/api/settings/context-strategy", {
@@ -1358,9 +1674,7 @@ export default function SettingsPage() {
               className="min-h-4 text-xs text-ink-3"
             >
               {ctxStatus ||
-                (strong
-                  ? ""
-                  : "Needs your API key (step 2 above) and administrator access.")}
+                (canAdminister ? "" : adminAccessMessage)}
             </p>
           </div>
         )}
@@ -1368,20 +1682,20 @@ export default function SettingsPage() {
 
       <Section title="Deployment limits (team)">
         <p className="mb-3 text-sm text-ink-3">
-          These limits set what Skein allows per person, and how long it waits
-          on a model. They apply to everyone. Only an administrator can read or
-          change them, with a personal API key (step 2). If you clear a limit,
-          Skein uses the server default.
+          These limits set what Skein allows per person and how long it waits
+          for a model. They apply to everyone. Only an administrator with strong
+          identity can read or change them. If you reset a limit, Skein uses the
+          deployment default.
         </p>
         {/* role=status on an always-mounted node: the refusal arrives after
             first paint, and a live region inserted with its own text is not
             announced. The final branch is not dead — a load that returns
             nothing with no error must still say why the section is empty. */}
         <p role="status" className="text-sm text-ink-3 empty:hidden">
-          {!strong
-            ? "Needs your API key (step 2 above) and administrator access."
+          {!canAdminister
+            ? adminAccessMessage
             : tuneLoaded && !tunables
-              ? tuneLoadError || "Needs administrator access."
+              ? tuneLoadError || "The deployment limits did not load. Reload the page."
               : ""}
         </p>
         {tunables && (
@@ -1509,7 +1823,7 @@ export default function SettingsPage() {
                               }),
                             });
                             setTuneStatus(
-                              `${t.label}: back to the server default.`,
+                              `${t.label}: the deployment default is now active.`,
                             );
                             loadTunables(t.name);
                           } catch (e) {
@@ -1520,17 +1834,17 @@ export default function SettingsPage() {
                         }}
                         className="rounded-lg border border-line-strong px-3 py-1 text-xs text-ink-2 hover:border-line-strong disabled:opacity-40"
                       >
-                        Use the default
+                        Use deployment default
                       </button>
                     )}
                     {t.override !== null && !t.ignored && (
                       <span className="text-xs text-ink-3">
-                        Set here, not the server default.
+                        Set here, not the deployment default.
                       </span>
                     )}
                     {valid && !changed && t.override === null && (
                       <span className="text-xs text-ink-3">
-                        At the server default.
+                        At the deployment default.
                       </span>
                     )}
                     {!valid && (
@@ -1560,7 +1874,10 @@ export default function SettingsPage() {
         </p>
       </Section>
 
-      <BackupCard strong={strong} admin={who?.admin ?? false} />
+      <BackupCard
+        canAdminister={canAdminister}
+        accessMessage={adminAccessMessage}
+      />
 
       <CrewsCard
         strong={strong}
@@ -1570,10 +1887,9 @@ export default function SettingsPage() {
 
       <Section title="Team roster">
         <p className="mb-2 text-sm text-ink-3">
-          Everyone who has picked a name here. Deactivate a name to remove a
-          typo or a departed teammate from the roster and the counts. This also
-          revokes their API keys — history stays attributed. Requires a working
-          API key (step 2) and administrator access.
+          Everyone who has picked a name here. Deactivation blocks access and
+          revokes personal API keys. Existing history stays attributed. Roster
+          changes require strong identity and administrator access.
         </p>
         <h3 className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
           Teammates
