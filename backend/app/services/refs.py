@@ -51,11 +51,14 @@ TARGETS = {
 _REF = re.compile(r"\b(" + "|".join(TARGETS) + r")\s+#(\d+)\b", re.IGNORECASE)
 
 # A row's own title, as every producer quotes it: `task #12 'Wire the gate' …`
-# (services/portfolio.py, services/intervention.py). The title is free text a
-# person typed and it must NOT be parsed — a task called "Follow up on decision
-# #4" otherwise linked its receipt to whatever decision holds id 4, which is
-# the wrong-row link this whole module exists to avoid.
-_QUOTED = re.compile(r"'[^']*'")
+# (wording.quoted, which the generators and receipt producers call). The title
+# is free text a person typed and it must NOT be parsed — a task called
+# "Follow up on decision #4" otherwise linked its receipt to whatever decision
+# holds id 4, which is the wrong-row link this whole module exists to avoid.
+# [^'\n], not [^']: artifact bodies are multi-line, and an unbalanced
+# apostrophe on one line must not pair across lines — that swallowed the next
+# line's genuine reference and could expose a quoted title as parseable frame.
+_QUOTED = re.compile(r"'[^'\n]*'")
 
 
 def refs(text: str) -> list[dict]:

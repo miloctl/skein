@@ -1604,7 +1604,15 @@ export default function SettingsPage() {
       </Section>
 
       <Section title="Dismissed cards">
-        {checklistHidden ? (
+        {/* While whoami is unresolved the flag is unreadable — claiming
+            "nothing is dismissed" there is a false sentence during every
+            load, and a lie whenever the request failed outright. */}
+        {!checklistUser ? (
+          <p className="text-sm text-ink-3">
+            Skein resolves your identity first. Dismissed cards show after
+            that.
+          </p>
+        ) : checklistHidden ? (
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-ink-2">
               The <b>first-week checklist</b> on My Day is hidden in this

@@ -22,7 +22,7 @@ from collections.abc import Callable
 from datetime import date, timedelta
 
 from .. import db
-from . import refs, scope
+from . import refs, scope, wording
 from .slas import STALE_WIP_DAYS
 
 # What each condition is worth. These are not measurements — they are an
@@ -248,7 +248,7 @@ def interventions(
                 ),
                 "receipts": [
                     refs.receipt(
-                        f"blocker #{b['id']} '{b['title']}' escalated"
+                        f"blocker #{b['id']} {wording.quoted(b['title'])} escalated"
                         + (f", holding up {reach} task{'' if reach == 1 else 's'}" if reach else "")
                     )
                 ],

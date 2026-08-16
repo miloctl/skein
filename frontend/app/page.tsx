@@ -132,6 +132,27 @@ function savedTodaysThreeDate(raw: string): string {
 // browser user. Using onboarding.complete here would hide team context forever.
 const GUIDED_CORE_STEPS = new Set(["first_capture", "first_standup"]);
 
+// The /api/onboarding read runs AFTER the briefing (dismissal keys off its
+// resolved user), so without this cache every established-but-incomplete
+// visitor rendered the collapsed guided layout first and watched the grid
+// reflow when the second response landed — on every My Day load, forever.
+// Core steps are activity rows and cannot un-happen, so a cached verdict
+// only ever goes stale in the safe direction.
+const guidedCoreDoneKey = (user: string) => `skein-guided-core-done:${user}`;
+
+// Module scope, not inline: an inline subscribe function is a new identity
+// every render, and useSyncExternalStore then resubscribes both listeners on
+// each render of the busiest page (settings/page.tsx::subscribeStorage is the
+// same pattern for the same reason).
+function subscribeTodaysThree(cb: () => void) {
+  window.addEventListener("storage", cb);
+  window.addEventListener(TODAYS_THREE_EVENT, cb);
+  return () => {
+    window.removeEventListener("storage", cb);
+    window.removeEventListener(TODAYS_THREE_EVENT, cb);
+  };
+}
+
 /** Identity is the concept everything else hangs off — until a name is
  *  picked, the rest of My Day is noise. One question, then the real page. */
 function WhoAreYou() {
@@ -413,20 +434,14 @@ export default function MyDay() {
   const [onboardingStatus, setOnboardingStatus] = useState<
     "loading" | "ready" | "dismissed" | "failed"
   >("loading");
+  const [guidedCoreDone, setGuidedCoreDone] = useState(false);
   const [teamContextOpen, setTeamContextOpen] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
   const markedTodaysThree = useRef(false);
   const todaysThreeKey =
     b?.user && b.user !== "anonymous" ? `skein-todays-three:${b.user}` : "";
   const todaysThreeRaw = useSyncExternalStore(
-    (cb) => {
-      window.addEventListener("storage", cb);
-      window.addEventListener(TODAYS_THREE_EVENT, cb);
-      return () => {
-        window.removeEventListener("storage", cb);
-        window.removeEventListener(TODAYS_THREE_EVENT, cb);
-      };
-    },
+    subscribeTodaysThree,
     () => {
       if (!todaysThreeKey) return "";
       try {
@@ -518,6 +533,11 @@ export default function MyDay() {
         // The bearer can resolve to a different person than the local name.
         // Dismissal belongs to the server-resolved identity, like all page data.
         const onboardKey = `skein-onboarded:${r.user}`;
+        // Read the cached core-steps verdict in the same pass, so the layout
+        // below never collapses for a user this browser already saw finish.
+        setGuidedCoreDone(
+          window.localStorage.getItem(guidedCoreDoneKey(r.user)) === "1",
+        );
         if (window.localStorage.getItem(onboardKey) === "1") {
           setOnboarding(null);
           setOnboardingStatus("dismissed");
@@ -534,6 +554,12 @@ export default function MyDay() {
               return;
             }
             if (o.complete) window.localStorage.setItem(onboardKey, "1");
+            if (
+              o.steps.every((s) => !GUIDED_CORE_STEPS.has(s.id) || s.done)
+            ) {
+              window.localStorage.setItem(guidedCoreDoneKey(r.user), "1");
+              setGuidedCoreDone(true);
+            }
             setOnboarding(o);
             setOnboardingStatus("ready");
           })
@@ -722,10 +748,11 @@ export default function MyDay() {
   const needsCount =
     b.attention_total ?? yours.filter((a) => a.group !== "notice").length;
   const guidedFirstWeek =
-    onboardingStatus === "loading" ||
-    Boolean(
-      onboarding?.steps.some((s) => GUIDED_CORE_STEPS.has(s.id) && !s.done),
-    );
+    !guidedCoreDone &&
+    (onboardingStatus === "loading" ||
+      Boolean(
+        onboarding?.steps.some((s) => GUIDED_CORE_STEPS.has(s.id) && !s.done),
+      ));
   const GROUP_META: Record<
     AttentionItem["group"],
     { title: string; tone: string }
@@ -1148,9 +1175,12 @@ export default function MyDay() {
                   ) : null}
                 </span>
                 <span className="flex shrink-0 gap-1">
+                  {/* No aria-pressed: the name already flips between Add and
+                      Remove, and a state-flipping name PLUS a pressed state
+                      reads as "Remove … pressed" — announced as removed while
+                      the task was just added (ARIA APG, toggle buttons). */}
                   <button
                     type="button"
-                    aria-pressed={todaysThree.task_ids.includes(Number(t.id))}
                     aria-label={`${
                       todaysThree.task_ids.includes(Number(t.id))
                         ? "Remove"

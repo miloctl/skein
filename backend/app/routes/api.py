@@ -778,6 +778,11 @@ def get_playbooks():
 
 
 # entity -> (destination action, route resource type, id in path, per-row policy)
+# row_policy=False mirrors a destination route that applies no per-row decide
+# today (get_questions, get_decisions, get_insights read viewer-scoped lists
+# with route-level policy only). Adding a per-row decide to one of those
+# routes means flipping its flag here in the same change — left False, a
+# thread chip confirms the existence of a row the destination now denies.
 _ARTIFACT_THREAD_DESTINATIONS = {
     "task": ("skein.rest.get.tasks", "tasks", True, True),
     "milestone": ("skein.rest.get.milestones", "milestones", False, True),

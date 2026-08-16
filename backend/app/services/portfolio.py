@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import date, timedelta
 
 from .. import db
-from . import refs, scope
+from . import refs, scope, wording
 from .scope import WORKSPACE_ONLY
 from .slas import SILENCE_DAYS, STALE_WIP_DAYS, VERDICT_FLOOR_N
 from .stats import median as _median
@@ -245,14 +245,16 @@ def engagement_health(
         receipts = []
         overdue = overdue_by.get(eng["id"], [])
         for m in overdue:
-            receipts.append(f"milestone #{m['id']} '{m['title']}' overdue since {m['due_date']}")
+            receipts.append(
+                f"milestone #{m['id']} {wording.quoted(m['title'])} overdue since {m['due_date']}"
+            )
         blocked = blockers_by.get(eng["id"], [])
         escalated = [b for b in blocked if b["status"] == "escalated"]
         for b in escalated:
-            receipts.append(f"blocker #{b['id']} '{b['title']}' is escalated")
+            receipts.append(f"blocker #{b['id']} {wording.quoted(b['title'])} is escalated")
         for b in blocked:
             if b["status"] == "open":
-                receipts.append(f"blocker #{b['id']} '{b['title']}' open")
+                receipts.append(f"blocker #{b['id']} {wording.quoted(b['title'])} open")
         for t in stale_by.get(eng["id"], []):
             # The assignee is named for a surface that asks "who do I go talk
             # to" — planning the future, the permitted direction. It is
@@ -263,12 +265,14 @@ def engagement_health(
             # name_assignees=False, and the aggregate WIP line there has the
             # full reasoning).
             who = f" (@{t['assignee'] or 'unassigned'})" if name_assignees else ""
-            receipts.append(f"task #{t['id']} '{t['title']}' in progress >{STALE_WIP_DAYS}d{who}")
+            receipts.append(
+                f"task #{t['id']} {wording.quoted(t['title'])} in progress >{STALE_WIP_DAYS}d{who}"
+            )
         for t in waits_by.get(eng["id"], []):
             if (t["waiting_on_type"], t["waiting_on_id"]) in satisfied:
                 continue
             receipts.append(
-                f"task #{t['id']} '{t['title']}' waiting on"
+                f"task #{t['id']} {wording.quoted(t['title'])} waiting on"
                 f" {t['waiting_on_type']} #{t['waiting_on_id']}"
             )
         last_ts = last_by.get(eng["id"], "")

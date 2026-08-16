@@ -72,8 +72,11 @@ function idFromUrl(): number | null {
 
 function ThreadLink({ thread }: { thread: EntityRef }) {
   const label = `${thread.entity} #${thread.id}`;
-  const className =
-    "rounded-md border border-line bg-raised px-2 py-1 text-xs text-ink-2 hover:border-line-strong";
+  const chip = "rounded-md border border-line bg-raised px-2 py-1 text-xs text-ink-2";
+  // hover styling on the interactive chips only: an entity this build cannot
+  // route renders as text, and a hover affordance on it advertises a click
+  // that does nothing (components/receipt.tsx makes the same split)
+  const className = `${chip} hover:border-line-strong`;
   if (thread.entity === "task")
     return (
       <PeekLink taskId={thread.id} className={className}>
@@ -81,7 +84,7 @@ function ThreadLink({ thread }: { thread: EntityRef }) {
       </PeekLink>
     );
   const href = refHref(thread);
-  if (!href) return <span className={className}>{label}</span>;
+  if (!href) return <span className={chip}>{label}</span>;
   return (
     <Link href={href} className={className}>
       {label}

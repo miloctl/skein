@@ -142,7 +142,7 @@ def _week_close_run(today: date, week: str, actor: str) -> dict:
         (
             "Promises due or overdue",
             [
-                f"- #{c['id']} {_clean(c['promise'])}"
+                f"- #{c['id']} {wording.quoted(c['promise'])}"
                 f" ({'to ' + _clean(c['to_whom'], 40) + ', ' if c['to_whom'] else ''}"
                 f"due {c['due_date']})"
                 for c in due_promises
@@ -154,21 +154,21 @@ def _week_close_run(today: date, week: str, actor: str) -> dict:
                 # local_day: updated_at is UTC, and this line goes into a
                 # ritual artifact that leaves the team (services/readout.py
                 # makes the same conversion for the same reason)
-                f"- #{e['id']} {_clean(e['name'])} (since {db.local_day(e['updated_at'])})"
+                f"- #{e['id']} {wording.quoted(e['name'])} (since {db.local_day(e['updated_at'])})"
                 for e in stuck_closing
             ],
         ),
         (
             "Proposals pending 3+ days",
             [
-                f"- #{p['id']} {_clean(p['summary'])} (by {_clean(p['proposed_by'], 40)})"
+                f"- #{p['id']} {wording.quoted(p['summary'])} (by {_clean(p['proposed_by'], 40)})"
                 for p in stale_proposals
             ],
         ),
         (
             "Questions still open",
             [
-                f"- #{q['id']} {_clean(q['question'])}"
+                f"- #{q['id']} {wording.quoted(q['question'])}"
                 f" (→ {_clean(q['assigned_to'], 40) or 'unassigned'})"
                 for q in open_questions
             ],
@@ -267,17 +267,18 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
         briefed += 1
         lines.append(f"## {name} — {wording.count(n, 'obligation')}")
         lines += [
-            f"- promise #{c['id']}: {_clean(c['promise'], 70)}"
+            f"- promise #{c['id']}: {wording.quoted(c['promise'], 70)}"
             + (f" (due {c['due_date']})" if c["due_date"] else "")
             for c in promises
         ]
         lines += [
-            f"- stale decision #{d['id']}: {_clean(d['title'], 70)} — reconfirm or supersede"
+            f"- stale decision #{d['id']}: {wording.quoted(d['title'], 70)} — reconfirm or supersede"
             for d in decisions
         ]
-        lines += [f"- question #{q['id']}: {_clean(q['question'], 70)}" for q in questions]
+        lines += [f"- question #{q['id']}: {wording.quoted(q['question'], 70)}" for q in questions]
         lines += [
-            f"- task #{t['id']}: {_clean(t['title'], 70)} (due {t['due_date']})" for t in tasks
+            f"- task #{t['id']}: {wording.quoted(t['title'], 70)} (due {t['due_date']})"
+            for t in tasks
         ]
         lines.append("")
         parts = []
@@ -315,7 +316,7 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
             f" need{'s' if len(agent_recorded) == 1 else ''} an owner"
         )
         lines += [
-            f"- promise #{c['id']}: {_clean(c['promise'], 70)}"
+            f"- promise #{c['id']}: {wording.quoted(c['promise'], 70)}"
             + (f" (due {c['due_date']})" if c["due_date"] else "")
             for c in agent_recorded
         ]
