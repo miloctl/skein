@@ -158,6 +158,10 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
         "SELECT 1 FROM memories WHERE created_by = ? AND engagement_id IS NOT NULL", (u,)
     ),
     "chat_attachment": lambda u: _act(u, "upload_file"),
+    # mark-only: the document write is signed by the AGENT, so the ledger
+    # carries no per-person row. routes/api.py::get_artifact marks it when
+    # a person opens a document on Reports.
+    "agent_document": None,
     "review": lambda u: _has(
         "SELECT 1 FROM pending_changes WHERE reviewed_by = ?"
         " AND status IN ('approved', 'rejected')",

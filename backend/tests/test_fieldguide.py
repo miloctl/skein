@@ -27,7 +27,7 @@ def test_registry_is_valid_and_complete(fresh_db):
     from app.services import fieldguide
 
     cards = fieldguide.registry()
-    assert len(cards) == 47
+    assert len(cards) == 48
     ids = {k["id"] for k in cards}
     assert ids == set(fieldguide.PREDICATES)
     for k in cards:
@@ -109,7 +109,7 @@ def test_hint_and_guide_use_the_same_tieable_total(fresh_db):
     from app.services import fieldguide
 
     _mint(fresh_db, "ava")
-    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 46
+    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 47
 
 
 def test_first_detection_seeds_silently(fresh_db):
@@ -269,6 +269,29 @@ def test_reports_page_ties_the_read_only_history_knot(client, fresh_db):
     client.get("/api/artifacts/page")
     card = next(row for row in fieldguide.guide("tester")["cards"] if row["id"] == "reports")
     assert card["tied"] is True
+
+
+def test_reading_a_document_ties_the_agent_document_knot(client, fresh_db):
+    """The write is signed by the AGENT, so no ledger predicate can find the
+    person who asked — the honest per-person moment is the read."""
+    from app.services import documents, fieldguide
+
+    _mint(fresh_db, "tester")
+    doc = documents.create_document("Plan", "# Plan\n", actor="agent")["artifact_id"]
+    client.get(f"/api/artifacts/{doc}")
+    card = next(r for r in fieldguide.guide("tester")["cards"] if r["id"] == "agent_document")
+    assert card["tied"] is True
+
+
+def test_reading_a_report_that_is_not_a_document_does_not_tie_it(client, fresh_db):
+    from app.services import fieldguide
+
+    _mint(fresh_db, "tester")
+    client.post("/api/portfolio/readout")
+    readout = next(a for a in client.get("/api/artifacts").json() if a["kind"] == "readout")
+    client.get(f"/api/artifacts/{readout['id']}")
+    card = next(r for r in fieldguide.guide("tester")["cards"] if r["id"] == "agent_document")
+    assert card["tied"] is False
 
 
 def test_todays_three_route_ties_only_its_fixed_knot(client, fresh_db):
