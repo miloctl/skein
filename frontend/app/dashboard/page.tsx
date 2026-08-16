@@ -1105,24 +1105,54 @@ export default function Dashboard() {
                     </span>
                   </span>
                   {deletingAbsence === a.id ? (
-                    <span className="flex shrink-0 gap-3 md:gap-1.5">
-                      <button
-                        autoFocus
-                        aria-label={`Delete ${a.person}'s ${a.kind} ${a.starts_on} for good`}
-                        onClick={() => deleteAbsence(Number(a.id))}
-                        className="rounded bg-danger-solid px-2 py-1.5 md:py-0.5 text-xs font-medium text-white hover:opacity-90"
-                      >
-                        delete for good
-                      </button>
-                      <button
-                        onClick={() => setDeletingAbsence(null)}
-                        className="rounded px-2 py-0.5 text-xs text-ink-3 hover:text-ink"
-                      >
-                        keep
-                      </button>
+                    <span
+                      onKeyDown={(e) => {
+                        if (e.key !== "Escape") return;
+                        setDeletingAbsence(null);
+                        setTimeout(
+                          () =>
+                            document
+                              .getElementById(`delete-absence-${a.id}`)
+                              ?.focus(),
+                          0,
+                        );
+                      }}
+                      className="flex max-w-sm shrink-0 flex-col items-end gap-1 text-right text-xs"
+                    >
+                      <span id={`delete-absence-${a.id}-consequence`}>
+                        Delete this time-away entry? Current capacity and weekly
+                        planning will no longer use it. An activity record of the
+                        deletion will stay. Backups can retain the full entry.
+                      </span>
+                      <span className="flex gap-3 md:gap-1.5">
+                        <button
+                          autoFocus
+                          aria-describedby={`delete-absence-${a.id}-consequence`}
+                          onClick={() => deleteAbsence(Number(a.id))}
+                          className="rounded bg-danger-solid px-2 py-1.5 font-medium text-white hover:opacity-90 md:py-0.5"
+                        >
+                          Delete time away
+                        </button>
+                        <button
+                          onClick={() => {
+                            setDeletingAbsence(null);
+                            setTimeout(
+                              () =>
+                                document
+                                  .getElementById(`delete-absence-${a.id}`)
+                                  ?.focus(),
+                              0,
+                            );
+                          }}
+                          className="rounded px-2 py-0.5 text-ink-3 hover:text-ink"
+                        >
+                          Cancel deletion
+                        </button>
+                      </span>
                     </span>
                   ) : (
                     <button
+                      id={`delete-absence-${a.id}`}
                       aria-label={`Delete ${a.person}'s ${a.kind} ${a.starts_on}`}
                       onClick={() => setDeletingAbsence(Number(a.id))}
                       className="shrink-0 rounded bg-raised px-2 py-0.5 text-xs text-danger hover:bg-line"
@@ -1488,24 +1518,54 @@ export default function Dashboard() {
                       edit…
                     </button>
                     {deletingNote === n.id ? (
-                      <>
-                        <button
-                          autoFocus
-                          aria-label={`Delete note ${n.topic} for good`}
-                          onClick={() => deleteNote(Number(n.id))}
-                          className="rounded bg-danger-solid px-2 py-1.5 md:py-0.5 text-xs font-medium text-white hover:opacity-90"
-                        >
-                          delete for good
-                        </button>
-                        <button
-                          onClick={() => setDeletingNote(null)}
-                          className="rounded px-2 py-0.5 text-xs text-ink-3 hover:text-ink"
-                        >
-                          keep
-                        </button>
-                      </>
+                      <span
+                        onKeyDown={(e) => {
+                          if (e.key !== "Escape") return;
+                          setDeletingNote(null);
+                          setTimeout(
+                            () =>
+                              document
+                                .getElementById(`delete-note-${n.id}`)
+                                ?.focus(),
+                            0,
+                          );
+                        }}
+                        className="flex max-w-sm flex-col items-end gap-1 text-right text-xs"
+                      >
+                        <span id={`delete-note-${n.id}-consequence`}>
+                          Delete this note? It will leave the knowledge base and
+                          search. The activity record can retain up to 300
+                          characters, and backups can retain the note.
+                        </span>
+                        <span className="flex gap-3 md:gap-1.5">
+                          <button
+                            autoFocus
+                            aria-describedby={`delete-note-${n.id}-consequence`}
+                            onClick={() => deleteNote(Number(n.id))}
+                            className="rounded bg-danger-solid px-2 py-1.5 font-medium text-white hover:opacity-90 md:py-0.5"
+                          >
+                            Delete note
+                          </button>
+                          <button
+                            onClick={() => {
+                              setDeletingNote(null);
+                              setTimeout(
+                                () =>
+                                  document
+                                    .getElementById(`delete-note-${n.id}`)
+                                    ?.focus(),
+                                0,
+                              );
+                            }}
+                            className="rounded px-2 py-0.5 text-ink-3 hover:text-ink"
+                          >
+                            Cancel deletion
+                          </button>
+                        </span>
+                      </span>
                     ) : (
                       <button
+                        id={`delete-note-${n.id}`}
                         aria-label={`Delete note: ${n.topic}`}
                         onClick={() => setDeletingNote(Number(n.id))}
                         className="rounded bg-raised px-2 py-0.5 text-xs text-danger hover:bg-line"

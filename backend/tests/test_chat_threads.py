@@ -159,7 +159,12 @@ def test_mid_stream_error_reaches_sse_and_transcript(client, monkeypatch):
     msgs = client.get("/api/chats/t-err/messages").json()
     assert msgs[-1]["role"] == "assistant"
     assert "partial" in msgs[-1]["content"]
-    assert "⚠️" in msgs[-1]["content"]  # the failure is on the record, not vanished
+    assert (
+        "The agent turn failed (RuntimeError). Ask whoever runs the server to check the"
+        " server log. Then try again." in msgs[-1]["content"]
+    )
+    assert "model fell over" not in msgs[-1]["content"]
+    assert "⚠" not in msgs[-1]["content"]
 
 
 def test_agent_construction_failure_streams_an_error(client, monkeypatch):
@@ -170,6 +175,12 @@ def test_agent_construction_failure_streams_an_error(client, monkeypatch):
     body = client.post("/api/chat", json={"thread_id": "t-err2", "message": "hi"}).text
     assert '"type": "error"' in body
     assert '"type": "done"' in body
+    assert "The agent turn failed (RuntimeError)." in body
+    assert "provider exploded" not in body
+    messages = client.get("/api/chats/t-err2/messages").json()
+    assert "The agent turn failed (RuntimeError)." in messages[-1]["content"]
+    assert "provider exploded" not in messages[-1]["content"]
+    assert "⚠" not in messages[-1]["content"]
 
 
 def test_a_provider_error_reaches_the_ui_as_a_class_name_not_a_body(client, monkeypatch):

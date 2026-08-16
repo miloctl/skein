@@ -36,6 +36,7 @@ from app.extensions.registry import ExtensionRegistry
 from app.extensions.tools import ToolCallContext, execute_tool
 from app.main import create_app
 from app.public import CreateTaskCommand, PublicError
+from app.services import wording
 from app.tools._gate import gated_write
 
 
@@ -927,7 +928,7 @@ def test_workplace_policy_also_narrows_the_existing_agent_gate(fresh_db):
         )
     finally:
         reset_policy_engine(token)
-    assert "forbidden" in result["error"]
+    assert result == {"error": wording.write_policy_denied()}
 
 
 def test_agent_policy_does_not_inspect_an_unreadable_private_entity(fresh_db):
@@ -1115,7 +1116,8 @@ def test_workplace_policy_governs_existing_rest_mutations(fresh_db):
     assert read_denied.json()["code"] == "POLICY_DENIED"
     assert review.json() == {
         "detail": (
-            "This direct route cannot resume a reviewed action. Use a governed tool or workflow."
+            "Workplace policy requires review. This surface cannot resume the action."
+            " Use a governed tool or workflow."
         ),
         "code": "POLICY_REVIEW_UNSUPPORTED",
         "retryable": False,
@@ -1391,7 +1393,7 @@ def test_blocker_policy_uses_the_linked_task_project_for_rest_and_agent(fresh_db
         )
     finally:
         reset_policy_engine(token)
-    assert "forbidden" in result["error"]
+    assert result == {"error": wording.write_policy_denied()}
 
     existing = blockers.raise_blocker(
         "existing regulated blocker",
@@ -1427,7 +1429,7 @@ def test_blocker_policy_uses_the_linked_task_project_for_rest_and_agent(fresh_db
         )
     finally:
         reset_policy_engine(token)
-    assert "forbidden" in agent_edit["error"]
+    assert agent_edit == {"error": wording.write_policy_denied()}
 
 
 def test_stock_task_list_filters_each_row_through_workplace_policy(fresh_db):
@@ -3190,7 +3192,7 @@ def test_stock_agent_playbook_tool_uses_authoritative_project_class(fresh_db):
         )
     finally:
         reset_policy_engine(token)
-    assert "forbidden" in result["error"]
+    assert result == {"error": wording.write_policy_denied()}
     assert (
         fresh_db.query_one("SELECT id FROM engagements WHERE name = 'Agent must not create this'")
         is None
@@ -4457,7 +4459,12 @@ def test_keyless_capture_obeys_the_domain_policy(fresh_db):
             json={"thread_id": "keyless-policy", "message": "task: forbidden capture"},
         )
     assert response.status_code == 200
-    assert "forbidden" in response.text
+    assert (
+        "Policy denied this write. Use an allowed action or ask an administrator to change"
+        " the policy." in response.text
+    )
+    assert "forbidden capture" not in response.text
+    assert "⚠" not in response.text
     assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'forbidden capture'") is None
 
 
@@ -5526,6 +5533,12 @@ def test_capture_and_week_plan_apply_domain_policy_inside_the_write_transaction(
         )
 
     assert capture_response.status_code == week_response.status_code == 403
+    for response in (capture_response, week_response):
+        assert response.json()["code"] == "POLICY_DENIED"
+        assert response.json()["detail"] == (
+            "Workplace policy denied this action. Use an allowed action or ask an"
+            " administrator to change the policy."
+        )
     assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'denied task'") is None
     assert fresh_db.query_one("SELECT committed_week FROM tasks WHERE id = ?", (task,)) == {
         "committed_week": None

@@ -692,6 +692,10 @@ async def permission_error_handler(request: Request, exc: PermissionError):
     return JSONResponse(status_code=403, content={"detail": str(exc)})
 
 
+async def conflict_error_handler(request: Request, exc: db.Conflict):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
 async def value_error_handler(request: Request, exc: ValueError):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
@@ -926,6 +930,7 @@ def create_app(
     )
 
     application.add_exception_handler(db.NotFound, cast(Any, not_found_handler))
+    application.add_exception_handler(db.Conflict, cast(Any, conflict_error_handler))
     application.add_exception_handler(PermissionError, cast(Any, permission_error_handler))
     application.add_exception_handler(ValueError, cast(Any, value_error_handler))
     application.add_exception_handler(PublicError, cast(Any, public_error_handler))

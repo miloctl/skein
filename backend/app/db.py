@@ -89,6 +89,14 @@ class NotFound(ValueError):
     the whole surface instead of per-route guesswork."""
 
 
+class Conflict(ValueError):
+    """The caller confirmed state that changed before the write acquired its lock.
+
+    The same request is unsafe to retry until the caller reloads the current
+    state, so the API maps this class to 409 instead of the ordinary 400.
+    """
+
+
 class TerminalReject(ValueError):
     """A service refusal that re-approval can never satisfy — a permanent
     policy block, not a transient failure. Subclasses ValueError so the direct

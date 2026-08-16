@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { actionError, api, getApiKey, loadError } from "@/lib/api";
+import { actionError, api, loadError, subscribeUser } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import { SectionTabs } from "@/components/section-tabs";
 import { Card, EmptyState } from "@/components/card";
@@ -39,22 +39,36 @@ export default function PeoplePage() {
   const [draft, setDraft] = useState("");
   const [kind, setKind] = useState<"note" | "feedback">("note");
   const [error, setError] = useState<string | null>(null);
-  const needsKey = useSyncExternalStore(
-    (cb) => {
-      window.addEventListener("storage", cb);
-      return () => window.removeEventListener("storage", cb);
-    },
-    () => !getApiKey(),
-    () => false,
-  );
-
-  useEffect(() => {
-    api<User[]>("/api/users").then(setPeople).catch(() => {});
-  }, []);
-
+  const [strong, setStrong] = useState<boolean | null>(null);
   // last-request-wins: clicking Alice then Bob quickly must never render
   // Alice's private notes under Bob's chip
   const generation = useRef(0);
+  const identityGeneration = useRef(0);
+
+  useEffect(() => {
+    const refreshIdentity = () => {
+      const current = ++identityGeneration.current;
+      ++generation.current;
+      setStrong(null);
+      setPerson("");
+      setNotes([]);
+      setBrief(null);
+      setBriefError("");
+      setError(null);
+      api<{ strong: boolean }>("/api/whoami")
+        .then((identity) => {
+          // A response started before a key or sign-in change belongs to the
+          // previous owner and must not restore that owner's private state.
+          if (current === identityGeneration.current) setStrong(identity.strong);
+        })
+        .catch(() => {
+          if (current === identityGeneration.current) setStrong(null);
+        });
+    };
+    refreshIdentity();
+    api<User[]>("/api/users").then(setPeople).catch(() => {});
+    return subscribeUser(refreshIdentity);
+  }, []);
   const load = useCallback((p: string) => {
     if (!p) return;
     const g = ++generation.current;
@@ -114,15 +128,15 @@ export default function PeoplePage() {
         every agent surface.
       </p>
 
-      {needsKey && (
+      {strong === false && (
         <div className="mb-4 rounded-xl border border-weld/40 bg-weld/10 p-4 text-sm text-weld">
           <p>
-            Private notes need your personal API key — so nobody can read or
-            write them with only your name.{" "}
+            Private notes require strong identity. If deployment sign-in is
+            available, use it. Otherwise, use a personal API key. Open{" "}
             <a href="/settings" className="font-medium underline">
               Settings
             </a>{" "}
-            walks you through getting one.
+            to request or save a key.
           </p>
           <button
             onClick={async () => {

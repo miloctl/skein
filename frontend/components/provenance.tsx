@@ -139,8 +139,8 @@ export function Provenance({
               count it (services/delegation.py::trust_blocked). */}
           {d.verdict_is_weak && d.proposal?.reviewed_by ? (
             <p className="text-weld">
-              Nobody used a personal API key for that verdict. This deployment
-              identifies people by a self-asserted name.
+              This verdict did not use strong identity. The reviewer used a
+              self-asserted name.
             </p>
           ) : null}
           {d.history.length > 0 ? (

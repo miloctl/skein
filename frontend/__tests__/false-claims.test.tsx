@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  *  runtime swallowed a failed history load into an empty conversation. */
 
 afterEach(() => {
+  window.localStorage.clear();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -41,6 +42,7 @@ import SettingsPage from "@/app/settings/page";
 
 describe("Settings when /api/whoami fails", () => {
   it("shows the failure's own diagnosis, not a guess about the key", async () => {
+    window.localStorage.setItem("skein-key", "sk-skein-stored");
     render(<SettingsPage />);
     expect(
       (await screen.findAllByText(/key revoked by an administrator/)).length,
