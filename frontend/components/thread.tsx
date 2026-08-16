@@ -19,6 +19,7 @@ import {
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { MermaidDiagram } from "@/components/mermaid-diagram";
 import { api } from "@/lib/api";
 import { argQuery, mentionQuery, type ArgItem } from "@/lib/slash";
 import { reportStatus } from "@/lib/status";
@@ -61,6 +62,16 @@ const SafeLink = ({ href, children }: ComponentPropsWithoutRef<"a">) => (
 // of a streaming message
 const MARKDOWN_COMPONENTS = { img: InertImage, a: SafeLink };
 
+/** A ```mermaid fence renders as a diagram. Streaming means this component
+ *  sees every half-written prefix of the fence, and mermaid rejects most of
+ *  them — MermaidDiagram falls back to showing the source, so the block reads
+ *  as code until the last token lands and it becomes a picture. */
+const MERMAID_BY_LANGUAGE = {
+  mermaid: {
+    SyntaxHighlighter: ({ code }: { code: string }) => <MermaidDiagram code={code} />,
+  },
+};
+
 // exported for __tests__/chat-markdown-inert.test.tsx, which renders it with
 // the primitive shimmed: the props ARE the containment
 export const MarkdownText = () => (
@@ -68,6 +79,7 @@ export const MarkdownText = () => (
     remarkPlugins={[remarkGfm]}
     className="prose-chat break-words"
     components={MARKDOWN_COMPONENTS}
+    componentsByLanguage={MERMAID_BY_LANGUAGE}
   />
 );
 

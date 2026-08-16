@@ -1,13 +1,14 @@
 /** Renders the markdown OUR OWN generators write — the daily digest, the week
- *  rituals, the exec readout, handoff packages, context packs.
+ *  rituals, the exec readout, handoff packages, context packs — and the
+ *  documents an agent writes (services/documents.py).
  *
  *  Deliberately not a markdown library. The chat's `MarkdownTextPrimitive`
  *  reads its text from assistant-ui's message-part context and takes no text
  *  prop, so it cannot render a string; pulling in a parser instead would add a
  *  dependency to render a handful of constructs. Those are the whole grammar
  *  the generators emit — `#`/`##`/`###` headings, `- ` bullets nested one
- *  level, blank-line paragraphs, `> quotes`, and inline `**bold**`, `*italic*`
- *  and `code` — checked against
+ *  level, blank-line paragraphs, `> quotes`, ``` fences, and inline
+ *  `**bold**`, `*italic*` and `code` — checked against
  *  services/{digest,readout,rituals,handoff,context_pack}.py. Anything else in
  *  the file renders as its own literal text rather than vanishing, so a
  *  generator that grows a table shows a reader raw pipes instead of nothing.
@@ -15,7 +16,12 @@
  *  It builds React elements and never touches dangerouslySetInnerHTML: an
  *  artifact body is assembled from rows people wrote (task titles, decision
  *  text, promise wording), so treating it as HTML would make every generator
- *  an injection sink. Same reason nav-search parses FTS5's <b> into runs. */
+ *  an injection sink. Same reason nav-search parses FTS5's <b> into runs. A
+ *  ```mermaid fence is the ONE exception, and it is quarantined in
+ *  components/mermaid-diagram.tsx — read the comment there before touching
+ *  it. Every other fence renders as literal text in a <pre>. */
+
+import { MermaidDiagram } from "@/components/mermaid-diagram";
 
 /** Splits on `**bold**`, `` `code` `` and `*italic*` in one pass. A capturing
  *  split alternates plain, marked, plain… so the run's KIND is its index
@@ -60,6 +66,7 @@ type Block =
   | { kind: "h"; level: 1 | 2 | 3; text: string }
   | { kind: "ul"; items: Item[] }
   | { kind: "quote"; text: string }
+  | { kind: "code"; language: string; text: string }
   | { kind: "p"; text: string };
 
 function parse(markdown: string): Block[] {
@@ -74,7 +81,32 @@ function parse(markdown: string): Block[] {
     para = [];
   };
 
-  for (const line of lines) {
+  // A fence is consumed whole, before any other rule looks at its lines: a
+  // diagram's own `--> ` and `#` would otherwise parse as bullets and
+  // headings, and an agent-written document (services/documents.py) is the
+  // first artifact body that carries one. An unclosed fence runs to the end
+  // of the document rather than swallowing the rest as paragraphs.
+  let cursor = 0;
+  const fence = /^```(\w*)\s*$/;
+
+  for (; cursor < lines.length; cursor++) {
+    const line = lines[cursor];
+    const opened = fence.exec(line);
+    if (opened) {
+      flushPara();
+      const body: string[] = [];
+      cursor++;
+      while (cursor < lines.length && !fence.test(lines[cursor])) {
+        body.push(lines[cursor]);
+        cursor++;
+      }
+      blocks.push({
+        kind: "code",
+        language: opened[1].toLowerCase(),
+        text: body.join("\n"),
+      });
+      continue;
+    }
     const heading = /^(#{1,3})\s+(.*)$/.exec(line);
     // the indent is captured, not skipped: readout.py indents an engagement's
     // receipts two spaces under their engagement, and flattening those made
@@ -157,6 +189,17 @@ export function ArtifactMarkdown({ markdown }: { markdown: string }) {
                 </li>
               ))}
             </ul>
+          );
+        if (b.kind === "code")
+          return b.language === "mermaid" ? (
+            <MermaidDiagram key={i} code={b.text} />
+          ) : (
+            <pre
+              key={i}
+              className="my-2 overflow-x-auto rounded-lg bg-raised p-3 text-xs"
+            >
+              <code>{b.text}</code>
+            </pre>
           );
         if (b.kind === "quote")
           return (
