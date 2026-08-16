@@ -14,6 +14,13 @@ from app import config
 from app.agents import session_store
 from app.routes.chat import _attachment_prompt, _with_attachments
 
+# a real 1x1 PNG, so the upload's own image verification passes and the test
+# is about the MODEL capability rather than about the bytes
+_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de"
+    "0000000c49444154789c63f8cfc0000003010100c9fe92ef0000000049454e44ae426082"
+)
+
 
 def _upload(client, name: str, data: bytes) -> int:
     r = client.post("/api/files", files={"file": (name, io.BytesIO(data), "text/plain")})
@@ -60,6 +67,53 @@ def test_a_provider_that_cannot_read_the_type_says_so(client, monkeypatch):
     aid = _upload(client, "report.pdf", b"%PDF-1.4 fake")
     blocks, _ = _attachment_prompt("read it", [aid], "tester")
     assert "cannot read this file type" in blocks[0]["text"]
+
+
+def test_an_image_is_not_sent_to_a_model_that_was_never_declared_to_take_one(client, monkeypatch):
+    """The bug this split exists for. ollama's formatter HAS an image branch,
+    so the provider claimed images and a text model answered `this model does
+    not support image input` (400) — killing the turn instead of degrading."""
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_ID", "glm-5.2:cloud")
+    monkeypatch.setattr(config, "MODELS", {})
+    aid = _upload(client, "avatar.png", _PNG)
+    blocks, _ = _attachment_prompt("what is this?", [aid], "tester")
+    assert "cannot read this file type" in blocks[0]["text"]
+    assert not any("image" in b for b in blocks)
+
+
+def test_a_model_entry_turns_images_on_for_a_vision_model(client, monkeypatch):
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_ID", "llava:13b")
+    monkeypatch.setattr(config, "MODELS", {"llava:13b": {"attachments": ("image",)}})
+    aid = _upload(client, "avatar.png", _PNG)
+    blocks, _ = _attachment_prompt("what is this?", [aid], "tester")
+    assert blocks[0]["image"]["format"] == "png"
+
+
+def test_a_model_entry_can_refuse_what_its_provider_allows(client, monkeypatch):
+    """A declared empty list is a decision, not an absent one — how an
+    operator turns attachments off for one old model on a capable provider."""
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "anthropic")
+    monkeypatch.setattr(config, "MODEL_ID", "claude-old")
+    monkeypatch.setattr(config, "MODELS", {"claude-old": {"attachments": ()}})
+    aid = _upload(client, "report.pdf", b"%PDF-1.4 fake")
+    blocks, _ = _attachment_prompt("read it", [aid], "tester")
+    assert "cannot read this file type" in blocks[0]["text"]
+
+
+def test_the_model_in_force_is_what_the_turn_is_judged_against(monkeypatch):
+    """One ladder, exported from team_agent so chat.py cannot drift from what
+    the agent build actually runs."""
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "MODEL_ID", "env-model")
+    monkeypatch.setattr(team_agent, "_picked_model", lambda: "")
+    assert team_agent.model_in_force() == "env-model"
+    assert team_agent.model_in_force("persona-model") == "persona-model"
+    monkeypatch.setattr(team_agent, "_picked_model", lambda: "picked-model")
+    assert team_agent.model_in_force() == "picked-model"
+    assert team_agent.model_in_force("persona-model") == "persona-model"
 
 
 def test_another_persons_attachment_cannot_be_named_into_a_turn(client):

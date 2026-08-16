@@ -38,6 +38,12 @@
         "minimum": 1024,
         "description": "Context capacity in tokens. Sets the SDK's context_window_limit for this model. Leave unset for models the SDK already knows - it resolves their capacity from its own table."
       },
+      "attachments": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": { "enum": ["image", "document"] },
+        "description": "What a chat attachment may become for THIS model. Set it when the provider cannot know: ollama and openai_compatible serve whatever model the operator chose, so they claim nothing and a vision model needs [\"image\"] here. An empty array turns attachments off for one model on a provider that otherwise allows them. Omit to use the provider default. Claiming a kind the model does not accept is not a weaker answer - the provider answers 400 and the whole turn fails."
+      },
       "price": {
         "type": "object",
         "required": ["input", "output"],
