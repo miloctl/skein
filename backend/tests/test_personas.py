@@ -36,7 +36,7 @@ def test_using_the_bosun_ties_its_field_guide_card(client, fresh_db):
 
 def test_mock_bosun_cannot_smart_capture_records(client, fresh_db):
     out = _read_chat(client, "/as bosun todo: write despite the read-only persona")
-    assert "does not run freeform work in deterministic mode" in out
+    assert "answers only with a model provider" in out
     assert client.get("/api/tasks").json() == []
     assert fresh_db.query("SELECT * FROM pending_changes") == []
 
