@@ -3,9 +3,10 @@ alongside agent tools — both go through app.services)."""
 
 import asyncio
 from typing import Annotated, Any, Literal
+from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, File, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
 from .. import config, db, ratelimit
@@ -60,6 +61,7 @@ from ..services import (
     settings,
     stakeholders,
     tuning,
+    uploads,
     usage,
     users,
     weekly,
@@ -955,6 +957,54 @@ def get_artifact(
                 review_route_permitted and review_policy.allows_unclassified()
             ),
         )
+
+
+def _bounded_read(stream) -> bytes:
+    """The request body, refused past the cap instead of trusted to fit.
+
+    Content-Length is a claim by the caller. Reading the stream to the cap and
+    one byte further is what makes an oversized body cost the cap rather than
+    the whole upload, and Starlette has already spooled a large part to disk
+    by the time a route sees it.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := stream.read(64 * 1024):
+        total += len(chunk)
+        if total > uploads.MAX_UPLOAD_BYTES:
+            raise ValueError(
+                f"the file is larger than {uploads.MAX_UPLOAD_BYTES // (1024 * 1024)} MB."
+                " Attach a smaller file."
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+@router.post("/files")
+def upload_file(user: CurrentUser, file: Annotated[UploadFile, File()]):
+    """Attach one file. Owned by the uploader, private tier, never a report."""
+    ratelimit.check("upload", user)
+    return uploads.save_upload(file.filename or "file", _bounded_read(file.file), owner=user)
+
+
+@router.get("/files/{artifact_id}/download")
+def download_file(artifact_id: int, user: CurrentUser):
+    row = uploads.owned_upload(artifact_id, user)
+    data = uploads.upload_bytes(row)
+    # attachment + nosniff on EVERY upload, whatever its type: the bytes came
+    # from a person, and an uploaded .html served inline would run as script on
+    # this origin, holding the reader's session. RFC 5987 encoding because the
+    # title is a person's filename — a quote or a comma in it would otherwise
+    # end the header value early.
+    disposition = f"attachment; filename*=UTF-8''{quote(row['title'], safe='')}"
+    return Response(
+        content=data,
+        media_type=row["mime"],
+        headers={
+            "Content-Disposition": disposition,
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get("/users")

@@ -157,6 +157,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     "project_memory": lambda u: _has(
         "SELECT 1 FROM memories WHERE created_by = ? AND engagement_id IS NOT NULL", (u,)
     ),
+    "chat_attachment": lambda u: _act(u, "upload_file"),
     "review": lambda u: _has(
         "SELECT 1 FROM pending_changes WHERE reviewed_by = ?"
         " AND status IN ('approved', 'rejected')",

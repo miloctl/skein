@@ -689,6 +689,11 @@ VERBS: dict[str, tuple[str, str]] = {
     "playbook_closeout": ("closed a playbook engagement and drafted its lesson", "normal"),
     "plan_snapshot": ("recorded the plan an engagement started with", "quiet"),
     "generate_handoff": ("generated a handoff package", "normal"),
+    # quiet: attaching a file to your own chat turn is not the team's news,
+    # and the detail carries no title — the row names the artifact id and its
+    # size, never the filename, which is caller-controlled text going into a
+    # hash-chained ledger that cannot be edited afterwards
+    "upload_file": ("attached a file", "quiet"),
     "exec_readout": ("published an exec readout", "normal"),
     "schedule_event": ("scheduled an event", "normal"),
     "record_outcome": ("recorded what came out of a meeting", "quiet"),
