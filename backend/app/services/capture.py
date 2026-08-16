@@ -5,7 +5,7 @@ same interface."""
 import re
 from typing import Any
 
-from . import blockers, collab, promises, scope, work
+from . import blockers, collab, promises, scope, wording, work
 
 # explicit prefixes first, content heuristics second — a typed prefix always
 # wins ("req: blocked on X" is a request, not a blocker)
@@ -223,11 +223,7 @@ def capture(
         if origin != "human":
             raise ValueError("feedback notes are human-only — agents cannot write them")
         if not strong_auth:
-            raise ValueError(
-                "feedback notes require a personal API key. Get your first one from"
-                " whoever runs the server (python -m app.bootstrap_key <you>)."
-                " Then paste it in Settings, step 2."
-            )
+            raise ValueError(wording.strong_identity_required("Private feedback"))
         person, body = private_notes.parse_feedback(text)  # raises on bad format
         result = private_notes.add_note(actor, person, body, kind="feedback")
         return {"kind": "feedback", **result}

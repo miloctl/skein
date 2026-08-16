@@ -423,13 +423,7 @@ def _stash(
 
 def _require_strong(strong: bool) -> None:
     if not strong:
-        raise HTTPException(
-            status_code=403,
-            detail="this surface requires a personal API key. Get your first"
-            " one from whoever runs the server (python -m app.bootstrap_key"
-            " <you>). Then paste it in Settings, step 2, or send"
-            " Authorization: Bearer sk-skein-...",
-        )
+        raise HTTPException(status_code=403, detail=wording.strong_identity_required())
 
 
 def strong_user(

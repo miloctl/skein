@@ -25,18 +25,25 @@ import { ChatSidebar } from "@/components/chat-sidebar";
 
 // folder is "" for an unfiled chat, never null: the ungrouped section
 // renders threads.filter(t => t.folder === "") and a null drops the row
-const row = (id: string, title: string) => ({
+const row = (id: string, title: string, folder = "") => ({
   id,
   title,
-  folder: "",
+  folder,
   engagement_id: null,
   updated_at: "2026-08-01T00:00:00+00:00",
 });
 
+let threadRows = [row("a", "Alpha"), row("b", "Bravo")];
+let folderRows: string[] = [];
+
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.threads.mockResolvedValue([row("a", "Alpha"), row("b", "Bravo")]);
-  mocks.api.mockResolvedValue([]);
+  threadRows = [row("a", "Alpha"), row("b", "Bravo")];
+  folderRows = [];
+  mocks.threads.mockImplementation(() => Promise.resolve(threadRows));
+  mocks.api.mockImplementation((path: string) =>
+    Promise.resolve(path === "/api/chats/folders" ? folderRows : []),
+  );
 });
 
 async function enterSelectMode(props: Partial<{ threadId: string; onNew: () => void }> = {}) {
@@ -54,8 +61,66 @@ async function enterSelectMode(props: Partial<{ threadId: string; onNew: () => v
 
 async function confirmBulkDelete() {
   fireEvent.click(screen.getByText("Delete…"));
-  fireEvent.click(await screen.findByText(/Really delete/));
+  fireEvent.click(
+    await screen.findByRole("button", { name: /^Delete \d/ }),
+  );
 }
+
+describe("deletion consequences", () => {
+  it("states what one chat deletion removes and restores focus after cancellation", async () => {
+    render(
+      <ChatSidebar threadId="" onOpen={() => {}} onNew={() => {}} />,
+    );
+    await screen.findByText("Alpha");
+    const trigger = screen.getByLabelText("More actions for Alpha");
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByText("Delete…"));
+
+    expect(
+      await screen.findByRole("button", {
+        name: /Delete this chat.*messages and flock history.*Backups can still contain this chat data/i,
+      }),
+    ).toBeTruthy();
+    expect(
+      mocks.api.mock.calls.filter(([, opts]) => opts?.method === "DELETE"),
+    ).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel deletion" }));
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
+  it("says a deleted folder leaves its chats unfiled", async () => {
+    threadRows = [row("a", "Alpha", "Plans")];
+    folderRows = ["Plans"];
+    await enterSelectMode();
+    fireEvent.click(screen.getByLabelText("Select folder Plans"));
+    fireEvent.click(screen.getByText("Delete…"));
+
+    expect(
+      await screen.findByRole("button", {
+        name: /Delete 1 folder.*Chats in the selected folder will stay and become unfiled/i,
+      }),
+    ).toBeTruthy();
+  });
+
+  it("distinguishes deleted chats from chats kept by selected folders", async () => {
+    threadRows = [
+      row("a", "Alpha", "Plans"),
+      row("b", "Bravo", "Plans"),
+    ];
+    folderRows = ["Plans"];
+    await enterSelectMode();
+    fireEvent.click(screen.getByLabelText("Select Alpha"));
+    fireEvent.click(screen.getByLabelText("Select folder Plans"));
+    fireEvent.click(screen.getByText("Delete…"));
+
+    expect(
+      await screen.findByRole("button", {
+        name: /Delete 1 chat and 1 folder.*messages and flock history.*Other chats in the selected folder will stay and become unfiled.*Backups can still contain deleted chat data/i,
+      }),
+    ).toBeTruthy();
+  });
+});
 
 describe("deleting several chats at once", () => {
   it("deletes every selected chat and leaves select mode", async () => {
@@ -114,16 +179,39 @@ describe("deleting several chats at once", () => {
     expect(onNew).not.toHaveBeenCalled();
   });
 
-  it("asks before deleting, and Keep cancels without a request", async () => {
+  it("asks before deleting, and Cancel deletion keeps the selection", async () => {
     await enterSelectMode();
     fireEvent.click(screen.getByLabelText("Select Alpha"));
-    fireEvent.click(screen.getByText("Delete…"));
-    fireEvent.click(await screen.findByText("Keep"));
+    const deleteButton = screen.getByText("Delete…").closest("button")!;
+    fireEvent.click(deleteButton);
+    fireEvent.click(await screen.findByText("Cancel deletion"));
     expect(
       mocks.api.mock.calls.filter(([, o]) => o?.method === "DELETE"),
     ).toHaveLength(0);
-    // the selection survives the cancel
     expect(screen.getByText("1 chat")).toBeTruthy();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByText("Delete…").closest("button"),
+      ),
+    );
+  });
+
+  it("Escape cancels only the armed deletion and keeps the selection", async () => {
+    await enterSelectMode();
+    fireEvent.click(screen.getByLabelText("Select Alpha"));
+    const trigger = screen.getByText("Delete…").closest("button")!;
+    fireEvent.click(trigger);
+
+    fireEvent.keyDown(await screen.findByRole("button", { name: /^Delete 1 chat/ }), {
+      key: "Escape",
+    });
+
+    expect(
+      mocks.api.mock.calls.filter(([, opts]) => opts?.method === "DELETE"),
+    ).toHaveLength(0);
+    expect(screen.getByText("1 chat")).toBeTruthy();
+    const restored = screen.getByText("Delete…").closest("button")!;
+    await waitFor(() => expect(document.activeElement).toBe(restored));
   });
 
   it("cannot start a delete with nothing selected", async () => {

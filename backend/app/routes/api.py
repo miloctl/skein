@@ -63,6 +63,7 @@ from ..services import (
     usage,
     users,
     weekly,
+    wording,
     work,
 )
 from .deps import AdminUser, CurrentUser, StrongUser, ViewerDep, is_administrator
@@ -965,12 +966,13 @@ def get_users(user: CurrentUser, all: bool = False):
 
 class UserRenameIn(BaseModel):
     new_name: str = Field(min_length=1, max_length=64)
+    merge: bool | None = None
 
 
 @router.post("/users/{name}/rename")
 def post_user_rename(name: str, body: UserRenameIn, user: AdminUser):
     # rename/merge moves attribution history — administrators only
-    return users.rename_user(name, body.new_name, actor=user)
+    return users.rename_user(name, body.new_name, actor=user, expected_merge=body.merge)
 
 
 class UserActiveIn(BaseModel):
@@ -1008,6 +1010,7 @@ class CrewMemberIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     person: str = Field(min_length=1, max_length=64)
     role: str = Field("member", max_length=16)
+    expected_role: str | None = Field(None, max_length=16)
 
 
 class CrewMemberOut(BaseModel):
@@ -1084,7 +1087,14 @@ def patch_crew(crew_id: int, body: CrewPatch, user: CurrentUser, request: Reques
 def post_crew_member(crew_id: int, body: CrewMemberIn, user: CurrentUser, request: Request):
     admin = _crew_admin_override(user, request)
     ratelimit.check("write", user)
-    return crews.add_member(crew_id, body.person, role=body.role, actor=user, admin_override=admin)
+    return crews.add_member(
+        crew_id,
+        body.person,
+        role=body.role,
+        expected_role=body.expected_role,
+        actor=user,
+        admin_override=admin,
+    )
 
 
 @router.post("/crews/{crew_id}/members/remove")
@@ -1371,10 +1381,9 @@ class KeyIn(BaseModel):
     label: str = Field("", max_length=100)
 
 
-# Key MUTATION requires an existing key (StrongUser): minting on X-User
-# identity alone would let anyone who can reach the API become anyone and
-# defeat the whole private-record boundary. First key per person:
-# python -m app.bootstrap_key.
+# Key mutation requires StrongUser. A validated deployment sign-in can create
+# its first key for the CLI. In trusted-header mode, use app.bootstrap_key:
+# minting on X-User alone lets anyone who can reach the API become anyone.
 
 
 @router.post("/keys")
@@ -2091,13 +2100,8 @@ def post_delegate(
         if not users.is_agent(body.agent) and not getattr(request.state, "strong_auth", False):
             raise HTTPException(
                 403,
-                # lowercase fragment, like the other 187: the frontend joins a
-                # refusal into its own sentence (docs/LEXICON.md, "Backend
-                # refusal shape")
-                "creating an agent identity requires a personal API key."
-                " Delegate to an agent that already exists, or get your first key from"
-                " whoever runs the server (python -m app.bootstrap_key <you>) and paste"
-                " it in Settings, step 2.",
+                wording.strong_identity_required("Creating an agent identity")
+                + " You can also delegate to an agent that already exists.",
             )
         return delegation.delegate_task(task_id, body.agent, body.sponsor or user, actor=user)
 

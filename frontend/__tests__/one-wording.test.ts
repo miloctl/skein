@@ -56,6 +56,15 @@ describe("one condition, one wording across surfaces", () => {
     }
   });
 
+  it("uses strong identity for verified verdicts", () => {
+    const agents = readFileSync(join(ROOT, "app", "agents", "page.tsx"), "utf8");
+    const provenance = readFileSync(join(ROOT, "components", "provenance.tsx"), "utf8");
+    expect(agents).toContain("approvals made with strong identity");
+    expect(agents).not.toContain("approvals made with a personal API key");
+    expect(provenance).toContain("This verdict did not use strong identity");
+    expect(provenance).not.toContain("Nobody used a personal API key for that verdict");
+  });
+
   it("says the api-key remedy the way routes/deps.py says it", () => {
     // The auth gate states the same condition the server states in NEED_KEY
     // (api-key mode, no key). It cannot import a Python constant, so the

@@ -7,6 +7,7 @@ budget and independent of whether an LLM provider is configured.
 
 import hashlib
 import hmac
+import logging
 import time
 
 from fastapi import APIRouter, HTTPException, Request
@@ -140,5 +141,9 @@ async def slack_command(request: Request):
             if "data" in event:
                 chunks.append(event["data"])
     except Exception as exc:  # a Slack-visible message beats a 500 + retry loop
-        chunks.append(f"⚠️ that did not land: {exc}")
+        logging.getLogger("skein").exception("Slack command failed", exc_info=exc)
+        chunks.append(
+            "The Slack command failed. Ask whoever runs the server to check the server log."
+            " Then try again."
+        )
     return {"response_type": "ephemeral", "text": "\n".join(chunks) or "(no output)"}

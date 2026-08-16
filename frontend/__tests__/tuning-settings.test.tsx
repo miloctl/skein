@@ -65,7 +65,13 @@ vi.mock("@/lib/api", async (importOriginal) => {
       // the section is AdminUser, and the page only asks for it once identity
       // resolves strong — a never-settling whoami leaves it unfetched
       if (path === "/api/whoami")
-        return Promise.resolve({ user: "boss", strong: true, admin: true, keys_minted: 1 });
+        return Promise.resolve({
+          user: "boss",
+          strong: true,
+          admin: true,
+          can_administer: true,
+          keys_minted: 1,
+        });
       // every other panel on the page stays mid-load, so nothing else renders
       // a claim that could be mistaken for one of ours
       return new Promise(() => {});

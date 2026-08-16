@@ -40,7 +40,7 @@ from ..extensions.policy import (
     set_policy_engine,
     set_policy_subject,
 )
-from ..services import capture, chat_threads, fieldguide, flocks, mentions, personas
+from ..services import capture, chat_threads, fieldguide, flocks, mentions, personas, wording
 from ..services.private_notes import FB_GUARD
 from ..services.usage import record_chat_usage
 from ..services.usage import row_from_agent as _usage_row
@@ -190,6 +190,13 @@ def _attributed(r: dict, head: str) -> dict:
     return r
 
 
+def _agent_fault(exc: Exception) -> str:
+    return (
+        f"The agent turn failed ({exc.__class__.__name__})."
+        " Ask whoever runs the server to check the server log. Then try again."
+    )
+
+
 def _receipt_line(r: dict) -> str:
     """How a receipt reads in the stored transcript.
 
@@ -201,14 +208,14 @@ def _receipt_line(r: dict) -> str:
     above, pinned by test_specialist_consult.py and receipt-actor.test.ts),
     never the prose register."""
     ref = f" #{r['ref']}" if r.get("ref") else ""
-    # refused carries no suffix: the gate's detail already names the actor in
-    # the truthful role — the gate refused the actor, the actor refused
-    # nothing — and a suffix would repeat the name inside one line
+    # The actor belongs in the label because shared policy detail deliberately
+    # carries no identity. Omitting it makes a specialist refusal lose its
+    # signer when the live receipt is later rendered from stored history.
     actor = f" ({r['actor']})" if r.get("actor") else ""
     label = {
         "queued": f"queued for review: {r['entity']}{ref}{actor}",
         "wrote": f"wrote {r['entity']}{ref}{actor}",
-        "refused": f"refused: {r['entity']}",
+        "refused": f"refused: {r['entity']}{actor}",
         "failed": f"not written: {r['entity']}{actor}",
         "nothing": "filed nothing",
         "unnotified": f"not notified: {r['entity']}",
@@ -773,7 +780,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                 message = parts[2]
                 err = ""
             except ValueError as exc:
-                err = f"⚠️ {exc}"
+                err = str(exc)
         if err:
 
             async def usage_stream(text=err):
@@ -794,7 +801,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
         except ValueError as exc:
             # e.g. a human already claimed the slug — SSE, not a bare 400
 
-            async def clash_stream(text=f"⚠️ {exc}"):
+            async def clash_stream(text=str(exc)):
                 # logged like every command path: the exchange must survive
                 # a reload, not vanish from the thread's history
                 await run_in_threadpool(_log_turn, ui_thread, user, "user", req.message)
@@ -821,7 +828,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                 message = parts[2]
                 err = ""
             except ValueError as exc:
-                err = f"⚠️ {exc}"
+                err = str(exc)
         if err:
 
             async def flock_usage_stream(text=err):
@@ -845,9 +852,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
             yield _sse(
                 {
                     "type": "text",
-                    "text": "Feedback notes are private — chat sends messages"
-                    " to the model and the session log. Use quick capture or the"
-                    " People page instead.",
+                    "text": wording.private_feedback_agent_refusal(),
                 }
             )
             yield _sse({"type": "done"})
@@ -1041,11 +1046,16 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
             policy_subject=subject,
         )
     except Exception as exc:
-        # keep the SSE protocol even when agent construction fails (bad model id, etc.)
+        # Provider exceptions can carry request IDs or credential fragments.
+        # The complete detail stays in the server log, never the transcript.
+        logging.getLogger("skein.chat").exception(
+            "agent construction failed (thread=%s user=%s)", thread_id, user
+        )
+        fault = _agent_fault(exc)
         await run_in_threadpool(_log_turn, ui_thread, user, "user", message)
-        await run_in_threadpool(_log_turn, ui_thread, user, "assistant", f"> ⚠️ {str(exc)[:300]}")
+        await run_in_threadpool(_log_turn, ui_thread, user, "assistant", f"> {fault}")
 
-        async def error_stream(message=str(exc)):
+        async def error_stream(message=fault):
             yield _sse({"type": "error", "message": message})
             yield _sse({"type": "done"})
 
@@ -1240,15 +1250,10 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
             logging.getLogger("skein.chat").exception(
                 "chat stream failed (thread=%s user=%s)", thread_id, user
             )
-            # class name only: a provider SDK error carries its raw HTTP body
-            # — request ids, key prefixes — and this line is served to the
-            # chat window and written into the saved transcript. The full
-            # detail is in the log line above.
-            fault = (
-                f"The agent turn failed ({exc.__class__.__name__})."
-                " Whoever runs the server can read the detail in the server log."
-            )
-            transcript.append(f"\n\n> ⚠️ {fault}\n")
+            # Provider SDK errors can carry request IDs or credential fragments.
+            # The complete detail stays in the log line above.
+            fault = _agent_fault(exc)
+            transcript.append(f"\n\n> {fault}\n")
             yield _sse({"type": "error", "message": fault})
             await run_in_threadpool(_close_turn)
         finally:

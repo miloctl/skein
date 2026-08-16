@@ -383,6 +383,8 @@ async def enforce_mutation_policy(
 
 def enforce_decision(decision: PolicyDecision) -> None:
     """Convert one public policy result into the stable HTTP error contract."""
+    from ..services import wording
+
     if decision.effect.value == "permit":
         return
     obligations = tuple(decision.obligations)
@@ -391,13 +393,13 @@ def enforce_decision(decision: PolicyDecision) -> None:
     if decision.effect.value == "review":
         raise PublicError(
             "POLICY_REVIEW_UNSUPPORTED",
-            "This direct route cannot resume a reviewed action. Use a governed tool or workflow.",
+            wording.policy_review_unsupported(),
             status_code=403,
             obligations=tuple(dict.fromkeys(obligations)),
         )
     raise PublicError(
         "POLICY_DENIED",
-        "The policy denied this action.",
+        wording.workplace_policy_denied(),
         status_code=403,
         obligations=tuple(dict.fromkeys(obligations)),
     )

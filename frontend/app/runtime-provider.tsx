@@ -91,7 +91,7 @@ function makeAdapter(threadId: string): ChatModelAdapter {
         if (event.type === "text") acc += event.text;
         else if (event.type === "tool") acc += `\n\n*🔧 ${event.name}…*\n\n`;
         else if (event.type === "receipt") acc += receiptLine(event);
-        else if (event.type === "error") acc += `\n\n> ⚠️ ${event.message}\n`;
+        else if (event.type === "error") acc += `\n\n> ${event.message}\n`;
         else return null;
         return acc;
       };
@@ -194,18 +194,16 @@ export function receiptLine(e: {
   const actor = e.actor ? ` (${e.actor})` : "";
   const head =
     e.kind === "queued"
-      ? `🕓 **Queued for review** — ${e.entity}${ref}${actor} needs a human verdict`
+      ? `**Queued for review** — ${e.entity}${ref}${actor} needs a human verdict`
       : e.kind === "wrote"
-        ? `✅ **Wrote ${e.entity}${ref}${actor}**`
+        ? `**Wrote ${e.entity}${ref}${actor}**`
         : e.kind === "refused"
-          ? // the sentence slot, not a suffix: "this agent" in a consult
-            // claims the wrong refusee — the gate refused the SPECIALIST
-            `⛔ **Refused** — ${e.entity} is forbidden for ${e.actor || "this agent"}`
+          ? `**Refused** — Skein prevented ${e.actor || "this agent"} from writing ${e.entity}`
           : e.kind === "nothing"
-            ? `📭 **Filed nothing**`
+            ? `**Filed nothing**`
             : e.kind === "unnotified"
-              ? `🔕 **Not notified** — ${e.entity}`
-              : `⚠️ **Not written** — ${e.entity}${actor}`;
+              ? `**Not notified** — ${e.entity}`
+              : `**Not written** — ${e.entity}${actor}`;
   const tail = e.detail ? `: ${e.detail}` : "";
   const link =
     e.kind === "queued" && e.ref ? ` · [open in Inbox](/review)` : "";

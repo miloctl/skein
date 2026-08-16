@@ -65,6 +65,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
           user: "boss",
           strong: true,
           admin: true,
+          can_administer: true,
           keys_minted: 1,
         });
       // every other panel stays mid-load, so nothing else renders a claim

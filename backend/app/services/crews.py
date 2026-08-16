@@ -279,6 +279,7 @@ def add_member(
     person: str,
     *,
     role: str = "member",
+    expected_role: str | None = None,
     actor: str,
     origin: str = "human",
     admin_override: bool = False,
@@ -291,6 +292,8 @@ def add_member(
     """
     if role not in ROLES:
         raise ValueError(f"role must be one of {', '.join(ROLES)}")
+    if expected_role is not None and expected_role not in ROLES:
+        raise ValueError("expected_role must name a crew role")
     # allow_team=False: 'team' is the notifications broadcast address, and a
     # membership row naming it would be a phantom member no rename can move
     person = users.resolve_teammate(person, actor, "person", allow_team=False)
@@ -305,11 +308,15 @@ def add_member(
         # the crew to zero stewards between the two.
         crew = _row(crew_id, hold=True)
         assert_steward(crew_id, actor, admin_override=admin_override)
-        already = bool(
-            db.query_one(
-                "SELECT 1 FROM crew_members WHERE crew_id = ? AND person = ?", (crew_id, person)
-            )
+        current = db.query_one(
+            "SELECT role FROM crew_members WHERE crew_id = ? AND person = ?", (crew_id, person)
         )
+        already = current is not None
+        if expected_role is not None and (current or {}).get("role") != expected_role:
+            raise db.Conflict(
+                "The crew membership changed after this confirmation."
+                " Reload Settings, then confirm the role change again."
+            )
         # a role change on an existing member still works, so a deactivated
         # crew can be tidied. Only a NEW member is refused.
         if not crew["active"] and not already:

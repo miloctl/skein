@@ -25,7 +25,9 @@ carrying any bearer token pays another attempt, so it carries the same
 cooldown the other two do.
 """
 
+import contextlib
 import json
+import logging
 import threading
 import time
 import urllib.error
@@ -40,6 +42,29 @@ from jwt.exceptions import PyJWKClientError
 from . import config
 
 ALGORITHMS = ["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"]
+OAUTH_ERROR_CODES = frozenset(
+    {
+        "access_denied",
+        "invalid_client",
+        "invalid_grant",
+        "invalid_request",
+        "invalid_scope",
+        "server_error",
+        "temporarily_unavailable",
+        "unauthorized_client",
+        "unsupported_grant_type",
+    }
+)
+TRANSIENT_OAUTH_ERRORS = frozenset({"server_error", "temporarily_unavailable"})
+SIGNIN_REFUSED = "The identity provider refused the sign-in. Start the sign-in again."
+SIGNIN_UNAVAILABLE = (
+    "Skein cannot reach the identity provider. Wait one minute, then start the sign-in again."
+)
+SIGNIN_UNUSABLE = (
+    "The identity provider returned an unusable sign-in response."
+    " Ask whoever runs the server to check the server log. Then start the sign-in again."
+)
+log = logging.getLogger("skein")
 
 # Every network call here has the identity provider on the far end. The
 # library default is 30s, long enough for one slow fetch to hold a worker.
@@ -183,9 +208,9 @@ def exchange(form: dict[str, str]) -> dict[str, Any]:
 
     The browser runs PKCE and keeps the verifier; this only carries the request
     across, so the web app stays a public client and the IdP never needs CORS
-    for the app's origin. An IdP error is passed through as OIDCError with the
-    IdP's own error CODE (never its description, which can echo the submitted
-    value back into our response).
+    for the app's origin. Only standard OAuth error codes reach the operator
+    log. Provider descriptions and unknown codes can contain submitted values
+    or forged log lines, so neither leaves this function.
     """
     body = urllib.parse.urlencode(form).encode()
     request = urllib.request.Request(  # noqa: S310 — scheme checked by _web_url
@@ -202,17 +227,16 @@ def exchange(form: dict[str, str]) -> dict[str, Any]:
         ) as resp:
             payload = json.load(resp)
     except urllib.error.HTTPError as exc:
-        detail = ""
-        try:
-            detail = str(json.load(exc).get("error", "") or "")[:80]
-        except Exception:
-            detail = ""
-        # OIDCRefused, not OIDCError: the provider judged the caller's own code
-        # or redirect_uri and said no. That is 4xx input, not a server fault.
-        raise OIDCRefused(
-            f"the identity provider refused the sign-in{f' ({detail})' if detail else ''}."
-            " Start the sign-in again."
-        ) from exc
+        raw_code = ""
+        with contextlib.suppress(Exception):
+            raw_code = str(json.load(exc).get("error", "") or "")
+        code = raw_code if raw_code in OAUTH_ERROR_CODES else ""
+        diagnostic = code or f"HTTP {exc.code}"
+        if exc.code == 429 or exc.code >= 500 or code in TRANSIENT_OAUTH_ERRORS:
+            log.warning("identity provider token exchange unavailable (%s)", diagnostic)
+            raise OIDCUnavailable(SIGNIN_UNAVAILABLE) from exc
+        log.warning("identity provider refused token exchange (%s)", diagnostic)
+        raise OIDCRefused(SIGNIN_REFUSED) from exc
     except Exception as exc:
         raise OIDCUnavailable(
             f"the identity provider cannot be reached ({exc.__class__.__name__})."

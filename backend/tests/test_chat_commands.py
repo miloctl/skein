@@ -1,6 +1,7 @@
 """Slash commands: deterministic dispatch shared by chat, Slack, and mock."""
 
 from app.agents import commands
+from app.services import wording
 
 
 def _read_chat(client, message):
@@ -96,7 +97,8 @@ def test_command_wrapped_fb_refused_before_bridge(client, monkeypatch):
     calls = []
     monkeypatch.setattr("app.agents.session_log.log_exchange", lambda *a: calls.append(a))
     out = _read_chat(client, "/remember fb: dana — struggling with the client")
-    assert "private" in out
+    assert wording.private_feedback_agent_refusal() in out
+    assert "struggling with the client" not in out
     assert calls == []
 
 
@@ -170,7 +172,12 @@ def test_deterministic_writes_use_the_composed_workplace_policy(fresh_db):
     with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as governed:
         remembered = _read_chat(governed, "/remember do not store this")
         planned = _read_chat(governed, "/plan prototype blocked plan")
-        assert "policy denied" in remembered.lower()
-        assert "policy denied" in planned.lower()
+        expected = (
+            "Workplace policy denied this action. Use an allowed action or ask an"
+            " administrator to change the policy."
+        )
+        assert expected in remembered
+        assert expected in planned
+        assert "⚠" not in remembered + planned
         assert governed.get("/api/memories").json() == []
         assert all(row["name"] != "blocked plan" for row in governed.get("/api/engagements").json())

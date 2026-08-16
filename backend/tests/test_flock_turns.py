@@ -135,6 +135,7 @@ def test_force_review_queues_a_write_the_matrix_would_apply(fresh_db, monkeypatc
 
 def test_forbidden_still_refuses_under_force_review(fresh_db, monkeypatch):
     """A kill switch must not soften into a proposal."""
+    from app.services import wording
     from app.services.delegation import set_authority
     from app.tools._gate import gated_write
 
@@ -146,7 +147,7 @@ def test_forbidden_still_refuses_under_force_review(fresh_db, monkeypatch):
     finally:
         set_force_review(False)
         reset_agent_identity(token)
-    assert "forbidden" in out["error"]
+    assert out == {"error": wording.write_policy_denied()}
     assert fresh_db.query_row("SELECT COUNT(*) AS n FROM pending_changes")["n"] == 0
 
 

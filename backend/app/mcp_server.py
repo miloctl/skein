@@ -54,6 +54,7 @@ from .services import (
     projection_policy,
     scope,
     search,
+    wording,
     work,
 )
 from .services import policy_context as domain_policy_context
@@ -123,9 +124,9 @@ def _policy_refusal(
     return json.dumps(
         {
             "error": (
-                "workplace policy requires review"
+                wording.policy_review_unsupported()
                 if decision.effect == PolicyEffect.REVIEW
-                else "workplace policy denied this operation"
+                else wording.workplace_policy_denied()
             ),
             "policy_effect": decision.effect.value,
         }
@@ -214,12 +215,7 @@ def capture(text: str) -> str:
     # wrote (and FTS-indexed) a public note. chat.py and session_log.py both
     # refuse at the surface; this was the one writer that did not.
     if capture_svc.is_private_feedback(text):
-        return json.dumps(
-            {
-                "error": "feedback notes are private and never route through an agent."
-                " Use the fb: prefix in the web palette with your personal API key."
-            }
-        )
+        return json.dumps({"error": wording.private_feedback_agent_refusal()})
     kind, entity, payload = capture_svc.plan(text, actor=ACTOR, origin="agent")
     return gated_write(
         entity,

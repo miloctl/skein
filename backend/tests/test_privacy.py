@@ -36,14 +36,22 @@ def _write_private(client, fresh_db):
 
 
 def test_private_requires_strong_identity(client, fresh_db):
+    refusal = (
+        "This request requires strong identity. If deployment sign-in is available, use it."
+        " Otherwise, use a personal API key."
+    )
     r = client.get("/api/private/notes", headers={"X-User": "sneaky"})
     assert r.status_code == 403
+    assert r.json()["detail"] == refusal
+    assert "sneaky" not in r.text
     r = client.post(
         "/api/private/notes",
         json={"person": "dana", "body": "spoofed"},
         headers={"X-User": "manager"},
     )
     assert r.status_code == 403
+    assert r.json()["detail"] == refusal
+    assert "spoofed" not in r.text
 
 
 def test_private_notes_are_author_scoped(client, fresh_db):
@@ -56,12 +64,16 @@ def test_private_notes_are_author_scoped(client, fresh_db):
     assert r.json() == []
 
 
-def test_fb_capture_routes_private_and_requires_key(client, fresh_db):
+def test_fb_capture_routes_private_and_requires_strong_identity(client, fresh_db):
     headers = _write_private(client, fresh_db)
-    # without a key: refused, nothing stored anywhere
+    # without strong identity: refused, nothing stored anywhere
     r = client.post("/api/capture", json={"text": f"fb: dana — {CANARY}"}, headers={"X-User": "m"})
     assert r.status_code == 400
-    assert "API key" in r.json()["detail"]
+    assert r.json()["detail"] == (
+        "Private feedback requires strong identity. If deployment sign-in is available, use it."
+        " Otherwise, use a personal API key."
+    )
+    assert CANARY not in r.text
     # with a key: lands as private feedback, not a note
     r = client.post("/api/capture", json={"text": f"fb: dana — {CANARY} two"}, headers=headers)
     assert r.status_code == 200
@@ -100,9 +112,9 @@ def _spray_canary(client, headers):
         "POST", "/api/chat", json={"thread_id": "t", "message": f"fb: dana — {CANARY} via chat"}
     ) as resp:
         chat_out = resp.read().decode()
-    assert "private" in chat_out and CANARY not in json.dumps(
-        [r["title"] for r in client.get("/api/tasks").json()]
-    )
+    assert "private" in chat_out
+    assert CANARY not in chat_out
+    assert CANARY not in json.dumps([r["title"] for r in client.get("/api/tasks").json()])
     # a slash prefix must not smuggle fb: past the gate — the transcript and
     # the session bridge are both downstream of it
     with client.stream(
@@ -112,6 +124,7 @@ def _spray_canary(client, headers):
     ) as resp:
         wrapped_out = resp.read().decode()
     assert "private" in wrapped_out
+    assert CANARY not in wrapped_out
 
 
 def test_canary_absent_from_every_platform_table(client, fresh_db):
@@ -296,7 +309,7 @@ def test_mcp_capture_refuses_private_feedback(fresh_db, monkeypatch):
     private feedback line became a note proposal in the TEAM-VISIBLE review
     queue, and approving it wrote an FTS-indexed public note."""
     from app import config, mcp_server
-    from app.services import users
+    from app.services import users, wording
 
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
     users.ensure_user("mira")
@@ -305,7 +318,8 @@ def test_mcp_capture_refuses_private_feedback(fresh_db, monkeypatch):
     fn = getattr(mcp_server.capture, "fn", mcp_server.capture)
     out = fn("fb: mira — candid private assessment")
 
-    assert "private" in out
+    assert json.loads(out)["error"] == wording.private_feedback_agent_refusal()
+    assert "candid private assessment" not in out
     assert fresh_db.query_one("SELECT COUNT(*) AS n FROM pending_changes")["n"] == 0
     assert fresh_db.query_one("SELECT COUNT(*) AS n FROM notes")["n"] == 0
     # an ordinary capture still routes through the gate
