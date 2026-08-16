@@ -503,6 +503,6 @@ knots:
     set: hitches
     role: any
     pitch: The document goes with the question, so the answer is about the thing in front of you.
-    how: "Select + beside the composer. A file is yours alone: no teammate reads it, and it never appears under Reports. The file goes to the model provider this deployment uses. On a keyless deployment, a text file is still read in full."
+    how: "Select + beside the composer. A file is yours alone: no teammate reads it, and it never appears under Reports. The file goes to the model provider this deployment uses. On a keyless deployment, a text file is still read in full. Settings shows every file you attached, and deletes the ones you no longer need."
     link: /chat
     since: 2026-08-16

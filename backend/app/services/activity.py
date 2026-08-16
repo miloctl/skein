@@ -694,6 +694,10 @@ VERBS: dict[str, tuple[str, str]] = {
     # size, never the filename, which is caller-controlled text going into a
     # hash-chained ledger that cannot be edited afterwards
     "upload_file": ("attached a file", "quiet"),
+    # loud like every other destruction, and the detail names the id and the
+    # size it freed, never the filename — that is caller-controlled text going
+    # into a ledger that cannot be edited afterwards
+    "delete_file": ("deleted an attached file", "loud"),
     "create_document": ("wrote a document", "normal"),
     "edit_document": ("changed a document", "normal"),
     "exec_readout": ("published an exec readout", "normal"),
