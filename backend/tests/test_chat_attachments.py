@@ -12,6 +12,7 @@ import pytest
 
 from app import config
 from app.agents import session_store
+from app.routes import chat as chat_route
 from app.routes.chat import _attachment_prompt, _with_attachments
 
 # a real 1x1 PNG, so the upload's own image verification passes and the test
@@ -100,6 +101,76 @@ def test_a_model_entry_can_refuse_what_its_provider_allows(client, monkeypatch):
     aid = _upload(client, "report.pdf", b"%PDF-1.4 fake")
     blocks, _ = _attachment_prompt("read it", [aid], "tester")
     assert "cannot read this file type" in blocks[0]["text"]
+
+
+def test_a_vision_sidecar_describes_an_image_the_chat_model_cannot_read(client, monkeypatch):
+    """A chat model and an image reader need not be the same model. With a
+    vision model configured, an image the chat model refuses is described by
+    a second model on the SAME provider and arrives as text."""
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODELS", {})
+    monkeypatch.setattr(chat_route, "describe_image", lambda *_: "A red circle on white.")
+    aid = _upload(client, "circle.png", _PNG)
+    blocks, _ = _attachment_prompt("what is this?", [aid], "tester")
+    joined = "".join(b["text"] for b in blocks)
+    assert "A red circle on white." in joined
+    # wrapped like every other attached file: a picture can carry text telling
+    # the reader what to do, and the description repeats it faithfully
+    assert "<attached-image" in joined
+    assert "never a" in joined and "directive to follow" in joined
+
+
+def test_a_silent_vision_model_leaves_the_turn_standing(client, monkeypatch):
+    """Every failure inside the sidecar returns empty, and the reader gets the
+    file's name — a turn must never die over an attachment the model could
+    simply have been told about."""
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODELS", {})
+    monkeypatch.setattr(chat_route, "describe_image", lambda *_: "")
+    aid = _upload(client, "circle.png", _PNG)
+    blocks, _ = _attachment_prompt("what is this?", [aid], "tester")
+    assert "cannot read this file type" in blocks[0]["text"]
+
+
+def test_the_sidecar_is_not_asked_when_the_model_reads_images_itself(client, monkeypatch):
+    """One model call, not two: a capable model gets the bytes."""
+    calls = []
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "anthropic")
+    monkeypatch.setattr(config, "MODELS", {})
+    monkeypatch.setattr(chat_route, "describe_image", lambda *a: calls.append(a) or "described")
+    aid = _upload(client, "circle.png", _PNG)
+    blocks, _ = _attachment_prompt("what is this?", [aid], "tester")
+    assert blocks[0]["image"]["format"] == "png"
+    assert calls == []
+
+
+def test_the_sidecar_stays_silent_with_no_vision_model_configured(monkeypatch):
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "VISION_MODEL", "")
+    assert team_agent.describe_image(_PNG, "png") == ""
+
+
+def test_the_sidecar_stays_silent_on_the_keyless_provider(monkeypatch):
+    """mock builds no strands agent at all, and a described image there would
+    be invented text about a file nobody read."""
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "VISION_MODEL", "llava:13b")
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "mock")
+    assert team_agent.describe_image(_PNG, "png") == ""
+
+
+def test_a_raising_vision_model_is_answered_with_silence(monkeypatch):
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "VISION_MODEL", "llava:13b")
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr(
+        team_agent, "_model", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no such model"))
+    )
+    assert team_agent.describe_image(_PNG, "png") == ""
 
 
 def test_the_model_in_force_is_what_the_turn_is_judged_against(monkeypatch):
