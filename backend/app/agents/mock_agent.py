@@ -56,8 +56,8 @@ class MockAgent:
         if not self.capture_freeform:
             yield {
                 "data": (
-                    "This specialist does not run freeform work in deterministic mode."
-                    " Configure a live model provider to ask it a question."
+                    "This specialist answers only with a model provider."
+                    " Configure a model provider, then ask again."
                 )
             }
             return
