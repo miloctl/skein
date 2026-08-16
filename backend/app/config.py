@@ -502,6 +502,23 @@ def attachment_support(model_id: str = "") -> tuple[str, ...]:
     return tuple(PROVIDERS.get(EFFECTIVE_PROVIDER, {}).get("attachments", ()))
 
 
+# A second model, on THIS provider, that reads an image the chat model cannot —
+# it describes the picture and the description goes to the chat model as text.
+# Empty = off, and an attached image degrades to a line naming the file, which
+# is what every deployment did before this existed.
+#
+# A model ID, never a provider or a URL: the same wall a persona's model
+# override sits behind (agents/team_agent.py::_model). A vision sidecar that
+# could name its own endpoint would be a way to send a colleague's private
+# upload to a host nobody configured.
+#
+# One attached image is one extra model call, and it runs BEFORE the turn's
+# first token — so a slow vision model is felt as a slow answer. It needs no
+# timeout of its own: agents/team_agent.py::READ_TIMEOUT_S already bounds
+# every model that _model() builds, this one included.
+VISION_MODEL = os.getenv("SKEIN_VISION_MODEL", "").strip()
+
+
 def menu_warnings() -> list[str]:
     """The env default running outside its own menu — the same drift class as
     a persona model the menu does not list (personas.unlisted_model_warnings),
