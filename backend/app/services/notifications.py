@@ -28,6 +28,7 @@ _SOURCE_ALIASES = {
     "event_cancel": "event",
     "intake_edit": "intake",
     "memory_forget": "memory",
+    "document_edit": "document",
     "note_delete": "note",
     "note_edit": "note",
     "promise_edit": "promise",

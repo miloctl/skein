@@ -694,6 +694,8 @@ VERBS: dict[str, tuple[str, str]] = {
     # size, never the filename, which is caller-controlled text going into a
     # hash-chained ledger that cannot be edited afterwards
     "upload_file": ("attached a file", "quiet"),
+    "create_document": ("wrote a document", "normal"),
+    "edit_document": ("changed a document", "normal"),
     "exec_readout": ("published an exec readout", "normal"),
     "schedule_event": ("scheduled an event", "normal"),
     "record_outcome": ("recorded what came out of a meeting", "quiet"),

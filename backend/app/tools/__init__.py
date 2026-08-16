@@ -13,6 +13,7 @@ from .collab import (
     search_notes,
 )
 from .fieldguide import field_guide
+from .files import create_document, edit_document, read_artifact
 from .memory import forget_memory, recall_memories, remember
 from .platform import (
     edit_blocker,
@@ -68,6 +69,9 @@ from .work import (
 # can be talked into moving them. Those setters are REST + AdminUser only
 # (routes/api.py) — do not add a wrapper here.
 ALL_TOOLS = [
+    read_artifact,
+    create_document,
+    edit_document,
     create_milestone,
     update_milestone,
     list_milestones,
@@ -141,11 +145,13 @@ CORE_WRITE_TOOLS = frozenset(
         "assign_question",
         "cancel_event",
         "claim_delegated_task",
+        "create_document",
         "create_milestone",
         "create_task",
         "delegate_task",
         "delete_note",
         "edit_blocker",
+        "edit_document",
         "edit_intake_request",
         "edit_note",
         "edit_promise",

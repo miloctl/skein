@@ -57,6 +57,13 @@ ARGS: dict[str, dict] = {
     # gate — the same ordering disturbance the trio's dedicated task avoids
     "edit_blocker": {"blocker_id": 2, "title": "coverage probe edit"},
     "edit_intake_request": {"request_id": 1, "title": "coverage probe edit"},
+    # the exact run _seed wrote: edit_document refuses a match it cannot
+    # find, and refuses one it finds twice
+    "edit_document": {
+        "artifact_id": 1,
+        "old_text": "probe body",
+        "new_text": "coverage probe edit",
+    },
     "edit_promise": {"promise_id": 1, "promise": "coverage probe edit"},
     # the delegation trio uses its own task so no earlier tool can disturb it
     "claim_delegated_task": {"task_id": 2},
@@ -116,6 +123,7 @@ def _seed(fresh_db):
         blockers,
         collab,
         delegation,
+        documents,
         engagements,
         intake,
         memory,
@@ -129,6 +137,9 @@ def _seed(fresh_db):
     users.ensure_user("probe-agent", kind="agent")  # delegation target; the
     # calling identity is "agent" and self-delegation is refused pre-gate
     users._reserve_core_agent_identity("agent")  # application startup owns this row
+    # the FIRST artifact, so it is id 1 for edit_document below — generate_handoff
+    # writes its own later, inside the loop
+    documents.create_document("probe document", "probe body", actor="tester")
     engagements.create_engagement("probe engagement", actor="tester")
     work.create_milestone("probe milestone", actor="tester")
     work.create_task("probe task", actor="tester")
@@ -202,7 +213,7 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
             gated.add(current[0])
         return real_gated_write(*a, **kw)
 
-    for name in ("collab", "memory", "platform", "portfolio", "schedule", "work"):
+    for name in ("collab", "files", "memory", "platform", "portfolio", "schedule", "work"):
         mod = importlib.import_module(f"app.tools.{name}")
         assert hasattr(mod, "gated_write"), f"app.tools.{name} no longer imports gated_write"
         monkeypatch.setattr(mod, "gated_write", spy_gate)
@@ -255,11 +266,13 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
         "assign_question",
         "cancel_event",
         "claim_delegated_task",
+        "create_document",
         "create_milestone",
         "create_task",
         "delegate_task",
         "delete_note",
         "edit_blocker",
+        "edit_document",
         "edit_promise",
         "edit_intake_request",
         "edit_note",

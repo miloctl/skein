@@ -59,6 +59,8 @@ CAPABILITY: dict[tuple[str, str], str] = {
     ("memory_forget", "update"): "forget a memory for good",
     ("milestone", "create"): "add a milestone",
     ("milestone", "update"): "change a milestone",
+    ("document", "create"): "write a document",
+    ("document_edit", "update"): "change a document",
     ("note", "create"): "write a note",
     ("note_delete", "update"): "delete a note",
     ("note_edit", "update"): "change a note",

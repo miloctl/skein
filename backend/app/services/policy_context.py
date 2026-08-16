@@ -12,6 +12,8 @@ _TABLES = {
     "milestone": ("milestones", "engagement_id"),
     "question": ("questions", ""),
     "decision": ("decisions", ""),
+    "document": ("artifacts", "engagement_id"),
+    "document_edit": ("artifacts", "engagement_id"),
     "note": ("notes", ""),
     "note_edit": ("notes", ""),
     "note_delete": ("notes", ""),
