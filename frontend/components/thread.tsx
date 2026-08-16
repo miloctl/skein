@@ -14,6 +14,7 @@ import {
   ComposerPrimitive,
   useComposer,
   useComposerRuntime,
+  useThread,
   unstable_useComposerInputHistory,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
@@ -119,10 +120,47 @@ const UserMessage = () => (
   </MessagePrimitive.Root>
 );
 
+/** What an assistant bubble shows before its first word arrives.
+ *
+ *  The wait is REAL and was invisible: a thinking model streams empty text
+ *  deltas for seconds before it says anything (measured at 4.4 seconds and 70
+ *  empty frames on glm-5.2), and an attached image the chat model cannot read
+ *  spends a whole extra model call on the vision sidecar first
+ *  (routes/chat.py). An empty bubble reads as a hung app.
+ *
+ *  It names what it is waiting on, because "reading the image" is a different
+ *  wait from thinking and the reader can see which one they are in. The label
+ *  is derived from the thread's own last user message, so no backend frame and
+ *  nothing in the stored transcript carries it.
+ *
+ *  Exported for __tests__/chat-working-indicator.test.tsx. */
+export const WorkingIndicator = () => {
+  const readingFile = useThread((t) => {
+    const last = [...t.messages].reverse().find((m) => m.role === "user");
+    return (last?.attachments?.length ?? 0) > 0;
+  });
+  return (
+    <p className="flex items-center gap-2 text-sm text-ink-3">
+      <span aria-hidden className="flex gap-1">
+        <span className="working-dot size-1.5 rounded-full bg-ink-3" />
+        <span className="working-dot size-1.5 rounded-full bg-ink-3" />
+        <span className="working-dot size-1.5 rounded-full bg-ink-3" />
+      </span>
+      {/* aria-live so a screen reader is told the turn is working rather than
+          left on a silent empty message */}
+      <span aria-live="polite">
+        {readingFile ? "Reading the attachment…" : "Thinking…"}
+      </span>
+    </p>
+  );
+};
+
 const AssistantMessage = () => (
   <MessagePrimitive.Root className="flex justify-start py-2">
     <div className="max-w-[85%] rounded-2xl bg-raised px-4 py-2.5 text-sm text-ink">
-      <MessagePrimitive.Parts components={{ Text: MarkdownText }} />
+      <MessagePrimitive.Parts
+        components={{ Text: MarkdownText, Empty: WorkingIndicator }}
+      />
     </div>
   </MessagePrimitive.Root>
 );

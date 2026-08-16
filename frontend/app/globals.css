@@ -344,6 +344,37 @@
   }
 }
 
+/* The working indicator in an assistant bubble that has no text yet
+   (components/thread.tsx). A thinking model streams empty deltas for seconds
+   before its first word, and an attached image costs a whole extra model call
+   before that — so the wait is real and the bubble must not sit blank.
+   Reduced motion keeps all three dots visible rather than hiding the state. */
+.working-dot {
+  animation: working-pulse 1.4s ease-in-out infinite;
+}
+.working-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.working-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes working-pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .working-dot {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
 /* accessibility escape — the OS-level "calm/clarity" intent silences every
    fabric texture (Phosphor scanlines are a visual-stress pattern, and the
    Hermes dither is finer still). The forced-colors escape lives at the end

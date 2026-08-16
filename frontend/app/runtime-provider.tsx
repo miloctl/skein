@@ -185,13 +185,19 @@ function makeAdapter(threadId: string): ChatModelAdapter {
           const chunks = buffer.split("\n\n");
           buffer = chunks.pop() ?? "";
           for (const chunk of chunks) {
-            if (handle(chunk) !== null) {
+            // `acc` and not just "a frame arrived": a thinking model streams
+            // empty text deltas for seconds before its first word (measured
+            // at 4.4s on glm-5.2, 70 empty frames), and yielding those makes
+            // a message with an empty text part. That renders as an empty
+            // bubble and — because the message HAS a part — suppresses the
+            // Empty slot components/thread.tsx puts the working indicator in.
+            if (handle(chunk) !== null && acc) {
               yield { content: [{ type: "text", text: acc }] };
             }
           }
         }
         buffer += decoder.decode(); // flush a truncated tail on abrupt close
-        if (buffer && handle(buffer) !== null) {
+        if (buffer && handle(buffer) !== null && acc) {
           yield { content: [{ type: "text", text: acc }] };
         }
       } finally {
