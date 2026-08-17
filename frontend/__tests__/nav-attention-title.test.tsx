@@ -168,7 +168,10 @@ describe("the Inbox badge", () => {
       return el;
     });
     expect(inbox.textContent).toContain(String(INBOX));
-    expect(document.title).toBe("(3) Skein");
+    // the badge and the title come from one response but are written by two
+    // different effects, so seeing the badge does not prove the title effect
+    // has run. A wrong title still fails here — only a late one is tolerated.
+    await waitFor(() => expect(document.title).toBe("(3) Skein"));
   });
 
   it("refreshes when a verdict says the queue changed", async () => {

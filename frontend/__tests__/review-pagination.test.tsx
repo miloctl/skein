@@ -149,9 +149,18 @@ describe("the pending review cursor", () => {
 
     const boxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
     act(() => boxes.slice(0, 200).forEach((box) => box.click()));
-    expect(boxes[200].disabled).toBe(true);
+    // re-read the row rather than the handle captured before the clicks: each
+    // of those 200 clicks is a discrete event React flushes on its own, and a
+    // node React replaced during any of them keeps the `disabled` it had at
+    // capture time, so the assertion reports the cap missing when it is there.
+    const cap = screen.getAllByRole("checkbox") as HTMLInputElement[];
+    expect(cap[200].disabled).toBe(true);
     expect(
       screen.getByText("Select at most 200 proposals at one time."),
     ).toBeTruthy();
-  }, 15_000);
+    // 200 clicks over a 201-row list is ~6s of re-rendering on an idle
+    // machine, and this is the slowest test in the suite. The default ceiling
+    // is 15s, which a loaded CI runner crosses — measured by running the suite
+    // against saturated cores, where this is the only test that times out.
+  }, 30_000);
 });

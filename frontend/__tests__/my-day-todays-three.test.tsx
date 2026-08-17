@@ -82,12 +82,17 @@ describe("Today's Three", () => {
   it("keeps a three-task focus without hiding the server-ranked list", async () => {
     render(<MyDay />);
 
-    const heading = await screen.findByRole("heading", {
-      level: 3,
-      name: "Today's Three",
-    });
-    const section = heading.closest("section") as HTMLElement;
-    expect(within(section).getByText("0/3")).toBeTruthy();
+    await screen.findByRole("heading", { level: 3, name: "Today's Three" });
+    // re-derived on every read, never held across a click: each click is a
+    // discrete event React flushes on its own, and `within` a section node
+    // React replaced during one of them searches a detached tree — the count
+    // is on the page and the query still fails, which reads as the selection
+    // never landing.
+    const section = () =>
+      screen
+        .getByRole("heading", { level: 3, name: "Today's Three" })
+        .closest("section") as HTMLElement;
+    expect(within(section()).getByText("0/3")).toBeTruthy();
 
     for (const id of [1, 2, 3]) {
       fireEvent.click(
@@ -97,7 +102,7 @@ describe("Today's Three", () => {
       );
     }
 
-    expect(within(section).getByText("3/3")).toBeTruthy();
+    expect(within(section()).getByText("3/3")).toBeTruthy();
     expect(
       JSON.parse(window.localStorage.getItem(storageKey) ?? "null"),
     ).toEqual({
@@ -130,7 +135,9 @@ describe("Today's Three", () => {
     ).toEqual([1, 3, 4]);
 
     fireEvent.click(
-      within(section).getByText("Plan launch").closest("button") as HTMLElement,
+      within(section())
+        .getByText("Plan launch")
+        .closest("button") as HTMLElement,
     );
     expect(window.location.search).toBe("?task=1");
   });
