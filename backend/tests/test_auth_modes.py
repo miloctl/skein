@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import sys
+from contextlib import suppress
 from pathlib import Path
 from threading import Event, Thread, current_thread
 from time import monotonic, sleep
@@ -391,15 +392,23 @@ def test_first_oidc_read_returns_retryable_503_when_identity_storage_is_busy(
     holding = Event()
     release = Event()
 
+    # Rolling back takes an exception — db.transaction() has no explicit
+    # rollback — and one that escapes a thread makes pytest warn about an
+    # unhandled thread exception, which is how a real failure in this holder
+    # would report too. A type of its own is caught here without also
+    # swallowing an error db.execute raised.
+    class Rollback(Exception):
+        pass
+
     def hold_writer() -> None:
-        with db.transaction():
+        with suppress(Rollback), db.transaction():
             db.execute(
                 "INSERT INTO users (name, kind, created_at) VALUES (?, 'human', ?)",
                 ("first-reader", db.now()),
             )
             holding.set()
             release.wait(timeout=5)
-            raise RuntimeError("roll back the holder")
+            raise Rollback
 
     holder = Thread(target=hold_writer, daemon=True)
     holder.start()
