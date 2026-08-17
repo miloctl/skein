@@ -54,11 +54,54 @@ def test_attached_text_is_labelled_as_content_not_as_a_directive(client, monkeyp
 
 def test_a_provider_that_takes_documents_gets_the_bytes(client, monkeypatch):
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "anthropic")
-    aid = _upload(client, "notes.md", b"the roof leaks")
+    aid = _upload(client, "report.pdf", b"%PDF-1.4 fake")
     blocks, _ = _attachment_prompt("read it", [aid], "tester")
     doc = blocks[0]["document"]
-    assert doc["format"] == "md"
-    assert doc["source"]["bytes"] == b"the roof leaks"
+    assert doc["format"] == "pdf"
+    assert doc["source"]["bytes"] == b"%PDF-1.4 fake"
+
+
+def test_a_format_the_provider_refuses_inlines_as_text_instead_of_400ing(client, monkeypatch):
+    """A provider's document support is per FORMAT, not per kind. Anthropic's
+    API takes pdf and plain text, so a csv sent as a document block is the same
+    turn-killing 400 config.attachment_support exists to prevent — one level
+    down. Text formats inline everywhere, which is also a better answer."""
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "anthropic")
+    aid = _upload(client, "rows.csv", b"name,size\nroof,2")
+    blocks, _ = _attachment_prompt("read it", [aid], "tester")
+    assert not any("document" in b for b in blocks)
+    assert "name,size" in blocks[0]["text"]
+
+
+def test_a_binary_format_the_provider_refuses_is_named_not_sent(client, monkeypatch):
+    """xlsx cannot inline as text either, so the reader is told rather than the
+    turn being spent on a request the provider answers with a 400."""
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "openai")
+    aid = _upload(client, "book.xlsx", b"PK\x03\x04 fake")
+    blocks, _ = _attachment_prompt("read it", [aid], "tester")
+    assert "cannot read this file type" in blocks[0]["text"]
+
+
+def test_a_provider_with_no_format_restriction_takes_every_document(client, monkeypatch):
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "bedrock")
+    aid = _upload(client, "book.xlsx", b"PK\x03\x04 fake")
+    blocks, _ = _attachment_prompt("read it", [aid], "tester")
+    assert blocks[0]["document"]["format"] == "xlsx"
+
+
+def test_the_document_name_survives_the_strictest_provider(client, monkeypatch):
+    """Bedrock's DocumentBlock name refuses a period and most punctuation
+    (ValidationException), and the title is a person's filename."""
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "bedrock")
+    aid = _upload(client, "Q3 report (final)_v2.pdf", b"%PDF-1.4 fake")
+    blocks, _ = _attachment_prompt("read it", [aid], "tester")
+    assert blocks[0]["document"]["name"] == "Q3 report (final) v2 pdf"
+
+
+def test_a_name_with_nothing_usable_falls_back_to_the_id(client, monkeypatch):
+    from app.routes.chat import _document_name
+
+    assert _document_name("!!!", 12) == "attachment 12"
 
 
 def test_a_provider_that_cannot_read_the_type_says_so(client, monkeypatch):
@@ -201,9 +244,9 @@ def test_another_persons_attachment_cannot_be_named_into_a_turn(client):
 
 def test_the_same_file_twice_costs_one_copy(client, monkeypatch):
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "anthropic")
-    aid = _upload(client, "notes.md", b"x")
+    aid = _upload(client, "report.pdf", b"%PDF-1.4 x")
     blocks, titles = _attachment_prompt("read it", [aid, aid], "tester")
-    assert titles == ["notes.md"]
+    assert titles == ["report.pdf"]
     assert sum("document" in b for b in blocks) == 1
 
 

@@ -75,8 +75,10 @@ def create_document(title: str, content: str, source_id: int = 0, engagement_id:
 def edit_document(artifact_id: int, old_text: str, new_text: str) -> str:
     """Replace one exact run of text in a document an agent wrote.
 
-    An uploaded file is never changed. To revise one, create a document and
-    pass its id as source_id.
+    An uploaded file is never changed, and a file somebody attached is
+    private — a document made from one cannot be shared with the team, so
+    answer about it in the conversation instead. source_id links a document to
+    another SHARED artifact it was made from.
 
     Args:
         artifact_id: The id of the document to change.

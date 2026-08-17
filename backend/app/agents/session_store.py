@@ -104,9 +104,11 @@ def _without_attachment_bytes(payload: dict) -> dict:
 
     So the bytes are a property of ONE turn, and the history keeps a name. The
     agent re-reads the file through its own tool when a later turn needs it.
-    Redacted HERE rather than at the call site because this is the single
-    point every message the SDK persists passes through, including the ones
-    the summarizing conversation manager rewrites.
+    Applied by BOTH writers. create_message is the ordinary path; update_message
+    is the one a guardrail takes — RepositorySessionManager.redact_latest_message
+    rewrites the latest message in place, and that message still holds the
+    original attachment blocks. Redacting only on create put the whole file into
+    the row on exactly the event that exists to remove content.
     """
     content = payload.get("message", {}).get("content")
     if not isinstance(content, list):
@@ -216,7 +218,7 @@ class DatabaseSessionRepository(SessionRepository):
             "UPDATE session_messages SET payload = ?"
             " WHERE session_id = ? AND agent_id = ? AND message_id = ?",
             (
-                json.dumps(session_message.to_dict()),
+                json.dumps(_without_attachment_bytes(session_message.to_dict())),
                 session_id,
                 agent_id,
                 session_message.message_id,

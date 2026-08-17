@@ -480,6 +480,33 @@ if EFFECTIVE_PROVIDER != "mock" and not MODEL_ID:
     EFFECTIVE_PROVIDER, MODEL_ID = "mock", "mock"
 
 
+# Which DOCUMENT formats a provider's own API accepts, where that is narrower
+# than the kind. Absent = every format uploads.DOCUMENTS allows.
+#
+# The capability above is per KIND, and a provider's document support is per
+# FORMAT: anthropic's API takes application/pdf and text/plain, the openai file
+# part takes pdf, and bedrock's Converse takes the whole DocumentFormat enum.
+# A csv sent as a document block to anthropic is the same turn-killing 400
+# attachment_support exists to prevent, one level down — so routes/chat.py asks
+# both questions. Text formats never need this: they inline as prose.
+_PROVIDER_DOCUMENT_FORMATS: dict[str, frozenset[str]] = {
+    "anthropic": frozenset({"pdf", "txt"}),
+    "openai": frozenset({"pdf"}),
+    "openai_compatible": frozenset({"pdf"}),
+}
+
+
+def document_formats() -> frozenset[str] | None:
+    """The document formats this provider accepts, or None for no restriction.
+
+    None rather than "every format": the full list lives in
+    services/uploads.py::DOCUMENTS, and config may not import a service — the
+    dependency runs the other way. The caller already knows the format it
+    holds, so it only needs to be told when the provider is narrower.
+    """
+    return _PROVIDER_DOCUMENT_FORMATS.get(EFFECTIVE_PROVIDER)
+
+
 def attachment_support(model_id: str = "") -> tuple[str, ...]:
     """What a chat attachment may become for the model actually in use.
 

@@ -118,6 +118,23 @@ class ChatRequest(BaseModel):
 # rather than a line saying one was attached.
 _TEXT_FORMATS = {"txt", "md", "csv", "html"}
 _TEXT_INLINE_CHARS = 20_000
+# Bedrock refuses a document name outside this set; the other providers do not
+# care. One sanitizer rather than a per-provider branch — chat.py may not ask
+# which provider it is talking to.
+_DOC_NAME_OK = re.compile(r"[^A-Za-z0-9 \[\]()-]")
+
+
+def _document_name(title: str, artifact_id: int) -> str:
+    """A document name every provider accepts, never empty.
+
+    Bedrock's DocumentBlock allows alphanumerics, single spaces, hyphens,
+    parentheses and square brackets — a plain `report.pdf` is a
+    ValidationException that kills the turn. The id is the fallback so the
+    model always has something to refer to.
+    """
+    cleaned = _DOC_NAME_OK.sub(" ", title)
+    cleaned = " ".join(cleaned.split())
+    return cleaned or f"attachment {artifact_id}"
 
 
 def _attachment_prompt(
@@ -134,6 +151,8 @@ def _attachment_prompt(
     # an image while the model it serves refuses one, and that mismatch is a
     # 400 that kills the turn rather than a weaker answer (config.py)
     accepted = config.attachment_support(model_id)
+    # None = this provider restricts nothing; otherwise the formats it takes
+    document_formats = config.document_formats()
     blocks: list[dict] = []
     titles: list[str] = []
     # dict.fromkeys, not set(): the same file named twice costs one copy and
@@ -144,14 +163,17 @@ def _attachment_prompt(
         fmt = Path(row["path"]).suffix.lstrip(".").lower()
         media = "image" if fmt in uploads.IMAGES else "document"
         titles.append(row["title"])
-        if media in accepted:
-            if media == "image":
-                blocks.append({"image": {"format": fmt, "source": {"bytes": data}}})
-            else:
-                blocks.append(
-                    {"document": {"format": fmt, "name": row["title"], "source": {"bytes": data}}}
-                )
+        if media == "image" and media in accepted:
+            blocks.append({"image": {"format": fmt, "source": {"bytes": data}}})
             continue
+        # TEXT BEFORE the document block, and the format checked as well as the
+        # kind. A provider's document support is per FORMAT, not per kind:
+        # anthropic takes pdf and plain text, the openai file part takes pdf
+        # only, and bedrock's Converse takes them all — so `csv` sent as a
+        # document block to anthropic is the same turn-killing 400 that
+        # config.attachment_support exists to prevent, one level down. Text
+        # formats inline as prose on every provider, which is both safe and a
+        # better answer than a refused request.
         if fmt in _TEXT_FORMATS:
             text = data.decode("utf-8", errors="replace")[:_TEXT_INLINE_CHARS]
             # LABELLED, the same shape the flock bridge uses for the same
@@ -196,6 +218,25 @@ def _attachment_prompt(
                     }
                 )
                 continue
+        if (
+            media == "document"
+            and media in accepted
+            and (document_formats is None or fmt in document_formats)
+        ):
+            blocks.append(
+                {
+                    "document": {
+                        "format": fmt,
+                        # bedrock's DocumentBlock name refuses a period and
+                        # most punctuation (ValidationException), and the
+                        # title is a person's filename — so the model is told
+                        # the name through a field that accepts one
+                        "name": _document_name(row["title"], artifact_id),
+                        "source": {"bytes": data},
+                    }
+                }
+            )
+            continue
         # Named, not dropped: the person can see the file reached the turn and
         # that this deployment's provider cannot open it.
         blocks.append(
@@ -1169,8 +1210,11 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
     persona_model = ""
     if persona and persona not in extension_specialists:
         persona_model = (await run_in_threadpool(personas.behavior, persona))["model"]
+    # model_in_force INSIDE the threadpool call: it reads the admin pick from
+    # the database, and computing it as an argument would run that query on the
+    # event loop this route is careful to keep clear.
     prompt, attached = await run_in_threadpool(
-        _attachment_prompt, message, req.attachments, user, model_in_force(persona_model)
+        lambda: _attachment_prompt(message, req.attachments, user, model_in_force(persona_model))
     )
     try:
         # threadpool, not inline: build_agent restores the whole session
