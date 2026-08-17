@@ -28,6 +28,11 @@ export default defineConfig({
       command:
         `bash -c 'rm -rf /tmp/skein-e2e && cd ../backend && ` +
         `exec env SKEIN_DATA_DIR=/tmp/skein-e2e SKEIN_MODEL_PROVIDER=mock SKEIN_SCHEDULER=0 ` +
+        // EMBEDDINGS off like the provider is mock, and for the same reason: a
+        // developer's .env turns them on against a live ollama, and one slow
+        // embed call during seeding blows the 60s health budget below — the
+        // deterministic stack must not depend on a live model endpoint
+        `SKEIN_EMBEDDINGS=0 ` +
         `SKEIN_CORS_ORIGINS=${APP} .venv/bin/python ../scripts/e2e-backend.py'`,
       url: `${API}/health`,
       // PW_REUSE: on a host that drops connects to unbound ports (the
