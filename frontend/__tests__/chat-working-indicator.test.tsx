@@ -60,6 +60,23 @@ describe("the working indicator", () => {
     expect(screen.getByText("Thinking…")).toBeTruthy();
   });
 
+  it("does not claim progress after the turn failed", () => {
+    // the Empty slot renders for ANY status: a turn that died before its first
+    // token (backend down, rate cap, 404 thread) showed pulsing dots forever,
+    // claiming progress during exactly the incident that must never be dressed up
+    mocks.messages = [{ role: "user" }];
+    const { container } = render(<WorkingIndicator status={{ type: "incomplete" }} />);
+    expect(container.querySelectorAll(".working-dot")).toHaveLength(0);
+    expect(screen.queryByText("Thinking…")).toBeNull();
+    expect(screen.getByText("The turn ended without a reply.")).toBeTruthy();
+  });
+
+  it("still shows the dots while the turn is running", () => {
+    mocks.messages = [{ role: "user" }];
+    const { container } = render(<WorkingIndicator status={{ type: "running" }} />);
+    expect(container.querySelectorAll(".working-dot")).toHaveLength(3);
+  });
+
   it("announces itself to a screen reader", () => {
     // an empty message is silent to assistive tech, so the state has to be
     // spoken rather than only animated

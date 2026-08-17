@@ -16,6 +16,7 @@ const mermaid = vi.hoisted(() => ({
 vi.mock("mermaid", () => ({ default: mermaid }));
 
 import { ArtifactMarkdown } from "@/components/artifact-markdown";
+import { MermaidDiagram } from "@/components/mermaid-diagram";
 
 const DIAGRAM = ["```mermaid", "graph TD", "  A --> B", "```"].join("\n");
 
@@ -46,6 +47,20 @@ describe("a fence in an artifact body", () => {
     // one bullet, from the line outside the fence — not "A --> B" as well
     expect(container.querySelectorAll("li")).toHaveLength(1);
     expect(screen.getByText("a bullet")).toBeTruthy();
+  });
+
+  it("becomes a diagram after a half-written fence was rejected", async () => {
+    // chat streams the fence token by token, so this component sees every
+    // prefix and mermaid rejects almost all of them. A sticky `failed` pinned
+    // the source fallback and the finished diagram never replaced it.
+    mermaid.render.mockRejectedValueOnce(new Error("Parse error"));
+    const { container, rerender } = render(<MermaidDiagram code="graph T" />);
+    await waitFor(() => expect(container.querySelector("pre")).not.toBeNull());
+    rerender(<MermaidDiagram code="graph TD\n  A --> B" />);
+    await waitFor(() =>
+      expect(container.querySelector("[data-testid='drawn']")).not.toBeNull(),
+    );
+    expect(container.querySelector("pre.sr-only")).not.toBeNull();
   });
 
   it("shows any other fence as literal text", () => {
