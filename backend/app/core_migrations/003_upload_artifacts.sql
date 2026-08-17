@@ -10,10 +10,12 @@
 ALTER TABLE artifacts
 ADD COLUMN mime text NOT NULL DEFAULT '',
 ADD COLUMN size bigint NOT NULL DEFAULT 0,
--- What an agent-written artifact was derived FROM. services/uploads.py floors
--- the derived row's visibility to the source's: without it, an agent asked to
--- summarize a private upload writes the summary at the workspace tier by
--- default, and one workspace holds everyone.
+-- What an agent-written artifact was derived FROM (services/documents.py).
+-- The laundering guard REFUSES a source that is not shared rather than
+-- clamping the new row's tier: a private document would have to carry its
+-- source's owner to stay reachable, and a created_by naming somebody who did
+-- not write it is a worse lie than a refusal. This column records the link
+-- for the sources that are allowed.
 ADD COLUMN derived_from bigint REFERENCES artifacts(id) ON DELETE SET NULL;
 
 CREATE INDEX artifacts_derived_from_idx

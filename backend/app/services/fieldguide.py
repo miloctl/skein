@@ -321,7 +321,12 @@ def detect(person: str) -> int:
 def mark(person: str, knot: str) -> None:
     """Direct tie for read-only features (search, /ask) — fire-and-forget,
     must never break the request it rides on."""
-    with contextlib.suppress(Exception):
+    # savepoint INSIDE the suppress: mark() runs within a caller's ambient
+    # transaction (routes/api.py marks during a read_transaction), and a failed
+    # statement aborts the whole transaction — suppressing the error without
+    # rolling back to a savepoint kills every statement the caller runs after
+    # this one (CLAUDE.md).
+    with contextlib.suppress(Exception), db.savepoint():
         if knot not in PREDICATES:
             # a typo'd knot id in a route would otherwise no-op forever
             log.debug("mark() called with unknown knot %r", knot)

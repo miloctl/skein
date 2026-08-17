@@ -103,6 +103,71 @@ def test_a_document_written_outside_the_root_is_refused(fresh_db):
         documents.edit_document(doc, "root", "pwned", actor="agent")
 
 
+def test_an_approved_document_proposal_actually_applies(fresh_db):
+    """The review applier passes origin="agent_verified" to EVERY registry
+    handler. A service that cannot take it is a TypeError at apply, which the
+    generic handler turns into a pending reset — so the proposal boomerangs in
+    the inbox forever with no path to approval, and the person clicking
+    approve is told nothing. Nothing else covers this: the gate coverage test
+    only exercises the direct-apply path."""
+    from app.main import create_app
+    from app.services import review
+
+    out = review.propose_change(
+        "document",
+        "create",
+        {"title": "Plan", "content": "# Plan\n"},
+        actor="agent",
+    )
+    review.approve_change(
+        out["id"], actor="mira", policy_registry=create_app().state.skein_registry
+    )
+    row = db.query_one("SELECT * FROM artifacts WHERE kind = 'document'")
+    assert row and row["title"] == "Plan"
+    # and the lineage stamp lands: review.py reads result["id"]
+    change = db.query_one(
+        "SELECT result_id, status FROM pending_changes WHERE id = ?", (out["id"],)
+    )
+    assert change["status"] == "approved"
+    assert change["result_id"] == row["id"]
+
+
+def test_an_approved_edit_proposal_actually_applies(fresh_db):
+    doc = documents.create_document("Plan", "alpha beta", actor="agent")["artifact_id"]
+    from app.main import create_app
+    from app.services import review
+
+    out = review.propose_change(
+        "document_edit",
+        "update",
+        {"old": "beta", "new": "delta"},
+        entity_id=doc,
+        actor="agent",
+    )
+    review.approve_change(
+        out["id"], actor="mira", policy_registry=create_app().state.skein_registry
+    )
+    assert handoff.read_artifact(doc, scope.NOBODY)["markdown"] == "alpha delta"
+
+
+def test_a_refused_document_write_leaves_a_receipt_not_a_raw_error(client):
+    """documents.py is the first registry service raising PermissionError from
+    inside the applier. Uncaught by the gate, it escapes as a raw tool error:
+    no receipt in the transcript, and the refusal wording never reaches the
+    model that has to act on it."""
+    import json
+
+    from app.agents import receipts
+    from app.tools import files
+
+    upload_id = _upload(client)
+    receipts.start()
+    fn = getattr(files.create_document, "_tool_func", None) or files.create_document.__wrapped__
+    out = json.loads(fn("Summary", "the plans say...", source_id=upload_id))
+    assert "not shared with the team" in out["error"]
+    assert [r["kind"] for r in receipts.drain()] == ["failed"]
+
+
 def test_the_tool_answers_a_missing_id_instead_of_raising(fresh_db):
     """A tool that raises kills the agent loop, and a model guessing an id is
     the ordinary case (tests/test_gate_coverage.py)."""

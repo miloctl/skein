@@ -70,9 +70,18 @@ def create_document(
     content: str,
     *,
     actor: str = "system",
+    origin: str = "human",
     source_id: int = 0,
     engagement_id: int = 0,
 ) -> dict:
+    """Write a new markdown document.
+
+    `origin` is accepted because services/review.py::_apply passes
+    origin="agent_verified" to EVERY registry applier when a human approves a
+    proposal. Without the parameter that call is a TypeError, the generic
+    handler resets the row to pending, and the proposal boomerangs in the
+    queue forever with no path to approval.
+    """
     _check_content(content)
     _check_source(source_id)
     clean_title = title.strip()[:TITLE_LIMIT] or "Untitled document"
@@ -101,11 +110,23 @@ def create_document(
         db.execute("UPDATE artifacts SET path = ? WHERE id = ?", (str(path), artifact_id))
         path.write_text(content, encoding="utf-8")
         db.log_activity(actor, "create_document", f"artifact #{artifact_id} {clean_title}")
-        return {"artifact_id": artifact_id, "title": clean_title, "path": str(path)}
+        # "id" as well as "artifact_id": tools/_gate.py stamps the receipt ref
+        # from result["id"] and review.py stamps the proposal's lineage from
+        # it. Absent, both silently become 0 — a receipt with no reference is
+        # dropped from the transcript rather than reported wrong.
+        return {"id": artifact_id, "artifact_id": artifact_id, "title": clean_title}
 
 
 def _document_row(artifact_id: int) -> dict:
-    row = db.query_one("SELECT * FROM artifacts WHERE id = ?", (artifact_id,))
+    """The document row, held for the caller's transaction.
+
+    FOR UPDATE because edit_document reads the FILE, decides from what it
+    finds, and writes it back: two edits of one document otherwise both read
+    the old body and the second silently discards the first. The row is the
+    only thing both paths share, so holding it serializes them (CLAUDE.md,
+    "a read whose RESULT decides a later write must hold something").
+    """
+    row = db.query_one("SELECT * FROM artifacts WHERE id = ? FOR UPDATE", (artifact_id,))
     if not row:
         raise scope.missing("artifacts", artifact_id)
     if row["kind"] != "document":
@@ -114,7 +135,7 @@ def _document_row(artifact_id: int) -> dict:
         # — the revision path is a new document carrying derived_from.
         raise PermissionError(
             f"artifact #{artifact_id} was not written by an agent, so it cannot be changed."
-            " Create a document from it instead."
+            " If it is a file somebody attached, answer in the conversation instead."
         )
     return row
 
@@ -141,8 +162,12 @@ def _document_path(row: dict) -> Path:
     return path
 
 
-def edit_document(artifact_id: int, old: str, new: str, *, actor: str = "system") -> dict:
+def edit_document(
+    artifact_id: int, old: str, new: str, *, actor: str = "system", origin: str = "human"
+) -> dict:
     """Replace one exact run of text in a document.
+
+    `origin` is the review applier's contract — see create_document above.
 
     A whole-body rewrite would let a model that read half a file replace all
     of it, so the edit states what it expects to find. A match that is not
@@ -172,4 +197,4 @@ def edit_document(artifact_id: int, old: str, new: str, *, actor: str = "system"
             (len(updated.encode("utf-8")), artifact_id),
         )
         db.log_activity(actor, "edit_document", f"artifact #{artifact_id} {row['title']}")
-        return {"artifact_id": artifact_id, "title": row["title"]}
+        return {"id": artifact_id, "artifact_id": artifact_id, "title": row["title"]}

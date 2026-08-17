@@ -230,7 +230,13 @@ def _gated_write_locked(
             # whole transaction otherwise.
             with db.savepoint():
                 result = direct()
-        except ValueError as exc:
+        # PermissionError as well as ValueError, and for the same reason the
+        # policy-context catch above takes both: services/documents.py raises
+        # it for the laundering guard and for an upload an agent may not
+        # rewrite. Uncaught, it escapes the gate as a raw tool error — no
+        # receipt in the transcript, and the refusal wording never reaches the
+        # model that has to act on it.
+        except (ValueError, PermissionError) as exc:
             receipts.record("failed", entity, str(exc), actor=actor)
             return json.dumps({"error": str(exc)})
         receipts.record(

@@ -274,9 +274,14 @@ def delete_upload(artifact_id: int, owner: str) -> dict:
         row = owned_upload(artifact_id, owner)
         path = _contained_path(row)
         db.execute("DELETE FROM artifacts WHERE id = ?", (artifact_id,))
+        # AFTER COMMIT: unlinking inside the transaction destroys the file for
+        # good if anything later in it raises, leaving the row restored and
+        # pointing at nothing. The row is the record, so the file goes only
+        # once the row's removal is final.
+        #
         # missing_ok: a row whose file is already gone (a restored database
         # beside an empty volume) is exactly the row somebody needs to delete
         # to free a stuck quota. Refusing it there would trap them.
-        path.unlink(missing_ok=True)
+        db.on_commit(lambda: path.unlink(missing_ok=True))
         db.log_activity(owner, "delete_file", f"artifact #{artifact_id} ({row['size']} bytes)")
         return {"id": artifact_id, "deleted": True}
