@@ -196,6 +196,28 @@ this file is only for accepted trade-offs that must eventually be repaid.
   the field-guide entry above records, closing the same way with api-key or
   oidc.
 
+- **Two model calls are unmetered, and a command turn drops its
+  attachments.** Both surfaced in the 2026-08-16 branch review and are
+  deliberately not fixed there.
+
+  `agents/team_agent.py::describe_image` builds its own Agent, so the vision
+  sidecar's tokens never reach `usage_log` — `/api/usage` under-reports every
+  deployment that describes images. The summarizer carries the identical
+  exclusion for the identical reason (the call sits outside the agent's own
+  metrics), and both are now documented in docs/FEATURES.md. Repay by giving
+  `record_chat_usage` a path for a call that is not the turn's own agent, then
+  metering the summarizer and the sidecar together — one mechanism, or the
+  next helper model repeats this a third time.
+
+  A slash-command or flock turn returns before `_attachment_prompt`
+  (`routes/chat.py`), so `req.attachments` is ignored: the file uploaded, it
+  counts against the quota, and neither the model nor the transcript ever
+  hears about it. The composer does not stop a person attaching a file to
+  `/briefing`. Not fixed because the right behavior is a product decision, not
+  a repair — refuse the send, warn and send anyway, or let a command consume
+  attachments — and guessing inside a fix pass is how a wrong answer gets
+  pinned by a test. Decide, then implement the decision.
+
 Decided against, so the next review does not re-open them: Postgres (wrong
 scale — the services layer keeps the door open), Redis-backed rate limits
 (per-pod buckets are fine at one replica), a migration framework (the
