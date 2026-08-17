@@ -23,9 +23,12 @@ export function MermaidDiagram({ code }: { code: string }) {
   // useId carries colons, which are not legal in the DOM id mermaid assigns
   const id = useId().replace(/:/g, "");
   // The wrapper is rendered on every path, so this ref is attached before the
-  // effect runs. Reading the palette off the element (rather than off
-  // document.documentElement) is what lets a theme pack or colorway change
-  // repaint the diagram with the page instead of against it.
+  // effect runs, and the palette is read off the element rather than off
+  // document.documentElement — so a diagram picks up the theme pack and
+  // colorway in force WHEN IT RENDERS. It does not repaint on a later theme
+  // change: the effect keys on the code, and an already-drawn diagram keeps
+  // its colors until the thread remounts. Deliberate — a theme subscription
+  // for a redraw nobody waits on is not worth the wiring.
   const host = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -54,7 +57,15 @@ export function MermaidDiagram({ code }: { code: string }) {
           },
         });
         const out = await mermaid.render(`m${id}`, code);
-        if (!cancelled) setSvg(out.svg);
+        if (!cancelled) {
+          setSvg(out.svg);
+          // CLEARED, not just set: in chat this component sees every
+          // half-written prefix of a streaming fence, and mermaid rejects
+          // almost all of them. Left sticky, the first rejected prefix pinned
+          // the fallback and the finished diagram never replaced it — every
+          // streamed diagram stayed source forever.
+          setFailed(false);
+        }
       })
       .catch(() => {
         if (!cancelled) setFailed(true);

@@ -22,6 +22,9 @@ import { outgoing } from "@/lib/persona";
 const ACCEPT =
   ".pdf,.csv,.doc,.docx,.xls,.xlsx,.html,.txt,.md,.png,.jpg,.jpeg,.gif,.webp";
 
+// routes/chat.py::ChatRequest.attachments carries the same cap
+const MAX_ATTACHMENTS = 5;
+
 /** Uploads the file when the message is SENT, not when it is picked.
  *
  *  Picking would leave a stored file behind for every attachment a person
@@ -35,11 +38,27 @@ const ACCEPT =
  *  block the BACKEND builds from the id, so the bytes never travel through
  *  the browser's message state or the stored transcript. */
 function makeAttachmentAdapter(): AttachmentAdapter {
+  // add() runs per picked file and send() per sent one, so the composer's own
+  // count is not visible here — this tracks what has been staged since the
+  // adapter was built (one per thread, RuntimeProvider's useMemo).
+  let count = 0;
   return {
     accept: ACCEPT,
     async add({ file }) {
+      if (count >= MAX_ATTACHMENTS) {
+        // refused HERE, not by the backend: ChatRequest caps attachments at 5,
+        // and a sixth would upload (spending quota), then 422 the whole turn
+        // with the pydantic detail lost
+        const refused = `Attach ${MAX_ATTACHMENTS} files at most in one message.`;
+        reportStatus(refused);
+        throw new Error(refused);
+      }
+      count += 1;
       return {
-        id: `pending-${file.name}-${file.size}`,
+        // randomUUID, not name+size: the composer upserts by id, so two files
+        // that share a name and a size (two data.csv exports) collapsed into
+        // one and the first was silently dropped from the send
+        id: `pending-${crypto.randomUUID()}`,
         type: "document",
         name: file.name,
         contentType: file.type,
@@ -67,12 +86,24 @@ function makeAttachmentAdapter(): AttachmentAdapter {
         } catch {
           /* non-JSON body: fall through to the status line */
         }
-        // thrown, not reported: assistant-ui keeps the composer's draft when
-        // send() rejects, so the message the person typed survives a refused
-        // attachment instead of being sent without it
-        throw new Error(detail || `The file was not attached (${res.status}).`);
+        // REPORTED as well as thrown. Throwing is what keeps the composer's
+        // draft (aui restores text and attachments when send() rejects), but
+        // the rejection then travels into useComposerSend's fire-and-forget
+        // call and dies unhandled — so the backend's usable sentence ("the
+        // file is larger than 8 MB") reached the console and nowhere a person
+        // looks.
+        const said = detail || `The file was not attached (${res.status}).`;
+        reportStatus(said);
+        throw new Error(said);
       }
       const stored = await res.json();
+      // this attachment is leaving the composer, so it frees its slot. Only on
+      // success: a refused upload stays in the restored draft.
+      // ponytail: a partial failure (one of three refused) under-counts and
+      // lets a later message stage a sixth, which the backend then refuses
+      // with a sentence the person can now read. Track the composer's own list
+      // if that ever matters.
+      count = Math.max(0, count - 1);
       return {
         ...attachment,
         id: String(stored.id),
@@ -82,7 +113,9 @@ function makeAttachmentAdapter(): AttachmentAdapter {
       };
     },
     async remove() {
-      // nothing is stored until send(), so there is nothing to take back
+      // nothing is stored until send(), so there is nothing to take back —
+      // only the staged count, so a removed file frees its slot
+      count = Math.max(0, count - 1);
     },
   };
 }

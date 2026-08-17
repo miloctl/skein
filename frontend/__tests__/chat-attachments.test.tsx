@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *  capture is the real code. */
 
 const mocks = vi.hoisted(() => ({
+  reportStatus: vi.fn(),
   bearer: vi.fn(),
   chatThreads: vi.fn(),
   api: vi.fn(),
@@ -54,7 +55,7 @@ vi.mock("@/lib/auth", () => ({
   accessTokenSync: () => "",
   sessionRejected: vi.fn(),
 }));
-vi.mock("@/lib/status", () => ({ reportStatus: vi.fn() }));
+vi.mock("@/lib/status", () => ({ reportStatus: mocks.reportStatus }));
 vi.mock("@/lib/chat-threads", () => ({ chatThreads: mocks.chatThreads }));
 vi.mock("@/lib/persona", () => ({ outgoing: (t: string) => t }));
 
@@ -117,6 +118,41 @@ describe("attaching a file", () => {
     await expect(attachments.send({ file, name: "payload.svg" })).rejects.toThrow(
       /cannot be attached/,
     );
+  });
+
+  it("tells the person why a refused upload did not attach", async () => {
+    // throwing keeps the draft, but the rejection then dies unhandled inside
+    // aui's fire-and-forget send — so the backend's usable sentence reached
+    // the console and nowhere a person looks
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ detail: "the file is larger than 8 MB." }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const { attachments } = adapters();
+    const file = new File(["x"], "big.pdf", { type: "application/pdf" });
+    await expect(attachments.send({ file, name: "big.pdf" })).rejects.toThrow();
+    expect(mocks.reportStatus).toHaveBeenCalledWith("the file is larger than 8 MB.");
+  });
+
+  it("gives every staged file its own id", async () => {
+    // the composer upserts by id, so two files sharing a name and size (two
+    // data.csv exports) collapsed into one and the first never sent
+    const { attachments } = adapters();
+    const a = await attachments.add({ file: new File(["x"], "data.csv", { type: "text/csv" }) });
+    const b = await attachments.add({ file: new File(["x"], "data.csv", { type: "text/csv" }) });
+    expect(a.id).not.toBe(b.id);
+  });
+
+  it("refuses a sixth file rather than spending quota on a turn that 422s", async () => {
+    const { attachments } = adapters();
+    for (let i = 0; i < 5; i++) {
+      await attachments.add({ file: new File(["x"], `f${i}.md`, { type: "text/markdown" }) });
+    }
+    await expect(
+      attachments.add({ file: new File(["x"], "sixth.md", { type: "text/markdown" }) }),
+    ).rejects.toThrow(/5 files at most/);
   });
 
   it("sends the ids to the chat route, not the file content", async () => {

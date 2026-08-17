@@ -47,6 +47,7 @@ export function AttachedFilesCard() {
   const [confirming, setConfirming] = useState<number | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
   const triggers = useRef(new Map<number, HTMLButtonElement | null>());
+  const heading = useRef<HTMLParagraphElement>(null);
 
   // the generation guard components/crews-card.tsx uses: a slow first load
   // resolving after a delete-triggered reload would put the deleted file back
@@ -101,6 +102,10 @@ export function AttachedFilesCard() {
       await api(`/api/files/${file.id}`, { method: "DELETE" });
       setConfirming(null);
       load();
+      // the focused "Delete for good" button disappears with its row, which
+      // drops focus to <body> and loses a keyboard reader's place. The heading
+      // is the nearest thing that still exists after any row goes.
+      setTimeout(() => heading.current?.focus(), 0);
       reportStatus(`${file.title} is deleted.`, "confirmation");
     } catch (e) {
       setError(actionError(e));
@@ -114,7 +119,7 @@ export function AttachedFilesCard() {
 
   return (
     <Section title="Attached files">
-      <p className="mb-2 text-sm text-ink-3">
+      <p ref={heading} tabIndex={-1} className="mb-2 text-sm text-ink-3">
         Files you attached to a chat message. Only you can read them, and they
         stay until you delete them.
       </p>
@@ -154,6 +159,7 @@ export function AttachedFilesCard() {
             <span className="shrink-0 text-xs text-ink-3">{size(file.size)}</span>
             <button
               onClick={() => download(file)}
+              aria-label={`Download ${file.title}`}
               className="shrink-0 text-xs underline text-ink-2"
             >
               Download

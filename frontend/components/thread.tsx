@@ -12,6 +12,7 @@ import {
   MessagePrimitive,
   AttachmentPrimitive,
   ComposerPrimitive,
+  useAttachment,
   useComposer,
   useComposerRuntime,
   useThread,
@@ -53,11 +54,22 @@ const InertImage = ({ src, alt }: ComponentPropsWithoutRef<"img">) => (
  *  page that imitates it. react-markdown's defaultUrlTransform already drops a
  *  javascript: href before this renders. The underline is the only thing that
  *  marks a link here — prose-chat gives `a` no color of its own. */
-const SafeLink = ({ href, children }: ComponentPropsWithoutRef<"a">) => (
-  <a href={href} target="_blank" rel="noopener noreferrer" className="underline">
-    {children}
-  </a>
-);
+const SafeLink = ({ href, children }: ComponentPropsWithoutRef<"a">) => {
+  // A RELATIVE href is one of ours — the receipt line's own [open in Inbox]
+  // (/review) is the common one, and sending that to a new tab spawns a second
+  // copy of the app instead of navigating. window.opener is not reachable
+  // same-origin anyway, so the guard buys nothing there.
+  const external = /^[a-z][a-z0-9+.-]*:/i.test(href ?? "");
+  return (
+    <a
+      href={href}
+      className="underline"
+      {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+    >
+      {children}
+    </a>
+  );
+};
 
 // hoisted: a components object built inline remounts every node on each token
 // of a streaming message
@@ -88,19 +100,24 @@ export const MarkdownText = () => (
  *  filename the uploader chose, so it is rendered as text and never as a
  *  link — services/uploads.py strips the control and bidi characters that
  *  would let it disguise itself, and nothing here re-introduces markup. */
-const AttachmentChip = () => (
+const AttachmentChip = () => {
+  // the NAME in the label: with two files staged, "Remove this file" on both
+  // leaves a screen-reader user unable to tell which one they are removing
+  const name = useAttachment((a) => a.name);
+  return (
   <AttachmentPrimitive.Root className="mb-1.5 mr-1.5 inline-flex max-w-full items-center gap-1.5 rounded-lg border border-line-strong bg-raised py-1 pl-2 pr-1 text-xs text-ink-2">
     <span className="truncate">
       <AttachmentPrimitive.Name />
     </span>
     <AttachmentPrimitive.Remove
-      aria-label="Remove this file"
+      aria-label={`Remove ${name}`}
       className="flex min-h-6 min-w-6 items-center justify-center rounded leading-none hover:bg-card"
     >
       <span aria-hidden>×</span>
     </AttachmentPrimitive.Remove>
   </AttachmentPrimitive.Root>
-);
+  );
+};
 
 /** The same chip on a message already sent, where there is nothing to remove. */
 const SentAttachmentChip = () => (
@@ -133,12 +150,22 @@ const UserMessage = () => (
  *  is derived from the thread's own last user message, so no backend frame and
  *  nothing in the stored transcript carries it.
  *
+ *  The Empty slot renders for ANY status, not only while running — so a turn
+ *  that died before its first token (backend down, rate cap, a 404 thread)
+ *  showed pulsing dots and "Thinking…" forever, claiming progress during
+ *  exactly the incident the copy rules say must never be dressed up. The
+ *  status the slot passes is what tells the two apart.
+ *
  *  Exported for __tests__/chat-working-indicator.test.tsx. */
-export const WorkingIndicator = () => {
+export const WorkingIndicator = ({ status }: { status?: { type: string } }) => {
   const readingFile = useThread((t) => {
     const last = [...t.messages].reverse().find((m) => m.role === "user");
     return (last?.attachments?.length ?? 0) > 0;
   });
+  if (status && status.type !== "running")
+    return (
+      <p className="text-sm text-ink-3">The turn ended without a reply.</p>
+    );
   return (
     <p className="flex items-center gap-2 text-sm text-ink-3">
       <span aria-hidden className="flex gap-1">
