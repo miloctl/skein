@@ -18,6 +18,7 @@ MENU = {
         "context_tokens": 200_000,
         "price": (15.0, 75.0),
         "params": {"temperature": 0.6},
+        "attachments": None,
     },
     "mini": {
         "id": "mini",
@@ -27,6 +28,7 @@ MENU = {
         "context_tokens": None,
         "price": None,
         "params": {},
+        "attachments": None,
     },
 }
 
@@ -37,9 +39,21 @@ def real_provider(monkeypatch):
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "anthropic")
     monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
     monkeypatch.setattr(config, "MODEL_ID", "env-default")
+    monkeypatch.setattr(config, "MODEL_ID_SOURCE", "env", raising=False)
+    monkeypatch.setattr(config, "MODEL_PROVIDER_SOURCE", "env", raising=False)
+    monkeypatch.setattr(config, "MAX_TOKENS_SOURCE", "env", raising=False)
+    monkeypatch.setattr(config, "CONTEXT_STRATEGY_SOURCE", "default", raising=False)
     monkeypatch.setattr(config, "MODEL_API_KEY", "sk-test")
+    monkeypatch.setattr(config, "MODEL_PARAMS", {})
+    monkeypatch.setattr(config, "MODEL_PARAMS_SOURCE", "unset", raising=False)
+    monkeypatch.setattr(config, "MODEL_PRICES", {})
+    monkeypatch.setattr(config, "MODEL_PRICES_ERROR", "")
+    monkeypatch.setattr(config, "MODEL_PRICE_TABLE_ERROR", "", raising=False)
+    monkeypatch.setattr(config, "MODEL_PRICES_SOURCE", "unset", raising=False)
     monkeypatch.setattr(config, "MODELS", dict(MENU))
+    monkeypatch.setattr(config, "MODELS_SOURCE", "file", raising=False)
     monkeypatch.setattr(config, "MODELS_ERROR", "")
+    monkeypatch.setattr(config, "VISION_MODEL", "")
 
 
 def test_a_pick_becomes_the_effective_model(fresh_db, real_provider):
@@ -145,20 +159,28 @@ def test_the_entry_cap_beats_the_global_params_on_the_merge_branches(
     fresh_db, real_provider, monkeypatch
 ):
     """On ollama and bedrock the registry entry's typed fields ride the same
-    merge as SKEIN_MODEL_PARAMS — layered wrong, a global max_tokens silently
-    beats the per-model cap and one registry entry means different things per
-    provider. The anthropic branch passes the cap as a constructor kwarg, so
-    only the merge branches can invert it."""
+    merge as SKEIN_MODEL_PARAMS. Layered wrong, a global max_tokens silently
+    beats the per-model cap. test_model_providers.py pins the equivalent
+    Anthropic request-body merge."""
     monkeypatch.setattr(config, "MODEL_PROVIDER", "ollama")
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
     monkeypatch.setattr(config, "MODEL_PARAMS", {"max_tokens": 512})
+    monkeypatch.setattr(config, "MODEL_PARAMS_SOURCE", "inline")
     settings.set_model_pick("opus", actor="admin")
     cfg = team_agent._model().get_config()
     assert cfg["max_tokens"] == 8192
     assert cfg["context_window_limit"] == 200_000
+    assert _row(settings.model_configuration_summary(), "output_cap")["value"] == "8,192 tokens"
     # and the global knob still wins for an entry that sets no cap — that is
     # the documented "params reach what we did not model" contract
     assert team_agent._model(model_id="mini").get_config()["max_tokens"] == 512
+    settings.set_model_pick("mini", actor="admin")
+    assert _row(settings.model_configuration_summary(), "output_cap") == {
+        "id": "output_cap",
+        "label": "Output cap",
+        "value": "Set in parameters (value hidden)",
+        "source": "SKEIN_MODEL_PARAMS",
+    }
 
 
 def test_the_env_default_outside_the_menu_warns_on_health(fresh_db, real_provider):
@@ -198,6 +220,25 @@ def test_the_status_and_health_surfaces_report_the_effective_model(fresh_db, rea
     assert client.get("/api/health").json()["model"] == "opus"
 
 
+def test_health_reports_which_tier_the_model_came_from(fresh_db, real_provider, client):
+    """An operator reading a model they did not put in the ConfigMap needs to
+    know a pick is in force before they go looking for the typo in env."""
+    assert client.get("/api/health").json()["model_origin"] == "env"
+    settings.set_model_pick("opus", actor="admin")
+    assert client.get("/api/health").json()["model_origin"] == "admin"
+
+
+def test_an_ignored_pick_reports_the_env_origin(fresh_db, real_provider, client, monkeypatch):
+    """The origin names where the REPORTED value came from. A pick the
+    deployment stopped honoring leaves the env default in force, and calling
+    that "admin" sends the operator to the wrong surface."""
+    settings.set_model_pick("opus", actor="admin")
+    monkeypatch.setattr(config, "MODELS", {"mini": config.MODELS["mini"]})
+    got = client.get("/api/health").json()
+    assert got["model_origin"] == "env"
+    assert got["model"] == config.MODEL_ID
+
+
 def test_mock_reports_no_model_on_status(fresh_db, client):
     """The strip must never make mock mode look like a live model."""
     assert client.get("/api/agents/status").json()["model"] == ""
@@ -210,6 +251,149 @@ def test_the_get_serves_the_menu_without_entry_params(fresh_db, real_provider, c
     assert {m["id"] for m in got["menu"]} == {"opus", "mini"}
     assert all("params" not in m for m in got["menu"])
     assert got["applies"] is True
+
+
+def _row(summary: dict, row_id: str) -> dict:
+    return next(row for row in summary["rows"] if row["id"] == row_id)
+
+
+def test_the_summary_reports_the_team_default_from_one_state(fresh_db, real_provider):
+    settings.set_model_pick("opus", actor="admin")
+    summary = settings.model_configuration_summary()
+
+    assert summary["scope"] == "team_default"
+    assert summary["note"] == (
+        "This is the team default. Persona overrides can use a different model or parameters."
+    )
+    assert [row["id"] for row in summary["rows"]] == [
+        "provider",
+        "model",
+        "output_cap",
+        "attachments",
+        "vision_sidecar",
+        "long_chat",
+        "model_menu",
+        "prices",
+        "parameters",
+    ]
+    assert _row(summary, "provider") == {
+        "id": "provider",
+        "label": "Provider",
+        "value": "anthropic",
+        "source": "SKEIN_MODEL_PROVIDER",
+    }
+    assert _row(summary, "model")["value"] == "opus"
+    assert _row(summary, "model")["source"] == "Settings → Model (team)"
+    assert _row(summary, "output_cap")["value"] == "8,192 tokens"
+    assert _row(summary, "output_cap")["source"] == "selected model entry"
+    assert _row(summary, "attachments")["value"] == "Direct: image, document. Images: direct."
+    assert _row(summary, "vision_sidecar")["value"] == "Not set"
+    assert _row(summary, "long_chat")["value"] == "sliding"
+    assert _row(summary, "model_menu")["value"] == "2 models"
+    assert _row(summary, "model_menu")["source"] == "SKEIN_MODELS_FILE"
+    assert _row(summary, "prices")["source"] == "selected model entry"
+    assert _row(summary, "parameters")["value"] == "1 parameter"
+    assert _row(summary, "parameters")["source"] == "selected model entry"
+
+
+def test_the_summary_names_sidecar_and_direct_image_modes(fresh_db, real_provider, monkeypatch):
+    monkeypatch.setattr(config, "MODEL_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_ID", "mini")
+    monkeypatch.setattr(config, "VISION_MODEL", "qwen3.5:cloud")
+    monkeypatch.setattr(config, "MODELS", {"mini": {**MENU["mini"], "attachments": ()}})
+
+    summary = settings.model_configuration_summary()
+    assert _row(summary, "attachments")["value"] == "Direct: none. Images: vision sidecar."
+    assert _row(summary, "vision_sidecar")["value"] == "qwen3.5:cloud"
+    assert _row(summary, "vision_sidecar")["source"] == "SKEIN_VISION_MODEL"
+
+    monkeypatch.setattr(config, "MODELS", {"mini": {**MENU["mini"], "attachments": ("image",)}})
+    summary = settings.model_configuration_summary()
+    assert _row(summary, "attachments")["value"] == "Direct: image. Images: direct."
+    assert _row(summary, "vision_sidecar")["value"] == ("qwen3.5:cloud (not used for team default)")
+
+
+def test_the_summary_never_guesses_an_output_cap(fresh_db, real_provider, monkeypatch):
+    monkeypatch.setattr(config, "MODEL_PROVIDER", "openai")
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "openai")
+    got = _row(settings.model_configuration_summary(), "output_cap")
+    assert got["value"] == "Managed through provider parameters"
+    assert got["source"] == "provider capability"
+
+    monkeypatch.setattr(config, "MODEL_PROVIDER", "anthropic")
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "anthropic")
+    monkeypatch.setattr(config, "MODEL_PARAMS", {"max_tokens": 512})
+    monkeypatch.setattr(config, "MODEL_PARAMS_SOURCE", "inline")
+    got = _row(settings.model_configuration_summary(), "output_cap")
+    assert got["value"] == "Set in parameters (value hidden)"
+    assert got["source"] == "SKEIN_MODEL_PARAMS"
+
+
+def test_the_summary_counts_parameters_without_exposing_them(fresh_db, real_provider, monkeypatch):
+    monkeypatch.setattr(
+        config,
+        "MODEL_PARAMS",
+        {
+            "api_key": "sk-secret-value",
+            "base_url": "https://private.invalid/v1",
+            "path": "/private/model/settings.yaml",
+        },
+    )
+    monkeypatch.setattr(config, "MODEL_PARAMS_SOURCE", "file")
+    summary = settings.model_configuration_summary()
+    text = str(summary)
+
+    assert _row(summary, "parameters")["value"] == "3 parameters"
+    assert _row(summary, "parameters")["source"] == "SKEIN_MODEL_PARAMS_FILE"
+    for hidden in (
+        "api_key",
+        "sk-secret-value",
+        "base_url",
+        "https://private.invalid/v1",
+        "path",
+        "/private/model/settings.yaml",
+    ):
+        assert hidden not in text
+
+
+def test_a_broken_price_file_is_not_reported_as_unset(fresh_db, real_provider, client, monkeypatch):
+    monkeypatch.setattr(config, "MODEL_PRICES_ERROR", "SKEIN_MODEL_PRICES_FILE is not valid YAML.")
+    monkeypatch.setattr(
+        config, "MODEL_PRICE_TABLE_ERROR", "SKEIN_MODEL_PRICES_FILE is not valid YAML."
+    )
+    monkeypatch.setattr(config, "MODEL_PRICES_SOURCE", "file")
+    assert _row(settings.model_configuration_summary(), "prices") == {
+        "id": "prices",
+        "label": "Prices",
+        "value": "Configuration error",
+        "source": "SKEIN_MODEL_PRICES_FILE",
+    }
+    assert client.get("/api/health").json()["model_prices_error"] == config.MODEL_PRICES_ERROR
+
+
+def test_a_bad_budget_does_not_blame_a_valid_unmatched_price_file(
+    fresh_db, real_provider, monkeypatch
+):
+    monkeypatch.setattr(config, "MODEL_PRICES", {"other": (1.0, 2.0)})
+    monkeypatch.setattr(config, "MODEL_PRICES_SOURCE", "file")
+    monkeypatch.setattr(config, "MODEL_PRICE_TABLE_ERROR", "")
+    monkeypatch.setattr(
+        config,
+        "MODEL_PRICES_ERROR",
+        "SKEIN_MONTHLY_BUDGET_USD is not a usable number. The budget rule is off.",
+    )
+    assert _row(settings.model_configuration_summary(), "prices") == {
+        "id": "prices",
+        "label": "Prices",
+        "value": "Not set",
+        "source": "",
+    }
+
+
+def test_the_model_endpoint_carries_the_shared_summary(fresh_db, real_provider, client):
+    got = client.get("/api/settings/model").json()
+    assert got["summary"] == settings.model_configuration_summary()
 
 
 def _key(name: str = "operator") -> dict:

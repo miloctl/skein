@@ -3,4 +3,6 @@ data/
 __pycache__/
 *.pyc
 .env
+# local operator settings, beside .env: machine-specific, never the repo's
+*.local.yaml
 *.egg-info/

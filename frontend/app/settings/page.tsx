@@ -53,6 +53,37 @@ type WhoAmI = {
   keys_minted: number;
 };
 
+type ModelSummary = {
+  scope: "team_default";
+  note: string;
+  rows: { id: string; label: string; value: string; source: string }[];
+};
+
+function ModelSummaryBlock({ summary }: { summary: ModelSummary }) {
+  return (
+    <div className="mb-4">
+      <h3 className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+        In force
+      </h3>
+      <p className="mb-2 text-xs text-ink-3">{summary.note}</p>
+      <dl className="overflow-hidden rounded-lg border border-line bg-raised/50">
+        {summary.rows.map((row) => (
+          <div
+            key={row.id}
+            className="grid gap-1 border-b border-line px-3 py-2 last:border-b-0 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-3"
+          >
+            <dt className="text-xs font-medium text-ink-3">{row.label}</dt>
+            <dd className="min-w-0 text-sm text-ink">
+              <span className="block [overflow-wrap:anywhere]">{row.value}</span>
+              {row.source && <span className="block text-xs text-ink-3">{row.source}</span>}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 function CopyLine({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -140,6 +171,7 @@ export default function SettingsPage() {
     menu_error: string;
     applies: boolean;
     provider: string;
+    summary?: ModelSummary;
   };
   const [pick, setPick] = useState<ModelPick | null>(null);
   // three states, the ctx rule above: before the first fetch settles nothing
@@ -172,6 +204,7 @@ export default function SettingsPage() {
   const [tuneDraft, setTuneDraft] = useState<Record<string, string>>({});
   const identityGeneration = useRef(0);
   const adminGeneration = useRef(0);
+  const modelGeneration = useRef(0);
   // `settled` is the knob that was just written, and ONLY its draft is
   // dropped. Clearing the whole map threw away half-typed values on every
   // other knob in the list, with nothing said — a save on knob A silently
@@ -243,24 +276,24 @@ export default function SettingsPage() {
   }, []);
 
   const loadPick = useCallback(() => {
-    const current = adminGeneration.current;
+    const current = modelGeneration.current;
     api<ModelPick>("/api/settings/model")
       .then((r) => {
-        if (current !== adminGeneration.current) return;
+        if (current !== modelGeneration.current) return;
         setPick(r);
         setPickLoadError("");
       })
       .catch((e) => {
-        if (current !== adminGeneration.current) return;
+        if (current !== modelGeneration.current) return;
         setPick(null);
         setPickLoadError(loadError(e)); // routes to backendUnreachable itself
       })
       .finally(() => {
-        if (current === adminGeneration.current) setPickLoaded(true);
+        if (current === modelGeneration.current) setPickLoaded(true);
       });
   }, []);
 
-  // These reads are AdminUser. Losing that capability invalidates both their
+  // These reads are AdminUser. Losing that capability invalidates their
   // controls and the protected values already returned to this browser.
   useEffect(() => {
     const current = ++adminGeneration.current;
@@ -269,22 +302,36 @@ export default function SettingsPage() {
       if (cancelled || current !== adminGeneration.current) return;
       setTunables(null);
       setCtx(null);
-      setPick(null);
       setTuneLoaded(false);
       setCtxLoaded(false);
-      setPickLoaded(false);
       setTuneLoadError("");
       setCtxLoadError("");
-      setPickLoadError("");
       if (!who?.can_administer) return;
       loadTunables();
       loadCtx();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadCtx, loadTunables, who?.can_administer]);
+
+  // The summary is a CurrentUser read. Every signed-in person can inspect the
+  // team default, while the controls below still require AdminUser.
+  useEffect(() => {
+    const current = ++modelGeneration.current;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled || current !== modelGeneration.current) return;
+      setPick(null);
+      setPickLoaded(false);
+      setPickLoadError("");
+      if (!who?.user) return;
       loadPick();
     });
     return () => {
       cancelled = true;
     };
-  }, [loadCtx, loadPick, loadTunables, who?.can_administer]);
+  }, [loadPick, who?.user]);
 
   useEffect(() => {
     api<{ review_gate: boolean }>("/api/agents/status")
@@ -1409,23 +1456,26 @@ export default function SettingsPage() {
 
       <Section title="Model (team)">
         <p className="mb-3 text-sm text-ink-3">
-          The model every chat runs on. Whoever runs the server curates the
-          menu. An administrator with strong identity selects it here. The
-          selection applies to everyone from their next message.
+          This section shows the team-default model configuration. Whoever runs
+          the server curates the menu. An administrator with strong identity
+          selects the team model here. The selection applies to the next message
+          from each person.
           {pick && pick.provider === "mock" && (
             <> No model is connected. This setting is not in use.</>
           )}
         </p>
+        {pick?.summary && <ModelSummaryBlock summary={pick.summary} />}
         {!canAdminister && (
           <p className="text-sm text-ink-3">{adminAccessMessage}</p>
         )}
-        {pickLoaded && !pick && canAdminister && (
+        {pickLoaded && !pick && (
           <p className="text-sm text-ink-3">{pickLoadError}</p>
         )}
-        {pick && pick.menu_error && (
+        {canAdminister && pick && pick.menu_error && (
           <p className="text-sm text-weld">{pick.menu_error}</p>
         )}
-        {pick &&
+        {canAdminister &&
+          pick &&
           !pick.menu_error &&
           pick.menu.length === 0 &&
           pick.provider !== "mock" && (
@@ -1438,7 +1488,7 @@ export default function SettingsPage() {
             visible and clearable even when the menu is gone or faulted —
             those are two of the three ways a pick becomes ignored, and an
             admin who cannot see it cannot account for it */}
-        {pick && (pick.applies || pick.override) && (
+        {canAdminister && pick && (pick.applies || pick.override) && (
           <div className="space-y-2">
             {pick.ignored && pick.override && (
               // the stored pick and the reason it is not honored, both named:

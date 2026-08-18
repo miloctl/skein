@@ -1210,11 +1210,12 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
     persona_model = ""
     if persona and persona not in extension_specialists:
         persona_model = (await run_in_threadpool(personas.behavior, persona))["model"]
-    # model_in_force INSIDE the threadpool call: it reads the admin pick from
-    # the database, and computing it as an argument would run that query on the
-    # event loop this route is careful to keep clear.
+    # One snapshot feeds attachment preparation AND agent construction. A pick
+    # change between two reads can send an image block to the new text-only
+    # model, which answers 400 and kills the turn.
+    resolved_model = await run_in_threadpool(model_in_force, persona_model)
     prompt, attached = await run_in_threadpool(
-        lambda: _attachment_prompt(message, req.attachments, user, model_in_force(persona_model))
+        _attachment_prompt, message, req.attachments, user, resolved_model
     )
     try:
         # threadpool, not inline: build_agent restores the whole session
@@ -1227,6 +1228,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
             viewer=viewer,
             extensions=request.app.state.skein_registry,
             policy_subject=subject,
+            resolved_model=resolved_model,
         )
     except Exception as exc:
         # Provider exceptions can carry request IDs or credential fragments.

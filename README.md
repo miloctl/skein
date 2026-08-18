@@ -216,7 +216,8 @@ the agent's prompt) work keyless, in-app.
   *attribute* automation, and satisfy the shared token gate.
 - **`skein` CLI** (stdlib-only): `pipx install ./cli`, then
   `skein config --url … --key …` and
-  `skein capture|standup|my-day|tasks|blockers|promises|search|ask|attention|week|review|inbox|answer|worklog|absences|eval|context|task start|pr-body`.
+  `skein capture|standup|my-day|tasks|blockers|promises|search|ask|attention|week|review|inbox|answer|worklog|absences|eval|context|model|task start|pr-body`.
+- **`skein model`** — shows the team-default LLM settings and the source of each value. It never shows credentials, URLs, file paths, or parameter values.
 - **`skein eval`** — replays the capture classifier against its labeled
   feedback corpus (`POST /api/feedback`); exits 1 on regressions.
 - **`skein context --write AGENTS.md`** — emits the versioned team context
@@ -279,12 +280,13 @@ Model provider in `backend/.env`:
 | `SKEIN_MODEL_BASE_URL` | endpoint for `openai_compatible`; refused on every other provider | — |
 | `SKEIN_MODEL_API_KEY` | explicit key, overriding the provider-native one | — |
 | `SKEIN_MAX_TOKENS` | output cap — reaches anthropic/ollama/bedrock, **not** the OpenAI family | `4096` |
-| `SKEIN_MODEL_PARAMS` | JSON merged into the provider's params (`temperature`, `max_completion_tokens`, …) | — |
+| `SKEIN_MODEL_PARAMS` | JSON merged into provider parameters (`temperature`, `max_completion_tokens`, …). `model` and `model_id` are refused. Use `SKEIN_MODEL_ID` or the model menu | — |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | credential for the chosen provider | — |
 | `SKEIN_OLLAMA_HOST` | local daemon or `https://ollama.com` | `http://localhost:11434` |
 | `OLLAMA_API_KEY` | only for direct Ollama Cloud (no local daemon) | — |
 | `SKEIN_AGENT_REVIEW` | `1` routes agent writes through /review | `0` |
 | `SKEIN_MODELS` | optional operator-curated model menu; an administrator picks between its entries on Settings → Model (team) — see [docs/FEATURES.md](docs/FEATURES.md) | — |
+| `SKEIN_MODELS_FILE` | reads that menu from a mounted YAML file instead. `SKEIN_MODEL_PRICES_FILE`, `SKEIN_MODEL_PARAMS_FILE` and `SKEIN_MCP_SERVERS_FILE` do the same for their settings. Setting both forms of one setting is a fault, never a silent winner | — |
 
 Default model per provider: `gpt-oss:120b-cloud` (ollama) · `gpt-5` (openai) ·
 `claude-opus-4-8` (anthropic). **`openai_compatible` and `bedrock` have no

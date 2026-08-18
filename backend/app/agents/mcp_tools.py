@@ -2,6 +2,8 @@
 
     SKEIN_MCP_SERVERS='[{"name": "github", "url": "https://api.githubcopilot.com/mcp/", "auth_token": "ghp_..."}]'
 
+SKEIN_MCP_SERVERS_FILE reads the same list from a mounted YAML file instead.
+
 Unconfigured (the default) this returns [] and costs nothing. Clients are
 opened once per process and kept alive so tools stay usable across requests.
 """
@@ -498,7 +500,13 @@ def mcp_tools(reserved_names: set[str] | None = None) -> list:
             return []
         _loading = True
         generation = _generation
-    tools, clients = _connect_servers()
+    try:
+        tools, clients = _connect_servers()
+    except Exception:
+        # _connect_servers isolates each server, but this guard keeps one new
+        # parser/import fault from leaving every later build in `_loading`.
+        log.exception("MCP configuration failed to load — MCP disabled")
+        tools, clients = [], []
     with _lock:
         _loading = False
         if generation == _generation:
@@ -518,6 +526,9 @@ def _connect_servers() -> tuple[list, list]:
     raises: one bad server costs its own tools and a warning, not the agent."""
     tools: list = []
     clients: list = []
+    if config.MCP_SERVERS_ERROR:
+        log.warning("%s MCP disabled", config.MCP_SERVERS_ERROR)
+        return tools, clients
     if not config.MCP_SERVERS:
         return tools, clients
     try:
@@ -530,7 +541,10 @@ def _connect_servers() -> tuple[list, list]:
         log.warning("SKEIN_MCP_SERVERS must be a JSON list — MCP disabled")
         return tools, clients
     seen_servers: set[str] = set()
-    for server in servers:
+    for position, server in enumerate(servers, 1):
+        if not isinstance(server, dict):
+            log.warning("MCP server entry %d is not a JSON object — omitted", position)
+            continue
         try:
             from mcp.client.streamable_http import streamablehttp_client
             from strands.tools.mcp import MCPClient

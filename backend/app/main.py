@@ -33,7 +33,7 @@ from .services import handoff
 from .services.activity import chain_health
 from .services.jobs import JOBS, JobSpec, job_health, run_job
 from .services.personas import unlisted_model_warnings
-from .services.settings import effective_context_strategy, model_pick_state
+from .services.settings import context_strategy_override, model_pick_state
 from .telemetry import setup_telemetry
 
 logging.basicConfig(
@@ -819,6 +819,10 @@ def health(specs: Sequence[JobSpec] = JOBS, settings: AppSettings | None = None)
     from .services.users import identity_ownership_error
 
     selected = settings or AppSettings.from_config()
+    # both read ONCE: a value and its origin must come from the same read, or
+    # a pick landing between two calls reports a model with the wrong tier
+    pick = model_pick_state()
+    strategy_override = context_strategy_override()
     return {
         "ok": True,
         "auth_mode": selected.auth_mode,
@@ -826,9 +830,15 @@ def health(specs: Sequence[JobSpec] = JOBS, settings: AppSettings | None = None)
         "provider": config.MODEL_PROVIDER,
         # the EFFECTIVE model, through the service: with a pick in force,
         # config.MODEL_ID names a model the deployment is not running
-        "model": model_pick_state()["model"],
+        "model": pick["model"],
+        # which TIER the value above came from. Carried for the two settings
+        # that have more than one source, and for no others: this response
+        # reaches every signed-in user, and a per-setting origin table would
+        # publish the deployment's shape that public_health() withholds.
+        "model_origin": pick["origin"],
         "provider_error": config.MODEL_PROVIDER_ERROR,
         "models_error": config.MODELS_ERROR,
+        "model_prices_error": config.MODEL_PRICES_ERROR,
         # personas whose model override the menu does not list, and the env
         # default itself when the menu omits it — runtime, not lint, because
         # SKEIN_MODELS is env and CI shares no env
@@ -841,7 +851,8 @@ def health(specs: Sequence[JobSpec] = JOBS, settings: AppSettings | None = None)
         "identity_ownership_error": identity_ownership_error(),
         # the EFFECTIVE strategy, not the env default — the toggle overrides it,
         # and two surfaces disagreeing about one fact is the bug this avoids
-        "context_strategy": effective_context_strategy(),
+        "context_strategy": strategy_override or config.CONTEXT_STRATEGY,
+        "context_strategy_origin": "admin" if strategy_override else "env",
         "context_error": config.CONTEXT_STRATEGY_ERROR,
         # the zone the scheduler and every "today" run in, and the fault when
         # the configured name degraded to UTC — an operator whose rituals fire

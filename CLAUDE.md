@@ -22,7 +22,10 @@ model and constraints, is archived at
   `config.EFFECTIVE_PROVIDER` (never `MODEL_PROVIDER`, which keeps the raw
   value for honest reporting) or a capability off the registry. A bad
   provider must degrade to mock and surface `MODEL_PROVIDER_ERROR`, never
-  take down the REST API.
+  take down the REST API. `SKEIN_MODEL_PARAMS` and a model entry's `params`
+  are behavior only: `model` and `model_id` are refused, because hidden
+  routing makes the menu, attachment gate, and accounting name a model that
+  did not run.
 - **Keyless-first.** No API keys are assumed. Every feature needs a
   deterministic core (DB + REST + UI). Prefer programmatic solutions (SQL,
   rules, heuristics) over LLM calls; the agent layer is an optional shell.
@@ -69,6 +72,45 @@ model and constraints, is archived at
   `db.savepoint()`
   as well — a failed statement aborts the whole transaction, so suppressing
   it kills every later statement in the request.
+
+- **A new setting lands in one tier, by rule.** Four questions, in order.
+  The first one that answers wins.
+  1. Is it authored prose that a human reviews as content (persona,
+     playbook, flock, knot)? Then it is a file in a directory with a
+     `SKEIN_*_DIR` overlay variable. It is content, not configuration.
+  2. Can changing it let a caller be someone they are not, reach something
+     the deployment did not grant, or send a credential somewhere new? Then
+     env-only, and a credential goes in the Secret, never the ConfigMap.
+     `SKEIN_OIDC_LEEWAY` is the one that reads harmless and is not — it is
+     the `exp`/`nbf` tolerance, and widening it accepts tokens the IdP
+     already expired.
+  3. Is it a document — more than one field per element, or more than one
+     level of nesting? Then env plus a `<NAME>_FILE` path
+     (`config._structured`, `tests/test_config_files.py`). A comma-separated
+     list of scalars is NOT a document: `SKEIN_CORS_ORIGINS` stays one
+     variable.
+  4. Otherwise: does an admin have a standing reason to change it between
+     deploys, AND can every value they can set be undone by another admin
+     through the same form? Then `app_settings` via `services/tuning.py` or
+     `services/settings.py`, env as the default, bounds on both sides.
+     Either half fails and it stays env-only.
+
+  Nothing that can hold a credential goes in `app_settings` whatever its
+  shape — that table is in `services/admin.py::TABLES` and travels in every
+  export and backup, which is why `SKEIN_MCP_SERVERS` stops at question 3
+  and never reaches question 4 (an entry can carry a literal `auth_token`,
+  `agents/mcp_tools.py`). There is no combined settings file: openclaw's
+  `openclaw.json` was assessed as the model for one and refused, because
+  whole-file parsing cannot hold the per-setting fault scoping that keeps a
+  bad model entry from taking down the REST API, and because a fourth source
+  makes "where did this value come from?" unanswerable from memory. A
+  setting with more than one source reports which one is in force
+  (`model_origin` and `context_strategy_origin` on `/api/health`). The
+  dedicated model-settings response also reports SAFE source names for model
+  maintenance, but never credentials, URLs, paths, parameter names, or
+  parameter values. Do not add a full origin table to `/api/health`: that
+  response reaches every signed-in user, and the table would publish the
+  deployment shape that `public_health()` withholds.
 
 - **A filename names the behavior, not the session that made it.** This is
   what `app/services/` already does: 56 files, each named for its subject.

@@ -1,0 +1,159 @@
+"""The <NAME>_FILE hatch: the four settings that hold a whole document also
+read it from a mounted YAML file, and a fault never quotes the document."""
+
+import importlib
+import os
+
+import pytest
+
+from app import config
+
+_FILE_KEYS = (
+    "SKEIN_MODELS",
+    "SKEIN_MODELS_FILE",
+    "SKEIN_MODEL_PRICES",
+    "SKEIN_MODEL_PRICES_FILE",
+    "SKEIN_MODEL_PARAMS",
+    "SKEIN_MODEL_PARAMS_FILE",
+    "SKEIN_MCP_SERVERS",
+    "SKEIN_MCP_SERVERS_FILE",
+)
+
+
+@pytest.fixture(autouse=True)
+def _restore_config():
+    yield
+    # scrub BEFORE reloading, the test_model_registry.py rule: fixture
+    # finalization can run while a test's env is still live, and reloading
+    # then bakes that test's file into the module for the next test.
+    # "" and not pop, the conftest.py rule: config's load_dotenv() re-fills an
+    # ABSENT var from backend/.env, so popping hands the next test whatever
+    # this dev box happens to mount.
+    for key in _FILE_KEYS:
+        os.environ[key] = ""
+    importlib.reload(config)
+
+
+def _reload(monkeypatch, tmp_path, name, text):
+    path = tmp_path / f"{name.lower()}.yaml"
+    path.write_text(text, encoding="utf-8")
+    monkeypatch.setenv(f"{name}_FILE", str(path))
+    return importlib.reload(config), path
+
+
+def test_a_yaml_file_supplies_the_model_menu(monkeypatch, tmp_path):
+    """The point of the hatch: nesting and comments, which a JSON string in a
+    ConfigMap literal cannot carry."""
+    cfg, _ = _reload(
+        monkeypatch,
+        tmp_path,
+        "SKEIN_MODELS",
+        """
+# the deep-work model
+- id: claude-opus-4-8
+  label: Opus
+  price:
+    input: 15
+    output: 75
+- id: gpt-oss:120b-cloud
+""",
+    )
+    assert cfg.MODELS_ERROR == ""
+    assert set(cfg.MODELS) == {"claude-opus-4-8", "gpt-oss:120b-cloud"}
+    assert cfg.MODELS["claude-opus-4-8"]["price"] == (15.0, 75.0)
+
+
+def test_every_structured_setting_takes_a_file(monkeypatch, tmp_path):
+    """One hatch, four settings. A setting that kept only the inline form
+    would be the one an operator finds at deploy time."""
+    cfg, _ = _reload(monkeypatch, tmp_path, "SKEIN_MODEL_PRICES", "claude-opus-4-8: [15, 75]\n")
+    assert cfg.MODEL_PRICES_ERROR == ""
+    assert cfg.MODEL_PRICES == {"claude-opus-4-8": (15.0, 75.0)}
+
+    cfg, _ = _reload(monkeypatch, tmp_path, "SKEIN_MODEL_PARAMS", "temperature: 0.2\n")
+    assert cfg.MODEL_PROVIDER_ERROR == ""
+    assert cfg.MODEL_PARAMS == {"temperature": 0.2}
+
+    cfg, _ = _reload(
+        monkeypatch,
+        tmp_path,
+        "SKEIN_MCP_SERVERS",
+        "- name: github\n  url: https://a.invalid/mcp/\n",
+    )
+    assert cfg.MCP_SERVERS_ERROR == ""
+    assert "github" in cfg.MCP_SERVERS
+
+
+def test_structured_settings_report_the_source_not_the_path(monkeypatch, tmp_path):
+    cfg, path = _reload(monkeypatch, tmp_path, "SKEIN_MODELS", "- id: from-file\n")
+    assert cfg.MODELS_SOURCE == "file"
+    assert str(path) not in cfg.MODELS_SOURCE
+
+    monkeypatch.setenv("SKEIN_MODELS_FILE", "")
+    monkeypatch.setenv("SKEIN_MODELS", '[{"id": "inline"}]')
+    cfg = importlib.reload(config)
+    assert cfg.MODELS_SOURCE == "inline"
+
+    monkeypatch.setenv("SKEIN_MODELS", "")
+    cfg = importlib.reload(config)
+    assert cfg.MODELS_SOURCE == "unset"
+
+
+def test_both_forms_set_is_a_fault(monkeypatch, tmp_path):
+    """Never a silent winner: the operator edited one of the two and is
+    watching that one."""
+    monkeypatch.setenv("SKEIN_MODELS", '[{"id": "inline"}]')
+    cfg, _ = _reload(monkeypatch, tmp_path, "SKEIN_MODELS", "- id: from-file\n")
+    assert cfg.MODELS == {}
+    assert cfg.MODELS_SOURCE == "both"
+    assert "SKEIN_MODELS and SKEIN_MODELS_FILE are both set" in cfg.MODELS_ERROR
+
+
+def test_a_missing_file_faults_without_naming_the_path(monkeypatch, tmp_path):
+    """MODELS_ERROR reaches every signed-in user through /api/agents/status."""
+    missing = tmp_path / "absent.yaml"
+    monkeypatch.setenv("SKEIN_MODELS_FILE", str(missing))
+    cfg = importlib.reload(config)
+    assert cfg.MODELS == {}
+    assert cfg.MODELS_SOURCE == "file"
+    assert "SKEIN_MODELS_FILE cannot be read" in cfg.MODELS_ERROR
+    assert str(missing) not in cfg.MODELS_ERROR
+
+
+def test_a_broken_file_faults_without_quoting_it(monkeypatch, tmp_path):
+    """A YAML error quotes the line it failed on, and a params document is a
+    plausible place an operator put a credential. The line NUMBER is the whole
+    debugging value."""
+    cfg, _ = _reload(
+        monkeypatch,
+        tmp_path,
+        "SKEIN_MODEL_PARAMS",
+        'api_key: "sk-not-a-real-key\ntemperature: 0.2\n',
+    )
+    assert cfg.MODEL_PARAMS == {}
+    assert "SKEIN_MODEL_PARAMS_FILE is not valid YAML" in cfg.MODEL_PROVIDER_ERROR
+    assert "sk-not-a-real-key" not in cfg.MODEL_PROVIDER_ERROR
+
+
+def test_a_yaml_only_type_is_refused(monkeypatch, tmp_path):
+    """YAML reads a bare date as a date object. Passing it on would fail at
+    the first model call instead of at boot."""
+    cfg, _ = _reload(monkeypatch, tmp_path, "SKEIN_MODEL_PRICES", "expires: 2026-01-01\n")
+    assert cfg.MODEL_PRICES == {}
+    assert "is not JSON" in cfg.MODEL_PRICES_ERROR
+
+
+def test_an_empty_file_is_refused_by_shape(monkeypatch, tmp_path):
+    """An empty ConfigMap key must not read as "no menu configured" — the
+    operator mounted it on purpose."""
+    cfg, _ = _reload(monkeypatch, tmp_path, "SKEIN_MODELS", "")
+    assert cfg.MODELS == {}
+    assert "not a JSON array" in cfg.MODELS_ERROR
+
+
+def test_a_deeply_nested_file_degrades_instead_of_breaking_import(monkeypatch, tmp_path):
+    nested = "[" * 1200 + "0" + "]" * 1200
+    cfg, path = _reload(monkeypatch, tmp_path, "SKEIN_MODEL_PARAMS", nested)
+    assert cfg.MODEL_PARAMS == {}
+    assert "nested too deeply" in cfg.MODEL_PROVIDER_ERROR
+    assert str(path) not in cfg.MODEL_PROVIDER_ERROR

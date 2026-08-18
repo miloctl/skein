@@ -121,6 +121,19 @@ def test_max_tokens_delivered(monkeypatch, provider):
     assert team_agent._model().config["max_tokens"] == 1234
 
 
+def test_anthropic_entry_cap_beats_the_global_param_in_the_request(monkeypatch):
+    _configure(monkeypatch, "anthropic", params={"max_tokens": 512})
+    monkeypatch.setattr(
+        config,
+        "MODELS",
+        {"test-model": {"max_tokens": 8192, "context_tokens": None, "params": {}}},
+    )
+    model = team_agent._model()
+    request = model.format_request([{"role": "user", "content": [{"text": "hi"}]}])
+    assert model.config["params"]["max_tokens"] == 8192
+    assert request["max_tokens"] == 8192
+
+
 def test_openai_omits_max_tokens_unless_asked(monkeypatch):
     """gpt-5 and other reasoning models reject max_tokens (they want
     max_completion_tokens), so injecting it would 400 a working provider."""
@@ -205,6 +218,19 @@ def test_malformed_model_params_does_not_break_boot(monkeypatch, restore_config)
         SKEIN_MODEL_PARAMS="{not json",
     )
     assert "SKEIN_MODEL_PARAMS" in cfg.MODEL_PROVIDER_ERROR
+    assert cfg.MODEL_PARAMS == {}
+    assert cfg.EFFECTIVE_PROVIDER == "mock"
+
+
+@pytest.mark.parametrize("field", ["model", "model_id"])
+def test_model_params_cannot_change_the_selected_model(monkeypatch, restore_config, field):
+    cfg = _reload_config(
+        monkeypatch,
+        SKEIN_MODEL_PROVIDER="ollama",
+        SKEIN_MODEL_PARAMS=f'{{"{field}": "hidden-model"}}',
+    )
+    assert field in cfg.MODEL_PROVIDER_ERROR
+    assert "hidden-model" not in cfg.MODEL_PROVIDER_ERROR
     assert cfg.MODEL_PARAMS == {}
     assert cfg.EFFECTIVE_PROVIDER == "mock"
 
@@ -354,10 +380,15 @@ def test_model_params_max_tokens_does_not_crash(monkeypatch, provider):
     assert team_agent._model().config["max_tokens"] == 2048  # operator wins
 
 
-@pytest.mark.parametrize("provider", ["ollama", "bedrock"])
-def test_model_params_cannot_collide_on_model_id(monkeypatch, provider):
-    _configure(monkeypatch, provider, params={"model_id": "override"})
-    assert team_agent._model().config["model_id"] == "override"
+@pytest.mark.parametrize(
+    "provider,field",
+    [("ollama", "model_id"), ("bedrock", "model_id"), ("anthropic", "model"), ("openai", "model")],
+)
+def test_model_params_defensively_cannot_change_the_selected_model(monkeypatch, provider, field):
+    _configure(monkeypatch, provider, params={field: "override"})
+    model = team_agent._model()
+    assert model.config["model_id"] == "test-model"
+    assert field not in model.config.get("params", {})
 
 
 def test_ollama_honours_the_generic_api_key(monkeypatch):

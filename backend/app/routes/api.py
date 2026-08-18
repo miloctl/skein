@@ -1991,8 +1991,9 @@ def get_model_pick(user: CurrentUser):
     reconnaissance. Writing is admin-only."""
     from .. import config
 
+    pick = settings.model_pick_state()
     return {
-        **settings.model_pick_state(),
+        **pick,
         # entry params are NOT served: they are operator-authored request
         # bodies, and a token an operator parked there must not reach every
         # signed-in browser. The picker renders the fields below only.
@@ -2003,6 +2004,9 @@ def get_model_pick(user: CurrentUser):
         "menu_error": config.MODELS_ERROR,
         "applies": config.EFFECTIVE_PROVIDER != "mock" and bool(config.MODELS),
         "provider": config.MODEL_PROVIDER,
+        # one pick read feeds both surfaces: an admin change between two reads
+        # would return a top-level model and a summary that name different ids
+        "summary": settings.model_configuration_summary(pick),
     }
 
 

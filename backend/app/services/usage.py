@@ -14,16 +14,23 @@ from .. import config, db
 from . import scope
 
 
+def model_price(model_id: str) -> tuple[tuple[float, float] | None, str]:
+    """The price for future calls and its safe source, never historical cost."""
+    entry = config.MODELS.get(model_id)
+    if entry and entry["price"] is not None:
+        return entry["price"], "model_menu"
+    if pair := config.MODEL_PRICES.get(model_id):
+        return pair, config.MODEL_PRICES_SOURCE
+    return None, "unset"
+
+
 def cost_for(model_id: str, input_tokens: int, output_tokens: int) -> float | None:
     """Estimated USD for one turn, or None when the model has no price.
 
-    The ONLY place the two price tables merge: the model registry entry wins,
-    SKEIN_MODEL_PRICES covers everything else. A second call site checking
-    the tables itself will disagree with this accounting the day the
-    precedence moves.
+    model_price() is the ONLY place the two price tables merge: the model
+    registry entry wins, and SKEIN_MODEL_PRICES covers everything else.
     """
-    entry = config.MODELS.get(model_id)
-    pair = (entry["price"] if entry else None) or config.MODEL_PRICES.get(model_id)
+    pair, _source = model_price(model_id)
     if pair is None:
         return None
     return (input_tokens / 1_000_000) * pair[0] + (output_tokens / 1_000_000) * pair[1]

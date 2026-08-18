@@ -430,7 +430,7 @@ knots:
     set: manager
     role: manager
     pitch: Slide the whole team onto the right model for the week — no redeploy, no ticket, one knot to shift the load.
-    how: On Settings under Model (team), select a model from the menu. The change applies to each chat from its next message.
+    how: Read the In force block under Settings → Model (team), or run `skein model`. If the team default must change, select a model from the menu.
     link: /settings
     since: 2026-08-08
 

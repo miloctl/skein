@@ -6,6 +6,8 @@ import json
 from argparse import Namespace
 from pathlib import Path
 
+import pytest
+
 
 def _load_cli():
     spec = importlib.util.spec_from_file_location(
@@ -128,6 +130,77 @@ def test_review_list_carries_the_pending_cursor(monkeypatch, capsys):
     assert paths == ["/api/review?status=pending&after=7&limit=2"]
     assert "More proposals can follow" in out
     assert "--after 9" in out
+
+
+def test_model_prints_the_shared_server_summary(monkeypatch, capsys):
+    cli = _load_cli()
+    calls = []
+    payload = {
+        "summary": {
+            "scope": "team_default",
+            "note": "This is the team default. Persona overrides can use a different model or parameters.",
+            "rows": [
+                {
+                    "id": "provider",
+                    "label": "Provider",
+                    "value": "ollama",
+                    "source": "SKEIN_MODEL_PROVIDER",
+                },
+                {
+                    "id": "output_cap",
+                    "label": "Output cap",
+                    "value": "Set in parameters (value hidden)",
+                    "source": "SKEIN_MODEL_PARAMS_FILE",
+                },
+                {
+                    "id": "vision_sidecar",
+                    "label": "Vision sidecar",
+                    "value": "qwen3.5:cloud",
+                    "source": "SKEIN_VISION_MODEL",
+                },
+                {
+                    "id": "model_menu",
+                    "label": "Model menu",
+                    "value": "2 models",
+                    "source": "SKEIN_MODELS_FILE",
+                },
+            ],
+        },
+        # the command reads only the safe summary, never neighboring fields
+        "secret": "must-not-print",
+    }
+
+    def request(method, path, body=None):
+        calls.append((method, path, body))
+        return payload
+
+    monkeypatch.setattr(cli, "api", request)
+    cli.cmd_model(Namespace())
+    out = capsys.readouterr().out
+
+    assert calls == [("GET", "/api/settings/model", None)]
+    assert out.index("Provider") < out.index("Output cap") < out.index("Vision sidecar")
+    assert (
+        "This is the team default. Persona overrides can use a different model or parameters."
+        in out
+    )
+    assert "SKEIN_MODEL_PROVIDER" in out
+    assert "Set in parameters (value hidden)" in out
+    assert "qwen3.5:cloud" in out
+    assert "SKEIN_VISION_MODEL" in out
+    assert "2 models" in out
+    assert "SKEIN_MODELS_FILE" in out
+    assert "must-not-print" not in out
+
+
+def test_model_names_an_old_server_instead_of_crashing(monkeypatch):
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "api", lambda *a, **k: {"model": "old"})
+    with pytest.raises(SystemExit) as exc:
+        cli.cmd_model(Namespace())
+    assert str(exc.value) == (
+        "error: the server does not provide the model summary. Upgrade Skein on the server."
+    )
 
 
 def test_cli_settle_says_promise(monkeypatch, capsys):

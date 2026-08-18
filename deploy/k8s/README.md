@@ -221,6 +221,13 @@ directories are small (under 100 KB total), far inside the ConfigMap
 limit. `/api/health` reports `overlay_errors` when a variable points at a
 directory that is not mounted.
 
+The model menu takes the same treatment. `SKEIN_MODELS` as a ConfigMap
+literal is one long JSON line that carries no comments, so put it in its
+own `configMapGenerator` file, mount it, and point `SKEIN_MODELS_FILE` at
+it. `SKEIN_MODEL_PRICES`, `SKEIN_MODEL_PARAMS` and `SKEIN_MCP_SERVERS`
+have the same `_FILE` form. Set one form or the other, never both — both
+is a fault, on `/api/health` for the first three.
+
 ## Observability
 
 `/health` is the probe target: open, and only `ok`, `auth_mode` and
