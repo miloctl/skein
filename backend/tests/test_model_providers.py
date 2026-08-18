@@ -150,6 +150,19 @@ def test_model_params_passthrough(monkeypatch):
     assert params["temperature"] == 0.2
 
 
+def test_openai_compatible_forwards_custom_headers(monkeypatch):
+    headers = {"X-Tenant": "acme", "X-API-Key": "test-key"}
+    _configure(
+        monkeypatch,
+        "openai_compatible",
+        base_url="http://localhost:8001/v1",
+        params={"extra_headers": headers},
+    )
+    model = team_agent._model()
+    request = model.format_request([{"role": "user", "content": [{"text": "hi"}]}])
+    assert request["extra_headers"] == headers
+
+
 # ---- misconfiguration: loud at the agent, harmless everywhere else ----
 
 
