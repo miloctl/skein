@@ -167,6 +167,29 @@ def test_mid_stream_error_reaches_sse_and_transcript(client, monkeypatch):
     assert "⚠" not in msgs[-1]["content"]
 
 
+def test_attachments_and_agent_build_share_one_model_snapshot(client, monkeypatch):
+    seen = {}
+
+    def attachments(message, ids, user, model_id=""):
+        seen["attachments"] = model_id
+        return message, []
+
+    class Quiet:
+        async def stream_async(self, message):
+            yield {"data": "ok"}
+
+    def build(*args, **kwargs):
+        seen["agent"] = kwargs["resolved_model"]
+        return Quiet()
+
+    monkeypatch.setattr("app.routes.chat.model_in_force", lambda _persona: "one-snapshot")
+    monkeypatch.setattr("app.routes.chat._attachment_prompt", attachments)
+    monkeypatch.setattr("app.routes.chat.build_agent", build)
+    response = client.post("/api/chat", json={"thread_id": "t-model-snapshot", "message": "hi"})
+    assert response.status_code == 200
+    assert seen == {"attachments": "one-snapshot", "agent": "one-snapshot"}
+
+
 def test_agent_construction_failure_streams_an_error(client, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("provider exploded")

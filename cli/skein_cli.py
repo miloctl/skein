@@ -28,6 +28,7 @@ Examples:
     skein answer 7 "p95 at 250ms is the contract number"
     skein eval                # replay capture classifier vs feedback corpus
     skein context --write AGENTS.md
+    skein model              # team-default LLM settings and their sources
     skein install-hooks       # run inside each work repo you want trailer sync in
 """
 
@@ -252,6 +253,19 @@ def _merge_back(claim: Path, left: list) -> None:
         claim.unlink(missing_ok=True)
     except OSError:
         pass  # the claim file remains and the next flush ignores it
+
+
+def cmd_model(_args):
+    response = api("GET", "/api/settings/model")
+    summary = response.get("summary") if isinstance(response, dict) else None
+    if not isinstance(summary, dict) or not isinstance(summary.get("rows"), list):
+        sys.exit(
+            "error: the server does not provide the model summary. Upgrade Skein on the server."
+        )
+    print(summary["note"])
+    for row in summary["rows"]:
+        suffix = f"  [{row['source']}]" if row["source"] else ""
+        print(f"{row['label'] + ':':<20} {row['value']}{suffix}")
 
 
 def cmd_config(args):
@@ -889,6 +903,9 @@ def main():
     )
     c.add_argument("--user")
     c.set_defaults(fn=cmd_config)
+
+    c = sub.add_parser("model", help="show the team-default LLM settings and sources")
+    c.set_defaults(fn=cmd_model)
 
     c = sub.add_parser("capture", help="quick-capture text (auto-routed)")
     c.add_argument("text", nargs="+")

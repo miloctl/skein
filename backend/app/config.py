@@ -8,6 +8,7 @@ from datetime import UTC, tzinfo
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import yaml
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -54,6 +55,60 @@ def overlay_errors() -> list[str]:
     return out
 
 
+# ---- structured settings ---------------------------------------------------
+# Four settings hold a whole document inside one variable (SKEIN_MODELS,
+# SKEIN_MODEL_PRICES, SKEIN_MODEL_PARAMS, SKEIN_MCP_SERVERS). Each also takes
+# a <NAME>_FILE path, so a ConfigMap can be mounted and edited as YAML with
+# comments — schemas/skein_models.schema.json exists for exactly those editors.
+
+
+def _structured(name: str) -> tuple[str, str, str]:
+    """JSON text, a fault, and `inline|file|both|unset` for one structured
+    setting. Reads `<name>_FILE` when that is set, and `name` otherwise.
+
+    The file is YAML, which reads every value that already lives inline
+    because JSON is YAML. It is re-encoded to JSON text here so the parser at
+    the CALL SITE stays the only place that checks shape and phrases faults —
+    a second validator drifts from the first, and this one would be the copy
+    no test walks (tests/test_model_registry.py walks the other).
+
+    A fault never carries the exception text. A YAML error quotes the line it
+    failed on and an OSError carries the path, and every one of these strings
+    reaches every signed-in user through /api/health and /api/agents/status —
+    a params document is a plausible place an operator put a credential.
+    """
+    inline = os.getenv(name, "").strip()
+    path = os.getenv(f"{name}_FILE", "").strip()
+    if inline and path:
+        # picking a winner silently serves the value the operator was not
+        # looking at while they edited the other one
+        return "", f"{name} and {name}_FILE are both set. Set one of them.", "both"
+    if not path:
+        return inline, "", "inline" if inline else "unset"
+    try:
+        loaded = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    except OSError as exc:
+        # strerror, never str(exc): str carries the path
+        return "", f"{name}_FILE cannot be read: {exc.strerror}.", "file"
+    except UnicodeDecodeError:
+        return "", f"{name}_FILE is not UTF-8 text.", "file"
+    except RecursionError:
+        return "", f"{name}_FILE is nested too deeply.", "file"
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        where = f" at line {mark.line + 1}" if mark is not None else ""
+        return "", f"{name}_FILE is not valid YAML{where}.", "file"
+    try:
+        # an empty file loads as None and dumps to "null", which every call
+        # site below already refuses by shape — no separate empty-file fault
+        return json.dumps(loaded), "", "file"
+    except RecursionError:
+        return "", f"{name}_FILE is nested too deeply.", "file"
+    except (TypeError, ValueError):
+        # YAML has types JSON does not, dates first among them
+        return "", f"{name}_FILE holds a value that is not JSON, such as a date.", "file"
+
+
 # The PostgreSQL server. No default and no fallback: a default that resolved
 # would serve an empty database beside the real one, and the roster coming up
 # blank reads as data loss rather than as a missing setting. Fails CLOSED like
@@ -95,6 +150,10 @@ SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 #                      would degrade a working keyless box to mock. Bedrock
 #                      resolves the ambient AWS chain, which is not readable
 #                      from here.
+#   typed_output_cap — config.MAX_TOKENS reaches this provider. False on the
+#                      OpenAI family, where the served model chooses the key.
+#   output_cap_params — free-form keys that can replace that typed cap. The
+#                      settings summary reads only their PRESENCE, never values.
 # `attachments` is the media kinds a chat attachment may become here
 # (routes/chat.py), read as a CAPABILITY so nothing outside team_agent._model()
 # branches on a provider name. A kind absent from the effective set degrades to
@@ -117,6 +176,8 @@ PROVIDERS: dict[str, dict] = {
         "base_url": "forbidden",
         "key_env": "",
         "key_required": False,
+        "typed_output_cap": False,
+        "output_cap_params": (),
     },
     "anthropic": {
         "default_model": "claude-opus-4-8",
@@ -124,6 +185,8 @@ PROVIDERS: dict[str, dict] = {
         "base_url": "forbidden",
         "key_env": "ANTHROPIC_API_KEY",
         "key_required": True,
+        "typed_output_cap": True,
+        "output_cap_params": ("max_tokens",),
     },
     "openai": {
         "default_model": "gpt-5",
@@ -131,6 +194,8 @@ PROVIDERS: dict[str, dict] = {
         "base_url": "forbidden",
         "key_env": "OPENAI_API_KEY",
         "key_required": True,
+        "typed_output_cap": False,
+        "output_cap_params": ("max_tokens", "max_completion_tokens"),
     },
     # Anything speaking the OpenAI wire format: vLLM, LM Studio, llama.cpp,
     # OpenRouter, Together, Groq, Azure OpenAI, LiteLLM Proxy.
@@ -150,6 +215,8 @@ PROVIDERS: dict[str, dict] = {
         "base_url": "required",
         "key_env": "",
         "key_required": False,
+        "typed_output_cap": False,
+        "output_cap_params": ("max_tokens", "max_completion_tokens"),
     },
     # OLLAMA_API_KEY is for Ollama's hosted cloud models. A local ollama takes
     # no credential, so this must stay optional or every keyless local box
@@ -165,6 +232,8 @@ PROVIDERS: dict[str, dict] = {
         "base_url": "forbidden",
         "key_env": "OLLAMA_API_KEY",
         "key_required": False,
+        "typed_output_cap": True,
+        "output_cap_params": ("max_tokens",),
     },
     # boto3 is already a strands core dep; credentials come from the ambient
     # AWS chain (instance role, AWS_PROFILE), so there is no key to set.
@@ -178,16 +247,25 @@ PROVIDERS: dict[str, dict] = {
         "base_url": "forbidden",
         "key_env": "",
         "key_required": False,
+        "typed_output_cap": True,
+        "output_cap_params": ("max_tokens",),
     },
 }
 
-MODEL_PROVIDER = os.getenv("SKEIN_MODEL_PROVIDER", "mock").lower()
+_raw_model_provider = os.getenv("SKEIN_MODEL_PROVIDER")
+MODEL_PROVIDER_SOURCE = "env" if _raw_model_provider is not None else "default"
+MODEL_PROVIDER = (_raw_model_provider if _raw_model_provider is not None else "mock").lower()
 MODEL_BASE_URL = os.getenv("SKEIN_MODEL_BASE_URL", "")
 MODEL_API_KEY = os.getenv("SKEIN_MODEL_API_KEY", "")
 
 # Free-form per-provider knobs (temperature, top_p, max_completion_tokens...),
 # merged last so an operator can always reach something we did not model.
 MODEL_PARAMS: dict = {}
+MODEL_PARAMS_SOURCE = "unset"
+# These choose the request destination/model, not model behavior. Keeping them
+# in hidden params makes the menu, attachment checks, and usage accounting all
+# name one model while the provider runs another.
+MODEL_ROUTING_PARAM_KEYS = frozenset({"model", "model_id"})
 
 # Misconfiguration must never take down the deterministic core: config is
 # imported by db, every route, seed.py and the CLI, so a bad *model* setting
@@ -198,10 +276,13 @@ MODEL_PROVIDER_ERROR = ""
 
 # int() on operator input is exactly the "raises at import" trap the paragraph
 # above forbids — SKEIN_MAX_TOKENS= (empty) and =4k both throw.
+_raw_max_tokens = os.getenv("SKEIN_MAX_TOKENS", "").strip()
+MAX_TOKENS_SOURCE = "env" if _raw_max_tokens else "default"
 try:
-    MAX_TOKENS = int(os.getenv("SKEIN_MAX_TOKENS", "").strip() or 4096)
+    MAX_TOKENS = int(_raw_max_tokens or 4096)
 except ValueError:
     MAX_TOKENS = 4096
+    MAX_TOKENS_SOURCE = "fallback"
     MODEL_PROVIDER_ERROR = "SKEIN_MAX_TOKENS is not an integer — falling back to 4096"
 
 if MODEL_PROVIDER not in PROVIDERS:
@@ -236,14 +317,22 @@ if (
         f" set {PROVIDERS[MODEL_PROVIDER]['key_env']} or SKEIN_MODEL_API_KEY"
     )
 
-if not MODEL_PROVIDER_ERROR and (_raw := os.getenv("SKEIN_MODEL_PARAMS", "").strip()):
-    try:
-        MODEL_PARAMS = json.loads(_raw)
-        if not isinstance(MODEL_PARAMS, dict):
-            raise TypeError("not a JSON object")
-    except (json.JSONDecodeError, TypeError) as exc:
-        MODEL_PARAMS = {}
-        MODEL_PROVIDER_ERROR = f"SKEIN_MODEL_PARAMS is not a JSON object: {exc}"
+if not MODEL_PROVIDER_ERROR:
+    _raw, MODEL_PROVIDER_ERROR, MODEL_PARAMS_SOURCE = _structured("SKEIN_MODEL_PARAMS")
+    if _raw:
+        try:
+            MODEL_PARAMS = json.loads(_raw)
+            if not isinstance(MODEL_PARAMS, dict):
+                raise TypeError("not a JSON object")
+            if forbidden := sorted(set(MODEL_PARAMS) & MODEL_ROUTING_PARAM_KEYS):
+                MODEL_PARAMS = {}
+                MODEL_PROVIDER_ERROR = (
+                    f"SKEIN_MODEL_PARAMS cannot set {', '.join(forbidden)}."
+                    " Set SKEIN_MODEL_ID instead."
+                )
+        except (json.JSONDecodeError, TypeError) as exc:
+            MODEL_PARAMS = {}
+            MODEL_PROVIDER_ERROR = f"SKEIN_MODEL_PARAMS is not a JSON object: {exc}"
 
 
 def _finite_price(v) -> bool:
@@ -266,8 +355,8 @@ def _finite_price(v) -> bool:
 # cost NULL — honest, not zero. A bad value degrades and says so; it must
 # never take the provider down, because prices are bookkeeping, not routing.
 MODEL_PRICES: dict[str, tuple[float, float]] = {}
-MODEL_PRICES_ERROR = ""
-if _raw_prices := os.getenv("SKEIN_MODEL_PRICES", "").strip():
+_raw_prices, MODEL_PRICES_ERROR, MODEL_PRICES_SOURCE = _structured("SKEIN_MODEL_PRICES")
+if _raw_prices:
     try:
         _parsed = json.loads(_raw_prices)
         if not isinstance(_parsed, dict):
@@ -286,6 +375,9 @@ if _raw_prices := os.getenv("SKEIN_MODEL_PRICES", "").strip():
     except (json.JSONDecodeError, TypeError) as exc:
         MODEL_PRICES = {}
         MODEL_PRICES_ERROR = f"SKEIN_MODEL_PRICES is unusable: {exc}. No costs are estimated."
+# Keep the table fault separate before the budget parser appends its own fault.
+# The model summary must not blame a valid price file for a bad budget value.
+MODEL_PRICE_TABLE_ERROR = MODEL_PRICES_ERROR
 
 # Monthly team spend ceiling in USD for the budget findings rule. 0 = off.
 try:
@@ -396,6 +488,8 @@ def _model_entry_faults(tag: str, mid: str | None, entry: dict, out: dict[str, d
     params = entry.get("params")
     if params is not None and not isinstance(params, dict):
         faults.append(f"{tag}: params must be a JSON object.")
+    elif params is not None and (forbidden := sorted(set(params) & MODEL_ROUTING_PARAM_KEYS)):
+        faults.append(f"{tag}: params cannot set {', '.join(forbidden)}. Use the entry id instead.")
     # None (absent) and () (declared empty) are DIFFERENT: absent falls back to
     # the provider, declared-empty refuses attachments for this model even
     # where the provider allows them — which is how an operator turns them off
@@ -429,8 +523,8 @@ def _model_entry_faults(tag: str, mid: str | None, entry: dict, out: dict[str, d
 
 
 MODELS: dict[str, dict] = {}
-MODELS_ERROR = ""
-if _raw_models := os.getenv("SKEIN_MODELS", "").strip():
+_raw_models, MODELS_ERROR, MODELS_SOURCE = _structured("SKEIN_MODELS")
+if _raw_models:
     _model_faults: list[str] = []
     _parsed_models: list | None = None
     try:
@@ -471,13 +565,16 @@ if _raw_models := os.getenv("SKEIN_MODELS", "").strip():
 # the app boots and every deterministic surface keeps working.
 EFFECTIVE_PROVIDER = "mock" if MODEL_PROVIDER_ERROR else MODEL_PROVIDER
 _default_model = PROVIDERS[EFFECTIVE_PROVIDER]["default_model"]
-MODEL_ID = os.getenv("SKEIN_MODEL_ID", "") or _default_model or ""
+_raw_model_id = os.getenv("SKEIN_MODEL_ID", "")
+MODEL_ID_SOURCE = "env" if _raw_model_id else "provider_default"
+MODEL_ID = _raw_model_id or _default_model or ""
 if EFFECTIVE_PROVIDER != "mock" and not MODEL_ID:
     MODEL_PROVIDER_ERROR = (
         f"SKEIN_MODEL_PROVIDER={MODEL_PROVIDER} has no default model —"
         " set SKEIN_MODEL_ID to whatever the endpoint serves"
     )
     EFFECTIVE_PROVIDER, MODEL_ID = "mock", "mock"
+    MODEL_ID_SOURCE = "fallback"
 
 
 # Which DOCUMENT formats a provider's own API accepts, where that is narrower
@@ -697,7 +794,9 @@ TURN_GUARD = os.getenv("SKEIN_TURN_GUARD", "0") == "1"
 # Strands Agent exists, so there is no conversation manager to configure and
 # SKEIN_MODEL_PROVIDER=mock is untouched by every knob below.
 CONTEXT_STRATEGIES = ("sliding", "summarize")
-CONTEXT_STRATEGY = os.getenv("SKEIN_CONTEXT_STRATEGY", "sliding").strip().lower() or "sliding"
+_raw_context_strategy = os.getenv("SKEIN_CONTEXT_STRATEGY", "").strip()
+CONTEXT_STRATEGY_SOURCE = "env" if _raw_context_strategy else "default"
+CONTEXT_STRATEGY = _raw_context_strategy.lower() or "sliding"
 _CONTEXT_FAULTS: list[str] = []
 
 if CONTEXT_STRATEGY not in CONTEXT_STRATEGIES:
@@ -710,6 +809,7 @@ if CONTEXT_STRATEGY not in CONTEXT_STRATEGIES:
         f" Expected one of: {', '.join(CONTEXT_STRATEGIES)}."
     )
     CONTEXT_STRATEGY = "sliding"
+    CONTEXT_STRATEGY_SOURCE = "fallback"
 
 
 def _ctx_num(name: str, default, cast, low=None, high=None):
@@ -905,7 +1005,9 @@ SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
 
 # MCP servers for the real agent, JSON list:
 # [{"name": "github", "url": "https://.../mcp/", "auth_token_env": "GITHUB_MCP_TOKEN"}]
-MCP_SERVERS = os.getenv("SKEIN_MCP_SERVERS", "")
+# The fault has no /health field of its own: MCP is an optional agent shell,
+# and agents/mcp_tools.py already logs a bad list rather than raising.
+MCP_SERVERS, MCP_SERVERS_ERROR, _ = _structured("SKEIN_MCP_SERVERS")
 
 # OpenTelemetry OTLP endpoint (e.g. http://jaeger:4318). Empty = disabled.
 OTEL_ENDPOINT = os.getenv("SKEIN_OTEL_ENDPOINT", "")

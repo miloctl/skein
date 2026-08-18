@@ -71,6 +71,8 @@ INVALID = [
     [{"id": "m", "price": {"input": True, "output": 2}}],
     [{"id": "m", "price": [1, 2]}],
     [{"id": "m", "params": "hot"}],
+    [{"id": "m", "params": {"model": "other"}}],
+    [{"id": "m", "params": {"model_id": "other"}}],
     [{"id": "m", "attachments": "image"}],
     [{"id": "m", "attachments": [1]}],
     [{"id": "m", "attachments": ["video"]}],
@@ -218,10 +220,13 @@ def test_the_registry_price_wins_over_the_price_table(monkeypatch):
 
     # 1M in + 1M out: registry says 10+20, the table's 1+2 must lose
     assert usage.cost_for("m", 1_000_000, 1_000_000) == 30.0
+    assert usage.model_price("m")[1] == "model_menu"
     # a model outside the registry still prices from the table
     assert usage.cost_for("other", 1_000_000, 1_000_000) == 7.0
+    assert usage.model_price("other")[1] == "inline"
     # no price anywhere = None — honest, not zero
     assert usage.cost_for("unknown", 1_000_000, 1_000_000) is None
+    assert usage.model_price("unknown") == (None, "unset")
 
 
 def test_an_unpriced_registry_model_falls_back_to_the_price_table(monkeypatch):

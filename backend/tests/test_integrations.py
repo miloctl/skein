@@ -333,6 +333,29 @@ def test_a_shutdown_mid_connect_is_not_resurrected(fresh_db, monkeypatch):
     assert m._tools is None  # nothing published
 
 
+def test_a_non_object_mcp_entry_costs_only_its_tools(monkeypatch):
+    from app import config
+    from app.agents import mcp_tools as m
+
+    monkeypatch.setattr(config, "MCP_SERVERS_ERROR", "")
+    monkeypatch.setattr(config, "MCP_SERVERS", '["bad-entry"]')
+    assert m._connect_servers() == ([], [])
+
+
+def test_an_unexpected_mcp_load_error_clears_the_loading_flag(monkeypatch):
+    from app.agents import mcp_tools as m
+
+    monkeypatch.setattr(m, "_tools", None)
+    monkeypatch.setattr(m, "_loading", False)
+
+    def boom():
+        raise RuntimeError("unexpected")
+
+    monkeypatch.setattr(m, "_connect_servers", boom)
+    assert m.mcp_tools() == []
+    assert m._loading is False
+
+
 def test_the_slack_digest_carries_no_message_body(fresh_db, monkeypatch):
     """One channel, N audiences. Every notify() addresses somebody who can
     read the row it quotes, but this batch posts them together — so a crew

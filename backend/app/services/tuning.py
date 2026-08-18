@@ -14,11 +14,23 @@ obey. routes/chat.py::_inflight is the existing example of state that is
 correct only in one process, and it is the thing blocking a second worker.
 
 WHAT IS DELIBERATELY ABSENT, so a later reader does not read it as an
-oversight: SKEIN_AUTH_MODE, SKEIN_TRUST_PROXY_HOPS, SKEIN_ADMINS, and every
-model-provider and credential setting. Letting a web surface change how
-identity is resolved, or who counts as an administrator, is privilege
-escalation with extra steps — an admin who can lower the bar can let
-themselves through it. Those stay env-only, set by whoever runs the server.
+oversight: SKEIN_AUTH_MODE, SKEIN_TRUST_PROXY_HOPS, SKEIN_ADMINS, every
+SKEIN_OIDC_* setting, and every model-provider and credential setting.
+Letting a web surface change how identity is resolved, or who counts as an
+administrator, is privilege escalation with extra steps — an admin who can
+lower the bar can let themselves through it. Those stay env-only, set by
+whoever runs the server.
+
+SKEIN_OIDC_LEEWAY is why that list names the OIDC block rather than only the
+settings that look dangerous: it reads as a harmless number of seconds, it
+takes a floor and a ceiling like everything here does, and it is the exp/nbf
+tolerance every token is checked against (app/oidc.py). A tunable that widens
+it accepts tokens the IdP already expired.
+
+SKEIN_MCP_SERVERS is absent for the second reason, not the first: an entry
+can carry a literal auth_token (agents/mcp_tools.py), and this table travels
+in every export and backup (services/admin.py::TABLES). Nothing that can hold
+a credential belongs here, whatever its shape.
 """
 
 from collections.abc import Callable

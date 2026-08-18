@@ -15,6 +15,18 @@ os.environ["SKEIN_PERSONAS_DIR"] = ""
 # gives every menu-sensitive assertion (agents/status, /health warnings,
 # personas.unlisted_model_warnings) a registry the test never wrote.
 os.environ["SKEIN_MODELS"] = ""
+# The <NAME>_FILE hatch (config._structured) leaks the same way, one step
+# worse: a dev box that points SKEIN_MODELS_FILE at a mounted menu turns the
+# line above from an empty menu into a FAULT, because setting both forms of
+# one setting is refused on purpose. Every structured setting gets BOTH names
+# blanked so a future local price, param or MCP document cannot steer the suite.
+os.environ["SKEIN_MODELS_FILE"] = ""
+os.environ["SKEIN_MODEL_PRICES"] = ""
+os.environ["SKEIN_MODEL_PRICES_FILE"] = ""
+os.environ["SKEIN_MODEL_PARAMS"] = ""
+os.environ["SKEIN_MODEL_PARAMS_FILE"] = ""
+os.environ["SKEIN_MCP_SERVERS"] = ""
+os.environ["SKEIN_MCP_SERVERS_FILE"] = ""
 # Same reason again, and this one bites only in the evening: with the
 # deployment's zone in force, db.today() and db.now()[:10] are the same string
 # west of UTC only until 20:00 local. A suite that reads the developer's zone

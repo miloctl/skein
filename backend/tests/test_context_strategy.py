@@ -473,6 +473,14 @@ def test_health_follows_the_toggle(client, fresh_db):
     assert client.get("/api/health").json()["context_strategy"] == "summarize"
 
 
+def test_health_reports_which_tier_the_strategy_came_from(client, fresh_db):
+    """The toggle and SKEIN_CONTEXT_STRATEGY set the same field, so the value
+    alone does not tell an operator which surface to go and change."""
+    assert client.get("/api/health").json()["context_strategy_origin"] == "env"
+    client.post("/api/settings/context-strategy", json={"strategy": "summarize"}, headers=_key())
+    assert client.get("/api/health").json()["context_strategy_origin"] == "admin"
+
+
 def test_the_toggle_is_rate_capped(client, fresh_db):
     """Each call appends to the activity ledger, which is never pruned — an
     uncapped write permanently inflates the chain the integrity check walks.

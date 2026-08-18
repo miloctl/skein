@@ -56,7 +56,10 @@
       },
       "params": {
         "type": "object",
-        "description": "Provider pass-through (temperature, top_p, reasoning budgets, ...). Merged over SKEIN_MODEL_PARAMS - the per-model key wins."
+        "propertyNames": {
+          "not": { "enum": ["model", "model_id"] }
+        },
+        "description": "Provider pass-through (temperature, top_p, reasoning budgets, ...). Merged over SKEIN_MODEL_PARAMS - the per-model key wins. Model routing belongs in id, never hidden params."
       }
     }
   }

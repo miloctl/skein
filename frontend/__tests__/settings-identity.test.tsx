@@ -51,6 +51,24 @@ vi.mock("@/lib/api", async (importOriginal) => {
           menu_error: "",
           applies: true,
           provider: "ollama",
+          summary: {
+            scope: "team_default",
+            note: "This is the team default. Persona overrides can use a different model or parameters.",
+            rows: [
+              {
+                id: "provider",
+                label: "Provider",
+                value: "ollama",
+                source: "SKEIN_MODEL_PROVIDER",
+              },
+              {
+                id: "model",
+                label: "Team-default model",
+                value: "mini",
+                source: "SKEIN_MODEL_ID",
+              },
+            ],
+          },
         });
       if (path === "/api/settings/context-strategy")
         return Promise.resolve({
@@ -104,7 +122,7 @@ describe("Settings identity states", () => {
     ).toBe(false);
   });
 
-  it("does not request administrator settings for a strong non-administrator", async () => {
+  it("shows model state but not administrator controls to a strong non-administrator", async () => {
     state.identity = { ...state.identity, can_administer: false };
     render(<SettingsPage />);
 
@@ -115,10 +133,11 @@ describe("Settings identity states", () => {
         )
       ).length,
     ).toBeGreaterThan(0);
-    await waitFor(() => expect(state.calls).toContain("/api/whoami"));
-    expect(state.calls).not.toContain("/api/settings/model");
+    expect(await screen.findByRole("heading", { name: "In force" })).toBeTruthy();
+    await waitFor(() => expect(state.calls).toContain("/api/settings/model"));
     expect(state.calls).not.toContain("/api/settings/context-strategy");
     expect(state.calls).not.toContain("/api/settings/tuning");
+    expect(screen.queryByRole("radio", { name: "Mini" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Back up now" })).toBeNull();
   });
 

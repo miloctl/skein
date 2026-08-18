@@ -225,18 +225,35 @@ def _model(model_id: str = "", temperature: float | None = None):
             client_args=client_args,
             model_id=mid,
             max_tokens=max_tokens,
-            **_request_params(extra),
+            # Anthropic spreads params after this constructor cap. Put the
+            # typed entry cap in that later layer too, or a global hidden
+            # max_tokens silently beats the selected model's own cap.
+            **_request_params(
+                {
+                    **({"max_tokens": entry["max_tokens"]} if entry.get("max_tokens") else {}),
+                    **extra,
+                }
+            ),
             **ctx_kw,
         )
 
     raise ValueError(f"no model builder for provider {provider!r}")
 
 
+def _behavior_params(extra: dict | None = None) -> dict:
+    merged = {**config.MODEL_PARAMS, **(extra or {})}
+    # Defense behind config.py's validator: these keys redirect a request to a
+    # model the menu, attachment gate, and usage accounting did not select.
+    for key in config.MODEL_ROUTING_PARAM_KEYS:
+        merged.pop(key, None)
+    return merged
+
+
 def _request_params(extra: dict | None = None) -> dict:
     """SKEIN_MODEL_PARAMS as a nested `params=` dict, for the providers that
     forward it to the request body (openai family, anthropic). Persona
     overrides merge last — the more specific operator intent wins."""
-    merged = {**config.MODEL_PARAMS, **(extra or {})}
+    merged = _behavior_params(extra)
     return {"params": merged} if merged else {}
 
 
@@ -253,7 +270,7 @@ def _model_config(mid: str, extra: dict | None = None, **base) -> dict:
     entry means different things per provider. Persona overrides merge last
     of all.
     """
-    return {"model_id": mid, **base, **config.MODEL_PARAMS, **(extra or {})}
+    return {"model_id": mid, **base, **_behavior_params(extra)}
 
 
 PLANNER_PROMPT = """You are the planning specialist for an AI team platform.
@@ -758,6 +775,7 @@ def build_agent(
     viewer=None,
     extensions: ExtensionRegistry | None = None,
     policy_subject=None,
+    resolved_model: str = "",
 ):
     """One agent per chat thread. Mock provider needs no keys and no Strands
     session; real providers persist conversations in the session tables
@@ -1405,10 +1423,13 @@ def build_agent(
         allowed = set(beh["tools"]) & known
         tools = [t for t in tools if _tool_name(t) in allowed]
 
+    # routes/chat.py resolves this before attachment preparation. Reading the
+    # admin pick again here can send an image block to a text-only model when a
+    # pick changes between those two steps.
     manager = _conversation_manager()
     if stateless:
         return Agent(
-            model=_model(model_id=beh["model"], temperature=beh["temperature"]),
+            model=_model(model_id=resolved_model or beh["model"], temperature=beh["temperature"]),
             conversation_manager=manager,
             system_prompt=system,
             tools=tools,
@@ -1416,7 +1437,7 @@ def build_agent(
         )
     _reconcile_session_strategy(thread_id, manager)
     return Agent(
-        model=_model(model_id=beh["model"], temperature=beh["temperature"]),
+        model=_model(model_id=resolved_model or beh["model"], temperature=beh["temperature"]),
         conversation_manager=manager,
         system_prompt=system,
         tools=tools,

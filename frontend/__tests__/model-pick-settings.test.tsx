@@ -5,11 +5,32 @@ import { describe, expect, it, vi } from "vitest";
  *  governs a string carrying a number applies (CLAUDE.md): no warmth, and the
  *  sentence must agree with what the server reports.
  *
- *  The claim a reader acts on and cannot check is "this model is in force".
+ *  The claim a reader acts on and cannot check is "this team default is in force".
  *  A section that hid a stale stored pick, or rendered a menu the server
  *  voided, would tell an administrator the deployment runs one model while it
  *  runs another.
  */
+
+const SUMMARY = {
+  scope: "team_default",
+  note: "This is the team default. Persona overrides can use a different model or parameters.",
+  rows: [
+    { id: "provider", label: "Provider", value: "anthropic", source: "SKEIN_MODEL_PROVIDER" },
+    { id: "model", label: "Team-default model", value: "opus", source: "Settings → Model (team)" },
+    { id: "output_cap", label: "Output cap", value: "8,192 tokens", source: "selected model entry" },
+    {
+      id: "attachments",
+      label: "Attachments",
+      value: "Direct: document. Images: vision sidecar.",
+      source: "selected model entry + SKEIN_VISION_MODEL",
+    },
+    { id: "vision_sidecar", label: "Vision sidecar", value: "qwen3.5:cloud", source: "SKEIN_VISION_MODEL" },
+    { id: "long_chat", label: "Long chats", value: "sliding", source: "SKEIN_CONTEXT_STRATEGY" },
+    { id: "model_menu", label: "Model menu", value: "2 models", source: "SKEIN_MODELS_FILE" },
+    { id: "prices", label: "Prices", value: "Set for team-default model", source: "selected model entry" },
+    { id: "parameters", label: "Parameters", value: "3 parameters", source: "SKEIN_MODEL_PARAMS_FILE + selected model entry" },
+  ],
+};
 
 const PICK = {
   model: "opus",
@@ -42,6 +63,7 @@ const PICK = {
   menu_error: "",
   applies: true,
   provider: "anthropic",
+  summary: SUMMARY,
 };
 
 const mode: { pick: unknown; post: "ok" | "refuse" } = {
@@ -81,6 +103,47 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/settings" }));
 import SettingsPage from "@/app/settings/page";
 
 describe("the model section", () => {
+  it("shows the server summary before the model controls", async () => {
+    mode.pick = PICK;
+    render(<SettingsPage />);
+
+    const heading = await screen.findByRole("heading", { name: "In force" });
+    expect(screen.getByText("qwen3.5:cloud")).toBeTruthy();
+    expect(screen.getByText("8,192 tokens")).toBeTruthy();
+    expect(screen.getByText("2 models")).toBeTruthy();
+    expect(screen.getByText("3 parameters")).toBeTruthy();
+    expect(screen.getByText("SKEIN_VISION_MODEL")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "This is the team default. Persona overrides can use a different model or parameters.",
+      ),
+    ).toBeTruthy();
+    const radio = await screen.findByRole("radio", { name: /Opus — deep work/ });
+    expect(
+      heading.compareDocumentPosition(radio) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("does not invent a cap that hidden parameters can replace", async () => {
+    mode.pick = {
+      ...PICK,
+      summary: {
+        ...SUMMARY,
+        rows: SUMMARY.rows.map((row) =>
+          row.id === "output_cap"
+            ? {
+                ...row,
+                value: "Set in parameters (value hidden)",
+                source: "SKEIN_MODEL_PARAMS_FILE",
+              }
+            : row,
+        ),
+      },
+    };
+    render(<SettingsPage />);
+    expect(await screen.findByText("Set in parameters (value hidden)")).toBeTruthy();
+  });
+
   it("renders the menu with each entry's price and context size", async () => {
     mode.pick = PICK;
     render(<SettingsPage />);
@@ -206,7 +269,7 @@ describe("the model section", () => {
     await screen.findByText(/Opus — deep work/);
     const text = container.textContent ?? "";
     const ours = text.slice(
-      text.indexOf("The model every chat runs on"),
+      text.indexOf("This section shows the team-default model configuration"),
       text.indexOf("Long chats"),
     );
     expect(ours).not.toMatch(/!|’|'(s|re|ll|t|m|ve|d)\b/);

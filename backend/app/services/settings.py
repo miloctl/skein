@@ -17,6 +17,7 @@ operator put a credential. Only the pick itself is stored.
 import json
 
 from .. import config, db
+from . import usage
 
 CONTEXT_STRATEGY = "context_strategy"
 
@@ -142,11 +143,255 @@ def model_pick_state() -> dict:
         elif stored["model_id"] not in config.MODELS:
             ignored = "The picked model is no longer in the menu."
     effective = stored["model_id"] if stored and not ignored else config.MODEL_ID
+    from_pick = bool(stored) and not ignored
     return {
         "model": effective if config.EFFECTIVE_PROVIDER != "mock" else "",
         "override": stored,
         "ignored": ignored,
         "default": config.MODEL_ID,
+        # where the reported value came from, computed HERE beside the value
+        # itself so /api/health and this GET can never disagree about it. An
+        # ignored override is "env": the deployment is running the env
+        # default, whatever the table still holds.
+        "origin": "admin" if from_pick else "env",
+    }
+
+
+def model_configuration_summary(pick: dict | None = None) -> dict:
+    """Safe team-default model state for Settings and `skein model`.
+
+    Values from free-form params never leave this service. They can carry a
+    credential, URL, or path, so only their count and source are reported.
+    """
+    pick = pick or model_pick_state()
+    model_id = pick["model"]
+    entry = config.MODELS.get(model_id) or {}
+    entry_params = {
+        key: value
+        for key, value in entry.get("params", {}).items()
+        if key not in config.MODEL_ROUTING_PARAM_KEYS
+    }
+    provider = config.PROVIDERS.get(config.EFFECTIVE_PROVIDER, config.PROVIDERS["mock"])
+    cap_keys = provider["output_cap_params"]
+    shadowed_global = (
+        set(cap_keys)
+        if provider["typed_output_cap"] and entry.get("max_tokens") is not None
+        else set()
+    )
+    effective_global = {
+        key: value
+        for key, value in config.MODEL_PARAMS.items()
+        if key not in shadowed_global and key not in config.MODEL_ROUTING_PARAM_KEYS
+    }
+    merged_params = {**effective_global, **entry_params}
+
+    def document_source(source: str) -> str:
+        return "inline_env" if source == "inline" else source
+
+    global_survives = any(key not in entry_params for key in effective_global)
+    param_sources = []
+    if global_survives and config.MODEL_PARAMS_SOURCE != "unset":
+        param_sources.append(document_source(config.MODEL_PARAMS_SOURCE))
+    if entry_params:
+        param_sources.append("model_menu")
+    cap_sources = []
+    for key in cap_keys:
+        if key in entry_params and "model_menu" not in cap_sources:
+            cap_sources.append("model_menu")
+        elif key in config.MODEL_PARAMS and not (
+            provider["typed_output_cap"] and entry.get("max_tokens") is not None
+        ):
+            source = document_source(config.MODEL_PARAMS_SOURCE)
+            if source not in cap_sources:
+                cap_sources.append(source)
+    if config.EFFECTIVE_PROVIDER == "mock":
+        cap_state, cap_value, cap_reason, cap_sources = "inactive", None, "provider_inactive", []
+    elif cap_sources:
+        cap_state, cap_value, cap_reason = "indeterminate", None, "free_form_parameters"
+    elif not provider["typed_output_cap"]:
+        cap_state, cap_value, cap_reason, cap_sources = (
+            "indeterminate",
+            None,
+            "provider_managed",
+            ["provider"],
+        )
+    elif entry.get("max_tokens") is not None:
+        cap_state, cap_value, cap_reason, cap_sources = (
+            "known",
+            entry["max_tokens"],
+            None,
+            ["model_menu"],
+        )
+    else:
+        cap_state, cap_value, cap_reason, cap_sources = (
+            "known",
+            config.MAX_TOKENS,
+            None,
+            [config.MAX_TOKENS_SOURCE],
+        )
+
+    direct = list(config.attachment_support(model_id)) if model_id else []
+    attachment_source = (
+        "model_menu" if entry and entry.get("attachments") is not None else "provider"
+    )
+    if "image" in direct:
+        image_mode = "direct"
+    elif config.VISION_MODEL and config.EFFECTIVE_PROVIDER != "mock":
+        image_mode = "vision_sidecar"
+    else:
+        image_mode = "unavailable"
+
+    strategy_override = context_strategy_override()
+    strategy_source = "admin" if strategy_override else config.CONTEXT_STRATEGY_SOURCE
+    price, price_source = usage.model_price(model_id)
+    price_fault = bool(
+        price is None and config.MODEL_PRICE_TABLE_ERROR and config.MODEL_PRICES_SOURCE != "unset"
+    )
+    if price_fault:
+        price_source = config.MODEL_PRICES_SOURCE
+    price_source = document_source(price_source)
+    model_source = pick["origin"]
+    if model_source == "env":
+        model_source = config.MODEL_ID_SOURCE
+    menu_sources = (
+        [] if config.MODELS_SOURCE == "unset" else [document_source(config.MODELS_SOURCE)]
+    )
+    model_active = config.EFFECTIVE_PROVIDER != "mock"
+    sidecar_active = image_mode == "vision_sidecar"
+
+    def source_name(row_id: str, source: str) -> str:
+        if source == "admin":
+            return (
+                "Settings → Long chats (team)"
+                if row_id == "long_chat"
+                else "Settings → Model (team)"
+            )
+        fixed = {
+            "provider_default": "provider default",
+            "default": "built-in default",
+            "fallback": "safe fallback",
+            "provider": "provider capability",
+            "model_menu": "selected model entry",
+            "both": "both forms (fault)",
+        }
+        if source in fixed:
+            return fixed[source]
+        if source == "env":
+            return {
+                "provider": "SKEIN_MODEL_PROVIDER",
+                "model": "SKEIN_MODEL_ID",
+                "output_cap": "SKEIN_MAX_TOKENS",
+                "attachments": "SKEIN_VISION_MODEL",
+                "vision_sidecar": "SKEIN_VISION_MODEL",
+                "long_chat": "SKEIN_CONTEXT_STRATEGY",
+            }.get(row_id, "environment")
+        if source == "inline_env":
+            return {
+                "output_cap": "SKEIN_MODEL_PARAMS",
+                "model_menu": "SKEIN_MODELS",
+                "prices": "SKEIN_MODEL_PRICES",
+                "parameters": "SKEIN_MODEL_PARAMS",
+            }.get(row_id, "environment")
+        if source == "file":
+            return {
+                "output_cap": "SKEIN_MODEL_PARAMS_FILE",
+                "model_menu": "SKEIN_MODELS_FILE",
+                "prices": "SKEIN_MODEL_PRICES_FILE",
+                "parameters": "SKEIN_MODEL_PARAMS_FILE",
+            }.get(row_id, "_FILE setting")
+        return source
+
+    def row(row_id: str, label: str, value: str, sources: list[str]):
+        return {
+            "id": row_id,
+            "label": label,
+            "value": value,
+            "source": " + ".join(source_name(row_id, source) for source in sources),
+        }
+
+    if cap_state == "inactive":
+        cap_text = "Not in use"
+    elif cap_state == "known":
+        cap_text = f"{cap_value:,} tokens"
+    elif cap_reason == "free_form_parameters":
+        cap_text = "Set in parameters (value hidden)"
+    else:
+        cap_text = "Managed through provider parameters"
+    direct_text = ", ".join(direct) or "none"
+    image_text = {
+        "direct": "direct",
+        "vision_sidecar": "vision sidecar",
+        "unavailable": "unavailable",
+    }[image_mode]
+    if not config.VISION_MODEL:
+        vision_text = "Not set"
+    elif sidecar_active:
+        vision_text = config.VISION_MODEL
+    else:
+        vision_text = f"{config.VISION_MODEL} (not used for team default)"
+    menu_count = len(config.MODELS)
+    param_count = len(merged_params)
+    if not model_active:
+        price_text = "Not in use"
+    elif price_fault:
+        price_text = "Configuration error"
+    else:
+        price_text = "Set for team-default model" if price is not None else "Not set"
+    return {
+        "scope": "team_default",
+        "note": "This is the team default. Persona overrides can use a different model or parameters.",
+        "rows": [
+            row(
+                "provider",
+                "Provider",
+                f"{config.EFFECTIVE_PROVIDER}{' (safe fallback)' if config.MODEL_PROVIDER_ERROR else ''}",
+                ["fallback"] if config.MODEL_PROVIDER_ERROR else [config.MODEL_PROVIDER_SOURCE],
+            ),
+            row(
+                "model",
+                "Team-default model",
+                model_id if model_active else "Not in use",
+                [model_source] if model_active else [],
+            ),
+            row("output_cap", "Output cap", cap_text, cap_sources),
+            row(
+                "attachments",
+                "Attachments",
+                f"Direct: {direct_text}. Images: {image_text}.",
+                [attachment_source] + (["env"] if sidecar_active else []),
+            ),
+            row(
+                "vision_sidecar",
+                "Vision sidecar",
+                vision_text,
+                ["env"] if config.VISION_MODEL else [],
+            ),
+            row(
+                "long_chat",
+                "Long chats",
+                f"{strategy_override or config.CONTEXT_STRATEGY}{' (not in use)' if not model_active else ''}",
+                [strategy_source],
+            ),
+            row(
+                "model_menu",
+                "Model menu",
+                f"{menu_count} {'model' if menu_count == 1 else 'models'}",
+                menu_sources,
+            ),
+            row(
+                "prices",
+                "Prices",
+                price_text,
+                [] if price_source == "unset" else [price_source],
+            ),
+            row(
+                "parameters",
+                "Parameters",
+                f"{param_count} {'parameter' if param_count == 1 else 'parameters'}"
+                f"{' (not in use)' if not model_active else ''}",
+                param_sources,
+            ),
+        ],
     }
 
 
