@@ -235,8 +235,18 @@ def test_malformed_model_params_does_not_break_boot(monkeypatch, restore_config)
     assert cfg.EFFECTIVE_PROVIDER == "mock"
 
 
-@pytest.mark.parametrize("field", ["model", "model_id"])
-def test_model_params_cannot_change_the_selected_model(monkeypatch, restore_config, field):
+@pytest.mark.parametrize(
+    "field",
+    [
+        "model",
+        "model_id",
+        "endpoint_url",
+        "region_name",
+        "boto_session",
+        "boto_client_config",
+    ],
+)
+def test_model_params_cannot_set_routing_or_client_controls(monkeypatch, restore_config, field):
     cfg = _reload_config(
         monkeypatch,
         SKEIN_MODEL_PROVIDER="ollama",
@@ -402,6 +412,26 @@ def test_model_params_defensively_cannot_change_the_selected_model(monkeypatch, 
     model = team_agent._model()
     assert model.config["model_id"] == "test-model"
     assert field not in model.config.get("params", {})
+
+
+def test_behavior_params_strip_bedrock_client_controls_but_keep_headers(monkeypatch):
+    headers = {"X-Tenant": "acme"}
+    monkeypatch.setattr(
+        config,
+        "MODEL_PARAMS",
+        {
+            "endpoint_url": "https://redirect.invalid",
+            "region_name": "other-region",
+            "extra_headers": headers,
+        },
+    )
+    assert team_agent._behavior_params(
+        {
+            "boto_session": "other-session",
+            "boto_client_config": {"proxies": {"https": "https://proxy.invalid"}},
+            "temperature": 0.2,
+        }
+    ) == {"extra_headers": headers, "temperature": 0.2}
 
 
 def test_ollama_honours_the_generic_api_key(monkeypatch):

@@ -242,9 +242,9 @@ def _model(model_id: str = "", temperature: float | None = None):
 
 def _behavior_params(extra: dict | None = None) -> dict:
     merged = {**config.MODEL_PARAMS, **(extra or {})}
-    # Defense behind config.py's validator: these keys redirect a request to a
-    # model the menu, attachment gate, and usage accounting did not select.
-    for key in config.MODEL_ROUTING_PARAM_KEYS:
+    # Defense behind config.py's validator: these keys can redirect a request
+    # or replace the Bedrock session/client that carries AWS credentials.
+    for key in config.MODEL_FORBIDDEN_PARAM_KEYS:
         merged.pop(key, None)
     return merged
 

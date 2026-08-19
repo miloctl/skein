@@ -169,19 +169,19 @@ def model_configuration_summary(pick: dict | None = None) -> dict:
     entry_params = {
         key: value
         for key, value in entry.get("params", {}).items()
-        if key not in config.MODEL_ROUTING_PARAM_KEYS
+        if key not in config.MODEL_FORBIDDEN_PARAM_KEYS
     }
     provider = config.PROVIDERS.get(config.EFFECTIVE_PROVIDER, config.PROVIDERS["mock"])
     cap_keys = provider["output_cap_params"]
-    shadowed_global = (
-        set(cap_keys)
-        if provider["typed_output_cap"] and entry.get("max_tokens") is not None
-        else set()
-    )
+    shadowed_global = set()
+    if provider["typed_output_cap"] and entry.get("max_tokens") is not None:
+        shadowed_global.update(cap_keys)
+    if provider["params_as_model_config"] and entry.get("context_tokens") is not None:
+        shadowed_global.add("context_window_limit")
     effective_global = {
         key: value
         for key, value in config.MODEL_PARAMS.items()
-        if key not in shadowed_global and key not in config.MODEL_ROUTING_PARAM_KEYS
+        if key not in shadowed_global and key not in config.MODEL_FORBIDDEN_PARAM_KEYS
     }
     merged_params = {**effective_global, **entry_params}
 
