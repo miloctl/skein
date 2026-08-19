@@ -158,6 +158,11 @@ ignore_names = [
     # Pydantic serialization. Core does not need to branch on each field.
     "tool_risk", "error_code", "policy_effect", "created_by", "updated_at", "checkpoint",
     "review_id", "delivery_id", "command_context",
+    # PyYAML calls this loader override through its composer protocol.
+    "construct_mapping",
+    # This source classification is part of the structured-setting contract.
+    # Tests consume it because MCP details must not reach a public response.
+    "MCP_SERVERS_SOURCE",
     # AgentTool protocol properties called by the Strands registry.
     "tool_type", "supports_hot_reload",
     # Public work commands. A private package calls these; core only resumes

@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import threading
+import time
 from dataclasses import dataclass
 from functools import partial
 from typing import Any
@@ -32,11 +33,23 @@ from ..extensions.policy import (
 )
 
 log = logging.getLogger(__name__)
-_clients: list = []
+
+
+@dataclass(frozen=True)
+class _MCPConnection:
+    server_id: str
+    client: Any
+    tools: tuple[Any, ...]
+
+
+_connections: dict[str, _MCPConnection] = {}
 _tools: list | None = None
 _lock = threading.Lock()
 _loading = False
 _generation = 0
+_RETRY_BASE_SECONDS = 30.0
+_RETRY_MAX_SECONDS = 300.0
+_retry_state: dict[str, tuple[int, float]] = {}
 
 
 @dataclass(frozen=True)
@@ -484,75 +497,155 @@ def _without_reserved(tools: list, reserved_names: set[str]) -> list:
     return [tool for tool in tools if str(getattr(tool, "tool_name", tool)) not in reserved_names]
 
 
-def mcp_tools(reserved_names: set[str] | None = None) -> list:
-    reserved = reserved_names or set()
-    global _loading, _tools
-    # the lock guards STATE, never the connect. Held across the network I/O
-    # below, it queued every concurrent agent build (threadpool workers via
-    # routes/chat.py) behind one hung MCP server — up to sse_read_timeout
-    # (300s) per server — and a dead integration must not take down chat.
-    with _lock:
-        if _tools is not None:
-            return _without_reserved(_tools, reserved)
-        if _loading:
-            # another turn is connecting: this one goes without MCP tools
-            # rather than parking a worker on someone else's network I/O
-            return []
-        _loading = True
-        generation = _generation
-    try:
-        tools, clients = _connect_servers()
-    except Exception:
-        # _connect_servers isolates each server, but this guard keeps one new
-        # parser/import fault from leaving every later build in `_loading`.
-        log.exception("MCP configuration failed to load — MCP disabled")
-        tools, clients = [], []
-    with _lock:
-        _loading = False
-        if generation == _generation:
-            _clients.extend(clients)
-            _tools = tools
-            return _without_reserved(tools, reserved)
-    # shutdown_mcp ran mid-connect: these sessions belong to the world it
-    # closed — publishing them would resurrect state shutdown just tore down
-    for client in clients:
-        with contextlib.suppress(Exception):
-            client.__exit__(None, None, None)
-    return []
-
-
-def _connect_servers() -> tuple[list, list]:
-    """Open every configured server, returning (tools, live clients). Never
-    raises: one bad server costs its own tools and a warning, not the agent."""
-    tools: list = []
-    clients: list = []
+def _server_entries() -> list[tuple[str, dict]]:
     if config.MCP_SERVERS_ERROR:
         log.warning("%s MCP disabled", config.MCP_SERVERS_ERROR)
-        return tools, clients
+        return []
     if not config.MCP_SERVERS:
-        return tools, clients
+        return []
     try:
         servers = json.loads(config.MCP_SERVERS)
     except ValueError:
         log.warning("SKEIN_MCP_SERVERS is not valid JSON — MCP disabled")
-        return tools, clients
-
+        return []
     if not isinstance(servers, list):
         log.warning("SKEIN_MCP_SERVERS must be a JSON list — MCP disabled")
-        return tools, clients
-    seen_servers: set[str] = set()
+        return []
+
+    entries = []
+    seen: set[str] = set()
     for position, server in enumerate(servers, 1):
         if not isinstance(server, dict):
             log.warning("MCP server entry %d is not a JSON object — omitted", position)
             continue
+        server_id = str(server.get("name") or "").strip()
+        if not server_id or server_id in seen:
+            log.warning("MCP server entry %d needs a unique stable name — omitted", position)
+            continue
+        seen.add(server_id)
+        entries.append((server_id, server))
+    return entries
+
+
+def _composed_tools(connections) -> list:
+    tools = [tool for connection in connections for tool in connection.tools]
+    counts: dict[str, int] = {}
+    for tool in tools:
+        counts[tool.tool_name] = counts.get(tool.tool_name, 0) + 1
+    duplicates = {name for name, count in counts.items() if count > 1}
+    if duplicates:
+        log.error(
+            "MCP tool names collide across servers and were omitted: %s",
+            ", ".join(sorted(duplicates)),
+        )
+    return [tool for tool in tools if tool.tool_name not in duplicates]
+
+
+def _finish_load(server_ids: set[str], configured_ids: set[str], generation: int) -> list:
+    global _loading, _tools
+    loaded: list[_MCPConnection] = []
+    try:
+        _, loaded = _connect_servers(server_ids)
+    except Exception:
+        # A parser or import fault outside one server must leave the cache
+        # retryable. Publishing an empty terminal cache makes recovery require
+        # a process restart.
+        log.exception("MCP configuration failed to load — MCP will retry")
+
+    close_after: list[Any] = []
+    with _lock:
+        _loading = False
+        if generation == _generation:
+            loaded_ids = {connection.server_id for connection in loaded}
+            for connection in loaded:
+                _retry_state.pop(connection.server_id, None)
+                if connection.server_id in _connections:
+                    close_after.append(connection.client)
+                else:
+                    _connections[connection.server_id] = connection
+            retry_at = time.monotonic()
+            for server_id in server_ids - loaded_ids:
+                failures = _retry_state.get(server_id, (0, 0.0))[0] + 1
+                exponent = min(failures - 1, 4)
+                delay = min(_RETRY_BASE_SECONDS * (2**exponent), _RETRY_MAX_SECONDS)
+                _retry_state[server_id] = (failures, retry_at + delay)
+            current = _composed_tools(_connections.values())
+            if configured_ids <= set(_connections):
+                _tools = current
+            result = current
+        else:
+            # shutdown_mcp closed the earlier generation. Publishing these
+            # sessions would resurrect state that shutdown cannot close.
+            close_after.extend(connection.client for connection in loaded)
+            result = []
+    for client in close_after:
+        with contextlib.suppress(Exception):
+            client.__exit__(None, None, None)
+    return result
+
+
+def mcp_tools(reserved_names: set[str] | None = None) -> list:
+    reserved = reserved_names or set()
+    global _loading, _tools
+    with _lock:
+        if _tools is not None:
+            return _without_reserved(_tools, reserved)
+
+    entries = _server_entries()
+    configured_ids = {server_id for server_id, _ in entries}
+    with _lock:
+        if _tools is not None:
+            return _without_reserved(_tools, reserved)
+        for server_id in set(_retry_state) - configured_ids:
+            del _retry_state[server_id]
+        current = _composed_tools(_connections.values())
+        if not configured_ids:
+            _retry_state.clear()
+            _tools = []
+            return []
+        if _loading:
+            # A network load must not park another agent build. Already loaded
+            # servers remain usable while the missing servers recover.
+            return _without_reserved(current, reserved)
+        missing = configured_ids - set(_connections)
+        if not missing:
+            _tools = current
+            return _without_reserved(current, reserved)
+        now = time.monotonic()
+        ready = {
+            server_id for server_id in missing if _retry_state.get(server_id, (0, 0.0))[1] <= now
+        }
+        if not ready:
+            return _without_reserved(current, reserved)
+        background = any(server_id in _retry_state for server_id in ready)
+        _loading = True
+        generation = _generation
+
+    if background:
+        # A failed endpoint can hold the SDK transport read for 300 seconds.
+        # Recovery runs outside agent construction so no later chat owns it.
+        threading.Thread(
+            target=_finish_load,
+            args=(ready, configured_ids, generation),
+            daemon=True,
+            name="skein-mcp-retry",
+        ).start()
+        return _without_reserved(current, reserved)
+    return _without_reserved(_finish_load(ready, configured_ids, generation), reserved)
+
+
+def _connect_servers(server_ids: set[str] | None = None) -> tuple[list, list[_MCPConnection]]:
+    """Open selected servers. One bad server costs only its own tools."""
+    connections: list[_MCPConnection] = []
+    for server_id, server in _server_entries():
+        if server_ids is not None and server_id not in server_ids:
+            continue
+        client = None
+        entered = False
         try:
             from mcp.client.streamable_http import streamablehttp_client
             from strands.tools.mcp import MCPClient
 
-            server_id = str(server.get("name") or "").strip()
-            if not server_id or server_id in seen_servers:
-                raise ValueError("each MCP server needs a unique stable name")
-            seen_servers.add(server_id)
             url = server["url"]
             token_env = str(server.get("auth_token_env") or "").strip()
             token = os.getenv(token_env, "") if token_env else str(server.get("auth_token") or "")
@@ -563,8 +656,8 @@ def _connect_servers() -> tuple[list, list]:
                 )
             headers = {"Authorization": f"Bearer {token}"} if token else None
             client = MCPClient(partial(streamablehttp_client, url, headers=headers))
-            client.__enter__()  # keep the session open for the process lifetime
-            clients.append(client)
+            client.__enter__()
+            entered = True
             found = client.list_tools_sync()
             accepted = []
             for remote_tool in found:
@@ -573,41 +666,34 @@ def _connect_servers() -> tuple[list, list]:
                     log.warning(
                         "MCP tool %r from %r omitted: complete governance metadata is required",
                         remote_tool.tool_name,
-                        server.get("name", url),
+                        server_id,
                     )
                     continue
                 accepted.append(GovernedMCPTool(remote_tool, metadata, server_id))
-            tools.extend(accepted)
+            connections.append(_MCPConnection(server_id, client, tuple(accepted)))
             log.info(
                 "MCP server '%s': %d of %d tools governed and loaded",
-                server.get("name", url),
+                server_id,
                 len(accepted),
                 len(found),
             )
         except Exception as exc:
-            log.warning("MCP server '%s' failed to connect: %s", server.get("name", "?"), exc)
-    counts: dict[str, int] = {}
-    for tool in tools:
-        counts[tool.tool_name] = counts.get(tool.tool_name, 0) + 1
-    duplicates = {name for name, count in counts.items() if count > 1}
-    if duplicates:
-        log.error(
-            "MCP tool names collide across servers and were omitted: %s",
-            ", ".join(sorted(duplicates)),
-        )
-        tools = [tool for tool in tools if tool.tool_name not in duplicates]
-    return tools, clients
+            if entered and client is not None:
+                with contextlib.suppress(Exception):
+                    client.__exit__(None, None, None)
+            log.warning("MCP server '%s' failed to connect: %s", server_id, exc)
+    return _composed_tools(connections), connections
 
 
 def shutdown_mcp() -> None:
     global _tools, _generation
     with _lock:
-        # the generation bump tells an in-flight load its result is stale;
-        # without it the load publishes after this clear and resurrects
-        # closed state. Close outside the lock — same rule as the connect.
+        # The generation bump makes an in-flight result stale. Close outside
+        # the lock so a slow client shutdown cannot stop another state read.
         _generation += 1
-        doomed = list(_clients)
-        _clients.clear()
+        doomed = [connection.client for connection in _connections.values()]
+        _connections.clear()
+        _retry_state.clear()
         _tools = None
     for client in doomed:
         with contextlib.suppress(Exception):

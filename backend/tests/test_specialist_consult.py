@@ -52,13 +52,19 @@ def real_provider(fresh_db, monkeypatch):
     return monkeypatch
 
 
-def _consult_tool(agent):
-    tool = agent.tool_registry.registry["consult_specialist"]
+def _tool_function(agent, name: str):
+    tool = agent.tool_registry.registry[name]
+    while getattr(tool, "_delegate", None) is not None:
+        tool = tool._delegate
     for attr in ("original_function", "_tool_func", "func", "__wrapped__"):
         fn = getattr(tool, attr, None)
         if callable(fn):
             return fn
-    raise AssertionError("consult_specialist is not an unwrappable tool")
+    raise AssertionError(f"{name} is not an unwrappable tool")
+
+
+def _consult_tool(agent):
+    return _tool_function(agent, "consult_specialist")
 
 
 async def _drain(gen):
@@ -99,6 +105,38 @@ def test_a_specialist_does_not_hold_the_tool(real_provider):
     # and the flock member build, which is how a consult builds its sub-agent
     member = team_agent.build_agent("t-spec", persona="code-reviewer", stateless=True)
     assert "consult_specialist" not in member.tool_names
+
+
+def test_planner_and_consult_use_the_turn_team_model_snapshot(real_provider, monkeypatch):
+    agent = team_agent.build_agent("t-model-snapshot")
+    planner = _tool_function(agent, "plan_project")
+    consult = _consult_tool(agent)
+    current = {"model": "old-pick"}
+    seen = {}
+    monkeypatch.setattr(team_agent, "_picked_model", lambda: current["model"])
+    token = team_agent.set_team_model_snapshot("old-pick")
+    current["model"] = "new-pick"
+
+    def planner_model(model_id="", **_kwargs):
+        seen["planner"] = team_agent.model_in_force(model_id)
+        raise RuntimeError("stop after model selection")
+
+    try:
+        monkeypatch.setattr(team_agent, "_model", planner_model)
+        with pytest.raises(RuntimeError, match="stop after model selection"):
+            planner("plan this")
+
+        def specialist(*_args, **_kwargs):
+            seen["consult"] = team_agent.model_in_force()
+            return _Answering(("done",))
+
+        monkeypatch.setattr(team_agent, "build_agent", specialist)
+        asyncio.run(_drain(consult("code-reviewer", "review this")))
+    finally:
+        team_agent.reset_team_model_snapshot(token)
+
+    assert seen == {"planner": "old-pick", "consult": "old-pick"}
+    assert team_agent.model_in_force() == "new-pick"
 
 
 def test_the_bench_roster_reaches_the_system_prompt(real_provider):

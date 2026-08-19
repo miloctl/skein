@@ -38,6 +38,8 @@ from ..agents.team_agent import (
     build_titler,
     describe_image,
     model_in_force,
+    reset_team_model_snapshot,
+    set_team_model_snapshot,
 )
 from ..extensions.fastapi import PolicyAPIRoute, subject_for
 from ..extensions.policy import (
@@ -612,6 +614,7 @@ async def _flock_stream(
     viewer=None,
     policy_engine: PolicyEngine | None = None,
     policy_subject: PolicySubject | None = None,
+    team_model: str = "",
 ):
     """Fan one message out to every member, render the answers as sections in
     declared order, then merge them when the flock synthesizes."""
@@ -650,6 +653,9 @@ async def _flock_stream(
     # runs in a threadpool, and counting it would over-report every cancelled
     # member by however long that write took
     turn_started = time.monotonic()
+    if not team_model:
+        team_model = await run_in_threadpool(model_in_force)
+    model_token = set_team_model_snapshot(team_model)
 
     def _close_turn() -> None:
         # idempotent for the same reason the agent turn's is: the cancelled
@@ -866,6 +872,7 @@ async def _flock_stream(
                 reset_policy_engine(policy_token)
             if subject_token is not None:
                 reset_policy_subject(subject_token)
+            reset_team_model_snapshot(model_token)
     yield _sse({"type": "done"})
 
 
@@ -1152,6 +1159,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
             user,
             cost=len(flock_def["members"]) + int(flock_def["synthesis"]) - 1,
         )
+        team_model = await run_in_threadpool(model_in_force)
         # the turn guard is skipped on purpose: it re-prompts ONE agent to file
         # what a filing-shaped message asked for, and a flock turn has N heads
         # and no write path of its own (docs/FLOCKS.md)
@@ -1165,6 +1173,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                 viewer,
                 request.app.state.skein_registry.policy_engine,
                 subject,
+                team_model,
             ),
             media_type="text/event-stream",
         )
@@ -1210,10 +1219,10 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
     persona_model = ""
     if persona and persona not in extension_specialists:
         persona_model = (await run_in_threadpool(personas.behavior, persona))["model"]
-    # One snapshot feeds attachment preparation AND agent construction. A pick
-    # change between two reads can send an image block to the new text-only
-    # model, which answers 400 and kills the turn.
-    resolved_model = await run_in_threadpool(model_in_force, persona_model)
+    # Freeze the TEAM default separately. A persona still wins for the outer
+    # agent, while nested planners and titles stay on the team model.
+    team_model = await run_in_threadpool(model_in_force)
+    resolved_model = persona_model or team_model
     prompt, attached = await run_in_threadpool(
         _attachment_prompt, message, req.attachments, user, resolved_model
     )
@@ -1237,7 +1246,9 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
             "agent construction failed (thread=%s user=%s)", thread_id, user
         )
         fault = _agent_fault(exc)
-        await run_in_threadpool(_log_turn, ui_thread, user, "user", message)
+        await run_in_threadpool(
+            _log_turn, ui_thread, user, "user", _with_attachments(message, attached)
+        )
         await run_in_threadpool(_log_turn, ui_thread, user, "assistant", f"> {fault}")
 
         async def error_stream(message=fault):
@@ -1394,6 +1405,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                 transcript.append(_receipt_line(r))
                 yield _sse({"type": "receipt", **r})
 
+        model_token = set_team_model_snapshot(team_model)
         try:
             async for chunk in pump(prompt):
                 yield chunk
@@ -1458,6 +1470,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                 reset_requester_viewer(rv_token)
                 reset_policy_engine(policy_token)
                 reset_policy_subject(subject_token)
+                reset_team_model_snapshot(model_token)
             except ValueError:
                 pass
             # sync fallback for the CANCELLED stream (stop button, tab

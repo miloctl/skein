@@ -95,6 +95,56 @@ def test_synthesis_runs_last_and_is_traced(client, fresh_db):
     assert synth["status"] == "ok"
 
 
+def test_flock_turn_freezes_members_synthesis_and_title_to_one_team_model(client, monkeypatch):
+    from app.agents import team_agent
+    from app.routes import chat as chat_route
+
+    current = {"model": "old-pick"}
+    seen = {"members": [], "titles": [], "direct": []}
+    monkeypatch.setattr(team_agent, "_picked_model", lambda: current["model"])
+    real_cards = flocks.member_cards
+
+    def change_pick_after_capture(members):
+        cards = real_cards(members)
+        current["model"] = "new-pick"
+        return cards
+
+    monkeypatch.setattr(chat_route.flocks, "member_cards", change_pick_after_capture)
+    monkeypatch.setattr(chat_route, "_usage_row", lambda *_args, **_kwargs: None)
+
+    class Answer:
+        async def stream_async(self, message):
+            yield {"data": "ok"}
+
+    def build(*_args, **kwargs):
+        if "resolved_model" in kwargs:
+            seen["direct"].append(kwargs["resolved_model"])
+        else:
+            seen["members"].append(team_agent.model_in_force())
+        return Answer()
+
+    def synthesize(_answered):
+        seen["synthesis"] = team_agent.model_in_force()
+        return Answer()
+
+    def title():
+        seen["titles"].append(team_agent.model_in_force())
+        return None
+
+    monkeypatch.setattr(chat_route, "build_agent", build)
+    monkeypatch.setattr(chat_route, "build_synthesizer", synthesize)
+    monkeypatch.setattr(chat_route, "build_titler", title)
+
+    _read_chat(client, "/flock delivery decide", thread="frozen-flock")
+    assert seen["members"] and set(seen["members"]) == {"old-pick"}
+    assert seen["synthesis"] == "old-pick"
+    assert seen["titles"] == ["old-pick"]
+
+    _read_chat(client, "next turn", thread="after-frozen-flock")
+    assert seen["direct"] == ["new-pick"]
+    assert seen["titles"] == ["old-pick", "new-pick"]
+
+
 def test_traces_rest_filters(client):
     _read_chat(client, "/flock engineering one", thread="ta")
     _read_chat(client, "/flock delivery two", thread="tb")

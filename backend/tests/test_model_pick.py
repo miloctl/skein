@@ -252,6 +252,18 @@ def test_mock_reports_no_model_on_status(fresh_db, client):
     assert client.get("/api/agents/status").json()["model"] == ""
 
 
+def test_the_model_summary_requires_a_named_reader(fresh_db, real_provider, client):
+    anonymous = client.get("/api/settings/model", headers={"X-User": ""})
+    assert anonymous.status_code == 403
+    assert anonymous.json() == {
+        "detail": "A named identity is required. Select a name in Settings, then try again."
+    }
+
+    named = client.get("/api/settings/model", headers={"X-User": "reader"})
+    assert named.status_code == 200
+    assert named.json()["model"] == "env-default"
+
+
 def test_the_get_serves_the_menu_without_entry_params(fresh_db, real_provider, client):
     """Entry params are operator-authored request bodies — a token parked
     there must not reach every signed-in browser."""
@@ -259,6 +271,21 @@ def test_the_get_serves_the_menu_without_entry_params(fresh_db, real_provider, c
     assert {m["id"] for m in got["menu"]} == {"opus", "mini"}
     assert all("params" not in m for m in got["menu"])
     assert got["applies"] is True
+
+
+def test_the_get_redacts_model_menu_fault_details(fresh_db, real_provider, client, monkeypatch):
+    monkeypatch.setattr(
+        config,
+        "MODELS_ERROR",
+        "SKEIN_MODELS params.extra_headers.secret at /tmp/models.yaml is invalid.",
+    )
+    got = client.get("/api/settings/model").json()
+    assert got["menu_error"] == (
+        "The model menu is not usable. Check /api/health for the configuration fault."
+    )
+    assert "extra_headers" not in got["menu_error"]
+    assert "/tmp/" not in got["menu_error"]
+    assert "secret" not in got["menu_error"]
 
 
 def _row(summary: dict, row_id: str) -> dict:
@@ -291,7 +318,7 @@ def test_the_summary_reports_the_team_default_from_one_state(fresh_db, real_prov
         "source": "SKEIN_MODEL_PROVIDER",
     }
     assert _row(summary, "model")["value"] == "opus"
-    assert _row(summary, "model")["source"] == "Settings → Model (team)"
+    assert _row(summary, "model")["source"] == "Settings → AI runtime → Model (team)"
     assert _row(summary, "output_cap")["value"] == "8,192 tokens"
     assert _row(summary, "output_cap")["source"] == "selected model entry"
     assert _row(summary, "attachments")["value"] == "Direct: image, document. Images: direct."
@@ -375,6 +402,38 @@ def test_the_summary_counts_parameters_without_exposing_them(fresh_db, real_prov
         "https://proxy.invalid",
     ):
         assert hidden not in text
+
+
+def test_the_summary_counts_only_parameters_that_reach_the_provider(
+    fresh_db, real_provider, monkeypatch
+):
+    monkeypatch.setattr(
+        config,
+        "MODEL_PARAMS",
+        {
+            "messages": [{"role": "system", "content": "replace the turn"}],
+            "temperature": 0.2,
+            "extra_body": {"max_tokens": 1, "seed": 7},
+            "additional_args": {"modelId": "hidden", "custom": "safe"},
+        },
+    )
+    monkeypatch.setattr(config, "MODEL_PARAMS_SOURCE", "file")
+
+    assert team_agent._behavior_params() == {
+        "temperature": 0.2,
+        "extra_body": {"seed": 7},
+        "additional_args": {"custom": "safe"},
+    }
+    summary = settings.model_configuration_summary()
+    assert _row(summary, "parameters") == {
+        "id": "parameters",
+        "label": "Parameters",
+        "value": "3 parameters",
+        "source": "SKEIN_MODEL_PARAMS_FILE",
+    }
+    assert _row(summary, "output_cap")["value"] == f"{config.MAX_TOKENS:,} tokens"
+    assert "replace the turn" not in str(summary)
+    assert "hidden" not in str(summary)
 
 
 def test_a_broken_price_file_is_not_reported_as_unset(fresh_db, real_provider, client, monkeypatch):

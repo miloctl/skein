@@ -441,9 +441,6 @@ history center, so each surface keeps its own bound.
 - **Browse filters and task pagination** [M] — 28 open tasks render as one
   unfiltered list about 900px tall, over 600 accessibility nodes on the seeded
   instance, with no source, engagement or owner filter.
-- **Settings information architecture** [S] — personal setup, operator setup
-  and administrator controls share one page, so a keyless reader scans
-  disabled sections to find the two rows that apply to them.
 - **Planning action placement** [S] — evidence and the control that resolves
   it sit on different pages for the health draft, capacity allocation and the
   incident path. Item 5 above covers the capacity form only.

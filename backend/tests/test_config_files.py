@@ -41,6 +41,12 @@ def _reload(monkeypatch, tmp_path, name, text):
     return importlib.reload(config), path
 
 
+def _reload_inline(monkeypatch, name, text):
+    monkeypatch.setenv(f"{name}_FILE", "")
+    monkeypatch.setenv(name, text)
+    return importlib.reload(config)
+
+
 def test_a_yaml_file_supplies_the_model_menu(monkeypatch, tmp_path):
     """The point of the hatch: nesting and comments, which a JSON string in a
     ConfigMap literal cannot carry."""
@@ -98,6 +104,15 @@ def test_structured_settings_report_the_source_not_the_path(monkeypatch, tmp_pat
     cfg = importlib.reload(config)
     assert cfg.MODELS_SOURCE == "unset"
 
+    cfg, path = _reload(
+        monkeypatch,
+        tmp_path,
+        "SKEIN_MCP_SERVERS",
+        "- name: remote\n  url: https://a.invalid/mcp/\n",
+    )
+    assert cfg.MCP_SERVERS_SOURCE == "file"
+    assert str(path) not in cfg.MCP_SERVERS_SOURCE
+
 
 def test_both_forms_set_is_a_fault(monkeypatch, tmp_path):
     """Never a silent winner: the operator edited one of the two and is
@@ -133,6 +148,63 @@ def test_a_broken_file_faults_without_quoting_it(monkeypatch, tmp_path):
     assert cfg.MODEL_PARAMS == {}
     assert "SKEIN_MODEL_PARAMS_FILE is not valid YAML" in cfg.MODEL_PROVIDER_ERROR
     assert "sk-not-a-real-key" not in cfg.MODEL_PROVIDER_ERROR
+
+
+@pytest.mark.parametrize(
+    ("text", "reason"),
+    [
+        ("temperature: 0.1\ntemperature: 0.2\n", "duplicate"),
+        ("1: value\n", "string"),
+        ("temperature: .nan\n", "finite"),
+        ("base: &base [1, 2]\nexpanded: [*base, *base]\n", "alias"),
+    ],
+)
+def test_yaml_files_obey_the_strict_json_contract(monkeypatch, tmp_path, text, reason):
+    cfg, path = _reload(monkeypatch, tmp_path, "SKEIN_MODEL_PARAMS", text)
+    assert cfg.MODEL_PARAMS == {}
+    assert reason in cfg.MODEL_PROVIDER_ERROR.lower()
+    assert str(path) not in cfg.MODEL_PROVIDER_ERROR
+
+
+def test_a_malformed_yaml_timestamp_degrades_instead_of_breaking_import(monkeypatch, tmp_path):
+    cfg, path = _reload(
+        monkeypatch,
+        tmp_path,
+        "SKEIN_MODEL_PARAMS",
+        "expires: 2026-13-01\nsecret: sk-not-a-real-key\n",
+    )
+    assert cfg.MODEL_PARAMS == {}
+    assert "SKEIN_MODEL_PARAMS_FILE" in cfg.MODEL_PROVIDER_ERROR
+    assert "sk-not-a-real-key" not in cfg.MODEL_PROVIDER_ERROR
+    assert str(path) not in cfg.MODEL_PROVIDER_ERROR
+
+
+@pytest.mark.parametrize(
+    ("text", "reason"),
+    [
+        ('{"temperature": 0.1, "temperature": 0.2}', "duplicate"),
+        ('{"temperature": NaN}', "finite"),
+    ],
+)
+def test_inline_documents_obey_the_strict_json_contract(monkeypatch, text, reason):
+    cfg = _reload_inline(monkeypatch, "SKEIN_MODEL_PARAMS", text)
+    assert cfg.MODEL_PARAMS == {}
+    assert reason in cfg.MODEL_PROVIDER_ERROR.lower()
+
+
+def test_an_oversized_inline_integer_degrades_instead_of_breaking_import(monkeypatch):
+    text = '{"temperature":' + "1" * 5000 + "}"
+    cfg = _reload_inline(monkeypatch, "SKEIN_MODEL_PARAMS", text)
+    assert cfg.MODEL_PARAMS == {}
+    assert "not valid JSON" in cfg.MODEL_PROVIDER_ERROR
+    assert "1" * 100 not in cfg.MODEL_PROVIDER_ERROR
+
+
+def test_a_deeply_nested_inline_document_degrades_instead_of_breaking_import(monkeypatch):
+    nested = "[" * 1200 + "0" + "]" * 1200
+    cfg = _reload_inline(monkeypatch, "SKEIN_MODEL_PARAMS", nested)
+    assert cfg.MODEL_PARAMS == {}
+    assert "nested too deeply" in cfg.MODEL_PROVIDER_ERROR
 
 
 def test_a_yaml_only_type_is_refused(monkeypatch, tmp_path):

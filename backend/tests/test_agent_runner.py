@@ -260,6 +260,32 @@ def test_the_turn_runs_as_the_agent_it_woke(fresh_db, monkeypatch):
     assert seen["identity"] == "research-agent"
 
 
+def test_an_unattended_turn_keeps_one_team_model_snapshot(fresh_db, monkeypatch):
+    from app.agents import team_agent
+
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    current = {"model": "old-pick"}
+    seen = {}
+    monkeypatch.setattr(team_agent, "_picked_model", lambda: current["model"])
+
+    def build(thread, user="", persona="", stateless=False):
+        seen["outer"] = team_agent.model_in_force()
+
+        def turn(_message):
+            current["model"] = "new-pick"
+            seen["nested"] = team_agent.model_in_force()
+            return "done"
+
+        return turn
+
+    monkeypatch.setattr(team_agent, "build_agent", build)
+    assert agent_runner.run_one("research-agent")["ran"] is True
+    assert seen == {"outer": "old-pick", "nested": "old-pick"}
+    assert team_agent.model_in_force() == "new-pick"
+
+
 def test_the_runs_own_spend_reaches_usage_log(fresh_db, monkeypatch):
     """Both bounds written for the runner read usage_log, and build_agent
     returns a bare Agent that records nothing — so an unrecorded turn leaves

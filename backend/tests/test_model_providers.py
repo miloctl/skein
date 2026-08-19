@@ -3,6 +3,7 @@ class, misconfiguration degrades loudly rather than silently, and none of it
 needs a key or a socket."""
 
 import importlib
+import json
 
 import pytest
 
@@ -244,6 +245,15 @@ def test_malformed_model_params_does_not_break_boot(monkeypatch, restore_config)
         "region_name",
         "boto_session",
         "boto_client_config",
+        "messages",
+        "tools",
+        "system",
+        "tool_choice",
+        "stream",
+        "stream_options",
+        "timeout",
+        "host",
+        "ollama_client_args",
     ],
 )
 def test_model_params_cannot_set_routing_or_client_controls(monkeypatch, restore_config, field):
@@ -253,6 +263,46 @@ def test_model_params_cannot_set_routing_or_client_controls(monkeypatch, restore
         SKEIN_MODEL_PARAMS=f'{{"{field}": "hidden-model"}}',
     )
     assert field in cfg.MODEL_PROVIDER_ERROR
+    assert "hidden-model" not in cfg.MODEL_PROVIDER_ERROR
+    assert cfg.MODEL_PARAMS == {}
+    assert cfg.EFFECTIVE_PROVIDER == "mock"
+
+
+@pytest.mark.parametrize(
+    ("params", "path"),
+    [
+        ({"extra_body": {"model": "hidden-model"}}, "extra_body.model"),
+        (
+            {"extra_body": {"metadata": {"model": "hidden-model"}}},
+            "extra_body.metadata.model",
+        ),
+        ({"extra_body": {"messages": []}}, "extra_body.messages"),
+        ({"extra_body": {"max_completion_tokens": 1}}, "extra_body.max_completion_tokens"),
+        ({"extra_body": {"provider": {"order": ["other"]}}}, "extra_body.provider"),
+        ({"extra_query": {"model": "hidden-model"}}, "extra_query.model"),
+        ({"extra_query": {"provider": "other"}}, "extra_query.provider"),
+        ({"additional_args": {"model": "hidden-model"}}, "additional_args.model"),
+        ({"additional_args": {"modelId": "hidden-model"}}, "additional_args.modelId"),
+        ({"additional_args": {"options": {"num_predict": 1}}}, "additional_args.options"),
+        (
+            {"additional_args": {"additionalModelRequestFields": {"system": "hidden"}}},
+            "additional_args.additionalModelRequestFields",
+        ),
+        (
+            {"additional_args": {"inferenceConfig": {"maxTokens": 1}}},
+            "additional_args.inferenceConfig",
+        ),
+    ],
+)
+def test_model_params_cannot_replace_nested_routing_or_request_fields(
+    monkeypatch, restore_config, params, path
+):
+    cfg = _reload_config(
+        monkeypatch,
+        SKEIN_MODEL_PROVIDER="ollama",
+        SKEIN_MODEL_PARAMS=json.dumps(params),
+    )
+    assert path in cfg.MODEL_PROVIDER_ERROR
     assert "hidden-model" not in cfg.MODEL_PROVIDER_ERROR
     assert cfg.MODEL_PARAMS == {}
     assert cfg.EFFECTIVE_PROVIDER == "mock"
@@ -414,24 +464,33 @@ def test_model_params_defensively_cannot_change_the_selected_model(monkeypatch, 
     assert field not in model.config.get("params", {})
 
 
-def test_behavior_params_strip_bedrock_client_controls_but_keep_headers(monkeypatch):
+def test_behavior_params_strip_app_controls_but_keep_safe_siblings(monkeypatch):
     headers = {"X-Tenant": "acme"}
     monkeypatch.setattr(
         config,
         "MODEL_PARAMS",
         {
             "endpoint_url": "https://redirect.invalid",
-            "region_name": "other-region",
+            "messages": [{"role": "system", "content": "replace the turn"}],
             "extra_headers": headers,
+            "extra_body": {"model": "hidden", "provider": {"order": ["other"]}, "seed": 7},
+            "extra_query": {"model_id": "hidden", "provider": "other", "tenant": "safe"},
+            "additional_args": {"modelId": "hidden", "custom": "safe"},
         },
     )
     assert team_agent._behavior_params(
         {
             "boto_session": "other-session",
-            "boto_client_config": {"proxies": {"https": "https://proxy.invalid"}},
+            "timeout": None,
             "temperature": 0.2,
         }
-    ) == {"extra_headers": headers, "temperature": 0.2}
+    ) == {
+        "extra_headers": headers,
+        "extra_body": {"seed": 7},
+        "extra_query": {"tenant": "safe"},
+        "additional_args": {"custom": "safe"},
+        "temperature": 0.2,
+    }
 
 
 def test_ollama_honours_the_generic_api_key(monkeypatch):

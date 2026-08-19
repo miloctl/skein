@@ -10,6 +10,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 from dotenv import load_dotenv
+from yaml.events import AliasEvent
+from yaml.nodes import MappingNode
 
 load_dotenv()
 
@@ -62,15 +64,69 @@ def overlay_errors() -> list[str]:
 # comments. deploy/k8s/README.md decides ConfigMap versus Secret by content.
 
 
+class _StructuredFault(ValueError):
+    pass
+
+
+class _StructuredLoader(yaml.SafeLoader):
+    def compose_node(self, parent, index):
+        # json.dumps expands every alias reference. A small fan-out document can
+        # otherwise allocate hundreds of megabytes before shape validation runs.
+        if self.check_event(AliasEvent):
+            raise _StructuredFault("uses an alias. Remove YAML aliases")
+        return super().compose_node(parent, index)
+
+    def construct_mapping(self, node, deep=False):
+        if not isinstance(node, MappingNode):
+            raise _StructuredFault("has a mapping that is not valid YAML")
+        self.flatten_mapping(node)
+        out = {}
+        for key_node, value_node in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if not isinstance(key, str):
+                raise _StructuredFault("has a mapping key that is not a string. Use string keys")
+            if key in out:
+                raise _StructuredFault("has a duplicate mapping key. Remove duplicate keys")
+            out[key] = self.construct_object(value_node, deep=deep)
+        return out
+
+
+def _json_object(pairs):
+    out = {}
+    for key, value in pairs:
+        if key in out:
+            raise _StructuredFault("has a duplicate object key. Remove duplicate keys")
+        out[key] = value
+    return out
+
+
+def _json_constant(_value):
+    raise _StructuredFault("has a number that is not finite. Use a finite number")
+
+
+def _validate_json_value(value) -> None:
+    pending = [(value, 0)]
+    while pending:
+        item, depth = pending.pop()
+        if depth > 100:
+            raise _StructuredFault("is nested too deeply. Reduce the nesting")
+        if isinstance(item, dict):
+            pending.extend((child, depth + 1) for child in item.values())
+        elif isinstance(item, list):
+            pending.extend((child, depth + 1) for child in item)
+        elif isinstance(item, float) and not math.isfinite(item):
+            raise _StructuredFault("has a number that is not finite. Use a finite number")
+
+
+def _strict_json(text: str):
+    loaded = json.loads(text, object_pairs_hook=_json_object, parse_constant=_json_constant)
+    _validate_json_value(loaded)
+    return loaded
+
+
 def _structured(name: str) -> tuple[str, str, str]:
     """JSON text, a fault, and `inline|file|both|unset` for one structured
     setting. Reads `<name>_FILE` when that is set, and `name` otherwise.
-
-    The file is YAML, which reads every value that already lives inline
-    because JSON is YAML. It is re-encoded to JSON text here so the parser at
-    the CALL SITE stays the only place that checks shape and phrases faults —
-    a second validator drifts from the first, and this one would be the copy
-    no test walks (tests/test_model_registry.py walks the other).
 
     A fault never carries the exception text. A YAML error quotes the line it
     failed on and an OSError carries the path, and every one of these strings
@@ -84,27 +140,48 @@ def _structured(name: str) -> tuple[str, str, str]:
         # looking at while they edited the other one
         return "", f"{name} and {name}_FILE are both set. Set one of them.", "both"
     if not path:
-        return inline, "", "inline" if inline else "unset"
+        if not inline:
+            return "", "", "unset"
+        try:
+            loaded = _strict_json(inline)
+            return json.dumps(loaded, allow_nan=False), "", "inline"
+        except _StructuredFault as exc:
+            return "", f"{name} {exc}.", "inline"
+        except RecursionError:
+            return "", f"{name} is nested too deeply. Reduce the nesting.", "inline"
+        except ValueError:
+            return "", f"{name} is not valid JSON. Correct the document.", "inline"
     try:
-        loaded = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+        text = Path(path).read_text(encoding="utf-8")
+        loaded = yaml.load(text, Loader=_StructuredLoader)  # noqa: S506 -- SafeLoader subclass
     except OSError as exc:
         # strerror, never str(exc): str carries the path
         return "", f"{name}_FILE cannot be read: {exc.strerror}.", "file"
     except UnicodeDecodeError:
         return "", f"{name}_FILE is not UTF-8 text.", "file"
+    except _StructuredFault as exc:
+        return "", f"{name}_FILE {exc}.", "file"
     except RecursionError:
-        return "", f"{name}_FILE is nested too deeply.", "file"
+        return "", f"{name}_FILE is nested too deeply. Reduce the nesting.", "file"
     except yaml.YAMLError as exc:
         mark = getattr(exc, "problem_mark", None)
         where = f" at line {mark.line + 1}" if mark is not None else ""
-        return "", f"{name}_FILE is not valid YAML{where}.", "file"
+        return "", f"{name}_FILE is not valid YAML{where}. Correct the document.", "file"
+    except ValueError:
+        # PyYAML raises plain ValueError while it constructs malformed dates.
+        return "", f"{name}_FILE is not valid YAML. Correct the document.", "file"
     try:
         # an empty file loads as None and dumps to "null", which every call
         # site below already refuses by shape — no separate empty-file fault
-        return json.dumps(loaded), "", "file"
+        _validate_json_value(loaded)
+        return json.dumps(loaded, allow_nan=False), "", "file"
+    except _StructuredFault as exc:
+        return "", f"{name}_FILE {exc}.", "file"
     except RecursionError:
-        return "", f"{name}_FILE is nested too deeply.", "file"
-    except (TypeError, ValueError):
+        return "", f"{name}_FILE is nested too deeply. Reduce the nesting.", "file"
+    except ValueError:
+        return "", f"{name}_FILE has a number that is not finite. Use a finite number.", "file"
+    except TypeError:
         # YAML has types JSON does not, dates first among them
         return "", f"{name}_FILE holds a value that is not JSON, such as a date.", "file"
 
@@ -270,14 +347,79 @@ MODEL_API_KEY = os.getenv("SKEIN_MODEL_API_KEY", "")
 # merged last so an operator can always reach something we did not model.
 MODEL_PARAMS: dict = {}
 MODEL_PARAMS_SOURCE = "unset"
-# These choose the request destination, model, AWS session, or client security
-# settings, not model behavior. Hidden controls make the menu and accounting
-# name one route while credentials and private content go somewhere else.
-MODEL_ROUTING_PARAM_KEYS = frozenset({"model", "model_id"})
+# These choose the request destination, replace app-owned request fields, or
+# replace the client that carries credentials. Hidden controls make the menu
+# and accounting name one route while a different request runs.
+MODEL_ROUTING_PARAM_KEYS = frozenset({"model", "model_id", "modelId"})
 MODEL_CLIENT_CONTROL_PARAM_KEYS = frozenset(
-    {"endpoint_url", "region_name", "boto_session", "boto_client_config"}
+    {
+        "endpoint_url",
+        "region_name",
+        "boto_session",
+        "boto_client_config",
+        "host",
+        "ollama_client_args",
+    }
 )
-MODEL_FORBIDDEN_PARAM_KEYS = MODEL_ROUTING_PARAM_KEYS | MODEL_CLIENT_CONTROL_PARAM_KEYS
+MODEL_REQUEST_CONTROL_PARAM_KEYS = frozenset(
+    {"messages", "tools", "system", "tool_choice", "stream", "stream_options", "timeout"}
+)
+MODEL_FORBIDDEN_PARAM_KEYS = (
+    MODEL_ROUTING_PARAM_KEYS | MODEL_CLIENT_CONTROL_PARAM_KEYS | MODEL_REQUEST_CONTROL_PARAM_KEYS
+)
+_MODEL_ESCAPE_FORBIDDEN = {
+    "extra_body": MODEL_ROUTING_PARAM_KEYS
+    | MODEL_REQUEST_CONTROL_PARAM_KEYS
+    | {"provider", "max_tokens", "max_completion_tokens"},
+    "extra_query": MODEL_ROUTING_PARAM_KEYS | {"provider"},
+    "additional_args": MODEL_ROUTING_PARAM_KEYS
+    | MODEL_REQUEST_CONTROL_PARAM_KEYS
+    | {
+        "toolConfig",
+        "options",
+        "inferenceConfig",
+        "additionalModelRequestFields",
+        "max_tokens",
+        "max_completion_tokens",
+    },
+}
+
+
+def _sanitize_model_escape(
+    value, path: str, immediate: frozenset[str] | set[str], faults: list[str]
+):
+    if isinstance(value, dict):
+        out = {}
+        for key, child in value.items():
+            child_path = f"{path}.{key}"
+            if key in MODEL_ROUTING_PARAM_KEYS or key in immediate:
+                faults.append(child_path)
+            else:
+                out[key] = _sanitize_model_escape(child, child_path, frozenset(), faults)
+        return out
+    if isinstance(value, list):
+        return [_sanitize_model_escape(child, f"{path}[]", frozenset(), faults) for child in value]
+    return value
+
+
+def sanitize_model_params(params: dict) -> tuple[dict, tuple[str, ...]]:
+    """A defensive copy without routing, client, or app-owned request fields."""
+    out: dict = {}
+    faults: list[str] = []
+    for key, value in params.items():
+        if key in MODEL_FORBIDDEN_PARAM_KEYS:
+            faults.append(key)
+        elif key in _MODEL_ESCAPE_FORBIDDEN:
+            if value is None:
+                out[key] = None
+            elif not isinstance(value, dict):
+                faults.append(key)
+            else:
+                out[key] = _sanitize_model_escape(value, key, _MODEL_ESCAPE_FORBIDDEN[key], faults)
+        else:
+            out[key] = value
+    return out, tuple(sorted(set(faults)))
+
 
 # Misconfiguration must never take down the deterministic core: config is
 # imported by db, every route, seed.py and the CLI, so a bad *model* setting
@@ -333,10 +475,11 @@ if not MODEL_PROVIDER_ERROR:
     _raw, MODEL_PROVIDER_ERROR, MODEL_PARAMS_SOURCE = _structured("SKEIN_MODEL_PARAMS")
     if _raw:
         try:
-            MODEL_PARAMS = json.loads(_raw)
-            if not isinstance(MODEL_PARAMS, dict):
+            parsed_params = json.loads(_raw)
+            if not isinstance(parsed_params, dict):
                 raise TypeError("not a JSON object")
-            if forbidden := sorted(set(MODEL_PARAMS) & MODEL_FORBIDDEN_PARAM_KEYS):
+            MODEL_PARAMS, forbidden = sanitize_model_params(parsed_params)
+            if forbidden:
                 MODEL_PARAMS = {}
                 MODEL_PROVIDER_ERROR = (
                     f"SKEIN_MODEL_PARAMS has forbidden fields: {', '.join(forbidden)}."
@@ -498,13 +641,16 @@ def _model_entry_faults(tag: str, mid: str | None, entry: dict, out: dict[str, d
             if not faults:
                 pair = (float(price["input"]), float(price["output"]))
     params = entry.get("params")
+    safe_params: dict = {}
     if params is not None and not isinstance(params, dict):
         faults.append(f"{tag}: params must be a JSON object.")
-    elif params is not None and (forbidden := sorted(set(params) & MODEL_FORBIDDEN_PARAM_KEYS)):
-        faults.append(
-            f"{tag}: params contains forbidden fields: {', '.join(forbidden)}."
-            " Configure model routing and provider clients outside params."
-        )
+    elif params is not None:
+        safe_params, forbidden = sanitize_model_params(params)
+        if forbidden:
+            faults.append(
+                f"{tag}: params contains forbidden fields: {', '.join(forbidden)}."
+                " Configure model routing and provider clients outside params."
+            )
     # None (absent) and () (declared empty) are DIFFERENT: absent falls back to
     # the provider, declared-empty refuses attachments for this model even
     # where the provider allows them — which is how an operator turns them off
@@ -531,7 +677,7 @@ def _model_entry_faults(tag: str, mid: str | None, entry: dict, out: dict[str, d
             "max_tokens": max_tokens,
             "context_tokens": context_tokens,
             "price": pair,
-            "params": params or {},
+            "params": safe_params,
             "attachments": attachments,
         }
     return faults
@@ -1022,7 +1168,7 @@ SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
 # [{"name": "github", "url": "https://.../mcp/", "auth_token_env": "GITHUB_MCP_TOKEN"}]
 # The fault has no /health field of its own: MCP is an optional agent shell,
 # and agents/mcp_tools.py already logs a bad list rather than raising.
-MCP_SERVERS, MCP_SERVERS_ERROR, _ = _structured("SKEIN_MCP_SERVERS")
+MCP_SERVERS, MCP_SERVERS_ERROR, MCP_SERVERS_SOURCE = _structured("SKEIN_MCP_SERVERS")
 
 # OpenTelemetry OTLP endpoint (e.g. http://jaeger:4318). Empty = disabled.
 OTEL_ENDPOINT = os.getenv("SKEIN_OTEL_ENDPOINT", "")

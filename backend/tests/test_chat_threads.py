@@ -182,12 +182,86 @@ def test_attachments_and_agent_build_share_one_model_snapshot(client, monkeypatc
         seen["agent"] = kwargs["resolved_model"]
         return Quiet()
 
-    monkeypatch.setattr("app.routes.chat.model_in_force", lambda _persona: "one-snapshot")
+    monkeypatch.setattr("app.routes.chat.model_in_force", lambda _persona="": "one-snapshot")
     monkeypatch.setattr("app.routes.chat._attachment_prompt", attachments)
     monkeypatch.setattr("app.routes.chat.build_agent", build)
     response = client.post("/api/chat", json={"thread_id": "t-model-snapshot", "message": "hi"})
     assert response.status_code == 200
     assert seen == {"attachments": "one-snapshot", "agent": "one-snapshot"}
+
+
+def test_direct_turn_freezes_the_team_model_through_stream_and_title(client, monkeypatch):
+    from app.agents import team_agent
+    from app.routes import chat as chat_route
+
+    current = {"model": "old-pick"}
+    seen = {}
+    monkeypatch.setattr(team_agent, "_picked_model", lambda: current["model"])
+
+    class Quiet:
+        async def stream_async(self, message):
+            seen["stream"] = team_agent.model_in_force()
+            yield {"data": "ok"}
+
+    def build(*_args, **kwargs):
+        seen["agent"] = kwargs["resolved_model"]
+        current["model"] = "new-pick"
+        return Quiet()
+
+    def title():
+        seen["title"] = team_agent.model_in_force()
+        return None
+
+    monkeypatch.setattr(chat_route, "build_agent", build)
+    monkeypatch.setattr(chat_route, "build_titler", title)
+
+    response = client.post("/api/chat", json={"thread_id": "t-frozen", "message": "hi"})
+    assert response.status_code == 200
+    assert seen == {"agent": "old-pick", "stream": "old-pick", "title": "old-pick"}
+
+
+def test_a_persona_keeps_its_model_while_nested_builds_use_the_frozen_team_model(
+    client, monkeypatch
+):
+    from app.agents import team_agent
+    from app.routes import chat as chat_route
+
+    current = {"model": "old-pick"}
+    seen = {}
+    monkeypatch.setattr(team_agent, "_picked_model", lambda: current["model"])
+    monkeypatch.setattr(
+        chat_route.personas,
+        "behavior",
+        lambda _slug: {"model": "persona-model", "temperature": None, "tools": None},
+    )
+
+    class Quiet:
+        async def stream_async(self, message):
+            seen["nested"] = team_agent.model_in_force()
+            yield {"data": "ok"}
+
+    def build(*_args, **kwargs):
+        seen["agent"] = kwargs["resolved_model"]
+        current["model"] = "new-pick"
+        return Quiet()
+
+    def title():
+        seen["title"] = team_agent.model_in_force()
+        return None
+
+    monkeypatch.setattr(chat_route, "build_agent", build)
+    monkeypatch.setattr(chat_route, "build_titler", title)
+
+    response = client.post(
+        "/api/chat",
+        json={"thread_id": "t-persona-frozen", "message": "/as growth-mentor hi"},
+    )
+    assert response.status_code == 200
+    assert seen == {
+        "agent": "persona-model",
+        "nested": "old-pick",
+        "title": "old-pick",
+    }
 
 
 def test_agent_construction_failure_streams_an_error(client, monkeypatch):
@@ -204,6 +278,32 @@ def test_agent_construction_failure_streams_an_error(client, monkeypatch):
     assert "The agent turn failed (RuntimeError)." in messages[-1]["content"]
     assert "provider exploded" not in messages[-1]["content"]
     assert "⚠" not in messages[-1]["content"]
+
+
+def test_agent_construction_failure_keeps_attachment_names(client, monkeypatch):
+    import io
+
+    uploaded = client.post(
+        "/api/files",
+        files={"file": ("failure-notes.md", io.BytesIO(b"notes"), "text/plain")},
+    )
+    assert uploaded.status_code == 200
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("provider exploded")
+
+    monkeypatch.setattr("app.routes.chat.build_agent", boom)
+    response = client.post(
+        "/api/chat",
+        json={
+            "thread_id": "t-attachment-build-error",
+            "message": "read this",
+            "attachments": [uploaded.json()["id"]],
+        },
+    )
+    assert response.status_code == 200
+    messages = client.get("/api/chats/t-attachment-build-error/messages").json()
+    assert "1 file attached: failure-notes.md" in messages[0]["content"]
 
 
 def test_a_provider_error_reaches_the_ui_as_a_class_name_not_a_body(client, monkeypatch):

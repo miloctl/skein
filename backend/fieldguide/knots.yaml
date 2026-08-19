@@ -159,7 +159,7 @@ knots:
     knot: Directional Figure Eight
     set: loops
     pitch: What you want to grow into, visible when staffing decisions happen.
-    how: Declare yours in Settings — they show up in what-if staffing.
+    how: Declare yours under Settings → You. They show up in what-if staffing.
     link: /settings
     since: 2026-07-31
 
@@ -211,7 +211,7 @@ knots:
     knot: Artillery Loop
     set: loops
     pitch: The whole platform without a browser — same DB, same provenance.
-    how: "`pipx install ./cli`, then `skein my-day`. The command uses the same Needs you and Team queues as the web page. Settings shows the key setup."
+    how: "`pipx install ./cli`, then `skein my-day`. The command uses the same Needs you and Team queues as the web page. Settings → You shows the key setup."
     link: /settings
     since: 2026-07-31
 
@@ -295,7 +295,7 @@ knots:
     # documentation, and it stays that way.
     ties: never
     pitch: The branch drags the task along behind it — one hitch, and the log follows the tow.
-    how: "Whoever runs the server sets SKEIN_FORGE_WEBHOOK_SECRET. Add the webhook URL from Settings to your repository with that same secret. Name a branch `task/42-slug`. The push starts task 42, and the merged pull request finishes it."
+    how: "Whoever runs the server sets SKEIN_FORGE_WEBHOOK_SECRET. Add the webhook URL from Settings → Connections to your repository with that same secret. Name a branch `task/42-slug`. The push starts task 42, and the merged pull request finishes it."
     link: /settings
     since: 2026-08-03
 
@@ -430,7 +430,7 @@ knots:
     set: manager
     role: manager
     pitch: Slide the whole team onto the right model for the week — no redeploy, no ticket, one knot to shift the load.
-    how: Read the In force block under Settings → Model (team), or run `skein model`. If the team default must change, select a model from the menu.
+    how: Read the In force block under Settings → AI runtime, or run `skein model`. If the team default must change, select a model from the menu.
     link: /settings
     since: 2026-08-08
 
@@ -460,7 +460,7 @@ knots:
     set: manager
     role: manager
     pitch: The copy you take on purpose, before the risky change — not the one the scheduler owes you at 03:00.
-    how: Open Settings → Backups and select "Back up now". The nightly copy runs without you. This button is for the moment before an upgrade or a bulk change.
+    how: Open Settings → Team and select "Back up now". The nightly copy runs without you. This button is for the moment before an upgrade or a bulk change.
     link: /settings
     since: 2026-08-14
 
@@ -503,7 +503,7 @@ knots:
     set: hitches
     role: any
     pitch: The document goes with the question, so the answer is about the thing in front of you.
-    how: "Select + beside the composer. A file is yours alone: no teammate reads it, and it never appears under Reports. The file goes to the model provider this deployment uses. On a keyless deployment, a text file is still read in full. Settings shows every file you attached, and deletes the ones you no longer need."
+    how: "Select + beside the composer. A file is yours alone: no teammate reads it, and it never appears under Reports. The file goes to the model provider this deployment uses. On a keyless deployment, a text file is still read in full. Settings → You shows every file you attached and deletes the ones you no longer need."
     link: /chat
     since: 2026-08-16
 

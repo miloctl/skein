@@ -6,6 +6,7 @@ export declare function Card(props: {
   title?: string;
   className?: string;
   titleClassName?: string;
+  headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
   children: ReactNode;
 }): ReactNode;
 
