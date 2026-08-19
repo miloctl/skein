@@ -23,9 +23,9 @@ model and constraints, is archived at
   value for honest reporting) or a capability off the registry. A bad
   provider must degrade to mock and surface `MODEL_PROVIDER_ERROR`, never
   take down the REST API. `SKEIN_MODEL_PARAMS` and a model entry's `params`
-  are behavior only: `model` and `model_id` are refused, because hidden
-  routing makes the menu, attachment gate, and accounting name a model that
-  did not run.
+  are behavior only: every field in `MODEL_FORBIDDEN_PARAM_KEYS` is refused.
+  Hidden routing makes the menu and accounting name one route while
+  credentials and private content go somewhere else.
 - **Keyless-first.** No API keys are assumed. Every feature needs a
   deterministic core (DB + REST + UI). Prefer programmatic solutions (SQL,
   rules, heuristics) over LLM calls; the agent layer is an optional shell.

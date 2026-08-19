@@ -58,8 +58,8 @@ def overlay_errors() -> list[str]:
 # ---- structured settings ---------------------------------------------------
 # Four settings hold a whole document inside one variable (SKEIN_MODELS,
 # SKEIN_MODEL_PRICES, SKEIN_MODEL_PARAMS, SKEIN_MCP_SERVERS). Each also takes
-# a <NAME>_FILE path, so a ConfigMap can be mounted and edited as YAML with
-# comments — schemas/skein_models.schema.json exists for exactly those editors.
+# a <NAME>_FILE path, so a deployment can mount and edit it as YAML with
+# comments. deploy/k8s/README.md decides ConfigMap versus Secret by content.
 
 
 def _structured(name: str) -> tuple[str, str, str]:
@@ -154,6 +154,8 @@ SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 #                      OpenAI family, where the served model chooses the key.
 #   output_cap_params — free-form keys that can replace that typed cap. The
 #                      settings summary reads only their PRESENCE, never values.
+#   params_as_model_config — free-form params become top-level constructor
+#                      kwargs, so typed registry fields can shadow global params.
 # `attachments` is the media kinds a chat attachment may become here
 # (routes/chat.py), read as a CAPABILITY so nothing outside team_agent._model()
 # branches on a provider name. A kind absent from the effective set degrades to
@@ -178,6 +180,7 @@ PROVIDERS: dict[str, dict] = {
         "key_required": False,
         "typed_output_cap": False,
         "output_cap_params": (),
+        "params_as_model_config": False,
     },
     "anthropic": {
         "default_model": "claude-opus-4-8",
@@ -187,6 +190,7 @@ PROVIDERS: dict[str, dict] = {
         "key_required": True,
         "typed_output_cap": True,
         "output_cap_params": ("max_tokens",),
+        "params_as_model_config": False,
     },
     "openai": {
         "default_model": "gpt-5",
@@ -196,6 +200,7 @@ PROVIDERS: dict[str, dict] = {
         "key_required": True,
         "typed_output_cap": False,
         "output_cap_params": ("max_tokens", "max_completion_tokens"),
+        "params_as_model_config": False,
     },
     # Anything speaking the OpenAI wire format: vLLM, LM Studio, llama.cpp,
     # OpenRouter, Together, Groq, Azure OpenAI, LiteLLM Proxy.
@@ -217,6 +222,7 @@ PROVIDERS: dict[str, dict] = {
         "key_required": False,
         "typed_output_cap": False,
         "output_cap_params": ("max_tokens", "max_completion_tokens"),
+        "params_as_model_config": False,
     },
     # OLLAMA_API_KEY is for Ollama's hosted cloud models. A local ollama takes
     # no credential, so this must stay optional or every keyless local box
@@ -234,6 +240,7 @@ PROVIDERS: dict[str, dict] = {
         "key_required": False,
         "typed_output_cap": True,
         "output_cap_params": ("max_tokens",),
+        "params_as_model_config": True,
     },
     # boto3 is already a strands core dep; credentials come from the ambient
     # AWS chain (instance role, AWS_PROFILE), so there is no key to set.
@@ -249,6 +256,7 @@ PROVIDERS: dict[str, dict] = {
         "key_required": False,
         "typed_output_cap": True,
         "output_cap_params": ("max_tokens",),
+        "params_as_model_config": True,
     },
 }
 
@@ -262,10 +270,14 @@ MODEL_API_KEY = os.getenv("SKEIN_MODEL_API_KEY", "")
 # merged last so an operator can always reach something we did not model.
 MODEL_PARAMS: dict = {}
 MODEL_PARAMS_SOURCE = "unset"
-# These choose the request destination/model, not model behavior. Keeping them
-# in hidden params makes the menu, attachment checks, and usage accounting all
-# name one model while the provider runs another.
+# These choose the request destination, model, AWS session, or client security
+# settings, not model behavior. Hidden controls make the menu and accounting
+# name one route while credentials and private content go somewhere else.
 MODEL_ROUTING_PARAM_KEYS = frozenset({"model", "model_id"})
+MODEL_CLIENT_CONTROL_PARAM_KEYS = frozenset(
+    {"endpoint_url", "region_name", "boto_session", "boto_client_config"}
+)
+MODEL_FORBIDDEN_PARAM_KEYS = MODEL_ROUTING_PARAM_KEYS | MODEL_CLIENT_CONTROL_PARAM_KEYS
 
 # Misconfiguration must never take down the deterministic core: config is
 # imported by db, every route, seed.py and the CLI, so a bad *model* setting
@@ -324,11 +336,11 @@ if not MODEL_PROVIDER_ERROR:
             MODEL_PARAMS = json.loads(_raw)
             if not isinstance(MODEL_PARAMS, dict):
                 raise TypeError("not a JSON object")
-            if forbidden := sorted(set(MODEL_PARAMS) & MODEL_ROUTING_PARAM_KEYS):
+            if forbidden := sorted(set(MODEL_PARAMS) & MODEL_FORBIDDEN_PARAM_KEYS):
                 MODEL_PARAMS = {}
                 MODEL_PROVIDER_ERROR = (
-                    f"SKEIN_MODEL_PARAMS cannot set {', '.join(forbidden)}."
-                    " Set SKEIN_MODEL_ID instead."
+                    f"SKEIN_MODEL_PARAMS has forbidden fields: {', '.join(forbidden)}."
+                    " Configure model routing and provider clients outside params."
                 )
         except (json.JSONDecodeError, TypeError) as exc:
             MODEL_PARAMS = {}
@@ -488,8 +500,11 @@ def _model_entry_faults(tag: str, mid: str | None, entry: dict, out: dict[str, d
     params = entry.get("params")
     if params is not None and not isinstance(params, dict):
         faults.append(f"{tag}: params must be a JSON object.")
-    elif params is not None and (forbidden := sorted(set(params) & MODEL_ROUTING_PARAM_KEYS)):
-        faults.append(f"{tag}: params cannot set {', '.join(forbidden)}. Use the entry id instead.")
+    elif params is not None and (forbidden := sorted(set(params) & MODEL_FORBIDDEN_PARAM_KEYS)):
+        faults.append(
+            f"{tag}: params contains forbidden fields: {', '.join(forbidden)}."
+            " Configure model routing and provider clients outside params."
+        )
     # None (absent) and () (declared empty) are DIFFERENT: absent falls back to
     # the provider, declared-empty refuses attachments for this model even
     # where the provider allows them — which is how an operator turns them off

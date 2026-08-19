@@ -221,12 +221,20 @@ directories are small (under 100 KB total), far inside the ConfigMap
 limit. `/api/health` reports `overlay_errors` when a variable points at a
 directory that is not mounted.
 
-The model menu takes the same treatment. `SKEIN_MODELS` as a ConfigMap
-literal is one long JSON line that carries no comments, so put it in its
-own `configMapGenerator` file, mount it, and point `SKEIN_MODELS_FILE` at
-it. `SKEIN_MODEL_PRICES`, `SKEIN_MODEL_PARAMS` and `SKEIN_MCP_SERVERS`
-have the same `_FILE` form. Set one form or the other, never both — both
-is a fault, on `/api/health` for the first three.
+Structured settings can use mounted YAML instead of one-line JSON. If a
+document is credential-free, create it with `configMapGenerator`, mount
+it, and point the matching `<NAME>_FILE` variable at it.
+`SKEIN_MODEL_PRICES_FILE` is credential-free by schema.
+
+If `SKEIN_MODELS_FILE` contains a credential in `params.extra_headers`,
+mount it from a Secret. Apply the same rule to `SKEIN_MODEL_PARAMS_FILE`
+when `extra_headers` contains a credential. If `SKEIN_MCP_SERVERS_FILE`
+contains a literal `auth_token`, mount it from a Secret. A file that uses
+`auth_token_env` can stay in a ConfigMap, but `skein-secrets` must supply
+the named environment variable.
+
+Set one form of a structured setting, never both. `/api/health` reports a
+both-set fault for the three model settings.
 
 ## Observability
 

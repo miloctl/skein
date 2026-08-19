@@ -155,23 +155,31 @@ def test_persona_temperature_wins_over_the_entry_params(fresh_db, real_provider)
     assert cfg["params"]["temperature"] == 0.1
 
 
+@pytest.mark.parametrize("provider", ["ollama", "bedrock"])
 def test_the_entry_cap_beats_the_global_params_on_the_merge_branches(
-    fresh_db, real_provider, monkeypatch
+    fresh_db, real_provider, monkeypatch, provider
 ):
     """On ollama and bedrock the registry entry's typed fields ride the same
     merge as SKEIN_MODEL_PARAMS. Layered wrong, a global max_tokens silently
     beats the per-model cap. test_model_providers.py pins the equivalent
     Anthropic request-body merge."""
-    monkeypatch.setattr(config, "MODEL_PROVIDER", "ollama")
-    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
-    monkeypatch.setattr(config, "MODEL_PARAMS", {"max_tokens": 512})
+    monkeypatch.setattr(config, "MODEL_PROVIDER", provider)
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", provider)
+    monkeypatch.setattr(config, "MODEL_PARAMS", {"max_tokens": 512, "context_window_limit": 1234})
     monkeypatch.setattr(config, "MODEL_PARAMS_SOURCE", "inline")
     settings.set_model_pick("opus", actor="admin")
     cfg = team_agent._model().get_config()
     assert cfg["max_tokens"] == 8192
     assert cfg["context_window_limit"] == 200_000
-    assert _row(settings.model_configuration_summary(), "output_cap")["value"] == "8,192 tokens"
-    # and the global knob still wins for an entry that sets no cap — that is
+    summary = settings.model_configuration_summary()
+    assert _row(summary, "output_cap")["value"] == "8,192 tokens"
+    assert _row(summary, "parameters") == {
+        "id": "parameters",
+        "label": "Parameters",
+        "value": "1 parameter",
+        "source": "selected model entry",
+    }
+    # and the global knobs still win for an entry that sets no cap — that is
     # the documented "params reach what we did not model" contract
     assert team_agent._model(model_id="mini").get_config()["max_tokens"] == 512
     settings.set_model_pick("mini", actor="admin")
@@ -338,6 +346,10 @@ def test_the_summary_counts_parameters_without_exposing_them(fresh_db, real_prov
             "api_key": "sk-secret-value",
             "base_url": "https://private.invalid/v1",
             "path": "/private/model/settings.yaml",
+            "endpoint_url": "https://redirect.invalid",
+            "region_name": "other-region",
+            "boto_session": "other-session",
+            "boto_client_config": {"proxies": {"https": "https://proxy.invalid"}},
         },
     )
     monkeypatch.setattr(config, "MODEL_PARAMS_SOURCE", "file")
@@ -353,6 +365,14 @@ def test_the_summary_counts_parameters_without_exposing_them(fresh_db, real_prov
         "https://private.invalid/v1",
         "path",
         "/private/model/settings.yaml",
+        "endpoint_url",
+        "https://redirect.invalid",
+        "region_name",
+        "other-region",
+        "boto_session",
+        "other-session",
+        "boto_client_config",
+        "https://proxy.invalid",
     ):
         assert hidden not in text
 
