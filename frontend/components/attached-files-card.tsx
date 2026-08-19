@@ -41,7 +41,11 @@ function size(bytes: number): string {
  *  search, not in export. Without this card the quota is a wall with no door:
  *  the refusal says to delete a file, and nothing tells the reader which
  *  files they have. */
-export function AttachedFilesCard() {
+export function AttachedFilesCard({
+  headingLevel = 2,
+}: {
+  headingLevel?: 2 | 3;
+} = {}) {
   const [state, setState] = useState<FileList | null>(null);
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState<number | null>(null);
@@ -84,7 +88,8 @@ export function AttachedFilesCard() {
           ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
         },
       });
-      if (!res.ok) throw new Error(`The file did not download (${res.status}).`);
+      if (!res.ok)
+        throw new Error(`The file did not download (${res.status}).`);
       const url = URL.createObjectURL(await res.blob());
       const link = document.createElement("a");
       link.href = url;
@@ -115,10 +120,11 @@ export function AttachedFilesCard() {
   };
 
   const files = state?.files ?? [];
-  const percent = state && state.quota ? Math.min(100, (state.used / state.quota) * 100) : 0;
+  const percent =
+    state && state.quota ? Math.min(100, (state.used / state.quota) * 100) : 0;
 
   return (
-    <Section title="Attached files">
+    <Section title="Attached files" headingLevel={headingLevel}>
       <p ref={heading} tabIndex={-1} className="mb-2 text-sm text-ink-3">
         Files you attached to a chat message. Only you can read them, and they
         stay until you delete them.
@@ -131,13 +137,16 @@ export function AttachedFilesCard() {
               {size(state.used)} of {size(state.quota)} used
             </span>
             <span className="text-ink-3">
-              {files.length} file{files.length === 1 ? "" : "s"} · {size(state.max_file)} per
-              file
+              {files.length} file{files.length === 1 ? "" : "s"} ·{" "}
+              {size(state.max_file)} per file
             </span>
           </div>
           {/* the meter is decoration over the sentence above it, which is the
               accessible copy — a second reading of the same numbers */}
-          <div aria-hidden="true" className="h-1.5 overflow-hidden rounded-full bg-raised">
+          <div
+            aria-hidden="true"
+            className="h-1.5 overflow-hidden rounded-full bg-raised"
+          >
             <div
               className="h-full rounded-full bg-thread-solid"
               style={{ width: `${percent}%` }}
@@ -147,7 +156,9 @@ export function AttachedFilesCard() {
       ) : null}
 
       {state && files.length === 0 ? (
-        <EmptyState>Nothing attached yet. The + in a chat composer adds a file.</EmptyState>
+        <EmptyState>
+          Nothing attached yet. The + in a chat composer adds a file.
+        </EmptyState>
       ) : null}
 
       <ul className="divide-y divide-line">
@@ -156,7 +167,9 @@ export function AttachedFilesCard() {
             <span className="min-w-0 flex-1 truncate" title={file.title}>
               {file.title}
             </span>
-            <span className="shrink-0 text-xs text-ink-3">{size(file.size)}</span>
+            <span className="shrink-0 text-xs text-ink-3">
+              {size(file.size)}
+            </span>
             <button
               onClick={() => download(file)}
               aria-label={`Download ${file.title}`}

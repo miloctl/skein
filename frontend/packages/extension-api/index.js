@@ -8,6 +8,7 @@ export function Card({
   title,
   className = "",
   titleClassName = "",
+  headingLevel = 2,
   children,
 }) {
   const headingId = useId();
@@ -19,7 +20,7 @@ export function Card({
     },
     title
       ? createElement(
-          "h2",
+          `h${headingLevel}`,
           {
             id: headingId,
             className: `mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3 ${titleClassName}`,

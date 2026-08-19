@@ -49,9 +49,9 @@ const CREW = {
   ],
 };
 
-const card = (props: Partial<{ strong: boolean; me: string; admin: boolean }> = {}) => (
-  <CrewsCard strong me="ava" admin={false} {...props} />
-);
+const card = (
+  props: Partial<{ strong: boolean; me: string; admin: boolean }> = {},
+) => <CrewsCard strong me="ava" admin={false} {...props} />;
 
 beforeEach(() => {
   mode.answer = "pending";
@@ -76,6 +76,17 @@ describe("CrewsCard", () => {
       expect(screen.queryByText(/could not load this page/i)).toBeNull();
       expect(screen.queryByText(/no crews yet/i)).toBeNull();
     });
+  });
+
+  it("nests crew names below an explicit card heading level", async () => {
+    mode.answer = () => [CREW];
+    render(<CrewsCard strong me="ava" admin={false} headingLevel={3} />);
+    expect(
+      await screen.findByRole("heading", { level: 3, name: "Crews" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { level: 4, name: "Platform" }),
+    ).toBeTruthy();
   });
 
   it("offers edit controls to a steward, an administrator, and nobody else", async () => {
@@ -122,7 +133,9 @@ describe("CrewsCard", () => {
   });
 
   it("counts members in sentence form", async () => {
-    mode.answer = () => [{ ...CREW, members: [{ person: "ava", role: "steward" }] }];
+    mode.answer = () => [
+      { ...CREW, members: [{ person: "ava", role: "steward" }] },
+    ];
     render(card());
     await waitFor(() => expect(screen.getByText(/1 member$/)).toBeTruthy());
   });
@@ -153,7 +166,9 @@ describe("CrewsCard", () => {
     const consequence = screen.getByText(
       "Change bo from member to steward? bo will be able to add and remove members and change roles.",
     );
-    const confirm = screen.getByRole("button", { name: "Change bo to steward" });
+    const confirm = screen.getByRole("button", {
+      name: "Change bo to steward",
+    });
     expect(confirm.getAttribute("aria-describedby")).toBe(consequence.id);
     expect(writes).toHaveLength(0);
 

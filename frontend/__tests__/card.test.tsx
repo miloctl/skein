@@ -11,7 +11,25 @@ import { Card, EmptyState } from "@/components/card";
 describe("Card", () => {
   it("renders its title as a single heading", () => {
     render(<Card title="Slip forecast">body</Card>);
-    expect(screen.getAllByRole("heading", { name: "Slip forecast" })).toHaveLength(1);
+    expect(
+      screen.getAllByRole("heading", { name: "Slip forecast" }),
+    ).toHaveLength(1);
+  });
+
+  it("uses level 2 by default and accepts an explicit heading level", () => {
+    const { rerender } = render(<Card title="Default level">body</Card>);
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Default level" }),
+    ).toBeTruthy();
+
+    rerender(
+      <Card title="Grouped card" headingLevel={3}>
+        body
+      </Card>,
+    );
+    expect(
+      screen.getByRole("heading", { level: 3, name: "Grouped card" }),
+    ).toBeTruthy();
   });
 
   it("renders no heading at all when it has no title", () => {

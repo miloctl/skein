@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
@@ -33,43 +39,46 @@ vi.mock("@/lib/api", async (importOriginal) => {
       if (path === "/api/agents/status")
         return Promise.resolve({ review_gate: true });
       if (path === "/api/settings/model")
-        return state.modelPromise ?? Promise.resolve({
-          model: "mini",
-          override: null,
-          ignored: "",
-          default: "mini",
-          menu: [
-            {
-              id: "mini",
-              label: "Mini",
-              detail: "",
-              max_tokens: null,
-              context_tokens: null,
-              price: null,
-            },
-          ],
-          menu_error: "",
-          applies: true,
-          provider: "ollama",
-          summary: {
-            scope: "team_default",
-            note: "This is the team default. Persona overrides can use a different model or parameters.",
-            rows: [
+        return (
+          state.modelPromise ??
+          Promise.resolve({
+            model: "mini",
+            override: null,
+            ignored: "",
+            default: "mini",
+            menu: [
               {
-                id: "provider",
-                label: "Provider",
-                value: "ollama",
-                source: "SKEIN_MODEL_PROVIDER",
-              },
-              {
-                id: "model",
-                label: "Team-default model",
-                value: "mini",
-                source: "SKEIN_MODEL_ID",
+                id: "mini",
+                label: "Mini",
+                detail: "",
+                max_tokens: null,
+                context_tokens: null,
+                price: null,
               },
             ],
-          },
-        });
+            menu_error: "",
+            applies: true,
+            provider: "ollama",
+            summary: {
+              scope: "team_default",
+              note: "This is the team default. Persona overrides can use a different model or parameters.",
+              rows: [
+                {
+                  id: "provider",
+                  label: "Provider",
+                  value: "ollama",
+                  source: "SKEIN_MODEL_PROVIDER",
+                },
+                {
+                  id: "model",
+                  label: "Team-default model",
+                  value: "mini",
+                  source: "SKEIN_MODEL_ID",
+                },
+              ],
+            },
+          })
+        );
       if (path === "/api/settings/context-strategy")
         return Promise.resolve({
           strategy: "sliding",
@@ -80,7 +89,11 @@ vi.mock("@/lib/api", async (importOriginal) => {
         });
       if (path === "/api/settings/tuning") return Promise.resolve([]);
       if (path === "/api/keys")
-        return Promise.resolve({ id: 1, key: state.createdKey, prefix: "created" });
+        return Promise.resolve({
+          id: 1,
+          key: state.createdKey,
+          prefix: "created",
+        });
       return Promise.resolve([]);
     },
   };
@@ -110,16 +123,75 @@ describe("Settings identity states", () => {
   it("uses can_administer for AdminUser controls", async () => {
     render(<SettingsPage />);
 
-    expect(await screen.findByRole("button", { name: "Back up now" })).toBeTruthy();
     expect(
-      (await screen.findByRole("radio", { name: "Mini" }) as HTMLInputElement).disabled,
+      await screen.findByRole("button", { name: "Back up now" }),
+    ).toBeTruthy();
+    expect(
+      ((await screen.findByRole("radio", { name: "Mini" })) as HTMLInputElement)
+        .disabled,
     ).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: /Customize & share/ }));
     expect(
-      (screen.getByRole("button", {
-        name: "Make this the team default",
-      }) as HTMLButtonElement).disabled,
+      (
+        screen.getByRole("button", {
+          name: "Make this the team default",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(false);
+  });
+
+  it("groups cards under four fragment-linked settings sections", async () => {
+    render(<SettingsPage />);
+    await screen.findByRole("heading", { name: "In force" });
+
+    const nav = screen.getByRole("navigation", { name: "Settings sections" });
+    expect(nav.className).toContain("flex-wrap");
+    expect(nav.className).toContain("lg:sticky");
+    for (const [name, id] of [
+      ["You", "settings-you"],
+      ["Connections", "settings-connections"],
+      ["AI runtime", "settings-ai-runtime"],
+      ["Team", "settings-team"],
+    ]) {
+      expect(screen.getByRole("link", { name }).getAttribute("href")).toBe(
+        `#${id}`,
+      );
+      expect(screen.getByRole("heading", { level: 2, name })).toBeTruthy();
+    }
+
+    const you = document.getElementById("settings-you");
+    const connections = document.getElementById("settings-connections");
+    const runtime = document.getElementById("settings-ai-runtime");
+    const team = document.getElementById("settings-team");
+    expect(you && connections && runtime && team).toBeTruthy();
+    expect(
+      within(you!).getByRole("heading", { level: 3, name: "Appearance" }),
+    ).toBeTruthy();
+    expect(
+      within(you!).getByRole("heading", { level: 3, name: "Attached files" }),
+    ).toBeTruthy();
+    expect(
+      within(connections!).getByRole("heading", {
+        level: 3,
+        name: "Connect your own AI agent (optional)",
+      }),
+    ).toBeTruthy();
+    expect(
+      within(runtime!).getByRole("heading", { level: 3, name: "Model (team)" }),
+    ).toBeTruthy();
+    expect(
+      within(runtime!).getByRole("heading", { level: 4, name: "In force" }),
+    ).toBeTruthy();
+    expect(
+      within(team!).getByRole("heading", { level: 3, name: "Backups (team)" }),
+    ).toBeTruthy();
+
+    expect(
+      screen
+        .getByRole("link", { name: "Open the field guide" })
+        .getAttribute("href"),
+    ).toBe("/guide");
+    expect(screen.queryByRole("heading", { name: "Field guide" })).toBeNull();
   });
 
   it("shows model state but not administrator controls to a strong non-administrator", async () => {
@@ -133,7 +205,9 @@ describe("Settings identity states", () => {
         )
       ).length,
     ).toBeGreaterThan(0);
-    expect(await screen.findByRole("heading", { name: "In force" })).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", { name: "In force" }),
+    ).toBeTruthy();
     await waitFor(() => expect(state.calls).toContain("/api/settings/model"));
     expect(state.calls).not.toContain("/api/settings/context-strategy");
     expect(state.calls).not.toContain("/api/settings/tuning");
@@ -165,7 +239,7 @@ describe("Settings identity states", () => {
     expect(screen.queryByRole("button", { name: "Back up now" })).toBeNull();
   });
 
-  it("ignores an administrator response that finishes after sign-out", async () => {
+  it("invalidates a model response and starts no replacement for anonymous", async () => {
     let finishModel!: (value: unknown) => void;
     state.modelPromise = new Promise((resolve) => {
       finishModel = resolve;
@@ -175,40 +249,45 @@ describe("Settings identity states", () => {
 
     state.identity = {
       ...state.identity,
+      user: "anonymous",
       strong: false,
       can_administer: false,
     };
     window.dispatchEvent(new Event("storage"));
+    await waitFor(() =>
+      expect(state.calls.filter((path) => path === "/api/whoami")).toHaveLength(
+        2,
+      ),
+    );
     finishModel({
       model: "mini",
       override: null,
       ignored: "",
       default: "mini",
-      menu: [
-        {
-          id: "mini",
-          label: "Mini",
-          detail: "",
-          max_tokens: null,
-          context_tokens: null,
-          price: null,
-        },
-      ],
+      menu: [],
       menu_error: "",
       applies: true,
       provider: "ollama",
+      summary: {
+        scope: "team_default",
+        note: "old identity response",
+        rows: [
+          {
+            id: "model",
+            label: "Team-default model",
+            value: "mini",
+            source: "SKEIN_MODEL_ID",
+          },
+        ],
+      },
     });
 
-    expect(
-      (
-        await screen.findAllByText(
-          /This action requires strong identity and administrator access/,
-        )
-      ).length,
-    ).toBeGreaterThan(0);
     await waitFor(() =>
-      expect(screen.queryByRole("radio", { name: "Mini" })).toBeNull(),
+      expect(screen.queryByRole("heading", { name: "In force" })).toBeNull(),
     );
+    expect(
+      state.calls.filter((path) => path === "/api/settings/model"),
+    ).toHaveLength(1);
   });
 
   it("shows an identity failure instead of checking forever", async () => {
@@ -240,7 +319,9 @@ describe("Settings identity states", () => {
     expect(window.localStorage.getItem("skein-key")).toBe("sk-skein-stored");
 
     fireEvent.click(confirm);
-    await waitFor(() => expect(window.localStorage.getItem("skein-key")).toBeNull());
+    await waitFor(() =>
+      expect(window.localStorage.getItem("skein-key")).toBeNull(),
+    );
     expect(
       await screen.findByText(
         "The browser no longer stores this key. No server key was revoked.",
@@ -257,7 +338,9 @@ describe("Settings identity states", () => {
 
     window.localStorage.setItem("skein-key", "sk-skein-second");
     window.dispatchEvent(new Event("storage"));
-    fireEvent.click(screen.getByRole("button", { name: "Delete from browser" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete from browser" }),
+    );
 
     expect(window.localStorage.getItem("skein-key")).toBe("sk-skein-second");
     expect(
@@ -335,7 +418,9 @@ describe("Settings identity states", () => {
         "Key works and is stored for other-owner. Deployment sign-in remains active as operator. The stored key takes effect after you sign out.",
       ),
     ).toBeTruthy();
-    expect(screen.queryByText(/key owner controls private surfaces/i)).toBeNull();
+    expect(
+      screen.queryByText(/key owner controls private surfaces/i),
+    ).toBeNull();
   });
 
   it("lets a keyless deployment sign-in create its first personal key", async () => {

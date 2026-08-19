@@ -1986,11 +1986,14 @@ class ModelPickIn(BaseModel):
 
 @router.get("/settings/model")
 def get_model_pick(user: CurrentUser):
-    """Reads for everyone — agents/status already names the model to every
-    signed-in user, and the menu's prices are list prices, not capacity
-    reconnaissance. Writing is admin-only."""
+    """Reads for named teammates. Writing is admin-only."""
     from .. import config
 
+    if user == "anonymous":
+        raise HTTPException(
+            403,
+            "A named identity is required. Select a name in Settings, then try again.",
+        )
     pick = settings.model_pick_state()
     return {
         **pick,
@@ -2001,7 +2004,13 @@ def get_model_pick(user: CurrentUser):
             {k: e[k] for k in ("id", "label", "detail", "max_tokens", "context_tokens", "price")}
             for e in config.MODELS.values()
         ],
-        "menu_error": config.MODELS_ERROR,
+        # Registry faults can name parameter paths. The model Settings response
+        # reports only that the menu failed, never its operator-only fields.
+        "menu_error": (
+            "The model menu is not usable. Check /api/health for the configuration fault."
+            if config.MODELS_ERROR
+            else ""
+        ),
         "applies": config.EFFECTIVE_PROVIDER != "mock" and bool(config.MODELS),
         "provider": config.MODEL_PROVIDER,
         # one pick read feeds both surfaces: an admin change between two reads

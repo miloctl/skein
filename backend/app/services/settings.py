@@ -166,11 +166,8 @@ def model_configuration_summary(pick: dict | None = None) -> dict:
     pick = pick or model_pick_state()
     model_id = pick["model"]
     entry = config.MODELS.get(model_id) or {}
-    entry_params = {
-        key: value
-        for key, value in entry.get("params", {}).items()
-        if key not in config.MODEL_FORBIDDEN_PARAM_KEYS
-    }
+    entry_params, _ = config.sanitize_model_params(entry.get("params", {}))
+    global_params, _ = config.sanitize_model_params(config.MODEL_PARAMS)
     provider = config.PROVIDERS.get(config.EFFECTIVE_PROVIDER, config.PROVIDERS["mock"])
     cap_keys = provider["output_cap_params"]
     shadowed_global = set()
@@ -179,9 +176,7 @@ def model_configuration_summary(pick: dict | None = None) -> dict:
     if provider["params_as_model_config"] and entry.get("context_tokens") is not None:
         shadowed_global.add("context_window_limit")
     effective_global = {
-        key: value
-        for key, value in config.MODEL_PARAMS.items()
-        if key not in shadowed_global and key not in config.MODEL_FORBIDDEN_PARAM_KEYS
+        key: value for key, value in global_params.items() if key not in shadowed_global
     }
     merged_params = {**effective_global, **entry_params}
 
@@ -198,9 +193,7 @@ def model_configuration_summary(pick: dict | None = None) -> dict:
     for key in cap_keys:
         if key in entry_params and "model_menu" not in cap_sources:
             cap_sources.append("model_menu")
-        elif key in config.MODEL_PARAMS and not (
-            provider["typed_output_cap"] and entry.get("max_tokens") is not None
-        ):
+        elif key in effective_global:
             source = document_source(config.MODEL_PARAMS_SOURCE)
             if source not in cap_sources:
                 cap_sources.append(source)
@@ -262,9 +255,9 @@ def model_configuration_summary(pick: dict | None = None) -> dict:
     def source_name(row_id: str, source: str) -> str:
         if source == "admin":
             return (
-                "Settings → Long chats (team)"
+                "Settings → AI runtime → Long chats (team)"
                 if row_id == "long_chat"
-                else "Settings → Model (team)"
+                else "Settings → AI runtime → Model (team)"
             )
         fixed = {
             "provider_default": "provider default",

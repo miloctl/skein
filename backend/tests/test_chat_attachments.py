@@ -234,6 +234,20 @@ def test_the_model_in_force_is_what_the_turn_is_judged_against(monkeypatch):
     assert team_agent.model_in_force("persona-model") == "persona-model"
 
 
+def test_a_turn_snapshot_beats_a_later_pick_but_not_an_explicit_model(monkeypatch):
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "MODEL_ID", "env-model")
+    monkeypatch.setattr(team_agent, "_picked_model", lambda: "new-pick")
+    token = team_agent.set_team_model_snapshot("turn-pick")
+    try:
+        assert team_agent.model_in_force() == "turn-pick"
+        assert team_agent.model_in_force("persona-model") == "persona-model"
+    finally:
+        team_agent.reset_team_model_snapshot(token)
+    assert team_agent.model_in_force() == "new-pick"
+
+
 def test_another_persons_attachment_cannot_be_named_into_a_turn(client):
     aid = _upload(client, "private.md", b"secret")
     from app import db

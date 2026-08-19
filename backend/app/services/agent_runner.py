@@ -252,7 +252,12 @@ def run_one(
             return _refused(agent, "already ran today")
 
     from ..agents.identity import reset_agent_identity, set_agent_identity
-    from ..agents.team_agent import build_agent
+    from ..agents.team_agent import (
+        build_agent,
+        model_in_force,
+        reset_team_model_snapshot,
+        set_team_model_snapshot,
+    )
     from ..extensions.policy import (
         PolicySubject,
         current_policy_engine,
@@ -274,6 +279,9 @@ def run_one(
     policy_token = set_policy_engine(policy or current_policy_engine())
     subject_token = set_policy_subject(agent_subject)
     token = set_agent_identity(agent)
+    # A planner or specialist can be built after the outer agent starts. Freeze
+    # the team pick so an admin change cannot split one unattended turn.
+    model_token = set_team_model_snapshot(model_in_force())
     try:
         try:
             if extensions is not None:
@@ -363,6 +371,7 @@ def run_one(
         # in a finally, not after the call: an exception mid-turn would
         # otherwise leave this thread's identity set to the agent, and the
         # next write on it would carry the wrong actor
+        reset_team_model_snapshot(model_token)
         reset_agent_identity(token)
         reset_policy_subject(subject_token)
         reset_policy_engine(policy_token)

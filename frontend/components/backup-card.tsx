@@ -21,9 +21,11 @@ type BackupResult = {
 export function BackupCard({
   canAdminister,
   accessMessage,
+  headingLevel = 2,
 }: {
   canAdminister: boolean;
   accessMessage: string;
+  headingLevel?: 2 | 3;
 }) {
   const [busy, setBusy] = useState("");
   const [line, setLine] = useState("");
@@ -69,7 +71,7 @@ export function BackupCard({
     });
 
   return (
-    <Section title="Backups (team)">
+    <Section title="Backups (team)" headingLevel={headingLevel}>
       <p className="mb-3 text-sm text-ink-3">
         Backups run daily on their own. Before a risky change (an upgrade, a
         bulk edit), an administrator can take one now. The export returns the

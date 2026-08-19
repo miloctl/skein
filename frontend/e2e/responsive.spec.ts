@@ -145,8 +145,6 @@ function walk(label: string, opts: { phone: boolean; dark: boolean }) {
 
       const scan = await new AxeBuilder({ page })
         .withTags(["wcag2a", "wcag2aa", "wcag22aa"])
-        // the tiles preview OTHER packs on purpose — same reason smoke.spec.ts gives
-        .exclude(".pack-tile")
         .analyze();
       for (const v of scan.violations)
         add("axe", `${v.impact} ${v.id} ×${v.nodes.length}`);
@@ -191,7 +189,12 @@ test("search results stay inside a 360px viewport", async ({ page }) => {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify([
-        { entity: "note", entity_id: 7, title: "Vendor call", snippet: "Follow-up" },
+        {
+          entity: "note",
+          entity_id: 7,
+          title: "Vendor call",
+          snippet: "Follow-up",
+        },
       ]),
     }),
   );
@@ -211,7 +214,9 @@ test("search results stay inside a 360px viewport", async ({ page }) => {
   expect(box!.x + box!.width).toBeLessThanOrEqual(360);
 });
 
-test("page help stays reachable in a narrow, short viewport", async ({ page }) => {
+test("page help stays reachable in a narrow, short viewport", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 320, height: 320 });
   await page.goto("/review");
   await page.evaluate(() => window.localStorage.setItem("skein-user", "ava"));
@@ -221,7 +226,9 @@ test("page help stays reachable in a narrow, short viewport", async ({ page }) =
   await trigger.click();
   const dialog = page.getByRole("dialog", { name: "Help for this page" });
   await expect(dialog).toBeVisible();
-  await expect(page.getByRole("button", { name: "Close page help" })).toBeFocused();
+  await expect(
+    page.getByRole("button", { name: "Close page help" }),
+  ).toBeFocused();
 
   const box = await dialog.boundingBox();
   expect(box).not.toBeNull();
@@ -232,7 +239,9 @@ test("page help stays reachable in a narrow, short viewport", async ({ page }) =
   await dialog.evaluate((element) => {
     element.scrollTop = element.scrollHeight;
   });
-  await expect(page.getByRole("link", { name: "Open the field guide" })).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Open the field guide" }),
+  ).toBeVisible();
 
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
@@ -288,6 +297,57 @@ for (const vw of [360, 1280]) {
       Math.round(mainTop),
       `#content sits ${Math.round(headerBottom - mainTop)}px under the header`,
     ).toBeGreaterThanOrEqual(Math.round(headerBottom));
+  });
+}
+
+for (const vw of [360, 1280]) {
+  test(`settings section links clear the sticky header at ${vw}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: vw, height: 800 });
+    await page.goto("/");
+    await page.evaluate(() => window.localStorage.setItem("skein-user", "ava"));
+    await page.goto("/settings");
+
+    const nav = page.getByRole("navigation", { name: "Settings sections" });
+    await expect(nav).toBeVisible();
+    expect(await nav.evaluate((el) => getComputedStyle(el).position)).toBe(
+      vw >= 1024 ? "sticky" : "static",
+    );
+
+    for (const [name, id] of [
+      ["You", "settings-you"],
+      ["Connections", "settings-connections"],
+      ["AI runtime", "settings-ai-runtime"],
+      ["Team", "settings-team"],
+    ]) {
+      await nav.getByRole("link", { name, exact: true }).click();
+      await page.waitForFunction(
+        (target) => location.hash === `#${target}`,
+        id,
+      );
+      const position = await page.evaluate((target) => {
+        const header = document
+          .querySelector("header")!
+          .getBoundingClientRect();
+        const section = document
+          .getElementById(target)!
+          .getBoundingClientRect();
+        return { headerBottom: header.bottom, sectionTop: section.top };
+      }, id);
+      expect(
+        Math.round(position.sectionTop),
+        `#${id} sits under the sticky header`,
+      ).toBeGreaterThanOrEqual(Math.round(position.headerBottom));
+    }
+
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth -
+          document.documentElement.clientWidth,
+      ),
+    ).toBeLessThanOrEqual(1);
   });
 }
 
@@ -739,7 +799,9 @@ test.describe("Guided First Week", () => {
   }) => {
     test.setTimeout(120_000);
     await page.goto("/");
-    await page.evaluate(() => window.localStorage.setItem("skein-user", "guided-browser-user"));
+    await page.evaluate(() =>
+      window.localStorage.setItem("skein-user", "guided-browser-user"),
+    );
 
     for (const width of [360, 390]) {
       await page.setViewportSize({ width, height: 800 });
@@ -771,9 +833,15 @@ test.describe("Guided First Week", () => {
 
       await toggle.focus();
       await page.keyboard.press("Enter");
-      await expect(page.getByRole("button", { name: /Hide team context/ })).toBeFocused();
-      await expect(page.getByRole("heading", { name: "Team today" })).toBeVisible();
-      await expect(page.getByRole("heading", { name: "Since yesterday" })).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: /Hide team context/ }),
+      ).toBeFocused();
+      await expect(
+        page.getByRole("heading", { name: "Team today" }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: "Since yesterday" }),
+      ).toBeVisible();
 
       const scan = await new AxeBuilder({ page })
         .withTags(["wcag2a", "wcag2aa", "wcag22aa"])
@@ -782,13 +850,19 @@ test.describe("Guided First Week", () => {
         scan.violations.map((v) => ({ rule: v.id, impact: v.impact })),
       ).toEqual([]);
       expect(
-        await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
+        await page.evaluate(
+          () => document.documentElement.scrollWidth - innerWidth,
+        ),
       ).toBeLessThanOrEqual(1);
 
       await page.keyboard.press("Enter");
-      await expect(page.getByRole("heading", { name: "Since yesterday" })).toHaveCount(0);
+      await expect(
+        page.getByRole("heading", { name: "Since yesterday" }),
+      ).toHaveCount(0);
 
-      const dismiss = page.getByRole("button", { name: "Dismiss first-week setup" });
+      const dismiss = page.getByRole("button", {
+        name: "Dismiss first-week setup",
+      });
       await dismiss.focus();
       await page.keyboard.press("Enter");
       await expect(page.locator("main#content")).toBeFocused();

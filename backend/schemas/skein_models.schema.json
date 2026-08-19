@@ -3,6 +3,32 @@
   "$id": "https://skein.internal/schemas/skein_models.schema.json",
   "title": "SKEIN_MODELS - the model menu for this deployment",
   "description": "The models an administrator can pick between in Settings. The operator sets this variable; the UI never writes it. Ids must be unique in the list (enforced by the server - JSON Schema cannot express unique-by-key). Any invalid entry voids the whole list, and the fault is reported on /health and the agent strip.",
+  "$defs": {
+    "providerEscapeValue": {
+      "oneOf": [
+        {
+          "type": "object",
+          "propertyNames": {
+            "not": {
+              "enum": ["model", "model_id", "modelId"]
+            }
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/providerEscapeValue"
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/providerEscapeValue"
+          }
+        },
+        {
+          "type": ["string", "number", "boolean", "null"]
+        }
+      ]
+    }
+  },
   "type": "array",
   "minItems": 1,
   "items": {
@@ -61,14 +87,90 @@
             "enum": [
               "model",
               "model_id",
+              "modelId",
               "endpoint_url",
               "region_name",
               "boto_session",
-              "boto_client_config"
+              "boto_client_config",
+              "messages",
+              "tools",
+              "system",
+              "tool_choice",
+              "stream",
+              "stream_options",
+              "timeout",
+              "host",
+              "ollama_client_args"
             ]
           }
         },
-        "description": "Provider pass-through (temperature, top_p, reasoning budgets, extra_headers, ...). Merged over SKEIN_MODEL_PARAMS - the per-model key wins. Model routing and provider-client controls never belong in params."
+        "properties": {
+          "extra_body": {
+            "type": ["object", "null"],
+            "propertyNames": {
+              "not": {
+                "enum": [
+                  "model",
+                  "model_id",
+                  "modelId",
+                  "provider",
+                  "messages",
+                  "tools",
+                  "system",
+                  "tool_choice",
+                  "stream",
+                  "stream_options",
+                  "timeout",
+                  "max_tokens",
+                  "max_completion_tokens"
+                ]
+              }
+            },
+            "additionalProperties": {
+              "$ref": "#/$defs/providerEscapeValue"
+            }
+          },
+          "extra_query": {
+            "type": ["object", "null"],
+            "propertyNames": {
+              "not": {
+                "enum": ["model", "model_id", "modelId", "provider"]
+              }
+            },
+            "additionalProperties": {
+              "$ref": "#/$defs/providerEscapeValue"
+            }
+          },
+          "additional_args": {
+            "type": ["object", "null"],
+            "propertyNames": {
+              "not": {
+                "enum": [
+                  "model",
+                  "model_id",
+                  "modelId",
+                  "messages",
+                  "tools",
+                  "system",
+                  "tool_choice",
+                  "stream",
+                  "stream_options",
+                  "timeout",
+                  "toolConfig",
+                  "options",
+                  "inferenceConfig",
+                  "additionalModelRequestFields",
+                  "max_tokens",
+                  "max_completion_tokens"
+                ]
+              }
+            },
+            "additionalProperties": {
+              "$ref": "#/$defs/providerEscapeValue"
+            }
+          }
+        },
+        "description": "Provider pass-through (temperature, top_p, reasoning budgets, extra_headers, and provider extensions). Merged over SKEIN_MODEL_PARAMS - the per-model key wins. Model routing, app-owned request fields, and provider-client controls never belong in params."
       }
     }
   }

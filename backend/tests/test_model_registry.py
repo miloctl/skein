@@ -47,6 +47,15 @@ VALID = [
     # zero-fraction floats: JSON Schema 2020-12 "integer" admits them, so the
     # code must too, or a green ConfigMap editor produces a red /health
     {"id": "float-tuned", "max_tokens": 4096.0, "context_tokens": 32768.0},
+    {
+        "id": "safe-escape-hatches",
+        "params": {
+            "extra_headers": {"X-Tenant": "acme"},
+            "extra_body": {"seed": 7},
+            "extra_query": {"tenant": "safe"},
+            "additional_args": {"custom": "safe"},
+        },
+    },
 ]
 
 # Rejected by BOTH the schema and config.py. Each entry is one distinct fault;
@@ -77,6 +86,40 @@ INVALID = [
     [{"id": "m", "params": {"region_name": "other-region"}}],
     [{"id": "m", "params": {"boto_session": "other-session"}}],
     [{"id": "m", "params": {"boto_client_config": {}}}],
+    *[
+        [{"id": "m", "params": {field: "blocked"}}]
+        for field in (
+            "messages",
+            "tools",
+            "system",
+            "tool_choice",
+            "stream",
+            "stream_options",
+            "timeout",
+            "host",
+            "ollama_client_args",
+        )
+    ],
+    [{"id": "m", "params": {"extra_body": {"model": "other"}}}],
+    [{"id": "m", "params": {"extra_body": {"metadata": {"model": "other"}}}}],
+    [{"id": "m", "params": {"extra_body": {"messages": []}}}],
+    [{"id": "m", "params": {"extra_body": {"max_completion_tokens": 1}}}],
+    [{"id": "m", "params": {"extra_body": {"provider": {"order": ["other"]}}}}],
+    [{"id": "m", "params": {"extra_query": {"model": "other"}}}],
+    [{"id": "m", "params": {"extra_query": {"provider": "other"}}}],
+    [{"id": "m", "params": {"additional_args": {"model": "other"}}}],
+    [{"id": "m", "params": {"additional_args": {"modelId": "other"}}}],
+    [{"id": "m", "params": {"additional_args": {"options": {}}}}],
+    [
+        {
+            "id": "m",
+            "params": {"additional_args": {"additionalModelRequestFields": {"system": "x"}}},
+        }
+    ],
+    [{"id": "m", "params": {"additional_args": {"inferenceConfig": {}}}}],
+    [{"id": "m", "params": {"extra_body": "not-an-object"}}],
+    [{"id": "m", "params": {"extra_query": "not-an-object"}}],
+    [{"id": "m", "params": {"additional_args": "not-an-object"}}],
     [{"id": "m", "attachments": "image"}],
     [{"id": "m", "attachments": [1]}],
     [{"id": "m", "attachments": ["video"]}],
@@ -90,7 +133,12 @@ INVALID = [
 def test_a_valid_registry_parses(monkeypatch):
     cfg = _reload(monkeypatch, VALID)
     assert cfg.MODELS_ERROR == ""
-    assert set(cfg.MODELS) == {"claude-opus-4-8", "gpt-oss:120b-cloud", "float-tuned"}
+    assert set(cfg.MODELS) == {
+        "claude-opus-4-8",
+        "gpt-oss:120b-cloud",
+        "float-tuned",
+        "safe-escape-hatches",
+    }
     full = cfg.MODELS["claude-opus-4-8"]
     assert full["price"] == (15.0, 75.0)
     assert full["context_tokens"] == 200_000
@@ -103,6 +151,8 @@ def test_a_valid_registry_parses(monkeypatch):
     floaty = cfg.MODELS["float-tuned"]
     assert floaty["max_tokens"] == 4096 and isinstance(floaty["max_tokens"], int)
     assert floaty["context_tokens"] == 32768 and isinstance(floaty["context_tokens"], int)
+    assert cfg.MODELS["safe-escape-hatches"]["params"]["extra_body"] == {"seed": 7}
+    assert cfg.MODELS["safe-escape-hatches"]["params"]["extra_query"] == {"tenant": "safe"}
 
 
 def test_attachments_is_declared_per_model_and_absence_differs_from_empty(monkeypatch):
@@ -181,11 +231,10 @@ def test_duplicate_ids_are_refused(monkeypatch):
 
 
 def test_a_bare_infinity_is_refused(monkeypatch):
-    """json.loads parses the bare Infinity token — a price the operator never
-    wrote, and inf breaks every cost sum it touches."""
+    """Infinity is not JSON and breaks every cost sum it touches."""
     cfg = _reload(monkeypatch, '[{"id": "m", "price": {"input": Infinity, "output": 2}}]')
     assert cfg.MODELS == {}
-    assert "price.input" in cfg.MODELS_ERROR
+    assert "not finite" in cfg.MODELS_ERROR
 
 
 def test_a_huge_integer_price_degrades_instead_of_killing_the_import(monkeypatch):
@@ -214,7 +263,7 @@ def test_a_huge_integer_in_the_price_table_degrades_too(monkeypatch):
 def test_unparseable_json_degrades_and_says_so(monkeypatch):
     cfg = _reload(monkeypatch, "{nope")
     assert cfg.MODELS == {}
-    assert "not JSON" in cfg.MODELS_ERROR
+    assert "not valid JSON" in cfg.MODELS_ERROR
 
 
 def test_the_registry_price_wins_over_the_price_table(monkeypatch):

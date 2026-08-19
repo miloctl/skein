@@ -30,10 +30,12 @@ export function CrewsCard({
   strong,
   me,
   admin,
+  headingLevel = 2,
 }: {
   strong: boolean;
   me: string;
   admin: boolean;
+  headingLevel?: 2 | 3;
 }) {
   // null, never []: an empty array is a claim that there are no crews, and
   // the page must not make it before the request answers
@@ -116,6 +118,8 @@ export function CrewsCard({
     (admin ||
       crew.members.some((m) => m.person === me && m.role === "steward"));
 
+  const CrewHeading = headingLevel === 3 ? "h4" : "h3";
+
   const cancelRemoval = (crewId: number, person: string) => {
     setRemoving(null);
     requestAnimationFrame(() =>
@@ -124,7 +128,7 @@ export function CrewsCard({
   };
 
   return (
-    <Section title="Crews">
+    <Section title="Crews" headingLevel={headingLevel}>
       <p id={introId} className="mb-3 text-sm text-ink-3">
         A crew is a durable group of people. Crew membership decides who reads
         the work that is visible to that crew. Whoever makes a crew becomes its
@@ -203,9 +207,9 @@ export function CrewsCard({
                 {/* the badge sits OUTSIDE the heading: inside, the accessible
                     name of the heading becomes "Platform inactive" — the
                     badge is a state, not part of what the crew is called */}
-                <h3 className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+                <CrewHeading className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
                   {crew.name}
-                </h3>
+                </CrewHeading>
                 <span className="font-mono text-[10px] text-ink-3">
                   {/* a space, not only a margin: an accname computation reads
                       these as one run and announced "inactive1 member" */}
@@ -258,7 +262,8 @@ export function CrewsCard({
                             id={`rm-${crew.id}-${m.person}`}
                             className="text-[10px] text-ink-3"
                           >
-                            After removal, {m.person} loses access to crew work they did not write.
+                            After removal, {m.person} loses access to crew work
+                            they did not write.
                           </span>
                           <button
                             autoFocus
@@ -312,7 +317,8 @@ export function CrewsCard({
                     id={`add-${crew.id}-access`}
                     className="mt-2 text-xs text-ink-3"
                   >
-                    A new member can read existing and future work visible to {crew.name}.
+                    A new member can read existing and future work visible to{" "}
+                    {crew.name}.
                   </p>
                   {changingRole?.crewId === crew.id && (
                     <div
@@ -359,7 +365,9 @@ export function CrewsCard({
                             ) as HTMLFormElement | null
                           )?.reset();
                           requestAnimationFrame(() =>
-                            document.getElementById(`add-member-${crew.id}`)?.focus(),
+                            document
+                              .getElementById(`add-member-${crew.id}`)
+                              ?.focus(),
                           );
                         }}
                         className="rounded bg-danger-solid px-2 py-0.5 font-medium text-white hover:opacity-90 disabled:opacity-50"
@@ -370,7 +378,9 @@ export function CrewsCard({
                         type="button"
                         onClick={() => {
                           setChangingRole(null);
-                          requestAnimationFrame(() => restoreTo.current?.focus());
+                          requestAnimationFrame(() =>
+                            restoreTo.current?.focus(),
+                          );
                         }}
                         className="min-h-6 px-1 text-ink-3 hover:text-ink"
                       >
@@ -382,98 +392,100 @@ export function CrewsCard({
                     id={`add-member-form-${crew.id}`}
                     aria-describedby={`add-${crew.id}-access`}
                     className="mt-1 flex flex-wrap items-center gap-1.5"
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    const form = e.currentTarget;
-                    const person = (
-                      form.elements.namedItem("person") as HTMLInputElement
-                    ).value.trim();
-                    const role = (
-                      form.elements.namedItem("role") as HTMLSelectElement
-                    ).value as CrewMember["role"];
-                    if (!person) return;
-                    const existing = crew.members.find(
-                      (member) => member.person.toLowerCase() === person.toLowerCase(),
-                    );
-                    if (existing) {
-                      if (existing.role === role) {
-                        reportStatus(
-                          `${existing.person} is already a ${role} in ${crew.name}.`,
-                        );
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const form = e.currentTarget;
+                      const person = (
+                        form.elements.namedItem("person") as HTMLInputElement
+                      ).value.trim();
+                      const role = (
+                        form.elements.namedItem("role") as HTMLSelectElement
+                      ).value as CrewMember["role"];
+                      if (!person) return;
+                      const existing = crew.members.find(
+                        (member) =>
+                          member.person.toLowerCase() === person.toLowerCase(),
+                      );
+                      if (existing) {
+                        if (existing.role === role) {
+                          reportStatus(
+                            `${existing.person} is already a ${role} in ${crew.name}.`,
+                          );
+                          return;
+                        }
+                        restoreTo.current =
+                          document.activeElement as HTMLElement | null;
+                        setChangingRole({
+                          crewId: crew.id,
+                          person: existing.person,
+                          from: existing.role,
+                          to: role,
+                        });
                         return;
                       }
-                      restoreTo.current = document.activeElement as HTMLElement | null;
-                      setChangingRole({
-                        crewId: crew.id,
-                        person: existing.person,
-                        from: existing.role,
-                        to: role,
-                      });
-                      return;
-                    }
-                    setChangingRole(null);
-                    const ok = await act(
-                      `c${crew.id}`,
-                      () =>
-                        api(`/api/crews/${crew.id}/members`, {
-                          method: "POST",
-                          body: JSON.stringify({ person, role }),
-                        }),
-                      `${person} added to ${crew.name}.`,
-                    );
-                    if (ok) form.reset();
-                  }}
-                >
-                  <PersonInput
-                    name="person"
-                    aria-label={`Add someone to ${crew.name}`}
-                    placeholder="add a teammate"
-                    maxLength={64}
-                    className="w-44 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 text-xs outline-none focus:border-thread-solid"
-                  />
-                  <select
-                    name="role"
-                    aria-label={`Role in ${crew.name}`}
-                    defaultValue="member"
-                    className="rounded-lg border border-line-strong bg-transparent px-2 py-0.5 text-xs outline-none focus:border-thread-solid"
-                  >
-                    <option value="member">member</option>
-                    <option value="steward">steward</option>
-                  </select>
-                  <button
-                    id={`add-member-${crew.id}`}
-                    type="submit"
-                    aria-label={`Add to ${crew.name}`}
-                    disabled={!!busy}
-                    className="rounded-lg bg-thread-solid px-2 py-0.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
-                  >
-                    Add
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!!busy}
-                    onClick={() =>
-                      act(
+                      setChangingRole(null);
+                      const ok = await act(
                         `c${crew.id}`,
                         () =>
-                          api(`/api/crews/${crew.id}`, {
-                            method: "PATCH",
-                            body: JSON.stringify({ active: !crew.active }),
+                          api(`/api/crews/${crew.id}/members`, {
+                            method: "POST",
+                            body: JSON.stringify({ person, role }),
                           }),
-                        crew.active
-                          ? `${crew.name} deactivated.`
-                          : `${crew.name} reactivated.`,
-                      )
-                    }
-                    aria-label={
-                      crew.active
-                        ? `Deactivate ${crew.name}`
-                        : `Reactivate ${crew.name}`
-                    }
-                    className="ml-auto rounded-lg border border-line-strong px-2 py-0.5 text-xs hover:bg-raised disabled:opacity-50"
+                        `${person} added to ${crew.name}.`,
+                      );
+                      if (ok) form.reset();
+                    }}
                   >
-                    {crew.active ? "deactivate" : "reactivate"}
-                  </button>
+                    <PersonInput
+                      name="person"
+                      aria-label={`Add someone to ${crew.name}`}
+                      placeholder="add a teammate"
+                      maxLength={64}
+                      className="w-44 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 text-xs outline-none focus:border-thread-solid"
+                    />
+                    <select
+                      name="role"
+                      aria-label={`Role in ${crew.name}`}
+                      defaultValue="member"
+                      className="rounded-lg border border-line-strong bg-transparent px-2 py-0.5 text-xs outline-none focus:border-thread-solid"
+                    >
+                      <option value="member">member</option>
+                      <option value="steward">steward</option>
+                    </select>
+                    <button
+                      id={`add-member-${crew.id}`}
+                      type="submit"
+                      aria-label={`Add to ${crew.name}`}
+                      disabled={!!busy}
+                      className="rounded-lg bg-thread-solid px-2 py-0.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!!busy}
+                      onClick={() =>
+                        act(
+                          `c${crew.id}`,
+                          () =>
+                            api(`/api/crews/${crew.id}`, {
+                              method: "PATCH",
+                              body: JSON.stringify({ active: !crew.active }),
+                            }),
+                          crew.active
+                            ? `${crew.name} deactivated.`
+                            : `${crew.name} reactivated.`,
+                        )
+                      }
+                      aria-label={
+                        crew.active
+                          ? `Deactivate ${crew.name}`
+                          : `Reactivate ${crew.name}`
+                      }
+                      className="ml-auto rounded-lg border border-line-strong px-2 py-0.5 text-xs hover:bg-raised disabled:opacity-50"
+                    >
+                      {crew.active ? "deactivate" : "reactivate"}
+                    </button>
                   </form>
                 </>
               )}

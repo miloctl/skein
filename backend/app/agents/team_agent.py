@@ -5,6 +5,7 @@ import asyncio
 import contextlib
 import json
 import logging
+from contextvars import ContextVar, Token
 from typing import TYPE_CHECKING, Any, cast
 
 from .. import config, db, ratelimit
@@ -90,16 +91,30 @@ def _picked_model() -> str:
         return ""
 
 
-def model_in_force(persona_model: str = "") -> str:
-    """The model id a turn actually runs on: persona > admin pick > env.
+_team_model_snapshot: ContextVar[str | None] = ContextVar("team_model_snapshot", default=None)
 
-    Exported so routes/chat.py can ask what a turn will run on BEFORE the
-    agent is built — it has to know the model to know whether an attachment
-    may be sent as an image (config.attachment_support). _model() below calls
-    the same function rather than repeating the ladder, because two copies of
-    a precedence rule is how one of them ends up a version behind.
+
+def set_team_model_snapshot(model_id: str) -> Token[str | None]:
+    return _team_model_snapshot.set(model_id)
+
+
+def reset_team_model_snapshot(token: Token[str | None]) -> None:
+    _team_model_snapshot.reset(token)
+
+
+def model_in_force(persona_model: str = "") -> str:
+    """The model id in force: explicit > turn snapshot > admin pick > env.
+
+    The explicit value covers persona and vision models. The snapshot freezes
+    only the team default, so nested planners and titles do not inherit a
+    persona model.
     """
-    return persona_model or _picked_model() or config.MODEL_ID
+    if persona_model:
+        return persona_model
+    snapshot = _team_model_snapshot.get()
+    if snapshot is not None:
+        return snapshot
+    return _picked_model() or config.MODEL_ID
 
 
 def _model(model_id: str = "", temperature: float | None = None):
@@ -242,11 +257,10 @@ def _model(model_id: str = "", temperature: float | None = None):
 
 def _behavior_params(extra: dict | None = None) -> dict:
     merged = {**config.MODEL_PARAMS, **(extra or {})}
-    # Defense behind config.py's validator: these keys can redirect a request
-    # or replace the Bedrock session/client that carries AWS credentials.
-    for key in config.MODEL_FORBIDDEN_PARAM_KEYS:
-        merged.pop(key, None)
-    return merged
+    # Tests and legacy process state can bypass config.py's import validator.
+    # Keep the request boundary safe even when that earlier check did not run.
+    sanitized, _ = config.sanitize_model_params(merged)
+    return sanitized
 
 
 def _request_params(extra: dict | None = None) -> dict:

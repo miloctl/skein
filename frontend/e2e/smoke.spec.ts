@@ -63,7 +63,9 @@ test("an anonymous visitor reaches the name gate", async ({ page }) => {
   const faults = watch(page);
   await page.goto("/");
   await page.waitForLoadState("networkidle");
-  await expect(page.getByRole("heading", { name: "Who are you?" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Who are you?" }),
+  ).toBeVisible();
   expect(faults, JSON.stringify(faults, null, 2)).toEqual([]);
 });
 
@@ -99,12 +101,6 @@ for (const { path, name } of PAGES) {
       // 2.1 and 2.2 too: the 2.0-only tag set skips target-size, focus
       // appearance, and the reflow rules this app is built to hold
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
-      // the theme cards' miniature previews are pictures of the UI, not
-      // information: their glyphs are sample decoration at deliberately
-      // reduced opacity, and the card's accessible name carries the label.
-      // Contrast rules serve sighted low-vision readers, so aria-hidden
-      // does not exempt them — this exclusion, with this reason, does.
-      .exclude(".pack-tile")
       .analyze();
     expect(
       scan.violations.map((v) => ({
@@ -129,7 +125,6 @@ test("dark mode holds the same bar", async ({ page }) => {
   expect(faults, JSON.stringify(faults, null, 2)).toEqual([]);
   const scan = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa"])
-    .exclude(".pack-tile")
     .analyze();
   expect(
     scan.violations.map((v) => ({ rule: v.id, impact: v.impact })),
@@ -193,7 +188,6 @@ test("the crews card is operable with a keyboard and announces what it did", asy
   expect(faults, JSON.stringify(faults, null, 2)).toEqual([]);
   const scan = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
-    .exclude(".pack-tile")
     .analyze();
   expect(
     scan.violations.map((v) => ({ rule: v.id, impact: v.impact })),

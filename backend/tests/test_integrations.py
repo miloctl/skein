@@ -274,63 +274,247 @@ def test_slack_garbage_timestamp_is_401(client, monkeypatch):
     assert r.status_code == 401
 
 
-def test_a_hung_mcp_server_blocks_no_other_agent_build(fresh_db, monkeypatch):
-    """The lock in mcp_tools() guards state, never the connect. Held across
-    the network I/O it queued every concurrent agent build behind one hung
-    MCP server (up to 300s of sse_read_timeout per server) — a dead
-    integration must cost its own tools, not chat for everyone."""
+def _mcp_server(name: str, url: str, tool_name: str) -> dict:
+    return {
+        "name": name,
+        "url": url,
+        "tools": {
+            tool_name: {
+                "version": "1.0.0",
+                "effect": "read",
+                "risk": "low",
+                "policy_action": f"remote.{tool_name}",
+                "allowed_agents": [],
+                "required_capabilities": [],
+                "output_schema": {"type": "object"},
+                "timeout_seconds": 1,
+                "error_codes": [],
+                "receipt": "required",
+                "provenance": "service",
+            }
+        },
+    }
+
+
+@pytest.fixture
+def clean_mcp():
+    from app.agents import mcp_tools as module
+
+    module.shutdown_mcp()
+    yield module
+    module.shutdown_mcp()
+
+
+def test_a_hung_mcp_server_blocks_no_other_agent_build(monkeypatch, clean_mcp):
+    """The state lock never spans network I/O. A dead integration costs its
+    own tools, not every concurrent chat build."""
+    import json
     import threading
 
-    from app.agents import mcp_tools as m
+    from app import config
 
-    monkeypatch.setattr(m, "_tools", None)
-    monkeypatch.setattr(m, "_loading", False)
+    m = clean_mcp
+    monkeypatch.setattr(config, "MCP_SERVERS_ERROR", "")
+    monkeypatch.setattr(
+        config,
+        "MCP_SERVERS",
+        json.dumps([_mcp_server("a", "https://a.invalid/mcp", "fake-tool")]),
+    )
     hang = threading.Event()
     started = threading.Event()
 
-    def slow_connect():
+    class FakeTool:
+        tool_name = "fake-tool"
+
+    class FakeClient:
+        def __exit__(self, *_args):
+            return None
+
+    def slow_connect(_server_ids):
         started.set()
         hang.wait(5)
-        return (["fake-tool"], [])
+        connection = m._MCPConnection("a", FakeClient(), (FakeTool(),))
+        return ([connection.tools[0]], [connection])
 
     monkeypatch.setattr(m, "_connect_servers", slow_connect)
     result: list = []
     loader = threading.Thread(target=lambda: result.extend(m.mcp_tools()))
     loader.start()
     assert started.wait(2)
-    # a second caller while the first is mid-connect: [] now, never a wait
     assert m.mcp_tools() == []
     hang.set()
     loader.join(2)
-    assert result == ["fake-tool"]
-    assert m.mcp_tools() == ["fake-tool"]  # published for every later build
+    assert [tool.tool_name for tool in result] == ["fake-tool"]
+    assert [tool.tool_name for tool in m.mcp_tools()] == ["fake-tool"]
 
 
-def test_a_shutdown_mid_connect_is_not_resurrected(fresh_db, monkeypatch):
-    """shutdown_mcp during an in-flight load: the load's result is stale the
-    moment the clear runs — publishing it would hand later agent builds
-    sessions that shutdown never saw and can never close."""
-    from app.agents import mcp_tools as m
+def test_mcp_retries_only_failed_servers_and_keeps_successes_available(monkeypatch, clean_mcp):
+    import json
+    import threading
+    import time
 
-    monkeypatch.setattr(m, "_tools", None)
-    monkeypatch.setattr(m, "_loading", False)
+    from app import config
 
-    closed: list = []
+    m = clean_mcp
+    monkeypatch.setattr(config, "MCP_SERVERS_ERROR", "")
+    monkeypatch.setattr(
+        config,
+        "MCP_SERVERS",
+        json.dumps(
+            [
+                _mcp_server("a", "https://a.invalid/mcp", "tool_a"),
+                _mcp_server("b", "https://b.invalid/mcp", "tool_b"),
+            ]
+        ),
+    )
+    attempts = {"a": 0, "b": 0}
+    closes = {"a": 0, "b": 0}
+    retry_started = threading.Event()
+    release_retry = threading.Event()
+
+    class RemoteTool:
+        def __init__(self, name):
+            self.tool_name = name
 
     class FakeClient:
-        def __exit__(self, *a):
+        def __init__(self, factory):
+            self.name = "a" if "a.invalid" in factory.args[0] else "b"
+
+        def __enter__(self):
+            attempts[self.name] += 1
+            return self
+
+        def __exit__(self, *_args):
+            closes[self.name] += 1
+
+        def list_tools_sync(self):
+            if self.name == "b" and attempts["b"] == 1:
+                raise RuntimeError("temporary")
+            if self.name == "b":
+                retry_started.set()
+                release_retry.wait(2)
+            return [RemoteTool(f"tool_{self.name}")]
+
+    monkeypatch.setattr("strands.tools.mcp.MCPClient", FakeClient)
+
+    assert [tool.tool_name for tool in m.mcp_tools()] == ["tool_a"]
+    assert attempts == {"a": 1, "b": 1}
+    assert closes == {"a": 0, "b": 1}
+    assert [tool.tool_name for tool in m.mcp_tools()] == ["tool_a"]
+    assert attempts == {"a": 1, "b": 1}
+
+    m._retry_state["b"] = (1, 0)
+    started = time.monotonic()
+    assert [tool.tool_name for tool in m.mcp_tools()] == ["tool_a"]
+    assert time.monotonic() - started < 1
+    assert retry_started.wait(2)
+    assert [tool.tool_name for tool in m.mcp_tools()] == ["tool_a"]
+    retry = next(thread for thread in threading.enumerate() if thread.name == "skein-mcp-retry")
+    release_retry.set()
+    retry.join(2)
+
+    assert attempts == {"a": 1, "b": 2}
+    assert [tool.tool_name for tool in m.mcp_tools()] == ["tool_a", "tool_b"]
+    assert attempts == {"a": 1, "b": 2}
+
+    m.shutdown_mcp()
+    assert closes == {"a": 1, "b": 2}
+
+
+def test_a_recovered_mcp_collision_removes_both_tools(monkeypatch, clean_mcp):
+    import json
+    import threading
+
+    from app import config
+
+    m = clean_mcp
+    monkeypatch.setattr(config, "MCP_SERVERS_ERROR", "")
+    monkeypatch.setattr(
+        config,
+        "MCP_SERVERS",
+        json.dumps(
+            [
+                _mcp_server("a", "https://a.invalid/mcp", "shared"),
+                _mcp_server("b", "https://b.invalid/mcp", "shared"),
+            ]
+        ),
+    )
+    attempts = {"a": 0, "b": 0}
+    retry_started = threading.Event()
+    release_retry = threading.Event()
+
+    class RemoteTool:
+        tool_name = "shared"
+
+    class FakeClient:
+        def __init__(self, factory):
+            self.name = "a" if "a.invalid" in factory.args[0] else "b"
+
+        def __enter__(self):
+            attempts[self.name] += 1
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def list_tools_sync(self):
+            if self.name == "b" and attempts["b"] == 1:
+                raise RuntimeError("temporary")
+            if self.name == "b":
+                retry_started.set()
+                release_retry.wait(2)
+            return [RemoteTool()]
+
+    monkeypatch.setattr("strands.tools.mcp.MCPClient", FakeClient)
+
+    assert [tool.tool_name for tool in m.mcp_tools()] == ["shared"]
+    assert [tool.tool_name for tool in m.mcp_tools()] == ["shared"]
+    assert attempts == {"a": 1, "b": 1}
+
+    m._retry_state["b"] = (1, 0)
+    assert [tool.tool_name for tool in m.mcp_tools()] == ["shared"]
+    assert retry_started.wait(2)
+    retry = next(thread for thread in threading.enumerate() if thread.name == "skein-mcp-retry")
+    release_retry.set()
+    retry.join(2)
+    assert attempts == {"a": 1, "b": 2}
+    assert m.mcp_tools() == []
+    assert attempts == {"a": 1, "b": 2}
+
+
+def test_a_shutdown_mid_connect_is_not_resurrected(monkeypatch, clean_mcp):
+    """An in-flight result from before shutdown cannot publish new sessions."""
+    import json
+
+    from app import config
+
+    m = clean_mcp
+    monkeypatch.setattr(config, "MCP_SERVERS_ERROR", "")
+    monkeypatch.setattr(
+        config,
+        "MCP_SERVERS",
+        json.dumps([_mcp_server("a", "https://a.invalid/mcp", "stale-tool")]),
+    )
+    closed: list = []
+
+    class FakeTool:
+        tool_name = "stale-tool"
+
+    class FakeClient:
+        def __exit__(self, *_args):
             closed.append(self)
 
     stale = FakeClient()
 
-    def connect_then_race():
-        m.shutdown_mcp()  # fires inside the load window
-        return (["stale-tool"], [stale])
+    def connect_then_race(_server_ids):
+        m.shutdown_mcp()
+        connection = m._MCPConnection("a", stale, (FakeTool(),))
+        return ([connection.tools[0]], [connection])
 
     monkeypatch.setattr(m, "_connect_servers", connect_then_race)
     assert m.mcp_tools() == []
-    assert closed == [stale]  # the orphaned session was closed, not leaked
-    assert m._tools is None  # nothing published
+    assert closed == [stale]
+    assert m._tools is None
 
 
 def test_a_non_object_mcp_entry_costs_only_its_tools(monkeypatch):
@@ -342,18 +526,45 @@ def test_a_non_object_mcp_entry_costs_only_its_tools(monkeypatch):
     assert m._connect_servers() == ([], [])
 
 
-def test_an_unexpected_mcp_load_error_clears_the_loading_flag(monkeypatch):
-    from app.agents import mcp_tools as m
+def test_an_unexpected_mcp_load_error_retries_after_backoff(monkeypatch, clean_mcp):
+    import json
+    import threading
 
-    monkeypatch.setattr(m, "_tools", None)
-    monkeypatch.setattr(m, "_loading", False)
+    from app import config
 
-    def boom():
+    m = clean_mcp
+    monkeypatch.setattr(config, "MCP_SERVERS_ERROR", "")
+    monkeypatch.setattr(
+        config,
+        "MCP_SERVERS",
+        json.dumps([_mcp_server("a", "https://a.invalid/mcp", "tool_a")]),
+    )
+    calls = 0
+    retry_started = threading.Event()
+    release_retry = threading.Event()
+
+    def boom(*_args):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            retry_started.set()
+            release_retry.wait(2)
         raise RuntimeError("unexpected")
 
     monkeypatch.setattr(m, "_connect_servers", boom)
     assert m.mcp_tools() == []
     assert m._loading is False
+    assert m._tools is None
+    assert m.mcp_tools() == []
+    assert calls == 1
+
+    m._retry_state["a"] = (1, 0)
+    assert m.mcp_tools() == []
+    assert retry_started.wait(2)
+    retry = next(thread for thread in threading.enumerate() if thread.name == "skein-mcp-retry")
+    release_retry.set()
+    retry.join(2)
+    assert calls == 2
 
 
 def test_the_slack_digest_carries_no_message_body(fresh_db, monkeypatch):
