@@ -94,17 +94,23 @@ function EntityLink({
         {children}
       </PeekLink>
     );
-  // Rows that carry a DOM id get an anchor, so an already-loaded page scrolls
-  // to the row; a fresh navigation lands at the top because the rows are not
-  // in the DOM when the scroll fires. The id spellings live with the rows —
-  // `charter-entry-N` in app/charter/page.tsx, `lesson-N` in the dashboard's
-  // LessonsCard — and a rename there must change this line too.
-  const anchor =
-    entity === "decision"
-      ? `#charter-entry-${entityId}`
-      : entity === "lesson"
-        ? `#lesson-${entityId}`
-        : "";
+  // Rows that carry a DOM id get an anchor, and lib/hash-target.ts focuses it
+  // once the destination's fetch settles — the rows are not in the DOM when
+  // the browser's own scroll fires, so the fragment alone does nothing. The id
+  // spellings live with the rows (`charter-entry-N` in app/charter/page.tsx,
+  // the rest in app/dashboard/page.tsx and app/portfolio/page.tsx) and a
+  // rename there must change this map too.
+  //
+  // `blocker` is absent on purpose: ENTITY_PAGE sends it to My Day, where the
+  // resolve button is, and the `blocker-N` rows live on /dashboard.
+  const ANCHOR: Record<string, string> = {
+    decision: `charter-entry-${entityId}`,
+    lesson: `lesson-${entityId}`,
+    milestone: `milestone-${entityId}`,
+    promise: `promise-${entityId}`,
+    question: `question-${entityId}`,
+  };
+  const anchor = ANCHOR[entity] ?? "";
   // an engagement has its OWN page, so the hit lands on the engagement rather
   // than on the list that contains it — typing an engagement's name into
   // search is the most literal form of "how is Atlas going" there is
@@ -112,7 +118,7 @@ function EntityLink({
     entity === "engagement"
       ? `/engagement/${entityId}`
       : ENTITY_PAGE[entity]
-        ? `${ENTITY_PAGE[entity]}${anchor}`
+        ? `${ENTITY_PAGE[entity]}${anchor ? `#${anchor}` : ""}`
         : "";
   if (!page) return <span>{children}</span>;
   return (
@@ -126,13 +132,20 @@ function EntityLink({
         // general decision while standing on /charter changed the address bar
         // and left the list unwidened, unscrolled and unfocused.
         //
-        // The id travels IN the event, never read from location by the
+        // The target travels IN the event, never read from location by the
         // listener: Next updates the URL inside a transition that finishes
         // after this handler and after the next animation frame, so anything
         // timing-based reads the OLD hash and does nothing at all.
+        //
+        // Both fields, because the two listeners want different halves:
+        // app/charter/page.tsx needs the bare id to widen its category slice
+        // before the row exists, and lib/hash-target.ts needs the element id
+        // because a number alone cannot tell `question-12` from `lesson-12`.
         if (anchor)
           window.dispatchEvent(
-            new CustomEvent("skein-hash", { detail: { id: entityId } }),
+            new CustomEvent("skein-hash", {
+              detail: { id: entityId, anchor },
+            }),
           );
       }}
       className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-3"

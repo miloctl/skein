@@ -58,7 +58,11 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "audience": "you",
                 "label": f"question #{q['id']}: {q['question'][:80]}",
                 "reason": "assigned to you and still open — someone is waiting on the answer",
-                "link": "/dashboard",
+                # the ROW, not the page. Bare /dashboard dropped the reader at
+                # the top of thirteen sections holding a number to hunt for.
+                # The `question-N` id is on the row in app/dashboard/page.tsx
+                # and lib/hash-target.ts is what focuses it after the fetch.
+                "link": f"/dashboard#question-{q['id']}",
             }
         )
     for b in needs["your_blockers"]:
@@ -70,7 +74,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "audience": "you",
                 "label": f"blocker #{b['id']}: {b['title']}",
                 "reason": f"you own it (impact {b['impact']}) — it escalates on a clock",
-                "link": "/dashboard",
+                "link": f"/dashboard#blocker-{b['id']}",
             }
         )
     for p in needs["pending_reviews"]:
@@ -155,7 +159,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                     f"{'OVERDUE since' if overdue else 'due'} {c['due_date']}"
                     + (" — a promise to the team" if c["audience"] == "team" else "")
                 ),
-                "link": "/portfolio",
+                "link": f"/portfolio#promise-{c['id']}",
             }
         )
     proposal_ids = {int(p["id"]) for p in needs["pending_reviews"]}

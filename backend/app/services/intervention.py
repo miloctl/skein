@@ -253,7 +253,10 @@ def interventions(
                     )
                 ],
                 "order": _order("blocker_escalated", age=_age_days(b["escalated_at"]), reach=reach),
-                "link": "/dashboard#blockers",
+                # the ROW: no element ever carried `#blockers`, so the fragment
+                # did nothing. `blocker-N` is on the row in
+                # app/dashboard/page.tsx.
+                "link": f"/dashboard#blocker-{b['id']}",
             }
         )
 
@@ -276,7 +279,7 @@ def interventions(
                 "action": "Settle it or renegotiate the date — the other side is still waiting",
                 "receipts": [refs.receipt(f"promise #{p['id']} was due {p['due_date']}")],
                 "order": _order("promise_overdue", age=_age_days(p["due_date"])),
-                "link": "/portfolio#promises",
+                "link": f"/portfolio#promise-{p['id']}",
             }
         )
 

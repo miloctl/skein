@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
 import { actionError, api } from "@/lib/api";
+import { HASH_TARGET, useHashTarget } from "@/lib/hash-target";
 import { dismissStatus, reportStatus } from "@/lib/status";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
 import { Card } from "@/components/card";
@@ -223,6 +224,9 @@ export default function Portfolio() {
     );
 
   useEffect(load, [load]);
+  // `#promise-7` from My Day, the manager queue and the delta brief — the
+  // rows arrive from the fetch above, so the fragment alone scrolls nowhere.
+  useHashTarget(promises);
 
   // Mutations: never silent — failures land in the status region, and every
   // mutation re-fetches so the page shows reality, which can be a teammate's
@@ -580,7 +584,12 @@ export default function Portfolio() {
         ) : (
           <ul className="space-y-2 text-sm">
             {promises.map((c) => (
-              <li key={c.id} className="flex items-center justify-between gap-2">
+              <li
+                key={c.id}
+                id={`promise-${c.id}`}
+                tabIndex={-1}
+                className={`flex items-center justify-between gap-2 ${HASH_TARGET}`}
+              >
                 <span className={c.status !== "open" ? "text-ink-3 line-through" : ""}>
                   {c.audience === "team" ? "🤝 " : ""}
                   {c.promise}

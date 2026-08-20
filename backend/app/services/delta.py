@@ -159,7 +159,7 @@ def brief(user: str, viewer: scope.Viewer = scope.NOBODY, mark: bool = False) ->
                 "headline": f"The promise to {p['to_whom'] or 'the team'} passed its date",
                 "direction": "worse",
                 "receipts": [refs.receipt(f"promise #{p['id']} was due {p['due_date']}")],
-                "link": "/portfolio#promises",
+                "link": f"/portfolio#promise-{p['id']}",
             }
         )
 

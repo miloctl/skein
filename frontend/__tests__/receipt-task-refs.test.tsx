@@ -56,7 +56,7 @@ describe("a task reference inside a receipt", () => {
       />,
     );
     const link = screen.getByRole("link", { name: "milestone #4" });
-    expect(link.getAttribute("href")).toBe("/dashboard#milestones");
+    expect(link.getAttribute("href")).toBe("/dashboard#milestone-4");
   });
 
   it("leaves the sentence readable when the entity is unknown to this build", () => {
