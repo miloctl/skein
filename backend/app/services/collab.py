@@ -65,13 +65,24 @@ def _ask_question_locked(
             assigned_to,
             lambda source: f"Question #{source['id']} assigned to you: {source['question'][:80]}",
             tier="digest",
-            link="/",
+            # the ROW. `/` put the reader back on My Day, which is the page
+            # the notice was already standing on. The `question-N` id is on
+            # the row in app/dashboard/page.tsx, and lib/hash-target.ts is
+            # what focuses it once that page's fetch settles.
+            link=f"/dashboard#question-{qid}",
             source_entity="question",
             source_id=qid,
         )
     from .mentions import scan
 
-    scan("question", qid, question, actor=actor or asked_by, exclude=(assigned_to,), link="/")
+    scan(
+        "question",
+        qid,
+        question,
+        actor=actor or asked_by,
+        exclude=(assigned_to,),
+        link=f"/dashboard#question-{qid}",
+    )
     return {"id": qid, "status": "open"}
 
 
@@ -128,7 +139,7 @@ def _assign_question_locked(
             assigned_to,
             lambda source: f"Question #{source['id']} assigned to you: {source['question'][:80]}",
             tier="digest",
-            link="/",
+            link=f"/dashboard#question-{question_id}",
             source_entity="question",
             source_id=question_id,
         )
@@ -179,13 +190,20 @@ def _answer_question_locked(
                     f"Your question #{source['id']} was answered: {source['answer'][:120]}"
                 ),
                 tier="digest",
-                link="/dashboard",
+                link=f"/dashboard#question-{question_id}",
                 source_entity="question",
                 source_id=question_id,
             )
         from .mentions import scan
 
-        scan("question", question_id, answer, actor=who, exclude=(row["asked_by"],), link="/")
+        scan(
+            "question",
+            question_id,
+            answer,
+            actor=who,
+            exclude=(row["asked_by"],),
+            link=f"/dashboard#question-{question_id}",
+        )
     return {"id": question_id, "status": "answered"}
 
 

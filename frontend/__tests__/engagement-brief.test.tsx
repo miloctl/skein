@@ -93,7 +93,7 @@ describe("the engagement brief", () => {
     const link = await waitFor(() =>
       screen.getByRole("link", { name: "milestone #4" }),
     );
-    expect(link.getAttribute("href")).toBe("/dashboard#milestones");
+    expect(link.getAttribute("href")).toBe("/dashboard#milestone-4");
   });
 
   it("says the colour in words, not only in hue", async () => {

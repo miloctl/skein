@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { VisibilityBadge } from "@/components/visibility-picker";
 import { PeekLink } from "@/components/task-peek";
 import { actionError, api, loadError } from "@/lib/api";
+import { HASH_TARGET, useHashTarget } from "@/lib/hash-target";
 import { reportStatus } from "@/lib/status";
 import { PersonInput } from "@/components/person-input";
 import { SectionTabs } from "@/components/section-tabs";
@@ -150,6 +151,9 @@ function LessonsCard() {
   // showing the PREVIOUS filter's rows under the new label is the bug this
   // closes; a mismatch is the loading state
   const list = rows && rows.cls === cls ? rows.list : null;
+  // this card fetches on its own, so the page-level call in Dashboard cannot
+  // see a `#lesson-N` target arrive
+  useHashTarget(list);
 
   return (
     <section className="rounded-xl border border-line bg-card p-4 shadow-card">
@@ -192,7 +196,12 @@ function LessonsCard() {
       ) : (
         <ul className="space-y-2">
           {list.map((l) => (
-            <li key={l.id} id={`lesson-${l.id}`} className="text-sm">
+            <li
+              key={l.id}
+              id={`lesson-${l.id}`}
+              tabIndex={-1}
+              className={`text-sm ${HASH_TARGET}`}
+            >
               <span className="text-ink-3">#{l.id}</span> {l.lesson}
               {l.recommendation ? (
                 <span className="block text-xs text-ink-3">
@@ -618,6 +627,9 @@ export default function Dashboard() {
   }, []);
   const load = useCallback(() => refresh(COLLECTIONS), [refresh]);
   useEffect(load, [load]);
+  // `#question-12`, `#blocker-4`, `#milestone-9` — every link that names one
+  // row of this page. LessonsCard makes its own call for `#lesson-N`.
+  useHashTarget(data);
 
   const refocusEdit = (kind: string, id: number) =>
     setTimeout(() => document.getElementById(`edit-${kind}-${id}`)?.focus(), 0);
@@ -1031,7 +1043,9 @@ export default function Dashboard() {
           render={(b) => (
             <li
               key={b.id}
-              className="flex items-center justify-between gap-2 text-sm"
+              id={`blocker-${b.id}`}
+              tabIndex={-1}
+              className={`flex items-center justify-between gap-2 text-sm ${HASH_TARGET}`}
             >
               <span>
                 <span className="text-ink-3">#{b.id}</span> {b.title}
@@ -1186,7 +1200,9 @@ export default function Dashboard() {
             ) : (
               <li
                 key={m.id}
-                className="flex items-center justify-between gap-2 text-sm"
+                id={`milestone-${m.id}`}
+                tabIndex={-1}
+                className={`flex items-center justify-between gap-2 text-sm ${HASH_TARGET}`}
               >
                 <span>
                   <span className="text-ink-3">#{m.id}</span> {m.title}
@@ -1334,7 +1350,12 @@ export default function Dashboard() {
           rows={data.questions ?? []}
           empty="No questions logged."
           render={(q) => (
-            <li key={q.id} className="text-sm">
+            <li
+              key={q.id}
+              id={`question-${q.id}`}
+              tabIndex={-1}
+              className={`text-sm ${HASH_TARGET}`}
+            >
               <div className="flex items-center justify-between gap-2">
                 <span>
                   <span className="text-ink-3">#{q.id}</span> {q.question}
