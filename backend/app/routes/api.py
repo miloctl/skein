@@ -2004,8 +2004,11 @@ def get_model_pick(user: CurrentUser):
             {k: e[k] for k in ("id", "label", "detail", "max_tokens", "context_tokens", "price")}
             for e in config.MODELS.values()
         ],
-        # Registry faults can name parameter paths. The model Settings response
-        # reports only that the menu failed, never its operator-only fields.
+        # Registry faults name parameter paths, which this response's contract
+        # excludes (never credentials, URLs, paths, or parameter names). The
+        # full string stays field-names-only and is served by design to every
+        # signed-in reader on /api/health and /api/agents/status (config.py's
+        # fault rule above _MODEL_ENTRY_FIELDS).
         "menu_error": (
             "The model menu is not usable. Check /api/health for the configuration fault."
             if config.MODELS_ERROR

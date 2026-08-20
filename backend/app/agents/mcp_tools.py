@@ -624,12 +624,21 @@ def mcp_tools(reserved_names: set[str] | None = None) -> list:
     if background:
         # A failed endpoint can hold the SDK transport read for 300 seconds.
         # Recovery runs outside agent construction so no later chat owns it.
-        threading.Thread(
-            target=_finish_load,
-            args=(ready, configured_ids, generation),
-            daemon=True,
-            name="skein-mcp-retry",
-        ).start()
+        try:
+            threading.Thread(
+                target=_finish_load,
+                args=(ready, configured_ids, generation),
+                daemon=True,
+                name="skein-mcp-retry",
+            ).start()
+        except RuntimeError:
+            # start() fails under thread exhaustion. Only _finish_load resets
+            # _loading, so leaving it set parks every retry until a process
+            # restart — and the raise would reach build_agent and kill a chat
+            # turn over a dead integration.
+            with _lock:
+                _loading = False
+            log.exception("MCP retry thread failed to start — MCP will retry")
         return _without_reserved(current, reserved)
     return _without_reserved(_finish_load(ready, configured_ids, generation), reserved)
 

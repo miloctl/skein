@@ -105,6 +105,8 @@ INVALID = [
     [{"id": "m", "params": {"extra_body": {"messages": []}}}],
     [{"id": "m", "params": {"extra_body": {"max_completion_tokens": 1}}}],
     [{"id": "m", "params": {"extra_body": {"provider": {"order": ["other"]}}}}],
+    [{"id": "m", "params": {"extra_body": {"models": ["other"]}}}],
+    [{"id": "m", "params": {"extra_body": {"route": "fallback"}}}],
     [{"id": "m", "params": {"extra_query": {"model": "other"}}}],
     [{"id": "m", "params": {"extra_query": {"provider": "other"}}}],
     [{"id": "m", "params": {"additional_args": {"model": "other"}}}],

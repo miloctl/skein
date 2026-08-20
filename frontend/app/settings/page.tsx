@@ -394,6 +394,13 @@ export default function SettingsPage() {
           pickWriteRef.current = null;
           setPickBusy(false);
           setPickBusyModel(null);
+          // The write can settle after an identity change. The block message
+          // "A model change is still saving." must not outlive the write it
+          // reports, and the settled write can have changed the team value.
+          if (identity !== identityGeneration.current) {
+            setPickStatus("");
+            void loadPick();
+          }
         }
       }
     },
@@ -450,6 +457,14 @@ export default function SettingsPage() {
           ctxWriteRef.current = null;
           setCtxBusy(false);
           setCtxBusyStrategy(null);
+          // The write can settle after an identity change. The block message
+          // "A long-chat change is still saving." must not outlive the write
+          // it reports, and the settled write can have changed the team value.
+          if (identity !== identityGeneration.current) {
+            setCtxStatus("");
+            void loadCtx();
+            void loadPick();
+          }
         }
       }
     },
@@ -470,6 +485,7 @@ export default function SettingsPage() {
       setTuneLoadError("");
       setCtxLoadError("");
       setCtxStatus("");
+      setTuneStatus("");
       if (!who?.can_administer) return;
       loadTunables();
       loadCtx();
