@@ -20,6 +20,7 @@ const state = vi.hoisted(() => ({
   identityError: "",
   modelPromise: null as Promise<unknown> | null,
   createdKey: "sk-skein-created-once",
+  tunables: [] as unknown[],
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -87,7 +88,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
           choices: ["sliding"],
           applies: true,
         });
-      if (path === "/api/settings/tuning") return Promise.resolve([]);
+      if (path === "/api/settings/tuning")
+        return Promise.resolve(state.tunables);
       if (path === "/api/keys")
         return Promise.resolve({
           id: 1,
@@ -115,6 +117,7 @@ beforeEach(() => {
   state.requests.length = 0;
   state.identityError = "";
   state.modelPromise = null;
+  state.tunables = [];
   window.localStorage.clear();
   vi.unstubAllGlobals();
 });
@@ -237,6 +240,43 @@ describe("Settings identity states", () => {
       expect(screen.queryByRole("radio", { name: "Mini" })).toBeNull(),
     );
     expect(screen.queryByRole("button", { name: "Back up now" })).toBeNull();
+  });
+
+  it("clears the deployment-limit receipt when credentials change", async () => {
+    state.tunables = [
+      {
+        name: "chat_cap",
+        label: "Chat cap",
+        value: 600,
+        default: 600,
+        override: null,
+        floor: 60,
+        ceiling: 3600,
+        unit: "seconds",
+        live: true,
+        detail: "Longest allowed chat turn.",
+        ignored: false,
+      },
+    ];
+    render(<SettingsPage />);
+    const input = await screen.findByLabelText("Chat cap");
+    fireEvent.change(input, { target: { value: "900" } });
+    const knob = input.closest("div.rounded-xl") as HTMLElement;
+    fireEvent.click(within(knob).getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Chat cap: 900 seconds.")).toBeTruthy();
+
+    state.identity = {
+      ...state.identity,
+      strong: false,
+      can_administer: false,
+    };
+    window.dispatchEvent(new Event("storage"));
+
+    // the receipt is a value the section says only an administrator can
+    // read — it must not survive into the next identity's page
+    await waitFor(() =>
+      expect(screen.queryByText("Chat cap: 900 seconds.")).toBeNull(),
+    );
   });
 
   it("invalidates a model response and starts no replacement for anonymous", async () => {

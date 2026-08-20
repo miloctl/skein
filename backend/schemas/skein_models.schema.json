@@ -114,6 +114,8 @@
                   "model_id",
                   "modelId",
                   "provider",
+                  "models",
+                  "route",
                   "messages",
                   "tools",
                   "system",

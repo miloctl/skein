@@ -567,6 +567,55 @@ def test_an_unexpected_mcp_load_error_retries_after_backoff(monkeypatch, clean_m
     assert calls == 2
 
 
+def test_a_failed_retry_thread_start_leaves_mcp_retryable(monkeypatch, clean_mcp):
+    import json
+    import threading
+
+    from app import config
+
+    m = clean_mcp
+    monkeypatch.setattr(config, "MCP_SERVERS_ERROR", "")
+    monkeypatch.setattr(
+        config,
+        "MCP_SERVERS",
+        json.dumps([_mcp_server("a", "https://a.invalid/mcp", "tool_a")]),
+    )
+    calls = 0
+    retried = threading.Event()
+
+    def boom(*_args):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            retried.set()
+        raise RuntimeError("unexpected")
+
+    monkeypatch.setattr(m, "_connect_servers", boom)
+    assert m.mcp_tools() == []
+    assert calls == 1
+
+    real_thread = threading.Thread
+
+    class DeadThread:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("cannot start new thread")
+
+    # Thread exhaustion at retry time: the call must degrade to the loaded
+    # tools and leave _loading clear, or no server ever retries again.
+    monkeypatch.setattr(threading, "Thread", DeadThread)
+    m._retry_state["a"] = (1, 0)
+    assert m.mcp_tools() == []
+    assert m._loading is False
+
+    monkeypatch.setattr(threading, "Thread", real_thread)
+    assert m.mcp_tools() == []
+    assert retried.wait(2)
+    assert calls == 2
+
+
 def test_the_slack_digest_carries_no_message_body(fresh_db, monkeypatch):
     """One channel, N audiences. Every notify() addresses somebody who can
     read the row it quotes, but this batch posts them together — so a crew

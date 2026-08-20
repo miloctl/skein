@@ -368,9 +368,12 @@ MODEL_FORBIDDEN_PARAM_KEYS = (
     MODEL_ROUTING_PARAM_KEYS | MODEL_CLIENT_CONTROL_PARAM_KEYS | MODEL_REQUEST_CONTROL_PARAM_KEYS
 )
 _MODEL_ESCAPE_FORBIDDEN = {
+    # provider, models, and route are OpenRouter's three routing controls: a
+    # fallback list or route mode reroutes the request to a model the menu and
+    # accounting never name, exactly like a hidden provider order.
     "extra_body": MODEL_ROUTING_PARAM_KEYS
     | MODEL_REQUEST_CONTROL_PARAM_KEYS
-    | {"provider", "max_tokens", "max_completion_tokens"},
+    | {"provider", "models", "route", "max_tokens", "max_completion_tokens"},
     "extra_query": MODEL_ROUTING_PARAM_KEYS | {"provider"},
     "additional_args": MODEL_ROUTING_PARAM_KEYS
     | MODEL_REQUEST_CONTROL_PARAM_KEYS
