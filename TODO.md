@@ -27,6 +27,10 @@ this file is only for accepted trade-offs that must eventually be repaid.
   only, and repays fully when the frontend sign-in flow (docs/ROADMAP.md)
   lets a team leave that mode.
 
+  Narrowed 2026-08-20: the shipped default flipped to api-key (fail
+  closed). trusted-header is now opt-in — the dev entry points set it —
+  so this class no longer applies to a deployment that never chose a mode.
+
 - ~~No re-baseline path for a legitimate unchained activity row.~~ Repaid
   2026-08-05, in the opposite direction from the sketch above it: instead of
   a re-baseline (which raises the baseline — the attacker-usable machinery

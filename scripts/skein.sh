@@ -23,6 +23,16 @@ BACKEND_PORT="${SKEIN_BACKEND_PORT:-8000}"
 FRONTEND_PORT="${SKEIN_FRONTEND_PORT:-3000}"
 SERVICES=(backend frontend)
 
+# Local dev runs the X-User name picker. The shipped default is api-key
+# (fail closed), so an unset mode here would refuse every request from the
+# frontend. The caller's environment and backend/.env both win over this
+# line — an exported variable beats it here, and load_dotenv never
+# overrides a set variable, so exporting over a backend/.env value would
+# silently reverse the mode that file chose.
+if [ -z "${SKEIN_AUTH_MODE:-}" ] && ! grep -qs '^SKEIN_AUTH_MODE=' backend/.env; then
+  export SKEIN_AUTH_MODE=trusted-header
+fi
+
 c_ok=$'\033[32m'; c_bad=$'\033[31m'; c_dim=$'\033[2m'; c_off=$'\033[0m'
 [ -t 1 ] || { c_ok=""; c_bad=""; c_dim=""; c_off=""; }
 

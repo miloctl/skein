@@ -362,7 +362,7 @@ G6 both wait, by their own stated triggers, on the verdict volume this
 produces.
 
 That note is the binding item now. The proposer's record renders from
-real verdicts, and in the default trusted-header mode no verdict counts
+real verdicts, and in trusted-header mode no verdict counts
 at all, so the surface is currently proving itself against an empty
 table.
 

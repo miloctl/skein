@@ -3,6 +3,11 @@ import tempfile
 
 os.environ["SKEIN_DATA_DIR"] = tempfile.mkdtemp(prefix="skein-test-")
 os.environ["SKEIN_SCHEDULER"] = "0"
+# The suite exercises the X-User doors, so it opts into trusted-header the
+# same way scripts/skein.sh does. The SHIPPED default is api-key (fail
+# closed) — test_auth_modes.py pins it by booting a fresh process with the
+# variable set empty, which this line would otherwise mask.
+os.environ["SKEIN_AUTH_MODE"] = "trusted-header"
 os.environ["SKEIN_MODEL_PROVIDER"] = "mock"
 os.environ["SKEIN_AGENT_REVIEW"] = "0"
 os.environ["SKEIN_EMBEDDINGS"] = "0"

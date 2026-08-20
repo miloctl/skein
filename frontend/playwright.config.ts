@@ -27,7 +27,10 @@ export default defineConfig({
       // team. SKEIN_DATA_DIR alone cannot isolate rows from a running dev app.
       command:
         `bash -c 'rm -rf /tmp/skein-e2e && cd ../backend && ` +
-        `exec env SKEIN_DATA_DIR=/tmp/skein-e2e SKEIN_MODEL_PROVIDER=mock SKEIN_SCHEDULER=0 ` +
+        // trusted-header explicitly: the smoke drives the X-User name picker,
+        // and the shipped default is api-key (fail closed)
+        `exec env SKEIN_DATA_DIR=/tmp/skein-e2e SKEIN_AUTH_MODE=trusted-header ` +
+        `SKEIN_MODEL_PROVIDER=mock SKEIN_SCHEDULER=0 ` +
         // EMBEDDINGS off like the provider is mock, and for the same reason: a
         // developer's .env turns them on against a live ollama, and one slow
         // embed call during seeding blows the 60s health budget below — the

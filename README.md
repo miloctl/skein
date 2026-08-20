@@ -159,9 +159,12 @@ For a ~10-person team this single-box setup is deliberate: one PostgreSQL
 container handles this write volume without noticing, and one backend
 container means exactly one scheduler.
 
-**Security model, stated plainly:** `SKEIN_AUTH_MODE` picks it. The default,
-`trusted-header`, is a trusted name picker (`X-User`) — teammates, not
-strangers; `SKEIN_API_TOKEN` adds a shared bearer token there, but it is
+**Security model, stated plainly:** `SKEIN_AUTH_MODE` picks it. Unset, it
+is `api-key` — a deployment that never chose a mode refuses every request
+rather than trusting a header. `trusted-header` is a trusted name picker
+(`X-User`) for local dev and trusted networks — teammates, not strangers;
+the dev entry points (`scripts/skein.sh`, docker-compose, the e2e runner)
+opt into it for you. `SKEIN_API_TOKEN` adds a shared bearer token there, but it is
 baked into the frontend's public JS bundle, so anyone who can load the UI can
 read it — it keeps out network scanners, not people who can reach port 3000.
 `api-key` mode demands a personal `sk-skein-` key on every request. `oidc`
@@ -196,7 +199,7 @@ production host. Authority levels can only be set by human identities
 | Prebuilt tools | `SKEIN_EXTRA_TOOLS` | Allowlisted [strands-agents-tools](https://github.com/strands-agents/tools) for the real agent (keyless: `calculator,current_time,think,batch,sleep,rss`; key-gated: tavily/exa research tools — full allowlist in `app/agents/extra_tools.py`). Shell/file/exec tools **and** `http_request`/`use_agent`/`workflow` are deliberately not loadable — see `app/agents/extra_tools.py` for the security rationale |
 | Semantic search | `SKEIN_EMBEDDINGS=1` + `SKEIN_EMBED_PROVIDER` | openai (key) · openai_compatible (base URL) · ollama (keyless) — vectors tagged per model |
 | OpenTelemetry | `SKEIN_OTEL_ENDPOINT` | Agent traces to Jaeger/Langfuse |
-| API auth | `SKEIN_AUTH_MODE` | `trusted-header` (default) · `api-key` (a personal key on every request) · `oidc` (IdP tokens validated in-process). Admin surfaces are held to `SKEIN_ADMINS` / `SKEIN_OIDC_ADMIN_GROUP` |
+| API auth | `SKEIN_AUTH_MODE` | `api-key` (default — a personal key on every request) · `trusted-header` (`X-User` name picker for dev / trusted networks; the dev entry points set it) · `oidc` (IdP tokens validated in-process). Admin surfaces are held to `SKEIN_ADMINS` / `SKEIN_OIDC_ADMIN_GROUP` |
 | Shared token | `SKEIN_API_TOKEN` | Perimeter bearer token, `trusted-header` mode only |
 
 Notification tiers (immediate / digest / passive) and cross-thread agent

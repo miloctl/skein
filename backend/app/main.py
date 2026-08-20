@@ -827,6 +827,18 @@ def health(specs: Sequence[JobSpec] = JOBS, settings: AppSettings | None = None)
         "ok": True,
         "auth_mode": selected.auth_mode,
         "auth_error": selected.auth_error,
+        # like database_warnings: a standing posture fault on the running
+        # instance, not only a line in a startup log nobody reopens. Names
+        # the mode, which this response already carries — nothing more.
+        "auth_warnings": (
+            [
+                "SKEIN_AUTH_MODE=trusted-header: identity is the self-asserted"
+                " X-User header. If the deployment is shared, set"
+                " SKEIN_AUTH_MODE=api-key or oidc."
+            ]
+            if selected.auth_mode == "trusted-header"
+            else []
+        ),
         "provider": config.MODEL_PROVIDER,
         # the EFFECTIVE model, through the service: with a pick in force,
         # config.MODEL_ID names a model the deployment is not running
