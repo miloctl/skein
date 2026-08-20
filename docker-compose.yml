@@ -76,6 +76,11 @@ services:
       # Same shell var feeds backend enforcement AND the frontend build arg,
       # so the two can't drift. (backend/.env can still override the rest.)
       SKEIN_API_TOKEN: ${SKEIN_API_TOKEN:-}
+      # This stack is the trusted-network dev rehearsal, so it opts into the
+      # name picker; the shipped default is api-key (fail closed). This
+      # `environment` entry beats backend/.env — to run another mode here,
+      # set SKEIN_AUTH_MODE in the host shell, not only in that file.
+      SKEIN_AUTH_MODE: ${SKEIN_AUTH_MODE:-trusted-header}
       # Inside a container, "localhost" is the container — reach the host's
       # Ollama daemon via the host gateway (overrides backend/.env's value).
       SKEIN_OLLAMA_HOST: ${SKEIN_OLLAMA_HOST:-http://host.docker.internal:11434}

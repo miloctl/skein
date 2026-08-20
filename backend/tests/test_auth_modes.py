@@ -1,8 +1,9 @@
 """SKEIN_AUTH_MODE: which identity doors exist, and who administers.
 
-Every other test file runs in trusted-header mode (the default) and pins that
-behavior; this file pins the api-key and oidc modes, the fail-closed handling
-of a broken auth config, and the StrongUser/AdminUser split.
+Every other test file runs in trusted-header mode (conftest opts in; the
+shipped default is api-key) and pins that behavior; this file pins the
+default, the api-key and oidc modes, the fail-closed handling of a broken
+auth config, and the StrongUser/AdminUser split.
 """
 
 import json
@@ -58,6 +59,13 @@ def _oidc(monkeypatch, tokens):
     monkeypatch.setattr(oidc, "validate", fake_validate)
 
 
+def test_unset_mode_defaults_to_api_key():
+    # empty, not absent: conftest exports trusted-header for the suite, and
+    # an absent variable would also let a dev box's backend/.env leak in.
+    # Empty takes the same `or` fallback as unset (config.py::AUTH_MODE).
+    assert _boot_config(SKEIN_AUTH_MODE="")["mode"] == "api-key"
+
+
 def test_config_refuses_an_unknown_mode_at_boot():
     # the parse itself, not a monkeypatched AUTH_ERROR: this is the code that
     # stands between a typo and a silently open deployment
@@ -104,6 +112,17 @@ def test_health_reports_auth_mode(client):
     h = client.get("/health").json()
     assert h["auth_mode"] == "trusted-header"
     assert h["auth_error"] == ""
+
+
+def test_full_health_warns_about_trusted_header_and_only_there(client, monkeypatch):
+    from app import config
+    from app.extensions import AppSettings
+    from app.main import health
+
+    warnings = client.get("/api/health").json()["auth_warnings"]
+    assert any("trusted-header" in w for w in warnings)
+    monkeypatch.setattr(config, "AUTH_MODE", "api-key")
+    assert health(settings=AppSettings.from_config())["auth_warnings"] == []
 
 
 def test_full_health_needs_a_credential_in_api_key_mode(client, monkeypatch):

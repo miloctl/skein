@@ -149,7 +149,9 @@ uv venv .venv && uv pip install -e ".[dev]" --python .venv/bin/python   # deps
 .venv/bin/ruff format app tests seed.py ../cli/skein_cli.py ../scripts # format
 .venv/bin/mypy                                          # type check
 .venv/bin/vulture                                       # dead code
-.venv/bin/uvicorn app.main:app --port 8000 --reload     # run
+# trusted-header explicitly: the unset default is api-key (fail closed),
+# and a backend/.env without the variable does not change that
+SKEIN_AUTH_MODE=trusted-header .venv/bin/uvicorn app.main:app --port 8000 --reload  # run
 .venv/bin/python seed.py                                # demo data
 .venv/bin/python -m app.bootstrap_key <name>            # first API key per person
                                                         # (private surfaces need one)
@@ -189,10 +191,12 @@ that hasn't passed it will fail on push-to-main.
 
 ## Conventions
 
-- Current user resolution is `SKEIN_AUTH_MODE` (`trusted-header` default: the
-  `X-User` name-picker header; `api-key`; `oidc`), branched ONLY in
-  `routes/deps.py`. Routes take it via `CurrentUser`; strong-identity
-  surfaces use `StrongUser`, team-wide/roster surfaces use `AdminUser`.
+- Current user resolution is `SKEIN_AUTH_MODE` (`api-key` default —
+  fail closed; `trusted-header` is the `X-User` name-picker mode that
+  `scripts/skein.sh`, docker-compose and the e2e runner opt into for dev;
+  `oidc`), branched ONLY in `routes/deps.py`. Routes take it via
+  `CurrentUser`; strong-identity surfaces use `StrongUser`,
+  team-wide/roster surfaces use `AdminUser`.
 - Times are UTC ISO-8601 strings (`db.now()`); dates are `YYYY-MM-DD`.
 - Tools return JSON strings; services return dicts/lists.
 - Keep frontend components small and Tailwind-styled; no extra UI libraries.

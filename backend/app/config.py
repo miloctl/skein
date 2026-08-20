@@ -1185,16 +1185,20 @@ EXTRA_TOOLS = tuple(t.strip() for t in os.getenv("SKEIN_EXTRA_TOOLS", "").split(
 # How a caller proves who they are. routes/deps.py is the single branch point.
 #   trusted-header  identity is the self-asserted X-User header (trusted
 #                   network / local dev). Personal API keys still work and are the only
-#                   STRONG identity.
+#                   STRONG identity. Opt-in only: scripts/skein.sh,
+#                   docker-compose.yml and the e2e runner set it for dev.
 #   api-key         every request needs a personal API key (sk-skein-…).
 #   oidc            humans present an IdP-issued JWT, validated in-process
 #                   against the issuer's JWKS (app/oidc.py). Personal API
 #                   keys still work for automation (CLI, MCP, hooks).
 # An unknown mode fails CLOSED — every /api request is refused and /health
 # says why. A typo of "oidc" must not silently open the deployment, so this
-# is the one config fault that does NOT degrade to a working default.
+# is the one config fault that does NOT degrade to a working default. The
+# UNSET default is api-key for the same reason: a deployment that never set
+# the variable must demand a credential, not trust whatever X-User arrives
+# (pinned in tests/test_auth_modes.py).
 AUTH_MODES = ("trusted-header", "api-key", "oidc")
-AUTH_MODE = os.getenv("SKEIN_AUTH_MODE", "trusted-header").strip().lower() or "trusted-header"
+AUTH_MODE = os.getenv("SKEIN_AUTH_MODE", "api-key").strip().lower() or "api-key"
 # how many trusted proxies sit in front of this process and append to
 # X-Forwarded-For (an OpenShift/k8s ingress router = 1). At 0 the header is
 # ignored: per-address rate caps key on the socket peer, which behind a

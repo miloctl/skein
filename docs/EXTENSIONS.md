@@ -997,8 +997,8 @@ An installed deployment sets at least:
   installed package directory.
 - `SKEIN_MODEL_PROVIDER` selects the model provider. The keyless `mock`
   provider is the default.
-- `SKEIN_AUTH_MODE` selects `trusted-header` (the default: the `X-User`
-  header names the caller), `api-key`, or `oidc`.
+- `SKEIN_AUTH_MODE` selects `api-key` (the default), `trusted-header` (the
+  `X-User` header names the caller — local dev), or `oidc`.
 - `SKEIN_SCHEDULER=0` disables the background scheduler. Extension tests
   use this.
 - `SKEIN_PLAYBOOKS_DIR`, `SKEIN_PERSONAS_DIR`, and `SKEIN_FLOCKS_DIR` mount
