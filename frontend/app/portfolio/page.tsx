@@ -22,6 +22,17 @@ type Health = {
 
 type Conflict = { person: string; total_percent: number; detail: string };
 
+/** Cycle time for reading. The service rounds to 0.1 day, so same-day work
+ *  arrived as 0.0 and the headline read "median 0d · avg 0d" — a broken-
+ *  looking claim about the team's fastest weeks. Under a day, hours; a 0.0
+ *  is anything under 72 minutes, so it says "under 2h" rather than a zero. */
+function cycleTime(days: number | null): string {
+  if (days === null) return "—";
+  if (days >= 1) return `${days}d`;
+  const hours = Math.round(days * 24);
+  return hours > 0 ? `${hours}h` : "under 2h";
+}
+
 type Flow = {
   cycle_time: { tasks_done: number; avg_days: number | null; median_days: number | null };
   throughput_by_week: Record<string, number>;
@@ -533,7 +544,8 @@ export default function Portfolio() {
               {flow.cycle_time.tasks_done > 0 && (
                 <span className="text-xs text-ink-3">
                   {" "}
-                  · median {flow.cycle_time.median_days}d · avg {flow.cycle_time.avg_days}d
+                  · median {cycleTime(flow.cycle_time.median_days)} · avg{" "}
+                  {cycleTime(flow.cycle_time.avg_days)}
                 </span>
               )}
             </p>

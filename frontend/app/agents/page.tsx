@@ -139,6 +139,9 @@ export default function Agents() {
   const [inboxFor, setInboxFor] = useState<string | null>(null);
   const [bench, setBench] = useState<Persona[]>([]);
   const [traces, setTraces] = useState<FlockTrace[] | null>(null);
+  const [flockRoster, setFlockRoster] = useState<
+    { slug: string; emoji: string; description: string; members: { name: string; emoji: string }[] }[]
+  >([]);
   const [entity, setEntity] = useState("task");
   const [level, setLevel] = useState("review");
   const [targetAgent, setTargetAgent] = useState("agent");
@@ -238,6 +241,11 @@ export default function Agents() {
     api<FlockTrace[]>("/api/flocks/traces?limit=5")
       .then(ok(setTraces, "traces"))
       .catch(fail("traces", "flock traces"));
+    // additive: the roster chips are doors into chat, and a failure here
+    // must not blank the traces the card is really about
+    api<typeof flockRoster>("/api/flocks")
+      .then((rows) => setFlockRoster(Array.isArray(rows) ? rows : []))
+      .catch(() => {});
     api<{
       provider: string;
       model: string;
@@ -1046,6 +1054,32 @@ export default function Agents() {
           title="Flocks — the last turns, as they ran"
           className="md:col-span-2"
         >
+          {/* the installed flocks as DOORS, like the bench cards above: a
+              chip opens chat with `/flock <slug> ` already in the composer
+              (components/thread.tsx reads ?compose=). The card described the
+              command and offered nowhere to run it. */}
+          {flockRoster.length > 0 && (
+            <ul className="mb-3 flex flex-wrap gap-2">
+              {flockRoster.map((f) => (
+                <li key={f.slug}>
+                  <Link
+                    href={`/chat?compose=${encodeURIComponent(`/flock ${f.slug} `)}`}
+                    title={f.description}
+                    className="flex items-center gap-1.5 rounded-full border border-line-strong px-2.5 py-1 text-xs transition-colors hover:border-thread-solid hover:bg-thread/5"
+                  >
+                    <span aria-hidden>{f.emoji}</span>
+                    <span className="font-medium">{f.slug}</span>
+                    <span aria-hidden className="text-ink-3">
+                      {f.members.map((m) => m.emoji).join(" ")}
+                    </span>
+                    <span className="sr-only">
+                      — open chat with /flock {f.slug} ready to send
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
           {traces === null ? (
             errors.traces ? (
               failed("traces")
@@ -1054,12 +1088,11 @@ export default function Agents() {
             )
           ) : traces.length === 0 ? (
             <p className="text-sm text-ink-3">
-              No flock has flown yet. To call a flock, use{" "}
+              No flock has flown yet. Pick one above, or use{" "}
               <code className="text-xs">
                 /flock &lt;flock&gt; &lt;message&gt;
               </code>{" "}
-              in chat. To see who is on the wing, run{" "}
-              <code className="text-xs">/flocks</code>.
+              in chat.
             </p>
           ) : (
             /* the LIST scrolls, not the page: five turns of diagram is more

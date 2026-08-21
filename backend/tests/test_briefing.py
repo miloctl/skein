@@ -243,3 +243,32 @@ def test_someone_elses_escalated_blocker_stays_in_team_today(client, fresh_db):
 
     b = client.get("/api/briefing").json()
     assert any(e["id"] == bid for e in b["team"]["escalated_blockers"])
+
+
+def test_two_notices_about_one_source_row_show_as_one(client, fresh_db):
+    """Delegation writes "you sponsor task #N" and the agent's claim writes
+    "agent started on task #N" minutes later — one task, two notices, and the
+    prefix-based coalesce cannot stack them. Newest wins; dismissing it
+    surfaces the older one, like the coalesce resurface above."""
+    from app.services import notifications, work
+
+    tid = work.create_task("delegated work", actor="tester")["id"]
+
+    def notice(msg):
+        return notifications.notify(
+            "tester",
+            lambda source: msg,
+            link="/agents",
+            source_entity="task",
+            source_id=tid,
+        )["id"]
+
+    older = notice("You sponsor task #1 'delegated work' delegated to agent.")
+    newer = notice("agent started on task #1 'delegated work'.")
+
+    items = _notice_items(client)
+    assert [a["ref_id"] for a in items] == [newer]
+
+    client.post("/api/notifications/read", json={"notification_id": newer})
+    items = _notice_items(client)
+    assert [a["ref_id"] for a in items] == [older]
