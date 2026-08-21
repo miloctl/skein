@@ -1132,6 +1132,15 @@ scripts/reference-deployment-contract.sh
 scripts/reference-images-contract.sh
 ```
 
+The backend script pins its whole `SKEIN_*` environment before it builds
+anything (`scripts/lib/hermetic-env.sh`), so a rehearsal answers the same way
+on a developer machine and in CI — the caller supplies only
+`SKEIN_DATABASE_URL`. Its steps are files under `scripts/contract/`, not
+shell heredocs, so ruff checks them and a failure names a real file and line.
+Where the review gate changes what a governed tool returns, the step
+rehearses BOTH settings: gate off returns the write, gate on returns
+`review_required` with the proposal a human judges.
+
 The backend script builds and installs separate wheels in a normal virtual
 environment. It starts the installed application. It then moves the unchanged
 private package from the prior release to the current compatible artifact. That
