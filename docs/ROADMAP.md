@@ -431,9 +431,9 @@ history center, so each surface keeps its own bound.
   the window is stored with no count and no route to it. Advances when a live
   reader exceeds 20 unread rows.
 - **The Insights findings feed** [S] — `services/insights.py` calls
-  `list_findings(weeks=4, limit=50)` with no cursor. A condition that persists
-  can also mint a duplicate finding in a later week, so the bound is reached
-  sooner than the row count suggests.
+  `list_findings(weeks=4, limit=50)` with no cursor. (The duplicate half
+  shipped: a persisting condition now collapses to one row per (rule,
+  subject) with a since-week, so the bound is spent on distinct conditions.)
 - **The agent inbox rejection window** [S] — ten rows, and the superseded
   `task_completion` anti-join that shipped clears only one cause. See the
   `acked_at` item under "Agent layer" for the rest.

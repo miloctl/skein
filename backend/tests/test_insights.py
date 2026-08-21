@@ -117,6 +117,40 @@ def test_decision_decay_rule(client, fresh_db):
     assert out and out[0]["n"] == 3
 
 
+def test_a_persisting_condition_is_one_row_across_weeks(fresh_db, monkeypatch):
+    """run_findings mints one row per ISO week while a condition holds, and the
+    feed showed both — the same broken cron as two problems, last week's badge
+    beside this week's blank. One row per (rule, subject) now, and a verdict on
+    any week's row travels to the surviving one."""
+    from datetime import timedelta
+
+    from app import config
+    from app.services import insights
+
+    monkeypatch.setattr(config, "SCHEDULER_ENABLED", True)
+    fresh_db.execute(
+        "INSERT INTO job_outcomes (job, status, detail, duration_ms, created_at)"
+        " VALUES ('daily-digest', 'ok', '', 0, '2020-01-01T00:00:00+00:00')"
+    )
+    first = insights.run_findings(actor="tester")
+    old_row = next(f for f in first["findings"] if f["rule_id"] == "job_stale")
+
+    week_later = insights._today() + timedelta(weeks=1)
+    monkeypatch.setattr(insights, "_today", lambda: week_later)
+    second = insights.run_findings(actor="tester")
+    assert any(f["rule_id"] == "job_stale" for f in second["findings"])
+
+    stale = [f for f in insights.list_findings() if f["rule_id"] == "job_stale"]
+    assert len(stale) == 1
+    assert stale[0]["weeks_firing"] == 2
+    assert stale[0]["first_week"] < stale[0]["week"]
+
+    # the verdict lands on last week's row id; the feed's surviving row carries it
+    insights.disposition_finding(old_row["id"], "dismissed", actor="tester")
+    stale = [f for f in insights.list_findings() if f["rule_id"] == "job_stale"]
+    assert stale[0]["disposition"] == "dismissed"
+
+
 def test_run_findings_dedupes_within_week(client, fresh_db):
     from app.services import insights
 

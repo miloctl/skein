@@ -17,6 +17,8 @@ type Finding = {
   n: number | null;
   window: string;
   week: string;
+  first_week: string;
+  weeks_firing: number;
   receipt: Record<string, unknown>;
   disposition: string;
 };
@@ -271,7 +273,11 @@ export default function InsightsPage() {
                 >
                   {SEV[f.severity] ?? "·"} {f.message}{" "}
                   <span className="text-xs text-ink-3">
-                    {f.week}
+                    {/* one row per (rule, subject): a condition firing for
+                        weeks says so instead of repeating as fresh rows */}
+                    {f.weeks_firing > 1
+                      ? `since ${f.first_week} · ${f.weeks_firing} weeks`
+                      : f.week}
                     {f.n ? ` · n=${f.n}` : ""}
                   </span>
                   {f.disposition && (

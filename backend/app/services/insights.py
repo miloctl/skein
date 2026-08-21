@@ -1358,20 +1358,35 @@ def run_findings(*, actor: str = "scheduler") -> dict:
 def list_findings(weeks: int = 4, limit: int = 50) -> list[dict]:
     weeks = max(1, min(int(weeks), 520))
     since_week = _week(_today() - timedelta(weeks=weeks))
+    # One row per (rule_id, subject), newest week's row speaking for the run.
+    # run_findings mints one row per ISO week while a condition persists, so a
+    # flat SELECT showed the same broken chain twice — W33 "converted" beside
+    # W34 "fresh" — and a reader counted two problems where there is one.
+    # first_week says how long it has been firing; id stays the newest row's,
+    # so the disposition and convert endpoints still target a real row.
     rows = db.query(
-        "SELECT * FROM findings WHERE week >= ? ORDER BY week DESC, "
-        " CASE severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1"
-        " WHEN 'low' THEN 2 ELSE 3 END, id DESC LIMIT ?",
+        "SELECT f.*, g.first_week, g.weeks_firing FROM findings f JOIN ("
+        "  SELECT rule_id, subject, MAX(id) AS id, MIN(week) AS first_week,"
+        "         COUNT(*) AS weeks_firing"
+        "  FROM findings WHERE week >= ? GROUP BY rule_id, subject"
+        ") g ON g.id = f.id ORDER BY f.week DESC, "
+        " CASE f.severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1"
+        " WHEN 'low' THEN 2 ELSE 3 END, f.id DESC LIMIT ?",
         (since_week, limit),
     )
-    # latest disposition per finding — the feed must show what's been acted on
+    # Latest disposition per (rule_id, subject), NOT per finding id — that is
+    # the key _suppressed() quiets on, and the key run_findings dedupes on.
+    # Keyed by id, converting W33's row left W34's badge blank and the queue
+    # asked about work that was already converted.
     dispo = {
-        d["finding_id"]: d["disposition"]
-        for d in db.query("SELECT finding_id, disposition FROM finding_dispositions ORDER BY id")
+        (d["rule_id"], d["subject"]): d["disposition"]
+        for d in db.query(
+            "SELECT rule_id, subject, disposition FROM finding_dispositions ORDER BY id"
+        )
     }
     for r in rows:
         r["receipt"] = json.loads(r["receipt"])
-        r["disposition"] = dispo.get(r["id"], "")
+        r["disposition"] = dispo.get((r["rule_id"], r["subject"]), "")
     return rows
 
 
