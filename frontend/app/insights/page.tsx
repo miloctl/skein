@@ -20,6 +20,64 @@ type Finding = {
   disposition: string;
 };
 
+/** One object as one reading line: id first as #N, then `key: value` pairs.
+ *  Empty values are dropped rather than printed as "key: " — a rule stores
+ *  whole rows (review_stall keeps its pending proposals) and most columns of
+ *  a row say nothing to a reader checking the claim. */
+function evidenceLine(value: Record<string, unknown>): string {
+  return Object.entries(value)
+    .filter(([, v]) => v !== null && v !== undefined && v !== "")
+    .map(([k, v]) => (k === "id" ? `#${v}` : `${k.replace(/_/g, " ")}: ${v}`))
+    .join(" · ");
+}
+
+/** The stored evidence behind a finding, as text a person can check.
+ *  This replaced JSON.stringify into a <pre>: the receipt is the ids and
+ *  numbers that let a reader verify the rule, and a JSON dump made every
+ *  finding read as debug output. */
+function Evidence({ receipt }: { receipt: Record<string, unknown> }) {
+  const entries = Object.entries(receipt ?? {});
+  if (entries.length === 0) {
+    return (
+      <p className="mt-1 text-xs text-ink-3">
+        No stored evidence — the message is the whole finding.
+      </p>
+    );
+  }
+  return (
+    <div className="mt-1 max-h-48 space-y-1 overflow-auto rounded bg-raised p-2 text-xs">
+      {entries.map(([key, value]) => (
+        <div key={key}>
+          {Array.isArray(value) ? (
+            <>
+              <span className="text-ink-3">{key.replace(/_/g, " ")}</span>
+              <ul className="ml-3 list-disc">
+                {value.map((item, i) => (
+                  <li key={i}>
+                    {item && typeof item === "object"
+                      ? evidenceLine(item as Record<string, unknown>)
+                      : String(item)}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : value && typeof value === "object" ? (
+            <>
+              <span className="text-ink-3">{key.replace(/_/g, " ")}</span>{" "}
+              {evidenceLine(value as Record<string, unknown>)}
+            </>
+          ) : (
+            <>
+              <span className="text-ink-3">{key.replace(/_/g, " ")}:</span>{" "}
+              {String(value)}
+            </>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 type Insights = {
   mttr: {
     window_days: number;
@@ -212,12 +270,9 @@ export default function InsightsPage() {
                 </button>
                 {open === f.id && (
                   <>
-                    <pre
-                      id={`receipt-${f.id}`}
-                      className="mt-1 max-h-48 overflow-auto rounded bg-raised p-2 text-xs"
-                    >
-                      {JSON.stringify(f.receipt, null, 1)}
-                    </pre>
+                    <div id={`receipt-${f.id}`}>
+                      <Evidence receipt={f.receipt} />
+                    </div>
                     {f.disposition ? null : (
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
                       <button

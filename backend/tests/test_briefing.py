@@ -205,3 +205,41 @@ def test_due_soon_reads_the_assignee_index(fresh_db):
     )
     assert "idx_tasks_assignee_due" in plan
     assert "SCAN tasks" not in plan
+
+
+def test_an_owned_blockers_escalation_is_said_once(client, fresh_db):
+    """A blocker the reader owns is already an attention row carrying the
+    resolve control. Before the dedupe its escalation notice restated that row
+    one section down and Team today restated it again — the same blocker
+    rendered three times on one page."""
+    from app import db
+    from app.services import notifications
+
+    bid = client.post("/api/blockers", json={"title": "stuck", "owner": "tester"}).json()["id"]
+    db.execute("UPDATE blockers SET status = 'escalated' WHERE id = ?", (bid,))
+    notifications.notify(
+        "tester",
+        lambda source: f"Blocker #{source['id']} escalated: {source['title']}",
+        link="/",
+        source_entity="blocker",
+        source_id=bid,
+    )
+
+    b = client.get("/api/briefing").json()
+    kinds = [(a["kind"], a["ref_id"]) for a in b["attention"]]
+    assert ("blocker", bid) in kinds
+    assert not any(k == "notification" for k, _ in kinds)
+    assert all(e["owner"] != "tester" for e in b["team"]["escalated_blockers"])
+
+
+def test_someone_elses_escalated_blocker_stays_in_team_today(client, fresh_db):
+    """The dedupe removes only the reader's own copy: for everyone else the
+    Team today row is the one place they learn of the escalation."""
+    from app import db
+
+    client.post("/api/standups", json={"today": "x"}, headers={"X-User": "ava"})
+    bid = client.post("/api/blockers", json={"title": "vendor", "owner": "ava"}).json()["id"]
+    db.execute("UPDATE blockers SET status = 'escalated' WHERE id = ?", (bid,))
+
+    b = client.get("/api/briefing").json()
+    assert any(e["id"] == bid for e in b["team"]["escalated_blockers"])

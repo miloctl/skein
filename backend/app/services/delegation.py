@@ -606,27 +606,33 @@ def authority_matrix(agent: str = "") -> list[dict]:
     return [_authority_status(row) for row in rows]
 
 
-def trust_blocked() -> str:
+def trust_blocked(remedy: bool = True) -> str:
     """Why no trust CAN accrue, or "" when it can. An empty trust card reads
     as "nobody has proposed anything yet" — but two deployment settings make
     the streak structurally unreachable, and under those the card is telling
     an operator to wait for something that will never arrive.
 
     Deterministic and observed, never predicted: the second case counts real
-    verdicts rather than guessing what the auth mode will produce."""
+    verdicts rather than guessing what the auth mode will produce.
+
+    `remedy=False` drops the SKEIN_AGENT_REVIEW instruction and keeps the
+    fact. The instruction is an operator's, and Approvals repeats this
+    sentence on EVERY proposal card to an audience that cannot act on an env
+    var — the second case's remedy stays, because "sign in before you
+    approve" is the reviewer's own move."""
     if not config.AGENT_REVIEW:
         # Expired elevated grants still wait for a verdict. Current grants take
         # the direct path, so only those expired pairs can earn trust while the
         # deployment-wide gate is off.
+        fix = " To collect verdicts, set SKEIN_AGENT_REVIEW=1." if remedy else ""
         if any(row["review_expired"] for row in authority_matrix()):
             return (
                 "The review gate is off, so current grants apply directly and record no verdict."
-                " Expired elevated grants still wait for review. To collect verdicts for every"
-                " agent write, set SKEIN_AGENT_REVIEW=1."
+                " Expired elevated grants still wait for review." + fix
             )
         return (
             "The review gate is off, so agent writes apply directly and record no verdict."
-            " Trust cannot increase. To collect verdicts, set SKEIN_AGENT_REVIEW=1."
+            " Trust cannot increase." + fix
         )
     settled = (
         db.query_one(

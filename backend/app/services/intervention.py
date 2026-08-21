@@ -160,6 +160,14 @@ def _finding_receipt(finding: dict) -> str:
         stem = key[:-3] if key.endswith("_id") else ""
         if stem in refs.TARGETS and isinstance(value, int):
             parts.append(f"{stem} #{value}")
+        elif isinstance(value, list):
+            # a rule may store whole rows here (review_stall keeps its pending
+            # proposals). str() on that list printed a page of Python dicts
+            # into the meeting agenda — the count and the ids are the receipt,
+            # the rows themselves stay on /insights.
+            ids = [v["id"] for v in value if isinstance(v, dict) and isinstance(v.get("id"), int)]
+            named = f" ({', '.join(f'#{i}' for i in ids[:5])})" if ids else ""
+            parts.append(f"{key.replace('_', ' ')}: {wording.count(len(value), 'row')}{named}")
         else:
             parts.append(f"{key.replace('_', ' ')}: {value}")
     return ", ".join(parts) if parts else finding["message"]

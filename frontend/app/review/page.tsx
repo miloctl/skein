@@ -555,6 +555,21 @@ export default function ReviewPage() {
   const forSponsor = (c: Change) =>
     c.sponsor && c.sponsor !== me ? c.sponsor : "";
 
+  // A later proposal that matches an earlier one word for word gets a badge
+  // naming the first. Agents re-file (two identical atlas sync proposals sat
+  // adjacent with nothing saying so), and a reviewer owes an identical pair
+  // one reading, not two.
+  const duplicateOf = new Map<number, number>();
+  {
+    const seen = new Map<string, number>();
+    for (const c of changes ?? []) {
+      const key = `${c.entity}|${c.action}|${c.summary}|${JSON.stringify(c.payload)}`;
+      const first = seen.get(key);
+      if (first !== undefined) duplicateOf.set(c.id, first);
+      else seen.set(key, c.id);
+    }
+  }
+
   // dismissing the reason input hands focus back to the button that opened
   // it — a keyboard user must not be dropped at the top of the page
   const closeAsk = () => {
@@ -710,6 +725,11 @@ export default function ReviewPage() {
                 ) : (
                   ""
                 )}
+                {duplicateOf.has(c.id) ? (
+                  <span className="rounded-full bg-weld/15 px-2 py-px font-mono text-[10px] font-normal text-weld">
+                    identical to #{duplicateOf.get(c.id)}
+                  </span>
+                ) : null}
               </span>
               <span className="text-xs text-ink-3">
                 by {c.proposed_by} <OriginChip origin={c.origin} />

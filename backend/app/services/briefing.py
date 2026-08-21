@@ -364,10 +364,18 @@ def my_day(
         # that only tested read_at showed an announcement one teammate had
         # already dismissed for themselves to nobody, or to everybody, purely
         # by which copy of the predicate it happened to use.
+        # The blocker exclusion, HERE and not in _attention: a blocker the
+        # reader owns is already an attention row with the resolve control on
+        # it, and its escalation notice restated that row one section down —
+        # blocker #1 rendered three times on one page. It must ride the query
+        # because the route path strips source_entity/source_id from every
+        # row (notifications._public_row) before _attention runs again.
         "notifications": db.query(
             f"SELECT * FROM notifications WHERE {notifications.UNREAD_FOR}"  # noqa: S608 — module constant with bound marks
+            " AND NOT (source_entity = 'blocker' AND source_id IN"
+            "  (SELECT id FROM blockers WHERE status != 'resolved' AND owner = ?))"
             " ORDER BY id DESC LIMIT 20",
-            (user, user),
+            (user, user, user),
         ),
     }
     attention = _attention(user, needs_you, today, week)
@@ -468,9 +476,14 @@ def my_day(
                 f" AND {WORKSPACE_ONLY} AND closed_at >= ?",
                 (db.local_midnight_utc(local_today - timedelta(days=2)),),
             ),
+            # owner != user: a blocker the reader owns is already a "Needs
+            # you" row with the resolve button — repeating it in Team today
+            # showed the owner the same blocker twice on one page. Everyone
+            # else still sees it here, which is what a team card is for.
             "escalated_blockers": db.query(
-                f"SELECT * FROM blockers WHERE status = 'escalated' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-                " ORDER BY created_at"
+                f"SELECT * FROM blockers WHERE status = 'escalated' AND owner != ?"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+                f" AND {WORKSPACE_ONLY} ORDER BY created_at",
+                (user,),
             ),
             "todays_events": db.query(
                 f"SELECT * FROM events WHERE starts_at >= ? AND starts_at < ?"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
