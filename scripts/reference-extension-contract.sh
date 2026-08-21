@@ -72,17 +72,17 @@ mkdir -p \
 # 0.2.5, 0.2.6 and onward needs no edit here at all.
 PRIOR_CORE="0.2.3"
 export PRIOR_CORE
-prior_backend_tree="$(git rev-parse dfb8a103d67cfff9cad23492f34f2a0e63bf70ee:backend)"
+prior_backend_tree="$(git rev-parse a9f67dd4e2c5a6adc50e896a9360330d8f6b6c39:backend)"
 next_backend_tree="$(git rev-parse HEAD:backend)"
 if [[ "$prior_backend_tree" == "$next_backend_tree" ]]; then
     echo "reference-extension-contract: backend implementations must differ" >&2
     exit 1
 fi
 
-git archive d3b0f2ebbb6437b9ba34afb398d548ec955d3ae3 backend | tar -x -C "$tmp/base"
+git archive 4b642300f96bb9e4944a640f373a41512d50f1f0 backend | tar -x -C "$tmp/base"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
     uv build --quiet --wheel --out-dir "$tmp/base-dist" "$tmp/base/backend"
-git archive dfb8a103d67cfff9cad23492f34f2a0e63bf70ee backend \
+git archive a9f67dd4e2c5a6adc50e896a9360330d8f6b6c39 backend \
     | tar -x -C "$tmp/current-source"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
     uv build --quiet --wheel --out-dir "$tmp/current" "$tmp/current-source/backend"
