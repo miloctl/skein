@@ -283,6 +283,14 @@ settled (time zone, the auth bridge, `wip_by_person` egress) were dropped
 - **Per-rule `enabled` flag for findings** — silence a noisy rule by config
   rather than a deploy. (The usage-UI item that lived beside this one
   shipped: the Model spend card on Work → Health.)
+- **job_stale rows dominate the findings feed** [S, decision first] — five
+  stale jobs render five high-severity rows at the top of /insights and push
+  team findings below the fold, while `digest_findings` already collapses
+  job_stale to one line for the digest. The tension is real on both sides:
+  /insights says it measures the system, so per-job detail is its job — but
+  five red rows are one condition (the scheduler is not running). Decide
+  whether the feed folds them like the digest or the OperationsCard link
+  absorbs the detail, then build the one chosen.
 - **Evidence-gap findings rule** [S] — a task completed with no worklog note
   and no linked artifact fires a finding, shaped like `_r_meeting_no_outcome`
   (which pins the pattern: the record that should carry proof and does not).
