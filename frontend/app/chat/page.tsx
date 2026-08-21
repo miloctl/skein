@@ -119,7 +119,14 @@ export default function ChatPage() {
         <button
           aria-label="Close chat list"
           onClick={closeChats}
-          className="fixed inset-0 top-[calc(var(--nav-h)+var(--selvage-h,2px))] z-20 bg-black/30 md:hidden"
+          // BELOW the header's z-10 (nav.tsx), with the drawer in chat-
+          // sidebar.tsx. Both start under the header already, so they never
+          // needed to outrank it — and above it they swallowed every header
+          // popover that hangs down: page help, search results and the
+          // identity menu all became unclickable with the drawer open, while
+          // focus still moved into them. It only has to beat the thread,
+          // which carries no z-index at all.
+          className="fixed inset-0 top-[calc(var(--nav-h)+var(--selvage-h,2px))] z-1 bg-black/30 md:hidden"
         />
       )}
       <main

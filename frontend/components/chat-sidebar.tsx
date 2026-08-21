@@ -414,7 +414,10 @@ export function ChatSidebar({
       onDragLeave={() => setDropTarget(null)}
       className={
         (mobileOpen
-          ? "fixed bottom-0 left-0 top-[calc(var(--nav-h)+var(--selvage-h,2px))] z-30 flex w-72 bg-page shadow-float "
+          // z-2, below the header's z-10: see the overlay in app/chat/page.tsx
+          // for what a drawer above the header does to the header's popovers.
+          // Above the thread's sticky composer, which has no z-index.
+          ? "fixed bottom-0 left-0 top-[calc(var(--nav-h)+var(--selvage-h,2px))] z-2 flex w-72 bg-page shadow-float "
           : "hidden ") +
         "shrink-0 flex-col overflow-y-auto border-r p-3 md:static md:flex md:bg-transparent md:shadow-none " +
         "transition-[width,padding] duration-200 motion-reduce:transition-none " +

@@ -39,7 +39,11 @@ export function PageHelp() {
     return () => document.removeEventListener("pointerdown", close);
   }, [open]);
 
-  if (pathname === "/chat" || pathname === "/guide") return null;
+  // A SPACER, not null: /guide is the one route with no card of its own (its
+  // cards ARE the page, and the panel's footer links straight back to it), but
+  // unmounting the button shrank the header's right cluster by the button plus
+  // its gap, so every control left of it jumped sideways on arrival.
+  if (pathname === "/guide") return <div aria-hidden className="size-8 shrink-0" />;
 
   const load = () => {
     setOpen(true);
@@ -56,6 +60,16 @@ export function PageHelp() {
       )
       .catch(() => {});
   };
+
+  // A card that points at the route the reader is already on: "Open X" would
+  // close the panel and do nothing. The query goes with it, which is right for
+  // the only card that carries one (knots.yaml `bosun`, /chat?as=bosun, read
+  // by a mount effect in thread.tsx that a same-route Link never re-runs) —
+  // narrow this if a card ever links to a page that reads its query live. A
+  // fragment still scrolls (lib/hash-target.ts), so an anchor keeps its link.
+  const samePage = (link: string) =>
+    !link.includes("#") &&
+    (link.split("?")[0].replace(/\/$/, "") || "/") === (pathname.replace(/\/$/, "") || "/");
 
   const dismiss = (restoreFocus = false) => {
     setOpen(false);
@@ -86,6 +100,8 @@ export function PageHelp() {
         aria-controls="page-help"
         title="Help for this page"
         onClick={() => (open ? dismiss() : load())}
+        // size-8 is duplicated by the /guide spacer above, which exists only to
+        // hold this width. Change one and the top bar reflows on /guide again.
         className="flex size-8 items-center justify-center rounded-full border border-dashed border-line-strong font-mono text-xs text-ink-2 hover:bg-raised hover:text-ink"
       >
         ?
@@ -142,13 +158,15 @@ export function PageHelp() {
                   <p className="mt-1 text-xs text-ink-2">
                     <ShortcutText text={card.how} />
                   </p>
-                  <Link
-                    href={card.link}
-                    onClick={() => dismiss()}
-                    className="mt-1.5 inline-block text-xs font-medium text-thread underline hover:opacity-80"
-                  >
-                    Open {card.feature}
-                  </Link>
+                  {samePage(card.link) ? null : (
+                    <Link
+                      href={card.link}
+                      onClick={() => dismiss()}
+                      className="mt-1.5 inline-block text-xs font-medium text-thread underline hover:opacity-80"
+                    >
+                      Open {card.feature}
+                    </Link>
+                  )}
                 </li>
               ))}
             </ul>
@@ -162,7 +180,26 @@ export function PageHelp() {
             >
               Open the field guide
             </Link>
-            {live ? (
+            {live && pathname === "/chat" ? (
+              // Already in chat: a same-route Link cannot deliver this,
+              // because thread.tsx reads ?compose= when its composer mounts
+              // and nothing remounts. Worse, it would leave ?compose= in the
+              // URL for the next thread switch to read, prefilling an
+              // unrelated conversation — the "consumed once" guarantee in
+              // docs/FEATURES.md. Hand the text to the mounted composer.
+              <button
+                type="button"
+                onClick={() => {
+                  dismiss();
+                  window.dispatchEvent(
+                    new CustomEvent("skein-chat-compose", { detail: compose }),
+                  );
+                }}
+                className="text-xs font-medium text-thread underline hover:opacity-80"
+              >
+                Ask the Bosun about this page
+              </button>
+            ) : live ? (
               <Link
                 href={{ pathname: "/chat", query: { compose } }}
                 onClick={() => dismiss()}

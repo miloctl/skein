@@ -379,19 +379,27 @@ const Composer = () => {
   );
 
   useEffect(() => {
-    const url = new URL(window.location.href);
-    const prefill = url.searchParams.get("compose");
-    if (prefill) {
-      if (prefill.length <= COMPOSE_LIMIT) composer.setText(prefill);
+    const prefill = (text: string) => {
+      if (text.length <= COMPOSE_LIMIT) composer.setText(text);
       else
         reportStatus(
           "The chat prefill is too long. Shorten it to 500 characters or fewer.",
         );
-    }
+    };
+    const url = new URL(window.location.href);
+    const fromUrl = url.searchParams.get("compose");
+    if (fromUrl) prefill(fromUrl);
     if (url.searchParams.has("compose")) {
       url.searchParams.delete("compose");
       window.history.replaceState(null, "", url);
     }
+    // Page help lives in the HEADER, so on /chat it is open while this
+    // composer is already mounted and a ?compose= link would never re-run the
+    // read above. It hands the text over directly — same cap, same report.
+    const onPrefill = (event: Event) =>
+      prefill((event as CustomEvent<string>).detail);
+    window.addEventListener("skein-chat-compose", onPrefill);
+    return () => window.removeEventListener("skein-chat-compose", onPrefill);
   }, [composer]);
 
   useEffect(() => {

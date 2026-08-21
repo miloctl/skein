@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
   provider: "ollama",
   providerError: "",
   guideError: false,
+  cardLink: "/review",
   calls: [] as string[],
 }));
 
@@ -31,7 +32,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
               knot: "Sheet bend",
               pitch: "Keep agent changes under human control.",
               how: "Open a proposal and record a verdict.",
-              link: "/review",
+              link: state.cardLink,
             },
           ],
         });
@@ -48,6 +49,7 @@ beforeEach(() => {
   state.provider = "ollama";
   state.providerError = "";
   state.guideError = false;
+  state.cardLink = "/review";
   state.calls.length = 0;
 });
 
@@ -138,13 +140,50 @@ describe("page help", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("Guide unavailable");
   });
 
-  it("does not duplicate help on Chat or the full Field guide", () => {
-    state.pathname = "/chat";
-    const { rerender } = render(<PageHelp />);
-    expect(screen.queryByRole("button", { name: "Help for this page" })).toBeNull();
-
+  it("holds the header's width on the Field guide instead of unmounting", () => {
     state.pathname = "/guide";
-    rerender(<PageHelp />);
+    const { container } = render(<PageHelp />);
     expect(screen.queryByRole("button", { name: "Help for this page" })).toBeNull();
+    // shrink-0 as well as the width: the cluster is min-w-0 and the search box
+    // is flex-1 below sm, so a shrinkable spacer collapses and /guide reflows
+    // again on exactly the narrow viewports this was reported from
+    expect(container.querySelector(".size-8.shrink-0")).not.toBeNull();
+  });
+
+  it("offers help on Chat, handing the Bosun prefill to the live composer", async () => {
+    state.pathname = "/chat";
+    const prefills: string[] = [];
+    const onPrefill = (e: Event) =>
+      prefills.push((e as CustomEvent<string>).detail);
+    window.addEventListener("skein-chat-compose", onPrefill);
+    render(<PageHelp />);
+    fireEvent.click(screen.getByRole("button", { name: "Help for this page" }));
+    expect(await screen.findByText("Review queue")).toBeTruthy();
+
+    // a same-route Link would leave a stale ?compose= and do nothing —
+    // thread.tsx reads it on mount only
+    const ask = screen.getByRole("button", {
+      name: "Ask the Bosun about this page",
+    });
+    expect(ask.closest("a")).toBeNull();
+    fireEvent.click(ask);
+    expect(prefills).toEqual(["/as bosun I am on the /chat page. "]);
+    window.removeEventListener("skein-chat-compose", onPrefill);
+  });
+
+  it("drops the card link when the card points at the current route", async () => {
+    render(<PageHelp />);
+    fireEvent.click(screen.getByRole("button", { name: "Help for this page" }));
+    // the fixture card links to /review and the reader is on /review — the
+    // link would close the panel and go nowhere
+    expect(await screen.findByText("Review queue")).toBeTruthy();
+    expect(screen.queryByText("Open Review queue")).toBeNull();
+  });
+
+  it("keeps the card link when the card points at an anchor on this route", async () => {
+    state.cardLink = "/review#proposal-4";
+    render(<PageHelp />);
+    fireEvent.click(screen.getByRole("button", { name: "Help for this page" }));
+    expect(await screen.findByText("Open Review queue")).toBeTruthy();
   });
 });
