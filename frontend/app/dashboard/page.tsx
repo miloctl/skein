@@ -1211,7 +1211,13 @@ export default function Dashboard() {
                         reportStatus(actionError(e));
                       }
                     }}
-                    className="underline hover:text-ink-2"
+                    // py-1 takes this to 24px tall, which WCAG 2.5.8 target
+                    // size requires. At text-xs it is 16px, and two allocation
+                    // rows 6px apart put their centres 22px apart — under the
+                    // 24px spacing exception, so both rows failed the axe scan
+                    // in e2e/responsive.spec.ts. Two allocations on one
+                    // engagement is what reproduces it.
+                    className="py-1 underline hover:text-ink-2"
                   >
                     delete
                   </button>
