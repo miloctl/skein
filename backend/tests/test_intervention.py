@@ -47,6 +47,26 @@ def test_a_broken_commitment_outranks_an_untidy_one(client, fresh_db):
     assert any(r["entity_id"] == b["id"] for r in rows if r["entity"] == "blocker")
 
 
+def test_system_findings_stay_out_of_the_meeting_queue(client, fresh_db, monkeypatch):
+    """job_stale is severity high, so without the audience filter a stale cron
+    outranks an overdue customer promise in the Monday running order. The rule
+    still fires and still reaches Insights — it is only out of this queue."""
+    from app import config
+    from app.services.insights import list_findings, run_findings
+
+    monkeypatch.setattr(config, "SCHEDULER_ENABLED", True)
+    fresh_db.execute(
+        "INSERT INTO job_outcomes (job, status, detail, duration_ms, created_at)"
+        " VALUES ('daily-digest', 'ok', '', 0, '2020-01-01T00:00:00+00:00')"
+    )
+    result = run_findings(actor="tester")
+    assert any(f["rule_id"] == "job_stale" for f in result["findings"])
+    assert any(f["rule_id"] == "job_stale" for f in list_findings())
+
+    rows = intervention.interventions(scope.Viewer("tester", True))
+    assert not [r for r in rows if r["kind"].startswith("finding_")]
+
+
 def test_every_row_states_the_next_move_and_its_receipt(client, fresh_db):
     from app.services import promises
 

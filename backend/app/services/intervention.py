@@ -95,6 +95,25 @@ _RESTATED_BY_A_RAW_ARM = frozenset(
     }
 )
 
+# Rules only whoever runs the server can act on. This queue is the Monday
+# meeting's running order, and job_stale is severity high, so a stale cron
+# outranked an overdue promise to a customer — on the seeded team, four of
+# the top eight calls were Skein's own plumbing. These rules keep firing and
+# keep their surfaces (Insights, the digest, OperationsCard on /settings);
+# they are only out of the meeting agenda.
+# `budget` stays IN the queue on purpose: month-over-budget is a spend
+# decision with a decision-maker in the room, not a server condition.
+_SYSTEM_AUDIENCE = frozenset(
+    {
+        "job_stale",  # the scheduler did not run — process/config
+        "activity_chain_broken",  # compare ledger against backups — operator
+        "ledger_rows_adopted",  # same remediation path as the chain rule
+        "flock_member_failing",  # fix is a persona file and the model it names
+        "token_anomaly",  # model-spend telemetry, not assignable work
+        "turn_runaway",  # a runaway agent turn — operator inspects the run
+    }
+)
+
 
 def _dedupe(rows: list[dict]) -> list[dict]:
     """One row per (entity, id), keeping the strongest band it appeared in.
@@ -334,6 +353,8 @@ def interventions(
         # because it names the owner and the real transition; the finding keeps
         # its disposition controls on its own page.
         if f["rule_id"] in _RESTATED_BY_A_RAW_ARM:
+            continue
+        if f["rule_id"] in _SYSTEM_AUDIENCE:
             continue
         out.append(
             {
