@@ -181,3 +181,33 @@ def test_deterministic_writes_use_the_composed_workplace_policy(fresh_db):
         assert "⚠" not in remembered + planned
         assert governed.get("/api/memories").json() == []
         assert all(row["name"] != "blocked plan" for row in governed.get("/api/engagements").json())
+
+
+def test_remember_in_a_linked_thread_files_an_engagement_proposal(client):
+    """The loop the sidebar promised with no path that entered it: recall read
+    engagement memories and nothing could write one. In a linked thread,
+    /remember files the ALWAYS-a-proposal engagement memory
+    (services/memory.py::propose_engagement_memory) instead of the direct
+    team-wide write."""
+    from app import db
+    from app.services import engagements
+
+    eid = engagements.create_engagement("Atlas", actor="tester")["id"]
+    # claim the thread, then link it — the same order the UI produces
+    _read_chat(client, "hello")
+    client.patch("/api/chats/t", json={"engagement_id": eid})
+
+    out = _read_chat(client, "/remember the client reads Thursday demos")
+    assert "proposal" in out and "Approvals" in out
+    assert "Remembered" not in out
+    row = db.query_one(
+        "SELECT payload FROM pending_changes WHERE entity = 'memory' AND status = 'pending'"
+    )
+    assert row is not None and "Thursday demos" in row["payload"]
+    # nothing wrote a memory directly — the write waits for the verdict
+    assert client.get("/api/memories").json() == []
+
+
+def test_remember_in_an_unlinked_thread_stays_a_direct_team_memory(client):
+    out = _read_chat(client, "/remember demos every Friday")
+    assert "Remembered" in out

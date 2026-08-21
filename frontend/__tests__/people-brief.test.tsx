@@ -6,7 +6,7 @@ import { axe } from "vitest-axe";
  *  Brief object on success, so the card must not claim that no brief exists
  *  before it receives one. */
 
-const identity = vi.hoisted(() => ({ strong: false }));
+const identity = vi.hoisted(() => ({ strong: false, briefDown: false }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
@@ -36,7 +36,9 @@ vi.mock("@/lib/api", async (importOriginal) => {
             ])
           : Promise.reject(new Error("This request requires strong identity."));
       if (path.startsWith("/api/private/brief/"))
-        return identity.strong
+        return identity.briefDown
+          ? Promise.reject(new Error("brief service exploded"))
+          : identity.strong
           ? Promise.resolve({
               person: "dana",
               since: "2026-08-01",
@@ -63,22 +65,33 @@ import PeoplePage from "@/app/people/page";
 
 beforeEach(() => {
   identity.strong = false;
+  identity.briefDown = false;
   window.localStorage.clear();
 });
 
 describe("the 1:1 identity boundary", () => {
-  it("reports a refused brief, never an empty brief", async () => {
+  it("reports a failed brief, never an empty brief", async () => {
+    identity.strong = true;
+    identity.briefDown = true;
     render(<PeoplePage />);
     fireEvent.click(await screen.findByRole("button", { name: "dana" }));
     expect(
-      (
-        await screen.findAllByText(
-          /Could not load this page: This request requires strong identity/,
-        )
-      ).length,
+      (await screen.findAllByText(/Could not load this page: brief service exploded/))
+        .length,
     ).toBeGreaterThan(0);
     expect(screen.queryByText("no brief available")).toBeNull();
     expect(await axe(document.body)).toHaveNoViolations();
+  });
+
+  it("fires nothing and renders no dead control under weak identity", async () => {
+    // Before this, picking a teammate fired two requests that both refused —
+    // the same sentence rendered twice — over a notes form whose submit was
+    // going to collect a third copy. Under weak identity the banner is the
+    // whole page state.
+    render(<PeoplePage />);
+    await screen.findByText(/Private notes require strong identity/);
+    expect(screen.queryByRole("button", { name: "dana" })).toBeNull();
+    expect(screen.queryByLabelText("1:1 note")).toBeNull();
   });
 
   it("does not ask a strong deployment sign-in for a personal key", async () => {
@@ -115,6 +128,8 @@ describe("the 1:1 identity boundary", () => {
       await screen.findByText(/Private notes require strong identity/),
     ).toBeTruthy();
     expect(screen.queryByText("private launch note")).toBeNull();
-    expect(screen.getByText(/Pick a teammate above/)).toBeTruthy();
+    // the downgrade removes the picker too — nothing below the banner
+    // renders under weak identity
+    expect(screen.queryByRole("button", { name: "dana" })).toBeNull();
   });
 });

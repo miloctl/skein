@@ -750,8 +750,8 @@ export function ChatSidebar({
                           this conversation recalls (services/memory.py) */}
                       <p className="mb-1.5 px-1 text-[10px] text-ink-3">
                         A linked chat also recalls that engagement&apos;s own
-                        memories. Filing one back is a proposal a person
-                        approves.
+                        memories. To file one back, use /remember in the chat —
+                        it becomes a proposal a person approves.
                       </p>
                       {t.engagement_id != null && (
                         <button

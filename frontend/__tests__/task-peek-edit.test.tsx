@@ -69,6 +69,33 @@ describe("editing from the task panel", () => {
     expect(JSON.parse(patchCalls()[0][1].body)).toEqual({ status: "done" });
   });
 
+  it("voids only through the confirm, and says what void means first", async () => {
+    render(<TaskPeek />);
+    fireEvent.click(await screen.findByRole("button", { name: /void…/ }));
+    // the consequence is stated and nothing is sent yet
+    expect(screen.getByText(/leaves every list, metric and search result/)).toBeTruthy();
+    expect(patchCalls()).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Void task" }));
+    await waitFor(() => expect(patchCalls()).toHaveLength(1));
+    expect(JSON.parse(patchCalls()[0][1].body)).toEqual({ status: "void" });
+  });
+
+  it("offers restore on a voided task", async () => {
+    mocks.api.mockImplementation((path: string, opts?: { method?: string }) => {
+      if (opts?.method === "PATCH") return Promise.resolve({ id: 4 });
+      if (path.endsWith("/worklog")) return Promise.resolve([]);
+      if (path === "/api/users") return Promise.resolve([]);
+      return Promise.resolve({ ...task, status: "void" });
+    });
+    render(<TaskPeek />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /restore to todo/ }),
+    );
+    await waitFor(() => expect(patchCalls()).toHaveLength(1));
+    expect(JSON.parse(patchCalls()[0][1].body)).toEqual({ status: "todo" });
+    expect(screen.queryByRole("button", { name: /void…/ })).toBeNull();
+  });
+
   it("keeps status and done off a delegated task", async () => {
     task.status = "in_progress";
     mocks.api.mockImplementation((path: string) =>

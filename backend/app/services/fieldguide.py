@@ -179,6 +179,9 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # the ledger row, not the allocations table: a deleted allocation takes
     # its created_by with it, and the tie is about having used the control
     "allocate": lambda u: _act(u, "allocate"),
+    # trailing % like task_done: update_task's detail carries a channel
+    # suffix when a machine wrote it (work.py's `note`)
+    "void_task": lambda u: _act(u, "update_task", "#% void%"),
 }
 
 _registry_cache: list[dict] | None = None

@@ -530,3 +530,12 @@ knots:
     how: "On Work → Browse, the Capacity card takes a teammate, an engagement, and a percent. Conflicts, the weeks ahead, and intake what-ifs all read from the same table. Delete an allocation from the same card when it ends."
     link: /dashboard
     since: 2026-08-20
+
+  - id: void_task
+    feature: Void a mistake
+    knot: Highwayman's Hitch
+    set: loops
+    pitch: The record stays honest without pretending the typo got done.
+    how: "Open the task's panel and select void…. The task leaves every list, metric and search result. It stays readable at its own address, and a live status restores it."
+    link: /dashboard
+    since: 2026-08-20

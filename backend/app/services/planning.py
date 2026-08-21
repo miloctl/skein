@@ -132,8 +132,8 @@ def _top_unblocking_move(viewer: scope.Viewer) -> dict | None:
     ranked = db.query(
         f"SELECT t.id, t.title, t.assignee, COUNT(*) AS direct"  # noqa: S608 — scope.visible_filter emits only bound marks
         f" FROM tasks t JOIN tasks w ON w.waiting_on_type = 'task'"
-        f" AND w.waiting_on_id = t.id AND w.status != 'done' AND {wfrag}"
-        f" WHERE t.status != 'done' AND {frag}"
+        f" AND w.waiting_on_id = t.id AND w.status NOT IN ('done', 'void') AND {wfrag}"
+        f" WHERE t.status NOT IN ('done', 'void') AND {frag}"
         " GROUP BY t.id ORDER BY direct DESC, t.id LIMIT ?",
         (*wp, *vp, _TOP_CANDIDATES),
     )
