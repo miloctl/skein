@@ -117,6 +117,35 @@ def test_decision_decay_rule(client, fresh_db):
     assert out and out[0]["n"] == 3
 
 
+def test_evidence_gap_fires_on_delegated_work_with_no_worklog(fresh_db, monkeypatch):
+    """The trust loop measuring itself: a sponsor accepted an agent's work
+    with nothing to audit. A delegated task with a worklog note stays silent,
+    and a plain human task stays silent however it closes — judging every
+    person's closing hygiene is what the anti-surveillance rule refuses."""
+    from app import config
+    from app.services import delegation, insights, users, work
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", False)
+    users.ensure_user("mira")
+
+    bare = work.create_task(title="accepted on trust", actor="mira")
+    delegation.delegate_task(bare["id"], "scout", "mira", actor="mira")
+    work.update_task(bare["id"], status="done", actor="mira")
+
+    noted = work.create_task(title="accepted with notes", actor="mira")
+    delegation.delegate_task(noted["id"], "scout", "mira", actor="mira")
+    delegation.report_progress(noted["id"], "probe scaffolded, tests pass", actor="scout")
+    work.update_task(noted["id"], status="done", actor="mira")
+
+    human = work.create_task(title="a person's own task", actor="mira")
+    work.update_task(human["id"], status="done", actor="mira")
+
+    fired = insights._r_evidence_gap()
+    assert [f["subject"] for f in fired] == [f"task-{bare['id']}"]
+    assert fired[0]["receipt"]["agent"] == "scout"
+    assert fired[0]["receipt"]["sponsor"] == "mira"
+
+
 def test_a_persisting_condition_is_one_row_across_weeks(fresh_db, monkeypatch):
     """run_findings mints one row per ISO week while a condition holds, and the
     feed showed both — the same broken cron as two problems, last week's badge

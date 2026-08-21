@@ -292,13 +292,6 @@ settled (time zone, the auth bridge, `wip_by_person` egress) were dropped
   five red rows are one condition (the scheduler is not running). Decide
   whether the feed folds them like the digest or the OperationsCard link
   absorbs the detail, then build the one chosen.
-- **Evidence-gap findings rule** [S] — a task completed with no worklog note
-  and no linked artifact fires a finding, shaped like `_r_meeting_no_outcome`
-  (which pins the pattern: the record that should carry proof and does not).
-  One function in `insights.RULES`, no schema. This is also a probe: its
-  firing rate over a season is the demand evidence the deferred evidence-pack
-  spec (`docs/reviews/2026-07-24-agent-sol.md`) waits for — silence means the
-  team does not miss the proof, and the spec stays deferred.
 
 ## Theme system (from the 2026-07-27 review)
 

@@ -48,7 +48,7 @@ slip-forecast calibration (median abs error from `forecast_snapshots`,
 quarterly, n≥8) · weekly-plan edit rate · blocker source mix · escalation
 rate · rejected-proposal themes · deferred-intake graveyard.
 
-## The findings rules (24 rule IDs)
+## The findings rules (26 rule IDs)
 
 Machinery: finding = `{rule_id, severity, message, n, window, receipt}`;
 receipt = row IDs + computed numbers JSON'd at fire time. Dedupe as built:
@@ -92,7 +92,19 @@ authority on what runs; this list explains each rule's why.
 
 23. **Interrupt load** — at or past `INTERRUPT_SHARE_ALARM` (50%) of a week's finished work was never planned before that week, n≥8 (`portfolio.py::VERDICT_FLOOR_N` returns `None` below the floor, and the rule short-circuits on it). The interrupt ledger shipped with the planning cockpit and nothing read it, so the number reached whoever opened that page on a Monday and nobody else. Team ratio, no per-person split. Severity medium; subject = the ISO week.
 
-(24. PLANNED, not yet implemented: forecast miscalibration — quarterly, once `forecast_snapshots` has n≥8 completed milestones. The calibration *display* shipped on `/insights`; the rule that names a miscalibrated quarter did not.)
+24. **Evidence gap** — a DELEGATED task accepted in the last 7 days with zero
+worklog notes: the sponsor's verdict has nothing to audit. Scoped to delegated
+work only, never every done task — judging each person's closing hygiene is a
+per-person judgment on a team-wide surface, which the anti-surveillance
+principle refuses, but a sponsor accepting an agent's work with no evidence is
+the trust loop measuring itself. `delegated_agent` survives completion
+(services/work.py clears it only on reassignment), so the completed row still
+names the agent. This rule is also the demand probe for the deferred
+evidence-pack spec (docs/reviews/2026-07-24-agent-sol.md): a season of its
+firing rate is the evidence that spec waits for, and silence retires it at
+season end like any other rule. Severity low; subject = `task-<id>`.
+
+(25. PLANNED, not yet implemented: forecast miscalibration — quarterly, once `forecast_snapshots` has n≥8 completed milestones. The calibration *display* shipped on `/insights`; the rule that names a miscalibrated quarter did not.)
 
 **Dispositions** close the loop on findings: dismissed / deferred / converted
 / resolved, keyed on `(rule_id, subject)` because findings re-fire weekly as
