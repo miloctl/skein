@@ -117,7 +117,7 @@ atlas = SkeinModule(
     version="1.0.0",
     extension_api="1.0",
     minimum_core="0.2.0",
-    maximum_core_exclusive="0.3.0",
+    maximum_core_exclusive="0.4.0",
     routes=(
         RouteContribution(
             "atlas.workplace.routes",
@@ -902,7 +902,7 @@ const extension: FrontendExtension = {
   version: "1.0.0",
   extensionApi: FRONTEND_EXTENSION_API,
   minimumCore: "0.2.0",
-  maximumCoreExclusive: "0.3.0",
+  maximumCoreExclusive: "0.4.0",
   navigation: [],
   dashboardCards: [],
 };

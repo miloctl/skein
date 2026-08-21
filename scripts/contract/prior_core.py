@@ -43,15 +43,15 @@ try:
                 module_id="next.workplace",
                 version="1.0.0",
                 extension_api="1.0",
-                minimum_core="0.2.4",
-                maximum_core_exclusive="0.3.0",
+                minimum_core="0.3.0",
+                maximum_core_exclusive="0.4.0",
             ),
         )
     )
 except ExtensionValidationError as exc:
-    assert "supports core versions from 0.2.4" in str(exc)
+    assert "supports core versions from 0.3.0" in str(exc)
 else:
-    raise AssertionError("core 0.2.3 accepted a package that requires core 0.2.4")
+    raise AssertionError("core 0.2.3 accepted a package that requires core 0.3.0")
 
 
 def review_playbook(request):
@@ -68,7 +68,7 @@ compatibility = SkeinModule(
     version="1.0.0",
     extension_api="1.0",
     minimum_core="0.2.0",
-    maximum_core_exclusive="0.3.0",
+    maximum_core_exclusive="0.4.0",
     identities=(
         IdentityContribution(
             "upgrade.workplace.identity",
