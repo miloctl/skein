@@ -150,7 +150,7 @@ def test_workplace_policy_can_deny_signed_slack_writes(fresh_db, monkeypatch):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.3.0",
+        maximum_core_exclusive="0.4.0",
         policies=(PolicyContribution("acme.workplace.slack", deny_slack),),
     )
     monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")
@@ -202,7 +202,7 @@ def test_signed_slack_capture_states_direct_policy_refusal(effect, expected, fre
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.3.0",
+        maximum_core_exclusive="0.4.0",
         policies=(PolicyContribution("acme.workplace.slack-capture", capture_rule),),
     )
     monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")

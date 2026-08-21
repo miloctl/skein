@@ -640,7 +640,7 @@ def test_a_second_module_can_deny_the_reference_background_job(fresh_db, tmp_pat
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.3.0",
+        maximum_core_exclusive="0.4.0",
         policies=(PolicyContribution("compliance.workplace.background-policy", compliance_rule),),
     )
     client = MemoryAtlasClient((AtlasItem("ATLAS-9", "Must not land"),))

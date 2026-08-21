@@ -245,7 +245,7 @@ def test_stock_tool_rejection_uses_the_current_project_context(fresh_db):
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.3.0",
+                maximum_core_exclusive="0.4.0",
                 policies=(PolicyContribution("acme.workplace.progress-review", review_progress),),
             ),
         )
@@ -331,7 +331,7 @@ def test_reviewed_stock_tool_uses_current_grant_and_saved_identities(fresh_db, m
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.3.0",
+                maximum_core_exclusive="0.4.0",
                 policies=(PolicyContribution("acme.workplace.progress-review", review_progress),),
             ),
         )

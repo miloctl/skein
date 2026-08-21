@@ -64,7 +64,7 @@ def _module(**changes) -> SkeinModule:
         "version": "1.2.0",
         "extension_api": "1.0",
         "minimum_core": "0.2.0",
-        "maximum_core_exclusive": "0.3.0",
+        "maximum_core_exclusive": "0.4.0",
         "routes": (_routes("acme.workplace.routes", _router()),),
     }
     values.update(changes)
@@ -1557,7 +1557,7 @@ def test_inbound_mcp_uses_core_dependencies_identity_and_workplace_policy(fresh_
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.3.0",
+        maximum_core_exclusive="0.4.0",
         policies=(PolicyContribution("acme.workplace.mcp-policy", deny_private_action),),
         identities=(
             IdentityContribution(
@@ -1660,7 +1660,7 @@ def test_inbound_mcp_task_list_applies_project_policy_per_row(fresh_db, monkeypa
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.3.0",
+                maximum_core_exclusive="0.4.0",
                 policies=(PolicyContribution("acme.workplace.mcp-tasks", deny_regulated),),
             ),
         )
@@ -1737,7 +1737,7 @@ def test_inbound_mcp_composites_do_not_return_denied_project_content(fresh_db, m
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.3.0",
+                maximum_core_exclusive="0.4.0",
                 policies=(PolicyContribution("acme.workplace.mcp-composites", deny_regulated),),
             ),
         )
@@ -2012,7 +2012,7 @@ def test_the_standalone_mcp_process_composes_the_configured_workplace_modules(
             version="1.0.0",
             extension_api="1.0",
             minimum_core="0.2.0",
-            maximum_core_exclusive="0.3.0",
+            maximum_core_exclusive="0.4.0",
             policies=(PolicyContribution("acme.workplace.mcp-policy", deny_mcp_tasks),),
             identities=(
                 IdentityContribution(

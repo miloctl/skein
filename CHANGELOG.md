@@ -14,9 +14,40 @@ A contract entry names the version a package must declare to use it. Additive
 contracts keep extension API 1.0: a package that does not use the new contract
 keeps its existing `minimum_core` and needs no change.
 
-## Unreleased
+## 0.3.0 — 2026-08-21
+
+Two deployment defaults changed, and both are visible to a private package.
+This is a MINOR release for exactly that reason: a package declaring
+`skein>=0.2.0,<0.3.0` will not resolve 0.3.0, which is the cap doing its job.
+Widen to `<0.4.0` and re-read the two Behavior entries below before you do.
+
+### Contracts
+
+- No `app.extensions`, `app.public` or `@skein/extension-api` signature
+  changed, and extension API stays 1.0. The only contract action is the
+  compatibility range: a package that declared `maximum_core_exclusive =
+  "0.3.0"` must declare `"0.4.0"` to load on this core. Nothing else in a
+  package needs an edit for the version itself.
 
 ### Behavior
+
+- **The review gate is ON by default.** `SKEIN_AGENT_REVIEW` defaults to 1;
+  it defaulted to 0 through 0.2.x. A mutating agent write — including a
+  governed extension tool at the `review` authority level — becomes a
+  proposal a human approves, so `execute_tool` returns `review_required`
+  carrying a `review_id` where it previously returned `completed` with the
+  write already done. An extension whose job or test asserts `completed`
+  must either assert both outcomes or grant that (agent, entity) pair
+  `autonomous` in the authority matrix. `SKEIN_AGENT_REVIEW=0` restores the
+  0.2.x behavior deployment-wide. This is the one trust boundary that
+  shipped open while every other one failed closed, and it is what lets
+  trust accrue at all: with the gate off no verdict is ever recorded, so no
+  agent can earn autonomy.
+- **The authentication mode fails closed.** `SKEIN_AUTH_MODE` defaults to
+  `api-key`; it defaulted to `trusted-header` through 0.2.x. A deployment
+  that set nothing authenticated every caller by a self-asserted `X-User`
+  header and now refuses them. Set `SKEIN_AUTH_MODE=trusted-header`
+  explicitly to keep the old posture, or supply real credentials.
 
 - `fold_identity` now normalizes before it strips and composes after. The
   old order was not idempotent: a compatibility character that decomposes
@@ -34,6 +65,12 @@ keeps its existing `minimum_core` and needs no change.
   Local `pytest` is unchanged. `RELEASING.md` now records the release
   procedure. `./scripts/mutation-test.sh <module>` runs on-demand mutation
   testing over `app/services/`.
+- The contract rehearsals pin their own `SKEIN_*` environment
+  (`scripts/lib/hermetic-env.sh`) and take only `SKEIN_DATABASE_URL` from
+  the caller, so a rehearsal answers the same way on a developer machine
+  and in CI. Their steps are files under `scripts/contract/` rather than
+  shell heredocs, so ruff checks them and a failure names a real file and
+  line.
 
 ## 0.2.2 — 2026-08-13
 

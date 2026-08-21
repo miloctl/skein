@@ -18,7 +18,7 @@ const extension = {
     version: "1.0.0",
     extensionApi: "1.0",
     minimumCore: "0.2.0",
-    maximumCoreExclusive: "0.3.0",
+    maximumCoreExclusive: "0.4.0",
     navigation: [
         {
             id: "atlas.workplace.manager-nav",
