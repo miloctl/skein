@@ -382,6 +382,25 @@ def my_day(
             (user, user, user, *b_p),
         ),
     }
+    # One notice per source row, newest wins. A delegation writes "you
+    # sponsor task #32" and the agent's claim writes "agent started on task
+    # #32" minutes later — two notices about one task, and _coalesce cannot
+    # stack them because their message prefixes differ. HERE and not in
+    # _attention, because the route path strips source_entity from every row
+    # (notifications._public_row) before _attention reruns. Dismissing the
+    # survivor surfaces the older one on the next load — the same
+    # deliberate resurface _coalesce has (test_briefing_coalesces_and_
+    # resurfaces_on_dismiss).
+    seen_sources: set[tuple[str, int]] = set()
+    deduped_notifications = []
+    for n in needs_you["notifications"]:  # ORDER BY id DESC: newest first
+        key = (n["source_entity"], int(n["source_id"] or 0))
+        if n["source_entity"] and n["source_id"]:
+            if key in seen_sources:
+                continue
+            seen_sources.add(key)
+        deduped_notifications.append(n)
+    needs_you["notifications"] = deduped_notifications
     attention = _attention(user, needs_you, today, week)
     result: dict[str, Any] = {
         "user": user,

@@ -1809,7 +1809,9 @@ export default function Dashboard() {
                 />
               </span>
               <span className="flex items-center gap-2 text-xs text-ink-3">
-                {e.starts_at}
+                {/* "2026-08-21 15:00", not the raw ISO string with its T and
+                    offset — the only surface that printed a timestamp unfed */}
+                {`${String(e.starts_at).slice(0, 10)} ${String(e.starts_at).slice(11, 16)}`}
                 {deletingEvent === e.id ? (
                   <span className="flex items-center gap-1.5">
                     <span id={`delete-event-${e.id}-consequence`}>

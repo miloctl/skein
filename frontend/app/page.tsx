@@ -18,6 +18,7 @@ import { Card } from "@/components/card";
 import { ReceiptLine } from "@/components/receipt";
 import { PeekLink } from "@/components/task-peek";
 import { PersonInput } from "@/components/person-input";
+import { taskRef } from "@/lib/task-ref";
 import { ShortcutText } from "@/components/shortcut";
 
 type Row = Record<string, string | number | null>;
@@ -882,12 +883,23 @@ export default function MyDay() {
   const sinceYesterdayCard = (
     <Card title="Since yesterday">
       <ul className="space-y-1">
-        {b.team.recent_activity.slice(0, 12).map((a) => (
-          <li key={a.id} className="text-xs text-ink-3">
-            <span className="font-medium text-ink-2">{a.actor}</span>{" "}
-            {String(a.action).replace(/_/g, " ")} {a.detail}
-          </li>
-        ))}
+        {b.team.recent_activity.slice(0, 12).map((a) => {
+          // the same action-keyed parser the activity feed uses — a task row
+          // opens the peek, everything else stays text (lib/task-ref.ts says
+          // why the action, never the detail shape, decides)
+          const tid = taskRef(String(a.action), String(a.detail));
+          return (
+            <li key={a.id} className="text-xs text-ink-3">
+              <span className="font-medium text-ink-2">{a.actor}</span>{" "}
+              {String(a.action).replace(/_/g, " ")}{" "}
+              {tid ? (
+                <PeekLink taskId={tid}>{a.detail}</PeekLink>
+              ) : (
+                a.detail
+              )}
+            </li>
+          );
+        })}
         {b.team.recent_activity.length === 0 && (
           <li className="text-xs text-ink-3">Quiet so far.</li>
         )}
