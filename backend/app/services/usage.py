@@ -146,11 +146,15 @@ def record_chat_usage(
     output_tokens: int,
     cycles: int = 0,
     latency_ms: int = 0,
+    engagement_id: int = 0,
 ) -> None:
+    # engagement_id is for turns with NO linkable thread (the agent runner).
+    # A chat turn leaves it 0 and attributes through the thread link, which
+    # stays retroactive on purpose — linking a thread bills its past turns.
     db.execute(
         "INSERT INTO usage_log (thread_id, agent_name, model_id, input_tokens,"
-        " output_tokens, cycles, latency_ms, cost_usd, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " output_tokens, cycles, latency_ms, cost_usd, created_at, engagement_id)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             thread_id,
             agent_name,
@@ -161,8 +165,32 @@ def record_chat_usage(
             latency_ms,
             cost_for(model_id, input_tokens, output_tokens),
             db.now(),
+            engagement_id or None,
         ),
     )
+
+
+def sole_delegation_engagement(agent: str) -> int:
+    """The one engagement an unattended run of this agent can be about, or 0.
+
+    A wake turn works the agent's whole delegated inbox, so a run is honestly
+    attributable only when every open delegated task resolves to the SAME
+    engagement — directly, or through its milestone. One task outside any
+    engagement, or a second engagement, and the answer is 0: '(unlinked)' is
+    the honest bucket, never a guess (the docstring rule engagement_costs
+    already follows).
+    """
+    rows = db.query(
+        "SELECT DISTINCT COALESCE(t.engagement_id, m.engagement_id) AS eid"
+        " FROM tasks t LEFT JOIN milestones m ON m.id = t.milestone_id"
+        " WHERE t.delegated_agent = ? AND t.status NOT IN ('done', 'void')",
+        (agent,),
+    )
+    eids = {r["eid"] for r in rows}
+    if len(eids) == 1:
+        only = eids.pop()
+        return int(only) if only else 0
+    return 0
 
 
 def usage_summary() -> list[dict]:
@@ -193,23 +221,28 @@ def engagement_costs(
     # test against a NULL side is false — the mask would file every unlinked
     # turn under "other work" and lose the honest bucket the docstring names.
     frag, fp = scope.visible_filter(viewer or scope.NOBODY, "engagements", alias="e")
+    # COALESCE(u.engagement_id, t.engagement_id): a row's own attribution (the
+    # agent runner writes it — sole_delegation_engagement) wins over the
+    # thread link, and a chat turn with no row-level value keeps attributing
+    # through its thread, retroactive link included.
     return db.query(
-        "SELECT CASE WHEN t.engagement_id IS NULL THEN '(unlinked)'"  # noqa: S608 — scope.visible_filter emits only bound marks
+        "SELECT CASE WHEN COALESCE(u.engagement_id, t.engagement_id) IS NULL THEN '(unlinked)'"  # noqa: S608 — scope.visible_filter emits only bound marks
         f" WHEN {frag} THEN e.name ELSE ? END AS engagement,"
-        " t.engagement_id AS engagement_id,"
+        " COALESCE(u.engagement_id, t.engagement_id) AS engagement_id,"
         " COUNT(*) AS calls,"
         " SUM(u.input_tokens) AS input_tokens, SUM(u.output_tokens) AS output_tokens,"
         " ROUND(SUM(u.cost_usd)::numeric, 4) AS cost_usd,"
         " COUNT(*) - COUNT(u.cost_usd) AS unpriced_calls"
         " FROM usage_log u"
         " LEFT JOIN chat_threads t ON t.id = u.thread_id"
-        " LEFT JOIN engagements e ON e.id = t.engagement_id"
+        " LEFT JOIN engagements e ON e.id = COALESCE(u.engagement_id, t.engagement_id)"
         " WHERE u.created_at >= ?"
-        # e.id as well as t.engagement_id: the CASE above reads e.name and the
+        # e.id as well as the COALESCE: the CASE above reads e.name and the
         # tier columns inside `frag`, and grouping by the engagement's PRIMARY
         # KEY is what makes every other e.* column legal here (functional
-        # dependency). Grouping by t.engagement_id alone is a grouping error.
-        " GROUP BY t.engagement_id, e.id ORDER BY cost_usd DESC NULLS LAST",
+        # dependency). Grouping by the COALESCE alone is a grouping error.
+        " GROUP BY COALESCE(u.engagement_id, t.engagement_id), e.id"
+        " ORDER BY cost_usd DESC NULLS LAST",
         (*fp, scope.OTHER_WORK, since),
     )
 

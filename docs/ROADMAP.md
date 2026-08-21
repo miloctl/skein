@@ -6,6 +6,25 @@
 > **This file holds only un-shipped work**: the open backlog, the
 > decisions still to make, and the refusals with their re-entry triggers.
 
+## Posture (2026-08-21): portfolio frozen, agent loop funded
+
+The portfolio pillar (engagements, health, forecasts, intake, readouts) is
+complete enough to freeze: every read surface has its write half, and what
+remains below is refinement. The agent pillar — the reason Skein is not an
+ordinary PM tool — has never completed one real trust loop. Until it has run
+for a season with the review gate on (the default since 2026-08-21):
+
+- No new portfolio surfaces. The portfolio items below stay listed and stay
+  un-worked; refinement resumes after the season.
+- Investment order: delegation contracts from the deferred specs.
+  (Engagement-level cost attribution shipped with this posture note: the
+  agent runner attributes a turn when every open delegated task resolves to
+  one engagement, and chat turns keep the retroactive thread link.)
+- Exit trigger, cut-table style: if after one season with the gate on the
+  trust rows, promotions, and delegations still read zero, that is the
+  evidence to NARROW the agent surface instead — the decision is then a
+  read, not a debate.
+
 # Open backlog (consolidated 2026-08-02)
 
 This is the only home for un-shipped work. Before this date the backlog was in
@@ -435,9 +454,6 @@ history center, so each surface keeps its own bound.
   resolves it sit on different pages for the health draft. The capacity form
   and the intervention queue's inline moves (assign, promise verdicts,
   reconfirm, resolve) shipped 2026-08-20.
-- **Engagement-level model-cost attribution** [M] — every model call sits
-  under `(unlinked)`. Honest, and empty unless people hand-maintain chat
-  links, so this needs an automatic link before the surface earns its space.
 
 ## Cut, with re-entry triggers
 

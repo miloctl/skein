@@ -646,6 +646,15 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
 
 # file::function -> why this read needs no tier filter.
 _UNFILTERED_READS = {
+    "usage.py::sole_delegation_engagement": (
+        "reads only which ENGAGEMENT an agent's open delegations resolve to,"
+        " for cost attribution — no row content reaches any caller, the"
+        " result is an integer written to usage_log, and the one surface"
+        " that renders it (engagement_costs) re-applies the viewer's own"
+        " filter and masks names it may not show. Splicing WORKSPACE_ONLY"
+        " here would silently drop attribution for crew engagements, and a"
+        " private task cannot be delegated at all (delegation.delegate_task)"
+    ),
     "documents.py::_check_source": (
         "reads ONLY the visibility of a candidate source in order to REFUSE"
         " it. No column reaches a caller, and a source that is not workspace"

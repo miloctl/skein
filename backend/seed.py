@@ -152,6 +152,21 @@ def main() -> None:
         category="charter",
         actor="mario",
     )
+    # The gate ships ON (config.AGENT_REVIEW), and a demo where every chat
+    # capture queues for approval reads as friction, not governance. These
+    # grants are the deliberate deployment choice the authority page teaches:
+    # the built-in chat agent writes the two capture staples directly, and
+    # every other (agent, entity) pair stays at review — so the inbox still
+    # shows the loop, and the matrix card has real rows on first load.
+    # the startup hook reserves the core "agent" identity before any request;
+    # seed runs outside the app, so it makes the same reservation itself
+    # (set_authority refuses to MINT a core machine subject from text)
+    from app.services.users import _reserve_core_agent_identity
+
+    _reserve_core_agent_identity("agent")
+    delegation.set_authority("agent", "task", "autonomous", actor="mario")
+    delegation.set_authority("agent", "note", "autonomous", actor="mario")
+
     # a delegation mid-loop: claimed, one worklog entry, awaiting acceptance
     dt = work.create_task(
         title="Summarize competitor pricing pages", assignee="research-agent", actor="mario"

@@ -933,9 +933,15 @@ def provider_key() -> str:
     return os.getenv(env, "") if env else ""
 
 
-# With SKEIN_AGENT_REVIEW=1, mutating agent writes become pending_changes
-# proposals that a human approves in the review inbox (approval-gate mode).
-AGENT_REVIEW = os.getenv("SKEIN_AGENT_REVIEW", "0") == "1"
+# Mutating agent writes become pending_changes proposals that a human
+# approves in the review inbox. ON by default — the one trust boundary that
+# shipped open while every other one fails closed (an unset auth mode
+# refuses every request, a secretless webhook is closed). Autonomy is
+# granted per (agent, entity) through the authority matrix, after a record
+# exists, never assumed. SKEIN_AGENT_REVIEW=0 is the deliberate opt-out.
+# `or`, not a getenv default: the conftest idiom pins a setting with "" to
+# keep backend/.env out of the suite, and "" must mean the default, not off.
+AGENT_REVIEW = (os.getenv("SKEIN_AGENT_REVIEW") or "1") == "1"
 
 # With SKEIN_REVIEW_SEPARATION=1, the person a proposal came from cannot
 # approve it, so an approval always costs a second pair of eyes. Off by

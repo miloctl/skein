@@ -372,3 +372,31 @@ def test_a_failing_ungated_writer_reports_the_failure(fresh_db, monkeypatch):
     got = receipts.drain()
     assert "error" in out
     assert [r["kind"] for r in got] == ["failed"]
+
+
+def test_the_shipped_default_holds_agent_writes_for_review():
+    """Gate ON with the variable unset — the fail-closed posture every other
+    trust boundary already has (an unset auth mode refuses every request).
+    A fresh process, because conftest pins the suite's copy to "0" and
+    monkeypatching an attribute never exercises the parse. "" means the
+    default, not off: the conftest idiom pins settings empty to keep
+    backend/.env out of the suite."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    # "" and never unset: config's load_dotenv() re-fills an ABSENT var from
+    # backend/.env, so an unset probe reads the developer's overlay instead of
+    # the shipped default — the same reason conftest pins with "" above.
+    env = {**os.environ, "SKEIN_AGENT_REVIEW": ""}
+    code = "from app import config; print(int(config.AGENT_REVIEW))"
+    out = subprocess.run(  # noqa: S603 — fixed argv, this interpreter, literal source
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        check=True,
+    )
+    assert out.stdout.strip() == "1"

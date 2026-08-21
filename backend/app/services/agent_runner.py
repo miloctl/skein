@@ -332,7 +332,15 @@ def run_one(
                 row = usage.row_from_agent(built, thread, agent_name=agent)
                 if row:
                     with contextlib.suppress(Exception):
-                        usage.record_chat_usage(**row)
+                        # a wake turn has no linkable chat thread, so its
+                        # spend sat under '(unlinked)' however clearly it was
+                        # one engagement's work — attributed only when every
+                        # open delegated task resolves to the same engagement
+                        # (usage.sole_delegation_engagement), never guessed
+                        usage.record_chat_usage(
+                            **row,
+                            engagement_id=usage.sole_delegation_engagement(agent),
+                        )
 
         # copy_context(), because a ContextVar does NOT cross a bare
         # threading.Thread — the worker starts at the var's default. Without

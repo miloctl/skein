@@ -90,8 +90,10 @@ Key mechanics:
   off-box. A later rewrite must contradict a record made on an earlier day.
   Detection, never prevention — the limits are stated plainly in
   [docs/FEATURES.md](docs/FEATURES.md).
-- **Approval gate** — with `SKEIN_AGENT_REVIEW=1`, agent writes become
-  `pending_changes` proposals that humans approve in `/review`.
+- **Approval gate** — on by default: agent writes become `pending_changes`
+  proposals that humans approve in `/review`. Per-(agent, entity) grants in
+  the authority matrix open direct writes deliberately; `SKEIN_AGENT_REVIEW=0`
+  opts the whole deployment out.
 - **Programmatic automation** (no LLM): blocker auto-extraction from standups,
   hourly escalation sweep, RICE-lite intake scoring, rule-based quick capture,
   full-text workspace search, deterministic daily digest, playbook instantiation
