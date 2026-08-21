@@ -11,21 +11,13 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from app import config, db, identity_audit
-
-# Five of the names below are imported and never called. They were unused
-# while this file was a heredoc, where nothing could see them; the extraction
-# is behaviour-preserving, so they stay. In a cross-version rehearsal an
-# import is not decoration — it is the check that the NEXT core still exports
-# a name an extension built against the prior core imports, and prior_core.py
-# does call two of them. Delete one only together with a decision that the
-# next core no longer owes that export.
 from app.extensions import (
     SKEIN_CORE_VERSION,
     AppSettings,
-    EventExecutionContext,  # noqa: F401 — export-surface check
+    EventExecutionContext,
     ExtensionRegistry,
     IdentityContribution,
-    JobExecutionContext,  # noqa: F401 — export-surface check
+    JobExecutionContext,
     PolicyContribution,
     PolicyDecision,
     PolicyEffect,
@@ -36,14 +28,28 @@ from app.extensions import (
 )
 from app.extensions.tools import ToolCallContext, execute_tool
 from app.main import _job_specs, create_app
-from app.public import (  # noqa: F401 — UpdateTaskCommand/WorkItems are export-surface checks
+from app.public import (
     CreateTaskCommand,
     PublicError,
     UpdateTaskCommand,
     WorkItems,
 )
-from app.public.events import dispatch_events  # noqa: F401 — export-surface check
-from app.services import users
+from app.public.events import dispatch_events
+from app.services import private_notes, users
+
+# The next core still owes an extension the names it imported against the
+# prior core. Stated as a check rather than left as five unused imports, so
+# dropping one is a decision about the export surface and not a lint fix.
+assert all(
+    obj is not None
+    for obj in (
+        JobExecutionContext,
+        EventExecutionContext,
+        UpdateTaskCommand,
+        WorkItems,
+        dispatch_events,
+    )
+)
 
 next_core = os.environ["NEXT_CORE"]
 assert version("skein") == next_core
@@ -85,11 +91,6 @@ identity_audit.main()
 assert users.folded_identity_collisions() == []
 assert users.ensure_human_identity("person-owner")["kind"] == "human"
 assert users.ensure_agent_identity("race-owner")["kind"] == "agent"
-# after the rename above, deliberately: this file preserves the ordering the
-# heredoc had, and hoisting a service import ahead of identity_audit.main()
-# is unverified rather than obviously safe.
-from app.services import private_notes  # noqa: E402
-
 assert [row["body"] for row in private_notes.list_notes("person-owner", "manager")] == [
     "private upgrade recovery marker"
 ]
