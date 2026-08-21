@@ -1128,6 +1128,51 @@ def _r_budget() -> list[dict]:
     ]
 
 
+def _r_evidence_gap() -> list[dict]:
+    """Delegated work accepted with nothing to audit.
+
+    Scoped to DELEGATED tasks, not every done task: judging each person's
+    closing hygiene is a per-person judgment on a team-wide surface, which
+    the anti-surveillance rule refuses — but a sponsor accepting an agent's
+    work with zero worklog notes is the trust loop measuring itself, and the
+    loop is the thing the review gate exists to prove. `delegated_agent`
+    survives completion (services/work.py clears it only on reassignment),
+    so a completed row still names the agent whose evidence is missing.
+
+    This rule is also the demand probe for the deferred evidence-pack spec
+    (docs/reviews/2026-07-24-agent-sol.md): a season of its firing rate is
+    the evidence that spec waits for, and silence retires it at season end
+    like any other rule.
+    """
+    since = _iso(_today() - timedelta(days=7))
+    rows = db.query(
+        f"SELECT t.id, t.title, t.delegated_agent, t.sponsor, t.completed_at"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f" FROM tasks t WHERE t.{WORKSPACE_ONLY}"
+        " AND t.status = 'done' AND t.delegated_agent != ''"
+        " AND t.completed_at >= ?"
+        " AND NOT EXISTS (SELECT 1 FROM task_worklog w WHERE w.task_id = t.id)",
+        (since,),
+    )
+    return [
+        _finding(
+            "evidence_gap",
+            "low",
+            f"Task #{r['id']} '{r['title']}' was accepted from"
+            f" {r['delegated_agent']} with no worklog note. The verdict has"
+            " nothing to audit.",
+            {
+                "task_id": r["id"],
+                "agent": r["delegated_agent"],
+                "sponsor": r["sponsor"],
+                "completed_at": r["completed_at"],
+            },
+            window="7d",
+            subject=f"task-{r['id']}",
+        )
+        for r in rows
+    ]
+
+
 def _r_meeting_no_outcome() -> list[dict]:
     """A recurring meeting that has produced nothing for weeks.
 
@@ -1296,6 +1341,7 @@ RULES = (
     _r_budget,
     _r_meeting_no_outcome,
     _r_interrupt_load,
+    _r_evidence_gap,
 )
 
 
