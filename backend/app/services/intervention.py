@@ -337,25 +337,28 @@ def interventions(
     # 5. Findings the team has not dispositioned. A dismissed or converted
     #    finding is a decision already made, and re-ranking it here would ask
     #    the manager to make it twice.
-    #    `limit` is applied AFTER the disposition filter, not by the query: a
-    #    run of already-handled findings otherwise spends the whole budget and
-    #    silently shortens this arm to nothing.
-    fresh = [f for f in list_findings(weeks=4, limit=200) if not f["disposition"]]
+    #    EVERY filter runs before the [:30] budget, not inside the loop: a
+    #    row the loop would skip still spends a slot when the slice comes
+    #    first, and a run of already-handled findings — or a deployment with
+    #    thirty stale jobs — silently shortens this arm to nothing.
+    #
+    #    On _RESTATED_BY_A_RAW_ARM: a rule whose subject a raw arm above
+    #    already filed is not filed twice. `promise_due` fires on the same
+    #    overdue promise section 3 emits: the manager saw promise #14 at one
+    #    band saying "settle it or renegotiate" and again three rows down at
+    #    another saying "convert it to work". The raw arm wins because it
+    #    names the owner and the real transition; the finding keeps its
+    #    disposition controls on its own page.
+    fresh = [
+        f
+        for f in list_findings(weeks=4, limit=200)
+        if not f["disposition"]
+        and f"finding_{f['severity']}" in _WEIGHT
+        and f["rule_id"] not in _RESTATED_BY_A_RAW_ARM
+        and f["rule_id"] not in _SYSTEM_AUDIENCE
+    ]
     for f in fresh[:30]:
         kind = f"finding_{f['severity']}"
-        if kind not in _WEIGHT:
-            continue
-        # A rule whose subject a raw arm above already filed is not filed
-        # twice. `promise_due` fires on the same overdue promise section 3
-        # emits: the manager saw promise #14 at one band saying "settle it or
-        # renegotiate" and again three rows down at another saying "convert it
-        # to work", two destinations, adjacent on screen. The raw arm wins
-        # because it names the owner and the real transition; the finding keeps
-        # its disposition controls on its own page.
-        if f["rule_id"] in _RESTATED_BY_A_RAW_ARM:
-            continue
-        if f["rule_id"] in _SYSTEM_AUDIENCE:
-            continue
         out.append(
             {
                 "kind": kind,

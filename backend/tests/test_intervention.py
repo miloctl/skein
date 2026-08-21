@@ -67,6 +67,45 @@ def test_system_findings_stay_out_of_the_meeting_queue(client, fresh_db, monkeyp
     assert not [r for r in rows if r["kind"].startswith("finding_")]
 
 
+def test_a_skipped_finding_does_not_spend_the_findings_budget(client, fresh_db, monkeypatch):
+    """The [:30] budget must be spent on rows that can render. Sliced before
+    the filters, thirty system findings emptied this arm — the same failure
+    the disposition filter's comment already warns about, for a new filter."""
+    # patched on insights, not intervention: the import is inside the
+    # function body, so the name resolves there at call time
+    from app.services import insights
+
+    def flooded(weeks=4, limit=200):
+        rows = [
+            {
+                "id": i,
+                "rule_id": "job_stale",
+                "subject": f"job-{i}",
+                "severity": "high",
+                "message": f"job {i} is stale",
+                "receipt": {},
+                "disposition": "",
+            }
+            for i in range(30)
+        ]
+        rows.append(
+            {
+                "id": 99,
+                "rule_id": "question_aging",
+                "subject": "question-7",
+                "severity": "low",
+                "message": "Question #7 has been open 9 days",
+                "receipt": {},
+                "disposition": "",
+            }
+        )
+        return rows
+
+    monkeypatch.setattr(insights, "list_findings", flooded)
+    rows = intervention.interventions(scope.Viewer("tester", True))
+    assert any(r["kind"] == "finding_low" and "Question #7" in r["title"] for r in rows)
+
+
 def test_every_row_states_the_next_move_and_its_receipt(client, fresh_db):
     from app.services import promises
 
