@@ -407,3 +407,47 @@ def test_a_stopped_flock_turn_still_records_what_it_spent(client, fresh_db, monk
     # three made this pass or fail on scheduling.
     spent = [r["agent_name"] for r in db.query("SELECT agent_name FROM usage_log")]
     assert fdef["members"][0] in spent, spent
+
+
+def test_agent_run_spend_attributes_through_the_sole_delegation(fresh_db, monkeypatch):
+    """The unattended runner's turns have no linkable chat thread, so all of
+    its spend sat under '(unlinked)' however clearly it was one engagement's
+    work. Attribution only when EVERY open delegated task resolves to the same
+    engagement — a second engagement, or one task outside any, means 0: the
+    honest bucket, never a guess."""
+    from app.services import delegation, users, work
+
+    monkeypatch.setattr(config, "MODEL_PRICES", {"m": (1.0, 1.0)})
+    users.ensure_user("ava")
+    eid = engagements.create_engagement("Atlas", actor="ava")["id"]
+    t1 = work.create_task("scout the docs", engagement_id=eid, actor="ava")["id"]
+    delegation.delegate_task(t1, "scout", "ava", actor="ava")
+
+    assert usage.sole_delegation_engagement("scout") == eid
+    usage.record_chat_usage(
+        "agent-run-x",
+        "scout",
+        "m",
+        1_000_000,
+        0,
+        engagement_id=usage.sole_delegation_engagement("scout"),
+    )
+    rows = {r["engagement"]: r for r in usage.engagement_costs()}
+    assert rows["Atlas"]["cost_usd"] == pytest.approx(1.0)
+
+    # a second open delegation OUTSIDE any engagement makes the run ambiguous
+    t2 = work.create_task("loose end", actor="ava")["id"]
+    delegation.delegate_task(t2, "scout", "ava", actor="ava")
+    assert usage.sole_delegation_engagement("scout") == 0
+
+
+def test_sole_delegation_resolves_through_the_milestone(fresh_db):
+    from app.services import delegation, users, work
+
+    users.ensure_user("ava")
+    eid = engagements.create_engagement("Atlas", actor="ava")["id"]
+    mid = work.create_milestone("m1", actor="ava")["id"]
+    work.update_milestone(mid, engagement_id=eid, actor="ava")
+    tid = work.create_task("via milestone", milestone_id=mid, actor="ava")["id"]
+    delegation.delegate_task(tid, "scout", "ava", actor="ava")
+    assert usage.sole_delegation_engagement("scout") == eid

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { actionError, api, loadError } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import { Card } from "@/components/card";
+import { ManageToggle, useManageMode } from "@/components/manage-toggle";
 import { SectionTabs } from "@/components/section-tabs";
 import { openTaskPeek } from "@/components/task-peek";
 
@@ -155,6 +156,7 @@ function Bar({ share }: { share: number }) {
 }
 
 export default function InsightsPage() {
+  const manage = useManageMode();
   const [d, setD] = useState<Insights | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -234,11 +236,21 @@ export default function InsightsPage() {
 
   return (
     <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
-      <SectionTabs set="work" />
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <SectionTabs set="work" />
+        <ManageToggle />
+      </div>
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Insights</h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
         Everything on this page measures the system — rules, jobs, funnels —
         never individual people.
+        {/* the three cards under manager controls measure SKEIN (reach,
+            automation share, whether rules earn their keep) — a teammate has
+            no decision attached to them, and they crowded the cards that
+            carry one */}
+        {manage
+          ? " Manager controls add the cards that measure Skein itself."
+          : ""}
       </p>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       <Card title="Findings — click one for its evidence">
@@ -370,6 +382,7 @@ export default function InsightsPage() {
         )}
       </Card>
 
+      {manage && (
       <Card title="Rule follow-through — do finding rules earn action?">
         {(d.rule_stats ?? []).length === 0 ? (
           <p className="text-sm text-ink-3">No findings fired yet.</p>
@@ -392,6 +405,7 @@ export default function InsightsPage() {
           </ul>
         )}
       </Card>
+      )}
 
       <Card title="Weekly check-in — team tally">
         {(d.pulse_tally ?? []).length === 0 ? (
@@ -415,6 +429,7 @@ export default function InsightsPage() {
         )}
       </Card>
 
+      {manage && (
       <Card title="Adoption — the tool's reach">
         <p className="text-sm">
           {d.adoption.weekly_active_users}/{d.adoption.team_humans} humans active
@@ -435,6 +450,7 @@ export default function InsightsPage() {
           {d.adoption.by_surface.length === 0 && <li>No activity recorded yet.</li>}
         </ul>
       </Card>
+      )}
 
       <Card title={`Blocker clear time — rolling ${m.window_days} days`}>
         <p className="text-sm">
@@ -456,6 +472,7 @@ export default function InsightsPage() {
         )}
       </Card>
 
+      {manage && (
       <Card title="Automation ratio — share of writes made by agents">
         <p className="mb-2 text-xs text-ink-3">
           Read it next to the rejection rate below — volume only counts if
@@ -489,6 +506,7 @@ export default function InsightsPage() {
           ))}
         </ul>
       </Card>
+      )}
 
       <Card title={`Intake funnel (${d.intake_funnel.window_weeks}w)`}>
         <p className="text-sm">

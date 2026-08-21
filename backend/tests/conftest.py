@@ -9,6 +9,10 @@ os.environ["SKEIN_SCHEDULER"] = "0"
 # variable set empty, which this line would otherwise mask.
 os.environ["SKEIN_AUTH_MODE"] = "trusted-header"
 os.environ["SKEIN_MODEL_PROVIDER"] = "mock"
+# The SHIPPED default is gate ON (fail closed, like the auth mode above) —
+# test_gate_coverage.py pins that by booting a fresh process. The suite pins
+# it off because most direct-write tests predate the flip and exercise the
+# opt-out branch; gate-on paths monkeypatch config.AGENT_REVIEW to True.
 os.environ["SKEIN_AGENT_REVIEW"] = "0"
 os.environ["SKEIN_EMBEDDINGS"] = "0"
 # "" and not pop: config's load_dotenv() re-fills an ABSENT var from
