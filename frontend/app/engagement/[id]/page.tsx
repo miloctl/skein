@@ -49,6 +49,11 @@ type Brief = {
     kill_criteria: string | null;
     conclusion: string | null;
   };
+  since_yesterday: {
+    tasks_done: number;
+    blockers_opened: number;
+    blockers_resolved: number;
+  };
   health: { color: string; receipts: Receipt[]; moved_from: string | null };
   milestones: Row[];
   tasks: Row[];
@@ -181,6 +186,30 @@ export default function EngagementBrief({
           {e.project_class} · {e.kind} · {e.status}
           {e.lead ? ` · led by @${e.lead}` : " · no lead"}
         </p>
+        {/* what moved HERE since yesterday, before the inventory below — a
+            returning reader's first question, answered without reading seven
+            cards. Rendered only when something moved: a permanent "nothing
+            changed" line is furniture by the second visit. Health movement
+            stays on the Health card beside its receipts. */}
+        {(() => {
+          const d = b.since_yesterday;
+          const parts = [
+            d.tasks_done
+              ? `${d.tasks_done} task${d.tasks_done === 1 ? "" : "s"} done`
+              : "",
+            d.blockers_opened
+              ? `${d.blockers_opened} blocker${d.blockers_opened === 1 ? "" : "s"} opened`
+              : "",
+            d.blockers_resolved
+              ? `${d.blockers_resolved} blocker${d.blockers_resolved === 1 ? "" : "s"} resolved`
+              : "",
+          ].filter(Boolean);
+          return parts.length > 0 ? (
+            <p className="mt-1 text-xs text-ink-2">
+              Since yesterday: {parts.join(" · ")}
+            </p>
+          ) : null;
+        })()}
       </div>
 
       {/* What it is FOR, first. Health without the outcome tells a reader the
