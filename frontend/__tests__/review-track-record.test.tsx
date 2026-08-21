@@ -43,6 +43,29 @@ const load = (record: unknown) => {
 };
 
 describe("the proposer's record on the approvals row", () => {
+  it("puts the ask before the trust arithmetic", async () => {
+    load({
+      approved: 0,
+      proposed: 1,
+      approval_rate: 0,
+      streak: 0,
+      streak_blocked: "",
+      level: "review",
+      promotes_at: 0,
+    });
+    render(<ReviewPage />);
+    const summary = await screen.findByText("create a task");
+    const record = screen.getByText(/settled proposal to add a task/);
+    // the card led with the record, so a reviewer met the streak maths and
+    // the identity lecture before the sentence saying what the agent wants —
+    // the summary must come first in document order, the record beside the
+    // verdict buttons
+    expect(
+      summary.compareDocumentPosition(record) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("states the counts and the run of approvals", async () => {
     load({
       approved: 12,
