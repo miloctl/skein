@@ -71,6 +71,14 @@ Widen to `<0.4.0` and re-read the two Behavior entries below before you do.
   and in CI. Their steps are files under `scripts/contract/` rather than
   shell heredocs, so ruff checks them and a failure names a real file and
   line.
+- `reference-images-contract.sh` starts a PostgreSQL container of its own on
+  an isolated network and points the derivative image at it. The app has
+  been PostgreSQL-only since 0.2.3 and the gate never supplied a server, so
+  it could not reach startup; it deliberately does NOT use the caller's
+  `SKEIN_DATABASE_URL`, because it boots a real deployment image and would
+  otherwise run core migrations against a developer's database. Both
+  readiness loops now print the container's log when they give up, instead
+  of leaving the next command to report "container is not running".
 
 ## 0.2.2 — 2026-08-13
 
