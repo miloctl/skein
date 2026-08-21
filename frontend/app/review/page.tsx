@@ -118,7 +118,7 @@ function TrackRecord({
 }) {
   const settled = `${record.approved} of ${record.proposed}`;
   return (
-    <p className="mt-1 text-xs text-ink-3">
+    <p className="mb-2 text-xs text-ink-3">
       {/* "proposals to <verb phrase>", not "settled <label> proposals" —
           services/lexicon.py stores every entity as a VERB phrase ("add a
           task", "make a promise"), so slotting one into a noun position
@@ -743,12 +743,6 @@ export default function ReviewPage() {
                 </time>
               </span>
             </div>
-            {/* below the header row, not inside it: that row is
-                justify-between, and a third child there lands at the right
-                edge and shoves the byline into the middle */}
-            {c.record ? (
-              <TrackRecord record={c.record} label={c.label} />
-            ) : null}
             {c.summary && (
               <p className="mb-2 text-sm text-ink-2">{c.summary}</p>
             )}
@@ -801,6 +795,16 @@ export default function ReviewPage() {
                 )}
               </div>
             )}
+            {/* LAST, beside the verdict it informs — this card led with the
+                track record, so a reviewer met the streak arithmetic and the
+                identity lecture before the one sentence saying what the agent
+                wants to do. The ask opens the card; the trust maths sit where
+                the decision is made. Below the header row either way: that
+                row is justify-between, and a third child there lands at the
+                right edge and shoves the byline into the middle. */}
+            {c.record ? (
+              <TrackRecord record={c.record} label={c.label} />
+            ) : null}
             {asking?.id === c.id ? (
               <VerdictAsk
                 verb={asking.verb}

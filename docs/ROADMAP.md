@@ -185,6 +185,15 @@ A1 (delegation work loop), A2 (system-filed authority proposals) and A3 (the
 morning sweep, which notifies each delegated task's sponsor rather than filing
 `nudge` proposals) shipped.
 
+- **Trust-loop season readout** [S-M] — the posture note's exit trigger says
+  the season-end decision "is then a read, not a debate", and nothing renders
+  that read: `pulse.py` seasons count standups and ships, review analytics
+  and trust scores are neither season-scoped nor composed. One
+  manager-controls card reading what exists — verdicts this season by
+  identity strength, authority levels changed, delegations started and
+  completed by sponsor, proposals per agent with rejection reasons. No new
+  tables, no new writes, keyless. Ship before the season ends, or the
+  trigger gets assembled by hand from four surfaces.
 - **A4 agent-to-agent handoff** — a `handoff_task` tool that keeps the sponsor
   immutable. The hop is itself a proposal the sponsor approves.
 - **A5 proposal bundles** — `bundle_id` and `seq` on `pending_changes`, with
@@ -200,14 +209,6 @@ morning sweep, which notifies each delegated task's sponsor rather than filing
   the same task is approved — so what remains is every other entity, and every
   rejection nobody re-submits. An `acked_at` column ends those.
 - Notify-tier writes link to an empty `/review`.
-- **Approval card leads with compliance, not the ask** [S] — an Inbox →
-  Approvals card opens with the strong-identity/promotion-streak paragraph
-  and a raw key-value payload dump; what the agent wants to do comes third.
-  This is the surface where trust verdicts happen, and the season of
-  dogfooding will make everyone stare at it. Lead with the proposed change
-  in one sentence, keep the identity warning only when it blocks the
-  verdict, and render the payload as a labeled diff-style summary. The
-  "identical to #4" chip is the register to match.
 - The review registry has no registration-time assertion on apply-handler
   signatures — a mismatched handler surfaces at apply time as a caught
   runtime error, not at startup. Assert the signatures when the registry is
