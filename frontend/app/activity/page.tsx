@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api, loadError } from "@/lib/api";
 import { Card } from "@/components/card";
@@ -33,6 +33,14 @@ const WHO_BADGE: Record<Entry["who"], string> = {
 // page's rows both name it here
 export { taskRef } from "@/lib/task-ref";
 import { taskRef } from "@/lib/task-ref";
+import { size } from "@/lib/size";
+
+// The ledger stores the exact byte count ("artifact #24 (1019072 bytes)") and
+// must keep it — detail is inside the hash chain. The sentence view humanizes
+// it at render; the Raw toggle and the expanded panel keep the stored text.
+function humanize(detail: string): string {
+  return detail.replace(/\((\d+) bytes\)/, (_, n) => `(${size(Number(n))})`);
+}
 
 export default function ActivityPage() {
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -68,6 +76,23 @@ export default function ActivityPage() {
       setLoadingMore(false);
     }
   };
+
+  // Folded at render over the ACCUMULATED pages, not per fetch — a burst
+  // split across a page boundary must not render as two groups. Keyed on the
+  // raw actor, never `who`: `who` collapses every agent to the literal
+  // "agent" and would merge two different agents' bursts into one row. The
+  // feed itself shows only the viewer, agents, and system actors
+  // (activity.visible_actor_filter), so two humans can never fold together.
+  const runs = useMemo(() => {
+    const out: Entry[][] = [];
+    for (const e of entries) {
+      const last = out[out.length - 1];
+      if (last && last[0].actor === e.actor && last[0].action === e.action)
+        last.push(e);
+      else out.push([e]);
+    }
+    return out;
+  }, [entries]);
 
   return (
     <main
@@ -117,8 +142,9 @@ export default function ActivityPage() {
       {entries.length > 0 && (
         <Card>
           <ul className="divide-y divide-line">
-            {entries.map((e) =>
-              raw ? (
+            {(raw ? entries.map((e) => [e]) : runs).map((run) => {
+              const e = run[0];
+              return raw ? (
                 <li
                   key={e.seq}
                   className="py-1.5 font-mono text-[11px] text-ink-2"
@@ -126,6 +152,58 @@ export default function ActivityPage() {
                   <span className="text-ink-3">#{e.seq}</span> {e.created_at}{" "}
                   <span className="font-medium text-thread">{e.actor}</span>{" "}
                   {e.action} {e.detail}
+                </li>
+              ) : run.length > 1 ? (
+                <li key={e.seq}>
+                  <button
+                    onClick={() =>
+                      setExpanded((cur) => (cur === e.seq ? null : e.seq))
+                    }
+                    aria-expanded={expanded === e.seq}
+                    className={
+                      "flex w-full items-baseline gap-2 py-2 text-left text-sm hover:bg-raised/50 " +
+                      (run.every((c) => c.salience === "quiet")
+                        ? "text-ink-2"
+                        : "")
+                    }
+                  >
+                    <span
+                      aria-hidden
+                      className={
+                        "mt-1 inline-block size-2 shrink-0 self-center rounded-full " +
+                        (run.some((c) => c.salience === "loud")
+                          ? "bg-danger"
+                          : "bg-line-strong")
+                      }
+                    />
+                    <span
+                      className={
+                        "shrink-0 rounded-full px-1.5 py-px font-mono text-[10px] " +
+                        WHO_BADGE[e.who]
+                      }
+                    >
+                      {e.who === "you" ? "you" : e.who}
+                    </span>
+                    <span className="min-w-0 flex-1 break-words text-ink sm:truncate">
+                      {e.sentence}
+                      <span className="text-ink-3"> — {run.length} rows</span>
+                    </span>
+                    <span className="shrink-0 text-xs text-ink-3">
+                      {timeAgo(e.created_at)}
+                    </span>
+                  </button>
+                  {expanded === e.seq && (
+                    <div className="mb-2 ml-6 space-y-0.5 rounded-lg bg-raised px-3 py-2 font-mono text-[11px] text-ink-2">
+                      {/* the stored text, exactly — the sentence row above is
+                          the readable view, this is the forensic one */}
+                      {run.map((c) => (
+                        <div key={c.seq} className="break-all">
+                          #{c.seq} · {c.created_at}
+                          {c.detail ? ` · ${c.detail}` : ""}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </li>
               ) : (
                 <li key={e.seq}>
@@ -162,7 +240,7 @@ export default function ActivityPage() {
                     <span className="min-w-0 flex-1 break-words text-ink sm:truncate">
                       {e.sentence}
                       {e.detail && (
-                        <span className="text-ink-3"> — {e.detail}</span>
+                        <span className="text-ink-3"> — {humanize(e.detail)}</span>
                       )}
                     </span>
                     <span className="shrink-0 text-xs text-ink-3">
@@ -199,8 +277,8 @@ export default function ActivityPage() {
                     </div>
                   )}
                 </li>
-              ),
-            )}
+              );
+            })}
           </ul>
           {nextBefore != null && (
             <button

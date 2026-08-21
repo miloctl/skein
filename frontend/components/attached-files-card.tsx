@@ -5,6 +5,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Card as Section, EmptyState } from "@/components/card";
 import { API_URL, actionError, api, bearer, userHeader } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
+// moved to lib/size.ts so the activity feed can humanize the byte counts
+// its ledger rows carry without importing this card's tree
+import { size } from "@/lib/size";
 
 type StoredFile = {
   id: number;
@@ -21,19 +24,6 @@ type FileList = {
   max_file: number;
 };
 
-/** A size in the unit that actually says something about it.
- *
- *  Fixed to MB, every small file reads as "0.0 MB" — which says a file the
- *  reader can plainly see is empty, and makes the row look like a bug rather
- *  than a note they attached. Mixed units in one sentence ("35 KB of 100 MB
- *  used") are the honest version. */
-function size(bytes: number): string {
-  if (bytes < 1024) return `${bytes} byte${bytes === 1 ? "" : "s"}`;
-  const kb = bytes / 1024;
-  if (kb < 1024) return `${Math.round(kb)} KB`;
-  const value = kb / 1024;
-  return value < 10 ? `${value.toFixed(1)} MB` : `${Math.round(value)} MB`;
-}
 
 /** The one surface that shows a person their own attached files.
  *
