@@ -258,7 +258,7 @@ def _update_engagement_locked(
         # closing over live work must be loud, not blocking: orphaned tasks
         # silently stop counting anywhere once their engagement is closed
         open_tasks = db.query_one(
-            "SELECT COUNT(*) AS n FROM tasks WHERE status NOT IN ('done')"
+            "SELECT COUNT(*) AS n FROM tasks WHERE status NOT IN ('done', 'void')"
             " AND (engagement_id = ? OR milestone_id IN"
             " (SELECT id FROM milestones WHERE engagement_id = ?))",
             (engagement_id, engagement_id),

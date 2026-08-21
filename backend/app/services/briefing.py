@@ -464,7 +464,7 @@ def my_day(
             # the least urgent. Reads idx_tasks_assignee_due (001_baseline.sql).
             "due_soon": redact_task_relationships(
                 db.query(
-                    "SELECT * FROM tasks WHERE status != 'done' AND due_date IS NOT NULL"  # noqa: S608 — scope.visible_filter emits only bound marks
+                    "SELECT * FROM tasks WHERE status NOT IN ('done', 'void') AND due_date IS NOT NULL"  # noqa: S608 — scope.visible_filter emits only bound marks
                     f" AND due_date <= ? AND {t_f}"
                     f" AND (assignee = ? OR (assignee = '' AND {WORKSPACE_ONLY}))"
                     " ORDER BY due_date NULLS FIRST LIMIT 50",

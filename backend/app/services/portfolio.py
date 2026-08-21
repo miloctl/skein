@@ -22,7 +22,8 @@ def _today() -> date:
 # Keys mirror work.WAITING_ON_TYPES (the write path's whitelist): a type
 # added there without a query here KeyErrors _satisfied_targets → /portfolio
 _WAIT_SATISFIED = {
-    "task": "SELECT id FROM tasks WHERE status = 'done' AND id IN ({marks})",
+    # void satisfies too: a task that never should have existed blocks nothing
+    "task": "SELECT id FROM tasks WHERE status IN ('done', 'void') AND id IN ({marks})",
     "blocker": "SELECT id FROM blockers WHERE status = 'resolved' AND id IN ({marks})",
     "promise": "SELECT id FROM promises WHERE status != 'open' AND id IN ({marks})",
 }
@@ -598,7 +599,7 @@ def slip_forecast() -> dict:
             # does not read this list, so dropping the row costs an annotation
             # and not a number.
             f"SELECT id, milestone_id, waiting_on_type, waiting_on_id FROM tasks"  # noqa: S608 — placeholders built above, and scope.WORKSPACE_ONLY is a module constant
-            f" WHERE {WORKSPACE_ONLY} AND milestone_id IN ({marks}) AND status != 'done'"
+            f" WHERE {WORKSPACE_ONLY} AND milestone_id IN ({marks}) AND status NOT IN ('done', 'void')"
             f" AND waiting_on_type IS NOT NULL ORDER BY id",
             tuple(m["id"] for m in open_ms),
         ):

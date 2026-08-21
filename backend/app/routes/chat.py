@@ -1053,6 +1053,9 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
             request.app.state.skein_registry.policy_engine,
             subject,
             "human",
+            # claimed above — /remember files against this thread's linked
+            # engagement, and the claim is what proves the id is the caller's
+            thread_id=ui_thread,
         ),
     )
     if command_events is not None:

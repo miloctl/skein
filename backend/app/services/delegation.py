@@ -906,7 +906,7 @@ def mission_control() -> list[dict]:
     for a in agents:
         name = a["name"]
         open_tasks = db.query_one(
-            "SELECT COUNT(*) AS n FROM tasks WHERE delegated_agent = ? AND status != 'done'",
+            "SELECT COUNT(*) AS n FROM tasks WHERE delegated_agent = ? AND status NOT IN ('done', 'void')",
             (name,),
         )
         pending = db.query_one(
@@ -962,7 +962,7 @@ def agent_inbox(
     tasks = db.query(
         "SELECT id, title, description, status, priority, sponsor, due_date,"  # noqa: S608 — scope.visible_filter emits only bound marks
         " milestone_id, engagement_id FROM tasks"
-        f" WHERE delegated_agent = ? AND status != 'done' AND {tfrag}"
+        f" WHERE delegated_agent = ? AND status NOT IN ('done', 'void') AND {tfrag}"
         " ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
         " WHEN 'medium' THEN 2 ELSE 3 END, id",
         (agent, *tp),

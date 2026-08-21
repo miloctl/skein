@@ -8,7 +8,7 @@ from . import scope
 from .search import index_record
 
 MILESTONE_STATUSES = ("planned", "in_progress", "blocked", "done")
-TASK_STATUSES = ("todo", "in_progress", "blocked", "done")
+TASK_STATUSES = ("todo", "in_progress", "blocked", "done", "void")
 PRIORITIES = ("low", "medium", "high", "urgent")
 WEEK_RE = re.compile(r"^\d{4}-W(0[1-9]|[1-4]\d|5[0-3])$")
 
@@ -778,6 +778,16 @@ def _update_task_locked(
     # it, with no reason on record and no override marking. accept_completion
     # writes its own UPDATE and never routes through here, so the sponsor's
     # real verdict is unaffected.
+    # void is refused OUTRIGHT on a delegated task, for anyone: voiding ends
+    # the delegation with no verdict and no trust signal, and it would strand
+    # the acceptance proposal pending forever (its apply raises on a task
+    # that is no longer open). The sponsor ends the delegation first — their
+    # verdict, or a reassignment — and voids the plain task after.
+    if status == "void" and current["delegated_agent"]:
+        raise ValueError(
+            f"task #{task_id} is delegated — end the delegation first"
+            " (the sponsor's verdict, or a reassignment), then void it"
+        )
     if status == "done" and current["delegated_agent"]:
         from .users import is_agent
 
@@ -894,7 +904,17 @@ def _update_task_locked(
             _settle_acceptance(task_id, actor, strong, current["delegated_agent"])
         row = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
         if row:
-            index_record("task", task_id, row["title"], f"{row['description']} {row['assignee']}")
+            if row["status"] == "void":
+                # search must never cite a voided task — leaving every other
+                # list is the whole meaning of the status. Un-voiding (setting
+                # any live status) falls through to index_record below.
+                from .search import deindex_record
+
+                deindex_record("task", task_id)
+            else:
+                index_record(
+                    "task", task_id, row["title"], f"{row['description']} {row['assignee']}"
+                )
             if fields.get("description") or fields.get("title"):
                 from .mentions import scan
 
@@ -1291,10 +1311,11 @@ def _blocked_by(task_ids: set[int], viewer: scope.Viewer) -> list[dict]:
     frag, vp = scope.visible_filter(viewer, "tasks", alias="t")
     marks = ",".join("?" * len(task_ids))
     return db.query(
-        # status != 'done': a finished task is not waiting on anything, and
-        # listing it as released work would double-count what already landed
+        # neither terminal status: a finished task is not waiting on anything
+        # (listing it as released work would double-count what already
+        # landed), and a voided one never should have existed
         f"SELECT t.id, t.title, t.status, t.assignee, t.priority"  # noqa: S608 — marks are bound, visible_filter emits only bound marks
-        f" FROM tasks t WHERE t.status != 'done' AND {frag}"
+        f" FROM tasks t WHERE t.status NOT IN ('done', 'void') AND {frag}"
         f" AND t.waiting_on_type = 'task' AND t.waiting_on_id IN ({marks})"
         " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
         " WHEN 'medium' THEN 2 ELSE 3 END, t.id",
@@ -1404,7 +1425,7 @@ def list_tasks_joined(
     )
     params: list[str | int] = [*mp, *ep, *wtp, *wbp, *wpp, *vp]
     if status == "open":
-        sql += " AND t.status != 'done'"
+        sql += " AND t.status NOT IN ('done', 'void')"
     elif status == "done":
         sql += " AND t.status = 'done'"
     if order == "completed":

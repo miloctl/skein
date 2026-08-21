@@ -97,8 +97,11 @@ export default function PeoplePage() {
   }, []);
 
   useEffect(() => {
-    if (person) load(person);
-  }, [person, load]);
+    // never under weak identity: both endpoints refuse it, and firing them
+    // rendered the same refusal twice — once per card — over a notes form
+    // whose submit was going to collect a third copy
+    if (person && strong !== false) load(person);
+  }, [person, strong, load]);
 
   const [saving, setSaving] = useState(false);
   const addNote = async () => {
@@ -166,6 +169,12 @@ export default function PeoplePage() {
         </div>
       )}
 
+      {/* nothing below the identity banner renders under weak identity: the
+          picker fired two requests that both refused, and the notes form
+          collected an entry whose submit was going to refuse too — a wall of
+          the same sentence three times, around a dead control */}
+      {strong !== false && (
+      <>
       <div className="mb-6 flex flex-wrap gap-2">
         {people
           .filter((u) => u.kind !== "agent")
@@ -293,6 +302,8 @@ export default function PeoplePage() {
             </ul>
           </Card>
         </div>
+      )}
+      </>
       )}
     </main>
   );

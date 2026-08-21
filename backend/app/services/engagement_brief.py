@@ -97,7 +97,7 @@ def brief(
                 f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
                 " AND (t.engagement_id = ? OR t.milestone_id IN"
                 "      (SELECT id FROM milestones WHERE engagement_id = ?))"
-                " AND t.status != 'done'"
+                " AND t.status NOT IN ('done', 'void')"
                 " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
                 " WHEN 'medium' THEN 2 ELSE 3 END, t.due_date IS NULL, t.due_date, t.id"
                 # capped, and the page says so: an engagement with eighty open tasks
@@ -130,7 +130,7 @@ def brief(
             f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
             " AND (t.engagement_id = ? OR t.milestone_id IN"
             "      (SELECT id FROM milestones WHERE engagement_id = ?))"
-            " AND t.status != 'done' AND t.delegated_agent != ''"
+            " AND t.status NOT IN ('done', 'void') AND t.delegated_agent != ''"
             " ORDER BY t.id",
             (*tp, engagement_id, engagement_id),
         ),
@@ -153,7 +153,7 @@ def brief(
             f"SELECT t.id FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
             " AND (t.engagement_id = ? OR t.milestone_id IN"
             "      (SELECT id FROM milestones WHERE engagement_id = ?))"
-            " AND t.status != 'done'",
+            " AND t.status NOT IN ('done', 'void')",
             (*tp, engagement_id, engagement_id),
         ),
         viewer,

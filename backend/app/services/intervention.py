@@ -296,7 +296,7 @@ def interventions(
     tfrag, tp = scope.visible_filter(viewer, "tasks", alias="t")
     for t in db.query(
         f"SELECT t.id, t.title, t.due_date FROM tasks t"  # noqa: S608 — scope.visible_filter emits only bound marks
-        f" WHERE t.assignee = '' AND t.status != 'done' AND {tfrag}"
+        f" WHERE t.assignee = '' AND t.status NOT IN ('done', 'void') AND {tfrag}"
         " AND t.due_date IS NOT NULL AND t.due_date <= ? ORDER BY t.due_date LIMIT 10",
         (*tp, today),
     ):

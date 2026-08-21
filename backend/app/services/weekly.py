@@ -29,7 +29,10 @@ def week_view(week: str = "") -> dict:
             # would drop every task with no milestone and turn the join INNER
             # (services/scope.py::visible_filter names this placement)
             f" LEFT JOIN milestones m ON m.id = t.milestone_id AND m.{WORKSPACE_ONLY}"
-            f" WHERE t.{WORKSPACE_ONLY} AND t.committed_week = ? ORDER BY t.assignee NULLS FIRST, t.id",
+            # a voided task leaves the commitment line: it never should have
+            # existed, so counting it against kept-% punishes the correction
+            f" WHERE t.{WORKSPACE_ONLY} AND t.committed_week = ? AND t.status != 'void'"
+            " ORDER BY t.assignee NULLS FIRST, t.id",
             (week,),
         ),
         scope.NOBODY,

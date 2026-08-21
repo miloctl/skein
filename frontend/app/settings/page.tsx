@@ -29,6 +29,7 @@ import { copyText } from "@/lib/clipboard";
 import { Card as Section } from "@/components/card";
 import { AttachedFilesCard } from "@/components/attached-files-card";
 import { BackupCard } from "@/components/backup-card";
+import { OperationsCard } from "@/components/operations-card";
 import { CrewsCard } from "@/components/crews-card";
 import {
   APPEARANCES,
@@ -2367,6 +2368,8 @@ export default function SettingsPage() {
               Team
             </h2>
             <div className="space-y-4">
+              <OperationsCard headingLevel={3} />
+
               <BackupCard
                 canAdminister={canAdminister}
                 accessMessage={adminAccessMessage}

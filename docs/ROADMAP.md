@@ -111,18 +111,13 @@ Sized S or M by that review. Items 6 and 8 of the original list are gone. The
 engagement-close conclusion select shipped (`app/dashboard/page.tsx`). The
 portfolio commitments card now names its two audiences in the card title.
 Items 1 (nav search), 3 (delegate control in the task peek), 5 (the
-allocation form on the Capacity card), 7 (the Recently shipped strip), and 9
-(phone-width search results) shipped and were dropped. The remaining numbers stay as the review transcripts cite them.
+allocation form on the Capacity card), 7 (the Recently shipped strip), 8 (the
+task `void` status), and 9 (phone-width search results) shipped and were
+dropped. The remaining numbers stay as the review transcripts cite them.
 
 6. [S] `?` tooltips: ISO week format on the commitment card, season definition
    on the pulse banner. (The origin glossary this item also named shipped
    2026-08-09 as the origin chip on each Approvals row.)
-8. [S] A mistyped task is permanent. `docs/CORRECTIONS.md` rule 2 says
-   records that carry history get a terminal state instead of a delete, and
-   Task already has `done` — so this is not a contract gap. It is an
-   ergonomics one: nothing distinguishes "finished" from "never should have
-   existed", which is why demo and validation rows accumulate. A `void`
-   disposition, or accept it and say so in CORRECTIONS.
 ## Manager and workflow (from the 2026-07-25 ideation run)
 
 Playbooks learn from ONE engagement: the plan is snapshot at kickoff, the
@@ -457,6 +452,7 @@ review. Each names the condition that reopens it.
 | Trust profile partitions by model version | A model swap causes a problem that review stats did not catch. |
 | Auto-quiet findings rules | The rule count or the noise grows beyond hand-tending. The maintainer retires rules at season end today. |
 | Stakeholder signed status pages | Real stakeholder demand AND real auth. Then build it as a push-generated static artifact, never by exposing the app. |
+| Crew context-pack surfaces (UI mention, CLI flag, scheduled publish) | A crew actually asks for a pack scoped tighter than the workspace. The API works today (`?crew=`, membership-gated); only the surfaces were cut. |
 | Coordination-debt and closed-loop-rate metrics registry | Multi-team scale. |
 | Playbooks 2.0, delegation contracts, evidence pack, transactional outbox, capability broker | Deferred. Specs are in `docs/reviews/2026-07-24-agent-sol.md`. |
 | Employee private-prep sections | Refused until the journal separate-store pattern is proven. |

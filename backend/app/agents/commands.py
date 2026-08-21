@@ -52,6 +52,11 @@ class CommandAccess:
     policy: PolicyEngine
     subject: PolicySubject
     origin: str
+    # the CLAIMED thread this command ran in ("" outside a chat turn — the
+    # mock agent's direct dispatch, tests). /remember reads it to file
+    # against the thread's linked engagement; the route claims the id before
+    # dispatching, so it is proved to be the caller's.
+    thread_id: str = ""
 
 
 def _write_refusal(
@@ -358,6 +363,37 @@ async def _remember(
         return
     yield _tool_event("remember")
     try:
+        # In a thread linked to an engagement, the fact files AGAINST that
+        # engagement — this was the loop the sidebar promised ("Filing one
+        # back is a proposal a person approves") with no path that entered
+        # it: recall read engagement memories and nothing could write one.
+        # Always through the proposal (services/memory.py says why: chat text
+        # is where a model's summary and a person's words are hard to tell
+        # apart), never the direct write below.
+        engagement_id = 0
+        if access and access.thread_id:
+            row = await run_in_threadpool(
+                db.query_one,
+                "SELECT engagement_id FROM chat_threads WHERE id = ? AND owner = ?",
+                (access.thread_id, user),
+            )
+            engagement_id = int(row["engagement_id"] or 0) if row else 0
+        if engagement_id:
+            p = await run_in_threadpool(
+                lambda: memory.propose_engagement_memory(
+                    engagement_id,
+                    args,
+                    thread_id=access.thread_id if access else "",
+                    actor=user,
+                    viewer=viewer,
+                ),
+            )
+            yield {
+                "data": f"Filed as proposal #{p['id']} for this thread's engagement."
+                " A person approves it in Inbox → Approvals before it steers"
+                " future conversations."
+            }
+            return
         m = await run_in_threadpool(memory.remember, args, user=user, actor=user)
         from .. import config
 

@@ -258,7 +258,7 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
         )
         tasks = db.query(
             f"SELECT id, title, due_date FROM tasks WHERE {WORKSPACE_ONLY} AND assignee = ?"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-            " AND status != 'done' AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
+            " AND status NOT IN ('done', 'void') AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
             (name, horizon),
         )
         n = len(promises) + len(decisions) + len(questions) + len(tasks)

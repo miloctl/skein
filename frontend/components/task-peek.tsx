@@ -481,13 +481,16 @@ export function TaskPeek() {
 }
 
 // mirrors work.py::TASK_STATUSES and PRIORITIES — a value absent here is
-// merely unpickable, a value absent there is a 400
+// merely unpickable, a value absent there is a 400. `void` is deliberately
+// not in the select: it has its own confirmed control below, and a voided
+// task's select carries it so the restore path (pick a live status) exists.
 const STATUSES = ["todo", "in_progress", "blocked", "done"];
 const PRIORITIES = ["low", "medium", "high", "urgent"];
 
 function EditControls({ task, onSaved }: { task: PeekTask; onSaved: () => void }) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [voiding, setVoiding] = useState(false);
   const [draft, setDraft] = useState({
     status: "",
     priority: "",
@@ -549,6 +552,69 @@ function EditControls({ task, onSaved }: { task: PeekTask; onSaved: () => void }
               Mark task #{task.id}: {task.title}{" "}
             </span>
             mark done
+          </button>
+        ) : null}
+        {/* void: the task never should have existed. Its own confirmed
+            control, never a select option — "done" claims the work happened
+            and feeds throughput, void removes it from every list and metric */}
+        {task.status !== "void" && !delegated ? (
+          voiding ? (
+            <span className="flex flex-wrap items-center gap-1.5 text-xs text-ink-3">
+              <span id={`void-task-${task.id}-consequence`}>
+                Void this task? It leaves every list, metric and search
+                result. It stays readable at this address, and setting a live
+                status restores it.
+              </span>
+              <button
+                autoFocus
+                aria-describedby={`void-task-${task.id}-consequence`}
+                disabled={busy}
+                onClick={() => {
+                  setVoiding(false);
+                  patch({ status: "void" }, `Task #${task.id} is void.`);
+                }}
+                className="rounded bg-danger-solid px-2 py-0.5 font-medium text-white hover:opacity-90 disabled:opacity-50"
+              >
+                Void task
+              </button>
+              <button
+                onClick={() => {
+                  setVoiding(false);
+                  setTimeout(
+                    () => document.getElementById(`void-task-${task.id}`)?.focus(),
+                    0,
+                  );
+                }}
+                className="hover:text-ink"
+              >
+                Keep the task
+              </button>
+            </span>
+          ) : (
+            <button
+              id={`void-task-${task.id}`}
+              onClick={() => setVoiding(true)}
+              className="rounded bg-raised px-2 py-0.5 text-xs text-ink-3 hover:bg-line"
+            >
+              <span className="sr-only">
+                Void task #{task.id}: {task.title} —{" "}
+              </span>
+              void…
+            </button>
+          )
+        ) : null}
+        {task.status === "void" ? (
+          <button
+            disabled={busy}
+            onClick={() =>
+              patch({ status: "todo" }, `Task #${task.id} is restored to todo.`)
+            }
+            className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line disabled:opacity-50"
+          >
+            <span className="sr-only">
+              Restore task #{task.id}: {task.title}{" "}
+            </span>
+            restore to todo
           </button>
         ) : null}
       </p>

@@ -56,7 +56,7 @@ def generate_handoff(
         db.query(
             f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
             " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
-            " AND t.status != 'done'",
+            " AND t.status NOT IN ('done', 'void')",
             (*tp, engagement_id, engagement_id),
         ),
         viewer,

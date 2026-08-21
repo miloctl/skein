@@ -63,7 +63,7 @@ new features are reviewed against it.
 
 | Entity | Edit | Delete/terminal | Relink | Notes |
 |---|---|---|---|---|
-| Task | ✅ UI+API+tool | done state | ✅ (−1 unlinks) | |
+| Task | ✅ UI+API+tool | done state · void state (never-should-have-existed; leaves lists, metrics and search; restorable) | ✅ (−1 unlinks) | |
 | Milestone | ✅ UI+API+tool | done state | ✅ | create warns on unmatched project |
 | Engagement | ✅ incl. rename (API+tool+UI status) | close w/ conclusion | n/a | rename propagates labels, transactional |
 | Allocation | delete+recreate | ✅ DELETE | n/a | capacity window-aware |
