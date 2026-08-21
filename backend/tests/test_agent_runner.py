@@ -234,6 +234,60 @@ def test_a_task_with_a_recent_note_is_not_quiet(fresh_db, monkeypatch):
     assert agent_runner.sweep()["swept"] == 0
 
 
+def test_a_missed_check_in_nags_the_sponsor_once_per_date(fresh_db, monkeypatch):
+    """The contract's second promise: a check-in date that passed with the
+    task still open reaches the sponsor — even when the work is NOT quiet,
+    because notes every day with no verdict sought is its own failure. Once
+    per (task, date): moving the date re-arms the nag."""
+    from app.services.users import ensure_user
+
+    ensure_user("research-agent", kind="agent")
+    ensure_user("tester", kind="human")
+    task = work.create_task("chase the vendor", actor="tester")
+    delegation.delegate_task(
+        task["id"],
+        agent="research-agent",
+        sponsor="tester",
+        acceptance_criteria="vendor confirms in writing",
+        check_in_at="2020-01-01",
+        actor="tester",
+    )
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    # a note today keeps the task out of the QUIET nag — the check-in nag
+    # must fire anyway
+    delegation.claim_task(task["id"], actor="research-agent")
+    delegation.report_progress(task["id"], "still chasing", actor="research-agent")
+
+    assert agent_runner.sweep()["swept"] == 1
+    assert agent_runner.sweep()["swept"] == 0  # same date, claimed
+
+    sent = db.query(
+        "SELECT message FROM notifications WHERE \"user\" = 'tester'"
+        " AND message LIKE '%past its check-in date%'"
+    )
+    assert len(sent) == 1
+    assert "2020-01-01" in sent[0]["message"]
+
+
+def test_a_future_check_in_stays_silent(fresh_db, monkeypatch):
+    from app.services.users import ensure_user
+
+    ensure_user("research-agent", kind="agent")
+    ensure_user("tester", kind="human")
+    task = work.create_task("chase the vendor", actor="tester")
+    delegation.delegate_task(
+        task["id"],
+        agent="research-agent",
+        sponsor="tester",
+        check_in_at="2999-01-01",
+        actor="tester",
+    )
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    delegation.claim_task(task["id"], actor="research-agent")
+    delegation.report_progress(task["id"], "on it", actor="research-agent")
+    assert agent_runner.sweep()["swept"] == 0
+
+
 def test_the_turn_runs_as_the_agent_it_woke(fresh_db, monkeypatch):
     """A ContextVar does NOT cross a bare threading.Thread.
 

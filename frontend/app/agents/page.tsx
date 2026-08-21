@@ -82,6 +82,8 @@ type Inbox = {
     priority: string;
     sponsor: string;
     due_date: string | null;
+    acceptance_criteria: string;
+    check_in_at: string | null;
     milestone_id: number | null;
     engagement_id: number | null;
   }[];
@@ -587,9 +589,14 @@ export default function Agents() {
                         [{t.status}]
                       </p>
                       {t.description && <p>{t.description}</p>}
+                      {/* the contract, in the view the agent wakes up on */}
+                      {t.acceptance_criteria && (
+                        <p>Done means: {t.acceptance_criteria}</p>
+                      )}
                       <p className="text-ink-3">
                         Priority: {t.priority} · Sponsor: {t.sponsor || "none"}
                         {t.due_date ? ` · Due: ${t.due_date}` : ""}
+                        {t.check_in_at ? ` · Check-in: ${t.check_in_at}` : ""}
                         {t.engagement_id
                           ? ` · Engagement #${t.engagement_id}`
                           : ""}

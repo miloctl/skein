@@ -887,10 +887,15 @@ def _update_task_locked(
             author=current["created_by"],
         )
     # reassigning a delegated task away from its agent ends the delegation —
-    # otherwise both parties see it as theirs
+    # otherwise both parties see it as theirs. The contract fields go with it:
+    # they describe THAT delegation, and the next delegate would inherit a
+    # done-definition and a check-in date somebody wrote for a different party.
+    # A task marked done keeps both, as the record of what done meant.
     if assignee and current["delegated_agent"] and assignee != current["delegated_agent"]:
         fields["delegated_agent"] = ""
         fields["sponsor"] = ""
+        fields["acceptance_criteria"] = ""
+        fields["check_in_at"] = None
     sets = ", ".join(f"{k} = ?" for k in fields)
     with db.transaction():
         db.execute(

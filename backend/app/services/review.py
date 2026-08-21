@@ -1841,7 +1841,10 @@ def _acceptance_evidence(change: dict, viewer: scope.Viewer) -> dict:
     # needs its own filter or it is a second door onto the same row.
     tfrag, tp = scope.visible_filter(viewer, "tasks")
     task = db.query_one(
-        "SELECT id, title, status, delegated_agent, forge_url FROM tasks"  # noqa: S608 — scope.visible_filter emits only bound marks
+        # acceptance_criteria is the sponsor's own definition of done, written
+        # at delegation — the verdict below is the read it was written for
+        "SELECT id, title, status, delegated_agent, forge_url,"  # noqa: S608 — scope.visible_filter emits only bound marks
+        " acceptance_criteria FROM tasks"
         f" WHERE id = ? AND {tfrag}",
         (task_id, *tp),
     )

@@ -832,6 +832,14 @@ _UNFILTERED_READS = {
     ),
     # --- the row's OWN reader: this is the person or agent the row is for ---
     "review.py::_sponsor_of": "reads the one column that names who reviews it",
+    "review.py::season_readout": (
+        "COUNT(*) of accepted delegations for the season card — no row"
+        " content reaches any caller, and the count must be the season's"
+        " whole truth: spliced WORKSPACE_ONLY would undercount crew"
+        " delegations and the exit-trigger read would claim less flow than"
+        " the trust loop actually carried. A private task cannot be"
+        " delegated at all (delegation.delegate_task refuses it)"
+    ),
     "review.py::_governing_tier": (
         "reads the tier that decides who may see or judge a proposal. It IS"
         " the filter for pending_changes, which carries no tier of its own"

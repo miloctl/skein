@@ -4,6 +4,52 @@ import pytest
 from conftest import _delegated_task, _strong
 
 
+def test_the_contract_travels_with_the_delegation(fresh_db, monkeypatch):
+    """What done means and when to check in are stored at delegation, read in
+    the agent inbox and the acceptance evidence, and cleared when a
+    reassignment ends the delegation — the next delegate must not inherit a
+    done-definition written for a different party. A malformed date is
+    refused, not stored."""
+    from app import config
+    from app.services import delegation, review, scope, users, work
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", False)
+    users.ensure_user("mira")
+    t = work.create_task(title="probe the API", actor="mira")
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        delegation.delegate_task(t["id"], "scout", "mira", check_in_at="Wednesday", actor="mira")
+    delegation.delegate_task(
+        t["id"],
+        "scout",
+        "mira",
+        acceptance_criteria="a runnable repro script",
+        check_in_at="2026-09-01",
+        actor="mira",
+    )
+
+    inbox = delegation.agent_inbox("scout")
+    row = next(r for r in inbox["delegated_tasks"] if r["id"] == t["id"])
+    assert row["acceptance_criteria"] == "a runnable repro script"
+    assert str(row["check_in_at"]) == "2026-09-01"
+
+    delegation.claim_task(t["id"], actor="scout")
+    delegation.report_progress(t["id"], "repro written", actor="scout")
+    proposal = delegation.submit_completion(t["id"], "done, see worklog", actor="scout")
+    changes = review.list_changes(viewer=scope.Viewer("mira", True))
+    mine = next(c for c in changes if c["id"] == proposal["proposal_id"])
+    assert mine["evidence"]["acceptance_criteria"] == "a runnable repro script"
+
+    # reassignment ends the delegation and takes the contract with it
+    work.update_task(t["id"], assignee="mira", actor="mira")
+    after = fresh_db.query_one(
+        "SELECT delegated_agent, acceptance_criteria, check_in_at FROM tasks WHERE id = ?",
+        (t["id"],),
+    )
+    assert after["delegated_agent"] == ""
+    assert after["acceptance_criteria"] == ""
+    assert after["check_in_at"] is None
+
+
 def test_delegation_work_loop_end_to_end(client, fresh_db, monkeypatch):
     from app import config
     from app.services import delegation, users, work

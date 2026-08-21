@@ -61,6 +61,7 @@ type Change = {
     title: string;
     status: string;
     delegated_agent: string | null;
+    acceptance_criteria: string;
     forge_url: string | null;
     worklog: { id: number; author: string; note: string; created_at: string }[];
     // the previous sponsor's name, empty unless the sponsor changed after
@@ -200,6 +201,14 @@ function AcceptanceEvidence({
           {evidence.delegated_agent ? ` · by ${evidence.delegated_agent}` : ""}
         </span>
       </p>
+      {evidence.acceptance_criteria ? (
+        // the sponsor's own definition of done, written at delegation —
+        // this verdict is the read it was written for
+        <p className="mb-1 text-ink-2">
+          <span className="font-medium">What done means:</span>{" "}
+          {evidence.acceptance_criteria}
+        </p>
+      ) : null}
       {evidence.sponsor_was ? (
         // authority follows the CURRENT sponsor
         // (010_sponsor_at_submission.sql), so this is a receipt and not a
