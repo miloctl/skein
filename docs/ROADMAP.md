@@ -17,6 +17,10 @@ for a season with the review gate on (the default since 2026-08-21):
 - No new portfolio surfaces. The portfolio items below stay listed and stay
   un-worked; refinement resumes after the season.
 - Investment order: delegation contracts from the deferred specs.
+  (The first slice shipped 2026-08-21: `acceptance_criteria` and
+  `check_in_at` on `delegate_task`, surfaced in the agent inbox and the
+  acceptance verdict, with the sweep nagging a missed check-in. The
+  full contract entity stays in the cut table below.)
   (Engagement-level cost attribution shipped with this posture note: the
   agent runner attributes a turn when every open delegated task resolves to
   one engagement, and chat turns keep the retroactive thread link.)
@@ -478,7 +482,7 @@ review. Each names the condition that reopens it.
 | Stakeholder signed status pages | Real stakeholder demand AND real auth. Then build it as a push-generated static artifact, never by exposing the app. |
 | Crew context-pack surfaces (UI mention, CLI flag, scheduled publish) | A crew actually asks for a pack scoped tighter than the workspace. The API works today (`?crew=`, membership-gated); only the surfaces were cut. |
 | Coordination-debt and closed-loop-rate metrics registry | Multi-team scale. |
-| Playbooks 2.0, delegation contracts, evidence pack, transactional outbox, capability broker | Deferred. Specs are in `docs/reviews/2026-07-24-agent-sol.md`. |
+| Playbooks 2.0, delegation contracts (full entity), evidence pack, transactional outbox, capability broker | Deferred. Specs are in `docs/reviews/2026-07-24-agent-sol.md`. The contract's acceptance-criteria and check-in slice shipped 2026-08-21; the remaining fields (per-delegation budget, authority scope, escalation conditions) wait on a season of the shipped pair being used. |
 | Employee private-prep sections | Refused until the journal separate-store pattern is proven. |
 | Post-compaction context re-injection | A real long-chat complaint — `summarize` plus the scoped context pack cover it today. If built: subclass `ConversationManager.reduce_context()`, re-inject the per-engagement pack once per session with a token ceiling to avoid a trim/re-inject loop. |
 | Honest tombstones for deleted tasks/chats | A deletion dispute the hash-chained ledger and the loud feed row do not settle — today they meet the need more strongly than a tombstone would. Private 1:1 notes and decision supersession keep their existing tombstones. |

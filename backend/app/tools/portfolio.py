@@ -169,7 +169,13 @@ def list_promises(status: str = "") -> str:
 
 
 @tool
-def delegate_task(task_id: int, agent: str, sponsor: str) -> str:
+def delegate_task(
+    task_id: int,
+    agent: str,
+    sponsor: str,
+    acceptance_criteria: str = "",
+    check_in_at: str = "",
+) -> str:
     """Delegate a task to an AI agent with a human sponsor who stays
     accountable for it.
 
@@ -177,8 +183,16 @@ def delegate_task(task_id: int, agent: str, sponsor: str) -> str:
         task_id: The task to delegate.
         agent: Agent identity that will do the work.
         sponsor: Human teammate accountable for the outcome.
+        acceptance_criteria: What done means — the sponsor's verdict reads this.
+        check_in_at: Date (YYYY-MM-DD) by which the agent must have a progress note.
     """
-    payload: dict[str, Any] = {"task_id": task_id, "agent": agent, "sponsor": sponsor}
+    payload: dict[str, Any] = {
+        "task_id": task_id,
+        "agent": agent,
+        "sponsor": sponsor,
+        "acceptance_criteria": acceptance_criteria,
+        "check_in_at": check_in_at,
+    }
     return gated_write(
         "delegation",
         "create",

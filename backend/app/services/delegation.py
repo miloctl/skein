@@ -26,10 +26,26 @@ TRUST_STREAK = 5  # consecutive approvals before we suggest promotion
 
 
 def delegate_task(
-    task_id: int, agent: str, sponsor: str, *, actor: str = "system", origin: str = "human"
+    task_id: int,
+    agent: str,
+    sponsor: str,
+    *,
+    acceptance_criteria: str = "",
+    check_in_at: str = "",
+    actor: str = "system",
+    origin: str = "human",
 ) -> dict:
     if not agent.strip():
         raise ValueError("agent name is required")
+    acceptance_criteria = acceptance_criteria.strip()
+    check_in_at = check_in_at.strip()
+    if check_in_at:
+        # a date, not a timestamp: the sweep compares it to the team's day,
+        # and "check in Wednesday" is a day, the same grain due_date uses
+        try:
+            date.fromisoformat(check_in_at)
+        except ValueError:
+            raise ValueError("check_in_at must be a date shaped YYYY-MM-DD") from None
     sponsor = sponsor.strip()
     sponsor_row = db.query_one("SELECT kind FROM users WHERE name = ? AND active = 1", (sponsor,))
     if not sponsor_row or sponsor_row["kind"] != "human":
@@ -82,9 +98,10 @@ def delegate_task(
             author=task["created_by"],
         )
         db.execute(
-            "UPDATE tasks SET delegated_agent = ?, sponsor = ?, assignee = ?, updated_at = ?"
+            "UPDATE tasks SET delegated_agent = ?, sponsor = ?, assignee = ?,"
+            " acceptance_criteria = ?, check_in_at = ?, updated_at = ?"
             " WHERE id = ?",
-            (agent, sponsor, agent, db.now(), task_id),
+            (agent, sponsor, agent, acceptance_criteria, check_in_at or None, db.now(), task_id),
         )
         db.log_activity(actor, "delegate_task", f"#{task_id} -> {agent} (sponsor: {sponsor})")
         from .work import _emit_task_event
@@ -961,6 +978,7 @@ def agent_inbox(
     qfrag, qp = ("1 = 1", []) if viewer is None else scope.visible_filter(viewer, "questions")
     tasks = db.query(
         "SELECT id, title, description, status, priority, sponsor, due_date,"  # noqa: S608 — scope.visible_filter emits only bound marks
+        " acceptance_criteria, check_in_at,"
         " milestone_id, engagement_id FROM tasks"
         f" WHERE delegated_agent = ? AND status NOT IN ('done', 'void') AND {tfrag}"
         " ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"

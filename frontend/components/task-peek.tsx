@@ -36,6 +36,8 @@ export type PeekTask = {
   milestone_title?: string | null;
   engagement_name?: string | null;
   delegated_agent?: string | null;
+  acceptance_criteria?: string;
+  check_in_at?: string | null;
   sponsor?: string | null;
   forge_url?: string | null;
   waiting_on_type?: string | null;
@@ -319,6 +321,17 @@ export function TaskPeek() {
                     ? `${task.delegated_agent} (sponsor ${task.sponsor || "none"})`
                     : ""
                 }
+              />
+              {/* the contract, where both parties look it up. Row drops an
+                  empty value, so a delegation without one stays two rows
+                  shorter rather than printing blanks. */}
+              <Row
+                label="Done means"
+                value={task.delegated_agent ? (task.acceptance_criteria ?? "") : ""}
+              />
+              <Row
+                label="Check-in"
+                value={task.delegated_agent ? String(task.check_in_at ?? "") : ""}
               />
             </dl>
             <p className="text-xs">
@@ -736,6 +749,8 @@ function EditControls({ task, onSaved }: { task: PeekTask; onSaved: () => void }
 function Delegate({ taskId, onDone }: { taskId: number; onDone: () => void }) {
   const [agents, setAgents] = useState<string[] | null>(null);
   const [picked, setPicked] = useState("");
+  const [criteria, setCriteria] = useState("");
+  const [checkIn, setCheckIn] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -770,6 +785,35 @@ function Delegate({ taskId, onDone }: { taskId: number; onDone: () => void }) {
           </option>
         ))}
       </select>
+      {/* the contract fields, shown once an agent is picked — before that
+          they are two mystery inputs on every task panel. Both optional:
+          a delegation without them is what every delegation was before. */}
+      {picked ? (
+        <>
+          <label className="sr-only" htmlFor={`delegate-criteria-${taskId}`}>
+            What done means
+          </label>
+          <input
+            id={`delegate-criteria-${taskId}`}
+            value={criteria}
+            onChange={(e) => setCriteria(e.target.value)}
+            maxLength={1000}
+            placeholder="what done means (optional)"
+            className="min-w-0 flex-1 rounded-lg border border-line-strong bg-transparent px-2 py-1 text-xs outline-none focus:border-thread-solid"
+          />
+          <label className="sr-only" htmlFor={`delegate-checkin-${taskId}`}>
+            Check-in date
+          </label>
+          <input
+            id={`delegate-checkin-${taskId}`}
+            type="date"
+            value={checkIn}
+            onChange={(e) => setCheckIn(e.target.value)}
+            title="The sweep tells you when this date passes with the task still open"
+            className="rounded-lg border border-line-strong bg-transparent px-2 py-1 text-xs outline-none focus:border-thread-solid"
+          />
+        </>
+      ) : null}
       <button
         disabled={!picked || busy}
         onClick={async () => {
@@ -777,7 +821,11 @@ function Delegate({ taskId, onDone }: { taskId: number; onDone: () => void }) {
           try {
             await api(`/api/tasks/${taskId}/delegate`, {
               method: "POST",
-              body: JSON.stringify({ agent: picked }),
+              body: JSON.stringify({
+                agent: picked,
+                acceptance_criteria: criteria.trim(),
+                check_in_at: checkIn,
+              }),
             });
             reportStatus(`Task #${taskId} delegated to ${picked}. You are the sponsor.`);
             onDone();

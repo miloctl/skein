@@ -182,6 +182,42 @@ def sweep(policy: PolicyEngine | None = None) -> dict:
                     link="/agents",
                 )
                 touched += 1
+            # The contract's other promise: a check-in date that passed with
+            # the task still open. Separate from the quiet nag above — a task
+            # can be noisily past its check-in (notes every day, no verdict
+            # sought) and quietly within it. Once per (task, date): the claim
+            # key carries the date, so moving the check-in re-arms the nag
+            # and a stale one cannot fire twice.
+            today = db.local_day(db.now())
+            for task in due:
+                if not task["sponsor"] or not task.get("check_in_at"):
+                    continue
+                if str(task["check_in_at"]) >= today:
+                    continue
+                if not db.claim_job(f"sweep-checkin:{task['id']}", str(task["check_in_at"])):
+                    continue
+
+                def checkin_body(
+                    source: dict,
+                    current_agent: str = agent,
+                    checkin: str = str(task["check_in_at"]),
+                ) -> str:
+                    return (
+                        f"{current_agent} holds task #{source['id']}"
+                        f" '{source['title']}' past its check-in date"
+                        f" {checkin}. Read the worklog and record a verdict,"
+                        " or set a new check-in date."
+                    )
+
+                notify(
+                    task["sponsor"],
+                    checkin_body,
+                    source_entity="task",
+                    source_id=int(task["id"]),
+                    tier="digest",
+                    link="/agents",
+                )
+                touched += 1
     return {"swept": touched, "agents": len(config.AGENT_RUNNER)}
 
 

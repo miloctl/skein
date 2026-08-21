@@ -2156,6 +2156,8 @@ def get_agent_inbox(
 class DelegateIn(BaseModel):
     agent: str = Field(max_length=64)
     sponsor: str = Field("", max_length=64)
+    acceptance_criteria: str = Field("", max_length=1000)
+    check_in_at: str = Field("", max_length=10)
 
 
 @router.post("/tasks/{task_id}/delegate")
@@ -2200,7 +2202,14 @@ def post_delegate(
                 wording.strong_identity_required("Creating an agent identity")
                 + " You can also delegate to an agent that already exists.",
             )
-        return delegation.delegate_task(task_id, body.agent, body.sponsor or user, actor=user)
+        return delegation.delegate_task(
+            task_id,
+            body.agent,
+            body.sponsor or user,
+            acceptance_criteria=body.acceptance_criteria,
+            check_in_at=body.check_in_at,
+            actor=user,
+        )
 
 
 @router.get("/context-pack")
