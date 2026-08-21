@@ -672,9 +672,27 @@ select option {
   }
 }
 
+/* The row a deep link landed on announces itself, then quiets. The focus
+   ring alone was easy to miss on a thirteen-section page — this is the
+   "you are here" the link promised. Applied by lib/hash-target.ts and
+   removed on animationend, so a second landing can replay it. */
+.hash-landed {
+  animation: hash-landed 1.6s ease-out 1;
+}
+@keyframes hash-landed {
+  0%,
+  35% {
+    background-color: color-mix(in oklab, var(--thread-solid) 16%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .selvage-celebrate,
   .wave-once,
+  .hash-landed,
   .knot-escalated {
     animation: none;
   }

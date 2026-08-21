@@ -17,6 +17,7 @@ import { emptyState, loadingLine } from "@/lib/whimsy";
 import { Card } from "@/components/card";
 import { ReceiptLine } from "@/components/receipt";
 import { PeekLink } from "@/components/task-peek";
+import { PersonInput } from "@/components/person-input";
 import { ShortcutText } from "@/components/shortcut";
 
 type Row = Record<string, string | number | null>;
@@ -676,6 +677,42 @@ export default function MyDay() {
     load();
   };
 
+  // Answer where the ask is read. The question row said "someone is waiting
+  // on the answer" and shipped the reader to Work → Browse to type it — the
+  // same act-where-you-read rule the blocker and meeting rows above already
+  // follow. The deep link stays for context; the common case needs no
+  // navigation at all.
+  const [questionAction, setQuestionAction] = useState<{
+    id: number;
+    mode: "answer" | "reassign";
+  } | null>(null);
+  const answerQuestion = async (id: number, answer: string) => {
+    try {
+      await api(`/api/questions/${id}/answer`, {
+        method: "POST",
+        body: JSON.stringify({ answer }),
+      });
+      setQuestionAction(null);
+      reportStatus(`Question #${id} answered.`, "confirmation");
+    } catch (e) {
+      reportStatus(actionError(e));
+    }
+    load();
+  };
+  const reassignQuestion = async (id: number, who: string) => {
+    try {
+      await api(`/api/questions/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ assigned_to: who }),
+      });
+      setQuestionAction(null);
+      reportStatus(`Question #${id} assigned to ${who}.`, "confirmation");
+    } catch (e) {
+      reportStatus(actionError(e));
+    }
+    load();
+  };
+
   // The daily ask has to be answerable where it is asked. Without these the
   // only way to clear a meeting notice was a POST by hand, so the same
   // meeting came back every morning forever.
@@ -747,6 +784,10 @@ export default function MyDay() {
   // filter is the fallback for a server that does not send it yet.
   const needsCount =
     b.attention_total ?? yours.filter((a) => a.group !== "notice").length;
+  // counted from the rows the card actually renders, so it cannot disagree
+  // with what is on screen — the drift rule above is about a second copy of
+  // the JUDGMENT count, and this is the other half of the same rows
+  const noticeCount = yours.filter((a) => a.group === "notice").length;
   const guidedFirstWeek =
     !guidedCoreDone &&
     (onboardingStatus === "loading" ||
@@ -885,6 +926,12 @@ export default function MyDay() {
         {needsCount === 0
           ? "nothing is waiting on you"
           : `${needsCount} thing${needsCount > 1 ? "s" : ""} need${needsCount > 1 ? "" : "s"} you`}
+        {/* the count deliberately excludes notices (briefing.py counts what
+            asks for a judgment) — but the card below visibly holds them, so
+            a bare "1 thing needs you" over five rows read as a broken count */}
+        {noticeCount > 0
+          ? ` · ${noticeCount} notice${noticeCount > 1 ? "s" : ""}`
+          : ""}
       </p>
 
       {onboarding && !onboarding.complete && (
@@ -1066,6 +1113,95 @@ export default function MyDay() {
                               >
                                 {a.reason}
                               </span>
+                              {a.kind === "question" && (
+                                <span className="ml-2 mt-0.5 block text-xs text-ink-3">
+                                  {questionAction?.id === a.ref_id ? (
+                                    <span className="flex flex-wrap items-center gap-1.5">
+                                      {questionAction.mode === "answer" ? (
+                                        <input
+                                          autoFocus
+                                          name="answer-question"
+                                          aria-label={`Answer question #${a.ref_id}`}
+                                          placeholder="the answer — Enter to record it"
+                                          onKeyDown={(ev) => {
+                                            if (ev.key === "Escape")
+                                              setQuestionAction(null);
+                                            const answer = (
+                                              ev.target as HTMLInputElement
+                                            ).value.trim();
+                                            if (ev.key === "Enter" && answer)
+                                              answerQuestion(a.ref_id, answer);
+                                          }}
+                                          className="w-64 max-w-full rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
+                                        />
+                                      ) : (
+                                        <PersonInput
+                                          autoFocus
+                                          name="reassign-question"
+                                          aria-label={`Assign question #${a.ref_id} to`}
+                                          placeholder="teammate's name — Enter to assign"
+                                          onKeyDown={(ev) => {
+                                            if (ev.key === "Escape")
+                                              setQuestionAction(null);
+                                            const who = (
+                                              ev.target as HTMLInputElement
+                                            ).value.trim();
+                                            if (ev.key === "Enter" && who)
+                                              reassignQuestion(a.ref_id, who);
+                                          }}
+                                          onChange={(ev) => {
+                                            // a mouse-picked datalist suggestion must
+                                            // commit too — picks arrive as
+                                            // insertReplacementText (or undefined
+                                            // inputType in Firefox), typing as
+                                            // insertText (app/dashboard/page.tsx)
+                                            const t = (
+                                              ev.nativeEvent as InputEvent
+                                            ).inputType;
+                                            if (t && t !== "insertReplacementText")
+                                              return;
+                                            const who = ev.target.value.trim();
+                                            if (who)
+                                              reassignQuestion(a.ref_id, who);
+                                          }}
+                                          className="rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
+                                        />
+                                      )}
+                                      <button
+                                        onClick={() => setQuestionAction(null)}
+                                        className="hover:text-ink"
+                                      >
+                                        cancel
+                                      </button>
+                                    </span>
+                                  ) : (
+                                    <span className="flex gap-2">
+                                      <button
+                                        onClick={() =>
+                                          setQuestionAction({
+                                            id: a.ref_id,
+                                            mode: "answer",
+                                          })
+                                        }
+                                        className="underline hover:text-ink-2"
+                                      >
+                                        answer…
+                                      </button>
+                                      <button
+                                        onClick={() =>
+                                          setQuestionAction({
+                                            id: a.ref_id,
+                                            mode: "reassign",
+                                          })
+                                        }
+                                        className="underline hover:text-ink-2"
+                                      >
+                                        reassign…
+                                      </button>
+                                    </span>
+                                  )}
+                                </span>
+                              )}
                             </span>
                             {a.kind === "blocker" && (
                               <button

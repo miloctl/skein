@@ -109,4 +109,41 @@ describe("useHashTarget", () => {
     rerender(<Harness ready={2} rows={[12]} />);
     expect(document.activeElement).toBe(elsewhere);
   });
+
+  it("announces the landing with the highlight pulse", () => {
+    window.location.hash = "#question-12";
+    render(<Harness ready={0} rows={[12]} />);
+    const el = document.getElementById("question-12")!;
+    expect(el.classList.contains("hash-landed")).toBe(true);
+    // removed when the animation ends, so a later landing replays it
+    el.dispatchEvent(new Event("animationend"));
+    expect(el.classList.contains("hash-landed")).toBe(false);
+  });
+
+  it("pins the row against layout shift until the reader takes over", () => {
+    // the dashboard's collections settle at different speeds — one that
+    // lands AFTER the landing inserts content above the row and pushes it
+    // out of view. Each later settle re-scrolls the row back; the reader's
+    // first input ends the pinning so it never fights their scroll.
+    const scrolls = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+    try {
+      window.location.hash = "#question-12";
+      const { rerender } = render(<Harness ready={0} rows={[12]} />);
+      expect(document.activeElement?.id).toBe("question-12");
+
+      rerender(<Harness ready={1} rows={[12]} />); // a later collection settles
+      expect(
+        scrolls.mock.instances.some((el) => (el as Element).id === "question-12"),
+      ).toBe(true);
+
+      const before = scrolls.mock.calls.length;
+      window.dispatchEvent(new Event("wheel")); // the reader takes over
+      rerender(<Harness ready={2} rows={[12]} />);
+      expect(scrolls.mock.calls.length).toBe(before);
+    } finally {
+      scrolls.mockRestore();
+    }
+  });
 });

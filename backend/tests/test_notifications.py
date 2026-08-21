@@ -447,3 +447,43 @@ def test_denied_rows_cannot_starve_a_permitted_notification(fresh_db):
         allow_unclassified=False,
     )
     assert [row["message"] for row in rows] == [f"Task #{permitted['id']} needs you"]
+
+
+def test_migration_005_retargets_old_row_links_and_nothing_else(fresh_db):
+    """Notification links are stored at write time, so rows from before the
+    row-level deep links still pointed at a page top — a question notice
+    pointed at "/", My Day itself. The repair touches only the two retargeted
+    kinds and only the two old page-top links."""
+    from pathlib import Path
+
+    from app import db
+
+    def old_row(link, entity, source_id):
+        return db.execute(
+            'INSERT INTO notifications ("user", tier, message, link, created_at,'
+            " source_entity, source_id) VALUES ('ava', 'digest', 'm', ?, ?, ?, ?)"
+            " RETURNING id",
+            (link, db.now(), entity, source_id),
+        )
+
+    q = old_row("/", "question", 7)
+    b = old_row("/dashboard", "blocker", 3)
+    deliberate = old_row("/review", "question", 7)  # a service chose this link
+    untyped = old_row("/", "", None)  # no source row to point at
+
+    sql = Path(__file__).parent.parent / "app/core_migrations/005_notification_row_links.sql"
+    for stmt in sql.read_text().split(";"):
+        if stmt.strip():
+            db.execute(stmt)
+
+    links = {
+        r["id"]: r["link"]
+        for r in db.query(
+            "SELECT id, link FROM notifications WHERE id IN (?, ?, ?, ?)",
+            (q, b, deliberate, untyped),
+        )
+    }
+    assert links[q] == "/dashboard#question-7"
+    assert links[b] == "/dashboard#blocker-3"
+    assert links[deliberate] == "/review"
+    assert links[untyped] == "/"
