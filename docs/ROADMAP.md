@@ -200,6 +200,14 @@ morning sweep, which notifies each delegated task's sponsor rather than filing
   the same task is approved — so what remains is every other entity, and every
   rejection nobody re-submits. An `acked_at` column ends those.
 - Notify-tier writes link to an empty `/review`.
+- **Approval card leads with compliance, not the ask** [S] — an Inbox →
+  Approvals card opens with the strong-identity/promotion-streak paragraph
+  and a raw key-value payload dump; what the agent wants to do comes third.
+  This is the surface where trust verdicts happen, and the season of
+  dogfooding will make everyone stare at it. Lead with the proposed change
+  in one sentence, keep the identity warning only when it blocks the
+  verdict, and render the payload as a labeled diff-style summary. The
+  "identical to #4" chip is the register to match.
 - The review registry has no registration-time assertion on apply-handler
   signatures — a mismatched handler surfaces at apply time as a caught
   runtime error, not at startup. Assert the signatures when the registry is
@@ -275,6 +283,13 @@ settled (time zone, the auth bridge, `wip_by_person` egress) were dropped
 - **Per-rule `enabled` flag for findings** — silence a noisy rule by config
   rather than a deploy. (The usage-UI item that lived beside this one
   shipped: the Model spend card on Work → Health.)
+- **Evidence-gap findings rule** [S] — a task completed with no worklog note
+  and no linked artifact fires a finding, shaped like `_r_meeting_no_outcome`
+  (which pins the pattern: the record that should carry proof and does not).
+  One function in `insights.RULES`, no schema. This is also a probe: its
+  firing rate over a season is the demand evidence the deferred evidence-pack
+  spec (`docs/reviews/2026-07-24-agent-sol.md`) waits for — silence means the
+  team does not miss the proof, and the spec stays deferred.
 
 ## Theme system (from the 2026-07-27 review)
 
@@ -475,3 +490,7 @@ review. Each names the condition that reopens it.
 | Post-compaction context re-injection | A real long-chat complaint — `summarize` plus the scoped context pack cover it today. If built: subclass `ConversationManager.reduce_context()`, re-inject the per-engagement pack once per session with a token ceiling to avoid a trim/re-inject loop. |
 | Honest tombstones for deleted tasks/chats | A deletion dispute the hash-chained ledger and the loud feed row do not settle — today they meet the need more strongly than a tombstone would. Private 1:1 notes and decision supersession keep their existing tombstones. |
 | Presence as a lease, not a flag | Only if a boolean live-dot is ever added. `last seen` timestamps are honest forever; a lease fixes a live-dot outliving a dead process, and no such dot exists. |
+| Requirement/Outcome record layer (2026-08-21 control-plane thesis) | A real engagement retro produces a traceability dispute — "which requirement did this work serve" — that `engagements.outcome`, milestones and decisions could not settle. A new entity costs seven gated registries; the dispute is the evidence it repays that. |
+| Assumption records (statement, owner, verification plan, expiry) | An engagement fails on an assumption nobody wrote down, and the retro shows `kill_criteria` plus a dated decision could not have held it. |
+| Acceptance checks + validation evidence as records | The evidence-gap findings rule (Insights backlog) fires often enough that teams act on it. The rule is the cheap probe; the records are the expensive answer. |
+| Authority matrix split by action class (internal edit vs external send) | An agent holds `autonomous` on an entity where one verb is internal and another leaves Skein (mail, webhook, customer surface). Today no tool on a granted entity crosses that line — the split waits for the tool that does. |
