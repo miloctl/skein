@@ -17,6 +17,7 @@ Composition only. No table, no write path. Every number here keeps its own home.
 """
 
 from collections.abc import Callable
+from datetime import timedelta
 
 from . import refs, scope
 
@@ -172,8 +173,43 @@ def brief(
     lessons = policy_context.filter_resource_rows("lesson", lessons, viewer, resource_filter)
     artifacts = list_artifacts(engagement_id, viewer)
     artifacts = policy_context.filter_resource_rows("artifact", artifacts, viewer, resource_filter)
+    # What moved on THIS engagement since local midnight yesterday — the same
+    # window delta.brief defaults to for a first read, and computed from the
+    # rows this function already scopes, because activity ledger rows carry no
+    # engagement id and delta.brief is reader-scoped and team-wide. Counts
+    # only: the cards below carry the rows themselves.
+    since = db.local_midnight_utc(db.today() - timedelta(days=1))
+    on_engagement = (
+        " AND (t.engagement_id = ? OR t.milestone_id IN"
+        "      (SELECT id FROM milestones WHERE engagement_id = ?))"
+    )
+    tasks_done = db.query_one(
+        f"SELECT COUNT(*) AS n FROM tasks t WHERE {tfrag}{on_engagement}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        " AND t.completed_at >= ?",
+        (*tp, engagement_id, engagement_id, since),
+    )
+    bfrag2, bp2 = scope.visible_filter(viewer, "blockers", "b")
+    # both sides carry the filter, exactly as portfolio._linked_blockers does
+    blocker_join = (
+        f"FROM blockers b JOIN tasks t ON t.id = b.task_id AND {tfrag}"
+        f" WHERE {bfrag2}{on_engagement}"
+    )
+    blockers_opened = db.query_one(
+        f"SELECT COUNT(*) AS n {blocker_join} AND b.created_at >= ?",
+        (*tp, *bp2, engagement_id, engagement_id, since),
+    )
+    blockers_resolved = db.query_one(
+        f"SELECT COUNT(*) AS n {blocker_join} AND b.status = 'resolved' AND b.resolved_at >= ?",
+        (*tp, *bp2, engagement_id, engagement_id, since),
+    )
+
     return {
         "engagement": eng,
+        "since_yesterday": {
+            "tasks_done": (tasks_done or {}).get("n", 0),
+            "blockers_opened": (blockers_opened or {}).get("n", 0),
+            "blockers_resolved": (blockers_resolved or {}).get("n", 0),
+        },
         "health": {
             "color": health["health"] if health else "",
             # the same sentences health writes, plus what each one points at,

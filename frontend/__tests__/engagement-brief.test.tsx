@@ -26,6 +26,7 @@ const brief = {
     kill_criteria: null,
     conclusion: null,
   },
+  since_yesterday: { tasks_done: 2, blockers_opened: 0, blockers_resolved: 1 },
   health: {
     color: "red",
     receipts: [
@@ -94,6 +95,15 @@ describe("the engagement brief", () => {
       screen.getByRole("link", { name: "milestone #4" }),
     );
     expect(link.getAttribute("href")).toBe("/dashboard#milestone-4");
+  });
+
+  it("leads with what moved since yesterday, and computes its plurals", async () => {
+    mount();
+    // 2 done + 1 resolved from the fixture; the zero count is dropped, not
+    // printed as "0 blockers opened"
+    expect(
+      await screen.findByText("Since yesterday: 2 tasks done · 1 blocker resolved"),
+    ).toBeTruthy();
   });
 
   it("says the colour in words, not only in hue", async () => {

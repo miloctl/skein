@@ -40,6 +40,29 @@ def test_an_unreadable_engagement_answers_like_an_absent_one(client, fresh_db):
     assert _brief("insider", eng["id"])["engagement"]["name"] == "Secret migration"
 
 
+def test_since_yesterday_counts_only_this_engagement(client, fresh_db):
+    """The strip answers "what moved HERE since yesterday" — a task finished on
+    another engagement must not inflate it, and a fresh blocker must count."""
+    from app.services import blockers, engagements, users, work
+
+    users.ensure_user("ada")
+    mine = engagements.create_engagement("Mine", actor="ada")
+    other = engagements.create_engagement("Other", actor="ada")
+    done_here = work.create_task("here", engagement_id=mine["id"], actor="ada")
+    done_there = work.create_task("there", engagement_id=other["id"], actor="ada")
+    work.update_task(done_here["id"], status="done", actor="ada")
+    work.update_task(done_there["id"], status="done", actor="ada")
+    open_here = work.create_task("carrier", engagement_id=mine["id"], actor="ada")
+    b = blockers.raise_blocker("stuck", task_id=open_here["id"], actor="ada")
+
+    strip = _brief("ada", mine["id"])["since_yesterday"]
+    assert strip == {"tasks_done": 1, "blockers_opened": 1, "blockers_resolved": 0}
+
+    blockers.resolve_blocker(b["id"], actor="ada")
+    strip = _brief("ada", mine["id"])["since_yesterday"]
+    assert strip["blockers_resolved"] == 1
+
+
 def test_the_brief_carries_what_the_seven_surfaces_carry(client, fresh_db):
     from app.services import blockers, engagements, users, work
 
