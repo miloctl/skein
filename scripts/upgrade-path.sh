@@ -57,6 +57,14 @@ if [ -z "${SKEIN_DATABASE_URL:-}" ]; then
     echo "upgrade-path: SKEIN_DATABASE_URL is not set. Set it to a PostgreSQL server." >&2
     exit 1
 fi
+# This rehearsal only applies migrations — it boots no app and calls no API,
+# so no auth or review setting reaches it today. It shares the pin anyway:
+# the exposure is a SETTING that changes what a migration does, and the cost
+# of finding that out the way the extension contract did is a red CI job
+# nobody can reproduce locally (scripts/lib/hermetic-env.sh).
+# shellcheck source=lib/hermetic-env.sh
+. "$(dirname "$0")/lib/hermetic-env.sh"
+skein_hermetic_env
 
 python="backend/.venv/bin/python"
 [ -x "$python" ] || python="$(command -v python)"

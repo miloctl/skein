@@ -28,5 +28,9 @@ known-first-party = ["app", "skein_cli"]
 
 [lint.per-file-ignores]
 "backend/tests/*" = ["B017", "S101", "S105", "S106", "S108"]  # asserts, fake creds, traversal probes
+# The contract rehearsal steps assert like tests, because they are tests —
+# they just run against an INSTALLED wheel instead of the source tree
+# (scripts/reference-extension-contract.sh).
+"scripts/contract/*" = ["S101"]
 "backend/app/services/notifications.py" = ["S310"]  # webhook URL from operator env, not user input
 "cli/skein_cli.py" = ["S310", "S607"]  # API URL from operator config; git resolved from PATH
