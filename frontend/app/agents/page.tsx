@@ -39,6 +39,22 @@ type AgentRow = {
   authority: Authority[];
 };
 
+type SeasonReadout = {
+  season: string;
+  days_left: number;
+  verdicts: { settled: number; approved: number; rejected: number; strong: number };
+  proposals: number;
+  authority_changes: { agent: string; entity: string; level: string }[];
+  delegations: { started: number; accepted: number };
+  by_agent: {
+    proposed_by: string;
+    proposed: number;
+    approved: number;
+    rejected: number;
+    pending: number;
+  }[];
+};
+
 type Trust = {
   agent: string;
   entity: string;
@@ -123,6 +139,7 @@ const LEVEL_COLOR: Record<string, string> = {
 export default function Agents() {
   const [agents, setAgents] = useState<AgentRow[] | null>(null);
   const [trust, setTrust] = useState<Trust[] | null>(null);
+  const [season, setSeason] = useState<SeasonReadout | null>(null);
   const [entities, setEntities] = useState<{ entity: string; label: string }[]>(
     [],
   );
@@ -223,6 +240,9 @@ export default function Agents() {
     api<Trust[]>("/api/agents/trust")
       .then(ok(setTrust, "trust"))
       .catch(fail("trust", "trust scores"));
+    api<SeasonReadout>("/api/review/season")
+      .then(ok(setSeason, "season"))
+      .catch(fail("season", "the season readout"));
     api<{ strong: boolean; can_administer: boolean }>("/api/whoami")
       .then(ok(setIdentity, "identity"))
       .catch(fail("identity", "your identity"));
@@ -936,6 +956,62 @@ export default function Agents() {
             </ul>
           )}
         </Card>
+
+        {manage && (
+          <Card title="Season readout — the trust loop">
+            {/* the posture note's exit trigger calls the season-end decision
+                "a read, not a debate" (docs/ROADMAP.md). This card is that
+                read — zeros included, because zeros ARE the trigger. */}
+            {errors.season ? (
+              failed("season")
+            ) : season === null ? (
+              <p className="text-sm text-ink-3">Loading…</p>
+            ) : (
+              <div className="space-y-2 text-sm">
+                <p className="text-xs text-ink-3">
+                  {season.season} · {season.days_left} day
+                  {season.days_left === 1 ? "" : "s"} left. At season end this
+                  card decides whether the agent surface grows or narrows.
+                </p>
+                <p>
+                  <span className="tabular-nums">{season.verdicts.settled}</span>{" "}
+                  verdict{season.verdicts.settled === 1 ? "" : "s"} settled —{" "}
+                  {season.verdicts.approved} approved ·{" "}
+                  {season.verdicts.rejected} rejected ·{" "}
+                  <span
+                    className={
+                      season.verdicts.settled > 0 && season.verdicts.strong === 0
+                        ? "font-medium text-danger"
+                        : ""
+                    }
+                  >
+                    {season.verdicts.strong} with strong identity
+                  </span>
+                </p>
+                <p>
+                  {season.proposals} proposal
+                  {season.proposals === 1 ? "" : "s"} filed ·{" "}
+                  {season.delegations.started} delegation
+                  {season.delegations.started === 1 ? "" : "s"} started ·{" "}
+                  {season.delegations.accepted} accepted ·{" "}
+                  {season.authority_changes.length} authority change
+                  {season.authority_changes.length === 1 ? "" : "s"}
+                </p>
+                {season.by_agent.length > 0 && (
+                  <ul className="space-y-1 text-xs text-ink-2">
+                    {season.by_agent.map((a) => (
+                      <li key={a.proposed_by}>
+                        <span className="font-medium">{a.proposed_by}</span>:{" "}
+                        {a.proposed} proposed · {a.approved} approved ·{" "}
+                        {a.rejected} rejected · {a.pending} pending
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </Card>
+        )}
 
         <Card title="Team memory — steers agent chats (personal ones only their owner's)">
           {errors.memories ? (

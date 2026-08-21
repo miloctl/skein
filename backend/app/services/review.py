@@ -1289,6 +1289,83 @@ def review_stats(viewer: scope.Viewer = scope.NOBODY) -> dict:
     }
 
 
+def season_readout() -> dict:
+    """The agent pillar's season, as one read.
+
+    The posture note's exit trigger (docs/ROADMAP.md) ends the dogfooding
+    season with a decision it calls "a read, not a debate": if the trust
+    rows, promotions, and delegations still read zero, the agent surface
+    narrows. Nothing rendered that read — pulse seasons count standups and
+    ships, and review stats are all-time — so the season verdict meant
+    assembling four surfaces by hand.
+
+    Counts only, never row text, so no visibility tier applies — the same
+    line review_stats draws for its aggregates. Verdict counts split by
+    reviewed_strong because only strong-identity verdicts count toward a
+    promotion streak: a season of weak verdicts reads as flow here while
+    the trust page honestly shows none, and both must be visible at once.
+    """
+    from .pulse import season as pulse_season
+    from .users import is_human
+
+    s = pulse_season()
+    since = s["start_ts"]
+    verdicts = db.query_one(
+        "SELECT COUNT(*) AS settled,"
+        " COUNT(*) FILTER (WHERE status = 'approved') AS approved,"
+        " COUNT(*) FILTER (WHERE status = 'rejected') AS rejected,"
+        " COUNT(*) FILTER (WHERE reviewed_strong = 1) AS strong"
+        " FROM pending_changes WHERE reviewed_at >= ?",
+        (since,),
+    ) or {"settled": 0, "approved": 0, "rejected": 0, "strong": 0}
+    proposed = db.query_one(
+        "SELECT COUNT(*) AS n FROM pending_changes WHERE created_at >= ?",
+        (since,),
+    )
+    authority = db.query(
+        "SELECT agent, entity, level FROM agent_authority WHERE updated_at >= ?"
+        " ORDER BY updated_at DESC",
+        (since,),
+    )
+    started = db.query_one(
+        "SELECT COUNT(*) AS n FROM activity WHERE action = 'delegate_task' AND created_at >= ?",
+        (since,),
+    )
+    accepted = db.query_one(
+        "SELECT COUNT(*) AS n FROM tasks WHERE delegated_agent != ''"
+        " AND status = 'done' AND completed_at >= ?",
+        (since,),
+    )
+    by_agent = [
+        r
+        for r in db.query(
+            "SELECT proposed_by,"
+            " COUNT(*) AS proposed,"
+            " COUNT(*) FILTER (WHERE status = 'approved') AS approved,"
+            " COUNT(*) FILTER (WHERE status = 'rejected') AS rejected,"
+            " COUNT(*) FILTER (WHERE status = 'pending') AS pending"
+            " FROM pending_changes WHERE created_at >= ?"
+            " GROUP BY proposed_by ORDER BY proposed DESC",
+            (since,),
+        )
+        # people out, system actors in — review_stats states why is_agent
+        # would be the wrong filter here
+        if not is_human(r["proposed_by"])
+    ]
+    return {
+        "season": s["label"],
+        "days_left": s["days_left"],
+        "verdicts": verdicts,
+        "proposals": (proposed or {}).get("n", 0),
+        "authority_changes": authority,
+        "delegations": {
+            "started": (started or {}).get("n", 0),
+            "accepted": (accepted or {}).get("n", 0),
+        },
+        "by_agent": by_agent,
+    }
+
+
 def _governing_tier(change: dict) -> tuple[str, int | None, str] | str | None:
     """The tier that decides who may see or judge one proposal.
 

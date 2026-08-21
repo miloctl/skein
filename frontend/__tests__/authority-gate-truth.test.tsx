@@ -74,6 +74,17 @@ vi.mock("@/lib/api", async (importOriginal) => {
           applies: false,
           provider: "mock",
         });
+      // the season card reads season.verdicts.settled — same reason as above
+      if (path === "/api/review/season")
+        return Promise.resolve({
+          season: "2026·S6",
+          days_left: 23,
+          verdicts: { settled: 0, approved: 0, rejected: 0, strong: 0 },
+          proposals: 0,
+          authority_changes: [],
+          delegations: { started: 0, accepted: 0 },
+          by_agent: [],
+        });
       if (path === "/api/agents/entities") {
         if (gate.entitiesFail)
           return Promise.reject(new Error("backend is unreachable"));

@@ -1854,6 +1854,18 @@ def get_review_stats(
         return review.review_stats(viewer)
 
 
+@router.get("/review/season")
+def get_review_season(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    with db.read_transaction():
+        _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.review.season")
+        return review.season_readout()
+
+
 class FeedbackIn(BaseModel):
     kind: str = Field(max_length=40)
     input_text: str = Field("", max_length=2000)  # a pulse vote has no input text

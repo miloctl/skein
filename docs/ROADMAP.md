@@ -185,15 +185,6 @@ A1 (delegation work loop), A2 (system-filed authority proposals) and A3 (the
 morning sweep, which notifies each delegated task's sponsor rather than filing
 `nudge` proposals) shipped.
 
-- **Trust-loop season readout** [S-M] — the posture note's exit trigger says
-  the season-end decision "is then a read, not a debate", and nothing renders
-  that read: `pulse.py` seasons count standups and ships, review analytics
-  and trust scores are neither season-scoped nor composed. One
-  manager-controls card reading what exists — verdicts this season by
-  identity strength, authority levels changed, delegations started and
-  completed by sponsor, proposals per agent with rejection reasons. No new
-  tables, no new writes, keyless. Ship before the season ends, or the
-  trigger gets assembled by hand from four surfaces.
 - **A4 agent-to-agent handoff** — a `handoff_task` tool that keeps the sponsor
   immutable. The hop is itself a proposal the sponsor approves.
 - **A5 proposal bundles** — `bundle_id` and `seq` on `pending_changes`, with
