@@ -19,6 +19,37 @@ def _approve_latest(client):
     return pending[0]
 
 
+def test_season_readout_reads_the_exit_trigger(fresh_db, monkeypatch):
+    """The posture note ends the dogfooding season with "a read, not a
+    debate" — this is the read: verdicts (split by strong identity, because
+    only strong verdicts feed a promotion streak), proposals, authority
+    changes, and delegations, all season-scoped. Humans never appear in
+    by_agent, the same line review_stats draws."""
+    from app import config
+    from app.services import delegation, review, users, work
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", False)
+    users.ensure_user("hana")
+    p1 = review.propose_change("task", "create", {"title": "one"}, actor="agent-x")
+    p2 = review.propose_change("task", "create", {"title": "two"}, actor="agent-x")
+    review.propose_change(
+        "note", "create", {"topic": "t", "content": "c"}, actor="hana", origin="human"
+    )
+    review.approve_change(p1["id"], actor="hana", strong=True)
+    review.reject_change(p2["id"], "not yet", actor="hana")
+    t = work.create_task(title="delegated", actor="hana")
+    delegation.delegate_task(t["id"], "agent-x", "hana", actor="hana")
+    work.update_task(t["id"], status="done", actor="hana")
+
+    out = review.season_readout()
+    assert out["verdicts"]["settled"] == 2
+    assert out["verdicts"]["approved"] == 1
+    assert out["verdicts"]["strong"] == 1
+    assert out["delegations"] == {"started": 1, "accepted": 1}
+    assert [r["proposed_by"] for r in out["by_agent"]] == ["agent-x"]
+    assert out["proposals"] == 3  # the human's proposal counts in the total
+
+
 def test_approval_keeps_proposer_as_author(fresh_db):
     from app.services import review, work
 
