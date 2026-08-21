@@ -43,6 +43,10 @@ type Week = {
     assignee: string;
     forge_url?: string;
   }[];
+  // the Monday job's plan for this week, when one sits unjudged in Approvals
+  // (weekly.py). The card offers the review instead of the drafter then —
+  // drafting again files a second proposal for the same week.
+  pending_proposal?: { id: number; summary: string } | null;
 };
 
 type Draft = {
@@ -358,6 +362,22 @@ export default function Portfolio() {
         ) : (
           <p className="text-sm text-ink-3">Nothing committed this week yet.</p>
         )}
+        {/* a plan proposal already waiting supersedes the drafter: drafting
+            again files a SECOND proposal for the same week, and the reviewer
+            gets two commitment lines to untangle */}
+        {week?.pending_proposal ? (
+          <p className="mt-3 text-sm">
+            <Link
+              href={`/review?id=${week.pending_proposal.id}`}
+              className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-3"
+            >
+              Proposal #{week.pending_proposal.id}
+            </Link>{" "}
+            already proposes this week&apos;s plan. Review it in Inbox →
+            Approvals.
+          </p>
+        ) : (
+        <>
         <div className="mt-3 flex gap-2">
           <button
             onClick={() =>
@@ -405,6 +425,8 @@ export default function Portfolio() {
               </li>
             ))}
           </ul>
+        )}
+        </>
         )}
       </Card>
 
@@ -462,8 +484,13 @@ export default function Portfolio() {
               <p className="text-xs text-weld">
                 {usage.month.unpriced_calls.toLocaleString()} call
                 {usage.month.unpriced_calls === 1 ? " carries" : "s carry"} no
-                price, so the cost above is not a total. Set a price for the
-                model in SKEIN_MODELS or SKEIN_MODEL_PRICES.
+                price, so the cost above is not a total.
+                {/* the fix is an env var — whoever runs the server acts on
+                    it, and for everyone else it is a wall of config they
+                    cannot touch */}
+                {manage
+                  ? " Set a price for the model in SKEIN_MODELS or SKEIN_MODEL_PRICES."
+                  : ""}
               </p>
             ) : null}
             <h3 className="mt-3 text-xs uppercase tracking-wide text-ink-3">

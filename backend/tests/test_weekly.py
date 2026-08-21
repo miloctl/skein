@@ -88,10 +88,23 @@ def test_weekly_draft_and_plan_via_review_inbox(client, fresh_db):
 
     out = weekly.propose_weekly_plan(actor="scheduler")
     assert out["status"] == "pending"
+
+    # while the proposal waits, the week view names it — the Health card
+    # offered "Draft a plan" beside a pending plan for the SAME week, and the
+    # drafter it invited filed a duplicate proposal
+    week = client.get("/api/week").json()
+    assert week["pending_proposal"] == {
+        "id": out["id"],
+        "summary": week["pending_proposal"]["summary"],
+    }
+    assert "Weekly commitment line" in week["pending_proposal"]["summary"]
+
     approved = client.post(f"/api/review/{out['id']}/approve", json={}).json()
     assert approved["status"] == "approved"
 
     week = client.get("/api/week").json()
+    # settled: the pointer is gone with the pending status
+    assert week["pending_proposal"] is None
     assert week["committed"] == 2
     client.patch(f"/api/tasks/{t1['id']}", json={"status": "done"})
     week = client.get("/api/week").json()

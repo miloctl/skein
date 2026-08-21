@@ -113,3 +113,22 @@ def test_an_ancient_row_does_not_own_the_top_forever(client, fresh_db):
     urgent, it is getting ignored — and one forgotten row from last quarter
     permanently at the top is how a ranked queue stops being read."""
     assert intervention._order("stale_wip", age=30) == intervention._order("stale_wip", age=3650)
+
+
+def test_a_finding_receipt_with_stored_rows_names_counts_not_dicts():
+    """review_stall stores its pending proposals whole. str() on that list
+    printed a page of Python dicts into the meeting agenda — the receipt is
+    the count and the ids, and the rows themselves stay on /insights."""
+    from app.services.intervention import _finding_receipt
+
+    line = _finding_receipt(
+        {
+            "message": "m",
+            "receipt": {
+                "pending": [{"id": 4, "summary": "run tool"}, {"id": 5}, {"id": 13}],
+                "oldest_days": 5.3,
+            },
+        }
+    )
+    assert line == "pending: 3 rows (#4, #5, #13), oldest days: 5.3"
+    assert "{" not in line and "'" not in line

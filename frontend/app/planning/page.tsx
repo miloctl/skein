@@ -13,6 +13,8 @@ const QUEUE_CAP = 12;
 import { PeekLink } from "@/components/task-peek";
 import { SectionTabs } from "@/components/section-tabs";
 import { actionError, api, loadError } from "@/lib/api";
+import { ManageToggle, useManageMode } from "@/components/manage-toggle";
+import { PersonInput } from "@/components/person-input";
 import { ReceiptLine } from "@/components/receipt";
 import type { Receipt } from "@/lib/entity-ref";
 import { reportStatus } from "@/lib/status";
@@ -108,6 +110,142 @@ type Row = Record<string, string | number | null>;
 
 const DOT: Record<string, string> = { red: "🔴", yellow: "🟡", green: "🟢" };
 
+/** The one-click half of a queue row's named move, beside the prose that
+ *  names it. Every row stated its action ("Assign it or drop it") and
+ *  offered nothing but a link away — the manager left the queue they were
+ *  working to do what the row asked. Only the kinds whose move is a single
+ *  existing write get a control; the rest keep their link.
+ */
+function QueueActions({ q, onDone }: { q: Intervention; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const run = async (p: Promise<unknown>, said: string) => {
+    setBusy(true);
+    try {
+      await p;
+      reportStatus(said);
+      onDone();
+    } catch (e) {
+      reportStatus(actionError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const chip =
+    "rounded bg-raised px-2 py-0.5 text-xs hover:bg-line disabled:opacity-50";
+  if (q.kind === "work_unowned")
+    return (
+      <span className="mt-0.5 flex items-center gap-1.5 text-xs">
+        <label className="sr-only" htmlFor={`queue-assign-${q.entity_id}`}>
+          Assign task #{q.entity_id} to
+        </label>
+        <PersonInput
+          id={`queue-assign-${q.entity_id}`}
+          name={`queue-assign-${q.entity_id}`}
+          placeholder="teammate's name — Enter to assign"
+          onKeyDown={(ev) => {
+            const who = (ev.target as HTMLInputElement).value.trim();
+            if (ev.key === "Enter" && who)
+              run(
+                api(`/api/tasks/${q.entity_id}`, {
+                  method: "PATCH",
+                  body: JSON.stringify({ assignee: who }),
+                }),
+                `Task #${q.entity_id} assigned to ${who}.`,
+              );
+          }}
+          onChange={(ev) => {
+            // a mouse-picked datalist suggestion must commit too — picks
+            // arrive as insertReplacementText (or undefined inputType in
+            // Firefox), typing as insertText (app/dashboard/page.tsx)
+            const t = (ev.nativeEvent as InputEvent).inputType;
+            if (t && t !== "insertReplacementText") return;
+            const who = ev.target.value.trim();
+            if (who)
+              run(
+                api(`/api/tasks/${q.entity_id}`, {
+                  method: "PATCH",
+                  body: JSON.stringify({ assignee: who }),
+                }),
+                `Task #${q.entity_id} assigned to ${who}.`,
+              );
+          }}
+          className="rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
+        />
+      </span>
+    );
+  if (q.kind === "promise_overdue")
+    return (
+      <span className="mt-0.5 flex gap-1.5">
+        {(["kept", "missed"] as const).map((s) => (
+          <button
+            key={s}
+            disabled={busy}
+            onClick={() =>
+              run(
+                api(`/api/promises/${q.entity_id}/status`, {
+                  method: "POST",
+                  body: JSON.stringify({ status: s }),
+                }),
+                `Promise #${q.entity_id} marked ${s}.`,
+              )
+            }
+            className={chip}
+          >
+            mark {s}
+          </button>
+        ))}
+      </span>
+    );
+  if (q.kind === "decision_stale")
+    return (
+      <span className="mt-0.5 flex gap-1.5">
+        <button
+          disabled={busy}
+          onClick={() =>
+            // empty review_by: the service pushes the date out 90 days — it
+            // never removes the half-life (services/collab.py)
+            run(
+              api(`/api/decisions/${q.entity_id}/reconfirm`, {
+                method: "POST",
+                body: JSON.stringify({}),
+              }),
+              `Decision #${q.entity_id} reconfirmed for 90 days.`,
+            )
+          }
+          className={chip}
+        >
+          reconfirm 90 days
+        </button>
+        {/* supersede needs the successor's text — the row's title link
+            already lands on the decision's own charter row, where that
+            editor lives */}
+      </span>
+    );
+  if (q.kind === "blocker_escalated")
+    return (
+      <span className="mt-0.5 flex gap-1.5">
+        <button
+          disabled={busy}
+          onClick={() =>
+            run(
+              api(`/api/blockers/${q.entity_id}/resolve`, {
+                method: "POST",
+                body: JSON.stringify({
+                  resolution: "resolved in the weekly meeting",
+                }),
+              }),
+              `Blocker #${q.entity_id} resolved.`,
+            )
+          }
+          className={`${chip} bg-ok/15 font-medium text-ok hover:bg-ok/20`}
+        >
+          resolve
+        </button>
+      </span>
+    );
+  return null;
+}
+
 // This page is an AGENDA a manager reads down in a meeting. Measured at
 // 360px the uncapped outside-threads card was 65% of a 4705px page, which
 // buries steps 5 and 6 under a list nobody reads in the room. The service
@@ -119,6 +257,7 @@ const PARTY_CAP = 8;
 export default function Planning() {
   const [data, setData] = useState<Cockpit | null>(null);
   const [error, setError] = useState("");
+  const manage = useManageMode();
 
   // its own request, not a field on /api/planning: the queue composes health,
   // findings, blockers and decisions, and a cockpit that could not render
@@ -175,7 +314,10 @@ export default function Planning() {
       tabIndex={-1}
       className="mx-auto w-full max-w-5xl xl:max-w-6xl space-y-4 p-4 sm:p-6"
     >
-      <SectionTabs set="work" />
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <SectionTabs set="work" />
+        <ManageToggle />
+      </div>
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
         Planning
       </h1>
@@ -313,6 +455,7 @@ export default function Planning() {
                   </span>
                 </div>
                 <p className="text-xs text-ink-2">{q.action}</p>
+                <QueueActions q={q} onDone={load} />
                 {q.receipts.map((r, i) => (
                   <ReceiptLine
                     key={i}
@@ -531,8 +674,10 @@ export default function Planning() {
         </Card>
       ) : null}
 
-      {/* 6 — what has gone stale, and which way the portfolio moved */}
-      <Card title="6 · Stale decisions">
+      {/* 6 — which way the portfolio moved. Split from the stale-decisions
+          card: one card held both and its title named only the decisions, so
+          a reader scanning the agenda by title never found the health list. */}
+      <Card title="6 · Portfolio health">
         {d.health_changes.length > 0 ? (
           <>
             <h3 className="text-xs uppercase tracking-wide text-ink-3">
@@ -581,6 +726,15 @@ export default function Planning() {
             </ul>
           </>
         ) : null}
+        {d.health_changes.length === 0 && d.health.length === 0 ? (
+          <p className="text-sm text-ink-3">
+            No engagement carries a health score yet.
+          </p>
+        ) : null}
+      </Card>
+
+      {/* 7 — decisions past their half-life */}
+      <Card title="7 · Stale decisions">
         {d.stale_decisions.length === 0 ? (
           <p className="text-sm text-ink-3">No decision is past its review date.</p>
         ) : (
@@ -602,8 +756,17 @@ export default function Planning() {
         </p>
       </Card>
 
-      {/* 7 — the one write the ritual ends with */}
-      <Card title="7 · Close the meeting">
+      {/* 8 — the one write the ritual ends with. Manager-gated like the same
+          button on Work → Health: the brief notifies the whole roster, and
+          this page carried it ungated while Health gated it — one broadcast,
+          two rules. */}
+      <Card title="8 · Close the meeting">
+        {!manage ? (
+          <p className="text-sm text-ink-3">
+            To file the week-open brief, turn on <b>manager controls</b> (top
+            right). The brief notifies every teammate, so one person runs it.
+          </p>
+        ) : (
         <button
           onClick={async () => {
             try {
@@ -630,10 +793,13 @@ export default function Planning() {
         >
           File the week-open brief
         </button>
+        )}
+        {manage ? (
         <p className="mt-2 text-xs text-ink-3">
           The brief sends one personal notification to each teammate and
           files an artifact. It reaches everyone, so run it once.
         </p>
+        ) : null}
       </Card>
     </main>
   );

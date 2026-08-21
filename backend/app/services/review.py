@@ -1832,7 +1832,10 @@ def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
     # row read "8 of 8 approved (100%) · no run of approvals", which states a
     # perfect record and no run of approvals in one breath, and the promotion
     # line could never appear. An operator's fix, not a wait.
-    blocked = trust_blocked()
+    # remedy=False: this sentence rides every proposal card, and the env-var
+    # instruction inside the full version is the operator's, not the
+    # reviewer's — Team → Agents keeps the version that says the fix.
+    blocked = trust_blocked(remedy=False)
     # one scan for the whole page: promotion_blocked below would otherwise
     # re-read every authority proposal per row (services/delegation.py)
     judged = _judged_pairs(_authority_cutoff())

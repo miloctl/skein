@@ -18,6 +18,16 @@ def test_the_gate_being_off_is_named_with_its_fix(fresh_db, monkeypatch):
     assert "SKEIN_AGENT_REVIEW=1" in msg  # names the fix, not only the fault
 
 
+def test_remedy_false_keeps_the_fact_and_drops_the_env_var(fresh_db, monkeypatch):
+    """Approvals repeats this sentence on every proposal card, to reviewers
+    who cannot set an env var — the fact stays, the operator instruction goes
+    (services/review.py passes remedy=False)."""
+    monkeypatch.setattr(config, "AGENT_REVIEW", False)
+    msg = delegation.trust_blocked(remedy=False)
+    assert "review gate is off" in msg
+    assert "SKEIN_AGENT_REVIEW" not in msg
+
+
 def test_silence_when_the_gate_is_on_and_nothing_is_settled(fresh_db, monkeypatch):
     """An empty ledger is a genuine "not yet". Warning there would train the
     reader to ignore the line that matters."""

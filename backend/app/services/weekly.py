@@ -2,6 +2,7 @@
 Monday job drafts the plan as a pending-changes proposal — the same review
 inbox humans already work, so the plan is approved, not imposed."""
 
+import json
 from datetime import timedelta
 
 from .. import db
@@ -40,7 +41,27 @@ def week_view(week: str = "") -> dict:
         "done": done,
         "kept_percent": round(100 * done / len(tasks)) if tasks else None,
         "tasks": tasks,
+        # The Monday job may have ALREADY proposed this week's plan
+        # (propose_weekly_plan below). Without this the Health card said
+        # "Nothing committed yet — draft a plan" while that proposal sat
+        # pending in Approvals, and the drafter it invited filed a duplicate.
+        # id and summary only: the summary is built from workspace-tier task
+        # titles, the same tier every row of this view already carries.
+        "pending_proposal": _pending_plan_proposal(week),
     }
+
+
+def _pending_plan_proposal(week: str) -> dict | None:
+    for row in db.query(
+        "SELECT id, summary, payload FROM pending_changes"
+        " WHERE status = 'pending' AND entity = 'weekly_plan' ORDER BY id"
+    ):
+        try:
+            if json.loads(row["payload"]).get("week") == week:
+                return {"id": row["id"], "summary": row["summary"]}
+        except (ValueError, TypeError):
+            continue
+    return None
 
 
 def draft_plan(week: str = "") -> dict:
