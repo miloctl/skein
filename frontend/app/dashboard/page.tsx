@@ -62,6 +62,7 @@ function Section({
   render,
   empty,
   headingRef,
+  footer,
 }: {
   title: string;
   rows: Row[];
@@ -71,6 +72,10 @@ function Section({
   // was on. The HEADING rather than the section, because a screen reader
   // announces its text and the reader learns where they landed.
   headingRef?: React.Ref<HTMLHeadingElement>;
+  // a control that belongs to the card, not to a row — the create forms.
+  // Rendered on the empty card too, which is where a create control earns
+  // its place.
+  footer?: React.ReactNode;
 }) {
   return (
     <section className="rounded-xl border border-line bg-card p-4 shadow-card">
@@ -86,6 +91,7 @@ function Section({
       ) : (
         <ul className="space-y-2">{rows.map((r) => render(r))}</ul>
       )}
+      {footer}
     </section>
   );
 }
@@ -428,6 +434,7 @@ const COLLECTIONS = [
   "blockers",
   "engagements",
   "capacity",
+  "allocations",
   "absences",
 ];
 
@@ -568,6 +575,7 @@ export default function Dashboard() {
   }, [draftedLesson]);
 
   const [assigning, setAssigning] = useState<number | null>(null);
+  const [assigningBlocker, setAssigningBlocker] = useState<number | null>(null);
   const [answering, setAnswering] = useState<number | null>(null);
   const [editing, setEditing] = useState<{
     kind: "task" | "milestone";
@@ -576,6 +584,17 @@ export default function Dashboard() {
   const [editingNote, setEditingNote] = useState<number | null>(null);
   const [deletingNote, setDeletingNote] = useState<number | null>(null);
   const [deletingAbsence, setDeletingAbsence] = useState<number | null>(null);
+  const [deletingEvent, setDeletingEvent] = useState<number | null>(null);
+  // the two create drafts. Both cards listed rows nothing on the page could
+  // create — the empty states sent the reader to Chat, where the default
+  // mock provider has no milestone or event grammar (services/capture.py).
+  const [msDraft, setMsDraft] = useState({ title: "", due: "" });
+  const [evDraft, setEvDraft] = useState({ title: "", starts: "" });
+  const [allocDraft, setAllocDraft] = useState({
+    person: "",
+    engagement: "",
+    percent: "",
+  });
 
   // inline actions re-fetch instead of window.location.reload() — a reload
   // resets focus to the document top and strips a screen-reader user of all
@@ -663,6 +682,19 @@ export default function Dashboard() {
       setEditing(null);
       refocusEdit(entity === "tasks" ? "task" : "milestone", id);
       refresh([entity, "activity"]);
+    } catch (e) {
+      reportStatus(actionError(e));
+    }
+  };
+
+  const blockerPatch = async (id: number, fields: Record<string, string>) => {
+    try {
+      await api(`/api/blockers/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(fields),
+      });
+      setAssigningBlocker(null);
+      refresh(["blockers", "activity"]);
     } catch (e) {
       reportStatus(actionError(e));
     }
@@ -1045,26 +1077,217 @@ export default function Dashboard() {
               key={b.id}
               id={`blocker-${b.id}`}
               tabIndex={-1}
-              className={`flex items-center justify-between gap-2 text-sm ${HASH_TARGET}`}
+              className={`text-sm ${HASH_TARGET}`}
             >
-              <span>
-                <span className="text-ink-3">#{b.id}</span> {b.title}
-                <VisibilityBadge
-                  visibility={b.visibility as string}
-                  crewId={b.crew_id as number}
-                />
-                <span className="ml-2 text-xs text-ink-3">
-                  {b.owner ? `@${b.owner}` : "unowned"} · {b.impact}
+              <div className="flex items-center justify-between gap-2">
+                <span>
+                  <span className="text-ink-3">#{b.id}</span> {b.title}
+                  <VisibilityBadge
+                    visibility={b.visibility as string}
+                    crewId={b.crew_id as number}
+                  />
+                  <span className="ml-2 text-xs text-ink-3">
+                    {b.owner ? `@${b.owner}` : "unowned"} · {b.impact}
+                  </span>
                 </span>
-              </span>
-              <Badge value={String(b.status)} />
+                <Badge value={String(b.status)} />
+              </div>
+              {/* The register was the one blocker surface with no control on
+                  it: resolve lived on My Day (and only for rows that reached
+                  the reader's attention list), an unowned row stayed unowned
+                  unless somebody used the API by hand, and impact was frozen
+                  at capture's default `medium` — which is the field that sets
+                  the escalation clock (services/blockers.py). */}
+              {b.status !== "resolved" && (
+                <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-ink-3">
+                  {assigningBlocker === b.id ? (
+                    <span className="flex items-center gap-1.5">
+                      <PersonInput
+                        autoFocus
+                        name="assign-blocker"
+                        aria-label={`Give blocker #${b.id} an owner`}
+                        placeholder="teammate's name — Enter to assign"
+                        onKeyDown={(ev) => {
+                          if (ev.key === "Escape") setAssigningBlocker(null);
+                          const who = (
+                            ev.target as HTMLInputElement
+                          ).value.trim();
+                          if (ev.key === "Enter" && who)
+                            blockerPatch(Number(b.id), { owner: who });
+                        }}
+                        onChange={(ev) => {
+                          // a mouse-picked datalist suggestion must commit too —
+                          // picks arrive as insertReplacementText (or undefined
+                          // inputType in Firefox), typing as insertText
+                          const t = (ev.nativeEvent as InputEvent).inputType;
+                          if (t && t !== "insertReplacementText") return;
+                          const who = ev.target.value.trim();
+                          if (who) blockerPatch(Number(b.id), { owner: who });
+                        }}
+                        className="rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
+                      />
+                      <button
+                        onClick={() => setAssigningBlocker(null)}
+                        className="hover:text-ink"
+                      >
+                        cancel
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => setAssigningBlocker(Number(b.id))}
+                      className="underline hover:text-ink-2"
+                    >
+                      {b.owner ? "reassign…" : "assign…"}
+                    </button>
+                  )}
+                  <label className="flex items-center gap-1">
+                    <span className="sr-only">Impact of blocker #{b.id}</span>
+                    <select
+                      value={String(b.impact)}
+                      onChange={(ev) =>
+                        blockerPatch(Number(b.id), { impact: ev.target.value })
+                      }
+                      className="rounded-lg border border-line-strong bg-card px-1.5 py-0.5 outline-none"
+                    >
+                      {["low", "medium", "high", "critical"].map((i) => (
+                        <option key={i} value={i}>
+                          {i}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await api(`/api/blockers/${b.id}/resolve`, {
+                          method: "POST",
+                          body: JSON.stringify({
+                            resolution: "resolved from the register",
+                          }),
+                        });
+                        refresh(["blockers", "tasks", "activity"]);
+                      } catch (e) {
+                        reportStatus(actionError(e));
+                      }
+                    }}
+                    className="rounded bg-ok/15 px-2 py-0.5 font-medium text-ok hover:bg-ok/20"
+                  >
+                    resolve
+                  </button>
+                </p>
+              )}
             </li>
           )}
         />
         <Section
           title="Capacity"
           rows={data.capacity ?? []}
-          empty="No allocations recorded."
+          empty="No allocations recorded. Add the first one below."
+          footer={
+            // The write half of capacity. Five surfaces read allocation math
+            // (this card, Health conflicts, Planning weeks-ahead, intake
+            // what-ifs) and NOTHING in the product wrote one — the table
+            // behind "can we take this on" was reachable only by hand-made
+            // API calls.
+            <div className="mt-3 space-y-1.5 text-xs">
+              {(data.allocations ?? []).map((a) => (
+                <p
+                  key={a.id}
+                  className="flex items-center justify-between gap-2 text-ink-3"
+                >
+                  <span>
+                    {a.person} → {a.engagement} · {a.percent}%
+                  </span>
+                  <button
+                    aria-label={`Delete the allocation of ${a.person} to ${a.engagement}`}
+                    onClick={async () => {
+                      try {
+                        await api(`/api/allocations/${a.id}`, {
+                          method: "DELETE",
+                        });
+                        refresh(["allocations", "capacity", "activity"]);
+                      } catch (e) {
+                        reportStatus(actionError(e));
+                      }
+                    }}
+                    className="underline hover:text-ink-2"
+                  >
+                    delete
+                  </button>
+                </p>
+              ))}
+              <form
+                className="flex flex-wrap items-center gap-1.5"
+                onSubmit={async (ev) => {
+                  ev.preventDefault();
+                  if (!allocDraft.person.trim() || !allocDraft.engagement)
+                    return;
+                  try {
+                    await api(
+                      `/api/engagements/${allocDraft.engagement}/allocate`,
+                      {
+                        method: "POST",
+                        body: JSON.stringify({
+                          person: allocDraft.person.trim(),
+                          percent: Number(allocDraft.percent) || 100,
+                        }),
+                      },
+                    );
+                    setAllocDraft({ person: "", engagement: "", percent: "" });
+                    refresh(["allocations", "capacity", "activity"]);
+                  } catch (e) {
+                    reportStatus(actionError(e));
+                  }
+                }}
+              >
+                <PersonInput
+                  aria-label="Person to allocate"
+                  name="allocate-person"
+                  placeholder="teammate"
+                  value={allocDraft.person}
+                  onChange={(e) =>
+                    setAllocDraft({ ...allocDraft, person: e.target.value })
+                  }
+                  className="w-32 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
+                />
+                <select
+                  aria-label="Engagement to allocate to"
+                  value={allocDraft.engagement}
+                  onChange={(e) =>
+                    setAllocDraft({ ...allocDraft, engagement: e.target.value })
+                  }
+                  className="rounded-lg border border-line-strong bg-card px-1.5 py-0.5 outline-none"
+                >
+                  <option value="">engagement…</option>
+                  {(data.engagements ?? []).map((en) => (
+                    <option key={en.id} value={String(en.id)}>
+                      {en.name}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  aria-label="Percent of their time"
+                  placeholder="100"
+                  value={allocDraft.percent}
+                  onChange={(e) =>
+                    setAllocDraft({ ...allocDraft, percent: e.target.value })
+                  }
+                  className="w-16 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
+                />
+                <span aria-hidden>%</span>
+                <button
+                  disabled={!allocDraft.person.trim() || !allocDraft.engagement}
+                  className="rounded-lg bg-raised px-2.5 py-0.5 font-medium hover:bg-line disabled:opacity-40"
+                >
+                  Allocate
+                </button>
+              </form>
+            </div>
+          }
           render={(c) => (
             <li
               key={String(c.person)}
@@ -1182,7 +1405,51 @@ export default function Dashboard() {
         <Section
           title="Milestones"
           rows={data.milestones ?? []}
-          empty="No milestones yet — ask the Chief of Staff in Chat to plan a project."
+          empty="No milestones yet. Add the first one below."
+          footer={
+            <form
+              className="mt-3 flex flex-wrap items-center gap-1.5 text-xs"
+              onSubmit={async (ev) => {
+                ev.preventDefault();
+                if (!msDraft.title.trim()) return;
+                try {
+                  await api("/api/milestones", {
+                    method: "POST",
+                    body: JSON.stringify({
+                      title: msDraft.title.trim(),
+                      due_date: msDraft.due,
+                    }),
+                  });
+                  setMsDraft({ title: "", due: "" });
+                  refresh(["milestones", "activity"]);
+                } catch (e) {
+                  reportStatus(actionError(e));
+                }
+              }}
+            >
+              <input
+                aria-label="New milestone title"
+                placeholder="new milestone"
+                value={msDraft.title}
+                onChange={(e) => setMsDraft({ ...msDraft, title: e.target.value })}
+                className="min-w-40 flex-1 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
+              />
+              <input
+                type="date"
+                aria-label="Milestone due date"
+                value={msDraft.due}
+                onChange={(e) => setMsDraft({ ...msDraft, due: e.target.value })}
+                className="rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
+              />
+              <button
+                aria-label="Add the milestone"
+                disabled={!msDraft.title.trim()}
+                className="rounded-lg bg-raised px-2.5 py-0.5 font-medium hover:bg-line disabled:opacity-40"
+              >
+                Add
+              </button>
+            </form>
+          }
           render={(m) =>
             editing?.kind === "milestone" && editing.id === m.id ? (
               <EditRow
@@ -1484,11 +1751,55 @@ export default function Dashboard() {
         <Section
           title="Calendar"
           rows={data.events ?? []}
-          empty="Nothing scheduled — ask the Chief of Staff in Chat to schedule an event."
+          empty="Nothing scheduled. Add an event below."
+          footer={
+            <form
+              className="mt-3 flex flex-wrap items-center gap-1.5 text-xs"
+              onSubmit={async (ev) => {
+                ev.preventDefault();
+                if (!evDraft.title.trim() || !evDraft.starts) return;
+                try {
+                  await api("/api/events", {
+                    method: "POST",
+                    body: JSON.stringify({
+                      title: evDraft.title.trim(),
+                      starts_at: evDraft.starts,
+                    }),
+                  });
+                  setEvDraft({ title: "", starts: "" });
+                  refresh(["events", "activity"]);
+                } catch (e) {
+                  reportStatus(actionError(e));
+                }
+              }}
+            >
+              <input
+                aria-label="New event title"
+                placeholder="new event"
+                value={evDraft.title}
+                onChange={(e) => setEvDraft({ ...evDraft, title: e.target.value })}
+                className="min-w-40 flex-1 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
+              />
+              <input
+                type="datetime-local"
+                aria-label="Event start"
+                value={evDraft.starts}
+                onChange={(e) => setEvDraft({ ...evDraft, starts: e.target.value })}
+                className="rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
+              />
+              <button
+                aria-label="Add the event"
+                disabled={!evDraft.title.trim() || !evDraft.starts}
+                className="rounded-lg bg-raised px-2.5 py-0.5 font-medium hover:bg-line disabled:opacity-40"
+              >
+                Add
+              </button>
+            </form>
+          }
           render={(e) => (
             <li
               key={e.id}
-              className="flex items-center justify-between text-sm"
+              className="flex items-center justify-between gap-2 text-sm"
             >
               <span>
                 {e.title}
@@ -1497,7 +1808,58 @@ export default function Dashboard() {
                   crewId={e.crew_id as number}
                 />
               </span>
-              <span className="text-xs text-ink-3">{e.starts_at}</span>
+              <span className="flex items-center gap-2 text-xs text-ink-3">
+                {e.starts_at}
+                {deletingEvent === e.id ? (
+                  <span className="flex items-center gap-1.5">
+                    <span id={`delete-event-${e.id}-consequence`}>
+                      Delete this event? It leaves the calendar and the
+                      calendar feed. An activity record of the deletion will
+                      stay.
+                    </span>
+                    <button
+                      autoFocus
+                      aria-describedby={`delete-event-${e.id}-consequence`}
+                      onClick={async () => {
+                        try {
+                          await api(`/api/events/${e.id}`, { method: "DELETE" });
+                          setDeletingEvent(null);
+                          refresh(["events", "activity"]);
+                        } catch (err) {
+                          reportStatus(actionError(err));
+                        }
+                      }}
+                      className="rounded bg-danger-solid px-2 py-0.5 font-medium text-white hover:opacity-90"
+                    >
+                      Delete event
+                    </button>
+                    <button
+                      onClick={() => {
+                        setDeletingEvent(null);
+                        setTimeout(
+                          () =>
+                            document
+                              .getElementById(`delete-event-${e.id}`)
+                              ?.focus(),
+                          0,
+                        );
+                      }}
+                      className="hover:text-ink"
+                    >
+                      Cancel deletion
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    id={`delete-event-${e.id}`}
+                    aria-label={`Delete event: ${e.title}`}
+                    onClick={() => setDeletingEvent(Number(e.id))}
+                    className="underline hover:text-ink-2"
+                  >
+                    delete…
+                  </button>
+                )}
+              </span>
             </li>
           )}
         />

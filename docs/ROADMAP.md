@@ -110,11 +110,10 @@ The rate-cap ratchet and the unbounded list reads shipped 2026-08-09
 Sized S or M by that review. Items 6 and 8 of the original list are gone. The
 engagement-close conclusion select shipped (`app/dashboard/page.tsx`). The
 portfolio commitments card now names its two audiences in the card title.
-Items 1 (nav search), 3 (delegate control in the task peek), 7 (the
-Recently shipped strip), and 9 (phone-width search results) shipped and were
-dropped. The remaining numbers stay as the review transcripts cite them.
+Items 1 (nav search), 3 (delegate control in the task peek), 5 (the
+allocation form on the Capacity card), 7 (the Recently shipped strip), and 9
+(phone-width search results) shipped and were dropped. The remaining numbers stay as the review transcripts cite them.
 
-5. [S] Allocation inline form on the Capacity card, or an honest empty state.
 6. [S] `?` tooltips: ISO week format on the commitment card, season definition
    on the pulse banner. (The origin glossary this item also named shipped
    2026-08-09 as the origin chip on each Approvals row.)
@@ -415,10 +414,6 @@ history center, so each surface keeps its own bound.
 
 **Named, blocked on a decision rather than on effort.**
 
-- **Engagement outcome recording** [S, blocked] — an engagement with no
-  intended outcome sends the manager to Chat instead of offering the write
-  next to the empty field. Blocked until the canonical outcome write surface
-  and its return path are named.
 - **Legacy and aggregate review-notification repair** [M] — migration 002
   types new proposal notifications, so pre-002 rows still sit beside their
   proposals untyped. Separately, a batch ingest summary keeps claiming
@@ -434,16 +429,17 @@ history center, so each surface keeps its own bound.
   overflow count, and the sort carries no final task-id key, so equal-ranked
   rows order unstably between reads. The instability is the smaller half and
   the cheaper fix.
-- **Full task editing in the task panel** [M] — the inline editor exposes
-  title, assignee and due date. Priority, description, status, `waiting_on`,
-  commitment week and visibility have no path. Needs a field set and a
-  visibility-transition rule before it is built.
+- **Task-panel editing, the second half** [S] — the panel edits status,
+  priority, assignee, due date and `waiting_on`. Description, commitment
+  week and visibility still have no path there, and visibility needs a
+  transition rule before it gets one.
 - **Browse filters and task pagination** [M] — 28 open tasks render as one
   unfiltered list about 900px tall, over 600 accessibility nodes on the seeded
   instance, with no source, engagement or owner filter.
-- **Planning action placement** [S] — evidence and the control that resolves
-  it sit on different pages for the health draft, capacity allocation and the
-  incident path. Item 5 above covers the capacity form only.
+- **Planning action placement** [S] — evidence and the control that
+  resolves it sit on different pages for the health draft. The capacity form
+  and the intervention queue's inline moves (assign, promise verdicts,
+  reconfirm, resolve) shipped 2026-08-20.
 - **Engagement-level model-cost attribution** [M] — every model call sits
   under `(unlinked)`. Honest, and empty unless people hand-maintain chat
   links, so this needs an automatic link before the surface earns its space.

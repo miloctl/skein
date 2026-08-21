@@ -176,6 +176,9 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # only the MANUAL backup logs an actor (services/admin.py::backup) —
     # the 03:00 scheduled run must not tie this for anybody
     "backup": lambda u: _act(u, "backup"),
+    # the ledger row, not the allocations table: a deleted allocation takes
+    # its created_by with it, and the tie is about having used the control
+    "allocate": lambda u: _act(u, "allocate"),
 }
 
 _registry_cache: list[dict] | None = None

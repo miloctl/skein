@@ -175,13 +175,17 @@ def edit_blocker(
     title: str = "",
     detail: str = "",
     owner: str = "",
+    impact: str = "",
     *,
     actor: str = "system",
     origin: str = "human",
 ) -> dict:
-    """Correct an open blocker's wording/owner — resolution stays its own verb."""
+    """Correct an open blocker's wording/owner/impact — resolution stays its
+    own verb."""
     with db.transaction():
-        return _edit_blocker_locked(blocker_id, title, detail, owner, actor=actor, origin=origin)
+        return _edit_blocker_locked(
+            blocker_id, title, detail, owner, impact, actor=actor, origin=origin
+        )
 
 
 def _edit_blocker_locked(
@@ -189,6 +193,7 @@ def _edit_blocker_locked(
     title: str = "",
     detail: str = "",
     owner: str = "",
+    impact: str = "",
     *,
     actor: str = "system",
     origin: str = "human",
@@ -204,9 +209,24 @@ def _edit_blocker_locked(
     scope.assert_editable("blockers", row, actor, verb="edit")
     if row["status"] == "resolved":
         raise ValueError(f"blocker #{blocker_id} is resolved — history stays put")
-    fields = {k: v for k, v in [("title", title), ("detail", detail), ("owner", owner)] if v}
+    if impact and impact not in IMPACTS:
+        raise ValueError(f"impact must be one of {IMPACTS}")
+    fields: dict[str, str | int] = {
+        k: v
+        for k, v in [("title", title), ("detail", detail), ("owner", owner), ("impact", impact)]
+        if v
+    }
     if not fields:
         raise ValueError("nothing to update")
+    # the escalation clock follows the impact UNLESS the creator set a custom
+    # deadline — impact was frozen at creation before this, so the only
+    # escalation speed a web-filed blocker ever had was medium's
+    if (
+        impact
+        and impact != row["impact"]
+        and row["escalate_after_hours"] == DEFAULT_ESCALATION_HOURS.get(row["impact"])
+    ):
+        fields["escalate_after_hours"] = DEFAULT_ESCALATION_HOURS[impact]
     for clearable in ("detail", "owner"):
         if fields.get(clearable) == "-":
             fields[clearable] = ""
@@ -217,7 +237,7 @@ def _edit_blocker_locked(
     # the sweep tells them its title.
     if fields.get("owner"):
         scope.assert_readable_by(
-            row["visibility"], row["crew_id"], fields["owner"], label="owner", author=actor
+            row["visibility"], row["crew_id"], str(fields["owner"]), label="owner", author=actor
         )
     sets = ", ".join(f"{k} = ?" for k in fields)
     db.execute(

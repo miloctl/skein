@@ -2725,6 +2725,7 @@ class BlockerEditIn(BaseModel):
     title: str = Field("", max_length=200)
     detail: str = Field("", max_length=4000)
     owner: str = Field("", max_length=64)
+    impact: str = Field("", max_length=10)
 
 
 @router.patch("/blockers/{blocker_id}")
@@ -2751,7 +2752,7 @@ def patch_blocker(
                 )
             )
             return blockers.edit_blocker(
-                blocker_id, body.title, body.detail, body.owner, actor=user
+                blocker_id, body.title, body.detail, body.owner, body.impact, actor=user
             )
     except db.NotFound:
         raise
