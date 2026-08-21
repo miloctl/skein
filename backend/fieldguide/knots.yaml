@@ -520,3 +520,13 @@ knots:
     how: "Ask the agent to write a document — a plan, a summary, a comparison. It saves under Work → Reports for the whole team, behind the same review gate as every agent write. A ```mermaid block in a document or a chat answer renders as a diagram."
     link: /artifacts
     since: 2026-08-16
+
+  - id: allocate
+    feature: Staffing allocations
+    knot: Klemheist
+    set: manager
+    role: manager
+    pitch: The capacity math is only as honest as the allocations under it.
+    how: "On Work → Browse, the Capacity card takes a teammate, an engagement, and a percent. Conflicts, the weeks ahead, and intake what-ifs all read from the same table. Delete an allocation from the same card when it ends."
+    link: /dashboard
+    since: 2026-08-20

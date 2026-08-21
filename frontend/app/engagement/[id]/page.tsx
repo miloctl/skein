@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 
-import { Card, EmptyState } from "@/components/card";
+import { Card } from "@/components/card";
 import { ReceiptLine } from "@/components/receipt";
 import { PeekLink } from "@/components/task-peek";
 import { SectionTabs } from "@/components/section-tabs";
@@ -101,6 +101,7 @@ export default function EngagementBrief({
   const [b, setB] = useState<Brief | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false); // a held Enter must not write N packages
+  const [outcomeDraft, setOutcomeDraft] = useState("");
 
   const load = useCallback(() => {
     api<Brief>(`/api/engagements/${id}/brief`)
@@ -188,10 +189,41 @@ export default function EngagementBrief({
         {e.outcome ? (
           <p className="whitespace-pre-wrap text-sm text-ink-2">{e.outcome}</p>
         ) : (
-          <EmptyState>
-            An engagement closes against its intended outcome. Ask the Chief
-            of Staff in Chat to record one.
-          </EmptyState>
+          // an inline write, not a pointer to Chat: the empty state sent the
+          // reader to the Chief of Staff, and the default mock provider has
+          // no grammar that records an outcome — the field is one PATCH away
+          <form
+            className="flex flex-wrap items-center gap-1.5"
+            onSubmit={async (ev) => {
+              ev.preventDefault();
+              const text = outcomeDraft.trim();
+              if (!text) return;
+              try {
+                await api(`/api/engagements/${e.id}`, {
+                  method: "PATCH",
+                  body: JSON.stringify({ outcome: text }),
+                });
+                setOutcomeDraft("");
+                load();
+              } catch (err) {
+                reportStatus(actionError(err));
+              }
+            }}
+          >
+            <input
+              aria-label="Intended outcome"
+              placeholder="what done looks like — the engagement closes against this"
+              value={outcomeDraft}
+              onChange={(ev) => setOutcomeDraft(ev.target.value)}
+              className="min-w-64 flex-1 rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
+            />
+            <button
+              disabled={!outcomeDraft.trim()}
+              className="rounded-lg bg-raised px-2.5 py-1 text-xs font-medium hover:bg-line disabled:opacity-40"
+            >
+              Record
+            </button>
+          </form>
         )}
         {e.kind === "experiment" ? (
           <p className="mt-2 text-xs text-ink-3">

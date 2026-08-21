@@ -24,6 +24,7 @@ import {
 } from "@/lib/api";
 import { signedInUser } from "@/lib/auth";
 import { reportStatus } from "@/lib/status";
+import { timeAgo } from "@/lib/time";
 import { copyText } from "@/lib/clipboard";
 import { Card as Section } from "@/components/card";
 import { AttachedFilesCard } from "@/components/attached-files-card";
@@ -140,6 +141,106 @@ function CopyLine({ text }: { text: string }) {
       >
         {copied ? "✓ copied" : "copy"}
       </button>
+    </div>
+  );
+}
+
+type KeyRow = {
+  id: number;
+  prefix: string;
+  label: string;
+  active: number;
+  created_at: string;
+  last_used_at: string | null;
+};
+
+/** The reader's own keys, with revoke. Minting had a button and revoking did
+ *  not — a leaked or lost key was a hand-made API call to kill, in the one
+ *  place the page said "revoke old ones from the CLI". Strong identity only:
+ *  GET /api/keys is a StrongUser route, because under trusted-header a bare
+ *  name would hand out anyone's key metadata. */
+function MyKeys() {
+  const [keys, setKeys] = useState<KeyRow[] | null>(null);
+  const [revoking, setRevoking] = useState<number | null>(null);
+  const load = useCallback(() => {
+    // the array is tested, not assumed: an older backend behind a newer
+    // bundle answers with something else, and .map on it unmounts the whole
+    // Settings page for a list that is merely additive
+    api<KeyRow[]>("/api/keys")
+      .then((rows) => setKeys(Array.isArray(rows) ? rows : []))
+      .catch(() => setKeys([]));
+  }, []);
+  useEffect(load, [load]);
+
+  if (!keys || keys.length === 0) return null;
+  return (
+    <div className="mb-3 rounded-lg bg-raised p-3 text-sm">
+      <p className="mb-2 font-medium">Your keys</p>
+      <ul className="space-y-1.5 text-xs">
+        {keys.map((k) => (
+          <li key={k.id} className="flex flex-wrap items-center gap-2">
+            <code>{k.prefix}…</code>
+            {k.label ? <span className="text-ink-3">{k.label}</span> : null}
+            <span className="text-ink-3">
+              {k.active
+                ? k.last_used_at
+                  ? `last used ${timeAgo(k.last_used_at)}`
+                  : "never used"
+                : "revoked"}
+            </span>
+            {k.active ? (
+              revoking === k.id ? (
+                <span className="flex items-center gap-1.5">
+                  <span id={`revoke-key-${k.id}-consequence`}>
+                    Revoke this key? The CLI and git hooks that use it stop
+                    working. This cannot be undone.
+                  </span>
+                  <button
+                    autoFocus
+                    aria-describedby={`revoke-key-${k.id}-consequence`}
+                    onClick={async () => {
+                      try {
+                        await api(`/api/keys/${k.id}`, { method: "DELETE" });
+                        setRevoking(null);
+                        load();
+                      } catch (e) {
+                        reportStatus(actionError(e));
+                      }
+                    }}
+                    className="rounded bg-danger-solid px-2 py-0.5 font-medium text-white hover:opacity-90"
+                  >
+                    Revoke key
+                  </button>
+                  <button
+                    onClick={() => {
+                      setRevoking(null);
+                      setTimeout(
+                        () =>
+                          document
+                            .getElementById(`revoke-key-${k.id}`)
+                            ?.focus(),
+                        0,
+                      );
+                    }}
+                    className="text-ink-3 hover:text-ink"
+                  >
+                    Cancel revocation
+                  </button>
+                </span>
+              ) : (
+                <button
+                  id={`revoke-key-${k.id}`}
+                  aria-label={`Revoke the key ${k.prefix}`}
+                  onClick={() => setRevoking(k.id)}
+                  className="underline text-ink-3 hover:text-ink-2"
+                >
+                  revoke…
+                </button>
+              )
+            ) : null}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -1214,6 +1315,8 @@ export default function SettingsPage() {
                     <CopyLine text={createdKey} />
                   </div>
                 )}
+                {/* keyed on createdKey too, so the list re-reads after a mint */}
+                {strong ? <MyKeys key={createdKey || "keys"} /> : null}
                 <div className="flex gap-2">
                   <input
                     name="personal-api-key"

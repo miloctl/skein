@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { actionError, api } from "@/lib/api";
 import { isGated, subscribeGated } from "@/lib/gated";
 import { reportStatus } from "@/lib/status";
+import { PersonInput } from "@/components/person-input";
 import { Provenance } from "@/components/provenance";
 import { VisibilityBadge } from "@/components/visibility-picker";
 import { timeAgo } from "@/lib/time";
@@ -326,6 +327,17 @@ export function TaskPeek() {
                 crewId={task.crew_id as number}
               />
             </p>
+
+            {/* The write half of "the one landing place for every task
+                reference": every surface routes task references here, and the
+                panel offered nothing but Delegate — changing a status meant
+                leaving for Browse, whose edit row holds three of these seven
+                fields. A DELEGATED task's status stays off the form: the
+                sponsor's verdict is the only path that ends a delegation
+                (services/delegation.py), and offering the select here would
+                collect an edit the server refuses. */}
+            <EditControls task={task} onSaved={reload} />
+
             {task.description ? (
               <p className="whitespace-pre-wrap break-words text-sm text-ink-2">
                 {task.description}
@@ -464,6 +476,190 @@ export function TaskPeek() {
           </>
         )}
       </aside>
+    </div>
+  );
+}
+
+// mirrors work.py::TASK_STATUSES and PRIORITIES — a value absent here is
+// merely unpickable, a value absent there is a 400
+const STATUSES = ["todo", "in_progress", "blocked", "done"];
+const PRIORITIES = ["low", "medium", "high", "urgent"];
+
+function EditControls({ task, onSaved }: { task: PeekTask; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState({
+    status: "",
+    priority: "",
+    assignee: "",
+    due_date: "",
+    waiting_on: "",
+  });
+  const delegated = Boolean(task.delegated_agent);
+
+  const patch = async (changes: Record<string, string>, said: string) => {
+    setBusy(true);
+    try {
+      await api(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(changes),
+      });
+      reportStatus(said);
+      setEditing(false);
+      onSaved();
+    } catch (e) {
+      reportStatus(actionError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!editing)
+    return (
+      <p className="flex gap-1.5">
+        <button
+          id={`peek-edit-${task.id}`}
+          onClick={() => {
+            setDraft({
+              status: task.status,
+              priority: task.priority,
+              assignee: task.assignee ?? "",
+              due_date: task.due_date ?? "",
+              waiting_on:
+                task.waiting_on_type && task.waiting_on_id
+                  ? `${task.waiting_on_type}:${task.waiting_on_id}`
+                  : "",
+            });
+            setEditing(true);
+          }}
+          className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+        >
+          <span className="sr-only">
+            Edit task #{task.id}: {task.title} —{" "}
+          </span>
+          edit…
+        </button>
+        {task.status !== "done" && !delegated ? (
+          <button
+            disabled={busy}
+            onClick={() => patch({ status: "done" }, `Task #${task.id} is done.`)}
+            className="rounded bg-ok/15 px-2 py-0.5 text-xs font-medium text-ok hover:bg-ok/20 disabled:opacity-50"
+          >
+            <span className="sr-only">
+              Mark task #{task.id}: {task.title}{" "}
+            </span>
+            mark done
+          </button>
+        ) : null}
+      </p>
+    );
+
+  const field = "rounded-lg border border-line-strong bg-transparent px-2 py-0.5 text-xs outline-none focus:border-thread-solid";
+  const save = () => {
+    // only what changed: an untouched field must not be written back, or a
+    // concurrent edit to it is silently reverted under this actor's name
+    const changes: Record<string, string> = {};
+    if (draft.status !== task.status) changes.status = draft.status;
+    if (draft.priority !== task.priority) changes.priority = draft.priority;
+    if (draft.assignee !== (task.assignee ?? "")) changes.assignee = draft.assignee;
+    if (draft.due_date !== (task.due_date ?? "")) changes.due_date = draft.due_date;
+    const wasWaiting =
+      task.waiting_on_type && task.waiting_on_id
+        ? `${task.waiting_on_type}:${task.waiting_on_id}`
+        : "";
+    // "-" clears an edge server-side; an emptied field means the same ask
+    if (draft.waiting_on !== wasWaiting)
+      changes.waiting_on = draft.waiting_on || "-";
+    if (Object.keys(changes).length === 0) {
+      setEditing(false);
+      return;
+    }
+    patch(changes, `Task #${task.id} updated.`);
+  };
+  const cancel = () => {
+    setEditing(false);
+    setTimeout(() => document.getElementById(`peek-edit-${task.id}`)?.focus(), 0);
+  };
+
+  return (
+    <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-xs">
+      {!delegated ? (
+        <>
+          <label htmlFor={`peek-status-${task.id}`} className="text-ink-3">
+            Status
+          </label>
+          <select
+            id={`peek-status-${task.id}`}
+            value={draft.status}
+            onChange={(e) => setDraft({ ...draft, status: e.target.value })}
+            className={field}
+          >
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {s.replace("_", " ")}
+              </option>
+            ))}
+          </select>
+        </>
+      ) : null}
+      <label htmlFor={`peek-priority-${task.id}`} className="text-ink-3">
+        Priority
+      </label>
+      <select
+        id={`peek-priority-${task.id}`}
+        value={draft.priority}
+        onChange={(e) => setDraft({ ...draft, priority: e.target.value })}
+        className={field}
+      >
+        {PRIORITIES.map((p) => (
+          <option key={p} value={p}>
+            {p}
+          </option>
+        ))}
+      </select>
+      <label htmlFor={`peek-assignee-${task.id}`} className="text-ink-3">
+        Assignee
+      </label>
+      <PersonInput
+        id={`peek-assignee-${task.id}`}
+        name={`peek-assignee-${task.id}`}
+        value={draft.assignee}
+        onChange={(e) => setDraft({ ...draft, assignee: e.target.value })}
+        className={field}
+      />
+      <label htmlFor={`peek-due-${task.id}`} className="text-ink-3">
+        Due
+      </label>
+      <input
+        id={`peek-due-${task.id}`}
+        type="date"
+        value={draft.due_date}
+        onChange={(e) => setDraft({ ...draft, due_date: e.target.value })}
+        className={field}
+      />
+      <label htmlFor={`peek-waiting-${task.id}`} className="text-ink-3">
+        Waiting on
+      </label>
+      <input
+        id={`peek-waiting-${task.id}`}
+        value={draft.waiting_on}
+        onChange={(e) => setDraft({ ...draft, waiting_on: e.target.value })}
+        placeholder="task:3 · blocker:12 · promise:7"
+        className={field}
+      />
+      <span aria-hidden />
+      <span className="flex gap-1.5">
+        <button
+          disabled={busy}
+          onClick={save}
+          className="rounded-lg bg-thread-solid px-2 py-0.5 font-medium text-white hover:opacity-90 disabled:opacity-50"
+        >
+          Save
+        </button>
+        <button onClick={cancel} className="text-ink-3 hover:text-ink">
+          cancel
+        </button>
+      </span>
     </div>
   );
 }

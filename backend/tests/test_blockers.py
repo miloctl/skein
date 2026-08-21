@@ -103,3 +103,36 @@ def test_the_escalation_sweep_announces_the_state_it_changed(fresh_db):
         fresh_db.query_one("SELECT status FROM blockers WHERE id = ?", (b["id"],))["status"]
         == "escalated"
     )
+
+
+def test_edit_blocker_impact_moves_the_escalation_clock(client, fresh_db):
+    """Impact was frozen at creation, so every web-filed blocker escalated at
+    capture's default `medium` speed — and impact is the field that SETS the
+    clock (DEFAULT_ESCALATION_HOURS)."""
+    from app import db
+
+    bid = client.post("/api/blockers", json={"title": "vendor stuck"}).json()["id"]
+    out = client.patch(f"/api/blockers/{bid}", json={"impact": "critical"}).json()
+    assert "impact" in out["updated"]
+    row = db.query_one("SELECT impact, escalate_after_hours FROM blockers WHERE id = ?", (bid,))
+    assert row["impact"] == "critical"
+    assert row["escalate_after_hours"] == 2  # critical's default, not medium's 24
+
+
+def test_edit_blocker_impact_keeps_a_custom_deadline(fresh_db):
+    """A creator who set their own escalate_after_hours said something the
+    impact default must not overwrite."""
+    from app import db
+    from app.services import blockers
+
+    bid = blockers.raise_blocker("custom clock", escalate_after_hours=5, actor="tester")["id"]
+    blockers.edit_blocker(bid, impact="critical", actor="tester")
+    row = db.query_one("SELECT impact, escalate_after_hours FROM blockers WHERE id = ?", (bid,))
+    assert row["impact"] == "critical" and row["escalate_after_hours"] == 5
+
+
+def test_edit_blocker_refuses_an_unknown_impact(client, fresh_db):
+    bid = client.post("/api/blockers", json={"title": "x"}).json()["id"]
+    r = client.patch(f"/api/blockers/{bid}", json={"impact": "urgent"})
+    assert r.status_code == 400
+    assert "urgent" not in r.json()["detail"]  # errors never echo the rejected value

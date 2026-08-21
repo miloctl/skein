@@ -370,12 +370,16 @@ def my_day(
         # blocker #1 rendered three times on one page. It must ride the query
         # because the route path strips source_entity/source_id from every
         # row (notifications._public_row) before _attention runs again.
+        # The subquery carries {b_f} — the SAME filter your_blockers splices —
+        # so the exclusion matches the attention row exactly: a blocker the
+        # viewer cannot read is not an attention row, and its notice must
+        # stay.
         "notifications": db.query(
             f"SELECT * FROM notifications WHERE {notifications.UNREAD_FOR}"  # noqa: S608 — module constant with bound marks
             " AND NOT (source_entity = 'blocker' AND source_id IN"
-            "  (SELECT id FROM blockers WHERE status != 'resolved' AND owner = ?))"
+            f"  (SELECT id FROM blockers WHERE status != 'resolved' AND owner = ? AND {b_f}))"
             " ORDER BY id DESC LIMIT 20",
-            (user, user, user),
+            (user, user, user, *b_p),
         ),
     }
     attention = _attention(user, needs_you, today, week)
