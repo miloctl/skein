@@ -43,7 +43,9 @@ def test_system_findings_never_reach_the_brief(fresh_db, monkeypatch):
     assert any(f["rule_id"] == "job_stale" for f in insights.list_findings())
 
     out = delta.brief("reader")
-    assert not [i for i in out["items"] if i["kind"] == "finding_new" and "Scheduled job" in i["headline"]]
+    assert not [
+        i for i in out["items"] if i["kind"] == "finding_new" and "Scheduled job" in i["headline"]
+    ]
 
 
 def test_reading_twice_leaves_nothing_the_second_time(client, fresh_db):

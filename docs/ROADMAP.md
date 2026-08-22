@@ -130,6 +130,13 @@ The rate-cap ratchet and the unbounded list reads shipped 2026-08-09
 
 ## Self-serve UX (from the 2026-07-24 fresh-user review)
 
+- **The weekly check-in tally never fills** [S, decision first] — months of
+  simulated use left it at "No votes yet", and real months would too: the
+  👍/👎 pair lives on My Day where nothing prompts it at a moment that
+  matters. Decide the prompt (the Friday close-out ritual is the natural
+  one — the week is over and the digest already reaches everyone) before
+  building anything, or retire the card with the season.
+
 Sized S or M by that review. Items 6 and 8 of the original list are gone. The
 engagement-close conclusion select shipped (`app/dashboard/page.tsx`). The
 portfolio commitments card now names its two audiences in the card title.
@@ -189,24 +196,6 @@ A1 (delegation work loop), A2 (system-filed authority proposals) and A3 (the
 morning sweep, which notifies each delegated task's sponsor rather than filing
 `nudge` proposals) shipped.
 
-- **Season-rehearsal findings (2026-08-21, one compressed week through every
-  real door):**
-  - **The sweep double-pings a task** [XS] — a task past its check-in AND
-    quiet got both nags in one sweep: two notifications, one task, same
-    morning. The check-in nag already sends the sponsor to look; suppress
-    the quiet nag when the check-in nag fires for the same task.
-  - **A fresh delegation is "quiet" immediately** [S] — delegated minutes
-    ago with no note yet, the quiet nag claims "no progress note for 2
-    days", which is false as stated. No-note-at-all clocks from forever;
-    it must clock from the delegation (the `delegate_task` activity row
-    carries the time).
-  - **The runner has no turn guard** [S] — the agent's wake reply said
-    "Status: Blocked" about task #40 and filed nothing: no blocker, no
-    proposal, prose only in the worklog. Chat's turn guard says "Nothing
-    was filed" for capture-shaped messages; the runner's reply lands in a
-    thread nobody is reading. Either the wake prompt tells the agent to
-    file a blocker proposal when it is stuck, or the runner detects a
-    blocked-shaped reply with no write and notifies the sponsor.
 - **A4 agent-to-agent handoff** — a `handoff_task` tool that keeps the sponsor
   immutable. The hop is itself a proposal the sponsor approves.
 - **A5 proposal bundles** — `bundle_id` and `seq` on `pending_changes`, with
@@ -477,9 +466,9 @@ history center, so each surface keeps its own bound.
   priority, assignee, due date and `waiting_on`. Description, commitment
   week and visibility still have no path there, and visibility needs a
   transition rule before it gets one.
-- **Browse filters and task pagination** [M] — 28 open tasks render as one
-  unfiltered list about 900px tall, over 600 accessibility nodes on the seeded
-  instance, with no source, engagement or owner filter.
+- **Browse task pagination** [M] — the whole open list still renders at
+  once (~600 accessibility nodes on the seeded instance). The filter half
+  shipped: one needle over title, #id, @assignee, status and priority.
 - **Planning action placement** [S] — evidence and the control that
   resolves it sit on different pages for the health draft. The capacity form
   and the intervention queue's inline moves (assign, promise verdicts,
