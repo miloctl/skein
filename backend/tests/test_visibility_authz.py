@@ -832,6 +832,12 @@ _UNFILTERED_READS = {
     ),
     # --- the row's OWN reader: this is the person or agent the row is for ---
     "review.py::_sponsor_of": "reads the one column that names who reviews it",
+    "intervention.py::_question_still_open": (
+        "reads only whether one question, named by id from a finding the"
+        " queue already policy-filtered, is still open — a boolean that"
+        " decides if a cleared condition keeps presenting as a current call."
+        " No column reaches a caller"
+    ),
     "review.py::season_readout": (
         "COUNT(*) of accepted delegations for the season card — no row"
         " content reaches any caller, and the count must be the season's"

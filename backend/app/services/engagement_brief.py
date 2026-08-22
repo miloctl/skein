@@ -33,13 +33,6 @@ TASK_CAP = 50
 QUEUE_SCAN = 50
 
 
-# both routes to an engagement: a task's own link, or through its milestone
-_ON_ENGAGEMENT = (
-    " AND (t.engagement_id = ? OR t.milestone_id IN"
-    "      (SELECT id FROM milestones WHERE engagement_id = ?))"
-)
-
-
 def brief(
     engagement_id: int,
     viewer: scope.Viewer = scope.NOBODY,
@@ -185,6 +178,11 @@ def brief(
     # rows this function already scopes, because activity ledger rows carry no
     # engagement id and delta.brief is reader-scoped and team-wide. Counts
     # only: the cards below carry the rows themselves.
+    # both routes to an engagement: a task's own link, or through its milestone
+    _ON_ENGAGEMENT = (
+        " AND (t.engagement_id = ? OR t.milestone_id IN"
+        "      (SELECT id FROM milestones WHERE engagement_id = ?))"
+    )
     since = db.local_midnight_utc(db.today() - timedelta(days=1))
     tasks_done = db.query_one(
         f"SELECT COUNT(*) AS n FROM tasks t WHERE {tfrag}{_ON_ENGAGEMENT}"  # noqa: S608 — scope.visible_filter emits only bound marks
