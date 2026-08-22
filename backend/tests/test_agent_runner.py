@@ -38,6 +38,10 @@ def test_an_agent_outside_the_allowlist_never_runs(fresh_db, monkeypatch):
 
 
 def test_the_sweep_runs_with_no_model_at_all(fresh_db, monkeypatch):
+    # the delegation is aged past the quiet window: a fresh delegation is
+    # deliberately not quiet (see _delegated_at), and this test is about
+    # the nag itself
+    monkeypatch.setattr(agent_runner, "_delegated_at", lambda _tid: "2000-01-01T00:00:00+00:00")
     """Keyless-first: the deterministic half is the whole feature on mock,
     and it must not need a provider to tell a sponsor their work is quiet."""
     task_id = _delegated("research-agent")
@@ -205,6 +209,10 @@ def test_an_unattended_write_still_passes_the_gate(fresh_db, monkeypatch):
 
 
 def test_the_sweep_notifies_once_per_task_per_week(fresh_db, monkeypatch):
+    # the delegation is aged past the quiet window: a fresh delegation is
+    # deliberately not quiet (see _delegated_at), and this test is about
+    # the nag itself
+    monkeypatch.setattr(agent_runner, "_delegated_at", lambda _tid: "2000-01-01T00:00:00+00:00")
     """The threshold decides WHETHER a task is quiet; it does not bound the
     repeat. The sweep runs daily, so without a weekly claim a task quiet for a
     month sends the same sponsor the same sentence twenty-eight times — which
@@ -267,6 +275,40 @@ def test_a_missed_check_in_nags_the_sponsor_once_per_date(fresh_db, monkeypatch)
     )
     assert len(sent) == 1
     assert "2020-01-01" in sent[0]["message"]
+
+
+def test_a_fresh_delegation_is_not_quiet(fresh_db, monkeypatch):
+    """Delegated minutes ago with no note yet, the sweep claimed "no progress
+    note for 2 days" — false as stated, and the first thing a sponsor read
+    about their own fresh delegation was a nag. The quiet clock starts at the
+    delegation, read from the ledger's own delegate_task row."""
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    assert agent_runner.sweep()["swept"] == 0
+
+
+def test_past_check_in_nags_once_not_twice(fresh_db, monkeypatch):
+    """A task past its check-in AND quiet earned the sponsor two
+    notifications in one sweep. The check-in nag already sends them to look;
+    the quiet nag stands down for that task."""
+    from app.services.users import ensure_user
+
+    ensure_user("research-agent", kind="agent")
+    ensure_user("tester", kind="human")
+    task = work.create_task("chase the vendor", actor="tester")
+    delegation.delegate_task(
+        task["id"], agent="research-agent", sponsor="tester",
+        check_in_at="2020-01-01", actor="tester",
+    )
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(
+        agent_runner, "_delegated_at", lambda _tid: "2000-01-01T00:00:00+00:00"
+    )
+    assert agent_runner.sweep()["swept"] == 1
+    sent = db.query("SELECT message FROM notifications WHERE \"user\" = 'tester'")
+    nags = [r["message"] for r in sent if "task #%d" % task["id"] in r["message"]]
+    assert len([m for m in nags if "past its check-in" in m]) == 1
+    assert not [m for m in nags if "no progress note" in m]
 
 
 def test_a_future_check_in_stays_silent(fresh_db, monkeypatch):
@@ -621,6 +663,10 @@ def test_unattended_runner_does_not_wake_for_a_denied_delegated_project(
 
 
 def test_runner_sweep_serializes_policy_and_notification(fresh_db, monkeypatch):
+    # the delegation is aged past the quiet window: a fresh delegation is
+    # deliberately not quiet (see _delegated_at), and this test is about
+    # the nag itself
+    monkeypatch.setattr(agent_runner, "_delegated_at", lambda _tid: "2000-01-01T00:00:00+00:00")
     from threading import Event, Thread
     from time import sleep
 

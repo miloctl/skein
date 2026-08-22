@@ -67,9 +67,25 @@ _WAKE = (
     " do unwatched. For each task, do the next concrete step, then call"
     " report_progress with what you did. Call submit_for_acceptance only when"
     " a task is genuinely finished. Do not create new tasks, and do not start"
-    " anything you were not delegated. If a task is blocked, say so in"
-    " report_progress and move on."
+    " anything you were not delegated. If a task is blocked, call raise_blocker"
+    " with the task id and what you need, THEN note it in report_progress and"
+    " move on — a blocker said only in prose reaches nobody: the blocker"
+    " register, My Day, and the escalation clock all read the record, not"
+    " your reply."
 )
+
+
+def _delegated_at(task_id: int) -> str | None:
+    """When this task was last delegated, from the ledger — the one record of
+    the hand-off, since tasks carry no delegated_at column. The space after
+    the id stops '#4 ->' matching '#40 ->'. None for a delegation that
+    predates the chain, which then ages like any old work."""
+    row = db.query_one(
+        "SELECT MAX(created_at) AS at FROM activity"
+        " WHERE action = 'delegate_task' AND detail LIKE ?",
+        (f"#{task_id} -> %",),
+    )
+    return row["at"] if row else None
 
 
 def _release(agent: str) -> None:
@@ -129,8 +145,55 @@ def sweep(policy: PolicyEngine | None = None) -> dict:
     for agent in config.AGENT_RUNNER:
         with db.transaction():
             due = _due(agent, policy)
+            # Check-in nags FIRST, and the quiet loop skips their tasks: a
+            # task both past its check-in and quiet earned the sponsor two
+            # notifications in one sweep, and the check-in nag already sends
+            # them to look. Once per (task, date): the claim key carries the
+            # date, so moving the check-in re-arms the nag and a stale one
+            # cannot fire twice.
+            today = db.local_day(db.now())
+            checked_in: set[int] = set()
+            for task in due:
+                if not task["sponsor"] or not task.get("check_in_at"):
+                    continue
+                if str(task["check_in_at"]) >= today:
+                    continue
+                checked_in.add(int(task["id"]))
+                if not db.claim_job(f"sweep-checkin:{task['id']}", str(task["check_in_at"])):
+                    continue
+
+                def checkin_body(
+                    source: dict,
+                    current_agent: str = agent,
+                    checkin: str = str(task["check_in_at"]),
+                ) -> str:
+                    return (
+                        f"{current_agent} holds task #{source['id']}"
+                        f" '{source['title']}' past its check-in date"
+                        f" {checkin}. Read the worklog and record a verdict,"
+                        " or set a new check-in date."
+                    )
+
+                notify(
+                    task["sponsor"],
+                    checkin_body,
+                    source_entity="task",
+                    source_id=int(task["id"]),
+                    tier="digest",
+                    link="/agents",
+                )
+                touched += 1
             for task in due:
                 if not task["sponsor"]:
+                    continue
+                if int(task["id"]) in checked_in:
+                    continue
+                # A delegation younger than the window is not quiet — it is
+                # new. "No progress note for 2 days" on a task delegated an
+                # hour ago is false as stated, and the first thing a sponsor
+                # reads about their own fresh delegation must not be a nag.
+                delegated_at = _delegated_at(int(task["id"]))
+                if delegated_at and delegated_at >= cutoff:
                     continue
                 notes = delegation.list_worklog(task["id"], limit=1, actor=agent)
                 last = notes[0] if notes else None
@@ -176,42 +239,6 @@ def sweep(policy: PolicyEngine | None = None) -> dict:
                 notify(
                     task["sponsor"],
                     quiet_body,
-                    source_entity="task",
-                    source_id=int(task["id"]),
-                    tier="digest",
-                    link="/agents",
-                )
-                touched += 1
-            # The contract's other promise: a check-in date that passed with
-            # the task still open. Separate from the quiet nag above — a task
-            # can be noisily past its check-in (notes every day, no verdict
-            # sought) and quietly within it. Once per (task, date): the claim
-            # key carries the date, so moving the check-in re-arms the nag
-            # and a stale one cannot fire twice.
-            today = db.local_day(db.now())
-            for task in due:
-                if not task["sponsor"] or not task.get("check_in_at"):
-                    continue
-                if str(task["check_in_at"]) >= today:
-                    continue
-                if not db.claim_job(f"sweep-checkin:{task['id']}", str(task["check_in_at"])):
-                    continue
-
-                def checkin_body(
-                    source: dict,
-                    current_agent: str = agent,
-                    checkin: str = str(task["check_in_at"]),
-                ) -> str:
-                    return (
-                        f"{current_agent} holds task #{source['id']}"
-                        f" '{source['title']}' past its check-in date"
-                        f" {checkin}. Read the worklog and record a verdict,"
-                        " or set a new check-in date."
-                    )
-
-                notify(
-                    task["sponsor"],
-                    checkin_body,
                     source_entity="task",
                     source_id=int(task["id"]),
                     tier="digest",
