@@ -126,8 +126,9 @@ _SYSTEM_AUDIENCE = frozenset(
 # definition of the rule.
 _RECHECK = {
     "review_stall": lambda f: (
-        (db.query_one("SELECT COUNT(*) AS n FROM pending_changes WHERE status = 'pending'") or {})
-        .get("n", 0)
+        (
+            db.query_one("SELECT COUNT(*) AS n FROM pending_changes WHERE status = 'pending'") or {}
+        ).get("n", 0)
         > 0
     ),
     "question_aging": lambda f: (

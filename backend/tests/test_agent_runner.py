@@ -297,16 +297,18 @@ def test_past_check_in_nags_once_not_twice(fresh_db, monkeypatch):
     ensure_user("tester", kind="human")
     task = work.create_task("chase the vendor", actor="tester")
     delegation.delegate_task(
-        task["id"], agent="research-agent", sponsor="tester",
-        check_in_at="2020-01-01", actor="tester",
+        task["id"],
+        agent="research-agent",
+        sponsor="tester",
+        check_in_at="2020-01-01",
+        actor="tester",
     )
     monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
-    monkeypatch.setattr(
-        agent_runner, "_delegated_at", lambda _tid: "2000-01-01T00:00:00+00:00"
-    )
+    monkeypatch.setattr(agent_runner, "_delegated_at", lambda _tid: "2000-01-01T00:00:00+00:00")
     assert agent_runner.sweep()["swept"] == 1
     sent = db.query("SELECT message FROM notifications WHERE \"user\" = 'tester'")
-    nags = [r["message"] for r in sent if "task #%d" % task["id"] in r["message"]]
+    marker = f"task #{task['id']}"
+    nags = [r["message"] for r in sent if marker in r["message"]]
     assert len([m for m in nags if "past its check-in" in m]) == 1
     assert not [m for m in nags if "no progress note" in m]
 

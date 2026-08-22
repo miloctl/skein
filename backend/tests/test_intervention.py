@@ -106,8 +106,7 @@ def test_a_skipped_finding_does_not_spend_the_findings_budget(client, fresh_db, 
     monkeypatch.setattr(insights, "list_findings", flooded)
     rows = intervention.interventions(scope.Viewer("tester", True))
     assert any(
-        r["kind"] == "finding_medium" and "Commitment line slipping" in r["title"]
-        for r in rows
+        r["kind"] == "finding_medium" and "Commitment line slipping" in r["title"] for r in rows
     )
 
 
@@ -141,9 +140,7 @@ def test_a_cleared_condition_leaves_the_queue_before_the_week_does(client, fresh
         for r in intervention.interventions(scope.Viewer("tester", True))
         if r["kind"].startswith("finding_")
     ]
-    assert not [
-        t for t in remaining if "review queue is stalled" in t or "Is this stale" in t
-    ]
+    assert not [t for t in remaining if "review queue is stalled" in t or "Is this stale" in t]
     assert any(f["rule_id"] == "review_stall" for f in insights.list_findings())
 
 
