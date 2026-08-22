@@ -88,13 +88,15 @@ def test_a_skipped_finding_does_not_spend_the_findings_budget(client, fresh_db, 
             }
             for i in range(30)
         ]
+        # promise_slip: in neither exclusion set and carries no recheck, so
+        # only the budget decides whether it renders
         rows.append(
             {
                 "id": 99,
-                "rule_id": "question_aging",
-                "subject": "question-7",
-                "severity": "low",
-                "message": "Question #7 has been open 9 days",
+                "rule_id": "promise_slip",
+                "subject": "promise_slip",
+                "severity": "medium",
+                "message": "Commitment line slipping: kept 40% over 2 weeks",
                 "receipt": {},
                 "disposition": "",
             }
@@ -103,7 +105,46 @@ def test_a_skipped_finding_does_not_spend_the_findings_budget(client, fresh_db, 
 
     monkeypatch.setattr(insights, "list_findings", flooded)
     rows = intervention.interventions(scope.Viewer("tester", True))
-    assert any(r["kind"] == "finding_low" and "Question #7" in r["title"] for r in rows)
+    assert any(
+        r["kind"] == "finding_medium" and "Commitment line slipping" in r["title"]
+        for r in rows
+    )
+
+
+def test_a_cleared_condition_leaves_the_queue_before_the_week_does(client, fresh_db):
+    """Findings mint once per ISO week, so a review stall that settles on
+    Tuesday sat in the Monday order until Sunday, naming proposals that no
+    longer pend — and a manager who checks and finds nothing learns to
+    distrust the queue. Cheaply-verifiable conditions are re-read at queue
+    time; the finding itself stays on /insights as history."""
+    from app.services import collab, insights, review, users
+
+    users.ensure_user("tester")
+    p = review.propose_change("task", "create", {"title": "stall bait"}, actor="agent-x")
+    fresh_db.execute(
+        "UPDATE pending_changes SET created_at = '2020-01-01T00:00:00+00:00' WHERE id = ?",
+        (p["id"],),
+    )
+    q = collab.ask_question("Is this stale?", asked_by="tester", actor="tester")
+    fresh_db.execute(
+        "UPDATE questions SET created_at = '2020-01-01T00:00:00+00:00' WHERE id = ?",
+        (q["id"],),
+    )
+    insights.run_findings(actor="tester")
+    kinds = [r["kind"] for r in intervention.interventions(scope.Viewer("tester", True))]
+    assert any(k.startswith("finding_") for k in kinds)
+
+    review.reject_change(p["id"], "cleared", actor="tester")
+    collab.answer_question(q["id"], "no longer", answered_by="tester", actor="tester")
+    remaining = [
+        r["title"]
+        for r in intervention.interventions(scope.Viewer("tester", True))
+        if r["kind"].startswith("finding_")
+    ]
+    assert not [
+        t for t in remaining if "review queue is stalled" in t or "Is this stale" in t
+    ]
+    assert any(f["rule_id"] == "review_stall" for f in insights.list_findings())
 
 
 def test_every_row_states_the_next_move_and_its_receipt(client, fresh_db):

@@ -115,6 +115,41 @@ _SYSTEM_AUDIENCE = frozenset(
 )
 
 
+# A finding is minted at most once per ISO week, so a condition that CLEARS
+# mid-week kept presenting as a current call for up to six days: "the review
+# queue is stalled: 3 proposals (#4, #5, #13)" sat high in the Monday order
+# with all three settled — and a manager who checks and finds nothing learns
+# to distrust the queue. Rules whose condition is one cheap read get that
+# read at queue time. Only short-lived, cheaply-verifiable conditions belong
+# here: a windowed trend (rejection_spike, interrupt_load) is true ABOUT its
+# window however this week ends, and re-deriving it would be a second
+# definition of the rule.
+_RECHECK = {
+    "review_stall": lambda f: (
+        (db.query_one("SELECT COUNT(*) AS n FROM pending_changes WHERE status = 'pending'") or {})
+        .get("n", 0)
+        > 0
+    ),
+    "question_aging": lambda f: (
+        db.query_one(
+            "SELECT 1 FROM questions WHERE id = ? AND status = 'open'",
+            (f["receipt"].get("question_id", 0),),
+        )
+        is not None
+    ),
+}
+
+
+def _still_true(finding: dict) -> bool:
+    probe = _RECHECK.get(finding["rule_id"])
+    if probe is None:
+        return True
+    try:
+        return bool(probe(finding))
+    except Exception:  # a malformed receipt must not empty the arm
+        return True
+
+
 def _dedupe(rows: list[dict]) -> list[dict]:
     """One row per (entity, id), keeping the strongest band it appeared in.
 
@@ -356,6 +391,7 @@ def interventions(
         and f"finding_{f['severity']}" in _WEIGHT
         and f["rule_id"] not in _RESTATED_BY_A_RAW_ARM
         and f["rule_id"] not in _SYSTEM_AUDIENCE
+        and _still_true(f)
     ]
     for f in fresh[:30]:
         kind = f"finding_{f['severity']}"
