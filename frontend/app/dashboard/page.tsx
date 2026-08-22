@@ -63,11 +63,15 @@ function Section({
   empty,
   headingRef,
   footer,
+  controls,
 }: {
   title: string;
   rows: Row[];
   render: (r: Row) => React.ReactNode;
   empty: string;
+  // a control that filters or scopes the rows, rendered under the heading —
+  // only the tasks card uses it today
+  controls?: React.ReactNode;
   // a focus target for a caller whose action removed the control the reader
   // was on. The HEADING rather than the section, because a screen reader
   // announces its text and the reader learns where they landed.
@@ -86,6 +90,7 @@ function Section({
       >
         {title}
       </h2>
+      {controls}
       {rows.length === 0 ? (
         <p className="text-sm text-ink-3">{empty}</p>
       ) : (
@@ -577,6 +582,9 @@ export default function Dashboard() {
   const [assigning, setAssigning] = useState<number | null>(null);
   const [assigningBlocker, setAssigningBlocker] = useState<number | null>(null);
   const [answering, setAnswering] = useState<number | null>(null);
+  // one needle over title, #id, @assignee, status and priority — the open
+  // list measured 82 rows over a 5,400px page with no way to narrow it
+  const [taskFilter, setTaskFilter] = useState("");
   const [editing, setEditing] = useState<{
     kind: "task" | "milestone";
     id: number;
@@ -1508,8 +1516,40 @@ export default function Dashboard() {
         />
         <Section
           title="Tasks"
-          rows={(data.tasks ?? []).filter((t) => t.status !== "done")}
-          empty="No open tasks — open quick capture and type 'todo: …'."
+          rows={(data.tasks ?? []).filter((t) => {
+            if (t.status === "done") return false;
+            const needle = taskFilter.trim().toLowerCase();
+            if (!needle) return true;
+            return [
+              String(t.title),
+              `#${t.id}`,
+              `@${t.assignee ?? ""}`,
+              String(t.status),
+              String(t.priority),
+            ]
+              .join(" ")
+              .toLowerCase()
+              .includes(needle);
+          })}
+          empty={
+            taskFilter.trim()
+              ? "No open task matches the filter."
+              : "No open tasks — open quick capture and type 'todo: …'."
+          }
+          controls={
+            <div className="mb-3">
+              <label className="sr-only" htmlFor="task-filter">
+                Filter tasks
+              </label>
+              <input
+                id="task-filter"
+                value={taskFilter}
+                onChange={(e) => setTaskFilter(e.target.value)}
+                placeholder="filter — title, #id, @name, status, priority"
+                className="w-full max-w-xs rounded-lg border border-line-strong bg-transparent px-2 py-1 text-xs outline-none focus:border-thread-solid"
+              />
+            </div>
+          }
           render={(t) =>
             editing?.kind === "task" && editing.id === t.id ? (
               <EditRow
