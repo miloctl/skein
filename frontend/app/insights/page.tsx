@@ -83,6 +83,7 @@ function Evidence({ receipt }: { receipt: Record<string, unknown> }) {
 
 type Insights = {
   mttr: {
+    impossible_rows?: number;
     window_days: number;
     current: { n: number; median_hours: number | null; p85_hours: number | null };
     previous: { n: number; median_hours: number | null; p85_hours: number | null };
@@ -470,6 +471,14 @@ export default function InsightsPage() {
           {m.previous.median_hours !== null ? `${m.previous.median_hours}h` : "—"} (n=
           {m.previous.n})
         </p>
+        {(m.impossible_rows ?? 0) > 0 && (
+          <p className="mt-1 text-xs text-danger">
+            {m.impossible_rows} blocker
+            {m.impossible_rows === 1 ? " was" : "s were"} resolved before
+            {m.impossible_rows === 1 ? " it was" : " they were"} raised —
+            excluded from every number here. Check those rows.
+          </p>
+        )}
         {smallN && (
           <p className="mt-1 text-xs text-weld">
             Too few blockers for a trend claim (n&lt;8) — numbers shown, verdict
