@@ -33,6 +33,13 @@ TASK_CAP = 50
 QUEUE_SCAN = 50
 
 
+# both routes to an engagement: a task's own link, or through its milestone
+_ON_ENGAGEMENT = (
+    " AND (t.engagement_id = ? OR t.milestone_id IN"
+    "      (SELECT id FROM milestones WHERE engagement_id = ?))"
+)
+
+
 def brief(
     engagement_id: int,
     viewer: scope.Viewer = scope.NOBODY,
@@ -179,12 +186,8 @@ def brief(
     # engagement id and delta.brief is reader-scoped and team-wide. Counts
     # only: the cards below carry the rows themselves.
     since = db.local_midnight_utc(db.today() - timedelta(days=1))
-    on_engagement = (
-        " AND (t.engagement_id = ? OR t.milestone_id IN"
-        "      (SELECT id FROM milestones WHERE engagement_id = ?))"
-    )
     tasks_done = db.query_one(
-        f"SELECT COUNT(*) AS n FROM tasks t WHERE {tfrag}{on_engagement}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT COUNT(*) AS n FROM tasks t WHERE {tfrag}{_ON_ENGAGEMENT}"  # noqa: S608 — scope.visible_filter emits only bound marks
         " AND t.completed_at >= ?",
         (*tp, engagement_id, engagement_id, since),
     )
@@ -192,7 +195,7 @@ def brief(
     # both sides carry the filter, exactly as portfolio._linked_blockers does
     blocker_join = (
         f"FROM blockers b JOIN tasks t ON t.id = b.task_id AND {tfrag}"
-        f" WHERE {bfrag2}{on_engagement}"
+        f" WHERE {bfrag2}{_ON_ENGAGEMENT}"
     )
     blockers_opened = db.query_one(
         f"SELECT COUNT(*) AS n {blocker_join} AND b.created_at >= ?",
@@ -203,8 +206,33 @@ def brief(
         (*tp, *bp2, engagement_id, engagement_id, since),
     )
 
+    # A CLOSED engagement's page is an archive, and it showed none of the
+    # work: eighteen finished tasks rendered as "No work is open. Capture one
+    # with 'todo:'" — an invitation to add work to a closed engagement, over
+    # the history a reader came for. Recent done tasks, newest first, capped
+    # like the open list; absent for active engagements, whose done work has
+    # its own surfaces (Recently shipped, flow metrics).
+    done_work: list[dict] = []
+    done_count = 0
+    if eng["status"] == "closed":
+        row = db.query_one(
+            f"SELECT COUNT(*) AS c FROM tasks t WHERE {tfrag}{_ON_ENGAGEMENT}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            " AND t.status = 'done'",
+            (*tp, engagement_id, engagement_id),
+        )
+        done_count = (row or {}).get("c", 0)
+        done_work = db.query(
+            f"SELECT t.id, t.title, t.assignee, t.completed_at FROM tasks t"  # noqa: S608 — scope.visible_filter emits only bound marks
+            f" WHERE {tfrag}{_ON_ENGAGEMENT} AND t.status = 'done'"
+            f" ORDER BY t.completed_at DESC NULLS LAST, t.id DESC LIMIT {TASK_CAP}",
+            (*tp, engagement_id, engagement_id),
+        )
+        done_work = policy_context.filter_resource_rows("task", done_work, viewer, resource_filter)
+
     return {
         "engagement": eng,
+        "done_work": done_work,
+        "done_count": done_count,
         "since_yesterday": {
             "tasks_done": (tasks_done or {}).get("n", 0),
             "blockers_opened": (blockers_opened or {}).get("n", 0),

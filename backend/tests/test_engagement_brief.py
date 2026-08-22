@@ -40,6 +40,27 @@ def test_an_unreadable_engagement_answers_like_an_absent_one(client, fresh_db):
     assert _brief("insider", eng["id"])["engagement"]["name"] == "Secret migration"
 
 
+def test_a_closed_engagement_shows_its_completed_work(client, fresh_db):
+    """The closed page is an archive, and it showed none of the work — the
+    empty open-work list invited the reader to capture a todo on a finished
+    engagement. Done tasks appear only once the engagement closes; an active
+    engagement's done work has its own surfaces."""
+    from app.services import engagements, users, work
+
+    users.ensure_user("ada")
+    eng = engagements.create_engagement("Archive me", actor="ada", outcome="done means done")
+    t = work.create_task("the work", engagement_id=eng["id"], actor="ada")
+    work.update_task(t["id"], status="done", actor="ada")
+
+    active = _brief("ada", eng["id"])
+    assert active["done_count"] == 0 and active["done_work"] == []
+
+    engagements.update_engagement(eng["id"], status="closed", conclusion="achieved", actor="ada")
+    closed = _brief("ada", eng["id"])
+    assert closed["done_count"] == 1
+    assert [w["title"] for w in closed["done_work"]] == ["the work"]
+
+
 def test_since_yesterday_counts_only_this_engagement(client, fresh_db):
     """The strip answers "what moved HERE since yesterday" — a task finished on
     another engagement must not inflate it, and a fresh blocker must count."""
