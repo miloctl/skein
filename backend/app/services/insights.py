@@ -265,8 +265,16 @@ def forecast_calibration(window_days: int = 180) -> dict:
         if delta <= 0:
             on_or_before += 1
     n = len(errors)
+    # which ingredient is missing, for the n=0 empty state: with finished
+    # milestones and no snapshots the card said "a milestone must finish
+    # first" — naming the one ingredient the team already had. A forecast is
+    # only scoreable when a snapshot PRECEDED a finish.
+    finished = db.query_one(
+        "SELECT COUNT(*) AS c FROM milestones WHERE status = 'done' AND completed_at IS NOT NULL"
+    )
     return {
         "n": n,
+        "finished_milestones": (finished or {}).get("c", 0),
         "window_days": window_days,
         # signed: a forecast that is habitually EARLY and one that is
         # habitually late are different problems, and |error| hides which

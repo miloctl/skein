@@ -114,6 +114,7 @@ type Insights = {
   };
   forecast_calibration: {
     n: number;
+    finished_milestones: number;
     window_days: number;
     median_error_days: number | null;
     median_abs_error_days: number | null;
@@ -542,7 +543,12 @@ export default function InsightsPage() {
             a decoration. Withheld under n=8, like every other claim here. */}
         {d.forecast_calibration.n === 0 ? (
           <p className="text-sm text-ink-3">
-            No forecast is scored yet. A milestone must finish first.
+            {/* name the MISSING ingredient: with finished milestones and no
+                snapshots, "a milestone must finish first" named the one the
+                team already had */}
+            {d.forecast_calibration.finished_milestones > 0
+              ? "No forecast is scored yet. Milestones have finished, but no forecast snapshot preceded them — the daily snapshot job records those."
+              : "No forecast is scored yet. A milestone must finish first, with a forecast snapshot recorded before it."}
           </p>
         ) : (
           <>
