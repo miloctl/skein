@@ -26,6 +26,26 @@ def _broke_yesterday() -> str:
     return (db.today() - timedelta(days=1)).isoformat()
 
 
+def test_system_findings_never_reach_the_brief(fresh_db, monkeypatch):
+    """The brief opens My Day, and a new joiner's first screen was eleven
+    findings about cron jobs and token spend they could not act on. The
+    meeting queue's audience set applies here too; the rules keep /insights."""
+    from app import config
+    from app.services import delta, insights, users
+
+    users.ensure_user("reader")
+    monkeypatch.setattr(config, "SCHEDULER_ENABLED", True)
+    fresh_db.execute(
+        "INSERT INTO job_outcomes (job, status, detail, duration_ms, created_at)"
+        " VALUES ('daily-digest', 'ok', '', 0, '2020-01-01T00:00:00+00:00')"
+    )
+    insights.run_findings(actor="tester")
+    assert any(f["rule_id"] == "job_stale" for f in insights.list_findings())
+
+    out = delta.brief("reader")
+    assert not [i for i in out["items"] if i["kind"] == "finding_new" and "Scheduled job" in i["headline"]]
+
+
 def test_reading_twice_leaves_nothing_the_second_time(client, fresh_db):
     """The honest answer, and the one that keeps the surface worth opening."""
     from app.services import promises, users
