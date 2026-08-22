@@ -2359,9 +2359,14 @@ def post_findings_run(user: CurrentUser):
 def get_usage(user: CurrentUser, viewer: ViewerDep):
     """Token and estimated-cost accounting. Costs are estimates from the
     operator's price table; unpriced_calls says how much each sum cannot see."""
+    # ONE window for the whole card: the header names the calendar month, so
+    # every section answers for it. Unbounded by-model rows and a trailing-30d
+    # engagement split under that header were three call counts nobody could
+    # reconcile.
+    month_start = db.today().replace(day=1).isoformat()
     return {
-        "models": usage.usage_summary(),
-        "engagements": usage.engagement_costs(viewer=viewer),
+        "models": usage.usage_summary(since=month_start),
+        "engagements": usage.engagement_costs(since=month_start, viewer=viewer),
         "month": usage.month_to_date(),
         "prices_error": config.MODEL_PRICES_ERROR,
     }

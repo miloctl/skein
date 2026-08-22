@@ -193,12 +193,18 @@ def sole_delegation_engagement(agent: str) -> int:
     return 0
 
 
-def usage_summary() -> list[dict]:
+def usage_summary(since: str = "") -> list[dict]:
+    """Per-model totals. `since` bounds the window; the /api/usage card passes
+    the month start so its three sections answer for ONE window — unbounded,
+    the by-model rows were all-time under a header naming the month, and the
+    card showed three different call counts with no label saying why."""
+    where = " WHERE created_at >= ?" if since else ""
     return db.query(
-        "SELECT model_id, COUNT(*) AS calls, SUM(input_tokens) AS input_tokens,"
+        "SELECT model_id, COUNT(*) AS calls, SUM(input_tokens) AS input_tokens,"  # noqa: S608 — `where` is a literal above
         " SUM(output_tokens) AS output_tokens, ROUND(SUM(cost_usd)::numeric, 4) AS cost_usd,"
         " COUNT(*) - COUNT(cost_usd) AS unpriced_calls"
-        " FROM usage_log GROUP BY model_id"
+        f" FROM usage_log{where} GROUP BY model_id",
+        (since,) if since else (),
     )
 
 

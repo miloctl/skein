@@ -451,3 +451,20 @@ def test_sole_delegation_resolves_through_the_milestone(fresh_db):
     tid = work.create_task("via milestone", milestone_id=mid, actor="ava")["id"]
     delegation.delegate_task(tid, "scout", "ava", actor="ava")
     assert usage.sole_delegation_engagement("scout") == eid
+
+
+def test_the_spend_card_answers_for_one_window(client, fresh_db):
+    """The header names the calendar month; every section answers for it.
+    Unbounded by-model rows and a trailing-30d engagement split under that
+    header were three call counts nobody could reconcile on one card."""
+    fresh_db.execute(
+        "INSERT INTO usage_log (thread_id, agent_name, model_id, input_tokens,"
+        " output_tokens, cycles, latency_ms, created_at) VALUES"
+        " ('t1', 'agent', 'm', 10, 10, 1, 5, (now() - interval '60 days')::text),"
+        " ('t2', 'agent', 'm', 10, 10, 1, 5, now()::text)"
+    )
+    out = client.get("/api/usage", headers={"X-User": "tester"}).json()
+    month = out["month"]["calls"]
+    assert month == 1
+    assert sum(m["calls"] for m in out["models"]) == month
+    assert sum(e["calls"] for e in out["engagements"]) == month
