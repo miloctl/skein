@@ -26,6 +26,8 @@ const brief = {
     kill_criteria: null,
     conclusion: null,
   },
+  done_work: [],
+  done_count: 0,
   since_yesterday: { tasks_done: 2, blockers_opened: 0, blockers_resolved: 1 },
   health: {
     color: "red",

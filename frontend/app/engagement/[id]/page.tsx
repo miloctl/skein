@@ -49,6 +49,8 @@ type Brief = {
     kill_criteria: string | null;
     conclusion: string | null;
   };
+  done_work: { id: number; title: string; assignee: string; completed_at: string | null }[];
+  done_count: number;
   since_yesterday: {
     tasks_done: number;
     blockers_opened: number;
@@ -402,7 +404,12 @@ export default function EngagementBrief({
       <Card title={`Open work (${b.tasks.length}${b.tasks.length === TASK_CAP ? "+" : ""})`}>
         {b.tasks.length === 0 ? (
           <p className="text-sm text-ink-3">
-            No work is open. Capture one with &lsquo;todo: …&rsquo; in quick capture.
+            {/* a CLOSED engagement's empty list is history, not an invitation —
+                "capture one" on an archive asks the reader to add work to a
+                finished thing */}
+            {e.status === "closed"
+              ? "No work is open — this engagement is closed."
+              : "No work is open. Capture one with \u2018todo: \u2026\u2019 in quick capture."}
           </p>
         ) : (
           <ul className="space-y-1 text-sm">
@@ -421,6 +428,32 @@ export default function EngagementBrief({
           </ul>
         )}
       </Card>
+
+      {/* the archive a closed engagement's reader came for: what was done.
+          Active engagements keep this off — their done work has its own
+          surfaces (Recently shipped, flow) and this page is for acting. */}
+      {e.status === "closed" && b.done_count > 0 ? (
+        <Card title={`Completed work (${b.done_count})`}>
+          <ul className="space-y-1 text-sm">
+            {b.done_work.map((t) => (
+              <li key={t.id}>
+                <PeekLink taskId={t.id}>
+                  <span className="text-ink-3">#{t.id}</span> {t.title}
+                </PeekLink>
+                <span className="ml-1 text-xs text-ink-3">
+                  {t.assignee ? `@${t.assignee}` : ""}
+                  {t.completed_at ? ` · ${String(t.completed_at).slice(0, 10)}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {b.done_count > b.done_work.length ? (
+            <p className="mt-2 text-xs text-ink-3">
+              {b.done_work.length} of {b.done_count} shown — newest first.
+            </p>
+          ) : null}
+        </Card>
+      ) : null}
 
       {/* What an agent is carrying, with its last note. A sponsor otherwise
           opened each task's peek one at a time to learn the same thing. */}
