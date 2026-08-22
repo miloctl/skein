@@ -189,6 +189,24 @@ A1 (delegation work loop), A2 (system-filed authority proposals) and A3 (the
 morning sweep, which notifies each delegated task's sponsor rather than filing
 `nudge` proposals) shipped.
 
+- **Season-rehearsal findings (2026-08-21, one compressed week through every
+  real door):**
+  - **The sweep double-pings a task** [XS] — a task past its check-in AND
+    quiet got both nags in one sweep: two notifications, one task, same
+    morning. The check-in nag already sends the sponsor to look; suppress
+    the quiet nag when the check-in nag fires for the same task.
+  - **A fresh delegation is "quiet" immediately** [S] — delegated minutes
+    ago with no note yet, the quiet nag claims "no progress note for 2
+    days", which is false as stated. No-note-at-all clocks from forever;
+    it must clock from the delegation (the `delegate_task` activity row
+    carries the time).
+  - **The runner has no turn guard** [S] — the agent's wake reply said
+    "Status: Blocked" about task #40 and filed nothing: no blocker, no
+    proposal, prose only in the worklog. Chat's turn guard says "Nothing
+    was filed" for capture-shaped messages; the runner's reply lands in a
+    thread nobody is reading. Either the wake prompt tells the agent to
+    file a blocker proposal when it is stuck, or the runner detects a
+    blocked-shaped reply with no write and notifies the sponsor.
 - **A4 agent-to-agent handoff** — a `handoff_task` tool that keeps the sponsor
   immutable. The hop is itself a proposal the sponsor approves.
 - **A5 proposal bundles** — `bundle_id` and `seq` on `pending_changes`, with
