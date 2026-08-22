@@ -124,20 +124,24 @@ _SYSTEM_AUDIENCE = frozenset(
 # here: a windowed trend (rejection_spike, interrupt_load) is true ABOUT its
 # window however this week ends, and re-deriving it would be a second
 # definition of the rule.
+def _review_stall_still_true(finding: dict) -> bool:
+    row = db.query_one("SELECT COUNT(*) AS n FROM pending_changes WHERE status = 'pending'")
+    return (row or {}).get("n", 0) > 0
+
+
+def _question_still_open(finding: dict) -> bool:
+    # status only, by id, boolean out — the finding row already passed the
+    # queue's own policy read; this decides whether it is STILL a call
+    row = db.query_one(
+        "SELECT 1 FROM questions WHERE id = ? AND status = 'open'",
+        (finding["receipt"].get("question_id", 0),),
+    )
+    return row is not None
+
+
 _RECHECK = {
-    "review_stall": lambda f: (
-        (
-            db.query_one("SELECT COUNT(*) AS n FROM pending_changes WHERE status = 'pending'") or {}
-        ).get("n", 0)
-        > 0
-    ),
-    "question_aging": lambda f: (
-        db.query_one(
-            "SELECT 1 FROM questions WHERE id = ? AND status = 'open'",
-            (f["receipt"].get("question_id", 0),),
-        )
-        is not None
-    ),
+    "review_stall": _review_stall_still_true,
+    "question_aging": _question_still_open,
 }
 
 
