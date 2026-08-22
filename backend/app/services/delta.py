@@ -122,12 +122,22 @@ def brief(user: str, viewer: scope.Viewer = scope.NOBODY, mark: bool = False) ->
     # list_findings, the LIMIT lands FIRST and its ordering is week then
     # severity — a busy fortnight then cuts a NEW low-severity finding off the
     # end, and the brief reports "quiet" about a window that had news.
+    # System-audience rules never reach this brief — the same set the meeting
+    # queue excludes (services/intervention.py::_SYSTEM_AUDIENCE), for the
+    # same reason at a worse moment: this card is the FIRST thing a reader
+    # meets on My Day, and a new joiner's day one opened with eleven findings
+    # about cron jobs and token spend they could not act on. The rules keep
+    # /insights, the digest, and OperationsCard.
+    from .intervention import _SYSTEM_AUDIENCE
+
     for f in db.query(
         "SELECT id, rule_id, subject, severity, message FROM findings"
         " WHERE created_at >= ? AND id NOT IN (SELECT finding_id FROM finding_dispositions)"
         " ORDER BY created_at, id LIMIT ?",
         (since, FINDING_CAP),
     ):
+        if f["rule_id"] in _SYSTEM_AUDIENCE:
+            continue
         if (f["rule_id"], f["subject"]) in seen_subjects:
             continue
         items.append(
