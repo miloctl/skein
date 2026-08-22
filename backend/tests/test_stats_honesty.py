@@ -126,3 +126,32 @@ def test_the_two_rolling_windows_are_the_same_width(fresh_db):
         )
     w = insights.mttr_windows()
     assert w["current"]["n"] == w["previous"]["n"] == w["window_days"]
+
+
+def test_a_blocker_resolved_before_it_was_raised_never_reaches_a_median(fresh_db):
+    """A negative duration is a data fault, not a fast resolve. Averaged in,
+    the card printed "median -8.5h" — the wrongest possible receipt on the
+    surface whose creed is that one wrong receipt discredits its rule. The
+    row is excluded and COUNTED, so the card can say the data needs eyes."""
+    from app.services import blockers, insights
+
+    good = blockers.raise_blocker("real", owner="ava", actor="ava")
+    blockers.resolve_blocker(good["id"], actor="ava")
+    bad = blockers.raise_blocker("imported sideways", owner="ava", actor="ava")
+    blockers.resolve_blocker(bad["id"], actor="ava")
+    # created AFTER resolved, both inside the rolling window — the shape an
+    # imported backup or a hand-edited timestamp actually produces
+    fresh_db.execute(
+        "UPDATE blockers SET created_at = (now() + interval '1 day')::text WHERE id = ?",
+        (bad["id"],),
+    )
+
+    w = insights.mttr_windows()
+    assert w["current"]["n"] == 1
+    assert w["current"]["median_hours"] >= 0
+    assert w["impossible_rows"] == 1
+
+    from app.services import pulse
+
+    for row in pulse.blocker_speedrun():
+        assert row["avg_hours"] >= 0 and row["best_hours"] >= 0

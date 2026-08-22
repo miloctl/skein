@@ -75,14 +75,19 @@ _p85 = stats.p85
 # ---- trends (team-rolled only) ----------------------------------------------
 
 
-def _resolve_hours(since: str, until: str) -> list[float]:
+def _resolve_hours(since: str, until: str) -> tuple[list[float], int]:
+    """(durations, impossible) — a row resolved BEFORE it was raised is
+    excluded and counted, never averaged in. One imported backup or hand-edited
+    timestamp otherwise prints "median -8.5h" on /insights, and docs/INSIGHTS.md
+    names the stake: one wrong receipt discredits the rule that carried it."""
     rows = db.query(
         "SELECT (EXTRACT(epoch FROM resolved_at::timestamptz - created_at::timestamptz) / 86400.0) * 24 AS h"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         f" FROM blockers WHERE status = 'resolved' AND {WORKSPACE_ONLY}"
         " AND resolved_at >= ? AND resolved_at < ?",
         (since, until),
     )
-    return [r["h"] for r in rows if r["h"] is not None]
+    hours = [r["h"] for r in rows if r["h"] is not None]
+    return [h for h in hours if h >= 0], sum(1 for h in hours if h < 0)
 
 
 def _rolling_bounds() -> tuple[str, str, str]:
@@ -105,10 +110,14 @@ def _rolling_bounds() -> tuple[str, str, str]:
 
 def mttr_windows() -> dict:
     prior, cut, upper = _rolling_bounds()
-    current = _resolve_hours(cut, upper)
-    previous = _resolve_hours(prior, cut)
+    current, bad_cur = _resolve_hours(cut, upper)
+    previous, bad_prev = _resolve_hours(prior, cut)
     return {
         "window_days": WINDOW_DAYS,
+        # rows whose resolved_at precedes created_at, excluded from every
+        # number above — nonzero means the DATA needs attention, and the card
+        # says so instead of averaging an impossibility into a verdict
+        "impossible_rows": bad_cur + bad_prev,
         "current": {
             "n": len(current),
             "median_hours": _median(current),

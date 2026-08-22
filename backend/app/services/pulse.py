@@ -101,7 +101,11 @@ def blocker_speedrun() -> list[dict]:
         " AS avg_hours,"
         " ROUND(MIN((EXTRACT(epoch FROM resolved_at::timestamptz - created_at::timestamptz) / 86400.0) * 24)::numeric, 1)"
         " AS best_hours"
+        # resolved_at >= created_at: a row resolved before it was raised is a
+        # data fault, and averaged in it printed a negative clear time on the
+        # season strip — the same guard insights._resolve_hours applies
         " FROM blockers WHERE status = 'resolved' AND resolved_at >= ?"
+        " AND resolved_at >= created_at"
         " GROUP BY impact"
         " ORDER BY CASE impact WHEN 'critical' THEN 0 WHEN 'high' THEN 1"
         " WHEN 'medium' THEN 2 ELSE 3 END",
