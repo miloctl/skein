@@ -127,6 +127,15 @@ def pulse() -> dict:
         "SELECT COUNT(*) AS n FROM engagements WHERE status = 'closed' AND closed_at >= ?",
         (s["start_ts"],),
     )
+    # milestones too: most six-week seasons close zero engagements, so a
+    # counter of engagements alone read 0 over a season where three
+    # milestones landed — a scoreboard that only says failure stops being
+    # read. The strip shows the sum and names both parts.
+    milestones_shipped = db.query_one(
+        "SELECT COUNT(*) AS n FROM milestones WHERE status = 'done'"
+        " AND completed_at IS NOT NULL AND completed_at >= ?",
+        (s["start_ts"],),
+    )
     return {
         "season": s,
         "standup_chain": standup_chain(),
@@ -136,5 +145,6 @@ def pulse() -> dict:
             "blockers_open": open_blockers["n"] if open_blockers else 0,
             "lessons_recorded": lessons["n"] if lessons else 0,
             "engagements_shipped": shipped["n"] if shipped else 0,
+            "milestones_shipped": milestones_shipped["n"] if milestones_shipped else 0,
         },
     }

@@ -155,3 +155,16 @@ def test_a_blocker_resolved_before_it_was_raised_never_reaches_a_median(fresh_db
 
     for row in pulse.blocker_speedrun():
         assert row["avg_hours"] >= 0 and row["best_hours"] >= 0
+
+
+def test_the_season_counts_milestones_as_ships(fresh_db):
+    """Most six-week seasons close zero engagements, so a counter of
+    engagements alone read 0 over a season where milestones landed — a
+    scoreboard that only says failure stops being read."""
+    from app.services import pulse, users, work
+
+    users.ensure_user("ada")
+    m = work.create_milestone("Lands mid-season", actor="ada")
+    work.update_milestone(m["id"], status="done", actor="ada")
+    totals = pulse.pulse()["season_totals"]
+    assert totals["milestones_shipped"] == 1

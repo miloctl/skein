@@ -837,13 +837,19 @@ export default function Dashboard() {
               </div>
               <div>
                 <p className="font-display text-[30px]/none font-semibold text-ink">
-                  {pulse.season_totals.engagements_shipped}
+                  {pulse.season_totals.engagements_shipped +
+                    (pulse.season_totals.milestones_shipped ?? 0)}
                 </p>
                 <span
                   aria-hidden
-                  className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.season_totals.engagements_shipped > 0 ? "bg-weld" : "bg-line-strong"}`}
+                  className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.season_totals.engagements_shipped + (pulse.season_totals.milestones_shipped ?? 0) > 0 ? "bg-weld" : "bg-line-strong"}`}
                 />
-                <p className="text-xs text-ink-3">shipped this season</p>
+                {/* milestones count too: engagements alone read 0 over a
+                    season where three milestones landed, and a scoreboard
+                    that only says failure stops being read */}
+                <p className="text-xs text-ink-3">
+                  shipped this season — milestones and closed engagements
+                </p>
               </div>
               <div>
                 <p className="font-display text-[30px]/none font-semibold text-ink">
