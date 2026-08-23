@@ -81,10 +81,19 @@ def test_exec_readout_artifact(client):
 
 
 def test_exec_readout_same_day_upserts_artifact(client):
+    from pathlib import Path
+
+    from app import db
+    from app.services import artifact_files
+
     client.post("/api/portfolio/readout")
     client.post("/api/portfolio/readout")
     readouts = [a for a in client.get("/api/artifacts").json() if a["kind"] == "readout"]
     assert len(readouts) == 1
+    row = db.query_one(
+        "SELECT path, content_sha256 FROM artifacts WHERE id = ?", (readouts[0]["id"],)
+    )
+    assert row["content_sha256"] == artifact_files.content_sha256(Path(row["path"]).read_bytes())
 
 
 def test_readout_excludes_team_promises(client, fresh_db):

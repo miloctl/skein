@@ -1,5 +1,6 @@
 """Artifact bytes follow database commit and rollback boundaries."""
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,17 @@ def test_publish_requires_a_transaction(fresh_db):
     target = Path(config.DATA_DIR) / "artifacts" / "probe.md"
     with pytest.raises(RuntimeError, match="active transaction"):
         artifact_files.publish(target, b"body")
+
+
+def test_publish_returns_the_digest_of_the_written_bytes(fresh_db):
+    from app import config, db
+    from app.services import artifact_files
+
+    target = Path(config.DATA_DIR) / "artifacts" / "probe.md"
+    with db.transaction():
+        digest = artifact_files.publish(target, b"body")
+    assert digest == hashlib.sha256(b"body").hexdigest()
+    assert target.read_bytes() == b"body"
 
 
 def test_rollback_removes_new_publication(fresh_db):

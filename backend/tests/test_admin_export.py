@@ -468,9 +468,9 @@ def test_portable_export_excludes_private_and_operational_canaries(fresh_db):
         (canary, now),
     )
     fresh_db.execute(
-        "INSERT INTO artifacts (kind, title, path, created_by, created_at)"
-        " VALUES ('document', 'portable artifact', ?, 'mira', ?)",
-        (f"/private/{canary}", now),
+        "INSERT INTO artifacts (kind, title, path, created_by, created_at, content_sha256)"
+        " VALUES ('document', 'portable artifact', ?, 'mira', ?, ?)",
+        (f"/private/{canary}", now, "a" * 64),
     )
     fresh_db.log_activity("mira", "test_action", canary)
     fresh_db.execute(
@@ -520,3 +520,4 @@ def test_portable_export_excludes_private_and_operational_canaries(fresh_db):
     assert len(dump["artifacts"]) == 1
     assert dump["artifacts"][0]["title"] == "portable artifact"
     assert "path" not in dump["artifacts"][0]
+    assert "content_sha256" not in dump["artifacts"][0]

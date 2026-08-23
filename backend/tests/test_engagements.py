@@ -27,7 +27,7 @@ def test_ship_it_and_handoff_survive_rename(client, fresh_db):
 def test_same_day_handoff_after_rename_stays_one_row(client, fresh_db):
     from pathlib import Path
 
-    from app.services import engagements, handoff
+    from app.services import artifact_files, engagements, handoff
 
     eng = engagements.create_engagement(name="Old Name", actor="tester")
     first = handoff.generate_handoff(eng["id"], actor="tester")
@@ -36,8 +36,11 @@ def test_same_day_handoff_after_rename_stays_one_row(client, fresh_db):
     assert second["artifact_id"] == first["artifact_id"]
     assert second["path"] != first["path"]
     assert not Path(first["path"]).exists()
-    rows = fresh_db.query("SELECT id FROM artifacts WHERE kind = 'handoff'")
+    rows = fresh_db.query("SELECT id, path, content_sha256 FROM artifacts WHERE kind = 'handoff'")
     assert len(rows) == 1
+    assert rows[0]["content_sha256"] == artifact_files.content_sha256(
+        Path(rows[0]["path"]).read_bytes()
+    )
 
 
 def test_engagement_rename_propagates_and_reindexes(client):

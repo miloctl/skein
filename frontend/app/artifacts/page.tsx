@@ -8,7 +8,9 @@ import { Card, EmptyState } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
 import { PeekLink } from "@/components/task-peek";
 import { api, loadError } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 import { type EntityRef, refHref } from "@/lib/entity-ref";
+import { reportStatus } from "@/lib/status";
 import { timeAgo } from "@/lib/time";
 
 /** Reports: the record of every ritual that already ran.
@@ -40,17 +42,13 @@ type ArtifactPage = {
   next_before: number | null;
 };
 
-/** What each kind IS, in the words the rest of the app uses for it. A bare
- *  `readout` is a column value, not a name a reader has met.
- *
- *  These four are every kind anything writes — digest.py, readout.py,
- *  handoff.py and rituals.py are the only INSERTs into `artifacts`. Both week
- *  rituals share the single kind `ritual` and are told apart by their titles
- *  ("Week open …" / "Week close-out …"), so there is deliberately no entry per
- *  ritual: one would render for no row. A kind absent here falls through to
- *  itself rather than to a guess. */
+/** What each report kind IS, in the words the rest of the app uses for it. A
+ *  bare `readout` is a column value, not a name a reader has met. Uploads and
+ *  plan snapshots never reach this page (services/handoff.py::_NOT_A_REPORT).
+ *  A kind absent here falls through to itself rather than to a guess. */
 const KIND_LABEL: Record<string, string> = {
   digest: "Daily digest",
+  document: "Agent document",
   readout: "Exec readout",
   handoff: "Handoff",
   ritual: "Week ritual",
@@ -186,6 +184,35 @@ export default function ArtifactsPage() {
   const shown = body?.id === openId ? body.data : null;
   const failure = bodyError?.id === openId ? bodyError.message : "";
 
+  const copyMarkdown = useCallback(async () => {
+    if (!shown) return;
+    if (await copyText(shown.markdown)) {
+      reportStatus("Report Markdown copied.", "confirmation");
+    } else {
+      reportStatus("The report did not copy. Select Download Markdown instead.");
+    }
+  }, [shown]);
+
+  const downloadMarkdown = useCallback(() => {
+    if (!shown) return;
+    const name = `skein-report-${shown.id}.md`;
+    let url = "";
+    try {
+      url = URL.createObjectURL(
+        new Blob([shown.markdown], { type: "text/markdown;charset=utf-8" }),
+      );
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      link.click();
+      reportStatus(`Download started for ${name}.`, "confirmation");
+    } catch {
+      reportStatus("The report did not download. Select Copy Markdown instead.");
+    } finally {
+      if (url) URL.revokeObjectURL(url);
+    }
+  }, [shown]);
+
   return (
     <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       <SectionTabs set="work" />
@@ -292,6 +319,26 @@ export default function ArtifactsPage() {
                     {timeAgo(shown.created_at)}
                   </time>
                 </p>
+                <div
+                  role="group"
+                  aria-label="Report actions"
+                  className="mb-4 flex flex-wrap gap-2"
+                >
+                  <button
+                    type="button"
+                    onClick={copyMarkdown}
+                    className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 hover:border-line-strong hover:text-ink"
+                  >
+                    Copy Markdown
+                  </button>
+                  <button
+                    type="button"
+                    onClick={downloadMarkdown}
+                    className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 hover:border-line-strong hover:text-ink"
+                  >
+                    Download Markdown
+                  </button>
+                </div>
                 {shown.threads?.length ? (
                   <section
                     aria-labelledby="report-threads-title"

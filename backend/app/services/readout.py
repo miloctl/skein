@@ -165,7 +165,7 @@ def exec_readout(*, actor: str = "system") -> dict:
             (title,),
         )
         path = artifact_files.unique_revision(logical)
-        artifact_files.publish(
+        content_sha256 = artifact_files.publish(
             path,
             markdown.encode("utf-8"),
             old=Path(existing["path"]) if existing else None,
@@ -173,14 +173,16 @@ def exec_readout(*, actor: str = "system") -> dict:
         if existing:
             aid = existing["id"]
             db.execute(
-                "UPDATE artifacts SET path = ?, created_by = ?, created_at = ? WHERE id = ?",
-                (str(path), actor, db.now(), aid),
+                "UPDATE artifacts SET path = ?, content_sha256 = ?, created_by = ?,"
+                " created_at = ? WHERE id = ?",
+                (str(path), content_sha256, actor, db.now(), aid),
             )
         else:
             aid = db.execute(
-                "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
-                (None, "readout", title, str(path), actor, db.now()),
+                "INSERT INTO artifacts"
+                " (engagement_id, kind, title, path, created_by, created_at, content_sha256)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+                (None, "readout", title, str(path), actor, db.now(), content_sha256),
             )
         db.log_activity(actor, "exec_readout", f"artifact #{aid}")
         return {"artifact_id": aid, "path": str(path), "markdown": markdown}

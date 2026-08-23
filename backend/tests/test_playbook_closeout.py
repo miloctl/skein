@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from app import config, db
-from app.services import engagements, playbooks, review, schedule, scope, work
+from app.services import artifact_files, engagements, playbooks, review, schedule, scope, work
 
 
 def _born(name: str = "Alpha rollout", slug: str = "incident") -> dict:
@@ -24,8 +24,15 @@ def _born(name: str = "Alpha rollout", slug: str = "incident") -> dict:
 
 def test_the_plan_is_snapshot_at_kickoff(client):
     made = _born()
-    plan = playbooks.snapshot_for(made["engagement"]["id"])
+    engagement_id = made["engagement"]["id"]
+    plan = playbooks.snapshot_for(engagement_id)
     assert plan["milestones"] and plan["tasks"]
+    row = db.query_one(
+        "SELECT path, content_sha256 FROM artifacts"
+        " WHERE engagement_id = ? AND kind = 'plan-snapshot'",
+        (engagement_id,),
+    )
+    assert row["content_sha256"] == artifact_files.content_sha256(Path(row["path"]).read_bytes())
     # ids, not only titles: a task renamed between kickoff and close is the
     # same task, and a title-keyed diff calls it one removed and one added
     assert {m["id"] for m in plan["milestones"]} == {m["id"] for m in made["milestones"]}
@@ -376,6 +383,8 @@ def test_a_snapshot_of_the_wrong_shape_is_no_snapshot(client):
     permanent 500."""
     from pathlib import Path
 
+    from app.services import artifact_files
+
     made = _born()
     eid = made["engagement"]["id"]
     path = Path(
@@ -385,8 +394,28 @@ def test_a_snapshot_of_the_wrong_shape_is_no_snapshot(client):
     )
     for junk in ("[1,2]", "123", '{"playbook": "incident"}', "not json at all"):
         path.write_text(junk, encoding="utf-8")
+        db.execute(
+            "UPDATE artifacts SET content_sha256 = ?"
+            " WHERE engagement_id = ? AND kind = 'plan-snapshot'",
+            (artifact_files.content_sha256(junk.encode()), eid),
+        )
         assert playbooks.snapshot_for(eid) == {}, junk
         assert playbooks.close_out_diff(eid) == {}, junk
+
+
+def test_a_changed_or_escaped_snapshot_is_no_snapshot(client):
+    made = _born()
+    eid = made["engagement"]["id"]
+    row = db.query_one(
+        "SELECT id, path FROM artifacts WHERE engagement_id = ? AND kind = 'plan-snapshot'",
+        (eid,),
+    )
+    path = Path(row["path"])
+    path.write_bytes(path.read_bytes() + b"\n")
+    assert playbooks.snapshot_for(eid) == {}
+
+    db.execute("UPDATE artifacts SET path = '/etc/passwd' WHERE id = ?", (row["id"],))
+    assert playbooks.snapshot_for(eid) == {}
 
 
 def test_a_truncated_list_never_contradicts_the_count_beside_it(client):

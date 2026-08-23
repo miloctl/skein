@@ -39,6 +39,7 @@ const nextConfig: NextConfig = {
             value:
               "img-src 'self' data:; object-src 'none'; base-uri 'self'",
           },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
         ],
       },
     ];

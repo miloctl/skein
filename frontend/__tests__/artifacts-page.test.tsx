@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /** Reports is a master/detail pair driven by `?id=`, so the two ways to change
  *  the selection — clicking a row and pressing Back — must agree. They did not:
@@ -24,6 +24,16 @@ const THREADS = [
 ];
 
 const mode = { failList: false, hasOlder: false };
+const effects = vi.hoisted(() => ({
+  copyText: vi.fn(),
+  reportStatus: vi.fn(),
+  createObjectURL: vi.fn<(blob: Blob) => string>(() => "blob:report"),
+  revokeObjectURL: vi.fn<(url: string) => void>(),
+}));
+const downloads: { href: string; name: string }[] = [];
+
+vi.mock("@/lib/clipboard", () => ({ copyText: effects.copyText }));
+vi.mock("@/lib/status", () => ({ reportStatus: effects.reportStatus }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
@@ -54,8 +64,24 @@ import ArtifactsPage from "@/app/artifacts/page";
 beforeEach(() => {
   mode.failList = false;
   mode.hasOlder = false;
+  effects.copyText.mockReset().mockResolvedValue(true);
+  effects.reportStatus.mockReset();
+  effects.createObjectURL.mockClear();
+  effects.revokeObjectURL.mockClear();
+  downloads.length = 0;
+  Object.defineProperties(URL, {
+    createObjectURL: { configurable: true, value: effects.createObjectURL },
+    revokeObjectURL: { configurable: true, value: effects.revokeObjectURL },
+  });
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    downloads.push({ href: this.href, name: this.download });
+  });
   window.history.replaceState({}, "", "/artifacts");
 });
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("the Reports page", () => {
   it("names the auto-opened report in the URL, so Back has somewhere to return to", async () => {
@@ -125,6 +151,80 @@ describe("the Reports page", () => {
 
     await screen.findByText("Body of 6");
     expect(screen.queryByRole("heading", { name: "Threads in this report" })).toBeNull();
+  });
+
+  it("copies the exact Markdown for the report currently open", async () => {
+    render(<ArtifactsPage />);
+    await screen.findByText("Body of 7");
+    expect(screen.getByRole("group", { name: "Report actions" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy Markdown" }));
+    await waitFor(() =>
+      expect(effects.copyText).toHaveBeenLastCalledWith(
+        "# Body of 7\n\nBare #99 stays text.",
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Week open 2026-08-05/ }));
+    await screen.findByText("Body of 6");
+    fireEvent.click(screen.getByRole("button", { name: "Copy Markdown" }));
+    await waitFor(() =>
+      expect(effects.copyText).toHaveBeenLastCalledWith(
+        "# Body of 6\n\nBare #99 stays text.",
+      ),
+    );
+    expect(effects.reportStatus).toHaveBeenLastCalledWith(
+      "Report Markdown copied.",
+      "confirmation",
+    );
+  });
+
+  it("reports a copy failure without claiming success", async () => {
+    effects.copyText.mockResolvedValue(false);
+    render(<ArtifactsPage />);
+    await screen.findByText("Body of 7");
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy Markdown" }));
+    await waitFor(() =>
+      expect(effects.reportStatus).toHaveBeenCalledWith(
+        "The report did not copy. Select Download Markdown instead.",
+      ),
+    );
+  });
+
+  it("downloads the exact Markdown with a server-owned filename", async () => {
+    render(<ArtifactsPage />);
+    await screen.findByText("Body of 7");
+
+    fireEvent.click(screen.getByRole("button", { name: "Download Markdown" }));
+
+    expect(effects.createObjectURL).toHaveBeenCalledTimes(1);
+    const blob = effects.createObjectURL.mock.calls[0][0] as Blob;
+    expect(blob.type).toBe("text/markdown;charset=utf-8");
+    expect(await blob.text()).toBe("# Body of 7\n\nBare #99 stays text.");
+    expect(downloads).toEqual([{ href: "blob:report", name: "skein-report-7.md" }]);
+    expect(effects.revokeObjectURL).toHaveBeenCalledWith("blob:report");
+    expect(effects.reportStatus).toHaveBeenCalledWith(
+      "Download started for skein-report-7.md.",
+      "confirmation",
+    );
+    expect(screen.queryByRole("button", { name: "Copy link" })).toBeNull();
+  });
+
+  it("reports a download failure without claiming that a file was saved", async () => {
+    effects.createObjectURL.mockImplementationOnce(() => {
+      throw new Error("unsupported");
+    });
+    render(<ArtifactsPage />);
+    await screen.findByText("Body of 7");
+
+    fireEvent.click(screen.getByRole("button", { name: "Download Markdown" }));
+
+    expect(effects.reportStatus).toHaveBeenCalledWith(
+      "The report did not download. Select Copy Markdown instead.",
+    );
+    expect(downloads).toEqual([]);
+    expect(effects.revokeObjectURL).not.toHaveBeenCalled();
   });
 });
 

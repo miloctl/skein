@@ -626,7 +626,11 @@ def _make_export(*, keep: int, actor: str, open_file: bool, max_bytes: int = 0):
                                     row["source_id"] = ""
                             if table == "artifacts":
                                 rows = [
-                                    {key: value for key, value in row.items() if key != "path"}
+                                    {
+                                        key: value
+                                        for key, value in row.items()
+                                        if key not in ("path", "content_sha256")
+                                    }
                                     for row in rows
                                 ]
                             for row in rows:

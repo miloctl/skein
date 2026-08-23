@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from app import config, db
-from app.services import handoff, uploads
+from app.services import artifact_files, handoff, uploads
 
 
 def _png(width: int = 1, height: int = 1) -> bytes:
@@ -54,6 +54,8 @@ def test_stores_an_uploaded_document(client):
     assert body["title"] == "notes.md"
     assert body["mime"] == "text/markdown"
     assert body["size"] == len(b"# plan\n")
+    row = db.query_one("SELECT path, content_sha256 FROM artifacts WHERE id = ?", (body["id"],))
+    assert row["content_sha256"] == artifact_files.content_sha256(Path(row["path"]).read_bytes())
 
 
 def test_the_server_names_the_file_not_the_caller(client):
@@ -235,6 +237,20 @@ def test_a_row_whose_file_is_already_gone_can_still_be_deleted(client):
     Path(db.query_one("SELECT path FROM artifacts WHERE id = ?", (aid,))["path"]).unlink()
     assert client.delete(f"/api/files/{aid}").status_code == 200
     assert client.get("/api/files").json()["used"] == 0
+
+
+def test_a_changed_upload_is_refused_but_remains_deletable(client):
+    aid = _upload(client, "notes.md", b"original").json()["id"]
+    row = db.query_one("SELECT path, content_sha256 FROM artifacts WHERE id = ?", (aid,))
+    changed = b"changed outside Skein"
+    Path(row["path"]).write_bytes(changed)
+
+    response = client.get(f"/api/files/{aid}/download")
+    assert response.status_code == 500
+    assert "does not match" in response.json()["detail"]
+    assert row["content_sha256"] not in response.text
+    assert artifact_files.content_sha256(changed) not in response.text
+    assert client.delete(f"/api/files/{aid}").status_code == 200
 
 
 def test_deleting_clears_a_spent_quota(client, monkeypatch):

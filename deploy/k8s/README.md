@@ -173,6 +173,14 @@ The same data PVC also holds artifact bytes under `/data/artifacts`. The dump
 contains artifact metadata only. Full recovery needs a matching storage backup
 of `/data`, or at minimum `/data/artifacts`, restored at the same path.
 
+New and revised artifact rows carry the exact file SHA-256. Skein compares it
+after reading the file and before it parses, returns, or otherwise uses the
+bytes. Legacy rows with
+no digest remain unchecked. This check detects a changed file or a mismatched
+volume. It does not replace a coordinated database and storage snapshot. An
+actor who can rewrite both PostgreSQL and the artifact volume can replace both
+values without detection.
+
 The base mounts a second PVC at `/backup-mirror` and sets
 `SKEIN_BACKUP_MIRROR`. The directory must exist. Skein never creates it because
 an absent mount must not become a local false mirror. The mirror receives:

@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from app import config, db
-from app.services import blockers, collab, handoff, review, scope, work
+from app.services import artifact_files, blockers, collab, handoff, review, scope, work
 
 
 def _readout(client) -> dict:
@@ -25,10 +25,44 @@ def test_reads_the_body_of_a_listed_artifact(client):
     body = client.get(f"/api/artifacts/{art['id']}").json()
     assert body["id"] == art["id"]
     assert body["kind"] == "readout"
+    assert "content_sha256" not in art
+    assert "content_sha256" not in body
     # the file's own text, not the row: a reader gets what the generator wrote
     assert body["markdown"].strip()
     assert body["markdown"] == Path(art["path"]).read_text()
     assert isinstance(body["threads"], list)
+
+
+def test_changed_artifact_bytes_are_refused_without_echoing_hashes(client):
+    art = _readout(client)
+    row = db.query_one("SELECT path, content_sha256 FROM artifacts WHERE id = ?", (art["id"],))
+    changed = b"# Changed outside Skein\n"
+    Path(row["path"]).write_bytes(changed)
+
+    response = client.get(f"/api/artifacts/{art['id']}")
+    assert response.status_code == 500
+    assert "does not match" in response.json()["detail"]
+    assert row["content_sha256"] not in response.text
+    assert artifact_files.content_sha256(changed) not in response.text
+
+
+def test_legacy_artifact_without_a_digest_remains_readable(client):
+    root = Path(config.DATA_DIR) / "artifacts"
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / "legacy.md"
+    path.write_text("# Legacy\n", encoding="utf-8")
+    artifact_id = db.execute(
+        "INSERT INTO artifacts (kind, title, path, created_by, created_at)"
+        " VALUES ('digest', 'Legacy', ?, 'tester', ?) RETURNING id",
+        (str(path), db.now()),
+    )
+    assert (
+        db.query_one("SELECT content_sha256 FROM artifacts WHERE id = ?", (artifact_id,))[
+            "content_sha256"
+        ]
+        is None
+    )
+    assert client.get(f"/api/artifacts/{artifact_id}").json()["markdown"] == "# Legacy\n"
 
 
 def test_artifact_body_returns_only_current_readable_typed_threads(client):

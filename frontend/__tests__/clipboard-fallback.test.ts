@@ -44,11 +44,31 @@ describe("copyText fallback chain", () => {
     await expect(copyText("plain http")).resolves.toBe(true);
   });
 
-  it("reports false when both paths fail, instead of throwing", async () => {
+  it("restores focus and removes the textarea when the fallback returns false", async () => {
+    vi.stubGlobal("navigator", {});
+    document.execCommand = vi.fn().mockReturnValue(false);
+    const button = document.createElement("button");
+    document.body.appendChild(button);
+    button.focus();
+
+    await expect(copyText("nope")).resolves.toBe(false);
+    expect(document.querySelector("textarea")).toBeNull();
+    expect(document.activeElement).toBe(button);
+    button.remove();
+  });
+
+  it("restores focus and removes the textarea when the fallback throws", async () => {
     vi.stubGlobal("navigator", {});
     document.execCommand = vi.fn().mockImplementation(() => {
       throw new Error("unsupported");
     });
+    const button = document.createElement("button");
+    document.body.appendChild(button);
+    button.focus();
+
     await expect(copyText("nope")).resolves.toBe(false);
+    expect(document.querySelector("textarea")).toBeNull();
+    expect(document.activeElement).toBe(button);
+    button.remove();
   });
 });

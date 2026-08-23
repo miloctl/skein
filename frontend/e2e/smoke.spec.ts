@@ -61,8 +61,13 @@ async function pickName(page: Page, key = "") {
 
 test("an anonymous visitor reaches the name gate", async ({ page }) => {
   const faults = watch(page);
-  await page.goto("/");
+  const response = await page.goto("/");
   await page.waitForLoadState("networkidle");
+  expect(response?.headers()["x-robots-tag"]).toBe("noindex, nofollow");
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
+    "content",
+    "noindex, nofollow",
+  );
   await expect(
     page.getByRole("heading", { name: "Who are you?" }),
   ).toBeVisible();

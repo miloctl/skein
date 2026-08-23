@@ -62,6 +62,27 @@ def test_migrations_idempotent_and_atomic(scratch_db):
     assert len(versions) == len(set(versions)) >= 1
 
 
+def test_artifact_digest_accepts_legacy_rows_and_rejects_malformed_values(fresh_db):
+    artifact_id = fresh_db.execute(
+        "INSERT INTO artifacts (kind, title, path, created_by, created_at)"
+        " VALUES ('document', 'Legacy', '/tmp/legacy.md', 'tester', '2026-08-23T00:00:00+00:00')"
+        " RETURNING id"
+    )
+    assert (
+        fresh_db.query_one("SELECT content_sha256 FROM artifacts WHERE id = ?", (artifact_id,))[
+            "content_sha256"
+        ]
+        is None
+    )
+
+    valid = "a" * 64
+    fresh_db.execute("UPDATE artifacts SET content_sha256 = ? WHERE id = ?", (valid, artifact_id))
+    with pytest.raises(psycopg.errors.CheckViolation), fresh_db.transaction():
+        fresh_db.execute(
+            "UPDATE artifacts SET content_sha256 = ? WHERE id = ?", ("A" * 64, artifact_id)
+        )
+
+
 ACTIVITY_GUARDS = "008_activity_chain_guards.sql"
 
 

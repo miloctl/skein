@@ -55,21 +55,22 @@ def _write_artifact(slug: str, title: str, markdown: str, actor: str) -> tuple[i
         (title,),
     )
     path = artifact_files.unique_revision(logical)
-    artifact_files.publish(
+    content_sha256 = artifact_files.publish(
         path,
         markdown.encode("utf-8"),
         old=Path(existing["path"]) if existing else None,
     )
     if existing:
         db.execute(
-            "UPDATE artifacts SET path = ?, created_by = ?, created_at = ? WHERE id = ?",
-            (str(path), actor, db.now(), existing["id"]),
+            "UPDATE artifacts SET path = ?, content_sha256 = ?, created_by = ?,"
+            " created_at = ? WHERE id = ?",
+            (str(path), content_sha256, actor, db.now(), existing["id"]),
         )
         return int(existing["id"]), str(path)
     aid = db.execute(
-        "INSERT INTO artifacts (kind, title, path, created_by, created_at) VALUES (?, ?, ?, ?, ?)"
-        " RETURNING id",
-        ("ritual", title, str(path), actor, db.now()),
+        "INSERT INTO artifacts (kind, title, path, created_by, created_at, content_sha256)"
+        " VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
+        ("ritual", title, str(path), actor, db.now(), content_sha256),
     )
     return int(aid), str(path)
 
