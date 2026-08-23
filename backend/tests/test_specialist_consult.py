@@ -761,12 +761,23 @@ def test_the_planner_records_its_own_spend(real_provider, monkeypatch, fresh_db)
 
     from app import db
 
-    monkeypatch.setattr(strands, "Agent", _StubAgent)
+    instances: list[_StubAgent] = []
+
+    class _Recording(_StubAgent):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            instances.append(self)
+
+    monkeypatch.setattr(strands, "Agent", _Recording)
     agent = team_agent.build_agent("t-plan-cost", stateless=True)
     planner = _tool_function(agent, "plan_project")
     out = planner("ship the beta", "beta")
 
     assert "planned" in out
+    # the planner is the instance the tool call built: real tools, real model
+    built = instances[-1]
+    assert built is not agent and built.kwargs["tools"], "the planner was built with no tools"
+    assert built.kwargs["model"].get_config()["model_id"] == "fake"
     row = db.query_one("SELECT * FROM usage_log WHERE thread_id = ?", ("t-plan-cost",))
     assert row is not None, "the planner's tokens are invisible to /api/usage"
     assert row["agent_name"] == "planner", "spend attributed to the wrong head"

@@ -217,7 +217,19 @@ shape. Rehearse that role handoff against the target PostgreSQL service.
    `USAGE` and `CREATE` on `public`. Pre-create `private` and each declared
    `ext_*` schema with the Skein role as owner. Do not grant database-wide
    `CREATE` to the Skein role.
-4. Switch `PGUSER` and `PGPASSWORD` to the Skein application role. Remove schema
+4. Before the load, compare the dump against its recorded digest. Each backup
+   appends `backup=<file> sha256=<hex>` to `activity-anchors.log` beside the
+   dumps and on the mirror. If the values differ, or the local and mirror
+   logs disagree, stop: the dump changed where it rested. Without a mirror
+   the local log shares the backup volume, so this check detects an
+   accident, not an attacker who can write both files.
+
+   ```
+   grep "backup=database-<date>-<backup-id>.dump" activity-anchors.log
+   sha256sum database-<date>-<backup-id>.dump
+   ```
+
+5. Switch `PGUSER` and `PGPASSWORD` to the Skein application role. Remove schema
    creation entries from the archive list because the administrator already
    created the permitted schemas. Then restore the recovery unit:
 
@@ -238,7 +250,7 @@ shape. Rehearse that role handoff against the target PostgreSQL service.
    If this command fails, stop. Its transaction leaves the pre-created empty
    schemas intact. Do not start the backend with a partial restore.
 
-5. Read the restored verified anchor before you start the backend:
+6. Read the restored verified anchor before you start the backend:
 
    ```
    psql -Atc "SELECT s.value || ' ' || h.value
@@ -246,27 +258,27 @@ shape. Rehearse that role handoff against the target PostgreSQL service.
        WHERE s.key = 'activity_chain_seq'"
    ```
 
-6. Invalidate restored personal keys before traffic can reach the backend:
+7. Invalidate restored personal keys before traffic can reach the backend:
 
    ```
    psql -c "UPDATE api_keys SET active = 0"
    ```
 
    Reconcile `users.active` with the identity provider before you reopen ingress.
-7. If the restored anchor is nonempty, require its exact `seq` and `hash` in at
+8. If the restored anchor is nonempty, require its exact `seq` and `hash` in at
    least one retained anchor log. If neither log contains it, stop. Do not write
    a new baseline over lost history. Then remove lines with a greater sequence.
    Keep the matching line and all earlier lines. Never trim these logs for
    another reason.
-8. Set `SKEIN_SCHEDULER=0`, keep the Route absent, and scale the backend to one.
+9. Set `SKEIN_SCHEDULER=0`, keep the Route absent, and scale the backend to one.
    Boot applies newer migrations without running catch-up jobs. Check health and
    record the restore in a note.
-9. Reconcile `job_runs` one job at a time. `job_outcomes` does not store the
+10. Reconcile `job_runs` one job at a time. `job_outcomes` does not store the
    claim `run_key`, so no generic join proves that a claim has its effect. Check
    each catch-up job's activity and domain receipt. Remove a claim only when its
    effect is absent and replay is safe. Keep the scheduler off until this is
    complete.
-10. Reconcile the roster and mint replacement API keys. Then restore the scheduler
+11. Reconcile the roster and mint replacement API keys. Then restore the scheduler
     setting, recreate the Route, restart stopped workers, and resume ArgoCD sync.
 
 ### Mirror-only partial recovery

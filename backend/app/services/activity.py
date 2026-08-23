@@ -465,6 +465,10 @@ def record_backup_digest(name: str, digest: str) -> list[str]:
     the anchor replay and _tail_anchor_line skip lines they cannot parse, so
     these lines cannot disturb a chain check.
     """
+    # A name holding whitespace could inject a forged chain-anchor line into
+    # the log this function exists to make trustworthy.
+    if re.search(r"\s", name) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("The backup digest line was refused: the name or digest is malformed.")
     line = f"{db.now()} backup={name} sha256={digest}\n"
     written = []
     for path in _anchor_log_paths():

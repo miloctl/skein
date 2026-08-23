@@ -284,6 +284,23 @@ def test_telemetry_redacts_conversation_content_by_default(fresh_db, monkeypatch
     assert setup_telemetry() is True
     assert os.environ["OTEL_SEMCONV_STABILITY_OPT_IN"] == chosen
 
+    # a bare token without "=" does NOT enable redaction in the tracer — a
+    # substring guard would skip the append here and every span would export
+    # unredacted while the operator believes redaction is on
+    monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_unredacted_attributes")
+    assert setup_telemetry() is True
+    assert (
+        os.environ["OTEL_SEMCONV_STABILITY_OPT_IN"]
+        == "gen_ai_unredacted_attributes,gen_ai_unredacted_attributes="
+    )
+
+    # the token lands even with no Skein endpoint: an exporter wired through
+    # plain OTel env autoconfig reads the same variable
+    monkeypatch.setattr(config, "OTEL_ENDPOINT", "")
+    monkeypatch.delenv("OTEL_SEMCONV_STABILITY_OPT_IN", raising=False)
+    assert setup_telemetry() is False
+    assert os.environ["OTEL_SEMCONV_STABILITY_OPT_IN"] == "gen_ai_unredacted_attributes="
+
 
 def test_api_token_allows_cors_preflight(client, monkeypatch):
     from app import config

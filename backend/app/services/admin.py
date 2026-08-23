@@ -394,7 +394,11 @@ def _backup(*, keep: int, actor: str | None) -> dict:
     from . import activity
 
     database_sha256 = _sha256_file(database_dest)
-    activity.record_backup_digest(database_dest.name, database_sha256)
+    # An all-paths append failure must be visible: a response carrying a
+    # digest no log holds reads as verifiable-later and is not.
+    digest_recorded = bool(activity.record_backup_digest(database_dest.name, database_sha256))
+    if not digest_recorded:
+        log.error("no anchor log recorded the backup digest for %s", database_dest.name)
 
     mirror_status, mirror = _mirror_target()
     mirrored = None
@@ -423,6 +427,7 @@ def _backup(*, keep: int, actor: str | None) -> dict:
         "extension_paths": [],
         "kept": kept,
         "database_sha256": database_sha256,
+        "digest_recorded": digest_recorded,
         "mirror_status": mirror_status,
         "mirror_scope": "public_schema",
         "mirrored_platform_path": mirrored,

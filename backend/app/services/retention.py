@@ -50,17 +50,9 @@ KEPT = {
     "memories": "owner-forgettable (memory.forget), never age-pruned",
     "search_index": _DERIVED,
     "embeddings": _DERIVED,
-    "context_packs": "published pack registry: the pack writer prunes its archives",
+    "context_packs": "versioned pack registry: one row per content change, kept forever",
     **dict.fromkeys(
-        (
-            "chat_folders",
-            "chat_threads",
-            "chat_messages",
-            "sessions",
-            "session_agents",
-            "session_messages",
-            "session_multi_agents",
-        ),
+        ("chat_folders", "chat_threads", "chat_messages", "sessions"),
         _CHAT_LIFECYCLE,
     ),
     **dict.fromkeys(
@@ -97,6 +89,15 @@ CASCADED = {
     "extension_event_attempts": "extension_outbox",
     "extension_event_deliveries": "extension_outbox",
     "notification_reads": "notifications",
+    "session_agents": "sessions",
+    "session_messages": "session_agents",
+    "session_multi_agents": "sessions",
+}
+# The private schema's tables carry the same contract, enumerated separately
+# because information_schema scoping differs (tests/test_retention.py).
+PRIVATE_KEPT = {
+    "notes": "owner-deleted (private_notes.delete_note), never age-pruned",
+    "audit": "private write trail beside the notes, kept forever",
 }
 
 

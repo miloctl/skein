@@ -52,7 +52,9 @@ _RETRY_MAX_SECONDS = 300.0
 _retry_state: dict[str, tuple[int, float]] = {}
 # The per-call timeout bounds TIME, not volume: a server that streams inside
 # its deadline can still hand the model megabytes, blowing the context or
-# silently burning SKEIN_AGENT_DAILY_TOKENS on an unattended run.
+# silently burning SKEIN_AGENT_DAILY_TOKENS on an unattended run. Measured in
+# str() characters, not encoded bytes — multibyte content can carry up to 4x
+# this in bytes, an accepted looseness for a volume bound.
 _RESULT_MAX_BYTES = 256 * 1024
 _TIMEOUT_TRIP = 2
 _timeout_strikes: dict[str, int] = {}
@@ -80,6 +82,12 @@ def _deadline_strike(server_id: str) -> None:
             return
         close_client = connection.client
         _tools = None
+        # Seed the backoff HERE: without a retry_at in the future, the next
+        # mcp_tools() call treats this server as ready and reconnects in the
+        # FOREGROUND — inside an agent build, on a chat turn, against the
+        # server just proven hung (the exact hold the background-retry
+        # comment in mcp_tools() forbids).
+        _retry_state[server_id] = (1, time.monotonic() + _RETRY_BASE_SECONDS)
     log.warning("MCP server '%s' dropped after consecutive timeouts", server_id)
     # In a thread: closing a hung transport can block, and this runs on the
     # event loop that carries every open SSE stream.
@@ -260,11 +268,18 @@ class GovernedMCPTool(AgentTool):
             return
         events = []
         seen_bytes = 0
+        stream = self._delegate.stream(tool_use, invocation_state, **kwargs)
         try:
             async with asyncio.timeout(self.metadata.timeout_seconds):
-                async for event in self._delegate.stream(tool_use, invocation_state, **kwargs):
+                async for event in stream:
                     seen_bytes += len(str(event))
                     if seen_bytes > _RESULT_MAX_BYTES:
+                        # Close the generator NOW, not at async-gen GC: raising
+                        # out of the for body leaves it suspended at a yield
+                        # with the remote HTTP stream pinned open. Bounded, so
+                        # a hung transport cannot turn the cap into a stall.
+                        with contextlib.suppress(Exception):
+                            await asyncio.wait_for(stream.aclose(), timeout=5)
                         raise _ResultTooLarge
                     events.append(event)
         except TimeoutError:
@@ -665,6 +680,7 @@ def mcp_tools(reserved_names: set[str] | None = None) -> list:
             return _without_reserved(_tools, reserved)
         for server_id in set(_retry_state) - configured_ids:
             del _retry_state[server_id]
+            _timeout_strikes.pop(server_id, None)
         current = _composed_tools(_connections.values())
         if not configured_ids:
             _retry_state.clear()

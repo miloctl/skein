@@ -439,6 +439,11 @@ async def lifespan(app: FastAPI):
         runtime_subjects, runtime_content_owners
     )
     try:
+        # BEFORE the catch-up loop: the strands tracer is a module singleton
+        # that reads the redaction token once, at the first Agent build. A
+        # catch-up job that builds an Agent before this line would export
+        # unredacted conversation spans for the process lifetime.
+        setup_telemetry()
         # Claim-guarded catch-up runs fill in for missed cron firings only when
         # the scheduler is enabled. A restore boot uses SKEIN_SCHEDULER=0 so no
         # old notification, retention, or agent job runs before reconciliation.
@@ -446,7 +451,6 @@ async def lifespan(app: FastAPI):
             for spec in specs:
                 if spec.catch_up:
                     run_job(spec)
-        setup_telemetry()
         from .agents.narrator import register_narrator
 
         register_narrator()  # composition root: agents plug into services here

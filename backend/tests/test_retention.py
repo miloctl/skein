@@ -53,13 +53,33 @@ def test_prune_logs_a_sentence_not_a_payload(fresh_db):
 def test_retention_accounts_for_every_table(fresh_db):
     """A migration decides each new table's retention fate explicitly —
     an unrecorded table silently defaults to kept-forever."""
-    from app.services.retention import CASCADED, KEPT, PRUNE_LABEL
+    from app import config
+    from app.services import private_notes
+    from app.services.retention import CASCADED, KEPT, PRIVATE_KEPT, PRUNE_LABEL
 
     rows = fresh_db.query(
         "SELECT table_name AS name FROM information_schema.tables"
         " WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
     )
     real = {r["name"] for r in rows}
+
+    # the private schema carries the same contract; its tables appear on
+    # first use, so create them the way the app does before enumerating
+    private_notes._ready()
+    private_rows = fresh_db.query(
+        "SELECT table_name AS name FROM information_schema.tables"
+        " WHERE table_schema = ? AND table_type = 'BASE TABLE'",
+        (config.PRIVATE_SCHEMA,),
+    )
+    private_real = {r["name"] for r in private_rows}
+    private_undecided = private_real - set(PRIVATE_KEPT)
+    assert not private_undecided, (
+        f"private tables with no recorded retention decision: {sorted(private_undecided)}"
+    )
+    private_ghosts = set(PRIVATE_KEPT) - private_real
+    assert not private_ghosts, (
+        f"PRIVATE_KEPT names tables that do not exist: {sorted(private_ghosts)}"
+    )
     pruned, kept, cascaded = set(PRUNE_LABEL), set(KEPT), set(CASCADED)
 
     undecided = real - pruned - kept - cascaded
@@ -70,8 +90,10 @@ def test_retention_accounts_for_every_table(fresh_db):
     assert not doubled, f"tables with two retention decisions: {sorted(doubled)}"
 
     # a cascade claim needs a real parent decision and a real cascade —
-    # otherwise the map documents a cleanup the database does not perform
-    orphaned = set(CASCADED.values()) - pruned - kept
+    # otherwise the map documents a cleanup the database does not perform.
+    # A parent may itself be cascaded (sessions -> session_agents ->
+    # session_messages); the chain still ends at a pruned or kept root.
+    orphaned = set(CASCADED.values()) - pruned - kept - cascaded
     assert not orphaned, f"cascade parents with no decision of their own: {sorted(orphaned)}"
     live_cascades = {
         (r["child"], r["parent"])
@@ -83,6 +105,9 @@ def test_retention_accounts_for_every_table(fresh_db):
             " JOIN information_schema.constraint_column_usage ccu"
             "   ON ccu.constraint_name = tc.constraint_name"
             " WHERE tc.constraint_type = 'FOREIGN KEY' AND rc.delete_rule = 'CASCADE'"
+            # scoped: constraint names are unique per schema, and a private or
+            # extension schema duplicate would fabricate child/parent pairs
+            " AND tc.table_schema = 'public' AND ccu.table_schema = 'public'"
         )
     }
     for child, parent in CASCADED.items():

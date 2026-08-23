@@ -177,21 +177,28 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
     deletes: list[str] = []
     real_execute, real_rowcount = db.execute, db.execute_rowcount
     table = re.compile(
-        r"^\s*(INSERT\s+(?:OR\s+\w+\s+)?INTO|UPDATE|DELETE\s+FROM)\s+([A-Za-z_]+)", re.I
+        r"^\s*(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|UPDATE|DELETE\s+FROM)\s+([A-Za-z_]+)", re.I
+    )
+    # finditer over the whole string, not the anchored match above: a CTE
+    # prefix (WITH doomed AS (...) DELETE FROM t), TRUNCATE, a second
+    # statement behind a semicolon, or a quoted identifier hides the
+    # destructive verb from an anchored pattern.
+    delete_shape = re.compile(
+        r'\b(?:DELETE\s+FROM|TRUNCATE\s+(?:TABLE\s+)?)\s*("?[A-Za-z_]+"?)', re.I
     )
 
-    def spy_execute(sql, params=()):
+    def _observe(sql):
         if m := table.match(sql):
-            writes.append(m.group(2))
-            if m.group(1).upper().startswith("DELETE"):
-                deletes.append(m.group(2))
+            writes.append(m.group(1))
+        for m in delete_shape.finditer(sql):
+            deletes.append(m.group(1).strip('"'))
+
+    def spy_execute(sql, params=()):
+        _observe(sql)
         return real_execute(sql, params)
 
     def spy_rowcount(sql, params=()):
-        if m := table.match(sql):
-            writes.append(m.group(2))
-            if m.group(1).upper().startswith("DELETE"):
-                deletes.append(m.group(2))
+        _observe(sql)
         return real_rowcount(sql, params)
 
     monkeypatch.setattr(db, "execute", spy_execute)

@@ -146,7 +146,7 @@ ignore_names = [
     # does not scan
     "EXCLUDED",
     # read only by test_retention.py's every-table sweep, same as EXCLUDED
-    "KEPT", "CASCADED",
+    "KEPT", "CASCADED", "PRIVATE_KEPT",
     # read only by the restore drill and digest test in test_admin_backup.py:
     # the pre-restore comparison an operator performs
     "recorded_backup_digests",
