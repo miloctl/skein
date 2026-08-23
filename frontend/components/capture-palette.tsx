@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 
 import { VisibilityPicker } from "@/components/visibility-picker";
 import { actionError, api, getUser, subscribeUser } from "@/lib/api";
+import { notifyAttentionChange } from "@/lib/attention";
 import { isGated, subscribeGated } from "@/lib/gated";
 
 // mirrors backend/app/services/capture.py PATTERNS — the preview must tell
@@ -155,7 +156,7 @@ export function CapturePalette() {
         method: "POST",
         body: JSON.stringify({ text, ...tier }),
       });
-      window.dispatchEvent(new Event("skein-attention-change"));
+      notifyAttentionChange();
       setResult(`Captured as ${r.kind} #${r.id}`);
       setText("");
       // the tier resets with the text. The dialog closes after each capture,

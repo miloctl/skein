@@ -174,19 +174,24 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
     _seed(fresh_db)
 
     writes: list[str] = []
+    deletes: list[str] = []
     real_execute, real_rowcount = db.execute, db.execute_rowcount
     table = re.compile(
-        r"^\s*(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|UPDATE|DELETE\s+FROM)\s+([A-Za-z_]+)", re.I
+        r"^\s*(INSERT\s+(?:OR\s+\w+\s+)?INTO|UPDATE|DELETE\s+FROM)\s+([A-Za-z_]+)", re.I
     )
 
     def spy_execute(sql, params=()):
         if m := table.match(sql):
-            writes.append(m.group(1))
+            writes.append(m.group(2))
+            if m.group(1).upper().startswith("DELETE"):
+                deletes.append(m.group(2))
         return real_execute(sql, params)
 
     def spy_rowcount(sql, params=()):
         if m := table.match(sql):
-            writes.append(m.group(1))
+            writes.append(m.group(2))
+            if m.group(1).upper().startswith("DELETE"):
+                deletes.append(m.group(2))
         return real_rowcount(sql, params)
 
     monkeypatch.setattr(db, "execute", spy_execute)
@@ -221,6 +226,7 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
     silent_writers = []
     uncallable = []
     covered = set()
+    direct_deleters: dict[str, list[str]] = {}
     for tool in ALL_TOOLS:
         fn = _unwrap(tool)
         try:
@@ -231,6 +237,7 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
         ratelimit.reset()
         receipts.start()
         writes.clear()
+        deletes.clear()
         current[:] = [fn.__name__]
         try:
             out = fn(**kwargs)
@@ -247,6 +254,9 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
             silent_writers.append(f"{fn.__name__}: wrote {real_writes} with no receipt")
         if real_writes and got:
             covered.add(fn.__name__)
+        real_deletes = sorted(set(deletes) - DERIVED_TABLES)
+        if real_deletes:
+            direct_deleters[fn.__name__] = real_deletes
 
     assert not uncallable, "tools the heuristics cannot call:\n" + "\n".join(uncallable)
     assert not silent_writers, (
@@ -297,6 +307,15 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
         "update_task",
     }
     assert expected_writers == CORE_WRITE_TOOLS
+    # A hard DELETE is the irreversible verb ALWAYS_REVIEW exists for
+    # (tools/_gate.py): the gate turns those into proposals, so a tool call
+    # here must never reach DELETE on a real table. A tool that does has
+    # bypassed the review path — the exact hazard a prompt-injected agent
+    # exploits with the review flag off. A new hard-deleting tool routes its
+    # delete through an ALWAYS_REVIEW entity or fails this assertion.
+    assert direct_deleters == {}, (
+        f"tool calls reached DELETE without a review verdict: {direct_deleters}"
+    )
     assert covered == expected_writers, (
         f"degraded to error paths: {sorted(expected_writers - covered)};"
         f" new unlisted writers: {sorted(covered - expected_writers)}"

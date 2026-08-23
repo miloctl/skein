@@ -58,10 +58,10 @@ def row_from_agent(agent, thread_id: str, agent_name: str = "chief-of-staff") ->
     thread every concurrent chat shares.
 
     Lives in the service layer, not in routes/chat.py where its callers are,
-    because agents/team_agent.py's consult tool records its own sub-agent's
-    spend: an agents -> routes import to reach it would invert the layering,
-    and a sub-agent whose spend nobody records is invisible to /api/usage and
-    to the monthly budget (the bug plan_project still has).
+    because agents/team_agent.py's consult and planner tools record their own
+    sub-agents' spend: an agents -> routes import to reach it would invert the
+    layering, and a sub-agent whose spend nobody records is invisible to
+    /api/usage and to the monthly budget.
     """
     try:
         metrics = agent.event_loop_metrics

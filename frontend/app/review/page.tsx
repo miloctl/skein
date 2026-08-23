@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { actionError, api, getUser, loadError, subscribeUser } from "@/lib/api";
+import { notifyAttentionChange } from "@/lib/attention";
 import { reportStatus } from "@/lib/status";
 import { EmptyState } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
@@ -601,7 +602,7 @@ export default function ReviewPage() {
           "confirmation",
         );
       }
-      window.dispatchEvent(new Event("skein-attention-change"));
+      notifyAttentionChange();
       setAsking(null);
       settle([id]);
     } catch (e) {

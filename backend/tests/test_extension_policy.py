@@ -2527,6 +2527,143 @@ def test_mcp_tools_need_complete_metadata_and_pass_through_policy(fresh_db, monk
     assert remote.called is True
 
 
+def _mcp_metadata(**overrides):
+    from app.agents.mcp_tools import MCPToolMetadata
+
+    base = {
+        "version": "1.0.0",
+        "effect": "read",
+        "risk": "low",
+        "policy_action": "atlas.read",
+        "allowed_agents": (),
+        "required_capabilities": (),
+        "output_schema": {"type": "object"},
+        "timeout_seconds": 1,
+        "error_codes": ("remote_error",),
+        "receipt": "required",
+        "provenance": "service",
+    }
+    base.update(overrides)
+    return MCPToolMetadata(**base)
+
+
+def _run_governed(governed):
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+
+    registry = ExtensionRegistry.build((_module(),))
+    policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(registry.refresh_subject(PolicySubject("requester")))
+    agent_token = set_agent_identity("acme.workplace.delivery")
+
+    async def run():
+        return [
+            event
+            async for event in governed.stream(
+                {"toolUseId": "mcp-t", "name": "atlas_remote", "input": {}}, {}
+            )
+        ]
+
+    try:
+        return asyncio.run(run())
+    finally:
+        reset_agent_identity(agent_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+
+
+def test_mcp_tool_result_volume_is_bounded(fresh_db):
+    """The per-call timeout bounds time, not bytes: a server that streams
+    inside its deadline can hand the model megabytes, blowing the context or
+    burning the daily token budget on an unattended run."""
+    from app.agents.mcp_tools import GovernedMCPTool
+
+    class Chatty(_RemoteTool):
+        def __init__(self):
+            self.yielded = 0
+
+        async def stream(self, tool_use, invocation_state, **kwargs):
+            chunk = {"toolUseId": tool_use["toolUseId"], "data": "x" * 65536}
+            while True:
+                self.yielded += 1
+                yield chunk
+
+    remote = Chatty()
+    governed = GovernedMCPTool(remote, _mcp_metadata(timeout_seconds=5), "atlas-server")
+    events = _run_governed(governed)
+
+    assert events[-1]["status"] == "error"
+    assert events[-1]["completionStatus"] == "failed"
+    assert "more data than Skein accepts" in events[-1]["content"][0]["text"]
+    assert remote.yielded <= 8, "the stream kept flowing long after the cap"
+
+    # a capped WRITE already executed remotely: its completion is unknown,
+    # and the model must not retry it
+    remote = Chatty()
+    governed = GovernedMCPTool(
+        remote,
+        _mcp_metadata(effect="write", policy_action="atlas.background.write", timeout_seconds=5),
+        "atlas-server",
+    )
+    events = _run_governed(governed)
+    assert events[-1]["completionStatus"] == "completion_unknown"
+
+
+def test_two_consecutive_timeouts_drop_a_hung_mcp_server(fresh_db):
+    """A per-call timeout refuses the call but leaves the hung server
+    composed, so every later call pays the full timeout. The second
+    consecutive hit must hand the connection to the reconnect backoff —
+    and a success in between proves the server lives, resetting the count."""
+    from app.agents import mcp_tools as mcp_module
+    from app.agents.mcp_tools import GovernedMCPTool, _MCPConnection
+
+    class Flaky(_RemoteTool):
+        def __init__(self):
+            self.hang = True
+
+        async def stream(self, tool_use, invocation_state, **kwargs):
+            if self.hang:
+                await asyncio.sleep(30)
+            yield {"toolUseId": tool_use["toolUseId"], "status": "success", "content": []}
+
+    class FakeClient:
+        closed = False
+
+        def __exit__(self, *args):
+            self.closed = True
+
+    remote = Flaky()
+    governed = GovernedMCPTool(remote, _mcp_metadata(timeout_seconds=0.01), "atlas-server")
+    client = FakeClient()
+    mcp_module._connections["atlas-server"] = _MCPConnection("atlas-server", client, ())
+    mcp_module._tools = []
+    try:
+        assert _run_governed(governed)[-1]["completionStatus"] == "timed_out"
+        assert "atlas-server" in mcp_module._connections, "one timeout must not drop a server"
+
+        remote.hang = False
+        assert _run_governed(governed)[-1].get("status") == "success"
+        remote.hang = True
+        assert _run_governed(governed)[-1]["completionStatus"] == "timed_out"
+        assert "atlas-server" in mcp_module._connections, (
+            "a success between timeouts proves the server lives — the count must reset"
+        )
+
+        assert _run_governed(governed)[-1]["completionStatus"] == "timed_out"
+        assert "atlas-server" not in mcp_module._connections, (
+            "the second consecutive timeout must drop the hung connection"
+        )
+        assert mcp_module._tools is None, "stale tools would keep serving the dropped server"
+        deadline = time.monotonic() + 2
+        while not client.closed and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert client.closed, "the hung client was dropped but never closed"
+    finally:
+        mcp_module._connections.pop("atlas-server", None)
+        mcp_module._timeout_strikes.clear()
+        mcp_module._tools = None
+
+
 def test_review_verdict_supplies_the_current_grant_to_mcp_tool(fresh_db, monkeypatch):
     from app.agents import mcp_tools as mcp_module
     from app.agents.identity import reset_agent_identity, set_agent_identity
