@@ -404,6 +404,10 @@ def test_restore_drill_recovers_one_database_unit_and_requires_artifact_volume(
         "artifact survives only with its volume",
         actor="tester",
     )
+    content_sha256 = db.query_one(
+        "SELECT content_sha256 FROM artifacts WHERE id = ?", (document["id"],)
+    )["content_sha256"]
+    assert content_sha256
     artifact_root = live_data / "artifacts"
     artifact_copy = recovery / "artifacts"
     shutil.copytree(artifact_root, artifact_copy)
@@ -467,8 +471,15 @@ def test_restore_drill_recovers_one_database_unit_and_requires_artifact_volume(
         with pytest.raises(handoff.ArtifactUnreadable):
             handoff.read_artifact(document["id"])
         shutil.copytree(artifact_copy, artifact_root)
+        restored_row = db.query_one(
+            "SELECT path, content_sha256 FROM artifacts WHERE id = ?", (document["id"],)
+        )
+        assert restored_row["content_sha256"] == content_sha256
         restored_artifact = handoff.read_artifact(document["id"])
         assert restored_artifact["markdown"] == "artifact survives only with its volume"
+        Path(restored_row["path"]).write_text("changed after restore", encoding="utf-8")
+        with pytest.raises(handoff.ArtifactUnreadable, match="does not match"):
+            handoff.read_artifact(document["id"])
         assert activity.verify_chain()["ok"] is True
     finally:
         admin.set_extension_stores({}, set())

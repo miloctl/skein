@@ -161,6 +161,10 @@ describe("Settings identity states", () => {
       );
       expect(screen.getByRole("heading", { level: 2, name })).toBeTruthy();
     }
+    expect(screen.getByRole("link", { name: "You" }).getAttribute("aria-current")).toBe(
+      "location",
+    );
+    expect(nav.querySelectorAll('[aria-current="location"]')).toHaveLength(1);
 
     const you = document.getElementById("settings-you");
     const connections = document.getElementById("settings-connections");

@@ -423,21 +423,28 @@ def snapshot_for(engagement_id: int) -> dict:
     playbook. Callers branch on the empty dict — an engagement created by hand
     has no plan to diff against and must close exactly as it always did."""
     row = db.query_one(
-        "SELECT path FROM artifacts WHERE engagement_id = ? AND kind = 'plan-snapshot'"
-        " ORDER BY id LIMIT 1",
+        "SELECT path, content_sha256 FROM artifacts"
+        " WHERE engagement_id = ? AND kind = 'plan-snapshot' ORDER BY id LIMIT 1",
         (engagement_id,),
     )
     if not row:
         return {}
-    path = Path(row["path"])
-    if not path.exists():
-        # the row outlives the file: data/artifacts/ is gitignored and a
-        # restore-from-backup brings the database back without it. A missing
-        # file is "no snapshot", never a 500 at close time.
+    root = (Path(config.DATA_DIR) / "artifacts").resolve()
+    try:
+        path = Path(row["path"]).resolve()
+    except (OSError, ValueError):
+        return {}
+    # A snapshot is fail-soft, but it still turns a stored path into a file read.
+    # Without containment, one restored or hand-edited row reads any JSON file
+    # the server user can open before close-out decides that it is no snapshot.
+    if not path.is_relative_to(root) or not path.is_file():
         return {}
     try:
-        plan = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        data = path.read_bytes()
+        if not artifact_files.content_matches(data, row.get("content_sha256")):
+            return {}
+        plan = json.loads(data.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
         return {}
     # SHAPE, not just parseability. The file carries no version field, so the
     # first change to the plan format would otherwise turn every older
@@ -489,13 +496,14 @@ def _snapshot(created: dict, slug: str, start: date, actor: str) -> int:
     plans = Path(config.DATA_DIR) / "artifacts" / safe
     plans.mkdir(parents=True, exist_ok=True)
     path = plans / f"{eng['id']}-plan-snapshot.json"
-    artifact_files.publish(path, json.dumps(plan, indent=2).encode("utf-8"))
+    data = json.dumps(plan, indent=2).encode("utf-8")
+    content_sha256 = artifact_files.publish(path, data)
     # the engagement's own tier, threaded like handoff.py does and for the
     # same reason: the row carries a PATH to every milestone and task title,
     # and list_artifacts must not hand it to somebody who could not read them
     aid = db.execute(
         "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at,"
-        " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        " visibility, crew_id, content_sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         " RETURNING id",
         (
             eng["id"],
@@ -506,6 +514,7 @@ def _snapshot(created: dict, slug: str, start: date, actor: str) -> int:
             db.now(),
             eng.get("visibility") or scope.WORKSPACE,
             eng.get("crew_id") or None,
+            content_sha256,
         ),
     )
     # provenance, like every other write. handoff.py logs its artifact and this

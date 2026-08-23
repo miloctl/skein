@@ -168,8 +168,11 @@ def save_upload(filename: str, data: bytes, *, owner: str) -> dict:
             ("upload", title, "", owner, db.now(), "private", mime, len(data)),
         )
         path = root / f"{aid}.{ext}"
-        db.execute("UPDATE artifacts SET path = ? WHERE id = ?", (str(path), aid))
-        artifact_files.publish(path, data)
+        content_sha256 = artifact_files.publish(path, data)
+        db.execute(
+            "UPDATE artifacts SET path = ?, content_sha256 = ? WHERE id = ?",
+            (str(path), content_sha256, aid),
+        )
         db.log_activity(owner, "upload_file", f"artifact #{aid} ({len(data)} bytes)")
         return {
             "id": aid,
@@ -230,7 +233,13 @@ def upload_bytes(row: dict) -> bytes:
             f"attached file #{row['id']} has no file on disk."
             " Check that the volume holding data/artifacts is mounted."
         )
-    return path.read_bytes()
+    data = path.read_bytes()
+    if not artifact_files.content_matches(data, row.get("content_sha256")):
+        raise handoff.ArtifactUnreadable(
+            f"attached file #{row['id']} does not match its stored digest."
+            " Restore the matching artifact volume, or delete the file and attach it again."
+        )
+    return data
 
 
 def list_uploads(owner: str) -> dict:

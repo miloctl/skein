@@ -339,7 +339,19 @@ for (const vw of [360, 1280]) {
         Math.round(position.sectionTop),
         `#${id} sits under the sticky header`,
       ).toBeGreaterThanOrEqual(Math.round(position.headerBottom));
+      await expect(nav.getByRole("link", { name, exact: true })).toHaveAttribute(
+        "aria-current",
+        "location",
+      );
     }
+
+    await page.evaluate(() =>
+      document.getElementById("settings-connections")!.scrollIntoView(),
+    );
+    await expect(
+      nav.getByRole("link", { name: "Connections", exact: true }),
+    ).toHaveAttribute("aria-current", "location");
+    expect(await page.evaluate(() => location.hash)).toBe("#settings-team");
 
     expect(
       await page.evaluate(

@@ -7,13 +7,15 @@ an 8 MB PDF would replay it to the provider on every later turn.
 """
 
 import io
+from pathlib import Path
 
 import pytest
 
-from app import config
+from app import config, db
 from app.agents import session_store
 from app.routes import chat as chat_route
 from app.routes.chat import _attachment_prompt, _with_attachments
+from app.services import handoff
 
 # a real 1x1 PNG, so the upload's own image verification passes and the test
 # is about the MODEL capability rather than about the bytes
@@ -39,6 +41,15 @@ def test_a_text_file_reaches_a_keyless_provider_as_its_content(client, monkeypat
     joined = "".join(b["text"] for b in blocks)
     assert "the roof leaks" in joined
     assert joined.endswith("what is wrong?")
+
+
+def test_changed_upload_bytes_never_reach_the_model(client, monkeypatch):
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "mock")
+    aid = _upload(client, "notes.md", b"original")
+    path = Path(db.query_one("SELECT path FROM artifacts WHERE id = ?", (aid,))["path"])
+    path.write_bytes(b"changed outside Skein")
+    with pytest.raises(handoff.ArtifactUnreadable, match="does not match"):
+        _attachment_prompt("read it", [aid], "tester")
 
 
 def test_attached_text_is_labelled_as_content_not_as_a_directive(client, monkeypatch):

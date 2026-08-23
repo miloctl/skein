@@ -221,7 +221,7 @@ knots:
     set: loops
     ties: mark
     pitch: Every old report stays on the line, and its named threads lead back into the formation.
-    how: Open Work → Reports. Select a report. The Threads in this report list shows each reference that you can open. Select one to go to it. Select Older reports to continue through the archive.
+    how: Open Work → Reports. Select a report. Select Copy Markdown to copy the source, or select Download Markdown to start a file download. The Threads in this report list shows each reference that you can open. Select one to go to it. Select Older reports to continue through the archive.
     link: /artifacts
     since: 2026-08-15
 

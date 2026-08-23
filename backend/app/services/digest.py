@@ -176,21 +176,23 @@ def publish_digest(*, actor: str = "scheduler", force: bool = False) -> dict:
             (title,),
         )
         path = artifact_files.unique_revision(logical)
-        artifact_files.publish(
+        content_sha256 = artifact_files.publish(
             path,
             markdown.encode("utf-8"),
             old=Path(existing["path"]) if existing else None,
         )
         if existing:
             db.execute(
-                "UPDATE artifacts SET path = ?, created_by = ?, created_at = ? WHERE id = ?",
-                (str(path), actor, db.now(), existing["id"]),
+                "UPDATE artifacts SET path = ?, content_sha256 = ?, created_by = ?,"
+                " created_at = ? WHERE id = ?",
+                (str(path), content_sha256, actor, db.now(), existing["id"]),
             )
         else:
             db.execute(
-                "INSERT INTO artifacts (kind, title, path, created_by, created_at)"
-                " VALUES (?, ?, ?, ?, ?)",
-                ("digest", title, str(path), actor, db.now()),
+                "INSERT INTO artifacts"
+                " (kind, title, path, created_by, created_at, content_sha256)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                ("digest", title, str(path), actor, db.now(), content_sha256),
             )
         # Archived as an artifact only. A note would duplicate every FTS hit.
         db.log_activity(actor, "publish_digest", today)

@@ -107,8 +107,11 @@ def create_document(
             ),
         )
         path = _root() / f"{artifact_id}.md"
-        db.execute("UPDATE artifacts SET path = ? WHERE id = ?", (str(path), artifact_id))
-        artifact_files.publish(path, content.encode("utf-8"))
+        content_sha256 = artifact_files.publish(path, content.encode("utf-8"))
+        db.execute(
+            "UPDATE artifacts SET path = ?, content_sha256 = ? WHERE id = ?",
+            (str(path), content_sha256, artifact_id),
+        )
         db.log_activity(actor, "create_document", f"artifact #{artifact_id} {clean_title}")
         # "id" as well as "artifact_id": tools/_gate.py stamps the receipt ref
         # from result["id"] and review.py stamps the proposal's lineage from
@@ -178,7 +181,13 @@ def edit_document(
     with db.transaction():
         row = _document_row(artifact_id)
         path = _document_path(row)
-        body = path.read_text(encoding="utf-8")
+        source = path.read_bytes()
+        if not artifact_files.content_matches(source, row.get("content_sha256")):
+            raise handoff.ArtifactUnreadable(
+                f"document #{artifact_id} does not match its stored digest."
+                " Restore the matching artifact volume, or create a new document."
+            )
+        body = source.decode("utf-8")
         found = body.count(old)
         if found == 0:
             raise ValueError(
@@ -196,10 +205,10 @@ def edit_document(
         # the previous revision compounds one uuid per edit and crosses
         # NAME_MAX on the seventh, making the document permanently uneditable.
         revision = artifact_files.unique_revision(_root() / f"{artifact_id}.md")
-        artifact_files.publish(revision, data, old=path)
+        content_sha256 = artifact_files.publish(revision, data, old=path)
         db.execute(
-            "UPDATE artifacts SET path = ?, size = ? WHERE id = ?",
-            (str(revision), len(data), artifact_id),
+            "UPDATE artifacts SET path = ?, size = ?, content_sha256 = ? WHERE id = ?",
+            (str(revision), len(data), content_sha256, artifact_id),
         )
         db.log_activity(actor, "edit_document", f"artifact #{artifact_id} {row['title']}")
         return {"id": artifact_id, "artifact_id": artifact_id, "title": row["title"]}

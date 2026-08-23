@@ -5,7 +5,9 @@ from conftest import _ago
 
 
 def test_week_rituals_produce_packets_and_notify(client, fresh_db):
-    from app.services import promises, rituals, users
+    from pathlib import Path
+
+    from app.services import artifact_files, promises, rituals, users
 
     users.ensure_user("mira")
     promises.add_promise("demo to ops", due_date="2020-01-01", actor="mira")
@@ -13,6 +15,10 @@ def test_week_rituals_produce_packets_and_notify(client, fresh_db):
     assert close["items"] >= 1 and "Promises due or overdue" in close["markdown"]
     opened = rituals.week_open(actor="mira", force=True)
     assert opened["briefed"] >= 1 and "mira" in opened["markdown"]
+    for row in fresh_db.query("SELECT path, content_sha256 FROM artifacts WHERE kind = 'ritual'"):
+        assert row["content_sha256"] == artifact_files.content_sha256(
+            Path(row["path"]).read_bytes()
+        )
     # personal notification landed for the obligation owner
     notes = client.get("/api/notifications", headers={"X-User": "mira"}).json()
     assert any("Your week:" in n["message"] for n in notes)

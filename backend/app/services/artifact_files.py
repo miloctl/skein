@@ -1,5 +1,6 @@
 """Durable files that follow an ambient database transaction."""
 
+import hashlib
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -44,7 +45,15 @@ def unique_revision(logical: Path) -> Path:
     return contained.with_name(f"{contained.stem}-{uuid4().hex}{contained.suffix}")
 
 
-def publish(final: Path, data: bytes, *, old: Path | None = None) -> Path:
+def content_sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def content_matches(data: bytes, expected: str | None) -> bool:
+    return expected is None or content_sha256(data) == expected
+
+
+def publish(final: Path, data: bytes, *, old: Path | None = None) -> str:
     """Publish durable bytes before the ambient database transaction commits."""
     if not db.in_transaction():
         raise RuntimeError("artifact publication needs an active transaction")
@@ -65,7 +74,7 @@ def publish(final: Path, data: bytes, *, old: Path | None = None) -> Path:
         _sync_directory(target.parent)
         if previous is not None and previous != target:
             delete_after_commit(previous)
-        return target
+        return content_sha256(data)
     finally:
         temp.unlink(missing_ok=True)
 

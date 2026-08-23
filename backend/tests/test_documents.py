@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from app import config, db
-from app.services import documents, handoff, scope
+from app.services import artifact_files, documents, handoff, scope
 
 
 def _upload(client, name: str = "notes.md", data: bytes = b"private plans"):
@@ -27,6 +27,10 @@ def test_creates_a_readable_document(fresh_db):
     assert body["title"] == "Plan"
     assert body["kind"] == "document"
     assert "Step one." in body["markdown"]
+    row = db.query_one(
+        "SELECT path, content_sha256 FROM artifacts WHERE id = ?", (out["artifact_id"],)
+    )
+    assert row["content_sha256"] == artifact_files.content_sha256(Path(row["path"]).read_bytes())
 
 
 def test_a_document_is_a_report_and_an_upload_is_not(client):
@@ -68,12 +72,30 @@ def test_a_shared_source_can_become_a_document(fresh_db):
 
 def test_an_edit_replaces_one_exact_run(fresh_db):
     doc = documents.create_document("Plan", "alpha beta gamma", actor="agent")["artifact_id"]
-    before = Path(db.query_row("SELECT path FROM artifacts WHERE id = ?", (doc,))["path"])
+    before_row = db.query_row("SELECT path, content_sha256 FROM artifacts WHERE id = ?", (doc,))
+    before = Path(before_row["path"])
     documents.edit_document(doc, "beta", "delta", actor="agent")
-    after = Path(db.query_row("SELECT path FROM artifacts WHERE id = ?", (doc,))["path"])
+    after_row = db.query_row("SELECT path, content_sha256 FROM artifacts WHERE id = ?", (doc,))
+    after = Path(after_row["path"])
     assert after != before
+    assert after_row["content_sha256"] != before_row["content_sha256"]
+    assert after_row["content_sha256"] == artifact_files.content_sha256(after.read_bytes())
     assert not before.exists()
     assert handoff.read_artifact(doc, scope.NOBODY)["markdown"] == "alpha delta gamma"
+
+
+def test_a_changed_document_cannot_be_edited_and_covered_again(fresh_db):
+    doc = documents.create_document("Plan", "alpha beta", actor="agent")["artifact_id"]
+    row = db.query_row("SELECT path, size, content_sha256 FROM artifacts WHERE id = ?", (doc,))
+    path = Path(row["path"])
+    path.write_text("alpha changed", encoding="utf-8")
+
+    with pytest.raises(handoff.ArtifactUnreadable, match="does not match"):
+        documents.edit_document(doc, "alpha", "delta", actor="agent")
+    assert (
+        db.query_row("SELECT path, size, content_sha256 FROM artifacts WHERE id = ?", (doc,)) == row
+    )
+    assert list(path.parent.glob(f"{doc}*.md")) == [path]
 
 
 def test_repeated_edits_do_not_grow_the_filename(fresh_db):
@@ -99,7 +121,7 @@ def test_document_create_rollback_removes_the_file(fresh_db, monkeypatch):
 
 def test_document_edit_rollback_keeps_old_path_and_body(fresh_db, monkeypatch):
     doc = documents.create_document("Plan", "alpha beta", actor="agent")["artifact_id"]
-    before = db.query_row("SELECT path, size FROM artifacts WHERE id = ?", (doc,))
+    before = db.query_row("SELECT path, size, content_sha256 FROM artifacts WHERE id = ?", (doc,))
 
     def fail(*_args, **_kwargs):
         raise RuntimeError("ledger failed")
@@ -107,7 +129,10 @@ def test_document_edit_rollback_keeps_old_path_and_body(fresh_db, monkeypatch):
     monkeypatch.setattr(documents.db, "log_activity", fail)
     with pytest.raises(RuntimeError, match="ledger failed"):
         documents.edit_document(doc, "beta", "delta", actor="agent")
-    assert db.query_row("SELECT path, size FROM artifacts WHERE id = ?", (doc,)) == before
+    assert (
+        db.query_row("SELECT path, size, content_sha256 FROM artifacts WHERE id = ?", (doc,))
+        == before
+    )
     assert Path(before["path"]).read_text(encoding="utf-8") == "alpha beta"
     files = list(Path(before["path"]).parent.glob(f"{doc}*.md"))
     assert files == [Path(before["path"])]

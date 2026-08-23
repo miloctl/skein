@@ -23,15 +23,18 @@ def test_narrator_hook_used_and_fail_safe(fresh_db):
 def test_same_day_digest_rerun_rotates_the_file_and_keeps_one_row(fresh_db):
     from pathlib import Path
 
-    from app.services import digest
+    from app.services import artifact_files, digest
 
     first = digest.publish_digest(actor="tester")
     second = digest.publish_digest(actor="tester")
     assert second["path"] != first["path"]
     assert not Path(first["path"]).exists()
     assert Path(second["path"]).is_file()
-    rows = fresh_db.query("SELECT id FROM artifacts WHERE kind = 'digest'")
+    rows = fresh_db.query("SELECT id, path, content_sha256 FROM artifacts WHERE kind = 'digest'")
     assert len(rows) == 1
+    assert rows[0]["content_sha256"] == artifact_files.content_sha256(
+        Path(rows[0]["path"]).read_bytes()
+    )
 
 
 def test_scheduler_digest_claim_rolls_back_with_the_publication(fresh_db, monkeypatch):

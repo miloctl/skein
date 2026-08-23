@@ -54,6 +54,13 @@ function subscribeStorage(cb: () => void) {
 }
 
 const WRITE_TIMEOUT_MS = 30_000;
+const SETTINGS_SECTIONS = [
+  { id: "settings-you", label: "You" },
+  { id: "settings-connections", label: "Connections" },
+  { id: "settings-ai-runtime", label: "AI runtime" },
+  { id: "settings-team", label: "Team" },
+] as const;
+type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]["id"];
 
 function boundedWrite(path: string, init: RequestInit): Promise<unknown> {
   const controller = new AbortController();
@@ -252,6 +259,8 @@ export default function SettingsPage() {
     getUser,
     () => "anonymous",
   );
+  const [activeSection, setActiveSection] =
+    useState<SettingsSectionId>("settings-you");
   const [name, setName] = useState("");
   const [keyDraft, setKeyDraft] = useState("");
   const [who, setWho] = useState<WhoAmI | null>(null);
@@ -346,6 +355,53 @@ export default function SettingsPage() {
   const modelGeneration = useRef(0);
   const pickWriteRef = useRef<number | null>(null);
   const ctxWriteRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const sectionFromHash = () => {
+      const id = window.location.hash.slice(1) as SettingsSectionId;
+      return SETTINGS_SECTIONS.some((section) => section.id === id) ? id : null;
+    };
+    const update = () => {
+      const pageHeight = document.documentElement.scrollHeight;
+      const pageBottom =
+        pageHeight > window.innerHeight &&
+        window.scrollY + window.innerHeight >= pageHeight - 1;
+      if (pageBottom) {
+        setActiveSection(SETTINGS_SECTIONS.at(-1)!.id);
+        return;
+      }
+      const line =
+        (document.querySelector("header")?.getBoundingClientRect().bottom ?? 0) + 8;
+      const positions = SETTINGS_SECTIONS.map(
+        (section) =>
+          document.getElementById(section.id)?.getBoundingClientRect().top ??
+          Infinity,
+      );
+      if (positions.every((position) => position === positions[0])) return;
+      let current: SettingsSectionId = SETTINGS_SECTIONS[0].id;
+      positions.forEach((position, index) => {
+        if (position <= line) current = SETTINGS_SECTIONS[index].id;
+      });
+      setActiveSection(current);
+    };
+    const hashChanged = () => {
+      const section = sectionFromHash();
+      if (section) setActiveSection(section);
+      window.requestAnimationFrame(update);
+    };
+
+    const frame = window.requestAnimationFrame(update);
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    window.addEventListener("hashchange", hashChanged);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("hashchange", hashChanged);
+    };
+  }, []);
+
   // `settled` is the knob that was just written, and ONLY its draft is
   // dropped. Clearing the whole map threw away half-typed values on every
   // other knob in the list, with nothing said — a save on knob A silently
@@ -1112,30 +1168,21 @@ export default function SettingsPage() {
           aria-label="Settings sections"
           className="flex flex-wrap gap-2 lg:sticky lg:top-[calc(var(--nav-h)+1rem)] lg:flex-col"
         >
-          <a
-            href="#settings-you"
-            className="rounded-lg px-3 py-2 text-sm text-ink-2 hover:bg-raised hover:text-ink"
-          >
-            You
-          </a>
-          <a
-            href="#settings-connections"
-            className="rounded-lg px-3 py-2 text-sm text-ink-2 hover:bg-raised hover:text-ink"
-          >
-            Connections
-          </a>
-          <a
-            href="#settings-ai-runtime"
-            className="rounded-lg px-3 py-2 text-sm text-ink-2 hover:bg-raised hover:text-ink"
-          >
-            AI runtime
-          </a>
-          <a
-            href="#settings-team"
-            className="rounded-lg px-3 py-2 text-sm text-ink-2 hover:bg-raised hover:text-ink"
-          >
-            Team
-          </a>
+          {SETTINGS_SECTIONS.map((section) => (
+            <a
+              key={section.id}
+              href={`#${section.id}`}
+              aria-current={activeSection === section.id ? "location" : undefined}
+              className={
+                "rounded-lg px-3 py-2 text-sm transition-colors " +
+                (activeSection === section.id
+                  ? "bg-raised font-medium text-ink"
+                  : "text-ink-2 hover:bg-raised hover:text-ink")
+              }
+            >
+              {section.label}
+            </a>
+          ))}
         </nav>
 
         <div className="min-w-0 space-y-10">

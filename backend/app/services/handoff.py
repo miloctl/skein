@@ -151,7 +151,7 @@ def generate_handoff(
             (engagement_id, f"%/{prefix}%"),
         )
         path = artifact_files.unique_revision(logical)
-        artifact_files.publish(
+        content_sha256 = artifact_files.publish(
             path,
             markdown.encode("utf-8"),
             old=Path(existing["path"]) if existing else None,
@@ -160,15 +160,16 @@ def generate_handoff(
         if existing:
             aid = int(existing["id"])
             db.execute(
-                "UPDATE artifacts SET title = ?, path = ?, created_by = ?, created_at = ?"
-                " WHERE id = ?",
-                (title, str(path), actor, db.now(), aid),
+                "UPDATE artifacts SET title = ?, path = ?, content_sha256 = ?,"
+                " created_by = ?, created_at = ? WHERE id = ?",
+                (title, str(path), content_sha256, actor, db.now(), aid),
             )
             db.log_activity(actor, "generate_handoff", f"#{engagement_id} {name} (rewritten)")
         else:
             aid = db.execute(
                 "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at,"
-                " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+                " visibility, crew_id, content_sha256)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
                 (
                     engagement_id,
                     "handoff",
@@ -178,6 +179,7 @@ def generate_handoff(
                     db.now(),
                     eng["visibility"],
                     eng["crew_id"],
+                    content_sha256,
                 ),
             )
             db.log_activity(
@@ -268,9 +270,15 @@ def read_artifact(
             f"artifact #{artifact_id} is too large to read. Open the file on the server instead."
         )
     try:
-        markdown = path.read_text(encoding="utf-8")
+        data = path.read_bytes()
+        if not artifact_files.content_matches(data, row.get("content_sha256")):
+            raise ArtifactUnreadable(
+                f"artifact #{artifact_id} does not match its stored digest."
+                " Restore the matching artifact volume, or regenerate the report."
+            )
+        markdown = data.decode("utf-8")
         return {
-            **row,
+            **{key: value for key, value in row.items() if key != "content_sha256"},
             "markdown": markdown,
             "threads": entity_refs.readable_refs(
                 markdown,
@@ -323,4 +331,7 @@ def list_artifacts(
         params.append(before)
     sql += " ORDER BY id DESC LIMIT ?"
     params.append(limit)
-    return db.query(sql, tuple(params))
+    return [
+        {key: value for key, value in row.items() if key != "content_sha256"}
+        for row in db.query(sql, tuple(params))
+    ]

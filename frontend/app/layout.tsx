@@ -77,6 +77,7 @@ export const metadata: Metadata = {
     siteName: "Skein",
     type: "website",
   },
+  robots: { index: false, follow: false },
   // No `icons` field: app/favicon.ico, app/icon.svg and app/apple-icon.png are
   // file conventions Next already emits links for. Declaring them here too
   // produces duplicate, conflicting <link rel="icon"> tags.
