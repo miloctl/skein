@@ -180,6 +180,18 @@ describe("the Inbox badge", () => {
     act(() => window.dispatchEvent(new Event("skein-attention-change")));
     await waitFor(() => expect(calls.attention).toBe(2));
   });
+
+  it("refreshes when ANOTHER tab reports a change", async () => {
+    // pins the nav's bridge wiring, not just lib/attention.ts: without the
+    // bridgeAttentionChange() call a capture in tab A leaves tab B's badge
+    // stale until the next 30-second poll
+    render(<Nav />);
+    await waitFor(() => expect(calls.attention).toBe(1));
+    const otherTab = new BroadcastChannel("skein-attention");
+    act(() => otherTab.postMessage("changed"));
+    await waitFor(() => expect(calls.attention).toBe(2));
+    otherTab.close();
+  });
 });
 
 describe("field-guide progress", () => {

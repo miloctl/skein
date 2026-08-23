@@ -490,6 +490,7 @@ def test_backup_digest_rides_the_anchor_log(fresh_db):
     dump = Path(result["database_path"])
     recorded = activity.recorded_backup_digests(dump.name)
     assert recorded == {result["database_sha256"]}
+    assert result["digest_recorded"] is True
     assert admin._sha256_file(dump) == result["database_sha256"]
 
     # the chain replay skips digest lines, and the anchor tail dedup still
@@ -503,6 +504,37 @@ def test_backup_digest_rides_the_anchor_log(fresh_db):
         fh.seek(0)
         fh.write(bytes([first[0] ^ 0xFF]))
     assert admin._sha256_file(dump) not in recorded, "an altered dump must not verify"
+
+
+def test_backup_digest_survives_a_failed_mirror_append_and_flags_disagreement(
+    fresh_db, tmp_path, monkeypatch
+):
+    from app import db
+    from app.services import activity
+
+    local = tmp_path / "backups" / "activity-anchors.log"
+    local.parent.mkdir()
+    dead = tmp_path / "missing-mount" / "activity-anchors.log"  # parent never exists
+    monkeypatch.setattr(activity, "_anchor_log_paths", lambda: [local, dead])
+
+    digest_a = "a" * 64
+    written = activity.record_backup_digest("database-probe.dump", digest_a)
+    assert written == [str(local)], "the mirror fault must not lose the local record"
+    assert activity.recorded_backup_digests("database-probe.dump") == {digest_a}
+
+    # a second digest for the same name means a log disagrees with its
+    # mirror: the set reports both, and the drill's exact-match fails closed
+    digest_b = "b" * 64
+    local.write_text(
+        local.read_text() + f"{db.now()} backup=database-probe.dump sha256={digest_b}\n"
+    )
+    assert activity.recorded_backup_digests("database-probe.dump") == {digest_a, digest_b}
+
+    # a name that can hold whitespace could inject a forged anchor line
+    with pytest.raises(ValueError, match="malformed"):
+        activity.record_backup_digest("evil\nname.dump", digest_a)
+    with pytest.raises(ValueError, match="malformed"):
+        activity.record_backup_digest("database-probe.dump", "not-a-digest")
 
 
 def test_mirror_only_recovery_is_explicitly_partial(scratch_db, tmp_path, monkeypatch):

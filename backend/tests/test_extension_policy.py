@@ -2581,12 +2581,21 @@ def test_mcp_tool_result_volume_is_bounded(fresh_db):
     class Chatty(_RemoteTool):
         def __init__(self):
             self.yielded = 0
+            self.closed = False
 
         async def stream(self, tool_use, invocation_state, **kwargs):
+            # BOUNDED, ending in a schema-valid success: with the cap
+            # reverted, this test must fail red on the final event instead
+            # of looping until a suite timeout kills the worker
             chunk = {"toolUseId": tool_use["toolUseId"], "data": "x" * 65536}
-            while True:
-                self.yielded += 1
-                yield chunk
+            try:
+                for _ in range(64):
+                    await asyncio.sleep(0)
+                    self.yielded += 1
+                    yield chunk
+                yield {"toolUseId": tool_use["toolUseId"], "status": "success", "content": []}
+            finally:
+                self.closed = True
 
     remote = Chatty()
     governed = GovernedMCPTool(remote, _mcp_metadata(timeout_seconds=5), "atlas-server")
@@ -2595,7 +2604,13 @@ def test_mcp_tool_result_volume_is_bounded(fresh_db):
     assert events[-1]["status"] == "error"
     assert events[-1]["completionStatus"] == "failed"
     assert "more data than Skein accepts" in events[-1]["content"][0]["text"]
-    assert remote.yielded <= 8, "the stream kept flowing long after the cap"
+    # exact, not a slack bound: the cap crosses on the event that pushes the
+    # str() total past _RESULT_MAX_BYTES, and a silently doubled cap must fail
+    from app.agents.mcp_tools import _RESULT_MAX_BYTES
+
+    chunk_chars = len(str({"toolUseId": "mcp-t", "data": "x" * 65536}))
+    assert remote.yielded == _RESULT_MAX_BYTES // chunk_chars + 1
+    assert remote.closed, "the capped stream was abandoned open at its yield"
 
     # a capped WRITE already executed remotely: its completion is unknown,
     # and the model must not retry it
@@ -2632,8 +2647,15 @@ def test_two_consecutive_timeouts_drop_a_hung_mcp_server(fresh_db):
         def __exit__(self, *args):
             self.closed = True
 
+    class FlakySibling(Flaky):
+        tool_name = "atlas_remote_sibling"
+
     remote = Flaky()
     governed = GovernedMCPTool(remote, _mcp_metadata(timeout_seconds=0.01), "atlas-server")
+    # a SECOND tool on the same server: strikes count per server, and a hung
+    # server hangs every tool it serves — per-tool counting would make each
+    # tool pay the full timeout once before anything trips
+    sibling = GovernedMCPTool(FlakySibling(), _mcp_metadata(timeout_seconds=0.01), "atlas-server")
     client = FakeClient()
     mcp_module._connections["atlas-server"] = _MCPConnection("atlas-server", client, ())
     mcp_module._tools = []
@@ -2649,17 +2671,23 @@ def test_two_consecutive_timeouts_drop_a_hung_mcp_server(fresh_db):
             "a success between timeouts proves the server lives — the count must reset"
         )
 
-        assert _run_governed(governed)[-1]["completionStatus"] == "timed_out"
+        assert _run_governed(sibling)[-1]["completionStatus"] == "timed_out"
         assert "atlas-server" not in mcp_module._connections, (
             "the second consecutive timeout must drop the hung connection"
         )
         assert mcp_module._tools is None, "stale tools would keep serving the dropped server"
+        failures, retry_at = mcp_module._retry_state["atlas-server"]
+        assert failures == 1 and retry_at > time.monotonic(), (
+            "an unseeded backoff reconnects the hung server in the FOREGROUND"
+            " of the next agent build"
+        )
         deadline = time.monotonic() + 2
         while not client.closed and time.monotonic() < deadline:
             time.sleep(0.01)
         assert client.closed, "the hung client was dropped but never closed"
     finally:
         mcp_module._connections.pop("atlas-server", None)
+        mcp_module._retry_state.pop("atlas-server", None)
         mcp_module._timeout_strikes.clear()
         mcp_module._tools = None
 
