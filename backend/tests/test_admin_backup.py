@@ -415,6 +415,11 @@ def test_restore_drill_recovers_one_database_unit_and_requires_artifact_volume(
         result = admin.backup()
         database_copy = recovery / "database.dump"
         shutil.copy2(result["database_path"], database_copy)
+        # The pre-restore check an operator performs: the dump rested on a
+        # writable volume, and only the ledger self-verifies after load.
+        recorded = activity.recorded_backup_digests(Path(result["database_path"]).name)
+        assert recorded == {result["database_sha256"]}
+        assert admin._sha256_file(database_copy) in recorded
         shutil.rmtree(live_data)
         db.execute("DROP SCHEMA public CASCADE")
         db.execute(f"DROP SCHEMA {config.PRIVATE_SCHEMA} CASCADE")
@@ -467,6 +472,37 @@ def test_restore_drill_recovers_one_database_unit_and_requires_artifact_volume(
         assert activity.verify_chain()["ok"] is True
     finally:
         admin.set_extension_stores({}, set())
+
+
+def test_backup_digest_rides_the_anchor_log(fresh_db):
+    """The dump rests on a writable volume, and only the ledger self-verifies
+    at restore. The anchor logs carry the file digest so alteration at rest is
+    detectable — without disturbing the chain lines they already hold."""
+    from app import db
+    from app.services import activity, admin
+
+    db.log_activity("tester", "probe", "one chained row")
+    # the 03:30 job body: verify, then anchor the verified tip — verify_chain
+    # alone never advances the anchor, so record_anchor would write nothing
+    assert activity.nightly_verify()["ok"] is True
+
+    result = admin.backup()
+    dump = Path(result["database_path"])
+    recorded = activity.recorded_backup_digests(dump.name)
+    assert recorded == {result["database_sha256"]}
+    assert admin._sha256_file(dump) == result["database_sha256"]
+
+    # the chain replay skips digest lines, and the anchor tail dedup still
+    # finds its seq line behind the newer backup line
+    assert activity.check_anchor_log()["ok"] is True
+    again = activity.record_anchor()
+    assert again["files"] == [] and again["current"], "the backup line broke anchor dedup"
+
+    with dump.open("r+b") as fh:
+        first = fh.read(1)
+        fh.seek(0)
+        fh.write(bytes([first[0] ^ 0xFF]))
+    assert admin._sha256_file(dump) not in recorded, "an altered dump must not verify"
 
 
 def test_mirror_only_recovery_is_explicitly_partial(scratch_db, tmp_path, monkeypatch):

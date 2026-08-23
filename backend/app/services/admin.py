@@ -15,6 +15,7 @@ The restore drill pins the archive and artifact mechanics:
 """
 
 import fcntl
+import hashlib
 import json
 import logging
 import os
@@ -277,6 +278,14 @@ def _sync_file(path: Path) -> None:
         os.close(directory)
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        while chunk := fh.read(1 << 20):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _backup_one(args: list[str], dest: Path, prefix: str = "") -> None:
     """One pg_dump into dest, then prune that prefix's older copies.
 
@@ -378,6 +387,14 @@ def _backup(*, keep: int, actor: str | None) -> dict:
     backup_id = f"{_today()}-{db.now()[11:19].replace(':', '')}-{uuid4().hex[:8]}"
     database_dest = backups_dir / f"database-{backup_id}.dump"
     _backup_one([f"--schema={schema}" for schema in schemas], database_dest, "database")
+    # The anchor logs hold the digest so a dump altered where it rests is
+    # detectable at restore time: restore verifies the ledger by exact anchor
+    # matching, but every other row restores silently. Import here, not at
+    # module top — activity.py reaches back for _backups_dir/mirror_dir.
+    from . import activity
+
+    database_sha256 = _sha256_file(database_dest)
+    activity.record_backup_digest(database_dest.name, database_sha256)
 
     mirror_status, mirror = _mirror_target()
     mirrored = None
@@ -405,6 +422,7 @@ def _backup(*, keep: int, actor: str | None) -> dict:
         "private_path": None,
         "extension_paths": [],
         "kept": kept,
+        "database_sha256": database_sha256,
         "mirror_status": mirror_status,
         "mirror_scope": "public_schema",
         "mirrored_platform_path": mirrored,

@@ -25,6 +25,80 @@ READ_NOTIFICATION_DAYS = 90
 JOB_ROW_DAYS = 90
 EXTENSION_EVENT_DAYS = 90
 
+# Every public table carries one recorded retention decision: pruned here
+# (PRUNE_LABEL), pruned by cascade with its parent (CASCADED), or kept with
+# the reason (KEPT). tests/test_retention.py enumerates the live schema
+# against these maps, so a new table fails CI until its migration author
+# records the decision — silence would default it to kept-forever unread.
+_USER_DELETED = "user-deleted content: removal is a person's decision, never an age prune"
+_CHAT_LIFECYCLE = "chat lifecycle owns deletion (delete_thread and folder operations)"
+_DERIVED = "derived from content: rebuilt on demand, rows leave with their entity"
+KEPT = {
+    "activity": "hash-chained provenance ledger, kept forever",
+    "usage_log": "cost history nothing else reconstructs, kept forever",
+    "flock_traces": "per-turn token counts usage_log cannot reconstruct",
+    "tool_usage": "one row per day/user/surface; the adoption trend is the read",
+    "schema_version": "migration receipts the boot depends on",
+    "users": "the roster: deactivation, never deletion, keeps provenance resolvable",
+    "api_keys": "credential audit rows: revocation deactivates in place",
+    "app_settings": "admin-set values: the settings form owns their lifecycle",
+    "agent_authority": "the authority matrix the tool gate reads",
+    "feature_unlocks": "one row per unlocked feature",
+    "pending_changes": "review provenance beside the ledger",
+    "extension_review_invocations": "execution outcome of a reviewed remote write",
+    "extension_command_receipts": "extension write receipts: provenance",
+    "memories": "owner-forgettable (memory.forget), never age-pruned",
+    "search_index": _DERIVED,
+    "embeddings": _DERIVED,
+    "context_packs": "published pack registry: the pack writer prunes its archives",
+    **dict.fromkeys(
+        (
+            "chat_folders",
+            "chat_threads",
+            "chat_messages",
+            "sessions",
+            "session_agents",
+            "session_messages",
+            "session_multi_agents",
+        ),
+        _CHAT_LIFECYCLE,
+    ),
+    **dict.fromkeys(
+        (
+            "tasks",
+            "notes",
+            "questions",
+            "decisions",
+            "blockers",
+            "milestones",
+            "engagements",
+            "promises",
+            "standups",
+            "task_worklog",
+            "absences",
+            "allocations",
+            "events",
+            "intake_requests",
+            "lessons",
+            "artifacts",
+            "findings",
+            "finding_dispositions",
+            "feedback",
+            "crews",
+            "crew_members",
+        ),
+        _USER_DELETED,
+    ),
+}
+# child table -> the pruned-or-kept parent whose ON DELETE CASCADE removes it.
+# The test verifies the cascade exists in the live schema, so this map cannot
+# claim a cleanup the database does not perform.
+CASCADED = {
+    "extension_event_attempts": "extension_outbox",
+    "extension_event_deliveries": "extension_outbox",
+    "notification_reads": "notifications",
+}
+
 
 def _cutoff(days: int) -> str:
     return (datetime.now(UTC) - timedelta(days=days)).isoformat(timespec="seconds")

@@ -10,6 +10,7 @@ import { PageHelp } from "@/components/page-help";
 // identity/key changes notify via the storage event (cross-tab natively,
 // same-tab dispatched by the lib/api writers)
 import { api, getApiKey, getUser, subscribeUser } from "@/lib/api";
+import { bridgeAttentionChange } from "@/lib/attention";
 import { reportStatus } from "@/lib/status";
 import { authConfig, isSignedIn, signIn, signOut } from "@/lib/auth";
 import { isGated, subscribeGated } from "@/lib/gated";
@@ -153,11 +154,15 @@ export function Nav() {
     const t = setInterval(tick, 30_000);
     document.addEventListener("visibilitychange", tick);
     window.addEventListener("skein-attention-change", poll);
+    // nav mounts on every page, so this one bridge relays another tab's
+    // change into this tab's window event for every listener at once
+    const unbridge = bridgeAttentionChange();
     return () => {
       generation++; // invalidate in-flight responses
       clearInterval(t);
       document.removeEventListener("visibilitychange", tick);
       window.removeEventListener("skein-attention-change", poll);
+      unbridge();
     };
   }, [gated]);
 

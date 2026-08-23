@@ -887,6 +887,8 @@ def build_agent(
             goal: The goal or initiative to plan.
             project: Project/engagement name to file the work under.
         """
+        from ..services import usage as usage_svc
+
         planner = Agent(
             # the deployment model, not the persona override: the planner is
             # its own specialist, not the persona speaking
@@ -895,7 +897,16 @@ def build_agent(
             tools=_planner_tools(beh["tools"]),
             callback_handler=None,
         )
-        result = planner(f"Project: {project}\nGoal: {goal}")
+        try:
+            result = planner(f"Project: {project}\nGoal: {goal}")
+        finally:
+            # In a finally: a planning turn that raised still produced spend,
+            # and spend the ledger cannot see is invisible to /api/usage and
+            # to every budget ceiling (services/usage.py::row_from_agent).
+            row = usage_svc.row_from_agent(planner, thread_id, agent_name="planner")
+            if row:
+                with contextlib.suppress(Exception):
+                    usage_svc.record_chat_usage(**row)
         return str(result)
 
     @tool

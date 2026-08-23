@@ -733,6 +733,68 @@ def test_a_consult_records_its_own_spend(real_provider, monkeypatch, fresh_db):
     assert row["model_id"] == "glm-test", "priced at the deployment model, not the persona's"
 
 
+class _StubAgent:
+    """Stands in for strands.Agent at BUILD time: the outer build hands back
+    its tools for extraction, and the planner the tool constructs reports
+    metered spend the way a real provider's agent does."""
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.model = kwargs.get("model")
+        self.tool_registry = type(
+            "R",
+            (),
+            {"registry": {team_agent._tool_name(t): t for t in kwargs.get("tools", ())}},
+        )()
+        self.event_loop_metrics = _Metered().event_loop_metrics
+
+    def __call__(self, message):
+        self.seen = message
+        return "planned: three milestones"
+
+
+def test_the_planner_records_its_own_spend(real_provider, monkeypatch, fresh_db):
+    """plan_project builds a second agent, so its tokens are real spend under
+    the deployment's budgets. Unrecorded, every planning turn is invisible to
+    /api/usage, the monthly budget, and SKEIN_AGENT_DAILY_TOKENS."""
+    import strands
+
+    from app import db
+
+    monkeypatch.setattr(strands, "Agent", _StubAgent)
+    agent = team_agent.build_agent("t-plan-cost", stateless=True)
+    planner = _tool_function(agent, "plan_project")
+    out = planner("ship the beta", "beta")
+
+    assert "planned" in out
+    row = db.query_one("SELECT * FROM usage_log WHERE thread_id = ?", ("t-plan-cost",))
+    assert row is not None, "the planner's tokens are invisible to /api/usage"
+    assert row["agent_name"] == "planner", "spend attributed to the wrong head"
+    assert row["input_tokens"] == 11 and row["output_tokens"] == 7
+    assert row["model_id"] == "fake", "priced at a model the planner did not run"
+
+
+def test_a_planner_that_raises_still_records_the_spend(real_provider, monkeypatch, fresh_db):
+    """A planning turn that dies mid-loop already consumed tokens. Recording
+    only on success loses exactly the turns most worth accounting for."""
+    import strands
+
+    from app import db
+
+    class _Dies(_StubAgent):
+        def __call__(self, message):
+            raise RuntimeError("provider dropped the stream")
+
+    monkeypatch.setattr(strands, "Agent", _Dies)
+    agent = team_agent.build_agent("t-plan-died", stateless=True)
+    planner = _tool_function(agent, "plan_project")
+    with pytest.raises(RuntimeError, match="dropped the stream"):
+        planner("ship the beta")
+
+    row = db.query_one("SELECT * FROM usage_log WHERE thread_id = ?", ("t-plan-died",))
+    assert row is not None, "a failed planning turn's tokens vanished from /api/usage"
+
+
 def test_a_specialist_that_dies_mid_answer_keeps_what_it_said(real_provider, monkeypatch):
     """A truncated answer must reach the user AND say it is truncated —
     otherwise the sentence just stops and nothing marks why."""

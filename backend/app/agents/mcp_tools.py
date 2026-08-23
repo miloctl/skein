@@ -50,6 +50,48 @@ _generation = 0
 _RETRY_BASE_SECONDS = 30.0
 _RETRY_MAX_SECONDS = 300.0
 _retry_state: dict[str, tuple[int, float]] = {}
+# The per-call timeout bounds TIME, not volume: a server that streams inside
+# its deadline can still hand the model megabytes, blowing the context or
+# silently burning SKEIN_AGENT_DAILY_TOKENS on an unattended run.
+_RESULT_MAX_BYTES = 256 * 1024
+_TIMEOUT_TRIP = 2
+_timeout_strikes: dict[str, int] = {}
+
+
+class _ResultTooLarge(Exception):
+    pass
+
+
+def _deadline_strike(server_id: str) -> None:
+    """A per-call timeout refuses the call but leaves a hung server composed,
+    so every later call pays the full timeout again. The second consecutive
+    hit drops the connection; the retry path in mcp_tools() then owns
+    recovery with its existing backoff."""
+    global _tools
+    close_client = None
+    with _lock:
+        strikes = _timeout_strikes.get(server_id, 0) + 1
+        _timeout_strikes[server_id] = strikes
+        if strikes < _TIMEOUT_TRIP:
+            return
+        _timeout_strikes.pop(server_id, None)
+        connection = _connections.pop(server_id, None)
+        if connection is None:
+            return
+        close_client = connection.client
+        _tools = None
+    log.warning("MCP server '%s' dropped after consecutive timeouts", server_id)
+    # In a thread: closing a hung transport can block, and this runs on the
+    # event loop that carries every open SSE stream.
+    with contextlib.suppress(RuntimeError):
+        threading.Thread(
+            target=_close_quietly, args=(close_client,), daemon=True, name="skein-mcp-close"
+        ).start()
+
+
+def _close_quietly(client) -> None:
+    with contextlib.suppress(Exception):
+        client.__exit__(None, None, None)
 
 
 @dataclass(frozen=True)
@@ -217,16 +259,35 @@ class GovernedMCPTool(AgentTool):
             yield _refusal(tool_use, "Skein policy denied this remote tool.")
             return
         events = []
+        seen_bytes = 0
         try:
             async with asyncio.timeout(self.metadata.timeout_seconds):
                 async for event in self._delegate.stream(tool_use, invocation_state, **kwargs):
+                    seen_bytes += len(str(event))
+                    if seen_bytes > _RESULT_MAX_BYTES:
+                        raise _ResultTooLarge
                     events.append(event)
         except TimeoutError:
             status = "completion unknown" if self.metadata.effect == "write" else "timed out"
             record("failed", self.tool_name, status, actor=actor)
             _audit_mcp(actor, self.tool_name, "completion_unknown", "deadline_exceeded")
+            _deadline_strike(self.server_id)
             yield _refusal(
                 tool_use, f"The remote tool {status}.", completion_status=status.replace(" ", "_")
+            )
+            return
+        except _ResultTooLarge:
+            # The remote already executed and was mid-result, so a write's
+            # completion is unknown, the same as a timeout after dispatch.
+            completion_status = (
+                "completion_unknown" if self.metadata.effect == "write" else "failed"
+            )
+            record("failed", self.tool_name, "output too large", actor=actor)
+            _audit_mcp(actor, self.tool_name, completion_status, "output_too_large")
+            yield _refusal(
+                tool_use,
+                "The remote tool returned more data than Skein accepts.",
+                completion_status=completion_status,
             )
             return
         except Exception as exc:
@@ -244,6 +305,11 @@ class GovernedMCPTool(AgentTool):
                 completion_status=completion_status,
             )
             return
+        # A completed stream proves the server answers: only CONSECUTIVE
+        # timeouts may trip the connection, or one slow call per hour would
+        # eventually drop a healthy server.
+        with _lock:
+            _timeout_strikes.pop(self.server_id, None)
         if not events or not _schema_matches(events[-1], self.metadata.output_schema):
             record("failed", self.tool_name, "invalid output", actor=actor)
             completion_status = (
@@ -559,6 +625,7 @@ def _finish_load(server_ids: set[str], configured_ids: set[str], generation: int
             loaded_ids = {connection.server_id for connection in loaded}
             for connection in loaded:
                 _retry_state.pop(connection.server_id, None)
+                _timeout_strikes.pop(connection.server_id, None)
                 if connection.server_id in _connections:
                     close_after.append(connection.client)
                 else:
@@ -703,6 +770,7 @@ def shutdown_mcp() -> None:
         doomed = [connection.client for connection in _connections.values()]
         _connections.clear()
         _retry_state.clear()
+        _timeout_strikes.clear()
         _tools = None
     for client in doomed:
         with contextlib.suppress(Exception):

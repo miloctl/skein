@@ -242,6 +242,49 @@ def test_telemetry_noop_without_endpoint(fresh_db):
     assert setup_telemetry() is False
 
 
+def test_telemetry_redacts_conversation_content_by_default(fresh_db, monkeypatch):
+    """The strands tracer emits gen_ai input/output messages and system
+    instructions unredacted unless the opt-in token says otherwise. The
+    collector sits outside every Skein access control, so conversation
+    content must not reach it by default."""
+    import os
+
+    import strands.telemetry as st
+
+    from app import config
+    from app.telemetry import setup_telemetry
+
+    monkeypatch.setattr(config, "OTEL_ENDPOINT", "http://collector:4318")
+    monkeypatch.setattr(
+        st,
+        "StrandsTelemetry",
+        lambda: type("T", (), {"setup_otlp_exporter": lambda self: None})(),
+    )
+    for var in (
+        "OTEL_SEMCONV_STABILITY_OPT_IN",
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "OTEL_SERVICE_NAME",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+    assert setup_telemetry() is True
+    assert os.environ["OTEL_SEMCONV_STABILITY_OPT_IN"] == "gen_ai_unredacted_attributes="
+
+    # an operator's unrelated opt-in tokens survive; the redaction token joins them
+    monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
+    assert setup_telemetry() is True
+    assert (
+        os.environ["OTEL_SEMCONV_STABILITY_OPT_IN"]
+        == "gen_ai_latest_experimental,gen_ai_unredacted_attributes="
+    )
+
+    # an operator who chose an explicit unredacted list keeps that choice
+    chosen = "gen_ai_unredacted_attributes=gen_ai.input.messages"
+    monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", chosen)
+    assert setup_telemetry() is True
+    assert os.environ["OTEL_SEMCONV_STABILITY_OPT_IN"] == chosen
+
+
 def test_api_token_allows_cors_preflight(client, monkeypatch):
     from app import config
 

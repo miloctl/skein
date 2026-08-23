@@ -438,6 +438,65 @@ def _sync_anchor(path) -> None:
         os.close(directory)
 
 
+def _append_anchor_line(path, line: str) -> None:
+    prefix = ""
+    if path.exists() and path.stat().st_size:
+        with path.open("rb") as fh:
+            fh.seek(-1, 2)
+            if fh.read(1) != b"\n":
+                # a crash mid-append left a torn line with no newline;
+                # gluing the next line onto it would lose BOTH
+                prefix = "\n"
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(prefix + line)
+    _sync_anchor(path)
+
+
+_BACKUP_ANCHOR_LINE = re.compile(r"^\S+ backup=(\S+) sha256=([0-9a-f]{64})$")
+
+
+def record_backup_digest(name: str, digest: str) -> list[str]:
+    """Append one backup file's SHA-256 beside the chain anchors.
+
+    Restore verifies the LEDGER by exact anchor matching, but every other row
+    of a dump that rested on a writable backup volume restores silently. The
+    anchor logs are the existing independent record (local plus mirror, the
+    trust boundary docs/FEATURES.md states), so the digest rides them. Both
+    the anchor replay and _tail_anchor_line skip lines they cannot parse, so
+    these lines cannot disturb a chain check.
+    """
+    line = f"{db.now()} backup={name} sha256={digest}\n"
+    written = []
+    for path in _anchor_log_paths():
+        try:
+            _append_anchor_line(path, line)
+            written.append(str(path))
+        except OSError:
+            log.warning("could not record the backup digest in %s", path, exc_info=True)
+    return written
+
+
+def recorded_backup_digests(name: str) -> set[str]:
+    """Every digest the anchor logs hold for one backup file name.
+
+    More than one value for the same name means a log disagrees with its
+    mirror — the caller must treat the file as unverified.
+    """
+    digests: set[str] = set()
+    for path in _anchor_log_paths():
+        if not path.exists():
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for raw in lines:
+            m = _BACKUP_ANCHOR_LINE.match(raw.strip())
+            if m and m.group(1) == name:
+                digests.add(m.group(2))
+    return digests
+
+
 def _lowest_anchored_baseline() -> int | None:
     """The smallest unchained baseline any anchor line ever recorded.
 
@@ -507,17 +566,7 @@ def record_anchor() -> dict:
             # append would then succeed onto the wrong disk and be shadowed
             # when the real mount returns, a silent hole in the history whose
             # continuity is the whole point. Let a missing mount raise.
-            prefix = ""
-            if path.exists() and path.stat().st_size:
-                with path.open("rb") as fh:
-                    fh.seek(-1, 2)
-                    if fh.read(1) != b"\n":
-                        # a crash mid-append left a torn line with no newline;
-                        # gluing tonight's line onto it would lose BOTH
-                        prefix = "\n"
-            with path.open("a", encoding="utf-8") as fh:
-                fh.write(prefix + line)
-            _sync_anchor(path)
+            _append_anchor_line(path, line)
             written.append(str(path))
         except OSError:
             log.warning("could not append the chain anchor to %s", path, exc_info=True)
