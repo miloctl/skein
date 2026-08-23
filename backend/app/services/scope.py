@@ -258,7 +258,7 @@ def detail(tier: str, ident: str, body: str) -> str:
     """What a scoped write may put in activity.detail.
 
     The ledger is hash-chained: a migration may not UPDATE a row carrying a
-    seq (tests/test_migrations.py), and the off-box anchor log makes
+    seq (tests/test_migrations.py), and the external anchor log makes
     re-chaining impossible by design. So a body written here is written for
     good — there is no delete, no redaction, and no later tier change that
     takes it back. An identifier is enough to find the row, and the row
@@ -657,7 +657,10 @@ UNSCOPED: dict[str, str] = {
         " what lands there is what a job read, and a job reads the workspace"
         " tier only. That rule is the classification here."
     ),
-    "job_runs": "scheduler claim rows, no user-authored content",
+    "job_runs": (
+        "scheduler claims plus capture idempotency receipts — a `capture:<user>`"
+        " row holds the caller's name and a token-charset key, never capture text"
+    ),
     "mention_log": "a dedupe key, not content",
     "notification_reads": (
         "a dismissal stamp, not content. The notification it points at carries"

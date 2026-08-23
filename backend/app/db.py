@@ -18,6 +18,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import psycopg
 from psycopg import IsolationLevel
@@ -62,6 +63,9 @@ _ambient: ContextVar[DictConnection | None] = ContextVar("skein_txn", default=No
 _on_commit: ContextVar[list[Callable[[], None]] | None] = ContextVar(
     "skein_txn_commits", default=None
 )
+_on_rollback: ContextVar[list[Callable[[], None]] | None] = ContextVar(
+    "skein_txn_rollbacks", default=None
+)
 # Ledger rows queued by log_activity inside a transaction, flushed as that
 # transaction's LAST statements — see _flush_activity.
 _pending_activity: ContextVar[list[tuple[str, str, str, str]] | None] = ContextVar(
@@ -77,6 +81,15 @@ def on_commit(fn: Callable[[], None]) -> bool:
     A raising callback is logged and swallowed — the write it followed
     committed, so the caller must never see its failure."""
     callbacks = _on_commit.get()
+    if callbacks is None:
+        return False
+    callbacks.append(fn)
+    return True
+
+
+def on_rollback(fn: Callable[[], None]) -> bool:
+    """Queue cleanup after outer rollback or this savepoint's rollback."""
+    callbacks = _on_rollback.get()
     if callbacks is None:
         return False
     callbacks.append(fn)
@@ -103,6 +116,10 @@ class TerminalReject(ValueError):
     write path is unchanged (still a 400); review.approve_change catches it
     and settles the proposal as rejected, instead of resetting it to pending
     where it would boomerang forever."""
+
+
+class ActivityChainError(RuntimeError):
+    """The stored ledger tip contradicts the append-owned integrity mark."""
 
 
 def now() -> str:
@@ -294,7 +311,7 @@ def privilege_warnings() -> list[str]:
         return [
             "Skein connects to PostgreSQL as a superuser. A superuser can run"
             " shell commands on the database host through SQL. Create a role"
-            " with NOSUPERUSER and point SKEIN_DATABASE_URL at it."
+            " with NOSUPERUSER and put it in SKEIN_DB_USER or the database URL."
         ]
     return []
 
@@ -344,46 +361,44 @@ def _conn() -> Iterator[DictConnection]:
 
 @contextmanager
 def _txn(isolation: IsolationLevel | None = None) -> Iterator[list[Callable[[], None]]]:
-    """One connection held for a real BEGIN/COMMIT block, published as the
-    ambient transaction. Yields the on_commit queue, which the caller runs
-    only after the block commits."""
+    """Publish one real transaction and run rollback cleanup after it unwinds."""
     callbacks: list[Callable[[], None]] = []
+    rollbacks: list[Callable[[], None]] = []
     queued: list[tuple[str, str, str, str]] = []
-    with pool().connection() as conn:
-        previous = conn.isolation_level
-        if isolation is not None:
-            conn.isolation_level = isolation
-        token = _ambient.set(conn)
-        cb_token = _on_commit.set(callbacks)
-        act_token = _pending_activity.set(queued)
-        try:
-            # Rolls back and re-raises on an exception, so the callback loop
-            # in the caller is skipped for a failed block.
-            with conn.transaction():
-                yield callbacks
-                # INSIDE the transaction, and LAST. A rollback still drops
-                # these rows with the write they describe.
-                _flush_activity(conn, queued)
-        finally:
-            _pending_activity.reset(act_token)
-            _on_commit.reset(cb_token)
-            _ambient.reset(token)
-            # The pool resets the transaction on return, never this attribute,
-            # so a leftover REPEATABLE READ would silently follow this
-            # connection into whatever checks it out next.
-            conn.isolation_level = previous
+    try:
+        with pool().connection() as conn:
+            previous = conn.isolation_level
+            if isolation is not None:
+                conn.isolation_level = isolation
+            token = _ambient.set(conn)
+            cb_token = _on_commit.set(callbacks)
+            rb_token = _on_rollback.set(rollbacks)
+            act_token = _pending_activity.set(queued)
+            try:
+                with conn.transaction():
+                    yield callbacks
+                    # INSIDE the transaction, and LAST. A rollback still drops
+                    # these rows with the write they describe.
+                    _flush_activity(conn, queued)
+            finally:
+                _pending_activity.reset(act_token)
+                _on_rollback.reset(rb_token)
+                _on_commit.reset(cb_token)
+                _ambient.reset(token)
+                # The pool resets the transaction on return, never this
+                # attribute, so a leftover isolation level must not escape.
+                conn.isolation_level = previous
+    except BaseException:
+        _run_callbacks(list(reversed(rollbacks)), "on_rollback")
+        raise
 
 
-def _run_callbacks(callbacks: list[Callable[[], None]]) -> None:
-    # Reached only after a successful COMMIT, with the connection returned to
-    # the pool — a callback never holds a write open. Isolated per callback:
-    # the write already committed, so a raising callback must not turn a
-    # successful write into a 500, and must not starve the ones queued after.
-    for cb in callbacks:
+def _run_callbacks(callbacks: list[Callable[[], None]], label: str = "on_commit") -> None:
+    for callback in callbacks:
         try:
-            cb()
+            callback()
         except Exception:
-            log.exception("on_commit callback failed")
+            log.exception("%s callback failed", label)
 
 
 @contextmanager
@@ -424,6 +439,8 @@ LOCK_CREW = 4
 LOCK_AUTHORITY = 5
 LOCK_JOB = 6
 LOCK_UPLOAD = 7
+LOCK_ARTIFACT = 8
+LOCK_SCHEMA = 9
 
 # EVERY advisory lock is scoped to the current database by this expression.
 # PostgreSQL advisory locks are CLUSTER-global: the key space is shared by
@@ -480,6 +497,36 @@ def name_lock(namespace: int, name: str) -> None:
     )
 
 
+def ensure_owned_schema(schema: str) -> None:
+    """Create an internal schema, or require the current role to own it.
+
+    Production pre-creates private and extension schemas with the bootstrap
+    administrator. Skipping CREATE for an owned existing schema avoids granting
+    database-wide CREATE to the application role.
+    """
+    with transaction():
+        # FIRST: the existence read decides whether CREATE runs, and a read
+        # locks nothing. The xact lock also stays held through an outer private
+        # or extension migration transaction.
+        name_lock(LOCK_SCHEMA, schema)
+        conn = _ambient.get()
+        if conn is None:  # pragma: no cover — transaction() just set it
+            raise RuntimeError("ensure_owned_schema needs an active transaction")
+        row = conn.execute(
+            "SELECT pg_get_userbyid(nspowner) = current_user AS owned"
+            " FROM pg_namespace WHERE nspname = %s",
+            (schema,),
+        ).fetchone()
+        if row:
+            if not row["owned"]:
+                # Deployment state, never caller authorization: built-in
+                # PermissionError maps to 403 and tells the caller to change a
+                # request that cannot repair database ownership.
+                raise RuntimeError(f"schema {schema!r} is not owned by the application role")
+            return
+        conn.execute(pgsql.SQL("CREATE SCHEMA {}").format(pgsql.Identifier(schema)))
+
+
 @contextmanager
 def schema_scope(schema: str) -> Iterator[None]:
     """Run the block's db.* calls against `schema` instead of public.
@@ -527,6 +574,8 @@ def savepoint() -> Iterator[None]:
     # tests/test_db_transactions.py::test_nested_savepoints_unwind_their_own_level.
     callbacks = _on_commit.get()
     callback_count = len(callbacks) if callbacks is not None else 0
+    rollbacks = _on_rollback.get()
+    rollback_count = len(rollbacks) if rollbacks is not None else 0
     queued = _pending_activity.get()
     activity_count = len(queued) if queued is not None else 0
     connection.execute("SAVEPOINT skein_review_apply")
@@ -542,6 +591,10 @@ def savepoint() -> Iterator[None]:
         # must go with them, or the chain records writes that never happened.
         if callbacks is not None:
             del callbacks[callback_count:]
+        if rollbacks is not None:
+            created = rollbacks[rollback_count:]
+            del rollbacks[rollback_count:]
+            _run_callbacks(list(reversed(created)), "on_rollback")
         if queued is not None:
             del queued[activity_count:]
         raise
@@ -633,6 +686,18 @@ def query(sql: str, params: tuple = ()) -> list[dict]:
         return conn.execute(*_prepare(sql, params)).fetchall()
 
 
+def query_batches(sql: str, params: tuple = (), *, batch_size: int = 1000) -> Iterator[list[dict]]:
+    """Stream SELECT rows through a server cursor inside a read transaction."""
+    conn = _ambient.get()
+    if conn is None:
+        raise RuntimeError("query_batches needs an active transaction")
+    size = max(1, min(int(batch_size), 10_000))
+    with conn.cursor(name=f"skein_batch_{uuid4().hex}") as cursor:
+        cursor.execute(*_prepare(sql, params))
+        while rows := cursor.fetchmany(size):
+            yield rows
+
+
 def query_one(sql: str, params: tuple = ()) -> dict | None:
     rows = query(sql, params)
     return rows[0] if rows else None
@@ -669,8 +734,9 @@ def execute_rowcount(sql: str, params: tuple = ()) -> int:
 
 
 def claim_job(job: str, run_key: str) -> bool:
-    """CAS-style once-only claim for scheduled jobs (digest, flush, backup) so
-    accidental multi-worker deployments can't double-run them."""
+    """CAS-style once-only claim: scheduled jobs (digest, flush, backup) so
+    accidental multi-worker deployments can't double-run them, and the
+    capture route's idempotency receipt (`capture:<user>` rows)."""
     return (
         execute_rowcount(
             "INSERT INTO job_runs (job, run_key, created_at) VALUES (?, ?, ?)"
@@ -685,6 +751,9 @@ def claim_job(job: str, run_key: str) -> bool:
 
 ACTIVITY_DOMAIN = b"skein-activity/v1"
 GENESIS_PREV = "0" * 64
+ACTIVITY_HIGH_SEQ = "activity_chain_high_seq"
+ACTIVITY_HIGH_HASH = "activity_chain_high_hash"
+ACTIVITY_LOCK_TIMEOUT = "5s"
 # How many times log_activity took the unchained fallback since the last
 # adoption. Read and reset by services/activity.py::adopt_unchained, which
 # reports it beside the number of rows it chained — an adoption larger than
@@ -702,12 +771,11 @@ UNCHAINED_FALLBACKS = "activity_unchained_fallbacks"
 # hold_activity_chain() is the one exception: it takes this FIRST, because it
 # assigns seqs from a tail read it has to serialize. That inverts the order,
 # so its transaction may only write rows no chained-append transaction takes
-# first. Today it writes the two unchained counters in app_settings, and the
-# only other writer of those runs on an autocommit connection below with no
-# ambient transaction — it holds no row lock while waiting for this one, so
-# there is no cycle. Adding a write to that function means checking this
-# again.
+# first. Today it writes activity rows and their app_settings marks. No other
+# transaction holds either row before it waits for this lock. Adding a write to
+# that function means checking this order again.
 _ACTIVITY_LOCK = 4_216_018  # int4, see _advisory
+_ACTIVITY_FALLBACK_LOCK = 4_216_019
 
 
 def activity_hash(
@@ -738,31 +806,169 @@ def activity_hash(
     return h.hexdigest()
 
 
+def _activity_lock(conn: DictConnection) -> None:
+    # An unbounded wait here blocks every logged write behind one stuck
+    # transaction. PostgreSQL raises LockNotAvailable at this limit, which the
+    # API classifies as retryable load and the standalone logger records outside
+    # the chain.
+    conn.execute(f"SET LOCAL lock_timeout = '{ACTIVITY_LOCK_TIMEOUT}'")
+    _advisory(conn, _ACTIVITY_LOCK)
+
+
+def _activity_fallback_lock(conn: DictConnection) -> None:
+    conn.execute(f"SET LOCAL lock_timeout = '{ACTIVITY_LOCK_TIMEOUT}'")
+    _advisory(conn, _ACTIVITY_FALLBACK_LOCK)
+
+
+def hold_activity_fallbacks() -> None:
+    """Freeze fallback rows and their counter while adoption snapshots both.
+
+    Adoption takes the chain lock first and this lock second. The fallback path
+    takes only this lock, so no transaction can hold it while waiting for the
+    chain lock.
+    """
+    conn = _ambient.get()
+    if conn is None:
+        raise RuntimeError("hold_activity_fallbacks needs an active transaction")
+    _activity_fallback_lock(conn)
+
+
+def _activity_tip_marks(conn: DictConnection) -> dict[str, str]:
+    rows = conn.execute(
+        "SELECT key, value FROM app_settings WHERE key IN (%s, %s)",
+        (ACTIVITY_HIGH_SEQ, ACTIVITY_HIGH_HASH),
+    ).fetchall()
+    return {row["key"]: row["value"] for row in rows}
+
+
+def _valid_digest(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(char in "0123456789abcdef" for char in value)
+    )
+
+
+def _activity_mark_seq(value: object) -> int:
+    if not isinstance(value, str):
+        raise ActivityChainError("the activity chain live sequence is invalid")
+    valid = (
+        bool(value)
+        and (value == "0" or value[0] in "123456789")
+        and all(char in "0123456789" for char in value)
+        and len(value) <= 19
+        and (len(value) < 19 or value <= "9223372036854775807")
+    )
+    if not valid:
+        raise ActivityChainError("the activity chain live sequence is invalid")
+    return int(value)
+
+
+def _stored_activity_digest(row: dict) -> str:
+    prev = GENESIS_PREV if row["seq"] == 1 else row["prev_hash"]
+    if not isinstance(row["detail"], str) or not _valid_digest(prev):
+        raise ActivityChainError("the activity chain tail has invalid fields")
+    return activity_hash(
+        row["seq"],
+        row["created_at"],
+        row["actor"],
+        row["action"],
+        row["detail"],
+        prev,
+    )
+
+
+def _assert_activity_tip(conn: DictConnection, tail: dict | None) -> None:
+    marks = _activity_tip_marks(conn)
+    if tail is None:
+        if marks:
+            raise ActivityChainError("the activity chain is empty but its live tip is not")
+        return
+    if set(marks) != {ACTIVITY_HIGH_SEQ, ACTIVITY_HIGH_HASH}:
+        raise ActivityChainError("the activity chain live tip is missing")
+    marked_seq = _activity_mark_seq(marks[ACTIVITY_HIGH_SEQ])
+    marked_hash = marks[ACTIVITY_HIGH_HASH]
+    if (
+        marked_seq != tail["seq"]
+        or marked_hash != tail["hash"]
+        or not _valid_digest(marked_hash)
+        or _stored_activity_digest(tail) != tail["hash"]
+    ):
+        raise ActivityChainError("the activity chain tail does not match its live tip")
+
+
+def _write_activity_tip(conn: DictConnection, seq: int, digest: str) -> None:
+    updated_at = now()
+    for key, value in (
+        (ACTIVITY_HIGH_SEQ, str(seq)),
+        (ACTIVITY_HIGH_HASH, digest),
+    ):
+        conn.execute(
+            "INSERT INTO app_settings (key, value, updated_at) VALUES (%s, %s, %s)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value,"
+            " updated_at = excluded.updated_at",
+            (key, value, updated_at),
+        )
+
+
+def advance_activity_tip(seq: int, digest: str) -> None:
+    """Move the append-owned tip after adoption assigned rows itself.
+
+    services/activity.py holds the activity lock before it calls this function.
+    The target must be the current tail, or a later receipt could bless a gap.
+    """
+    conn = _ambient.get()
+    if conn is None:
+        raise RuntimeError("advance_activity_tip needs an active transaction")
+    tail = conn.execute(
+        "SELECT seq, hash, prev_hash, actor, action, detail, created_at FROM activity"
+        " WHERE seq IS NOT NULL ORDER BY seq DESC LIMIT 1"
+    ).fetchone()
+    if (
+        tail is None
+        or tail["seq"] != seq
+        or tail["hash"] != digest
+        or not _valid_digest(digest)
+        or _stored_activity_digest(tail) != digest
+    ):
+        raise ActivityChainError("the adopted activity tip does not match the chain tail")
+    marks = _activity_tip_marks(conn)
+    if marks:
+        marked_seq = _activity_mark_seq(marks.get(ACTIVITY_HIGH_SEQ, ""))
+        if marked_seq >= seq:
+            raise ActivityChainError("the adopted activity tip did not advance")
+    _write_activity_tip(conn, seq, digest)
+
+
+def _append_activity_batch(conn: DictConnection, rows: list[tuple[str, str, str, str]]) -> None:
+    """Append one dependent batch with one lock, tail check, and tip write."""
+    if not rows:
+        return
+    _activity_lock(conn)
+    tail = conn.execute(
+        "SELECT seq, hash, prev_hash, actor, action, detail, created_at FROM activity"
+        " WHERE seq IS NOT NULL ORDER BY seq DESC LIMIT 1"
+    ).fetchone()
+    _assert_activity_tip(conn, tail)
+    seq = int(tail["seq"] if tail else 0)
+    prev = str(tail["hash"]) if tail else None
+    digest = prev or GENESIS_PREV
+    for actor, action, detail, created_at in rows:
+        seq += 1
+        digest = activity_hash(seq, created_at, actor, action, detail, digest)
+        conn.execute(
+            "INSERT INTO activity (actor, action, detail, created_at, seq, hash, prev_hash)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (actor, action, detail, created_at, seq, digest, prev),
+        )
+        prev = digest
+    _write_activity_tip(conn, seq, digest)
+
+
 def _append_activity(
     conn: DictConnection, actor: str, action: str, detail: str, created_at: str
 ) -> None:
-    """Read the chain tail, link to it, insert. Caller is inside a
-    transaction; the advisory lock makes the read-then-write atomic against
-    every other appender."""
-    _advisory(conn, _ACTIVITY_LOCK)
-    tail = conn.execute(
-        "SELECT seq, hash FROM activity WHERE seq IS NOT NULL ORDER BY seq DESC LIMIT 1"
-    ).fetchone()
-    seq = (tail["seq"] if tail else 0) + 1
-    prev = tail["hash"] if tail else None
-    conn.execute(
-        "INSERT INTO activity (actor, action, detail, created_at, seq, hash, prev_hash)"
-        " VALUES (%s, %s, %s, %s, %s, %s, %s)",
-        (
-            actor,
-            action,
-            detail,
-            created_at,
-            seq,
-            activity_hash(seq, created_at, actor, action, detail, prev or GENESIS_PREV),
-            prev,
-        ),
-    )
+    _append_activity_batch(conn, [(actor, action, detail, created_at)])
 
 
 def hold_activity_chain() -> None:
@@ -782,7 +988,12 @@ def hold_activity_chain() -> None:
     conn = _ambient.get()
     if conn is None:
         raise RuntimeError("hold_activity_chain needs an active transaction")
-    _advisory(conn, _ACTIVITY_LOCK)
+    _activity_lock(conn)
+    tail = conn.execute(
+        "SELECT seq, hash, prev_hash, actor, action, detail, created_at FROM activity"
+        " WHERE seq IS NOT NULL ORDER BY seq DESC LIMIT 1"
+    ).fetchone()
+    _assert_activity_tip(conn, tail)
 
 
 def _flush_activity(conn: DictConnection, queued: list[tuple[str, str, str, str]]) -> None:
@@ -792,8 +1003,7 @@ def _flush_activity(conn: DictConnection, queued: list[tuple[str, str, str, str]
     and it happens after every other statement in the transaction — which is
     what keeps the ledger lock out of every deadlock cycle.
     """
-    for actor, action, detail, created_at in queued:
-        _append_activity(conn, actor, action, detail, created_at)
+    _append_activity_batch(conn, queued)
     queued.clear()
 
 
@@ -802,8 +1012,8 @@ def log_activity(actor: str, action: str, detail: str = "") -> None:
 
     Inside an ambient transaction the append joins it, so a failure rolls back
     the caller's whole write — correct, and loud. Standalone it takes its own
-    transaction; if that fails, the row is recorded UNCHAINED rather than
-    raising into a caller's write.
+    transaction. If that fails, it attempts an UNCHAINED row without raising
+    into a caller's completed write. A second database failure can lose the row.
 
     ONE attempt, not several. A retry budget here buys nothing and multiplies
     the worst-case hang. The fallback is logged: an unchained row is a hole in
@@ -830,33 +1040,35 @@ def log_activity(actor: str, action: str, detail: str = "") -> None:
         with pool().connection() as conn, conn.transaction():
             _append_activity(conn, actor, action, detail, created_at)
         return
-    except psycopg.Error as exc:
+    except (psycopg.Error, ActivityChainError) as exc:
         log.warning("activity chain append failed (%s: %s) — recording unchained", action, exc)
     # The fallback takes a fresh connection, so a fault that outlives the
     # first attempt raises here too — straight into a caller that had already
     # committed its business write. The catch below is what keeps the
     # docstring's promise that this path never raises: losing the ledger row
-    # must not also 500 a write that actually happened. A lost row still
-    # shows up — the unchained count and the chain marks report it.
+    # must not also 500 a write that actually happened. If this second database
+    # attempt fails, only the server log records the loss. The ledger is not a
+    # complete transaction journal for that case (docs/FEATURES.md).
     try:
-        execute(
-            "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",
-            (actor, action, detail, created_at),
-        )
-        # Count it where a MACHINE can read it, not only in the server log.
-        # services/activity.py::adopt_unchained reports adopted-vs-recorded,
-        # and an operator can only tell a busy ledger from a smuggled row by
-        # comparing those two numbers. Left to the log alone, ONE genuine
-        # warning exonerated every row adopted the same night, because one
-        # receipt covers them all. Best-effort on purpose: a counter that
-        # cannot be written must not lose the ledger row underneath it.
-        with contextlib.suppress(psycopg.Error):
-            execute(
-                "INSERT INTO app_settings (key, value, updated_at) VALUES (?, '1', ?)"
-                " ON CONFLICT(key) DO UPDATE SET value ="
-                " CAST(CAST(app_settings.value AS INTEGER) + 1 AS TEXT),"
-                " updated_at = excluded.updated_at",
-                (UNCHAINED_FALLBACKS, now()),
+        with pool().connection() as conn, conn.transaction():
+            _activity_fallback_lock(conn)
+            conn.execute(
+                "INSERT INTO activity (actor, action, detail, created_at) VALUES (%s, %s, %s, %s)",
+                (actor, action, detail, created_at),
             )
+            # The row and its credit become visible together. If adoption could
+            # consume the row before this increment, the late credit could
+            # explain a different row that no fallback wrote.
+            try:
+                with conn.transaction():  # savepoint: a bad counter keeps the row
+                    conn.execute(
+                        "INSERT INTO app_settings (key, value, updated_at)"
+                        " VALUES (%s, '1', %s) ON CONFLICT(key) DO UPDATE SET value ="
+                        " CAST(CAST(app_settings.value AS INTEGER) + 1 AS TEXT),"
+                        " updated_at = excluded.updated_at",
+                        (UNCHAINED_FALLBACKS, now()),
+                    )
+            except psycopg.Error:
+                log.error("activity fallback counter failed", exc_info=True)
     except psycopg.Error as exc:
         log.error("activity row LOST (%s: %s) — the write it describes did commit", action, exc)

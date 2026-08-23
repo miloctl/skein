@@ -190,18 +190,40 @@ def _structured(name: str) -> tuple[str, str, str]:
 # would serve an empty database beside the real one, and the roster coming up
 # blank reads as data loss rather than as a missing setting. Fails CLOSED like
 # AUTH_MODE — db.py raises this string, and /health carries it.
-DATABASE_URL = os.getenv("SKEIN_DATABASE_URL", "").strip()
+def _database_url() -> str:
+    url = os.getenv("SKEIN_DATABASE_URL", "").strip()
+    if url:
+        return url
+    # Component variables compose a keyword conninfo HERE, never a URI in a
+    # deployment manifest: a generated password holding @ : / % ? or # parses
+    # as URL structure and the backend, backups, and restores all fail to
+    # connect. make_conninfo quotes every value.
+    parts = {
+        "host": os.getenv("SKEIN_DB_HOST", "").strip(),
+        "port": os.getenv("SKEIN_DB_PORT", "").strip(),
+        "user": os.getenv("SKEIN_DB_USER", "").strip(),
+        "password": os.getenv("SKEIN_DB_PASSWORD", ""),
+        "dbname": os.getenv("SKEIN_DB_NAME", "").strip(),
+    }
+    if not all(parts[key] for key in ("host", "user", "password", "dbname")):
+        return ""
+    from psycopg.conninfo import make_conninfo
+
+    return make_conninfo(**{key: value for key, value in parts.items() if value})
+
+
+DATABASE_URL = _database_url()
 DATABASE_ERROR = (
     ""
     if DATABASE_URL
-    else "SKEIN_DATABASE_URL is not set. Set it to the PostgreSQL connection URL."
+    else "SKEIN_DATABASE_URL is not set. Set it, or set SKEIN_DB_HOST,"
+    " SKEIN_DB_NAME, SKEIN_DB_USER, and SKEIN_DB_PASSWORD."
 )
 # Author-private records (1:1 prep, feedback journal) live in a SEPARATE
-# SCHEMA that backup/export/search/MCP/agents never read. The separation is
-# STRUCTURAL, not privileged: one connection role reaches everything, so what
-# holds the line is that only services/private_notes.py names a `private.`
-# table. What the schema buys concretely is the dump boundary — the core
-# backup excludes it by name, and the off-box mirror never receives it.
+# SCHEMA that portable export, search, MCP, and agents never read. The
+# separation is STRUCTURAL, not privileged: one connection role reaches
+# everything, so only services/private_notes.py names a `private.` table. The
+# local database backup includes it. The configured platform mirror does not.
 PRIVATE_SCHEMA = "private"
 # Pre-045 session FILES. Live sessions are database rows
 # (agents/session_store.py); this is only the one-time import path.
@@ -553,9 +575,9 @@ except (ValueError, OverflowError):
 # optional per-model tuning. env-only ON PURPOSE: the operator curates the
 # menu, the admin picks from it (services/settings.py) — the same two-tier
 # split the tuning.py docstring records for provider and credential settings.
-# Registry content must never be persisted to app_settings: that table
-# travels in every export and backup (services/admin.py::TABLES), and params
-# values are a plausible place an operator put a credential.
+# Registry content must never be persisted to app_settings: that table travels
+# in every database backup, and params values are a plausible place an operator
+# put a credential.
 #
 # Fault discipline extends SKEIN_MODEL_PRICES': ANY invalid entry voids the
 # WHOLE list — a partial menu looks complete, which is worse than no menu,

@@ -341,8 +341,9 @@ def test_an_oidc_claim_folding_onto_an_admin_name_does_not_reach_admin_surfaces(
     ensure_user("casey")
     monkeypatch.setattr(config, "ADMINS", ["casey"])
     _oidc(monkeypatch, {"tok": {"preferred_username": "ｃasey"}})  # noqa: RUF001 — fullwidth c
-    r = client.get("/api/admin/export", headers={"Authorization": "Bearer tok"})
-    assert r.status_code == 403
+    for path in ("/api/admin/export", "/api/admin/export/download"):
+        response = client.get(path, headers={"Authorization": "Bearer tok"})
+        assert response.status_code == 403
 
 
 def test_an_oidc_first_sign_in_reserves_human_ownership(client, monkeypatch, fresh_db):

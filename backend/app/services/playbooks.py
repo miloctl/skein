@@ -21,7 +21,7 @@ from typing import Any
 import yaml
 
 from .. import config, db
-from . import collab, engagements, schedule, scope, wording, work
+from . import artifact_files, collab, engagements, schedule, scope, wording, work
 
 PLAYBOOKS_DIR = config.STOCK_DIR / "playbooks"
 
@@ -458,10 +458,9 @@ def _snapshot(created: dict, slug: str, start: date, actor: str) -> int:
     task, and a diff keyed on title would report it as one removed and one
     added.
 
-    The artifacts ROW is written inside the caller's transaction; the file is
-    not, so a rolled-back instantiate leaves an orphan JSON plan on disk that
-    nothing points at. That is the safe direction — a row with no file reads
-    as "no snapshot" (see snapshot_for), a file with no row is unreachable.
+    The durable file joins the caller's transaction through artifact_files.
+    A normal rollback removes it with the engagement tree. A hard process crash
+    can leave an unreachable file, never a committed row with partial bytes.
     """
     eng = created["engagement"]
 
@@ -490,7 +489,7 @@ def _snapshot(created: dict, slug: str, start: date, actor: str) -> int:
     plans = Path(config.DATA_DIR) / "artifacts" / safe
     plans.mkdir(parents=True, exist_ok=True)
     path = plans / f"{eng['id']}-plan-snapshot.json"
-    path.write_text(json.dumps(plan, indent=2), encoding="utf-8")
+    artifact_files.publish(path, json.dumps(plan, indent=2).encode("utf-8"))
     # the engagement's own tier, threaded like handoff.py does and for the
     # same reason: the row carries a PATH to every milestone and task title,
     # and list_artifacts must not hand it to somebody who could not read them

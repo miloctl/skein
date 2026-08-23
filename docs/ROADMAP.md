@@ -226,12 +226,6 @@ D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped, without the proposed
   `update_task`, `answer_question`, `resolve_blocker`, `ask` and `week` did
   not. Review approval over MCP stays deliberately absent, because an agent
   must not launder its own proposal.
-- **D5's idempotency key** — the outbox shipped 2026-08-09 and is AT LEAST
-  ONCE: a row leaves the file only after the server accepts it, so a crash
-  between the accept and the rewrite re-sends it. Exactly-once needs a key
-  the capture route reads and dedupes on, which no route does yet. The safe
-  direction is the one it takes — a duplicate is visible and deletable, a
-  dropped row is a capture the person believed they made.
 - **F6** CLI argument grammar normalization. The commands that take an
   action word still validate their own combinations by hand in `main()`.
 
@@ -354,9 +348,6 @@ Still open from that review:
   runner has not produced yet (`SKEIN_AGENT_RUNNER` is empty by
   default, so no deployment runs unattended turns). A promotion
   decision needs what was approved, not how many times. [M]
-- **G7's last clause** — per-model spend rows exist on Work → Health,
-  and the Settings model menu shows no cost beside a model, so the
-  menu is not yet comparative. [S]
 
 The suggested order this section carried (manager frame, then CLI,
 then census) was revised by the 2026-08-09 product-strategy review —
@@ -401,7 +392,7 @@ table.
 **Left behind by the 2026-08-09 arc, named where each belongs:** R8 and
 the per-task unblock count above; playbook variance across engagements,
 the unread kickoff half of that loop, and the untracked YAML edit under
-"Manager and workflow"; F6 and D5's idempotency key under "Developer
+"Manager and workflow"; F6 under "Developer
 loop"; C4's morning rule under "Manager and workflow"; and the
 uncapped-on-both-sides census bullet at the top of this file.
 
@@ -496,5 +487,5 @@ review. Each names the condition that reopens it.
 | Presence as a lease, not a flag | Only if a boolean live-dot is ever added. `last seen` timestamps are honest forever; a lease fixes a live-dot outliving a dead process, and no such dot exists. |
 | Requirement/Outcome record layer (2026-08-21 control-plane thesis) | A real engagement retro produces a traceability dispute — "which requirement did this work serve" — that `engagements.outcome`, milestones and decisions could not settle. A new entity costs seven gated registries; the dispute is the evidence it repays that. |
 | Assumption records (statement, owner, verification plan, expiry) | An engagement fails on an assumption nobody wrote down, and the retro shows `kill_criteria` plus a dated decision could not have held it. |
-| Acceptance checks + validation evidence as records | The evidence-gap findings rule (Insights backlog) fires often enough that teams act on it. The rule is the cheap probe; the records are the expensive answer. |
+| Acceptance checks + validation evidence as records | The evidence-gap findings rule (Insights backlog) fires often enough that teams act on it. The rule is the cheap probe; the records are the expensive answer. The display half shipped 2026-08-22: rows an `acceptance_criteria` names now resolve to their current status on the approval card. |
 | Authority matrix split by action class (internal edit vs external send) | An agent holds `autonomous` on an entity where one verb is internal and another leaves Skein (mail, webhook, customer surface). Today no tool on a granted entity crosses that line — the split waits for the tool that does. |

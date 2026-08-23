@@ -28,10 +28,10 @@ spec:
             - name: http
               containerPort: 8000
           env:
-            # One secret key for the example. The production manifest
-            # composes the URL from the role secret and a host ConfigMap —
-            # copy deploy/k8s/base/backend.yaml, not this, for a real
-            # deployment.
+            # One secret key for the example. The production manifest sets
+            # SKEIN_DB_* components from the role secret and a host ConfigMap,
+            # and the backend composes the conninfo in code — copy
+            # deploy/k8s/base/backend.yaml, not this, for a real deployment.
             - name: SKEIN_DATABASE_URL
               valueFrom:
                 secretKeyRef:

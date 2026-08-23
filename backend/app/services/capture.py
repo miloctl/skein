@@ -5,6 +5,7 @@ same interface."""
 import re
 from typing import Any
 
+from .. import db
 from . import blockers, collab, promises, scope, wording, work
 
 # explicit prefixes first, content heuristics second — a typed prefix always
@@ -192,6 +193,15 @@ def plan(text: str, *, actor: str = "system", origin: str = "human") -> tuple[st
             },
         )
     return kind, "note", {"topic": body[:60], "content": body, "author": actor}
+
+
+def claim_capture(actor: str, capture_key: str) -> bool:
+    """Claim one caller-scoped capture key inside its write transaction."""
+    if not capture_key:
+        return True
+    if not db.in_transaction():
+        raise RuntimeError("capture idempotency needs an active transaction")
+    return db.claim_job(f"capture:{actor}", capture_key)
 
 
 def capture(

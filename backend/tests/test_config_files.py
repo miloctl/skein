@@ -47,6 +47,51 @@ def _reload_inline(monkeypatch, name, text):
     return importlib.reload(config)
 
 
+def test_component_variables_compose_a_quoted_conninfo(monkeypatch):
+    from psycopg.conninfo import conninfo_to_dict
+
+    from app import config
+
+    monkeypatch.delenv("SKEIN_DATABASE_URL", raising=False)
+    monkeypatch.setenv("SKEIN_DB_HOST", "db.example")
+    monkeypatch.setenv("SKEIN_DB_PORT", "5433")
+    monkeypatch.setenv("SKEIN_DB_USER", "app")
+    monkeypatch.setenv("SKEIN_DB_PASSWORD", "p@ss:w/o%r?d#!")
+    monkeypatch.setenv("SKEIN_DB_NAME", "skein")
+    info = conninfo_to_dict(config._database_url())
+    assert info["host"] == "db.example"
+    assert info["password"] == "p@ss:w/o%r?d#!"
+    assert info["dbname"] == "skein"
+    # a whole URL wins over the components, and neither set means fail closed
+    monkeypatch.setenv("SKEIN_DATABASE_URL", "postgresql://x@y/z")
+    assert config._database_url() == "postgresql://x@y/z"
+    monkeypatch.delenv("SKEIN_DATABASE_URL", raising=False)
+    monkeypatch.delenv("SKEIN_DB_HOST", raising=False)
+    assert config._database_url() == ""
+
+
+@pytest.mark.parametrize(
+    "missing",
+    ("SKEIN_DB_HOST", "SKEIN_DB_USER", "SKEIN_DB_PASSWORD", "SKEIN_DB_NAME"),
+)
+def test_partial_database_components_fail_closed(missing, monkeypatch):
+    from app import config
+
+    monkeypatch.delenv("SKEIN_DATABASE_URL", raising=False)
+    for name, value in {
+        "SKEIN_DB_HOST": "db.example",
+        "SKEIN_DB_USER": "skein-app",
+        "SKEIN_DB_PASSWORD": "secret",
+        "SKEIN_DB_NAME": "skein",
+    }.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv(missing, raising=False)
+    # Ambient libpq credentials must never complete a partial Skein contract.
+    monkeypatch.setenv("PGUSER", "ambient-admin")
+    monkeypatch.setenv("PGPASSWORD", "ambient-secret")
+    assert config._database_url() == ""
+
+
 def test_a_yaml_file_supplies_the_model_menu(monkeypatch, tmp_path):
     """The point of the hatch: nesting and comments, which a JSON string in a
     ConfigMap literal cannot carry."""

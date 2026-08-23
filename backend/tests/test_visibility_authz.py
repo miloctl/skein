@@ -189,7 +189,7 @@ def test_the_refusal_does_not_confirm_the_row_exists(fresh_db):
 
 
 def test_a_deleted_scoped_row_leaves_no_body_in_the_ledger(fresh_db):
-    """The chain is append-only and anchored off-box, so a body written to
+    """The chain is append-only and externally anchored, so a body written to
     activity.detail is written for good — there is no later redaction."""
     users.ensure_user("ava")
     nid = collab.save_note("topic", "ZZBODYZZ", author="ava", actor="ava", visibility="private")[

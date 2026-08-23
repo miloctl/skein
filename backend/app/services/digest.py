@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from .. import config, db
-from . import wording
+from . import artifact_files, wording
 from .scope import WORKSPACE_ONLY
 from .slas import DIGEST_STALLED_DAYS
 
@@ -161,32 +161,37 @@ def _narrate(markdown: str) -> str:
 
 def publish_digest(*, actor: str = "scheduler", force: bool = False) -> dict:
     today = _today().isoformat()
-    # build BEFORE claiming: a narration/build failure must not burn the
-    # day's claim and silently cancel the digest until tomorrow
+    # Build before the transaction. A narration failure must not take the
+    # logical artifact lock or the day's claim.
     markdown = _narrate(build_digest())
-    if actor == "scheduler" and not force and not db.claim_job("digest", today):
-        return {"date": today, "skipped": "already published today"}
-
-    artifacts_dir = Path(config.DATA_DIR) / "artifacts" / "digests"
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
-    path = artifacts_dir / f"{today}-digest.md"
-    path.write_text(markdown, encoding="utf-8")
-
-    # same-day reruns overwrite the file, so upsert the artifact row too —
-    # N rows pointing at one file would imply history that doesn't exist
-    existing = db.query_one("SELECT id FROM artifacts WHERE path = ?", (str(path),))
-    if existing:
-        db.execute(
-            "UPDATE artifacts SET created_by = ?, created_at = ? WHERE id = ?",
-            (actor, db.now(), existing["id"]),
+    title = f"Daily digest {today}"
+    logical = Path(config.DATA_DIR) / "artifacts" / "digests" / f"{today}-digest.md"
+    with db.transaction():
+        db.name_lock(db.LOCK_ARTIFACT, f"digest:{today}")
+        if actor == "scheduler" and not force and not db.claim_job("digest", today):
+            return {"date": today, "skipped": "already published today"}
+        existing = db.query_one(
+            "SELECT id, path FROM artifacts WHERE kind = 'digest' AND title = ?"
+            " ORDER BY id LIMIT 1",
+            (title,),
         )
-    else:
-        db.execute(
-            "INSERT INTO artifacts (kind, title, path, created_by, created_at)"
-            " VALUES (?, ?, ?, ?, ?)",
-            ("digest", f"Daily digest {today}", str(path), actor, db.now()),
+        path = artifact_files.unique_revision(logical)
+        artifact_files.publish(
+            path,
+            markdown.encode("utf-8"),
+            old=Path(existing["path"]) if existing else None,
         )
-    # archived as an artifact only — filing every digest as a note buried the
-    # knowledge base within weeks and doubled every FTS hit it quoted
-    db.log_activity(actor, "publish_digest", today)
-    return {"date": today, "path": str(path), "markdown": markdown}
+        if existing:
+            db.execute(
+                "UPDATE artifacts SET path = ?, created_by = ?, created_at = ? WHERE id = ?",
+                (str(path), actor, db.now(), existing["id"]),
+            )
+        else:
+            db.execute(
+                "INSERT INTO artifacts (kind, title, path, created_by, created_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                ("digest", title, str(path), actor, db.now()),
+            )
+        # Archived as an artifact only. A note would duplicate every FTS hit.
+        db.log_activity(actor, "publish_digest", today)
+        return {"date": today, "path": str(path), "markdown": markdown}

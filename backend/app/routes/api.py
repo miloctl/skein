@@ -7,6 +7,7 @@ from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from .. import config, db, ratelimit
@@ -521,14 +522,14 @@ def get_activity_feed(user: CurrentUser, before: int = 0, limit: int = 50):
 
 @router.get("/activity/verify")
 def get_activity_verify(user: CurrentUser, tail: int = 0):
-    """Recompute the provenance chain. The default walks every chained row,
-    because a partial answer to "is the ledger intact" is not an answer.
-    tail=1 resumes from the last verified anchor for a cheap freshness check.
+    """Recompute the provenance chain. The default walks every chained row.
+    tail=1 resumes from the last verified anchor for a lower-cost read.
 
-    Rate-capped: activity is never pruned, so the full walk is the most
-    expensive read in the app and it grows for the life of the deployment. The
-    daily findings rule runs it unprompted, so nobody needs it on a loop."""
-    ratelimit.check("verify", user)
+    This GET does not advance trust marks. The scheduled job owns that write.
+    The rate cap bounds a read that grows for the life of the deployment."""
+    # The full-table cost belongs to the deployment, not to a trusted-header
+    # name that the caller can rotate for a fresh bucket.
+    ratelimit.check("verify", "activity-chain")
     return activity.verify_tail() if tail else activity.verify_chain()
 
 
@@ -1996,6 +1997,12 @@ class ModelPickIn(BaseModel):
     model: str = Field(max_length=200)
 
 
+def _menu_price(model_id: str) -> tuple[float, float] | None:
+    from ..services.usage import model_price
+
+    return model_price(model_id)[0]
+
+
 @router.get("/settings/model")
 def get_model_pick(user: CurrentUser):
     """Reads for named teammates. Writing is admin-only."""
@@ -2013,7 +2020,13 @@ def get_model_pick(user: CurrentUser):
         # bodies, and a token an operator parked there must not reach every
         # signed-in browser. The picker renders the fields below only.
         "menu": [
-            {k: e[k] for k in ("id", "label", "detail", "max_tokens", "context_tokens", "price")}
+            {
+                **{k: e[k] for k in ("id", "label", "detail", "max_tokens", "context_tokens")},
+                # the MERGED price (registry entry, then SKEIN_MODEL_PRICES),
+                # so the menu compares what accounting will actually charge —
+                # usage.model_price also nulls a (0,0) pair, on every surface.
+                "price": _menu_price(str(e["id"])),
+            }
             for e in config.MODELS.values()
         ],
         # Registry faults name parameter paths, which this response's contract
@@ -3225,6 +3238,10 @@ class CaptureIn(BaseModel):
     # others would be worse than none.
     visibility: str = Field(scope.WORKSPACE, max_length=16)
     crew_id: int = 0
+    # D5's idempotency key. The CLI outbox is at-least-once: a crash between
+    # the server's accept and the outbox rewrite re-sends the row. A repeated
+    # key files nothing and answers "duplicate" instead.
+    capture_key: str = Field("", max_length=64, pattern=r"^[A-Za-z0-9_-]*$")
 
 
 @router.post("/capture")
@@ -3237,6 +3254,12 @@ def post_capture(
     ratelimit.check("capture", user)
     strong = bool(getattr(request.state, "strong_auth", False))
     with db.transaction():
+        # FIRST in the transaction: the claim row is the idempotency receipt,
+        # and its insert is the lock — a concurrent same-key request blocks on
+        # the in-doubt row and reads the settled claim. A capture that fails
+        # below rolls the claim back with it, so a retry files normally.
+        if not capture.claim_capture(user, body.capture_key):
+            return {"kind": "duplicate", "capture_key": body.capture_key}
         if not capture.is_private_feedback(body.text):
             _kind, entity, payload = capture.plan(body.text, actor=user)
             payload.update({"visibility": body.visibility, "crew_id": body.crew_id})
@@ -3318,7 +3341,11 @@ def post_approve_batch(
                 ),
                 policy_registry=request.app.state.skein_registry,
             )
-            results.append({"id": cid, "status": r["status"]})
+            result = {"id": cid, "status": r["status"]}
+            if r.get("execution_status"):
+                result["execution_status"] = r["execution_status"]
+                result["execution_error_code"] = r.get("execution_error_code", "")
+            results.append(result)
         except ValueError as exc:
             results.append({"id": cid, "status": "error", "detail": str(exc)})
         except PermissionError as exc:
@@ -3565,13 +3592,57 @@ def get_calendar_ics(request: Request, token: str = ""):
 
 @router.post("/admin/backup")
 def post_backup(user: AdminUser):
+    ratelimit.check("backup", "database-backup")
     return admin.backup(actor=user)
 
 
 @router.get("/admin/export")
-def get_export(user: AdminUser):
-    # full-table dump — administrators only, never the X-User header
-    return admin.export()
+def get_export(response: Response, user: AdminUser):
+    """Legacy metadata response for browser bundles that predate file downloads."""
+    ratelimit.check("export", "portable-export")
+    result = admin.export(actor=user)
+    result["path"] = result["path"].rsplit("/", 1)[-1]
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return result
+
+
+@router.get("/admin/export/download")
+def download_export(request: Request, user: AdminUser):
+    if request.headers.get("range"):
+        raise HTTPException(416, "This export cannot resume. Start a new download.")
+    ratelimit.check("export", "portable-export")
+    try:
+        opened, _export_name = admin.export_download(actor=user)
+    except admin.ExportTooLarge as exc:
+        raise HTTPException(
+            413,
+            "The portable export is too large to download in a browser."
+            " Use the database recovery dump.",
+        ) from exc
+    opened.seek(0, 2)
+    size = opened.tell()
+    opened.seek(0)
+
+    def chunks():
+        try:
+            while chunk := opened.read(64 * 1024):
+                yield chunk
+        finally:
+            opened.close()
+
+    filename = f"skein-export-{db.today().isoformat()}.json"
+    return StreamingResponse(
+        chunks(),
+        media_type="application/json",
+        headers={
+            "Cache-Control": "private, no-store",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(size),
+            "X-Content-Type-Options": "nosniff",
+            "X-Skein-Filename": filename,
+        },
+    )
 
 
 @router.get("/interventions")

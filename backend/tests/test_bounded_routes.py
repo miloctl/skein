@@ -109,7 +109,6 @@ EXEMPT: dict[str, str] = {
     "POST /api/users/growth-interests": "one row per person, overwritten",
     "POST /api/users/theme": "one row per person, overwritten",
     # --- administrators only; a flooding administrator owns the deployment ---
-    "POST /api/admin/backup": "AdminUser, and backup_if_stale is idempotent",
     "POST /api/admin/keys/revoke-all": "AdminUser kill switch",
     "POST /api/users/theme/default": "AdminUser, one row for the whole team",
     "POST /api/users/{name}/active": "AdminUser roster edit",

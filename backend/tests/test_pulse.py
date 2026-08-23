@@ -77,9 +77,9 @@ def test_pulse_votes_are_unattributable(client, fresh_db):
     verdict on ANY egress surface: raw feedback endpoint, activity ledger,
     admin export."""
     import json as j
+    from pathlib import Path
 
     from app.services import admin
-    from app.services.api_keys import create_key
 
     voters = ("alice", "bob")
     for user, verdict in zip(voters, ("up", "down"), strict=True):
@@ -95,15 +95,9 @@ def test_pulse_votes_are_unattributable(client, fresh_db):
     for v in voters:
         assert v not in activity
     assert "pulse/" not in activity  # verdict never reaches the ledger
-    key = create_key("auditor", "t")["key"]
-    from pathlib import Path
-
-    export = admin.export()
-    dump = j.loads(Path(export["path"]).read_text())
-    for row in dump.get("feedback", []):
-        if row["kind"] == "pulse":
-            assert row["created_by"] == ""
-    assert key  # export exercised under the strong-identity path
+    result = admin.export()
+    dump = j.loads(Path(result["path"]).read_text(encoding="utf-8"))
+    assert "feedback" not in dump
 
 
 def test_standup_chain_counts_backdated_weekdays_and_breaks_at_a_gap(fresh_db):

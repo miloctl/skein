@@ -3,6 +3,7 @@
 import contextlib
 import importlib.util
 import json
+import threading
 from argparse import Namespace
 from pathlib import Path
 
@@ -372,7 +373,12 @@ def test_a_capture_survives_a_dead_server_and_files_later(monkeypatch, capsys, t
     sent = []
     monkeypatch.setattr(cli, "api_quiet", lambda m, p, b=None: sent.append((p, b)) or {"ok": 1})
     assert cli.flush_outbox() == 1
-    assert sent == [("/api/capture", {"text": "todo: fix it"})]
+    [(path, body)] = sent
+    assert path == "/api/capture"
+    assert body["text"] == "todo: fix it"
+    # minted at cmd_capture, so the re-send carries the SAME key and the
+    # server files nothing twice (D5)
+    assert len(body["capture_key"]) == 32
     # the row leaves only after the server accepts it
     assert not (tmp_path / "outbox.jsonl").exists()
 
@@ -477,6 +483,68 @@ def test_a_refused_capture_is_not_queued_as_if_the_server_were_down(monkeypatch,
     with contextlib.suppress(SystemExit):
         cli.cmd_capture(Namespace(text=["todo:", "x"]))
     assert not (tmp_path / "outbox.jsonl").exists()
+
+
+@pytest.mark.parametrize("status", (429, 500, 502, 503, 504, 599))
+def test_a_retryable_capture_is_queued(status, monkeypatch, capsys, tmp_path):
+    import urllib.error
+
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(cli, "OUTBOX", tmp_path / "outbox.jsonl")
+    retryable = urllib.error.HTTPError("u", status, "retry", {}, None)  # type: ignore[arg-type]
+    monkeypatch.setattr(cli, "api_quiet", lambda *a, **k: retryable)
+    monkeypatch.setattr(
+        cli,
+        "api",
+        lambda *a, **k: pytest.fail("a retryable response must not be retried inline"),
+    )
+
+    cli.cmd_capture(Namespace(text=["todo:", "keep", "me"]))
+    assert "saved locally" in capsys.readouterr().out
+    assert cli._UNREACHABLE is True  # main() will not retry it immediately
+    [row] = [json.loads(line) for line in cli.OUTBOX.read_text().splitlines()]
+    assert row["body"]["text"] == "todo: keep me"
+    assert len(row["body"]["capture_key"]) == 32
+
+
+@pytest.mark.parametrize("status", (429, 500, 502, 503, 504, 599))
+def test_a_retryable_flush_keeps_the_current_row_and_tail(status, monkeypatch, tmp_path):
+    import urllib.error
+
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(cli, "OUTBOX", tmp_path / "outbox.jsonl")
+    for i in range(3):
+        cli._queue("/api/capture", {"text": f"note {i}", "capture_key": f"k{i}"})
+    retryable = urllib.error.HTTPError("u", status, "retry", {}, None)  # type: ignore[arg-type]
+    monkeypatch.setattr(cli, "api_quiet", lambda *a, **k: retryable)
+
+    assert cli.flush_outbox() == 0
+    left = [json.loads(line) for line in cli.OUTBOX.read_text().splitlines()]
+    assert [row["body"]["text"] for row in left] == ["note 0", "note 1", "note 2"]
+
+
+def test_outbox_mutations_share_one_cross_process_lock(monkeypatch, tmp_path):
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(cli, "OUTBOX", tmp_path / "outbox.jsonl")
+    started = threading.Event()
+    finished = threading.Event()
+
+    def append():
+        started.set()
+        cli._queue("/api/capture", {"text": "concurrent"})
+        finished.set()
+
+    with cli._outbox_lock():
+        writer = threading.Thread(target=append)
+        writer.start()
+        assert started.wait(2)
+        assert not finished.wait(0.1), "append did not wait for the shared file lock"
+    writer.join(2)
+    assert finished.is_set()
+    assert "concurrent" in cli.OUTBOX.read_text()
 
 
 def test_a_poison_row_is_dropped_instead_of_blocking_the_queue(monkeypatch, capsys, tmp_path):

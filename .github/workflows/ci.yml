@@ -64,6 +64,19 @@ jobs:
       - name: Install
         working-directory: backend
         run: pip install -e ".[dev]"
+      # BEFORE the tests, and major 17 exactly: the backup suite drills
+      # pg_dump/pg_restore against the postgres:17 service, and the runner's
+      # preinstalled 16 client refuses a 17 server.
+      - name: PostgreSQL 17 client
+        run: |
+          if ! pg_dump --version 2>/dev/null | grep -q ' 17\.'; then
+            sudo install -d /usr/share/postgresql-common/pgdg
+            curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+              | sudo tee /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc >/dev/null
+            echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] http://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo $VERSION_CODENAME)-pgdg main" \
+              | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+            sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client-17
+          fi
       - name: Lint
         run: ./scripts/lint.sh backend
       - name: Test
@@ -75,6 +88,12 @@ jobs:
         # the coverage ratchet: 90 against a measured 91. Raise it when the
         # number rises, never lower it to make a commit pass.
         run: pytest -q -n auto --cov=app --cov-fail-under=90
+      - name: Restricted database role contract
+        working-directory: backend
+        env:
+          SKEIN_DATABASE_URL: postgresql://skein:skein@localhost:5432/skein
+          SKEIN_ROLE_CONTRACT: "1"
+        run: pytest -q -n0 tests/test_database_role.py
       # The reference extension's own suite. It runs here as well as inside
       # reference-extension-contract.sh because that script was its ONLY
       # runner: while the script skipped across the engine migration, an API

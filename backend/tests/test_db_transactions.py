@@ -46,6 +46,76 @@ def test_a_lock_timeout_surfaces_as_load_not_as_a_rollback_failure(fresh_db):
         holder.join(10)
 
 
+def test_every_database_busy_class_is_json_503(client, monkeypatch):
+    from app import db
+    from app.services import capture
+
+    for error_type in db.BUSY_ERRORS:
+
+        def busy(*_args, _error=error_type, **_kwargs):
+            raise _error("busy")
+
+        monkeypatch.setattr(capture, "capture", busy)
+        response = client.post("/api/capture", json={"text": "note: probe"})
+        assert response.status_code == 503
+        assert response.headers["retry-after"] == "5"
+        assert response.headers["content-type"].startswith("application/json")
+        assert response.json() == {
+            "detail": "The database is busy. Wait 5 seconds, then send the request again."
+        }
+
+
+def test_schema_existence_read_holds_the_schema_name_lock(fresh_db):
+    schema = "schema_lock_probe"
+    holding = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    errors = []
+
+    def holder():
+        with fresh_db.transaction():
+            fresh_db.name_lock(fresh_db.LOCK_SCHEMA, schema)
+            holding.set()
+            release.wait(3)
+
+    def creator():
+        try:
+            fresh_db.ensure_owned_schema(schema)
+        except Exception as exc:
+            errors.append(exc)
+        finally:
+            finished.set()
+
+    first = threading.Thread(target=holder)
+    second = threading.Thread(target=creator)
+    first.start()
+    assert holding.wait(3)
+    second.start()
+    assert not finished.wait(0.1), "schema creation did not wait for its name lock"
+    release.set()
+    first.join(3)
+    second.join(3)
+    try:
+        assert errors == []
+        assert fresh_db.query_one(
+            "SELECT schema_name FROM information_schema.schemata WHERE schema_name = ?",
+            (schema,),
+        ) == {"schema_name": schema}
+    finally:
+        fresh_db.execute("DROP SCHEMA IF EXISTS schema_lock_probe CASCADE")
+
+
+def test_wrong_schema_owner_is_server_state(fresh_db):
+    schema = "wrong_owner_probe"
+    fresh_db.execute("CREATE SCHEMA wrong_owner_probe")
+    try:
+        fresh_db.execute("ALTER SCHEMA wrong_owner_probe OWNER TO pg_database_owner")
+        with pytest.raises(RuntimeError, match="not owned"):
+            fresh_db.ensure_owned_schema(schema)
+    finally:
+        fresh_db.execute("DROP SCHEMA IF EXISTS wrong_owner_probe CASCADE")
+
+
 def test_transaction_rolls_back_all_writes(fresh_db):
     from app import db
 
@@ -159,6 +229,71 @@ def test_savepoint_rollback_discards_only_its_deferred_callbacks(fresh_db):
         db.on_commit(lambda: ran.append("after"))
 
     assert ran == ["before", "after"]
+
+
+def test_on_rollback_runs_after_rollback_in_reverse_order(fresh_db):
+    from app import db
+
+    ran: list[str] = []
+    assert db.on_rollback(lambda: ran.append("inline")) is False
+    with db.transaction():
+        db.on_rollback(lambda: ran.append("discarded"))
+    assert ran == []
+
+    with pytest.raises(RuntimeError), db.transaction():
+        db.execute(
+            "INSERT INTO job_runs (job, run_key, created_at) VALUES ('rollback', 'probe', ?)",
+            (db.now(),),
+        )
+        db.on_rollback(lambda: ran.append("first"))
+        db.on_rollback(lambda: ran.append("second"))
+        raise RuntimeError("boom")
+    assert ran == ["second", "first"]
+    assert db.query_one("SELECT job FROM job_runs WHERE job = 'rollback'") is None
+
+
+def test_on_rollback_isolates_a_raising_callback(fresh_db):
+    from app import db
+
+    def boom():
+        raise RuntimeError("cleanup failure")
+
+    ran: list[str] = []
+    with pytest.raises(RuntimeError), db.transaction():
+        db.on_rollback(lambda: ran.append("before"))
+        db.on_rollback(boom)
+        db.on_rollback(lambda: ran.append("after"))
+        raise RuntimeError("write failed")
+    assert ran == ["after", "before"]
+
+
+def test_savepoint_rollback_runs_only_its_cleanup(fresh_db):
+    from app import db
+
+    ran: list[str] = []
+    with pytest.raises(RuntimeError), db.transaction():
+        db.on_rollback(lambda: ran.append("outer"))
+        with pytest.raises(ValueError), db.savepoint():
+            db.on_rollback(lambda: ran.append("inner-one"))
+            db.on_rollback(lambda: ran.append("inner-two"))
+            raise ValueError("savepoint failed")
+        assert ran == ["inner-two", "inner-one"]
+        db.on_rollback(lambda: ran.append("after"))
+        raise RuntimeError("outer failed")
+    assert ran == ["inner-two", "inner-one", "after", "outer"]
+
+
+def test_commit_failure_runs_rollback_cleanup(fresh_db, monkeypatch):
+    from app import db
+
+    ran: list[str] = []
+    monkeypatch.setattr(
+        db, "_flush_activity", lambda *_args: (_ for _ in ()).throw(RuntimeError("flush"))
+    )
+    with pytest.raises(RuntimeError, match="flush"), db.transaction():
+        db.log_activity("tester", "probe")
+        db.on_rollback(lambda: ran.append("cleaned"))
+    assert ran == ["cleaned"]
 
 
 def test_index_record_defers_embeds_to_commit(fresh_db, monkeypatch):

@@ -82,14 +82,13 @@ a worked example.
 Key mechanics:
 
 - **Provenance everywhere** — every record carries `origin`
-  (`human | agent | agent_verified`) and `created_by`; every mutation lands in
-  the activity log.
-- **A tamper-evident ledger** — each activity row commits to its own content
-  and to the row before it (SHA-256). A nightly job verifies
-  the whole chain and appends the verified tip to an anchor log mirrored
-  off-box. A later rewrite must contradict a record made on an earlier day.
-  Detection, never prevention — the limits are stated plainly in
-  [docs/FEATURES.md](docs/FEATURES.md).
+  (`human | agent | agent_verified`) and `created_by`. Each service mutation
+  emits an activity entry.
+- **A tamper-evident ledger** — each chained activity row commits to its content
+  and predecessor with SHA-256. The append transaction stores the live tip.
+  A nightly job verifies the new suffix and records the verified tip. A daily
+  rule verifies the full chain. Detection is not prevention. Read the
+  [claim boundaries](docs/FEATURES.md#activity-ledger-claim-boundaries).
 - **Approval gate** — on by default: agent writes become `pending_changes`
   proposals that humans approve in `/review`. Per-(agent, entity) grants in
   the authority matrix open direct writes deliberately; `SKEIN_AGENT_REVIEW=0`
@@ -176,10 +175,11 @@ client with `<origin>/auth/callback` as the redirect URI, then set
 `SKEIN_OIDC_CLIENT_ID`. Admin surfaces
 (roster, key visibility, authority, backups, export) are held to
 `SKEIN_ADMINS` / an IdP admin group. To expose this beyond a trusted network
-today, put both services behind an authenticating reverse proxy (Tailscale,
-Caddy + SSO, etc.). Copy `data/backups/` off the box on a schedule (or set
-`SKEIN_BACKUP_MIRROR`) — backups otherwise live on the same volume as the
-database.
+today, put both services behind an authenticating reverse proxy, such as
+Tailscale or Caddy + SSO. Local database dumps share `skein-data` with artifacts,
+while live PostgreSQL uses `skein-db`. The optional mirror contains the core
+`public` schema and needs database-grade protection. Back up the artifact
+volume independently.
 
 Known-and-accepted within that model (documented so nobody rediscovers them
 as surprises): the REST write path does not pass through the agent review
@@ -289,7 +289,7 @@ Model provider in `backend/.env`:
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | credential for the chosen provider | — |
 | `SKEIN_OLLAMA_HOST` | local daemon or `https://ollama.com` | `http://localhost:11434` |
 | `OLLAMA_API_KEY` | only for direct Ollama Cloud (no local daemon) | — |
-| `SKEIN_AGENT_REVIEW` | `1` routes agent writes through /review | `0` |
+| `SKEIN_AGENT_REVIEW` | `1` routes agent writes through /review | `1` |
 | `SKEIN_MODELS` | optional operator-curated model menu; an administrator picks between its entries on Settings → Model (team) — see [docs/FEATURES.md](docs/FEATURES.md) | — |
 | `SKEIN_MODELS_FILE` | reads that menu from a mounted YAML file instead. `SKEIN_MODEL_PRICES_FILE`, `SKEIN_MODEL_PARAMS_FILE` and `SKEIN_MCP_SERVERS_FILE` do the same for their settings. Setting both forms of one setting is a fault, never a silent winner | — |
 

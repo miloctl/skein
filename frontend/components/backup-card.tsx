@@ -3,21 +3,27 @@
 import { useState } from "react";
 
 import { Card as Section } from "@/components/card";
-import { actionError, api } from "@/lib/api";
+import {
+  actionError,
+  api,
+  authenticatedFetch,
+  errorFromResponse,
+} from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 
 type BackupResult = {
-  path: string;
-  private_path: string | null;
+  status: "ok" | "partial";
+  database_path: string;
   kept: number;
-  mirrored: string | null;
+  mirror_status: "not_configured" | "written" | "unavailable";
+  mirrored_platform_path: string | null;
+  artifacts_included: false;
 };
 
-/** Manual backup and export, for administrators. The export is deliberately
- *  NOT the complete copy — services/admin.py::export excludes chat tables,
- *  private-visibility rows and the private schema — so the copy below must say which
- *  half is which, or an operator exports-then-deletes and loses every chat
- *  (the deploy/k8s/OPERATOR.md exit section makes the same distinction). */
+/** Manual database backup and portable work export for administrators.
+ *
+ *  The export omits private and operational stores. The copy must keep it
+ *  distinct from database recovery and from the artifact volume. */
 export function BackupCard({
   canAdminister,
   accessMessage,
@@ -38,7 +44,9 @@ export function BackupCard({
       setLine(done);
       reportStatus(done, "confirmation");
     } catch (e) {
-      setLine(actionError(e));
+      const failed = actionError(e);
+      setLine(failed);
+      reportStatus(failed);
     } finally {
       setBusy("");
     }
@@ -49,23 +57,31 @@ export function BackupCard({
       const out = await api<BackupResult>("/api/admin/backup", {
         method: "POST",
       });
-      const name = out.path.split("/").pop() ?? out.path;
-      return out.mirrored
-        ? `Backup complete: ${name}, mirrored off-box.`
-        : `Backup complete: ${name}.`;
+      const name = out.database_path.split("/").pop() ?? out.database_path;
+      if (out.status === "partial" || out.mirror_status === "unavailable") {
+        throw new Error(
+          `The local database backup completed: ${name}. The configured mirror copy failed. Check the mirror mount and file permissions. Artifact files are not included.`,
+        );
+      }
+      if (out.mirror_status === "written") {
+        return `Database backup complete locally: ${name}. The core-schema dump was copied to the configured mirror. Protect that mirror like the database. Artifact files are not included.`;
+      }
+      return `Database backup complete locally: ${name}. No backup mirror is configured. Artifact files are not included.`;
     });
 
   const downloadExport = () =>
     run("export", async () => {
-      const dump = await api<Record<string, unknown>>("/api/admin/export");
-      const name = `skein-export-${new Date().toISOString().slice(0, 10)}.json`;
-      const url = URL.createObjectURL(
-        new Blob([JSON.stringify(dump, null, 2)], { type: "application/json" }),
-      );
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = name;
-      a.click();
+      const response = await authenticatedFetch("/api/admin/export/download");
+      if (!response.ok) throw await errorFromResponse(response);
+      const servedName = response.headers.get("X-Skein-Filename") ?? "";
+      const name = /^skein-export-\d{4}-\d{2}-\d{2}\.json$/.test(servedName)
+        ? servedName
+        : `skein-export-${new Date().toISOString().slice(0, 10)}.json`;
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      link.click();
       URL.revokeObjectURL(url);
       return `Export saved as ${name}.`;
     });
@@ -73,10 +89,13 @@ export function BackupCard({
   return (
     <Section title="Backups (team)" headingLevel={headingLevel}>
       <p className="mb-3 text-sm text-ink-3">
-        Backups run daily on their own. Before a risky change (an upgrade, a
-        bulk edit), an administrator can take one now. The export returns the
-        shared work tables as JSON — it excludes chat transcripts and private
-        notes. The backup files are the complete copy.
+        Backups run daily. Before a risky change (an upgrade or bulk edit), an
+        administrator can take one now. The JSON export contains workspace and
+        crew work from one database snapshot. It excludes chats, private rows,
+        review proposals, notifications, feedback, generated insights, the
+        activity ledger, usage telemetry, context packs, deployment state, and
+        artifact bytes. Use the database dumps for database recovery. Back up
+        the artifact volume separately.
       </p>
       {canAdminister ? (
         <div className="flex flex-wrap items-center gap-2">

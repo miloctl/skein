@@ -1712,6 +1712,33 @@ def test_an_extension_store_can_never_name_a_core_schema(fresh_db):
     for bad in ("", "  ", "1atlas", "-atlas"):
         with pytest.raises(ValueError, match="starts with a letter"):
             ExtensionStore(bad)
+    with pytest.raises(ValueError, match="63 bytes or fewer"):
+        ExtensionStore("a" * 60)
+
+
+def test_extension_store_schema_collisions_are_refused_before_migration(fresh_db):
+    first = ExtensionStore("atlas.data-archive")
+    second = ExtensionStore("atlas-data.archive")
+    modules = (
+        SkeinModule(
+            module_id="atlas.one",
+            version="1.0.0",
+            extension_api="1.0",
+            minimum_core="0.2.0",
+            maximum_core_exclusive="0.4.0",
+            migrations=(MigrationContribution("atlas.one.data", first, ()),),
+        ),
+        SkeinModule(
+            module_id="atlas.two",
+            version="1.0.0",
+            extension_api="1.0",
+            minimum_core="0.2.0",
+            maximum_core_exclusive="0.4.0",
+            migrations=(MigrationContribution("atlas.two.data", second, ()),),
+        ),
+    )
+    with pytest.raises(ExtensionValidationError, match="map to the same schema"):
+        ExtensionRegistry.build(modules)
 
 
 def test_an_extension_stores_unqualified_names_stay_in_its_own_schema(fresh_db):
@@ -2000,11 +2027,14 @@ def test_events_survive_a_composition_with_no_subscribers(fresh_db):
     assert len(calls) == 1
 
 
-def test_a_declared_extension_store_is_backed_up_beside_the_core_databases(fresh_db, tmp_path):
-    """An extension store lives outside platform.db, so nothing in core copied
-    it: every private package's data survived on deployment-side discipline."""
+def test_a_declared_extension_store_joins_the_database_recovery_unit(fresh_db, tmp_path):
+    import shutil
+    import subprocess
+
     from app.services import admin
 
+    restore = shutil.which("pg_restore")
+    assert restore
     store = ExtensionStore("atlas")
     skipped = ExtensionStore("cache", include_in_backup=False)
     for owned in (store, skipped):
@@ -2024,27 +2054,27 @@ def test_a_declared_extension_store_is_backed_up_beside_the_core_databases(fresh
     with TestClient(create_app(settings, (module,)), headers={"X-User": "tester"}):
         result = admin.backup()
 
-    names = [Path(path).name for path in result["extension_paths"]]
-    assert any(name.startswith("extension-atlas.workplace.data-") for name in names)
-    assert not any("cache" in name for name in names)
+    listing = subprocess.run(  # noqa: S603 — fixed argv, no shell
+        [restore, "--list", result["database_path"]],
+        env=admin._pg_env(),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert f" {store.schema} " in listing
+    assert f" {skipped.schema} " not in listing
+    assert result["extension_paths"] == []
 
 
-def test_one_store_retention_leaves_another_store_alone(fresh_db, tmp_path, monkeypatch):
-    """A store must survive its own retention pass.
-
-    Every extension backup starts with "extension-", so a prefix derived from
-    the file name prunes them all together. A prefix that is only the store
-    name is not enough either: extensions/registry.py::_IDENTIFIER admits both
-    "acme.data" and "acme.data-archive", and the date sorts before "archive",
-    so a "{prefix}-*" glob drops this store's own newest copy first."""
+def test_database_retention_leaves_legacy_extension_dumps_alone(fresh_db, tmp_path, monkeypatch):
     from app.services import admin
 
     backups = tmp_path / "backups"
     backups.mkdir()
     monkeypatch.setenv("SKEIN_BACKUP_DIR", str(backups))
-    neighbour = backups / "extension-acme.workplace.cache-2000-01-01.db"
+    neighbour = backups / "extension-acme.workplace.cache-2000-01-01.dump"
     neighbour.write_bytes(b"")
-    overlapping = backups / "extension-atlas.workplace.data-archive-2000-01-01.db"
+    overlapping = backups / "extension-atlas.workplace.data-archive-2000-01-01.dump"
     overlapping.write_bytes(b"")
 
     store = ExtensionStore("atlas")
@@ -2061,8 +2091,8 @@ def test_one_store_retention_leaves_another_store_alone(fresh_db, tmp_path, monk
     with TestClient(create_app(settings, (module,)), headers={"X-User": "tester"}):
         result = admin.backup(keep=1)
 
-    for path in result["extension_paths"]:
-        assert Path(path).exists(), f"backup reported {path} and then deleted it"
+    assert Path(result["database_path"]).exists()
+    assert result["extension_paths"] == []
     assert neighbour.exists()
     assert overlapping.exists()
 

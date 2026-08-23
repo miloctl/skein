@@ -246,6 +246,15 @@ function StandupCard({ rows }: { rows: Row[] }) {
           {rows.map((s) => (
             <li key={s.id} className="text-sm">
               <span className="font-medium">{s.author}</span>
+              {s.origin !== "human" ? (
+                // the byline is a free-text claim an agent can set, so an
+                // agent-filed standup names its writer beside the byline —
+                // authorship and endorsement stay two separate claims
+                <span className="text-xs text-ink-3">
+                  {" "}
+                  · filed by {s.created_by}
+                </span>
+              ) : null}
               <VisibilityBadge
                 visibility={s.visibility as string}
                 crewId={s.crew_id as number}

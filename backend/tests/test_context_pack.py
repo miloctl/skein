@@ -1,5 +1,10 @@
 """The versioned context pack: it versions only on change, and scopes to an engagement."""
 
+import threading
+from pathlib import Path
+
+import pytest
+
 
 def test_context_pack_versions_only_on_change(client):
     client.post("/api/decisions", json={"title": "Ship weekly", "decision": "always"})
@@ -17,6 +22,76 @@ def test_context_pack_versions_only_on_change(client):
     assert bumped["changed"] is True and bumped["version"] == 2
     pack = client.get("/api/context-pack").json()
     assert "PR size" in pack["content"]
+
+
+def test_context_pack_file_failure_rolls_back_the_version(fresh_db, monkeypatch):
+    from app.services import context_pack
+
+    def fail(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(context_pack.artifact_files, "publish", fail)
+    with pytest.raises(OSError, match="disk full"):
+        context_pack.publish_pack(actor="mira")
+    assert fresh_db.query_one("SELECT id FROM context_packs") is None
+
+
+def test_context_pack_repairs_a_missing_archive(fresh_db):
+    from app.services import context_pack
+
+    first = context_pack.publish_pack(actor="mira")
+    path = Path(first["path"])
+    path.unlink()
+    repeated = context_pack.publish_pack(actor="mira")
+    assert repeated["changed"] is False
+    assert Path(repeated["path"]).is_file()
+    assert "# Team context pack" in Path(repeated["path"]).read_text(encoding="utf-8")
+
+
+def test_concurrent_archive_repairs_recheck_after_the_lock(fresh_db, monkeypatch):
+    from app.services import context_pack
+
+    first = context_pack.publish_pack(actor="mira")
+    path = Path(first["path"])
+    expected = path.read_bytes()
+    path.unlink()
+    barrier = threading.Barrier(2)
+    acquired = 0
+    guard = threading.Lock()
+    local = threading.local()
+    original_lock = context_pack.db.name_lock
+    original_log = context_pack.db.log_activity
+
+    def synchronize(namespace, name):
+        nonlocal acquired
+        barrier.wait(timeout=3)  # both observed the missing file before locking
+        original_lock(namespace, name)
+        with guard:
+            acquired += 1
+            local.second = acquired == 2
+
+    def fail_if_second(*args, **kwargs):
+        if getattr(local, "second", False):
+            raise RuntimeError("second repair rolls back")
+        return original_log(*args, **kwargs)
+
+    monkeypatch.setattr(context_pack.db, "name_lock", synchronize)
+    monkeypatch.setattr(context_pack.db, "log_activity", fail_if_second)
+    errors = []
+
+    def repair():
+        try:
+            context_pack.publish_pack(actor="mira")
+        except Exception as exc:
+            errors.append(exc)
+
+    workers = [threading.Thread(target=repair) for _ in range(2)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(4)
+    assert errors == []
+    assert path.read_bytes() == expected
 
 
 def test_engagement_pack_scoped(client, fresh_db):

@@ -424,8 +424,8 @@ def test_the_specialist_is_built_stateless_under_its_own_identity(real_provider,
 
     assert seen["persona"] == "code-reviewer" and seen["stateless"] is True
     assert seen["acting"] == "code-reviewer", "writes would be signed by the orchestrator"
-    # Without this the specialist writes DIRECTLY (SKEIN_AGENT_REVIEW defaults
-    # off) while its own stateless prompt tells it every write becomes a
+    # Without this the specialist can write DIRECTLY when the deployment opts
+    # out of SKEIN_AGENT_REVIEW, while its own prompt says every write becomes a
     # proposal — and it reports a pending change that already landed.
     assert seen["review"] is True
 

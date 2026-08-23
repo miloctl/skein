@@ -23,6 +23,7 @@ const { state } = vi.hoisted(() => ({
       label: string;
     }[],
     requests: [] as { path: string; body?: string }[],
+    batchResults: [] as { id: number; status: string; detail?: string }[],
   },
 }));
 
@@ -49,6 +50,9 @@ vi.mock("@/lib/api", async (importOriginal) => {
     subscribeUser: () => () => {},
     api: (path: string, options?: { body?: string }) => {
       state.requests.push({ path, body: options?.body });
+      if (path === "/api/review/approve-batch") {
+        return Promise.resolve({ results: state.batchResults });
+      }
       if (path.startsWith("/api/review?status=pending")) {
         const query = new URL(path, "http://skein.test").searchParams;
         const after = Number(query.get("after") ?? 0);
@@ -70,6 +74,7 @@ beforeEach(() => {
   window.history.replaceState({}, "", "/review");
   state.rows = makeRows(55);
   state.requests = [];
+  state.batchResults = [];
 });
 
 describe("the pending review cursor", () => {
@@ -138,6 +143,24 @@ describe("the pending review cursor", () => {
       expect(document.activeElement).toBe(
         screen.getByLabelText("Proposal #53: add a task"),
       ),
+    );
+  });
+
+  it("keeps a forbidden batch row and removes only approved rows", async () => {
+    state.rows = makeRows(2);
+    state.batchResults = [
+      { id: 1, status: "approved" },
+      { id: 2, status: "forbidden", detail: "A delivery manager must approve this." },
+    ];
+    render(<ReviewPage />);
+    await screen.findByText("proposal 2");
+    screen.getAllByRole("checkbox").forEach((box) => fireEvent.click(box));
+    fireEvent.click(screen.getByRole("button", { name: /Approve selected/ }));
+
+    await waitFor(() => expect(screen.queryByText("proposal 1")).toBeNull());
+    expect(screen.getByText("proposal 2")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain(
+      "#2: A delivery manager must approve this.",
     );
   });
 

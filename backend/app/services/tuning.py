@@ -29,8 +29,8 @@ it accepts tokens the IdP already expired.
 
 SKEIN_MCP_SERVERS is absent for the second reason, not the first: an entry
 can carry a literal auth_token (agents/mcp_tools.py), and this table travels
-in every export and backup (services/admin.py::TABLES). Nothing that can hold
-a credential belongs here, whatever its shape.
+in every database backup. Nothing that can hold a credential belongs here,
+whatever its shape.
 """
 
 from collections.abc import Callable

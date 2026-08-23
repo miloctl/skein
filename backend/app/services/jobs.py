@@ -236,21 +236,16 @@ def record_outcome(job: str, status: str, detail: str = "", duration_ms: int = 0
 def _outcome_detail(result: object) -> str:
     """What a job's return value may put in job_outcomes.detail.
 
-    Counts, never rows. `job_outcomes` carries no tier of its own
-    (scope.UNSCOPED reasons that a job reads the workspace tier, so what lands
-    there is already workspace) and it is in admin.TABLES, so it is exported.
-    Two jobs break that assumption on purpose: blockers.sweep_escalations and
-    collab.sweep_stale_decisions escalate EVERY tier, and both return the rows
-    they acted on. str(result) then wrote whole private blocker and decision
-    dicts — titles, detail, owner — into the export.
+    Counts, never rows. `job_outcomes` carries no tier of its own. Two jobs
+    break the workspace-only assumption: blockers.sweep_escalations and
+    collab.sweep_stale_decisions act on every tier. Storing str(result) would
+    copy private titles, detail, and owners into an unscoped operational table.
 
     Both sweeps already route their ledger line through scope.detail and gate
-    their notify. This is the third door out of the same function.
+    their notification. This is the third door out of the same function.
 
-    A scalar stays, and it must be OUR text: skip reasons arrive as
-    {"skipped": "..."}, and agent_runner.run's `faults` names agents and their
-    reasons. Exception text interpolated into such a reason reaches the export
-    with it — a job putting a scalar here keeps it to literals and names.
+    A scalar stays, and it must be OUR text. Skip reasons and runner faults can
+    name agents and causes. A job keeps this field to literals and safe names.
     """
     if result is None:
         return ""
@@ -304,20 +299,31 @@ def run_job(spec: JobSpec) -> None:
 
 
 def job_health(specs: Sequence[JobSpec] = JOBS) -> list[dict]:
-    """Last success per registered job, with a stale flag at 2x the period.
-    Never-succeeded jobs count as stale only once they have any recorded
-    attempt older than the threshold — a fresh install isn't an incident."""
+    """Last attempt and success per job, with staleness at 2x the period.
+
+    A fresh install is not stale. The latest status stays separate so one failed
+    attempt is visible immediately instead of waiting for the stale threshold.
+    """
     now = datetime.now(UTC)
-    last_ok = {
-        r["job"]: r["ts"]
-        for r in db.query(
-            "SELECT job, MAX(created_at) AS ts FROM job_outcomes WHERE status = 'ok' GROUP BY job"
-        )
-    }
-    first_seen = {
-        r["job"]: r["ts"]
-        for r in db.query("SELECT job, MIN(created_at) AS ts FROM job_outcomes GROUP BY job")
-    }
+    with db.read_transaction():
+        last_ok = {
+            r["job"]: r["ts"]
+            for r in db.query(
+                "SELECT job, MAX(created_at) AS ts FROM job_outcomes"
+                " WHERE status = 'ok' GROUP BY job"
+            )
+        }
+        first_seen = {
+            r["job"]: r["ts"]
+            for r in db.query("SELECT job, MIN(created_at) AS ts FROM job_outcomes GROUP BY job")
+        }
+        latest = {
+            r["job"]: r
+            for r in db.query(
+                "SELECT DISTINCT ON (job) job, status, created_at FROM job_outcomes"
+                " ORDER BY job, created_at DESC, id DESC"
+            )
+        }
     out = []
     for spec in specs:
         threshold = (now - timedelta(hours=2 * spec.period_hours)).isoformat(timespec="seconds")
@@ -327,5 +333,14 @@ def job_health(specs: Sequence[JobSpec] = JOBS) -> list[dict]:
         else:
             seen = first_seen.get(spec.name)
             stale = bool(seen and seen < threshold)
-        out.append({"job": spec.name, "last_success": ok_ts, "stale": stale})
+        last = latest.get(spec.name)
+        out.append(
+            {
+                "job": spec.name,
+                "last_success": ok_ts,
+                "last_attempt": last["created_at"] if last else None,
+                "last_status": last["status"] if last else None,
+                "stale": stale,
+            }
+        )
     return out

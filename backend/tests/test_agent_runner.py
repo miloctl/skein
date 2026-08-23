@@ -130,6 +130,40 @@ def test_one_run_per_agent_per_day(fresh_db, monkeypatch):
     assert len(calls) == 1
 
 
+def test_the_wake_names_the_remaining_budget_when_a_ceiling_is_set(fresh_db, monkeypatch):
+    """The ceiling refuses the NEXT run, never this one mid-turn — so the
+    model must be told what remains and told to converge near the limit."""
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "AGENT_DAILY_TOKENS", 50_000)
+    from app.services import usage
+
+    usage.record_chat_usage("runner", "research-agent", "m", 5_000, 7_500)
+    usage.record_chat_usage("other", "planner-agent", "m", 20_000, 20_000)
+    original_now = usage.db.now
+    monkeypatch.setattr(usage.db, "now", lambda: "2000-01-01T00:00:00+00:00")
+    usage.record_chat_usage("old", "research-agent", "m", 10_000, 10_000)
+    monkeypatch.setattr(usage.db, "now", original_now)
+
+    seen = []
+
+    def _fake_build(thread, user="", persona="", stateless=False):
+        return lambda msg: seen.append(msg) or "did a thing"
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", _fake_build)
+    assert agent_runner.run_one("research-agent")["ran"] is True
+    assert "Token budget for today: 37,500 of 50,000" in seen[0]
+    assert "do not explore" in seen[0]
+
+    # no ceiling: no budget sentence — a claim about a bound that is off
+    monkeypatch.setattr(config, "AGENT_DAILY_TOKENS", 0)
+    fresh_db.execute("DELETE FROM job_runs WHERE job LIKE 'agent-run:%'")
+    seen.clear()
+    assert agent_runner.run_one("research-agent")["ran"] is True
+    assert "Token budget" not in seen[0]
+
+
 def test_one_agent_failing_does_not_stop_the_fleet(fresh_db, monkeypatch):
     """run() is a scheduled job. A raise marks the whole sweep failed on
     /health when the other agents ran fine."""

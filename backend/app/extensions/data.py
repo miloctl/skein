@@ -27,7 +27,10 @@ def schema_for(name: str) -> str:
     slug = _UNSAFE.sub("_", name.strip().lower())
     if not slug or not slug[0].isascii() or not slug[0].isalpha():
         raise ValueError("An extension store needs a name that starts with a letter.")
-    return f"ext_{slug}"
+    schema = f"ext_{slug}"
+    if len(schema.encode("utf-8")) > 63:
+        raise ValueError("An extension store schema name must be 63 bytes or fewer.")
+    return schema
 
 
 class ExtensionStore:
@@ -55,7 +58,7 @@ class ExtensionStore:
 
     @contextmanager
     def _scope(self) -> Iterator[None]:
-        db.execute(f'CREATE SCHEMA IF NOT EXISTS "{self.schema}"')
+        db.ensure_owned_schema(self.schema)
         with db.schema_scope(self.schema):
             yield
 
@@ -67,7 +70,9 @@ class ExtensionStore:
         two different schemas in the field under one version number, and
         nothing would say which one a database has.
         """
-        with self._scope():
+        with db.transaction(), self._scope():
+            # The schema name lock from ensure_owned_schema stays held until
+            # every migration statement and its version receipt commit.
             db.execute(
                 "CREATE TABLE IF NOT EXISTS extension_schema_version"
                 " (version bigint PRIMARY KEY, name text NOT NULL,"

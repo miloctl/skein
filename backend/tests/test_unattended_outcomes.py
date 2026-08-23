@@ -73,6 +73,6 @@ def test_a_fleet_that_could_not_build_reports_error(fresh_db, monkeypatch):
     )
     out = agent_runner.run()
     assert out["status"] == "error"
-    # the agent and the exception CLASS, never the provider's message: this
-    # string reaches job_outcomes.detail, which admin.export ships
+    # The agent and exception CLASS, never the provider message. This string
+    # reaches the unscoped job_outcomes.detail and every database backup.
     assert out["faults"] == "scout: could not build: RuntimeError"

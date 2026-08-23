@@ -144,17 +144,18 @@ def test_demoting_a_record_to_private_removes_it_from_the_index(fresh_db):
 
 
 def test_a_private_row_stays_out_of_the_export(fresh_db):
-    """The export is JSON on disk and the mirror copies it off-box, so no
-    downstream check can take a private row back."""
+    """The export is plaintext JSON. A private row cannot leave and rely on a
+    later consumer to remove it."""
     import json as j
+    from pathlib import Path
 
     from app.services import admin
 
     users.ensure_user("ava")
     collab.save_note("secrets", "vendor terms", author="ava", actor="ava", visibility="private")
     collab.save_note("public", "open terms", author="ava", actor="ava")
-    out = admin.export()
-    dump = j.loads(__import__("pathlib").Path(out["path"]).read_text())
+    result = admin.export()
+    dump = j.loads(Path(result["path"]).read_text(encoding="utf-8"))
     assert [n["topic"] for n in dump["notes"]] == ["public"]
 
 

@@ -171,13 +171,83 @@ def test_admin_backup_and_export(client):
     # backup and export are admin surfaces: strong identity required
     assert client.post("/api/admin/backup").status_code == 403
     assert client.get("/api/admin/export").status_code == 403
+    assert client.get("/api/admin/export/download").status_code == 403
+    from app import db
+    from app.services.api_keys import create_key
+
+    assert db.query_one("SELECT id FROM activity WHERE action = 'export'") is None
+    key = create_key("tester", "t")["key"]
+    b = client.post("/api/admin/backup", headers={"Authorization": f"Bearer {key}"}).json()
+    assert b["status"] == "ok"
+    assert b["database_path"].endswith(".dump")
+    assert b["mirror_status"] == "not_configured"
+    assert b["artifacts_included"] is False
+    legacy = client.get("/api/admin/export", headers={"Authorization": f"Bearer {key}"})
+    legacy_body = legacy.json()
+    assert legacy_body["tables"]["users"] >= 1
+    assert "/" not in legacy_body["path"]
+    assert legacy.headers["cache-control"] == "private, no-store"
+
+    response = client.get("/api/admin/export/download", headers={"Authorization": f"Bearer {key}"})
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert "attachment" in response.headers["content-disposition"]
+    assert "skein-export-" in response.headers["content-disposition"]
+    assert response.headers["x-skein-filename"].startswith("skein-export-")
+    assert "accept-ranges" not in response.headers
+    exported = response.json()
+    assert exported["users"]
+    assert "path" not in exported and "tables" not in exported
+
+    refused = client.get(
+        "/api/admin/export/download",
+        headers={"Authorization": f"Bearer {key}", "Range": "bytes=10-"},
+    )
+    assert refused.status_code == 416
+    assert refused.json()["detail"] == "This export cannot resume. Start a new download."
+
+    limited = client.get("/api/admin/export/download", headers={"Authorization": f"Bearer {key}"})
+    assert limited.status_code == 429
+    assert int(limited.headers["retry-after"]) > 0
+    receipts = db.query("SELECT actor, action FROM activity WHERE action = 'export' ORDER BY seq")
+    assert receipts == [
+        {"actor": "tester", "action": "export"},
+        {"actor": "tester", "action": "export"},
+    ]
+
+
+def test_export_filename_header_is_visible_to_the_browser(client):
     from app.services.api_keys import create_key
 
     key = create_key("tester", "t")["key"]
-    b = client.post("/api/admin/backup", headers={"Authorization": f"Bearer {key}"}).json()
-    assert b["path"].endswith(".dump")  # pg_dump custom format
-    e = client.get("/api/admin/export", headers={"Authorization": f"Bearer {key}"}).json()
-    assert e["tables"]["users"] >= 1
+    response = client.get(
+        "/api/admin/export/download",
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Origin": "http://localhost:3000",
+        },
+    )
+    assert response.status_code == 200
+    exposed = response.headers["access-control-expose-headers"].lower()
+    assert "x-skein-filename" in exposed
+
+
+def test_browser_export_refuses_an_unbounded_blob(client, monkeypatch):
+    from app import db
+    from app.services import admin
+    from app.services.api_keys import create_key
+
+    monkeypatch.setattr(admin, "MAX_EXPORT_DOWNLOAD_BYTES", 1)
+    key = create_key("tester", "t")["key"]
+    response = client.get(
+        "/api/admin/export/download",
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert response.status_code == 413
+    assert "too large" in response.json()["detail"]
+    assert db.query_one("SELECT id FROM activity WHERE action = 'export'") is None
 
 
 def _read_chat(client, message):

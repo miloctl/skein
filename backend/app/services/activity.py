@@ -11,8 +11,8 @@ Two verifications, on purpose:
   answers "is the ledger intact", and it is the one an operator acts on.
 
 Rows can sit OUTSIDE the chain: pre-036 rows never carried a seq, and
-db.log_activity records a row unchained when the chain lock cannot be taken (a
-business write must not 500 over bookkeeping). The nightly job ADOPTS them —
+db.log_activity records a row unchained when a standalone chained append fails
+(a business write must not 500 over bookkeeping). The nightly job ADOPTS them —
 assigns each the tail seq and hash, appends one chained receipt naming the
 rows, and lowers the unchained baseline to what remains. Adoption attests
 content from that moment on, never provenance: an adopted row cannot be edited
@@ -23,16 +23,17 @@ EXPECTED — the pre-chain baseline plus the fallback appends this process
 recorded (db.UNCHAINED_FALLBACKS). Adopted above expected is a row nothing here
 wrote. A count is what a machine can check: pointed at the server log instead,
 an operator who found one genuine warning cleared every row adopted that night,
-because one receipt covers them all. The counter under-counts rather than over-
-counts (its bump is a second write on a path the lock already refused), so the
-comparison errs toward reporting, which is the safe direction for this signal.
+because one receipt covers them all. The row and counter share one transaction
+and one fallback lock. A counter savepoint can fail while the row survives, so
+the counter under-counts. The comparison then errs toward reporting.
 
 WHAT THIS CATCHES, and what it does not. The digest is unkeyed and every input
 to it is stored in the row it protects, so anyone who can write the database can
-recompute the whole chain. Three marks in app_settings raise that cost — the
-last verified anchor, a monotonic high-water seq, and the pre-036 unchained
-baseline — but they live in the same file, so they do not defeat an attacker
-who read this module and rewrites app_settings too.
+recompute the whole chain. The append path stores the live tip sequence and
+digest in the same transaction as each row. Verification compares that tip,
+the last verified anchor, and the legacy unchained baseline. These marks live
+in the same database, so they do not defeat an attacker who also rewrites
+app_settings.
 
 The ANCHOR LOG covers that case. Each successful nightly verification appends
 the verified tip (seq + digest) to a file beside the backups AND,
@@ -42,14 +43,18 @@ as it exists now, so a re-forge or a truncation has to contradict a record
 made on an earlier day, and deleting or rewriting the local log is caught by
 the mirror's copy of the same lines. Honest limits, in order of sharpness:
 rows newer than the last nightly line are covered only by the in-DB marks
-until tonight; without a configured mirror, the local log is the only record
-and deleting it silences the check; an attacker who can write the mirror too
-is not caught at all; an unmounted mirror is skipped for that run, not
-failed. Detection, never prevention.
+until tonight. Without a mirror, the local log is the only independent history.
+Losing it raises a missing-anchor fault while the in-DB anchor remains. An
+attacker who can rewrite the database and every anchor file is not caught. A
+missing mirror is skipped when the local anchor succeeds. Detection, never
+prevention.
 """
 
 import logging
+import os
 import re
+from bisect import bisect_right
+from itertools import pairwise
 
 from .. import db
 
@@ -57,7 +62,8 @@ log = logging.getLogger("skein")
 
 ANCHOR_SEQ = "activity_chain_seq"
 ANCHOR_HASH = "activity_chain_hash"
-HIGH_SEQ = "activity_chain_high_seq"
+HIGH_SEQ = db.ACTIVITY_HIGH_SEQ
+HIGH_HASH = db.ACTIVITY_HIGH_HASH
 LEGACY_UNCHAINED = "activity_chain_legacy"
 
 
@@ -74,9 +80,36 @@ def _int_setting(got: dict[str, str], key: str) -> int:
         return 0
 
 
+def _mark_int(got: dict[str, str], key: str, *, required: bool = False) -> int:
+    raw = got.get(key)
+    if raw is None:
+        if required:
+            raise ValueError(f"{key} is missing")
+        return 0
+    if (
+        not re.fullmatch(r"(?:0|[1-9][0-9]*)", raw)
+        or len(raw) > 19
+        or (len(raw) == 19 and raw > "9223372036854775807")
+    ):
+        raise ValueError(f"{key} is invalid")
+    return int(raw)
+
+
+def _mark_hash(got: dict[str, str], key: str, *, required: bool = False) -> str:
+    value = got.get(key, "")
+    if not value and not required:
+        return ""
+    if not re.fullmatch(r"[0-9a-f]{64}", value):
+        raise ValueError(f"{key} is invalid")
+    return value
+
+
 def _anchor() -> tuple[int, str]:
     got = _settings(ANCHOR_SEQ, ANCHOR_HASH)
-    return _int_setting(got, ANCHOR_SEQ), got.get(ANCHOR_HASH, "")
+    seq = _mark_int(got, ANCHOR_SEQ)
+    if seq == 0 and ANCHOR_HASH in got:
+        raise ValueError(f"{ANCHOR_HASH} has no sequence")
+    return seq, _mark_hash(got, ANCHOR_HASH, required=seq > 0)
 
 
 def _put(pairs: dict[str, str]) -> None:
@@ -103,46 +136,43 @@ def _digest(row: dict) -> str:
         row["created_at"],
         row["actor"],
         row["action"],
-        row["detail"] or "",
-        row["prev_hash"] or db.GENESIS_PREV,
+        row["detail"],
+        db.GENESIS_PREV if row["seq"] == 1 else row["prev_hash"],
     )
 
 
-def verify_chain(since_seq: int = 0, expected_prev: str = "") -> dict:
-    """Recompute every digest after since_seq and check it links backwards.
+def _shape_fault(since_seq: int) -> dict | None:
+    sql = (
+        "SELECT id, seq FROM activity WHERE ("
+        " detail IS NULL OR seq <= 0"
+        " OR (seq IS NULL AND (hash IS NOT NULL OR prev_hash IS NOT NULL))"
+        " OR (seq = 1 AND (hash IS NULL OR hash !~ '^[0-9a-f]{64}$'"
+        " OR prev_hash IS NOT NULL))"
+        " OR (seq > 1 AND (hash IS NULL OR hash !~ '^[0-9a-f]{64}$'"
+        " OR prev_hash IS NULL OR prev_hash !~ '^[0-9a-f]{64}$')))"
+    )
+    params: tuple = ()
+    if since_seq:
+        # The incremental check covers its anchor and suffix. The daily full
+        # walk owns old chained rows, or this cheap path becomes O(N) too.
+        sql += " AND (seq IS NULL OR seq >= ?)"
+        params = (since_seq,)
+    return db.query_one(sql + " ORDER BY id LIMIT 1", params)
 
-    A link walk alone proves too little. Three deletions leave a shorter chain
-    that is internally perfect, so each is checked against state held outside
-    the rows themselves:
 
-    - Cutting the TAIL off. Caught by a monotonic high-water mark: the chain
-      may never be shorter than the longest it has ever been verified at.
-    - Cutting the HEAD off and re-rooting the survivor. Caught by requiring a
-      full walk to start at seq 1, since a NULL prev_hash means genesis and
-      genesis is only legal there.
-    - Rewriting history and re-anchoring. A full walk cross-checks the stored
-      anchor, so the newest blessed digest must still be reproducible.
-
-    expected_prev is the digest the row AT since_seq must still produce. That
-    row is re-derived from its own content on every run, because an
-    incremental walk only looks forward and would never revisit the newest row
-    it already blessed.
-    """
+def _verify_chain_snapshot(since_seq: int = 0, expected_prev: str = "") -> tuple[dict, int, str]:
+    """Walk one repeatable-read snapshot and return its exact live tip."""
     rows = db.query(
         "SELECT seq, hash, prev_hash, actor, action, detail, created_at FROM activity"
         " WHERE seq IS NOT NULL AND seq > ? ORDER BY seq ASC",
         (since_seq,),
     )
     unchained = db.query_row("SELECT COUNT(*) AS n FROM activity WHERE seq IS NULL")["n"]
-    marks = _settings(HIGH_SEQ, LEGACY_UNCHAINED)
-    high = _int_setting(marks, HIGH_SEQ)
-    if LEGACY_UNCHAINED not in marks:  # first ever run — today's count IS the baseline
-        _put({LEGACY_UNCHAINED: str(unchained)})
-        marks[LEGACY_UNCHAINED] = str(unchained)
-    legacy = _int_setting(marks, LEGACY_UNCHAINED)
     latest = db.query_row("SELECT COALESCE(MAX(seq), 0) AS seq FROM activity")["seq"]
-    anchor_seq, anchor_hash = _anchor()
-
+    tail = db.query_one(
+        "SELECT seq, hash FROM activity WHERE seq IS NOT NULL ORDER BY seq DESC LIMIT 1"
+    )
+    marks = _settings(HIGH_SEQ, HIGH_HASH, LEGACY_UNCHAINED)
     out: dict = {
         "ok": True,
         "entries": len(rows),
@@ -151,38 +181,75 @@ def verify_chain(since_seq: int = 0, expected_prev: str = "") -> dict:
         "broken_at": None,
         "reason": "",
         "unchained_rows": unchained,
-        "unchained_baseline": legacy,
+        "unchained_baseline": 0,
     }
 
-    if latest < high:
+    if fault := _shape_fault(since_seq):
         out.update(
             ok=False,
-            broken_at=latest + 1,
-            reason=f"chain ends at {latest} but reached {high} before — the tail was removed",
-        )
-        return out
-    if unchained > legacy:
-        n = unchained - legacy
-        noun = "1 row sits" if n == 1 else f"{n} rows sit"
-        out.update(
-            ok=False,
-            # the SAME remedy the ledger_rows_adopted finding gives
-            # (services/insights.py): one condition, one wording
+            broken_at=fault["seq"],
             reason=(
-                f"{noun} outside the chain. The nightly adoption chains every"
-                " unchained row and records an adopt_unchained receipt naming two"
-                " counts. If the rows adopted are more than the rows expected,"
-                " a row reached the database outside the service layer."
-                " Treat that as tampering and compare the ledger against the most"
-                " recent backup in data/backups."
+                f"activity row {fault['id']} has invalid chain fields. Compare the"
+                " ledger with the most recent backup."
             ),
         )
-        # NO return: the digest walk below is this function's primary job, and
-        # returning here let ONE unchained row suppress it. That was cheap to
-        # arrange — insert a row with a NULL seq, then re-forge the chain, and
-        # the walk never ran. check_anchor_log already refuses to return early
-        # for the same reason. A break found below overwrites this reason,
-        # because a broken digest is the more specific finding of the two.
+        return out, latest, tail["hash"] if tail else ""
+
+    try:
+        legacy = _mark_int(marks, LEGACY_UNCHAINED, required=True)
+        anchor_seq, anchor_hash = _anchor()
+        if latest:
+            live_seq = _mark_int(marks, HIGH_SEQ, required=True)
+            live_hash = _mark_hash(marks, HIGH_HASH, required=True)
+        else:
+            if HIGH_SEQ in marks or HIGH_HASH in marks:
+                raise ValueError("the empty chain has a live tip")
+            live_seq, live_hash = 0, ""
+    except ValueError as exc:
+        out.update(
+            ok=False,
+            reason=(
+                f"An activity-chain mark is invalid ({exc}). Compare app_settings"
+                " with the most recent backup."
+            ),
+        )
+        return out, latest, tail["hash"] if tail else ""
+
+    out["unchained_baseline"] = legacy
+    if latest != live_seq:
+        removed = latest < live_seq
+        out.update(
+            ok=False,
+            broken_at=min(latest, live_seq) + 1,
+            reason=(
+                f"The chain ends at {latest}, but its append-owned tip is {live_seq}."
+                if removed
+                else f"The chain reaches {latest}, but its append-owned tip is {live_seq}."
+            )
+            + " Compare the ledger with the most recent backup.",
+        )
+        return out, latest, tail["hash"] if tail else ""
+    if unchained != legacy:
+        difference = abs(unchained - legacy)
+        if unchained > legacy:
+            noun = "1 row sits" if difference == 1 else f"{difference} rows sit"
+            reason = (
+                f"{noun} outside the chain. The nightly adoption chains every"
+                " unchained row and records an adopt_unchained receipt with the"
+                " adopted and expected counts. If the adopted count is larger, a"
+                " row reached the database outside the service layer. Treat that as"
+                " tampering. Compare the ledger with the most recent backup in"
+                " data/backups."
+            )
+        else:
+            noun = "1 unchained row is" if difference == 1 else f"{difference} unchained rows are"
+            reason = (
+                f"{noun} missing from the recorded baseline. Compare the ledger"
+                " with the most recent backup in data/backups."
+            )
+        out.update(ok=False, reason=reason)
+        # Continue the digest walk. An unchained-row change must not mask a
+        # forged chained row, which is the more specific fault.
 
     prev = db.GENESIS_PREV
     if since_seq > 0:
@@ -192,38 +259,56 @@ def verify_chain(since_seq: int = 0, expected_prev: str = "") -> dict:
             (since_seq,),
         )
         if anchor is None:
-            out.update(ok=False, broken_at=since_seq, reason="anchor row is missing")
-            return out
+            out.update(ok=False, broken_at=since_seq, reason="The anchor row is missing.")
+            return out, latest, tail["hash"] if tail else ""
         prev = _digest(anchor)
         if prev != (expected_prev or anchor["hash"]):
             out.update(
-                ok=False, broken_at=since_seq, reason="row content does not match its digest"
+                ok=False,
+                broken_at=since_seq,
+                reason="The row content does not match its digest.",
             )
-            return out
+            return out, latest, tail["hash"] if tail else ""
     elif rows and rows[0]["seq"] != 1:
         out.update(
             ok=False,
             broken_at=rows[0]["seq"],
-            reason=f"chain starts at {rows[0]['seq']}, not 1 — the head was removed",
+            reason=(
+                f"The chain starts at {rows[0]['seq']}, not 1. Compare the ledger"
+                " with the most recent backup."
+            ),
         )
-        return out
+        return out, latest, tail["hash"] if tail else ""
 
     want = 1 if since_seq == 0 else since_seq + 1
     for row in rows:
         seq = row["seq"]
         if seq != want:
-            out.update(ok=False, broken_at=want, reason=f"missing seq {want}")
-            return out
-        if (row["prev_hash"] or db.GENESIS_PREV) != prev:
-            out.update(ok=False, broken_at=seq, reason="prev_hash does not match the row before")
-            return out
+            out.update(ok=False, broken_at=want, reason=f"Sequence {want} is missing.")
+            return out, latest, tail["hash"] if tail else ""
+        expected_link = db.GENESIS_PREV if seq == 1 else row["prev_hash"]
+        if expected_link != prev:
+            out.update(
+                ok=False,
+                broken_at=seq,
+                reason="The previous digest does not match the row before it.",
+            )
+            return out, latest, tail["hash"] if tail else ""
         digest = _digest(row)
         if digest != row["hash"]:
-            out.update(ok=False, broken_at=seq, reason="row content does not match its digest")
-            return out
+            out.update(
+                ok=False,
+                broken_at=seq,
+                reason="The row content does not match its digest.",
+            )
+            return out, latest, tail["hash"] if tail else ""
         if since_seq == 0 and seq == anchor_seq and anchor_hash and digest != anchor_hash:
-            out.update(ok=False, broken_at=seq, reason="the stored anchor does not match this row")
-            return out
+            out.update(
+                ok=False,
+                broken_at=seq,
+                reason="The verified anchor does not match this row.",
+            )
+            return out, latest, tail["hash"] if tail else ""
         prev = digest
         want += 1
 
@@ -231,26 +316,71 @@ def verify_chain(since_seq: int = 0, expected_prev: str = "") -> dict:
         out.update(
             ok=False,
             broken_at=latest + 1,
-            reason=f"the stored anchor points at seq {anchor_seq}, past the end of the chain",
+            reason=(
+                f"The verified anchor points at sequence {anchor_seq}, past the chain"
+                " end. Compare the ledger with the most recent backup."
+            ),
         )
-        return out
-    if latest > high:
-        _put({HIGH_SEQ: str(latest)})
-    return out
+        return out, latest, tail["hash"] if tail else ""
+    if latest and (tail is None or tail["hash"] != live_hash):
+        out.update(
+            ok=False,
+            broken_at=latest,
+            reason=(
+                "The chain tail does not match its append-owned digest. Compare the"
+                " ledger with the most recent backup."
+            ),
+        )
+    return out, latest, tail["hash"] if tail else ""
 
 
-def verify_tail() -> dict:
-    """Verify what arrived since the last good anchor, then move the anchor.
+def verify_chain(since_seq: int = 0, expected_prev: str = "") -> dict:
+    """Recompute the chain from one read snapshot without changing trust marks."""
+    with db.read_transaction():
+        result, _, _ = _verify_chain_snapshot(since_seq, expected_prev)
+    return result
 
-    A break leaves the anchor where it was, so every later run re-reports it
-    until a human deals with it. Silence after a break would be the worst
-    possible outcome for an audit trail.
+
+def _advance_anchor(seq: int, digest: str) -> None:
+    """Advance the verified anchor without letting concurrent checks regress it."""
+    with db.transaction():
+        db.hold_activity_chain()
+        current_seq, current_hash = _anchor()
+        if current_seq > seq:
+            return
+        if current_seq == seq:
+            if current_hash != digest:
+                raise db.ActivityChainError("the verified anchor changed at one sequence")
+            return
+        row = db.query_one("SELECT hash FROM activity WHERE seq = ?", (seq,))
+        if row is None or row["hash"] != digest:
+            raise db.ActivityChainError("the verified tip changed before it was anchored")
+        _set_anchor(seq, digest)
+
+
+def verify_tail(*, advance: bool = False) -> dict:
+    """Verify the suffix after the stored anchor.
+
+    Reads are pure by default. The scheduled job sets advance=True after it
+    obtains a valid result, so a weak GET cannot change the trust baseline.
     """
-    seq, digest = _anchor()
-    result = verify_chain(seq, expected_prev=digest)
-    if result["ok"] and result["chained_through"]:
-        last = db.query_row("SELECT hash FROM activity WHERE seq = ?", (result["chained_through"],))
-        _set_anchor(result["chained_through"], last["hash"])
+    with db.read_transaction():
+        try:
+            seq, digest = _anchor()
+        except ValueError as exc:
+            return {
+                "ok": False,
+                "entries": 0,
+                "chained_from": None,
+                "chained_through": None,
+                "broken_at": None,
+                "reason": f"The verified anchor is invalid ({exc}).",
+                "unchained_rows": 0,
+                "unchained_baseline": 0,
+            }
+        result, tip_seq, tip_hash = _verify_chain_snapshot(seq, digest)
+    if advance and result["ok"] and tip_seq:
+        _advance_anchor(tip_seq, tip_hash)
     return result
 
 
@@ -260,7 +390,10 @@ ANCHOR_LOG = "activity-anchors.log"
 # NEW log matches nothing and, because non-matching lines are skipped,
 # reports ok with checked=0. Rolling back past this change means the anchor
 # replay silently stops checking.
-_ANCHOR_LINE = re.compile(r"^\S+ seq=(\d+) hash=([0-9a-f]{64})(?: unchained=(\d+))?$")
+_ANCHOR_LINE = re.compile(
+    r"^\S+ seq=([1-9][0-9]{0,18}) hash=([0-9a-f]{64})"
+    r"(?: unchained=(0|[1-9][0-9]{0,18}))?$"
+)
 
 
 def _anchor_log_paths() -> list:
@@ -282,14 +415,27 @@ def _anchor_log_paths() -> list:
 def _tail_anchor_line(path) -> tuple[int, str] | None:
     """The last parseable (seq, digest) in an anchor file, or None."""
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return None
     for raw in reversed(lines):
         m = _ANCHOR_LINE.match(raw.strip())
         if m:
-            return int(m.group(1)), m.group(2)
+            seq = int(m.group(1))
+            if seq <= 9_223_372_036_854_775_807:
+                return seq, m.group(2)
     return None
+
+
+def _sync_anchor(path) -> None:
+    """Flush one anchor and its directory entry before reporting success."""
+    with path.open("rb") as fh:
+        os.fsync(fh.fileno())
+    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 def _lowest_anchored_baseline() -> int | None:
@@ -304,14 +450,15 @@ def _lowest_anchored_baseline() -> int | None:
         if not path.exists():
             continue
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
             continue
         for raw in lines:
             m = _ANCHOR_LINE.match(raw.strip())
             if m and m.group(3) is not None:
-                v = int(m.group(3))
-                lowest = v if lowest is None else min(lowest, v)
+                value = int(m.group(3))
+                if value <= 9_223_372_036_854_775_807:
+                    lowest = value if lowest is None else min(lowest, value)
     return lowest
 
 
@@ -335,16 +482,10 @@ def record_anchor() -> dict:
     seq, digest = _anchor()
     if not seq or not digest:
         return {"anchored": 0, "files": []}
-    # The unchained BASELINE rides along. The in-DB baseline self-heals: it is
-    # re-derived whenever the app_settings key is absent, so deleting one row
-    # re-baselines to whatever is present now and launders any row smuggled in
-    # outside the chain. Anchoring it makes that a dated, mirrored
-    # contradiction instead of a silent reset — the same property the anchor
-    # log already gives the chain itself.
-    # Anchor the LOWEST baseline ever recorded, not today's. Writing the
-    # current value meant one night after a laundering the elevated baseline
-    # became the new max() and the contradiction erased itself — the check
-    # held for under 24 hours and then went quiet again.
+    # The migration records the unchained baseline once, and adoption only
+    # lowers it. A database writer can still raise that setting to match a row
+    # inserted outside the chain. Anchor the LOWEST value ever recorded, or one
+    # later anchor would turn the rewritten value into the new external truth.
     baseline = _int_setting(_settings(LEGACY_UNCHAINED), LEGACY_UNCHAINED)
     # `or baseline` was wrong the moment adoption started anchoring 0: zero is
     # falsy, so the lowest-ever clamp this line exists for silently stopped
@@ -357,6 +498,7 @@ def record_anchor() -> dict:
     for path in _anchor_log_paths():
         try:
             if _tail_anchor_line(path) == (seq, digest):
+                _sync_anchor(path)
                 current.append(str(path))
                 continue
             # no mkdir here, deliberately. _backups_dir() already creates the
@@ -375,6 +517,7 @@ def record_anchor() -> dict:
                         prefix = "\n"
             with path.open("a", encoding="utf-8") as fh:
                 fh.write(prefix + line)
+            _sync_anchor(path)
             written.append(str(path))
         except OSError:
             log.warning("could not append the chain anchor to %s", path, exc_info=True)
@@ -417,6 +560,14 @@ def adopt_unchained(actor: str = "scheduler") -> dict:
         # db.py's flush takes this same lock last, so taking it after any
         # write here would close a deadlock cycle with every ordinary append.
         db.hold_activity_chain()
+        # SECOND, after the chain lock. Fallback writers take only this lock, so
+        # adoption can snapshot their rows and counter without a deadlock cycle.
+        db.hold_activity_fallbacks()
+        marks = _settings(LEGACY_UNCHAINED, db.UNCHAINED_FALLBACKS)
+        # The migration owns this baseline. If it is absent or malformed,
+        # adoption must not replace the fault with a fresh zero.
+        legacy = _mark_int(marks, LEGACY_UNCHAINED, required=True)
+        recorded = _mark_int(marks, db.UNCHAINED_FALLBACKS)
         orphans = db.query(
             "SELECT id, actor, action, detail, created_at FROM activity"
             # created_at first: the seqs land at the tail either way, but the
@@ -440,6 +591,10 @@ def adopt_unchained(actor: str = "scheduler") -> dict:
                 (seq, digest, None if prev == db.GENESIS_PREV else prev, row["id"]),
             )
             prev = digest
+        # The receipt appended at commit validates the tail against this mark.
+        # Move both in this transaction, or adoption creates the contradiction
+        # that the append guard exists to stop.
+        db.advance_activity_tip(seq, prev)
         ids = [r["id"] for r in orphans]
         shown = ", ".join(str(i) for i in ids[:20])
         if len(ids) > 20:
@@ -450,15 +605,11 @@ def adopt_unchained(actor: str = "scheduler") -> dict:
         # predate the chain were never counted by the fallback counter (it did
         # not exist), so comparing against that counter alone reported the
         # first upgrade of every existing deployment as tampering.
-        marks = _settings(LEGACY_UNCHAINED, db.UNCHAINED_FALLBACKS)
-        legacy = _int_setting(marks, LEGACY_UNCHAINED)
-        recorded = _int_setting(marks, db.UNCHAINED_FALLBACKS)
         accounted = legacy + recorded
-        # The counter is best-effort — its bump is a second write, taken on a
-        # path the chain append already failed once (db.py), so it can be lost.
-        # It therefore UNDER-counts, and the comparison errs toward reporting
-        # rather than toward silence. That is the safe direction for a tamper
-        # signal, and the finding says so rather than claiming a verdict.
+        # The counter is best-effort. A savepoint preserves the unchained row if
+        # its counter update fails, so it can under-count but cannot leave stale
+        # credit after adoption consumes the row. Under-counting reports too
+        # much, which is the safe direction for this signal.
         db.log_activity(
             actor,
             "adopt_unchained",
@@ -483,10 +634,33 @@ def nightly_verify() -> dict:
     Anchoring only on ok is the point — after a break, appending would anchor
     a digest the verification just refused to bless.
     """
+    prior_seq, _ = _anchor()
+    if prior_seq:
+        existing = check_anchor_log()
+        if not existing["ok"]:
+            return {
+                "ok": False,
+                "status": "error",
+                "reason": (
+                    "The existing activity anchor record is incomplete. Check the"
+                    f" backup paths before another anchor is written. {existing['reason']}"
+                ),
+                "adopted": 0,
+                "anchor_check": existing,
+            }
     adopted = adopt_unchained()
-    result = verify_tail()
-    if result["ok"]:
+    result = verify_tail(advance=True)
+    if not result["ok"]:
+        result["status"] = "error"
+    else:
         result["anchor"] = record_anchor()
+        seq, _ = _anchor()
+        if seq and not result["anchor"]["anchored"]:
+            result["status"] = "error"
+            result["reason"] = (
+                "The verified activity tip was not saved to an anchor file."
+                " Check the backup paths and file permissions."
+            )
     result["adopted"] = adopted["adopted"]
     return result
 
@@ -503,23 +677,33 @@ def check_anchor_log() -> dict:
     mounted. Reading both is what makes deleting or rewriting the local log
     detectable: the deleted case falls back to the mirror's lines, and the
     rewritten-consistent-with-the-forgery case conflicts with the mirror's
-    honest lines for the same seq. Without a mirror the local file is the only
-    record, and losing it loses the check — the module docstring says so.
+    honest lines for the same seq. Without a mirror, the local file is the only
+    independent record. Losing its newest line raises a fault while the in-DB
+    anchor remains.
     Lines that do not parse are skipped, not failed: a crash mid-append tears
     a line, and a false tamper alarm teaches the operator to ignore the true
     one.
     """
     out: dict = {"ok": True, "checked": 0, "seq": None, "reason": ""}
     recorded: dict[int, str] = {}
-    anchored_baseline: int | None = None
+    baselines: dict[int, int] = {}
     for path in _anchor_log_paths():
         if not path.exists():
             continue
-        for raw in path.read_text(encoding="utf-8").splitlines():
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for raw in lines:
             m = _ANCHOR_LINE.match(raw.strip())
             if not m:
                 continue
             seq, digest = int(m.group(1)), m.group(2)
+            baseline = int(m.group(3)) if m.group(3) is not None else None
+            if seq > 9_223_372_036_854_775_807 or (
+                baseline is not None and baseline > 9_223_372_036_854_775_807
+            ):
+                continue
             if recorded.get(seq, digest) != digest:
                 out.update(
                     ok=False,
@@ -528,69 +712,197 @@ def check_anchor_log() -> dict:
                 )
                 return out
             recorded[seq] = digest
-            if m.group(3) is not None:
-                v = int(m.group(3))
-                anchored_baseline = v if anchored_baseline is None else min(anchored_baseline, v)
+            if baseline is not None:
+                if seq in baselines and baselines[seq] != baseline:
+                    out.update(
+                        ok=False,
+                        seq=seq,
+                        reason="the anchor logs disagree about this entry",
+                    )
+                    return out
+                baselines[seq] = baseline
     out["checked"] = len(recorded)
-    # The in-DB baseline is re-derived whenever its app_settings row is
-    # absent, so deleting that one row re-baselines to whatever is present
-    # now — laundering any row smuggled in outside the chain, and leaving no
-    # trace the in-DB marks can see. A baseline ABOVE the lowest ever
-    # anchored is that reset. adopt_unchained only ever LOWERS the baseline,
-    # so no legitimate path raises it — but this check cannot say who did,
-    # so it reports the fact rather than pretending to a verdict.
-    current_baseline = _int_setting(_settings(LEGACY_UNCHAINED), LEGACY_UNCHAINED)
-    if anchored_baseline is not None and current_baseline > anchored_baseline:
-        # recorded, then the digest replay still runs: a baseline discrepancy
-        # can be an honest fallback append, and returning here would let it
-        # mask a whole-chain re-forge, which is this function's primary job
-        out.update(
-            ok=False,
-            reason=(
-                f"the unchained baseline is {current_baseline} but an anchored night"
-                f" recorded {anchored_baseline}. Either a row was written outside the"
-                " chain, or the baseline was reset. Compare"
-                " backups/activity-anchors.log against the off-box mirror."
-            ),
-        )
-    for seq in sorted(recorded):
-        row = db.query_one(
-            "SELECT seq, hash, prev_hash, actor, action, detail, created_at FROM activity"
-            " WHERE seq = ?",
-            (seq,),
-        )
-        if row is None:
-            out.update(ok=False, seq=seq, reason="an anchored entry is no longer in the ledger")
+    return _check_anchor_database(recorded, baselines, out)
+
+
+def _check_anchor_database(recorded: dict[int, str], baselines: dict[int, int], out: dict) -> dict:
+    """Compare every permanent file claim inside one repeatable snapshot."""
+    with db.read_transaction():
+        try:
+            stored_seq, stored_hash = _anchor()
+        except ValueError as exc:
+            out.update(ok=False, reason=f"The verified anchor is invalid ({exc}).")
             return out
-        if _digest(row) != recorded[seq]:
+        newest_anchor_missing = bool(stored_seq and recorded.get(stored_seq) != stored_hash)
+        points = sorted(baselines.items())
+        decreases = [
+            (before_seq, after_seq)
+            for (before_seq, before), (after_seq, after) in pairwise(points)
+            if after < before
+        ]
+        receipts: list[int] = []
+        if decreases:
+            receipts = [
+                int(row["seq"])
+                for row in db.query(
+                    "SELECT seq FROM activity WHERE action = 'adopt_unchained'"
+                    " AND seq > ? AND seq <= ? ORDER BY seq",
+                    (
+                        min(before for before, _after in decreases),
+                        max(after for _before, after in decreases),
+                    ),
+                )
+            ]
+        for (before_seq, before), (after_seq, after) in pairwise(points):
+            if after > before:
+                out.update(
+                    ok=False,
+                    seq=after_seq,
+                    reason="an anchor raised the migration-owned unchained baseline",
+                )
+            elif after < before:
+                index = bisect_right(receipts, before_seq)
+                if index >= len(receipts) or receipts[index] > after_seq:
+                    out.update(
+                        ok=False,
+                        seq=after_seq,
+                        reason="an anchored baseline decrease has no adoption receipt",
+                    )
+
+        try:
+            current_baseline = _mark_int(
+                _settings(LEGACY_UNCHAINED), LEGACY_UNCHAINED, required=True
+            )
+        except ValueError as exc:
+            current_baseline = None
+            out.update(ok=False, reason=f"The unchained baseline is invalid ({exc}).")
+        if points and current_baseline != points[-1][1]:
             out.update(
                 ok=False,
-                seq=seq,
-                reason="an anchored entry no longer matches the record made when it was verified",
+                seq=points[-1][0],
+                reason=(
+                    "The database baseline does not match the newest anchor. Check"
+                    " backups/activity-anchors.log and its mirror."
+                ),
             )
-            return out
-    return out
+
+        expected = iter(sorted(recorded))
+        next_seq = next(expected, None)
+        if next_seq is not None:
+            for batch in db.query_batches(
+                "SELECT seq, hash, prev_hash, actor, action, detail, created_at"
+                " FROM activity WHERE seq = ANY(?) ORDER BY seq",
+                (sorted(recorded),),
+                batch_size=1000,
+            ):
+                for row in batch:
+                    seq = int(row["seq"])
+                    if next_seq is None or seq != next_seq:
+                        out.update(
+                            ok=False,
+                            seq=next_seq,
+                            reason="an anchored entry is no longer in the ledger",
+                        )
+                        return out
+                    if _digest(row) != recorded[seq]:
+                        out.update(
+                            ok=False,
+                            seq=seq,
+                            reason=(
+                                "an anchored entry no longer matches the record"
+                                " made when it was verified"
+                            ),
+                        )
+                        return out
+                    next_seq = next(expected, None)
+            if next_seq is not None:
+                out.update(
+                    ok=False,
+                    seq=next_seq,
+                    reason="an anchored entry is no longer in the ledger",
+                )
+                return out
+        if newest_anchor_missing:
+            out.update(
+                ok=False,
+                seq=stored_seq,
+                reason=(
+                    "The newest verified anchor is not in the anchor files. Check the"
+                    " backup paths and file permissions."
+                ),
+            )
+        return out
 
 
 def chain_health() -> dict:
-    """Compact /health block — the stored anchor plus what is not yet covered.
+    """Compact structural status from one read snapshot.
 
-    `unverified` is signed on purpose: a NEGATIVE value means the chain is
-    shorter than what was already verified, which is truncation, not progress.
-    Clamping it to zero here would hide the one state worth seeing.
+    This does not walk every digest. The daily findings rule owns that cost.
+    It checks the append-owned tip, unchained count, and stored anchor row.
+    Malformed marks do not remove the rest of the health response.
     """
-    seq, _ = _anchor()
-    latest = db.query_row("SELECT COALESCE(MAX(seq), 0) AS seq FROM activity")["seq"]
-    marks = _settings(HIGH_SEQ, LEGACY_UNCHAINED)
-    unchained = db.query_row("SELECT COUNT(*) AS n FROM activity WHERE seq IS NULL")["n"]
-    return {
-        "verified_through": seq,
-        "latest": latest,
-        "unverified": latest - seq,
-        "high_water": _int_setting(marks, HIGH_SEQ),
-        "unchained_rows": unchained,
-        "unchained_baseline": _int_setting(marks, LEGACY_UNCHAINED),
-    }
+    with db.read_transaction():
+        latest = db.query_row("SELECT COALESCE(MAX(seq), 0) AS seq FROM activity")["seq"]
+        unchained = db.query_row("SELECT COUNT(*) AS n FROM activity WHERE seq IS NULL")["n"]
+        marks = _settings(HIGH_SEQ, HIGH_HASH, LEGACY_UNCHAINED, ANCHOR_SEQ, ANCHOR_HASH)
+        tail = db.query_one(
+            "SELECT seq, hash, prev_hash, actor, action, detail, created_at FROM activity"
+            " WHERE seq IS NOT NULL ORDER BY seq DESC LIMIT 1"
+        )
+        marks_ok = True
+        try:
+            seq, anchor_hash = _anchor()
+            baseline = _mark_int(marks, LEGACY_UNCHAINED, required=True)
+            if latest:
+                high = _mark_int(marks, HIGH_SEQ, required=True)
+                high_hash = _mark_hash(marks, HIGH_HASH, required=True)
+            else:
+                high, high_hash = 0, ""
+                if HIGH_SEQ in marks or HIGH_HASH in marks:
+                    raise ValueError("the empty chain has a live tip")
+        except ValueError:
+            marks_ok = False
+            seq, anchor_hash, baseline, high, high_hash = 0, "", 0, 0, ""
+
+        try:
+            tail_ok = (not latest and tail is None) or bool(
+                tail
+                and tail["seq"] == latest
+                and tail["hash"] == high_hash
+                and _digest(tail) == high_hash
+            )
+            anchor = (
+                db.query_one(
+                    "SELECT seq, hash, prev_hash, actor, action, detail, created_at"
+                    " FROM activity WHERE seq = ?",
+                    (seq,),
+                )
+                if seq
+                else None
+            )
+            anchor_ok = (not seq and not anchor_hash) or bool(
+                anchor and anchor["hash"] == anchor_hash and _digest(anchor) == anchor_hash
+            )
+        except (AttributeError, TypeError):
+            tail_ok = anchor_ok = False
+
+        marks_ok = (
+            marks_ok
+            and high == latest
+            and unchained == baseline
+            and seq <= latest
+            and tail_ok
+            and anchor_ok
+        )
+        return {
+            "verified_through": seq,
+            "latest": latest,
+            "unverified": latest - seq,
+            "high_water": high,
+            "unchained_rows": unchained,
+            "unchained_baseline": baseline,
+            "marks_ok": marks_ok,
+        }
 
 
 # ---- the feed (docs: verb-object-outcome, one sentence per row) --------------
@@ -676,6 +988,8 @@ VERBS: dict[str, tuple[str, str]] = {
     # loud like the strategy above: it changes what every chat costs
     "set_model_pick": ("changed the team model", "loud"),
     "backup": ("took a manual backup", "normal"),
+    # The portable file leaves Skein with workspace and crew work in it.
+    "export": ("exported portable work data", "loud"),
     # loud for the reason above it: a capacity limit moved for the whole team
     "set_tuning": ("changed a deployment limit", "loud"),
     "set_team_theme": ("set the team default theme", "quiet"),

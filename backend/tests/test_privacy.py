@@ -54,6 +54,26 @@ def test_private_requires_strong_identity(client, fresh_db):
     assert "spoofed" not in r.text
 
 
+def test_schema_ownership_fault_is_json_500_not_caller_403(client, fresh_db, monkeypatch):
+    from app.services import private_notes
+
+    monkeypatch.setattr(
+        private_notes,
+        "_ready",
+        lambda: (_ for _ in ()).throw(RuntimeError("wrong owner: private")),
+    )
+    from fastapi.testclient import TestClient
+
+    quiet = TestClient(client.app, raise_server_exceptions=False)
+    try:
+        response = quiet.get("/api/private/notes", headers=_setup_key(client, fresh_db))
+    finally:
+        quiet.close()
+    assert response.status_code == 500
+    assert response.headers["content-type"].startswith("application/json")
+    assert "wrong owner" not in response.text.lower()
+
+
 def test_private_notes_are_author_scoped(client, fresh_db):
     _write_private(client, fresh_db)
     from app.services.api_keys import create_key
@@ -163,47 +183,55 @@ def test_canary_absent_from_every_disk_file(client, fresh_db):
     eng = client.get("/api/engagements").json()[0]
     assert CANARY not in client.get(f"/api/context-pack?engagement={eng['id']}").text
     for f in Path(config.DATA_DIR).rglob("*"):
-        # private.db and its dated backups are the canary's only legal homes;
-        # everything else under DATA_DIR — platform backups, exports,
-        # artifacts, the ICS cache — must stay clean
-        if f.is_file() and "private" not in f.name:
+        # The local database recovery unit intentionally contains the private
+        # schema. Every other active file surface must stay canary-free.
+        if f.name.startswith("database-") and f.suffix == ".dump":
+            continue
+        if f.is_file():
             assert CANARY.encode() not in f.read_bytes(), f"canary leaked into {f}"
 
 
-def test_private_db_backed_up_but_never_mirrored(client, fresh_db, tmp_path, monkeypatch):
-    """Both halves of the private-data durability rule. The backup exists:
-    losing the disk must not lose the 1:1 notes, and the local copy adds no
-    reader — whoever runs the server can read private.db itself. The off-box
-    mirror never carries it: a mirror copy leaves the box, which is the
-    exposure the exclusion from exports exists to prevent."""
+def test_private_schema_is_local_but_absent_from_the_platform_mirror(
+    client, fresh_db, tmp_path, monkeypatch
+):
+    """The local recovery unit includes private notes. The configured mirror
+    receives only the public platform dump."""
+    import subprocess
+
     _write_private(client, fresh_db)
     from app import config
     from app.services import admin
 
-    assert not any("private" in t for t in admin.TABLES)
-    tables = [
-        r["name"]
-        for r in fresh_db.query(
-            "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
-        )
-    ]
-    assert not any("private" in t for t in tables)
-
-    # production-shaped data dir, so the mirror actually runs (see the
-    # mirror-guard test above)
-    mirror = tmp_path / "offbox"
+    mirror = tmp_path / "mirror"
+    mirror.mkdir()
     monkeypatch.setenv("SKEIN_BACKUP_MIRROR", str(mirror))
-    prod_data = tmp_path / "data"
-    prod_data.mkdir()
-    monkeypatch.setattr(config, "BASE_DIR", tmp_path)
-    monkeypatch.setattr(config, "DATA_DIR", prod_data)
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path / "data")
+    monkeypatch.setattr(admin, "_separate_mirror_filesystem", lambda _target: True)
+    fresh_db.execute("CREATE SCHEMA forgotten_extension")
+    fresh_db.execute("CREATE TABLE forgotten_extension.secrets (value text)")
+    fresh_db.execute("INSERT INTO forgotten_extension.secrets VALUES ('must stay local')")
 
     out = admin.backup()
-    assert out["private_path"] and Path(out["private_path"]).exists()
-    assert out["mirrored"] is not None  # the mirror ran for platform
-    assert not any(f.name.startswith("private-") for f in mirror.glob("*")), (
-        "a private backup reached the off-box mirror"
-    )
+    local = subprocess.run(  # noqa: S603 — fixed argv, no shell
+        [_pg_restore(), "--list", out["database_path"]],
+        env=admin._pg_env(),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    mirrored = subprocess.run(  # noqa: S603 — fixed argv, no shell
+        [_pg_restore(), "--list", out["mirrored_platform_path"]],
+        env=admin._pg_env(),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert f" {config.PRIVATE_SCHEMA} " in local
+    assert f" {config.PRIVATE_SCHEMA} " not in mirrored
+    assert " forgotten_extension " not in local
+    assert " forgotten_extension " not in mirrored
+    assert out["private_path"] is None
+    assert out["mirror_scope"] == "public_schema"
 
 
 def test_no_agent_or_review_surface_over_private_entities(fresh_db):
@@ -228,35 +256,6 @@ def test_key_minting_requires_strong_identity(client, fresh_db):
     assert r.status_code == 403
     # and therefore private notes stay unreachable for header-only callers
     assert client.get("/api/private/notes", headers={"X-User": "manager"}).status_code == 403
-
-
-def test_the_core_backup_never_carries_the_private_schema(client, fresh_db):
-    """The 0600 file mode used to be the wall around 1:1 notes. With the notes
-    in a schema rather than a file of their own, the wall is the DUMP boundary:
-    the core backup is the copy that leaves the box (services/admin.py::_mirror),
-    and the private schema must not be in it. The private dump is written
-    separately and is never mirrored."""
-    import subprocess
-
-    from app import config
-    from app.services import admin
-
-    _write_private(client, fresh_db)
-    out = admin.backup()
-    core = subprocess.run(  # noqa: S603 — fixed argv, no shell
-        [_pg_restore(), "--list", out["path"]],
-        env=admin._pg_env(),
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    assert f"{config.PRIVATE_SCHEMA} " not in core, "the core dump carries the private schema"
-    assert "notes" not in [
-        line.split()[-1] for line in core.splitlines() if f" {config.PRIVATE_SCHEMA} " in line
-    ]
-    # and the private dump exists on its own, unmirrored
-    assert out["private_path"]
-    assert out["mirrored"] is None or config.PRIVATE_SCHEMA not in out["mirrored"]
 
 
 def test_feedback_parses_hyphenated_names(fresh_db):

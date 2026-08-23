@@ -29,6 +29,11 @@ spec:
         - podSelector:
             matchLabels:
               app: skein-backend
+        # A short-lived restore or coordinated-backup pod uses this label. It is
+        # never selected by the backend Service and is deleted before ingress.
+        - podSelector:
+            matchLabels:
+              app: skein-maintenance
       ports:
         - protocol: TCP
           port: 5432

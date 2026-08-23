@@ -8,8 +8,9 @@ in app_settings and shared across every process (see TUNED below, and
 services/tuning.py). Do not read the process-local note as covering both.
 
 Not a security control, with one exception that decides what may be tuned:
-`signin`, `forge_addr` and `verify` bound an UNAUTHENTICATED caller or a
-whole-deployment cost, so they are withheld from the admin surface and stay
+`signin`, `forge_addr`, `verify`, `export`, and `backup` bound an
+UNAUTHENTICATED caller or a whole-deployment cost, so they are withheld from
+the admin surface and stay
 env-only. Adding one of them to TUNED hands an administrator the dial that
 holds an unsigned caller off the identity provider."""
 
@@ -82,6 +83,8 @@ LIMITS = {
     # than against the content rows a person files in a planning hour
     "upload": 12,
     "verify": 2,  # full-chain walk over an unpruned table — the priciest read
+    "export": 2,  # one snapshot materializes every portable work table
+    "backup": 2,  # pg_dump plus an optional second dump and mirror copy
     # per-row provenance. Ids are a dense integer space and this answers about
     # ONE row, so an uncapped GET is the mechanism that turns a per-row
     # disclosure into a dataset. Generous for a person opening panels, useless
@@ -119,6 +122,9 @@ PER = {
     "signin": "per address",
     "forge": "for the whole integration",
     "forge_addr": "per address",
+    "verify": "for the whole deployment",
+    "export": "for the whole deployment",
+    "backup": "for the whole deployment",
 }
 # What to CALL each surface in a refusal. The dict keys above are bucket
 # names, and a reader who trips the cap was shown one verbatim: "The limit
@@ -129,6 +135,8 @@ NAMED = {
     "forge_addr": "webhook deliveries",
     "signin": "sign-ins",
     "verify": "chain checks",
+    "export": "exports",
+    "backup": "database backups",
     "artifact": "digests and readouts",
     "ritual": "rituals",
     "absence": "absences",
@@ -138,7 +146,7 @@ NAMED = {
 # Surfaces an administrator can retune at runtime, mapped to their knob
 # (services/tuning.py). Every OTHER surface stays code-only on purpose: the
 # ones left out bound an unauthenticated caller (signin, forge_addr) or a
-# whole-deployment cost (verify), and those are the operator's to set in the
+# whole-deployment cost (verify, export), and those are the operator's to set in the
 # environment, not an admin's to raise from a form.
 TUNED = {"chat": "chat_limit", "write": "write_limit", "capture": "capture_limit"}
 

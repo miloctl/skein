@@ -18,6 +18,30 @@ MIGRATIONS = Path(__file__).resolve().parent.parent / "app" / "core_migrations"
 BASELINE = "001_baseline.sql"
 
 
+def test_extension_review_status_accepts_unknown_completion(fresh_db):
+    from app.services import review
+
+    proposal = review.propose_extension_invocation(
+        "core_tool",
+        {"tool": "create_task", "agent": "scout"},
+        {"tool": "create_task", "agent": "scout", "tool_use": {}},
+        summary="run a governed stock tool",
+        actor="scout",
+        requested_by="mira",
+    )
+    fresh_db.execute(
+        "UPDATE extension_review_invocations SET status = 'completion_unknown' WHERE change_id = ?",
+        (proposal["id"],),
+    )
+    assert (
+        fresh_db.query_row(
+            "SELECT status FROM extension_review_invocations WHERE change_id = ?",
+            (proposal["id"],),
+        )["status"]
+        == "completion_unknown"
+    )
+
+
 def test_pending_migrations_empty_after_init(scratch_db):
     assert scratch_db.pending_migrations() == []
     scratch_db.execute("DELETE FROM schema_version WHERE version = ?", (BASELINE,))
@@ -38,27 +62,116 @@ def test_migrations_idempotent_and_atomic(scratch_db):
     assert len(versions) == len(set(versions)) >= 1
 
 
-# the activity chain is born in the baseline, so NO migration may ever
-# rewrite a chained row — verification breaks permanently at the earliest
-# touched row (CLAUDE.md).
-REWRITES_ACTIVITY = re.compile(r"\b(?:UPDATE\s+activity\b|DELETE\s+FROM\s+activity\b)", re.I)
+ACTIVITY_GUARDS = "008_activity_chain_guards.sql"
+
+
+def _unapply_activity_guards(db):
+    db.execute(
+        "ALTER TABLE activity DROP CONSTRAINT activity_positive_seq,"
+        " DROP CONSTRAINT activity_detail_present,"
+        " DROP CONSTRAINT activity_chain_shape"
+    )
+    db.execute("DELETE FROM schema_version WHERE version = ?", (ACTIVITY_GUARDS,))
+
+
+def test_activity_guard_upgrade_replaces_a_lagging_old_mark(scratch_db):
+    from app.services import activity
+
+    scratch_db.log_activity("tester", "probe", "one")
+    scratch_db.log_activity("tester", "probe", "two")
+    _unapply_activity_guards(scratch_db)
+    activity._put({activity.HIGH_SEQ: "1"})
+    scratch_db.execute("DELETE FROM app_settings WHERE key = ?", (activity.HIGH_HASH,))
+
+    scratch_db.init_db()
+    tail = scratch_db.query_row("SELECT seq, hash FROM activity ORDER BY seq DESC LIMIT 1")
+    assert activity._settings(activity.HIGH_SEQ, activity.HIGH_HASH) == {
+        activity.HIGH_SEQ: str(tail["seq"]),
+        activity.HIGH_HASH: tail["hash"],
+    }
+    assert activity.verify_chain()["ok"]
+
+
+def test_activity_guard_upgrade_preserves_truncation_evidence(scratch_db):
+    from app import db
+    from app.services import activity
+
+    for i in range(5):
+        scratch_db.log_activity("tester", "probe", str(i))
+    _unapply_activity_guards(scratch_db)
+    scratch_db.execute("DELETE FROM activity WHERE seq >= 4")
+    activity._put({activity.HIGH_SEQ: "5"})
+    scratch_db.execute("DELETE FROM app_settings WHERE key = ?", (activity.HIGH_HASH,))
+
+    scratch_db.init_db()
+    assert activity.verify_chain()["ok"] is False
+    with pytest.raises(db.ActivityChainError), scratch_db.transaction():
+        scratch_db.log_activity("tester", "probe", "blocked")
+
+
+def test_activity_guard_upgrade_reports_a_malformed_old_tail(scratch_db):
+    from app.services import activity
+
+    scratch_db.log_activity("tester", "probe", "one")
+    scratch_db.log_activity("tester", "probe", "two")
+    _unapply_activity_guards(scratch_db)
+    scratch_db.execute("UPDATE activity SET hash = NULL WHERE seq = 2")
+
+    scratch_db.init_db()
+    assert scratch_db.pending_migrations() == []
+    result = activity.verify_chain()
+    assert not result["ok"]
+    assert "invalid chain fields" in result["reason"]
+
+
+@pytest.mark.parametrize("mark", ["bad", "02", "99999999999999999999", "9" * 5000])
+def test_activity_guard_upgrade_does_not_cast_a_malformed_mark(scratch_db, mark):
+    from app.services import activity
+
+    scratch_db.log_activity("tester", "probe", "one")
+    _unapply_activity_guards(scratch_db)
+    activity._put({activity.HIGH_SEQ: mark})
+    scratch_db.execute("DELETE FROM app_settings WHERE key = ?", (activity.HIGH_HASH,))
+
+    scratch_db.init_db()
+    assert scratch_db.pending_migrations() == []
+    assert activity.verify_chain()["ok"] is False
+
+
+# The activity chain is born in the baseline, so migration DML must never
+# bypass the append path. A rewrite breaks verification at the earliest row,
+# and a direct insert has no append-owned live-tip update.
+MUTATES_ACTIVITY = re.compile(
+    r"\b(?:INSERT\s+INTO|MERGE\s+INTO|COPY|UPDATE|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?)\s+"
+    r'(?:ONLY\s+)?(?:(?:"?public"?)\s*\.\s*)?"?activity"?\b',
+    re.I,
+)
 
 
 def _sql_only(text: str) -> str:
     return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("--"))
 
 
-def test_no_migration_rewrites_the_ledger():
+def test_no_migration_bypasses_the_ledger_append_path():
     """CI databases are born empty, so a destructive migration hits 0 chained
     rows here and every row in production — the suite alone can never catch
     one. This scan can."""
-    # positive control: a broken pattern fails loudly instead of passing forever
-    assert REWRITES_ACTIVITY.search("UPDATE activity SET detail = 'x'")
-    assert REWRITES_ACTIVITY.search("DELETE FROM activity WHERE seq = 1")
+    # Positive controls stop a broken pattern from passing forever. Include the
+    # qualified and quoted forms that extension or maintenance SQL can use.
+    for statement in (
+        "UPDATE activity SET detail = 'x'",
+        "UPDATE ONLY public.activity SET detail = 'x'",
+        "DELETE FROM public.activity WHERE seq = 1",
+        'INSERT INTO "public"."activity" (actor) VALUES (\'x\')',
+        "MERGE INTO activity USING source ON false WHEN NOT MATCHED THEN INSERT DEFAULT VALUES",
+        "COPY public.activity FROM STDIN",
+        "TRUNCATE TABLE activity",
+    ):
+        assert MUTATES_ACTIVITY.search(statement)
     offenders = [
         p.name
         for p in sorted(MIGRATIONS.glob("*.sql"))
-        if REWRITES_ACTIVITY.search(_sql_only(p.read_text()))
+        if MUTATES_ACTIVITY.search(_sql_only(p.read_text()))
     ]
     assert offenders == []
 

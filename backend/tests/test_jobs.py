@@ -31,6 +31,22 @@ def test_job_health_flags_stale(fresh_db):
     assert by_name["daily-backup"]["stale"] is False  # never attempted != stale
 
 
+def test_job_health_reports_the_latest_failure_immediately(fresh_db):
+    from app.services.jobs import job_health
+
+    fresh_db.execute(
+        "INSERT INTO job_outcomes (job, status, detail, duration_ms, created_at)"
+        " VALUES ('daily-digest', 'ok', '', 0, ?),"
+        " ('daily-digest', 'error', 'fault', 0, ?)",
+        (_iso_hours_ago(1), _iso_hours_ago(0)),
+    )
+    status = {item["job"]: item for item in job_health()}["daily-digest"]
+    assert status["stale"] is False
+    assert status["last_status"] == "error"
+    assert status["last_attempt"] is not None
+    assert status["last_success"] is not None
+
+
 def test_job_stale_finding_fires(fresh_db, monkeypatch):
     from app import config
     from app.services.insights import run_findings

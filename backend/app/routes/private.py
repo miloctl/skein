@@ -27,8 +27,8 @@ def get_notes(user: StrongUser, person: str = ""):
 
 @router.post("/notes")
 def post_note(body: NoteIn, user: StrongUser):
-    # its own bucket (app/ratelimit.py): rows here are excluded from backup,
-    # export, FTS and every agent surface, so a flood is invisible to every
+    # its own bucket (app/ratelimit.py): rows here are excluded from portable
+    # export, FTS, and every agent surface, so a flood is invisible to every
     # other guard — and sharing the `write` budget would let a busy planning
     # session lock a person out of their own 1:1 notes
     ratelimit.check("private", user)
