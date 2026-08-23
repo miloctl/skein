@@ -1998,20 +1998,21 @@ export default function SettingsPage() {
                                   {m.detail}
                                 </span>
                               )}
-                              {(m.price || m.context_tokens) && (
-                                <span className="block text-xs text-ink-3">
-                                  {[
-                                    m.price
-                                      ? `$${m.price[0]} in / $${m.price[1]} out per million tokens`
-                                      : "",
-                                    m.context_tokens
-                                      ? `${m.context_tokens.toLocaleString("en-US")}-token context`
-                                      : "",
-                                  ]
-                                    .filter(Boolean)
-                                    .join(" · ")}
-                                </span>
-                              )}
+                              <span className="block text-xs text-ink-3">
+                                {[
+                                  // "cost unknown" is stated, never blank: a
+                                  // priced model beside a silent one reads as
+                                  // expensive-vs-free, and unknown is neither
+                                  m.price
+                                    ? `$${m.price[0]} in / $${m.price[1]} out per million tokens`
+                                    : "cost unknown",
+                                  m.context_tokens
+                                    ? `${m.context_tokens.toLocaleString("en-US")}-token context`
+                                    : "",
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </span>
                             </span>
                           </label>
                         ))}

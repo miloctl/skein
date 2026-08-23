@@ -104,6 +104,11 @@ _TABLES = {
     "note": "notes",
     "lesson": "lessons",
     "engagement": "engagements",
+    # standups carry a free-text byline (`author`) beside created_by, so the
+    # disclosure surface must reach them — an agent-filed standup rendered
+    # under a person's name with no "where did this come from" answer is the
+    # laundering this module exists to prevent.
+    "standup": "standups",
 }
 
 # What has HAPPENED to a row, by the action word the ledger records. Creation
@@ -118,6 +123,9 @@ _CHANGED = {
     "promise": ("update_promise", "edit_promise"),
     "note": ("update_note", "delete_note"),
     "lesson": (),
+    # create-only: post_standup is the sole writer, so there is no later
+    # action word to report
+    "standup": (),
     # no `close_engagement`: no writer emits that action word
     "engagement": ("update_engagement",),
 }

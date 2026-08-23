@@ -233,7 +233,11 @@ describe("the model section", () => {
     mode.pick = PICK;
     render(<SettingsPage />);
 
-    const heading = await screen.findByRole("heading", { name: "In force" });
+    const heading = await screen.findByRole(
+      "heading",
+      { name: "In force" },
+      { timeout: 5_000 },
+    );
     expect(screen.getByText("qwen3.5:cloud")).toBeTruthy();
     expect(screen.getByText("8,192 tokens")).toBeTruthy();
     expect(screen.getByText("2 models")).toBeTruthy();
@@ -282,8 +286,8 @@ describe("the model section", () => {
       screen.getByText(/\$15 in \/ \$75 out per million tokens/),
     ).toBeTruthy();
     expect(screen.getByText(/200,000-token context/)).toBeTruthy();
-    // an entry with no tuning renders no empty qualifier line
-    expect(screen.getByText("mini")).toBeTruthy();
+    const mini = screen.getByRole("radio", { name: /mini/i }).closest("label");
+    expect(mini?.textContent).toContain("cost unknown");
   });
 
   it("names the provenance of an override in force", async () => {

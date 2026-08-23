@@ -18,13 +18,20 @@ BACKEND = Path(__file__).resolve().parents[1] / "backend"
 def main() -> None:
     base = config.DATABASE_URL
     if not base:
-        raise SystemExit("SKEIN_DATABASE_URL is not set. Set it before Playwright starts.")
+        raise SystemExit("The database is not configured. Set SKEIN_DATABASE_URL first.")
 
     name = f"skein_e2e_{os.getpid()}"
     with psycopg.connect(base, autocommit=True) as admin:
         admin.execute(f'CREATE DATABASE "{name}"')
 
-    url = base.rsplit("/", 1)[0] + f"/{name}"
+    # conninfo-aware, never string surgery: DATABASE_URL can be a keyword
+    # conninfo composed from SKEIN_DB_* components, where rsplit("/") mangles
+    # the dbname and truncates a password holding "/".
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+
+    info = conninfo_to_dict(base)
+    info["dbname"] = name
+    url = make_conninfo(**{k: str(v) for k, v in info.items() if v is not None})
     os.environ["SKEIN_DATABASE_URL"] = url
     config.DATABASE_URL, config.DATABASE_ERROR = url, ""
     db.close_pool()

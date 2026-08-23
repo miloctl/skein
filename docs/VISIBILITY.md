@@ -36,11 +36,11 @@ paths. The single precedent is `activity.visible_actor_filter(viewer)`
 (`services/activity.py::visible_actor_filter`) — eight lines, three callers.
 
 **The repository already refused the column approach once.**
-`services/private_notes.py`'s module docstring: *"Exclusion is structural (no code path
-touches the file), not a filter every query must remember."*
-`docs/reviews/2026-07-24-panel.md:93-98` ruled that a visibility column
-cannot hold the author-private journal, because backup, export, and
-in-process MCP are file-level paths that no column check stops. A
+`services/private_notes.py` keeps the author-private journal in a separate
+schema. Portable export, search, MCP, and agents do not query it. The local
+database recovery dump is the explicit exception. A visibility column cannot
+hold this journal because every ordinary query would need to remember the
+filter. A
 `private` column that reuses the word without the guarantee is a
 regression under the same name.
 
@@ -73,10 +73,10 @@ This is the move that makes the work finite: only the crew tier is
 retrofitted across the 382 queries.
 
 **Be honest about what "structural" buys here.** `private_notes` earned the
-word because it is a separate FILE that no other code path opens. A
-`visibility` column earns less: `index_record` is called from 24 sites
-across 9 services, and `admin.export` is `SELECT *` over 37 tables. Both
-tiers fail OPEN when a predicate is forgotten. The difference is
+word because it is a separate schema that ordinary platform paths never query. A
+`visibility` column earns less: `index_record` is called from many sites,
+and `admin.export` maintains an explicit portable table set with per-table
+filters. Both tiers fail OPEN when a predicate is forgotten. The difference is
 reversibility — a forgotten `visible_filter` is a query you fix, while a
 forgotten sink predicate has already written to the FTS index, the
 immutable ledger, a `UNIQUE`-keyed findings row, a file on disk, and a
@@ -259,7 +259,7 @@ identifier, never a body.** Pin it with a test.
 | `embeddings` | `_embed` sends `text[:8000]` to `EMBED_BASE_URL` inside every `index_record`. Private rows are never indexed, so they never reach it. |
 | `memories` | Closed in phase 4. `recall()` applies BOTH the `user` filter and the tier on every branch (`services/memory.py::recall`) — the query branch used to apply neither, so one person's search answered out of another person's memories, and `memory_prompt` injects the result into a system prompt. |
 | `notifications` | Every team-wide `notify("team", ...)` that quotes a scoped row's text is gated on the workspace tier (the blocker funeral, the stale-decision sweep, ship-it, the unlinked-milestone warning), and a per-person notify checks the recipient can read the row. `flush_digest_tier` posts COUNTS, never messages: it batches into ONE Slack channel, `notifications` carries no tier to filter on, and a count carries nothing whatever a future caller writes. The post is a nudge — the bodies are one click away in the app. |
-| `admin.export` | Private rows are excluded structurally. Crew rows stay — a full dump is what the surface is for — but every new table takes its `admin.TABLES` classification. |
+| `admin.export` | Private rows are excluded structurally. Crew rows stay. Tables that can copy private text without a visibility column are excluded. Each new table takes an explicit `admin.TABLES` or `admin.EXCLUDED` classification. Artifact metadata stays, but absolute storage paths do not. |
 | `data/artifacts/` | A file on disk carries no column. Anything a job writes is workspace-tier by the rule above. |
 
 ### Frontend
@@ -403,9 +403,8 @@ full. It now filters on the READER, never on the subject.
 ## What this design does not do
 
 - It does not make Skein multi-tenant. One deployment stays one roster.
-- It does not move the private schema. The journal keeps its own schema,
-  which is what the core dump excludes and the off-box mirror never
-  receives.
+- It does not move the private schema. The local database recovery unit
+  includes it. The configured public platform mirror does not.
 - It does not scope the activity ledger by content.
 - It does not make a crew an authorization boundary for administration.
   `AdminUser` stays deployment-wide. `crew_members.role = 'steward'`

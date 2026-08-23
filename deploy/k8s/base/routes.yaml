@@ -8,9 +8,9 @@ metadata:
     # member silence and 300s to a provider's first token
     # (routes/chat.py::MEMBER_TIMEOUT_S, team_agent.py::READ_TIMEOUT_S) and
     # sends no keepalives — this value must stay above both, and runtime
-    # tuning can RAISE them (services/tuning.py). Mock mode streams
-    # instantly, so a too-low value only surfaces with a real provider.
-    haproxy.router.openshift.io/timeout: 330s
+    # tuning can RAISE them (services/tuning.py). A manual database backup can
+    # run three bounded 300s client commands, so its response needs this envelope.
+    haproxy.router.openshift.io/timeout: 1000s
 spec:
   to:
     kind: Service

@@ -288,6 +288,20 @@ class ExtensionRegistry:
             migrations.extend(module.migrations)
             workflow_actions.extend(module.workflow_actions)
 
+        from .data import ExtensionStore
+
+        schema_owners: dict[str, str] = {}
+        for contribution in migrations:
+            if not isinstance(contribution.store, ExtensionStore):
+                continue
+            schema = contribution.store.schema
+            if schema in schema_owners:
+                raise ExtensionValidationError(
+                    f"extension stores {schema_owners[schema]!r} and"
+                    f" {contribution.name!r} map to the same schema {schema!r}"
+                )
+            schema_owners[schema] = contribution.name
+
         tool_names = {contribution.name for contribution in tools}
         model_tool_names = [contribution.model_name for contribution in tools]
         if len(model_tool_names) != len(set(model_tool_names)):

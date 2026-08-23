@@ -387,8 +387,8 @@ receipt: task IDs + ages stored at fire time</div>
         <p class="one-liner">Boring on purpose: one box, one write path, backups you can count.</p>
         <ul>
           <li><strong>Keyless-first, permanently</strong> — mock provider end-to-end; a signed-in Ollama daemon gets a real model for free.</li>
-          <li><strong>Provenance on every write</strong> — origin + author + activity log, both write paths, no exceptions.</li>
-          <li><strong>Backups that leave the box</strong> — atomic daily backups (14 kept) + off-box mirror (30 kept).</li>
+          <li><strong>Provenance through one service layer</strong> — origin, author, and activity receipts for both write paths, with explicit claim boundaries.</li>
+          <li><strong>Database recovery units</strong> — one daily database snapshot and an optional core-schema mirror with the same protection. Artifact storage stays a separate recovery unit.</li>
           <li><strong>Append-only migrations, idempotent scheduler</strong> — every job safe to re-run.</li>
           <li><strong>A security model stated plainly</strong> — documented limits instead of pretended ones.</li>
         </ul>

@@ -19,15 +19,15 @@ The backend runs as exactly one process. The DATABASE no longer requires
 that — PostgreSQL takes concurrent writers, and the check-then-write paths
 hold real locks. Three things still do: the scheduler runs in-process,
 rate caps and the chat turn registry live in process memory, and artifacts
-and exports sit on a `ReadWriteOnce` volume that only one pod can mount.
-The manifest pins `replicas: 1` and `strategy: Recreate` and names these
-mechanisms in a comment. Do not raise the replica count until all three
-move.
+and exports use one shared file tree. The manifest pins `replicas: 1` and
+`strategy: Recreate` so two backend pods never overlap. `ReadWriteOnce`
+prevents cross-node attachment on common block storage. It does not prevent
+two pods on one node from mounting the volume. Do not raise the replica count
+until all three single-process mechanisms move.
 
-The data PVC holds artifacts, exports and the local backup copies. It must
-bind to block storage (`ReadWriteOnce`), which is also what forces
-`Recreate`. The database has its own volume, claimed by the `skein-db`
-StatefulSet.
+The data PVC holds artifacts, exports and the local backup copies. It uses
+block storage with `ReadWriteOnce`. The database has its own volume, claimed
+by the `skein-db` StatefulSet.
 
 ## The database
 
@@ -37,7 +37,7 @@ image installs (`backend/Dockerfile`, `PG_MAJOR`): `pg_dump` refuses a
 server newer than itself, and the failure lands in the nightly backup job
 rather than at boot, so the daily copy just stops being written.
 
-`skein-db-secret` carries FOUR keys, and the split is the point:
+`skein-db-secret` carries FIVE keys, and the split is the point:
 
 | key | who uses it |
 |---|---|
@@ -46,8 +46,10 @@ rather than at boot, so the daily copy just stops being written.
 | `SKEIN_APP_USER` / `SKEIN_APP_PASSWORD` | the role **the backend connects as** |
 
 The backend composes the app credentials with the host from the ConfigMap
-into `SKEIN_DATABASE_URL`. There is no default: it refuses to start without
-one rather than quietly serving an empty database.
+into a quoted conninfo in code (`config._database_url`), never into a URL in
+the manifest — a password holding `@ : / % ? #` breaks URL parsing. There is
+no default: it refuses to start without the components rather than quietly
+serving an empty database.
 
 **The application role must not be a superuser.** A superuser can
 `COPY ... FROM PROGRAM`, which runs shell commands on the database pod, and
@@ -55,8 +57,10 @@ one rather than quietly serving an empty database.
 extension (they supply raw SQL), escalates to command execution on that
 container. `base/postgres.yaml` creates the role with `NOSUPERUSER` on first
 boot. `/api/health` reports `database_warnings` if the backend connects
-as a superuser anyway, which is the only signal a deployment that skipped
-it gets. A managed PostgreSQL needs the same role created by hand.
+as a superuser anyway. `tests/test_database_role.py` runs the actual bootstrap
+script twice, then applies migrations, private notes, an extension migration,
+and a backup as the restricted role. A managed PostgreSQL needs the same role
+created by hand.
 
 Both passwords initialise the cluster on FIRST boot only. Changing the
 Secret later changes nothing in the database — use `ALTER ROLE` and update
@@ -64,7 +68,17 @@ the Secret together.
 
 **If your organization offers a managed PostgreSQL**, delete
 `postgres.yaml` from the base, point `SKEIN_DB_HOST` at that server, and
-put its credentials in the same Secret. Nothing else changes.
+put its credentials in the same Secret. As the database administrator,
+pre-create the `private` schema and make the Skein application role its owner.
+Do the same for each declared `ext_*` schema. Do not grant database-wide
+`CREATE` to the application role.
+
+For an existing database, run the same ownership step before this release:
+
+```
+CREATE SCHEMA IF NOT EXISTS private AUTHORIZATION <skein-app-role>;
+ALTER SCHEMA private OWNER TO <skein-app-role>;
+```
 
 ## ArgoCD
 
@@ -75,9 +89,9 @@ migrations at startup as the sole writer.
 
 - **Upgrades take the service down** for the length of one pod restart.
   That is the cost of Recreate, and it is correct here. Do not move
-  migrations to a pre-sync Job: the Job would fight the old pod for the
-  RWO data volume, and old code would then serve a newer schema. (Two pods
-  applying migrations at once is safe on its own — `init_db` takes an
+  migrations to a pre-sync Job: the Job can overlap the old pod, and old code
+  would then serve a newer schema. (Two processes applying migrations at once
+  is safe on its own — `init_db` takes an
   advisory lock — but that is not the reason Recreate is here.)
 - **Roll forward only.** Migrations are append-only with no downgrades.
   After a sync has applied migrations, an ArgoCD rollback runs old code
@@ -151,60 +165,123 @@ put the IdP host in `NO_PROXY`.
 
 ## Backups, the mirror, and restore
 
-Daily backups land on the data PVC. The base mounts a second PVC at
-`/backup-mirror` and sets `SKEIN_BACKUP_MIRROR`, so a lost data volume
-does not take the backups with it.
+The daily local recovery unit is `database-<date>-<backup-id>.dump`. It contains the
+`public` and `private` schemas, plus each extension schema that opted into
+backup. One `pg_dump` process gives the file one PostgreSQL snapshot.
 
-The mirror also anchors the activity ledger's tamper-evidence: the
-nightly job appends the verified chain tip to an anchor log on both
-volumes, and the daily findings rule replays every anchored line. That
-comparison only means something when the mirror sits on an independent
-storage backend. Decide one of these, in writing, in your deploy repo:
+The same data PVC also holds artifact bytes under `/data/artifacts`. The dump
+contains artifact metadata only. Full recovery needs a matching storage backup
+of `/data`, or at minimum `/data/artifacts`, restored at the same path.
 
-- Bind `skein-backup-mirror` to a storage class on separate hardware.
-- Accept the reduced guarantee: same array, protection against volume
-  loss only, not against an attacker who controls the storage.
+The base mounts a second PVC at `/backup-mirror` and sets
+`SKEIN_BACKUP_MIRROR`. The directory must exist. Skein never creates it because
+an absent mount must not become a local false mirror. The mirror receives:
 
-**Restore** (drilled in `tests/test_admin_backup.py`):
+- A `public`-schema `platform-<date>-<backup-id>.dump`. It contains all tables and rows in the core `public` schema, not
+  only workspace-visible rows. It excludes `private`, extension schemas, and
+  artifact bytes. Protect it like the full database dump.
+- Its own append of `activity-anchors.log`.
 
-1. Scale the backend to zero, so nothing writes during the load.
-2. Load both dumps of the SAME date — they reference each other's people.
-   Run from a pod that has the client tools and the backup volume: `oc debug`
-   on the backend deployment has both.
+The mirror does not contain private notes, extension schemas, or artifact
+bytes. It is a partial recovery source. The application cannot determine if it
+is off-box or on independent hardware. Record that storage decision in the
+deploy repository.
+
+The base sizes `skein-data` at 360Gi and the mirror at 320Gi against the
+10Gi database request. The data PVC covers 14 full dumps, 14 public dumps,
+one portable export, and artifact headroom. The mirror covers 30 public dumps.
+These values do not assume compression. If an overlay changes the database
+request or retention, patch both recovery volumes with the same calculation.
+
+The daily database dump and an external storage snapshot are not one atomic
+recovery point. For a coordinated manual point, stop every process with Skein
+database credentials, including standalone MCP and extension workers. Scale
+the backend to zero. From a one-shot pod labeled `app=skein-maintenance`, with
+PostgreSQL credentials and the `skein-data` mount, run a full-database `pg_dump`
+with no schema filter. Keep all writers stopped until the storage snapshot
+completes. This full manual dump needs the same access controls as the database.
+
+**Restore.** `tests/test_admin_backup.py` drills atomic archive load,
+schema data, and artifact recovery. The test database uses its bootstrap
+superuser. The deployment render contract pins the restricted application-role
+shape. Rehearse that role handoff against the target PostgreSQL service.
+
+1. Pause ArgoCD auto-sync. Remove or disable the backend Route, and check that
+   its host is inaccessible. Stop standalone MCP and extension workers, then
+   scale the backend to zero. Query `pg_stat_activity` and stop if a
+   non-maintenance Skein session remains.
+2. Restore the matching `skein-data` storage copy at `/data`. If only artifact
+   files were copied, restore them at `/data/artifacts`.
+3. As the platform database administrator, create a clean database that stays
+   owned by the platform administrator. Grant the Skein role `CONNECT`, plus
+   `USAGE` and `CREATE` on `public`. Pre-create `private` and each declared
+   `ext_*` schema with the Skein role as owner. Do not grant database-wide
+   `CREATE` to the Skein role.
+4. Switch `PGUSER` and `PGPASSWORD` to the Skein application role. Remove schema
+   creation entries from the archive list because the administrator already
+   created the permitted schemas. Then restore the recovery unit:
 
    ```
-   # PG* variables, never --dbname with the URL: argv is world-readable in
-   # `ps` for every process on the node, and the URL carries the password.
-   export PGHOST=skein-db PGPORT=5432 PGUSER=… PGDATABASE=…
-   export PGPASSWORD=…            # from the skein-db-secret
-
-   # --no-owner: the dump records the role that owned each object, and a
-   # restore into a different role (a managed server, a renamed user) fails
-   # object by object without it.
-   # --dbname takes the NAME, not the URL: pg_restore must connect to restore
-   # at all, and the name carries no password into argv.
+   set -euo pipefail
+   export PGHOST=skein-db PGPORT=5432 PGUSER=<skein-app-role> PGDATABASE=…
+   export PGPASSWORD=…
+   pg_restore --list database-<date>-<backup-id>.dump > restore.full.list
+   test -s restore.full.list
+   grep -q ' SCHEMA - private ' restore.full.list
+   grep -q ' TABLE public tasks ' restore.full.list
+   grep -v ' SCHEMA - ' restore.full.list > restore.list
    pg_restore --dbname "$PGDATABASE" --clean --if-exists --no-owner \
-       platform-<date>.dump
-   pg_restore --dbname "$PGDATABASE" --clean --if-exists --no-owner \
-       private-<date>.dump
+       --no-privileges --no-comments --single-transaction --exit-on-error \
+       -L restore.list database-<date>-<backup-id>.dump
    ```
 
-   Restore one `extension-<name>-<date>.dump` per extension store the
-   deployment has — they are separate FILES, listed in the backup response.
+   If this command fails, stop. Its transaction leaves the pre-created empty
+   schemas intact. Do not start the backend with a partial restore.
 
-   If the database itself is gone rather than damaged, create it first
-   (`createdb "$PGDATABASE"`). `pg_restore` loads into an existing database
-   and does not make one.
-3. Scale back to one replica. Boot applies migrations newer than the
-   backup.
-4. Expect the anchor-log finding. Every line anchored after the backup
-   date now points at rows the restore removed, so the nightly
-   verification reports tampering daily — that is the check working,
-   because a restore is a loss of history. After you confirm the restore
-   explains the finding, trim both anchor logs
-   (`backups/activity-anchors.log`, local and mirror) back to the backup
-   date, and record the restore in a note. Trimming the logs is also
-   what an attacker would do: never trim them on anyone else's word.
+5. Read the restored verified anchor before you start the backend:
+
+   ```
+   psql -Atc "SELECT s.value || ' ' || h.value
+       FROM app_settings s JOIN app_settings h ON h.key = 'activity_chain_hash'
+       WHERE s.key = 'activity_chain_seq'"
+   ```
+
+6. Invalidate restored personal keys before traffic can reach the backend:
+
+   ```
+   psql -c "UPDATE api_keys SET active = 0"
+   ```
+
+   Reconcile `users.active` with the identity provider before you reopen ingress.
+7. If the restored anchor is nonempty, require its exact `seq` and `hash` in at
+   least one retained anchor log. If neither log contains it, stop. Do not write
+   a new baseline over lost history. Then remove lines with a greater sequence.
+   Keep the matching line and all earlier lines. Never trim these logs for
+   another reason.
+8. Set `SKEIN_SCHEDULER=0`, keep the Route absent, and scale the backend to one.
+   Boot applies newer migrations without running catch-up jobs. Check health and
+   record the restore in a note.
+9. Reconcile `job_runs` one job at a time. `job_outcomes` does not store the
+   claim `run_key`, so no generic join proves that a claim has its effect. Check
+   each catch-up job's activity and domain receipt. Remove a claim only when its
+   effect is absent and replay is safe. Keep the scheduler off until this is
+   complete.
+10. Reconcile the roster and mint replacement API keys. Then restore the scheduler
+    setting, recreate the Route, restart stopped workers, and resume ArgoCD sync.
+
+### Mirror-only partial recovery
+
+Use `platform-<date>-<backup-id>.dump` only when the local recovery unit is
+lost. This archive contains the complete core `public` schema, including chats,
+key hashes, and private-visibility rows. It does not contain the `private`
+schema, extension schemas, or artifact bytes.
+
+Restore it with the same Route, scheduler, key, claim, and anchor controls. Then
+initialize empty `private` and current extension schemas. Clear `artifacts`
+metadata before ingress opens because no matching files survived. Record the
+irreversible private-note, extension-data, and artifact losses. Protect this
+archive like the database. `tests/test_admin_backup.py` drills this degraded
+path separately.
 
 ## What differs per environment
 

@@ -15,7 +15,7 @@ or a task. Nothing in this module writes outside data/artifacts.
 from pathlib import Path
 
 from .. import config, db
-from . import handoff, scope
+from . import artifact_files, handoff, scope
 
 # A document is markdown a person reads on Work → Reports, so it is bounded by
 # what that reader can take rather than by what a model can emit.
@@ -108,7 +108,7 @@ def create_document(
         )
         path = _root() / f"{artifact_id}.md"
         db.execute("UPDATE artifacts SET path = ? WHERE id = ?", (str(path), artifact_id))
-        path.write_text(content, encoding="utf-8")
+        artifact_files.publish(path, content.encode("utf-8"))
         db.log_activity(actor, "create_document", f"artifact #{artifact_id} {clean_title}")
         # "id" as well as "artifact_id": tools/_gate.py stamps the receipt ref
         # from result["id"] and review.py stamps the proposal's lineage from
@@ -191,10 +191,15 @@ def edit_document(
             )
         updated = body.replace(old, new)
         _check_content(updated)
-        path.write_text(updated, encoding="utf-8")
+        data = updated.encode("utf-8")
+        # From the LOGICAL name, never the stored path: a revision derived from
+        # the previous revision compounds one uuid per edit and crosses
+        # NAME_MAX on the seventh, making the document permanently uneditable.
+        revision = artifact_files.unique_revision(_root() / f"{artifact_id}.md")
+        artifact_files.publish(revision, data, old=path)
         db.execute(
-            "UPDATE artifacts SET size = ? WHERE id = ?",
-            (len(updated.encode("utf-8")), artifact_id),
+            "UPDATE artifacts SET path = ?, size = ? WHERE id = ?",
+            (str(revision), len(data), artifact_id),
         )
         db.log_activity(actor, "edit_document", f"artifact #{artifact_id} {row['title']}")
         return {"id": artifact_id, "artifact_id": artifact_id, "title": row["title"]}

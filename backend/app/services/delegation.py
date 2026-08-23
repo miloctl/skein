@@ -38,6 +38,13 @@ def delegate_task(
     if not agent.strip():
         raise ValueError("agent name is required")
     acceptance_criteria = acceptance_criteria.strip()
+    # The service is the trust boundary: the REST door caps this, the tool and
+    # MCP doors did not, and the Approvals card renders the stored text.
+    if len(acceptance_criteria) > 1000:
+        raise ValueError(
+            "acceptance_criteria is longer than 1000 characters."
+            " Write a shorter definition of done."
+        )
     check_in_at = check_in_at.strip()
     if check_in_at:
         # a date, not a timestamp: the sweep compares it to the team's day,

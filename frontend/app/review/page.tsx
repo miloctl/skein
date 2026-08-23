@@ -68,9 +68,15 @@ type Change = {
     // submission (services/review.py::_acceptance_evidence). Always present,
     // so a presence test hits on every card.
     sponsor_was: string;
+    // rows the criterion names (`<entity> #<id>`), each with its status as
+    // of this read. state is "" for a row the viewer cannot see — the same
+    // one-sentence rule as an absent row. Display only, never a verdict.
+    criteria_refs: { entity: string; id: number; state: string }[];
   };
   reviewed_by?: string | null;
   reviewed_override?: number; // 1: judged by someone other than the sponsor
+  execution_status?: string;
+  execution_error_code?: string;
   // this proposer's settled verdicts on THIS entity. null when none have
   // settled — services/review.py sends no zeroed record, because "0 of 0
   // approved" is a claim about a history that does not exist
@@ -160,7 +166,12 @@ function OriginChip({ origin }: { origin: string }) {
       ? { word: "agent", why: "An agent tool proposed this write." }
       : origin === "human"
         ? { word: "person", why: "A person proposed this write." }
-        : { word: origin, why: `Recorded origin: ${origin}.` };
+        : origin === "agent_verified"
+          ? {
+              word: "agent · approved",
+              why: "An agent proposed this and a person approved it.",
+            }
+          : { word: origin, why: `Recorded origin: ${origin}.` };
   return (
     // sr-only text, NOT aria-label: the attribute is prohibited on a bare
     // span (role=generic) and Chrome drops it from the tree entirely, so the
@@ -209,6 +220,22 @@ function AcceptanceEvidence({
           {evidence.acceptance_criteria}
         </p>
       ) : null}
+      {(evidence.criteria_refs ?? []).length > 0 ? (
+        // the rows the criterion names, with each row's state as of this
+        // read — beside the verdict, never a verdict. "" state means the
+        // row is absent or not visible, one sentence for both on purpose.
+        <p className="mb-1 text-ink-3">
+          {evidence.criteria_refs.map((r, i) => (
+            <span key={`${r.entity}-${r.id}`}>
+              {i > 0 ? " · " : ""}
+              {r.entity} #{r.id}:{" "}
+              <span className={r.state ? "text-ink-2" : "text-weld"}>
+                {r.state || "not found"}
+              </span>
+            </span>
+          ))}
+        </p>
+      ) : null}
       {evidence.sponsor_was ? (
         // authority follows the CURRENT sponsor
         // (010_sponsor_at_submission.sql), so this is a receipt and not a
@@ -230,7 +257,7 @@ function AcceptanceEvidence({
           code <span aria-hidden>↗</span>
         </a>
       ) : null}
-      {evidence.worklog.length > 0 ? (
+      {(evidence.worklog ?? []).length > 0 ? (
         <ul className="mt-1 space-y-1">
           {evidence.worklog.map((w) => (
             <li key={w.id} className="text-ink-2">
@@ -518,7 +545,12 @@ export default function ReviewPage() {
     if (selected.size === 0) return;
     try {
       const r = await api<{
-        results: { id: number; status: string; detail?: string }[];
+        results: {
+          id: number;
+          status: string;
+          detail?: string;
+          execution_status?: string;
+        }[];
       }>("/api/review/approve-batch", {
         method: "POST",
         body: JSON.stringify({ ids: [...selected] }),
@@ -526,10 +558,18 @@ export default function ReviewPage() {
       // one row per failure, in the page: a batch of 20 can fail 20
       // different ways, each naming a different proposal, and the status
       // region holds one line.
-      setBatchFailures(r.results.filter((x) => x.status === "error"));
+      setBatchFailures(r.results.filter((x) => x.status !== "approved"));
+      const unknown = r.results.filter(
+        (x) => x.execution_status === "completion_unknown",
+      );
+      if (unknown.length > 0) {
+        reportStatus(
+          `Approval recorded for ${unknown.map((x) => `#${x.id}`).join(", ")}, but remote completion is unknown. Do not retry the action.`,
+        );
+      }
       setSelected(new Set());
-      // only the ids that actually settled — a failed one stays in the queue
-      settle(r.results.filter((x) => x.status !== "error").map((x) => x.id));
+      // only approved ids settled — forbidden/error rows remain in the queue
+      settle(r.results.filter((x) => x.status === "approved").map((x) => x.id));
     } catch (e) {
       reportStatus(actionError(e));
     }
@@ -544,14 +584,23 @@ export default function ReviewPage() {
 
   const act = async (id: number, verb: "approve" | "reject", note = "") => {
     try {
-      await api(`/api/review/${id}/${verb}`, {
-        method: "POST",
-        body: JSON.stringify({ note }),
-      });
-      reportStatus(
-        `Proposal #${id} ${verb === "approve" ? "approved" : "rejected"}.`,
-        "confirmation",
+      const result = await api<{ execution_status?: string }>(
+        `/api/review/${id}/${verb}`,
+        {
+          method: "POST",
+          body: JSON.stringify({ note }),
+        },
       );
+      if (result.execution_status === "completion_unknown") {
+        reportStatus(
+          `Proposal #${id} was approved, but remote completion is unknown. Do not retry the action.`,
+        );
+      } else {
+        reportStatus(
+          `Proposal #${id} ${verb === "approve" ? "approved" : "rejected"}.`,
+          "confirmation",
+        );
+      }
       window.dispatchEvent(new Event("skein-attention-change"));
       setAsking(null);
       settle([id]);
@@ -563,6 +612,12 @@ export default function ReviewPage() {
   // acceptance verdicts belong to the sponsor; anyone else must say why
   const forSponsor = (c: Change) =>
     c.sponsor && c.sponsor !== me ? c.sponsor : "";
+  const unknownExecutions = history.filter(
+    (change) => change.execution_status === "completion_unknown",
+  );
+  const recentApproved = history.filter(
+    (change) => change.execution_status !== "completion_unknown",
+  );
 
   // A later proposal that matches an earlier one word for word gets a badge
   // naming the first. Agents re-file (two identical atlas sync proposals sat
@@ -869,7 +924,27 @@ export default function ReviewPage() {
         </p>
       ) : null}
 
-      {(history.length > 0 || historyError) && (
+      {unknownExecutions.length > 0 ? (
+        <section aria-labelledby="unknown-execution-heading" className="mt-8">
+          <h2
+            id="unknown-execution-heading"
+            className="mb-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-danger"
+          >
+            Execution needs reconciliation
+          </h2>
+          <ul className="space-y-1">
+            {unknownExecutions.map((change) => (
+              <li key={change.id} className="text-xs text-danger">
+                #{change.id} {change.summary}. Completion is unknown. Check the
+                external system. Do not retry this action.
+                {change.reviewed_by ? ` Approved by ${change.reviewed_by}.` : ""}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {(recentApproved.length > 0 || historyError) && (
         <>
           <h2 className="mb-2 mt-8 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
             Recently approved
@@ -878,12 +953,24 @@ export default function ReviewPage() {
             <p className="text-xs text-danger">{historyError}</p>
           )}
           <ul className="space-y-1">
-            {history.slice(0, 10).map((c) => (
-              <li key={c.id} className="text-xs text-ink-3">
-                ✅ #{c.id} {c.summary}{" "}
+            {recentApproved
+              .slice(0, 10)
+              .map((c) => (
+              <li
+                key={c.id}
+                className={`text-xs ${c.execution_status === "completion_unknown" ? "text-danger" : "text-ink-3"}`}
+              >
+                {c.execution_status === "completion_unknown"
+                  ? "Completion unknown — do not retry. "
+                  : "✅ "}
+                #{c.id} {c.summary}{" "}
                 <span className="text-ink-3">by {c.proposed_by}</span>
-                {c.reviewed_override && c.sponsor
-                  ? ` · accepted by ${c.reviewed_by} for ${c.sponsor}`
+                {/* authorship and authorization are two claims: the reviewer
+                    who accepted renders on every row, not only overrides */}
+                {c.reviewed_by
+                  ? c.reviewed_override && c.sponsor
+                    ? ` · accepted by ${c.reviewed_by} for ${c.sponsor}`
+                    : ` · accepted by ${c.reviewed_by}`
                   : ""}
               </li>
             ))}

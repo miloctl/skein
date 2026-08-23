@@ -8,8 +8,11 @@ all.
 """
 
 from datetime import date, timedelta
+from pathlib import Path
 
-from app import db
+import pytest
+
+from app import config, db
 from app.services import engagements, playbooks, review, schedule, scope, work
 
 
@@ -27,6 +30,22 @@ def test_the_plan_is_snapshot_at_kickoff(client):
     # same task, and a title-keyed diff calls it one removed and one added
     assert {m["id"] for m in plan["milestones"]} == {m["id"] for m in made["milestones"]}
     assert {t["id"] for t in plan["tasks"]} == {t["id"] for t in made["tasks"]}
+
+
+def test_snapshot_file_is_removed_when_instantiate_rolls_back(fresh_db, monkeypatch):
+    original = playbooks.db.log_activity
+
+    def fail(actor, action, detail=""):
+        if action == "instantiate_playbook":
+            raise RuntimeError("final receipt failed")
+        return original(actor, action, detail)
+
+    monkeypatch.setattr(playbooks.db, "log_activity", fail)
+    with pytest.raises(RuntimeError, match="final receipt failed"):
+        _born("Rollback snapshot")
+    assert db.query_one("SELECT id FROM artifacts WHERE kind = 'plan-snapshot'") is None
+    root = Path(config.DATA_DIR) / "artifacts"
+    assert not root.exists() or list(root.rglob("*-plan-snapshot.json")) == []
 
 
 def test_an_engagement_made_by_hand_has_no_snapshot(client):
@@ -206,8 +225,8 @@ def test_an_engagement_with_no_snapshot_closes_exactly_as_before(client):
 
 
 def test_a_missing_snapshot_file_is_not_a_500_at_close(client):
-    """data/artifacts/ is gitignored, so a restore-from-backup brings the
-    database back without the files. A close must not fail on that."""
+    """A database-only restore can start before its artifact volume is back.
+    Closing an engagement must not fail on that partial recovery state."""
     from pathlib import Path
 
     made = _born()

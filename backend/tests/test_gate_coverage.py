@@ -400,3 +400,6 @@ def test_the_shipped_default_holds_agent_writes_for_review():
         check=True,
     )
     assert out.stdout.strip() == "1"
+    example = (Path(__file__).resolve().parents[1] / ".env.example").read_text()
+    assert "SKEIN_AGENT_REVIEW=1" in example
+    assert "SKEIN_AGENT_REVIEW=0" not in example

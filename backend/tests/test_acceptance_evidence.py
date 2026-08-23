@@ -94,6 +94,139 @@ def test_a_handover_between_submit_and_verdict_is_named(sponsored):
     assert ev["sponsor_was"] == "sponsor"
 
 
+def test_criteria_row_references_show_their_current_state(fresh_db):
+    """The rows a criterion names, resolved to their state at verdict time.
+
+    Deterministic display beside the verdict, never a verdict: the sponsor
+    still clicks. A named row the viewer cannot see comes back with an empty
+    state — the same one sentence an absent row gets."""
+    from app.services import blockers
+
+    users.ensure_user("sponsor")
+    blocker = blockers.raise_blocker("gpu quota", actor="sponsor")
+    named = work.create_task("named dependency", actor="sponsor")
+    task = work.create_task("build the harness", actor="sponsor")
+    delegation.delegate_task(
+        task["id"],
+        "research-agent",
+        sponsor="sponsor",
+        actor="sponsor",
+        acceptance_criteria=(
+            f"blocker #{blocker['id']} resolved, task #{named['id']} done,"
+            f" task #9999 handled, PR #42 merged"
+        ),
+    )
+    delegation.claim_task(task["id"], actor="research-agent")
+    delegation.submit_completion(task["id"], "done", actor="research-agent")
+
+    ev = _evidence("sponsor")
+    states = {(r["entity"], r["id"]): r["state"] for r in ev["criteria_refs"]}
+    assert states[("blocker", blocker["id"])] == "open"
+    assert states[("task", named["id"])] == "todo"
+    assert states[("task", 9999)] == ""  # absent row, empty state
+    assert ("pr", 42) not in states  # unknown word is not a reference
+
+    work.update_task(named["id"], status="done", actor="sponsor")
+    ev = _evidence("sponsor")
+    states = {(r["entity"], r["id"]): r["state"] for r in ev["criteria_refs"]}
+    assert states[("task", named["id"])] == "done"  # state as of THIS read
+
+
+def test_workplace_policy_can_hide_a_visible_criterion_reference(fresh_db):
+    users.ensure_user("sponsor")
+    dependency = work.create_task("policy-hidden dependency", actor="sponsor")
+    task = work.create_task("visible acceptance", actor="sponsor")
+    delegation.delegate_task(
+        task["id"],
+        "research-agent",
+        sponsor="sponsor",
+        acceptance_criteria=f"task #{dependency['id']} done",
+        actor="sponsor",
+    )
+    delegation.claim_task(task["id"], actor="research-agent")
+    delegation.submit_completion(task["id"], "done", actor="research-agent")
+    seen = []
+
+    def policy(entity, entity_id, _attributes):
+        seen.append((entity, entity_id))
+        return not (entity == "task" and entity_id == dependency["id"])
+
+    rows = review.list_changes("pending", scope.Viewer("sponsor", True), resource_filter=policy)
+    acceptance = next(row for row in rows if row["entity"] == "task_completion")
+    assert acceptance["evidence"]["criteria_refs"] == [
+        {"entity": "task", "id": dependency["id"], "state": ""}
+    ]
+    assert ("task", dependency["id"]) in seen
+
+
+def test_criteria_status_reads_are_batched_by_entity(fresh_db, monkeypatch):
+    users.ensure_user("sponsor")
+    dependencies = [work.create_task(f"dependency {i}", actor="sponsor") for i in range(6)]
+    task = work.create_task("batched acceptance", actor="sponsor")
+    delegation.delegate_task(
+        task["id"],
+        "research-agent",
+        sponsor="sponsor",
+        acceptance_criteria=", ".join(f"task #{row['id']} done" for row in dependencies),
+        actor="sponsor",
+    )
+    delegation.claim_task(task["id"], actor="research-agent")
+    delegation.submit_completion(task["id"], "done", actor="research-agent")
+    original = review.db.query
+    status_reads = []
+
+    def count(sql, params=()):
+        if "SELECT id, status FROM tasks WHERE id IN" in sql:
+            status_reads.append(tuple(params))
+        return original(sql, params)
+
+    monkeypatch.setattr(review.db, "query", count)
+    rows = review.list_changes("pending", scope.Viewer("sponsor", True))
+    acceptance = next(row for row in rows if row["entity"] == "task_completion")
+    assert len(acceptance["evidence"]["criteria_refs"]) == 6
+    assert len(status_reads) == 1
+
+
+def test_a_criterion_naming_a_hidden_row_does_not_confirm_it(fresh_db):
+    """A visible acceptance can name a hidden dependency without confirming it."""
+    for name in ("sponsor", "member"):
+        users.ensure_user(name)
+    crew = crews.create_crew("secret ops", actor="member")
+    hidden = work.create_task(
+        "crew secret",
+        actor="member",
+        visibility=scope.CREW,
+        crew_id=crew["id"],
+    )
+    task = work.create_task("visible acceptance", actor="sponsor")
+    delegation.delegate_task(
+        task["id"],
+        "research-agent",
+        sponsor="sponsor",
+        acceptance_criteria=f"task #{hidden['id']} done",
+        actor="sponsor",
+    )
+    delegation.claim_task(task["id"], actor="research-agent")
+    delegation.submit_completion(task["id"], "done", actor="research-agent")
+    refs = _evidence("sponsor")["criteria_refs"]
+    assert refs == [{"entity": "task", "id": hidden["id"], "state": ""}]
+
+
+def test_the_service_bounds_acceptance_criteria_on_every_door(fresh_db):
+    """The REST door capped this and the tool/MCP doors did not, so the
+    Approvals card rendered unbounded text."""
+    users.ensure_user("sponsor")
+    task = work.create_task("bounded", actor="sponsor")
+    with pytest.raises(ValueError, match="1000 characters"):
+        delegation.delegate_task(
+            task["id"],
+            "research-agent",
+            sponsor="sponsor",
+            actor="sponsor",
+            acceptance_criteria="x" * 1001,
+        )
+
+
 def test_only_the_sponsor_closes_delegated_work(sponsored):
     """The agent half of this guard existed and the human half did not, so any
     teammate who could reach PATCH /api/tasks/{id} closed delegated work with

@@ -130,7 +130,7 @@ describe("Settings identity states", () => {
       await screen.findByRole("button", { name: "Back up now" }),
     ).toBeTruthy();
     expect(
-      ((await screen.findByRole("radio", { name: "Mini" })) as HTMLInputElement)
+      ((await screen.findByRole("radio", { name: /Mini/ })) as HTMLInputElement)
         .disabled,
     ).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: /Customize & share/ }));
@@ -214,13 +214,13 @@ describe("Settings identity states", () => {
     await waitFor(() => expect(state.calls).toContain("/api/settings/model"));
     expect(state.calls).not.toContain("/api/settings/context-strategy");
     expect(state.calls).not.toContain("/api/settings/tuning");
-    expect(screen.queryByRole("radio", { name: "Mini" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: /Mini/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Back up now" })).toBeNull();
   });
 
   it("clears administrator data when credentials change", async () => {
     render(<SettingsPage />);
-    expect(await screen.findByRole("radio", { name: "Mini" })).toBeTruthy();
+    expect(await screen.findByRole("radio", { name: /Mini/ })).toBeTruthy();
 
     state.identity = {
       ...state.identity,
@@ -237,7 +237,7 @@ describe("Settings identity states", () => {
       ).length,
     ).toBeGreaterThan(0);
     await waitFor(() =>
-      expect(screen.queryByRole("radio", { name: "Mini" })).toBeNull(),
+      expect(screen.queryByRole("radio", { name: /Mini/ })).toBeNull(),
     );
     expect(screen.queryByRole("button", { name: "Back up now" })).toBeNull();
   });

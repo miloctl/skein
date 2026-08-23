@@ -740,6 +740,12 @@ Use `ExtensionStore` for a small extension-owned set of tables. Construct it
 with a NAME, and core gives it a schema of its own (`ext_<name>`). Its
 migration stream is namespaced and independent from core migration numbers.
 
+Before deployment, the database administrator creates this schema and makes
+the Skein application role its owner. The application role does not need
+and must not get database-wide `CREATE`. Dots and dashes normalize to
+underscores. Composition refuses collisions and names longer than PostgreSQL
+can store.
+
 Unqualified names in the store's SQL resolve inside that schema and nowhere
 else. That prevents accidents. It is not an isolation boundary: an in-process
 module runs as the Skein process on one connection role, so SQL that NAMES
@@ -770,15 +776,13 @@ Keep each migration version and name append-only. Add a new version for every
 change. Test a fresh database and an upgrade from the previous extension
 release.
 
-The daily core backup copies each store that a composed migration
-contribution declares. Set `include_in_backup=False` when the contents are
-rebuildable from the system the store mirrors. This setting requires core
-`0.2.2` or later. Skein does not mirror an extension store off the box: the
-mirror is an off-box copy and core cannot know what a private package keeps.
-Retention inside the store stays extension-owned: core prunes its own tables
-only, so a store that grows without bound is the private package's job to
-prune. Core does apply its own retention to the backup COPIES it writes, and
-keeps the same number of them as it keeps of its own.
+The daily local database recovery unit includes each store that a composed
+migration contribution declares. Set `include_in_backup=False` when the
+contents are rebuildable from the source system. This setting requires core
+`0.2.2` or later. The configured public platform mirror excludes every
+extension schema. Core cannot classify data that a private package stores.
+Retention inside the store stays extension-owned, so a store that grows
+without bound is the private package's job to prune.
 
 ## Add workflow behavior
 
@@ -849,7 +853,9 @@ all write actions idempotent because the final external result can be unknown.
 Each owner-bound `WorkItems` command has its own rollback boundary. If a local
 command writes and then fails, Skein removes that command's rows and deferred
 callbacks. The reviewed action remains `completion_unknown` because an
-external effect can already exist.
+external effect can already exist. Skein stores the human verdict as approved
+and stores the invocation outcome separately as `completion_unknown`. The
+Approvals history keeps the warning. Do not submit or run the action again.
 
 Version 1 does not support timers, parallel branches, or a general workflow
 state machine. Keep these processes in an extension service.

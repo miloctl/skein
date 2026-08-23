@@ -17,15 +17,15 @@ configMapGenerator:
       # the router's rate bucket; above the real depth the bucket key is
       # spoofable (config.py).
       - SKEIN_TRUST_PROXY_HOPS=1
-      # Second volume, so a lost data PVC does not take the backups with it.
-      # The anchor-log tamper check compares this copy against the local one
-      # (docs/FEATURES.md, tamper-evident provenance) — an independent
-      # storage backend is what makes that comparison mean something.
+      # Existing second volume for the core public-schema dump and anchor log.
+      # It does not contain private schemas, extension schemas, or artifacts.
+      # An independent storage backend is what makes the anchor comparison
+      # meaningful.
       - SKEIN_BACKUP_MIRROR=/backup-mirror
       # The database. The HOST is here because it is not a secret; the
-      # credentials live in skein-db-secret, and the backend composes the two
-      # into SKEIN_DATABASE_URL (backend.yaml). Point this at a managed
-      # server and delete postgres.yaml to use one.
+      # credentials live in skein-db-secret, and the backend composes the
+      # conninfo from the components (config._database_url). Point this at a
+      # managed server and delete postgres.yaml to use one.
       - SKEIN_DB_HOST=skein-db
       - SKEIN_DB_PORT=5432
       # Keyless default. Overlays set a real provider and its Secret.

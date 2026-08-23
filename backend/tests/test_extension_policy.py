@@ -414,7 +414,7 @@ def test_authorized_manager_resumes_the_exact_reviewed_tool_call(fresh_db):
 def test_reviewed_tool_writes_through_the_public_facade(fresh_db, monkeypatch):
     from app import db
     from app.extensions.tools import execute_reviewed_tool
-    from app.services import mentions, review, users
+    from app.services import mentions, review, scope, users
 
     calls: list[str] = []
 
@@ -451,7 +451,7 @@ def test_reviewed_tool_writes_through_the_public_facade(fresh_db, monkeypatch):
     failed = {"once": False}
 
     def fail_first_settlement(sql, params=()):
-        if "SET status = 'approved', result = ?" in sql and not failed["once"]:
+        if "SET status = ?, result = ?" in sql and not failed["once"]:
             failed["once"] = True
             raise RuntimeError("forced tool settlement failure")
         return original_execute(sql, params)
@@ -540,13 +540,17 @@ def test_reviewed_tool_writes_through_the_public_facade(fresh_db, monkeypatch):
 
     assert partial_approved["result"]["status"] == "completion_unknown"
     assert partial_approved["result"]["error_code"] == "tool_error"
+    assert partial_approved["execution_status"] == "completion_unknown"
     assert fresh_db.query_one(
         "SELECT status FROM pending_changes WHERE id = ?", (partial_queued.review_id,)
     ) == {"status": "approved"}
     assert fresh_db.query_one(
         "SELECT status FROM extension_review_invocations WHERE change_id = ?",
         (partial_queued.review_id,),
-    ) == {"status": "approved"}
+    ) == {"status": "completion_unknown"}
+    settled = review.list_changes("approved", scope.Viewer("manager", True))
+    recorded = next(row for row in settled if row["id"] == partial_queued.review_id)
+    assert recorded["execution_status"] == "completion_unknown"
     assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'Imported ATLAS-PARTIAL'") is None
     assert (
         fresh_db.query_one(

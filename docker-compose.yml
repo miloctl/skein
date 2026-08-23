@@ -65,13 +65,22 @@ services:
       - path: ./backend/.env
         required: false
     environment:
-      # :? like the db service above, not :-skein. The two must not disagree:
-      # the db service refuses to start without the variable, so the default
-      # here is unreachable while the whole stack comes up together — and
-      # reachable the moment someone starts this service alone, which
-      # connects the app as skein/skein, the credential this file's header
-      # says does not exist.
-      SKEIN_DATABASE_URL: "postgresql://skein:${SKEIN_DB_PASSWORD:?set SKEIN_DB_PASSWORD}@db:5432/skein"
+      # Components, never an interpolated URI: a password holding @ : / % ?
+      # or # parses as URL structure and the app cannot connect. The backend
+      # composes the conninfo (config._database_url). :? like the db service
+      # above, not :-skein — the db service refuses to start without the
+      # variable, so a default here would only ever connect a lone backend
+      # as skein/skein, the credential this file's header says does not exist.
+      # Empty on purpose, and it must stay: `environment` beats env_file, so
+      # this shadows a copied backend/.env whose SKEIN_DATABASE_URL points at
+      # localhost — which inside this container is the backend itself. Config
+      # strips the empty string and the components below win.
+      SKEIN_DATABASE_URL: ""
+      SKEIN_DB_HOST: db
+      SKEIN_DB_PORT: "5432"
+      SKEIN_DB_USER: skein
+      SKEIN_DB_PASSWORD: ${SKEIN_DB_PASSWORD:?set SKEIN_DB_PASSWORD}
+      SKEIN_DB_NAME: skein
       SKEIN_CORS_ORIGINS: "http://${SKEIN_HOST:-localhost}:${SKEIN_FRONTEND_PORT:-3000}"
       # Same shell var feeds backend enforcement AND the frontend build arg,
       # so the two can't drift. (backend/.env can still override the rest.)

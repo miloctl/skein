@@ -15,11 +15,10 @@ metadata:
     app: skein-backend
 spec:
   replicas: 1
-  # Recreate, never RollingUpdate: the data PVC is ReadWriteOnce, so a surge
-  # pod wedges Pending on the volume attach. Migrations are safe either way
-  # now — init_db takes an advisory lock, so two booting pods serialize
-  # instead of racing — but the volume still admits one mounter. The cost is
-  # seconds of downtime per upgrade, accepted in deploy/k8s/README.md.
+  # Recreate, never RollingUpdate: two pods on one node can both mount an RWO
+  # volume, so RWO is not the safety boundary. Recreate prevents overlapping
+  # file readers, schedulers, and per-process rate caps during an upgrade. The
+  # cost is seconds of downtime, accepted in deploy/k8s/README.md.
   strategy:
     type: Recreate
   selector:
@@ -54,16 +53,10 @@ spec:
             - name: http
               containerPort: 8000
           env:
-            # Composed here rather than stored whole, so the password stays in
+            # Components rather than one stored URL, so the password stays in
             # the Secret and the host stays in the ConfigMap. The backend
-            # refuses to start without it (config.py) — there is no default
+            # refuses to start without them (config.py) — there is no default
             # that could quietly serve an empty database instead.
-            # Host and port come from the ConfigMap through an explicit
-            # configMapKeyRef, NOT through envFrom: $() expansion only sees
-            # names defined earlier in THIS list, so an envFrom value would
-            # reach SKEIN_DATABASE_URL below as the literal text
-            # "$(SKEIN_DB_HOST)" and the pod would try to resolve that as a
-            # hostname.
             - name: SKEIN_DB_HOST
               valueFrom:
                 configMapKeyRef:
@@ -89,14 +82,16 @@ spec:
                 secretKeyRef:
                   name: skein-db-secret
                   key: SKEIN_APP_PASSWORD
+            # No SKEIN_DATABASE_URL here on purpose: the backend composes the
+            # conninfo from these components (config._database_url), so a
+            # generated password holding @ : / % ? or # never breaks URI
+            # parsing. Do not reintroduce a URI built by interpolation —
+            # scripts/reference-deployment-contract.sh refuses the render.
             - name: SKEIN_DB_NAME
               valueFrom:
                 secretKeyRef:
                   name: skein-db-secret
                   key: POSTGRES_DB
-            - name: SKEIN_DATABASE_URL
-              value: >-
-                postgresql://$(SKEIN_DB_USER):$(SKEIN_DB_PASSWORD)@$(SKEIN_DB_HOST):$(SKEIN_DB_PORT)/$(SKEIN_DB_NAME)
           envFrom:
             - configMapRef:
                 name: skein-config
@@ -105,8 +100,8 @@ spec:
             - secretRef:
                 name: skein-secrets
                 optional: true
-          # Startup runs migrations plus catch-up jobs (a full DB backup on
-          # the first boot of a day) before uvicorn answers anything —
+          # Startup runs migrations plus catch-up jobs (a full DB backup and
+          # configured mirror copy on the first boot of a day) before uvicorn answers —
           # /health included. The startup probe carries that whole window;
           # liveness without it kills the pod mid-migration into a
           # crash-loop that can never finish.
@@ -115,7 +110,7 @@ spec:
               path: /health
               port: http
             periodSeconds: 10
-            failureThreshold: 60
+            failureThreshold: 150
           readinessProbe:
             httpGet:
               path: /health
@@ -172,12 +167,9 @@ spec:
       targetPort: http
 ---
 # Block storage only (RWO). No database lives here any more — this volume
-# holds artifacts/, exports/ and the local backup copies. RWO is still
-# deliberate: one pod mounting it is what keeps the backup writer single,
-# and the failed attach of a second pod is what enforces `replicas: 1` and
-# `strategy: Recreate` (see the Deployment comment above for everything
-# else that pins one replica). An RWX class would not corrupt these files —
-# it would silently remove that enforcement.
+# holds artifacts, exports, and local backup copies. RWO limits cross-node
+# mounting, not pod count. `replicas: 1` and `strategy: Recreate` are the
+# boundaries that keep file readers and the scheduler single.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -187,7 +179,10 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 5Gi
+      # 14 full and 14 public dumps can each approach the 10Gi database
+      # request. The remaining headroom holds one portable export, artifacts,
+      # and temporary files.
+      storage: 360Gi
 ---
 # The mirror only earns its place on a storage backend independent of
 # skein-data — same class, same array means one fault takes both copies and
@@ -202,4 +197,5 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 5Gi
+      # 30 public dumps can each approach the 10Gi database request.
+      storage: 320Gi

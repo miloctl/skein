@@ -24,6 +24,22 @@ def test_ship_it_and_handoff_survive_rename(client, fresh_db):
     assert "M1" in result["markdown"]  # name join would have lost the milestone
 
 
+def test_same_day_handoff_after_rename_stays_one_row(client, fresh_db):
+    from pathlib import Path
+
+    from app.services import engagements, handoff
+
+    eng = engagements.create_engagement(name="Old Name", actor="tester")
+    first = handoff.generate_handoff(eng["id"], actor="tester")
+    fresh_db.execute("UPDATE engagements SET name = 'New Name' WHERE id = ?", (eng["id"],))
+    second = handoff.generate_handoff(eng["id"], actor="tester")
+    assert second["artifact_id"] == first["artifact_id"]
+    assert second["path"] != first["path"]
+    assert not Path(first["path"]).exists()
+    rows = fresh_db.query("SELECT id FROM artifacts WHERE kind = 'handoff'")
+    assert len(rows) == 1
+
+
 def test_engagement_rename_propagates_and_reindexes(client):
     from app import db
     from app.services import engagements, search, work

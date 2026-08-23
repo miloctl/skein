@@ -40,14 +40,19 @@ credential.
 
 ## Upgrade
 
-1. The maintainer publishes images tagged `X.Y.Z` (backend) and
+1. Pause ArgoCD auto-sync. Check the StorageClass for `skein-data` and
+   `skein-backup-mirror`. Its `allowVolumeExpansion` value must be `true`.
+2. Apply a storage-only change first. Request 360Gi for `skein-data` and 320Gi
+   for `skein-backup-mirror`. Wait until both PVC status capacities match.
+   If expansion is unavailable, keep the backend stopped while the storage
+   administrator copies each volume to a larger replacement PVC.
+3. The maintainer publishes images tagged `X.Y.Z` (backend) and
    `X.Y.Z-<env>` (frontend).
-2. In the private deploy repo, set the new tags in the overlay's
-   `images:` block. Commit.
-3. ArgoCD syncs. The backend pod stops, restarts on the new version, and
-   applies database migrations at startup. The service is down for the
-   length of one pod restart. This is expected.
-4. Check `/api/health` after the sync.
+4. In the private deploy repo, set the new tags in the overlay's `images:`
+   block. Commit and sync.
+5. The backend pod stops, restarts on the new version, and applies database
+   migrations. The service is down for one pod restart.
+6. Check `/api/health`, then resume ArgoCD auto-sync.
 
 Do not roll back through ArgoCD after a sync has completed. Migrations
 only move forward. If a release is faulty, the maintainer ships the next
@@ -60,20 +65,23 @@ section) and lose everything written since.
 oc rollout restart deployment/skein-backend -n <namespace>
 ```
 
-This takes the service down for the length of one restart (the
-deployment strategy is Recreate, on purpose — the database has one
-writer). Interrupted scheduled work re-runs on its next schedule, with
+This takes the service down for the length of one restart. The deployment
+uses Recreate so two backend pods never overlap on in-process scheduler,
+rate-limit, chat-turn, or file state. PostgreSQL supports concurrent writers.
+Interrupted scheduled work re-runs on its next schedule, with
 one exception: a restart during the nightly job band (03:00–07:00 team
 time) can interrupt that day's backup after the day is already claimed.
-The next `/api/health` check still shows the job green until the stale flag
-catches up, so after a restart in that window, look for a `backup claim`
-error line in the pod log — if it is there, run a manual backup (below).
+The next `/api/health` response reports the failed latest attempt. Run a
+manual backup if the Operations card shows that failure.
 
 ## Backups
 
 Daily at 03:00 team time (the `timezone` field on `/api/health`). The last
-14 stay on the data volume, the last 30 on the mirror volume
-(`/backup-mirror`). Before a risky change, take one by hand: sign in as
+14 full database dumps stay local. If the mirror is configured and available,
+the last 30 core public-schema dumps stay there. These dumps contain all tables and rows in the core `public`
+schema. They exclude `private`, extension schemas, and artifact bytes. Protect
+them like the database. Artifact bytes need a
+separate storage backup. Before a risky change, take one by hand: sign in as
 an admin and use Settings → "Backups (team)" → "Back up now", or call
 the API:
 
@@ -82,6 +90,13 @@ curl -X POST -H "Authorization: Bearer <admin-api-key>" \
     https://<backend-route-host>/api/admin/backup
 ```
 
+The database dump and artifact storage snapshot are not atomic by default. For
+a coordinated recovery point, stop every process with Skein database
+credentials and scale the backend to zero. Use a one-shot pod labeled
+`app=skein-maintenance` with PostgreSQL credentials and the `skein-data` mount.
+Run a full-database `pg_dump` with no schema filter, and keep all writers
+stopped until the storage snapshot completes.
+
 The restore procedure is in `README.md` — read it before you need it,
 and note the anchor-log step at the end.
 
@@ -89,21 +104,24 @@ and note the anchor-log step at the end.
 
 If this tool is retired or abandoned, the data is not trapped:
 
-- The data is one PostgreSQL database on the `skein-db` volume. The daily
-  backups are the complete record: `platform-<date>.dump` and
-  `private-<date>.dump`, both standard `pg_dump` custom-format files that
-  `pg_restore` loads into any PostgreSQL server.
-- The export (Settings → "Backups (team)" → "Download export", or
-  `GET /api/admin/export` with an admin credential) returns the work
-  data as JSON — tasks, promises, decisions, and the rest of the shared
-  tables. The export deliberately excludes chat transcripts,
-  private-visibility rows, and the private schema. For a
-  complete copy, take the `.dump` backups, not the export.
+- PostgreSQL stores the database rows on the `skein-db` volume. Each daily
+  `database-<date>-<backup-id>.dump` uses the standard `pg_dump` custom format. It contains
+  public, private, and opted-in extension schemas in one snapshot.
+- Artifact bodies are files on the Skein data volume. Database dumps contain
+  their metadata rows, not those files. Copy the artifact volume for recovery.
+- Settings → Backups → Download export returns portable work JSON from one
+  database snapshot. A direct client can use
+  `curl -fOJ -H "Authorization: Bearer sk-skein-..." <url>/api/admin/export/download`.
+  The export excludes chats, private rows, review proposals, notifications,
+  feedback, generated insights, the activity ledger, usage telemetry, context
+  packs, deployment settings, scheduler state, extension schemas, and artifact
+  bytes.
 - With no model provider configured the app runs keyless indefinitely —
   abandonment degrades nothing except the agent features.
 
-To decommission: copy the latest backups off the cluster, take an export
-if JSON is wanted, then delete the ArgoCD Application and the namespace.
+To decommission: copy the latest database dumps and the artifact volume off
+the cluster. Take a JSON export if needed. Then delete the ArgoCD Application
+and the namespace.
 
 ## Contact the maintainer
 

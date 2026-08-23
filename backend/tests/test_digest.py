@@ -1,5 +1,7 @@
 """The daily digest: the narrator hook, opener selection, row scrubbing and caps, and the Monday pulse question."""
 
+import pytest
+
 
 def test_narrator_hook_used_and_fail_safe(fresh_db):
     from app.services import digest
@@ -16,6 +18,34 @@ def test_narrator_hook_used_and_fail_safe(fresh_db):
         assert out["markdown"].startswith("# Daily digest")  # falls back to raw
     finally:
         digest.set_narrator(None)
+
+
+def test_same_day_digest_rerun_rotates_the_file_and_keeps_one_row(fresh_db):
+    from pathlib import Path
+
+    from app.services import digest
+
+    first = digest.publish_digest(actor="tester")
+    second = digest.publish_digest(actor="tester")
+    assert second["path"] != first["path"]
+    assert not Path(first["path"]).exists()
+    assert Path(second["path"]).is_file()
+    rows = fresh_db.query("SELECT id FROM artifacts WHERE kind = 'digest'")
+    assert len(rows) == 1
+
+
+def test_scheduler_digest_claim_rolls_back_with_the_publication(fresh_db, monkeypatch):
+    from app.services import digest
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("ledger failed")
+
+    monkeypatch.setattr(digest.db, "log_activity", fail)
+    with pytest.raises(RuntimeError, match="ledger failed"):
+        digest.publish_digest(actor="scheduler")
+    monkeypatch.undo()
+    out = digest.publish_digest(actor="scheduler")
+    assert "skipped" not in out
 
 
 def test_digest_groups_job_stale(client, fresh_db):

@@ -5,10 +5,13 @@ never more visible than the source was.
 """
 
 import io
+import threading
+import time
+from pathlib import Path
 
 import pytest
 
-from app import db
+from app import config, db
 from app.services import documents, handoff, scope
 
 
@@ -43,8 +46,6 @@ def test_an_upload_is_never_rewritten(client):
     with pytest.raises(PermissionError, match="not written by an agent"):
         documents.edit_document(upload_id, "private", "public", actor="agent")
     row = db.query_one("SELECT path FROM artifacts WHERE id = ?", (upload_id,))
-    from pathlib import Path
-
     assert Path(row["path"]).read_bytes() == b"private plans"
 
 
@@ -67,8 +68,106 @@ def test_a_shared_source_can_become_a_document(fresh_db):
 
 def test_an_edit_replaces_one_exact_run(fresh_db):
     doc = documents.create_document("Plan", "alpha beta gamma", actor="agent")["artifact_id"]
+    before = Path(db.query_row("SELECT path FROM artifacts WHERE id = ?", (doc,))["path"])
     documents.edit_document(doc, "beta", "delta", actor="agent")
+    after = Path(db.query_row("SELECT path FROM artifacts WHERE id = ?", (doc,))["path"])
+    assert after != before
+    assert not before.exists()
     assert handoff.read_artifact(doc, scope.NOBODY)["markdown"] == "alpha delta gamma"
+
+
+def test_repeated_edits_do_not_grow_the_filename(fresh_db):
+    doc = documents.create_document("Plan", "v0", actor="agent")["artifact_id"]
+    for n in range(8):
+        documents.edit_document(doc, f"v{n}", f"v{n + 1}", actor="agent")
+    path = Path(db.query_row("SELECT path FROM artifacts WHERE id = ?", (doc,))["path"])
+    assert len(path.name) < 60
+    assert handoff.read_artifact(doc, scope.NOBODY)["markdown"] == "v8"
+
+
+def test_document_create_rollback_removes_the_file(fresh_db, monkeypatch):
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("ledger failed")
+
+    monkeypatch.setattr(documents.db, "log_activity", fail)
+    with pytest.raises(RuntimeError, match="ledger failed"):
+        documents.create_document("Plan", "body", actor="agent")
+    assert db.query_one("SELECT id FROM artifacts WHERE kind = 'document'") is None
+    root = Path(config.DATA_DIR) / "artifacts" / "documents"
+    assert not root.exists() or list(root.iterdir()) == []
+
+
+def test_document_edit_rollback_keeps_old_path_and_body(fresh_db, monkeypatch):
+    doc = documents.create_document("Plan", "alpha beta", actor="agent")["artifact_id"]
+    before = db.query_row("SELECT path, size FROM artifacts WHERE id = ?", (doc,))
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("ledger failed")
+
+    monkeypatch.setattr(documents.db, "log_activity", fail)
+    with pytest.raises(RuntimeError, match="ledger failed"):
+        documents.edit_document(doc, "beta", "delta", actor="agent")
+    assert db.query_row("SELECT path, size FROM artifacts WHERE id = ?", (doc,)) == before
+    assert Path(before["path"]).read_text(encoding="utf-8") == "alpha beta"
+    files = list(Path(before["path"]).parent.glob(f"{doc}*.md"))
+    assert files == [Path(before["path"])]
+
+
+def test_reader_sees_old_document_until_edit_commits(fresh_db):
+    doc = documents.create_document("Plan", "alpha beta", actor="agent")["artifact_id"]
+    seen = []
+    with db.transaction():
+        documents.edit_document(doc, "beta", "delta", actor="agent")
+        reader = threading.Thread(
+            target=lambda: seen.append(handoff.read_artifact(doc, scope.NOBODY)["markdown"])
+        )
+        reader.start()
+        reader.join(timeout=3)
+        assert seen == ["alpha beta"]
+    assert handoff.read_artifact(doc, scope.NOBODY)["markdown"] == "alpha delta"
+
+
+def test_concurrent_document_edits_serialize_on_the_row(fresh_db, monkeypatch):
+    doc = documents.create_document("Plan", "alpha beta", actor="agent")["artifact_id"]
+    entered = threading.Event()
+    release = threading.Event()
+    original = documents.artifact_files.publish
+    calls = 0
+    guard = threading.Lock()
+
+    def pause_first(*args, **kwargs):
+        nonlocal calls
+        with guard:
+            calls += 1
+            first = calls == 1
+        if first:
+            entered.set()
+            assert release.wait(3)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(documents.artifact_files, "publish", pause_first)
+    errors = []
+
+    def edit(old, new):
+        try:
+            documents.edit_document(doc, old, new, actor="agent")
+        except Exception as exc:
+            errors.append(exc)
+
+    first = threading.Thread(target=edit, args=("alpha", "one"))
+    second = threading.Thread(target=edit, args=("beta", "two"))
+    first.start()
+    assert entered.wait(3)
+    second.start()
+    time.sleep(0.1)
+    assert second.is_alive(), "second writer did not wait for the document row lock"
+    release.set()
+    first.join(3)
+    second.join(3)
+    assert errors == []
+    assert handoff.read_artifact(doc, scope.NOBODY)["markdown"] == "one two"
+    current = Path(db.query_row("SELECT path FROM artifacts WHERE id = ?", (doc,))["path"])
+    assert list(current.parent.glob(f"{doc}*.md")) == [current]
 
 
 def test_an_edit_that_matches_nothing_is_refused(fresh_db):

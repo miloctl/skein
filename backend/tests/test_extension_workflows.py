@@ -853,7 +853,7 @@ workflow:
         failed = {"once": False}
 
         def fail_first_settlement(sql, params=()):
-            if "SET status = 'approved', result = ?" in sql and not failed["once"]:
+            if "SET status = ?, result = ?" in sql and not failed["once"]:
                 failed["once"] = True
                 raise RuntimeError("forced settlement failure")
             return original_execute(sql, params)
@@ -955,7 +955,9 @@ workflow:
         "idempotency_key": "reviewed-workflow-task:Created by the reviewed workflow",
     }
     assert partial_approved.status_code == 200, partial_approved.text
-    partial_workflow = partial_approved.json()["result"]["workflow"]
+    partial_body = partial_approved.json()
+    partial_workflow = partial_body["result"]["workflow"]
+    assert partial_body["execution_status"] == "completion_unknown"
     assert partial_workflow["status"] == "completion_unknown"
     assert partial_workflow["error_code"] == "ACTION_ERROR"
     assert fresh_db.query_one(
@@ -965,7 +967,7 @@ workflow:
     assert fresh_db.query_one(
         "SELECT status FROM extension_review_invocations WHERE change_id = ?",
         (partial_queued["review_id"],),
-    ) == {"status": "approved"}
+    ) == {"status": "completion_unknown"}
     assert (
         fresh_db.query_one(
             "SELECT id FROM tasks WHERE title = ?", ("Must roll back the failed command",)

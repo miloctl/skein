@@ -1,38 +1,34 @@
-"""Backups and export. pg_dump writes a consistent snapshot from a single
-transaction even mid-write; exports are JSON snapshots for portability.
+"""Database recovery dumps and portable JSON exports.
 
-Ops note: backups default to the same volume as the live databases, so
-losing that volume loses both together. Put them elsewhere: on OpenShift,
-mount a second PVC and point SKEIN_BACKUP_DIR (or SKEIN_BACKUP_MIRROR) at
-it, or run the Litestream sidecar (TODO.md, deploy entry) for streaming
-off-cluster copies. On a host deployment, a cron rsync of the backups
-directory does the same job.
+One local database dump contains the public, private, and opted-in extension
+schemas in one PostgreSQL snapshot. A configured mirror receives a separate
+core public-schema dump that needs database-grade protection. Artifact bytes
+stay on the data volume.
 
-Restore procedure (drilled in tests/test_admin_backup.py::
-test_restore_drill_brings_both_databases_back):
-1. Scale the deployment to zero replicas, so nothing writes during the load.
-2. pg_restore --clean --if-exists both dumps of the SAME date:
-   platform-<date>.dump and private-<date>.dump. Both, and matching: they
-   reference each other's people.
-3. Scale back to one replica. Boot applies any migrations newer than the
-   backup; the activity chain verifies from its anchor on /health.
-4. The anchor-log check (services/activity.py::check_anchor_log) now fires
-   daily: lines anchored after the backup date point at rows the restore
-   removed. That is correct signal — a restore IS a loss of history. Once
-   the restore is confirmed as the cause, trim both anchor logs to the
-   backup date (deploy/k8s/README.md, restore section). Never trim them
-   for any other reason: trimming is exactly what an attacker would do.
+The restore drill pins the archive and artifact mechanics:
+1. Scale the backend to zero.
+2. Restore the matching artifact-volume copy at the same SKEIN_DATA_DIR.
+3. Restore `database-<date>-<backup-id>.dump` into a clean database with `--no-owner`.
+4. Start the backend so newer migrations apply.
+5. Require the restored verified anchor in one retained log. Then trim only
+   later anchor lines.
 """
 
+import fcntl
 import json
 import logging
 import os
 import re
 import shutil
 import subprocess
+import time
+from contextlib import contextmanager
 from pathlib import Path
+from threading import Lock
+from uuid import uuid4
 
-from psycopg.conninfo import conninfo_to_dict
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
+from psycopg.errors import LockNotAvailable
 
 from .. import config, db
 
@@ -58,6 +54,39 @@ EXCLUDED = frozenset(
         # secret hashes must not travel in portable exports — recreate keys
         # after a restore
         "api_keys",
+        # proposal payloads can contain private target bodies and extension
+        # previews. The portable export cannot reconstruct their governing tier.
+        "pending_changes",
+        # rendered delivery rows can quote private source content but carry no
+        # visibility column of their own
+        "notifications",
+        "notification_reads",
+        # arbitrary feedback can contain chat input, model output, and a human
+        # correction. The database backup keeps this evaluation corpus.
+        "feedback",
+        # deployment state and scheduler diagnostics are not portable work. They
+        # can also carry model names, integrity marks, exception text, and paths.
+        "app_settings",
+        "job_runs",
+        "job_outcomes",
+        # the immutable ledger carries historical settings and operational
+        # details. A projection would no longer be a verifiable chain.
+        "activity",
+        # owner-scoped telemetry and discovery state do not become an
+        # administrator surveillance export
+        "usage_log",
+        "tool_usage",
+        "flock_traces",
+        "feature_unlocks",
+        # materialized context bodies can retain source text after its row changes
+        "context_packs",
+        # findings can copy excluded proposal, chat, scheduler, and budget data
+        # into their message and receipt. Dispositions identify those rows.
+        "findings",
+        "finding_dispositions",
+        # mention delivery/dedupe rows can point at private entities but have no
+        # visibility column of their own
+        "mention_log",
         # owner-scoped conversation state stays out of portable exports on
         # purpose; the pg_dump backups still carry it
         "chat_threads",
@@ -78,53 +107,111 @@ TABLES = (
     "standups",
     "events",
     "notes",
-    "activity",
     "blockers",
     "intake_requests",
-    "pending_changes",
-    "usage_log",
     "engagements",
     "allocations",
     "lessons",
     "artifacts",
     "memories",
-    "notifications",
-    # who has dismissed which team announcement (009). Exported WITH
-    # notifications, not excluded: a restore that carried the announcements but
-    # not the dismissals would resurface every team notification the roster had
-    # already read, on everybody's My Day, at once.
-    "notification_reads",
     "promises",
     "agent_authority",
-    "feedback",
-    "findings",
-    "context_packs",
-    "tool_usage",
-    # exported with the other spend tables, not excluded with chat_messages:
-    # a trace carries slugs, timings and token counts, never message text
-    "flock_traces",
     "forecast_snapshots",
     "health_snapshots",
-    "job_runs",
-    "job_outcomes",
-    "finding_dispositions",
-    "app_settings",
     "absences",
     "task_worklog",
-    "feature_unlocks",
-    "mention_log",
     "crews",
     "crew_members",
 )
 
+_BACKUP_LOCK = Lock()
+_BACKUP_LOCK_WAIT_SECONDS = 5
+_BACKUP_RUN_TIMEOUT_SECONDS = 300
+# ponytail: export needs only a process lock in the supported one-worker shape.
+# Backup also takes a filesystem lock because its files are recovery state.
+_EXPORT_LOCK = Lock()
+_EXPORT_LOCK_WAIT_SECONDS = 5
+_EXPORT_ID_BATCH = 10_000
+MAX_EXPORT_DOWNLOAD_BYTES = 256 * 1024 * 1024
+
+
+class ExportTooLarge(RuntimeError):
+    pass
+
+
+class _ExportWriter:
+    """Text writer that refuses before one UTF-8 fragment crosses the cap."""
+
+    def __init__(self, file, max_bytes: int) -> None:
+        self.file = file
+        self.max_bytes = max(0, int(max_bytes))
+        self.written = 0
+
+    def write(self, text: str) -> int:
+        size = len(text.encode("utf-8"))
+        if self.max_bytes and self.written + size > self.max_bytes:
+            raise ExportTooLarge("portable export exceeds the browser download limit")
+        result = self.file.write(text)
+        self.written += size
+        return result
+
+
+@contextmanager
+def _held_export_lock():
+    if not _EXPORT_LOCK.acquire(timeout=_EXPORT_LOCK_WAIT_SECONDS):
+        raise LockNotAvailable("Another portable export is still running.")
+    try:
+        yield
+    finally:
+        _EXPORT_LOCK.release()
+
+
+@contextmanager
+def _export_writer(path: Path, max_bytes: int):
+    with path.open("w", encoding="utf-8") as file:
+        yield _ExportWriter(file, max_bytes)
+
 
 def _backups_dir() -> Path:
-    d = Path(os.getenv("SKEIN_BACKUP_DIR", "") or Path(config.DATA_DIR) / "backups")
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    directory = Path(os.getenv("SKEIN_BACKUP_DIR", "") or Path(config.DATA_DIR) / "backups")
+    directory.mkdir(parents=True, exist_ok=True)
+    directory.chmod(0o700)
+    return directory
 
 
-_DATED_BACKUP = re.compile(r"\d{4}-\d{2}-\d{2}\.dump")
+_DATED_BACKUP = re.compile(r"\d{4}-\d{2}-\d{2}(?:-[0-9]{6}-[0-9a-f]{8})?\.dump")
+_BACKUP_FILE = re.compile(r"(.+)-(\d{4}-\d{2}-\d{2}(?:-[0-9]{6}-[0-9a-f]{8})?)\.(?:dump|db)")
+
+
+def _harden_retained_backups(directory: Path, keep: int, *, current: str = "") -> int:
+    """Harden and retain logical recovery units across old and new formats."""
+    for pattern in ("*.dump.tmp", "*.dump.*.tmp"):
+        for stale in directory.glob(pattern):
+            stale.unlink(missing_ok=True)
+    groups: dict[str, list[Path]] = {}
+    for path in directory.iterdir():
+        if not path.is_file() or path.suffix not in (".dump", ".db"):
+            continue
+        path.chmod(0o600)
+        match = _BACKUP_FILE.fullmatch(path.name)
+        if match:
+            # Unknown extension prefixes are deployment-owned archives. Never
+            # prune them after an extension was removed from the registry. The
+            # core database/platform/private companions share one recovery id.
+            if match.group(1).startswith("extension-"):
+                continue
+            groups.setdefault(match.group(2), []).append(path)
+    keep = max(1, int(keep))
+    retained = set(sorted(groups)[-keep:])
+    if current:
+        retained.add(current)
+        for older in sorted(retained - {current})[: max(0, len(retained) - keep)]:
+            retained.remove(older)
+    for key, paths in groups.items():
+        if key not in retained:
+            for old in paths:
+                old.unlink()
+    return len(retained)
 
 
 def _today() -> str:
@@ -133,19 +220,17 @@ def _today() -> str:
 
 # EVERY extension schema, opted out ones included — see set_extension_stores.
 _EXTENSION_STORES: dict[str, str] = {}
-# The subset that gets a dump file of its own.
+# The subset included in the local database recovery unit.
 _BACKED_UP_STORES: set[str] = set()
 
 
 def set_extension_stores(stores: dict[str, str], dumped: set[str]) -> None:
     """Register the extension-owned schemas, and which of them to dump.
 
-    `stores` is EVERY store. `dumped` is the subset with
-    include_in_backup=True. Both are needed, and registering only the second
-    is a leak: the core dump excludes exactly what it lists, so a schema
-    missing from `stores` is neither excluded from the core file nor written
-    to one of its own — it rides the core file off-box, which is the opposite
-    of what opting out asks for.
+    `stores` is EVERY store, so the public mirror excludes each extension
+    schema. `dumped` is the subset with include_in_backup=True, which joins the
+    local database recovery unit. Registering only that subset can copy an
+    unknown extension schema into the public mirror.
 
     The composition root calls this so the service layer never imports the
     extension layer, the way agents/narrator.py registers into digest.
@@ -156,17 +241,22 @@ def set_extension_stores(stores: dict[str, str], dumped: set[str]) -> None:
     _BACKED_UP_STORES.update(dumped)
 
 
-def _pg_env() -> dict[str, str]:
-    """PG* variables for pg_dump, parsed from SKEIN_DATABASE_URL.
+def _pg_conninfo() -> str:
+    """The complete libpq contract without credentials in process argv."""
+    info = conninfo_to_dict(config.DATABASE_URL)
+    info.pop("password", None)
+    info.pop("sslpassword", None)
+    return make_conninfo(**{key: str(value) for key, value in info.items() if value is not None})
 
-    The URL is NOT passed on the command line: it carries the password, and
-    argv is world-readable in `ps` for every process on the node.
-    """
+
+def _pg_env() -> dict[str, str]:
+    """Credential environment for PostgreSQL client processes."""
     info = conninfo_to_dict(config.DATABASE_URL)
     env = dict(os.environ)
     for key, var in (
         ("user", "PGUSER"),
         ("password", "PGPASSWORD"),
+        ("sslpassword", "PGSSLPASSWORD"),
         ("host", "PGHOST"),
         ("port", "PGPORT"),
         ("dbname", "PGDATABASE"),
@@ -177,7 +267,17 @@ def _pg_env() -> dict[str, str]:
     return env
 
 
-def _backup_one(args: list[str], dest: Path, keep: int, prefix: str = "") -> None:
+def _sync_file(path: Path) -> None:
+    with path.open("rb") as file:
+        os.fsync(file.fileno())
+    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def _backup_one(args: list[str], dest: Path, prefix: str = "") -> None:
     """One pg_dump into dest, then prune that prefix's older copies.
 
     Custom format (-Fc), not plain SQL: pg_restore can then load it selectively
@@ -189,94 +289,127 @@ def _backup_one(args: list[str], dest: Path, keep: int, prefix: str = "") -> Non
             "pg_dump is not installed. Install the PostgreSQL client tools"
             " that match the server major version."
         )
-    tmp = dest.with_suffix(".dump.tmp")
+    prefix = prefix or dest.name.split("-", 1)[0]
+    for stale in dest.parent.glob(f"{prefix}-*.dump.*.tmp"):
+        stale.unlink(missing_ok=True)
+    tmp = dest.with_name(f"{dest.name}.{uuid4().hex}.tmp")
+    descriptor = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    os.close(descriptor)
     try:
-        # check=True: a failed dump must not be renamed over a good backup.
-        # absolute path from which(), never a bare name: the argv is fixed and
-        # there is no shell, so the resolved binary is the only variable left.
-        subprocess.run(  # noqa: S603 — fixed argv, no shell, values are not caller input
-            [binary, "--format=custom", "--file", str(tmp), *args],
-            env=_pg_env(),
-            check=True,
-            capture_output=True,
-        )
-        os.replace(tmp, dest)  # atomic: no truncated file can masquerade as a backup
+        # The sanitized conninfo keeps TLS and routing options without putting a
+        # password in argv. A timeout kills the client before it can hold every
+        # later backup behind the workflow lock.
+        try:
+            subprocess.run(  # noqa: S603 — fixed argv, no shell, values are not caller input
+                [
+                    binary,
+                    "--dbname",
+                    _pg_conninfo(),
+                    "--format=custom",
+                    "--file",
+                    str(tmp),
+                    *args,
+                ],
+                env=_pg_env(),
+                check=True,
+                capture_output=True,
+                timeout=_BACKUP_RUN_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise LockNotAvailable("The database backup command timed out.") from exc
+        tmp.chmod(0o600)
+        _sync_file(tmp)
+        os.replace(tmp, dest)
+        dest.chmod(0o600)
+        _sync_file(dest)
     finally:
         tmp.unlink(missing_ok=True)
-    # An explicit prefix keeps one store's retention off another's files: every
-    # extension backup starts with "extension-", so the derived prefix would
-    # prune all of them together and keep only the newest store's copies.
-    prefix = prefix or dest.name.split("-", 1)[0]
-    # The date suffix must match too. A bare "{prefix}-*" also selects the
-    # files of a store whose name merely STARTS with this one, and the date
-    # sorts before the longer name, so this store's own copies are the ones
-    # that fall off the end of the list. Store names admit both "acme.data"
-    # and "acme.data-archive" (extensions/registry.py::_IDENTIFIER).
-    kept = sorted(
-        path
-        for path in dest.parent.glob(f"{prefix}-*.dump")
-        if _DATED_BACKUP.fullmatch(path.name.removeprefix(f"{prefix}-"))
-    )
-    for old in kept[:-keep]:
-        old.unlink()
     log.info("backup written: %s", dest)
 
 
 def backup(*, keep: int = 14, actor: str | None = None) -> dict:
-    """Every schema, or the backup is not one: the core schema holds the
-    workspace, `private` holds the 1:1 notes — the one store that exists
-    nowhere else (deliberately outside exports), so a backup that skips it
-    silently loses the most personal data on the first disk loss. The private
-    dump stays out of the off-box mirror — see the note below.
+    """Serialize the complete dated backup workflow across threads and workers."""
+    if not _BACKUP_LOCK.acquire(timeout=_BACKUP_LOCK_WAIT_SECONDS):
+        raise LockNotAvailable("Another database backup is still running.")
+    try:
+        lock_path = _backups_dir() / ".backup.lock"
+        with lock_path.open("a+") as lock:
+            deadline = time.monotonic() + _BACKUP_LOCK_WAIT_SECONDS
+            while True:
+                try:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError as exc:
+                    if time.monotonic() >= deadline:
+                        raise LockNotAvailable("Another database backup is still running.") from exc
+                    time.sleep(0.1)
+            try:
+                return _backup(keep=keep, actor=actor)
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+    finally:
+        _BACKUP_LOCK.release()
 
-    actor is the person behind a MANUAL backup (the route passes it); the
-    scheduled run passes none. The distinction is load-bearing twice: the
-    ledger row is the provenance of a deliberate pre-change copy, and the
-    field-guide `backup` predicate reads it — a scheduler run must not tie
-    the card for anybody."""
+
+def _backup(*, keep: int, actor: str | None) -> dict:
+    """Write one local database recovery unit, plus an optional public mirror.
+
+    The local dump contains public, private, and each opted-in extension schema
+    in one PostgreSQL snapshot. The mirror receives a separate core-schema dump.
+    Artifact bytes remain on the data volume and need their own storage backup.
+
+    actor names a manual backup. Scheduled runs pass none, so their routine copy
+    does not tie a person's field-guide card."""
+    from . import private_notes
+
+    keep = max(1, int(keep))
     backups_dir = _backups_dir()
-    dest = backups_dir / f"platform-{_today()}.dump"
-    # Every schema this function dumps SEPARATELY must be excluded here, or it
-    # travels in the core file too — and the core file is the one that goes
-    # off-box, which is exactly what the private exclusion exists to prevent.
-    # EVERY extension schema is excluded, not only the dumped ones: a store
-    # that opted OUT of backup must not travel in the file that goes off-box.
-    excluded = [f"--exclude-schema={config.PRIVATE_SCHEMA}"]
-    excluded += [f"--exclude-schema={schema}" for schema in sorted(_EXTENSION_STORES.values())]
-    _backup_one(excluded, dest, keep)
-    mirrored = _mirror(dest)
+    _harden_retained_backups(backups_dir, keep)
+    # Include the schema unconditionally. Creating it before pg_dump closes the
+    # race where the first private note appears after schema selection but before
+    # the dump snapshot.
+    private_notes._ready()
+    schemas = ["public", config.PRIVATE_SCHEMA]
+    schemas.extend(
+        schema
+        for name, schema in sorted(_EXTENSION_STORES.items())
+        if name in _BACKED_UP_STORES and _schema_has_rows(schema)
+    )
+    backup_id = f"{_today()}-{db.now()[11:19].replace(':', '')}-{uuid4().hex[:8]}"
+    database_dest = backups_dir / f"database-{backup_id}.dump"
+    _backup_one([f"--schema={schema}" for schema in schemas], database_dest, "database")
 
-    private_path = None
-    if _schema_has_rows(config.PRIVATE_SCHEMA):
-        private_dest = backups_dir / f"private-{_today()}.dump"
-        _backup_one([f"--schema={config.PRIVATE_SCHEMA}"], private_dest, keep)
-        # deliberately NOT mirrored: SKEIN_BACKUP_MIRROR is an off-box copy,
-        # and 1:1 notes stay on the box — the local backup adds no reader
-        # (whoever runs the server can read the schema itself), the mirror
-        # would. tests/test_privacy.py pins both halves.
-        private_path = str(private_dest)
+    mirror_status, mirror = _mirror_target()
+    mirrored = None
+    if mirror is not None:
+        platform_dest = backups_dir / f"platform-{backup_id}.dump"
+        try:
+            # Positive selection: an unregistered or removed extension schema
+            # must not ride the public mirror because core does not know its name.
+            _backup_one(["--schema=public"], platform_dest, "platform")
+            mirrored = _mirror(platform_dest, mirror)
+        except Exception:
+            log.exception("public platform mirror dump failed")
+        mirror_status = "written" if mirrored else "unavailable"
 
-    # Extension stores are deliberately NOT mirrored: SKEIN_BACKUP_MIRROR is an
-    # off-box copy, and core cannot know what a private package keeps in its
-    # own schema. The deployment owns any off-box copy of it.
-    extension_paths = []
-    for name, schema in sorted(_EXTENSION_STORES.items()):
-        if name not in _BACKED_UP_STORES or not _schema_has_rows(schema):
-            continue
-        prefix = f"extension-{name}"
-        store_dest = backups_dir / f"{prefix}-{_today()}.dump"
-        _backup_one([f"--schema={schema}"], store_dest, keep, prefix)
-        extension_paths.append(str(store_dest))
-
-    kept = len(sorted(backups_dir.glob("platform-*.dump")))
+    kept = _harden_retained_backups(backups_dir, keep, current=backup_id)
     if actor:
-        db.log_activity(actor, "backup", dest.name)
+        db.log_activity(actor, "backup", database_dest.name)
+    status = "partial" if mirror_status == "unavailable" else "ok"
     return {
-        "path": str(dest),
-        "private_path": private_path,
-        "extension_paths": extension_paths,
-        "kept": min(kept, keep),
+        "status": status,
+        "backup_id": backup_id,
+        "database_path": str(database_dest),
+        # Legacy aliases remain until callers move to the explicit fields.
+        "path": str(database_dest),
+        "private_path": None,
+        "extension_paths": [],
+        "kept": kept,
+        "mirror_status": mirror_status,
+        "mirror_scope": "public_schema",
+        "mirrored_platform_path": mirrored,
         "mirrored": mirrored,
+        "artifacts_included": False,
     }
 
 
@@ -293,100 +426,233 @@ def _schema_has_rows(schema: str) -> bool:
     return row is not None
 
 
-def mirror_dir() -> Path | None:
-    """SKEIN_BACKUP_MIRROR as a Path — or None when unset, or when this is not
-    a production data dir. Only a production instance may touch the mirror: a
-    test/dev run with a sandboxed SKEIN_DATA_DIR must never overwrite the
-    off-box copy. Production shapes: the repo default (backend/data) or the
-    container canonical /data (set by the Dockerfile)."""
-    mirror = os.getenv("SKEIN_BACKUP_MIRROR", "")
-    if not mirror:
-        return None
-    data_dir = Path(config.DATA_DIR).resolve()
-    if data_dir not in ((Path(config.BASE_DIR) / "data").resolve(), Path("/data")):
-        log.info("backup mirror skipped: non-default data dir (%s)", config.DATA_DIR)
-        return None
-    return Path(mirror)
+def _separate_mirror_filesystem(target: Path) -> bool:
+    return target.stat().st_dev != _backups_dir().stat().st_dev
 
 
-def _mirror(dest: Path) -> str | None:
-    """Copy the fresh backup to SKEIN_BACKUP_MIRROR (a mounted NAS/remote
-    path). Off-box durability without extra tooling; rclone/rsync in a host
-    cron remains the alternative for true remote targets."""
-    mdir = mirror_dir()
-    if mdir is None:
-        return None
+def _mirror_target() -> tuple[str, Path | None]:
+    configured = os.getenv("SKEIN_BACKUP_MIRROR", "").strip()
+    if not configured:
+        return "not_configured", None
+    target = Path(configured)
+    if not target.is_dir():
+        log.warning("backup mirror is unavailable: %s", target)
+        return "unavailable", None
     try:
-        import shutil
+        if target.samefile(_backups_dir()) or not _separate_mirror_filesystem(target):
+            log.warning("backup mirror is not on a separate filesystem: %s", target)
+            return "unavailable", None
+    except OSError:
+        log.warning("backup mirror cannot be inspected: %s", target)
+        return "unavailable", None
+    return "available", target
 
-        mdir.mkdir(parents=True, exist_ok=True)
-        tmp = mdir / (dest.name + ".tmp")
-        shutil.copy2(dest, tmp)
-        os.replace(tmp, mdir / dest.name)
-        prefix = dest.name.split("-", 1)[0]
-        for old in sorted(mdir.glob(f"{prefix}-*.dump"))[:-30]:
-            old.unlink()
-        return str(mdir / dest.name)
+
+def mirror_dir() -> Path | None:
+    """The existing configured mirror directory, or None."""
+    _, target = _mirror_target()
+    return target
+
+
+def _mirror(dest: Path, mdir: Path) -> str | None:
+    """Copy one core public-schema dump to an existing configured mirror."""
+    _harden_retained_backups(mdir, 30)
+    prefix = dest.name.split("-", 1)[0]
+    for stale in mdir.glob(f"{prefix}-*.dump.*.tmp"):
+        stale.unlink(missing_ok=True)
+    tmp = mdir / f"{dest.name}.{uuid4().hex}.tmp"
+    mirrored = mdir / dest.name
+    try:
+        copy = shutil.which("cp")
+        if copy is None:
+            raise RuntimeError("cp is not installed. Install the core file utilities.")
+        subprocess.run(  # noqa: S603 — fixed argv, no shell
+            [copy, "-p", "--", str(dest), str(tmp)],
+            check=True,
+            capture_output=True,
+            timeout=_BACKUP_RUN_TIMEOUT_SECONDS,
+        )
+        tmp.chmod(0o600)
+        _sync_file(tmp)
+        os.replace(tmp, mirrored)
+        mirrored.chmod(0o600)
+        _sync_file(mirrored)
+        match = _BACKUP_FILE.fullmatch(dest.name)
+        _harden_retained_backups(mdir, 30, current=match.group(2) if match else "")
+        return str(mirrored)
     except Exception as exc:
         log.warning("backup mirror to %s failed: %s", mdir, exc)
         return None
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
-def backup_if_stale() -> dict | None:
+def backup_if_stale() -> dict:
     """Daily hook, multi-process safe via the job_runs claim."""
     backups_dir = _backups_dir()
-    done = (backups_dir / f"platform-{_today()}.dump").exists() and (
-        # the private schema gets its first table with the first 1:1 note —
-        # the day it does, the platform file existing must not skip the first
-        # private backup
-        not _schema_has_rows(config.PRIVATE_SCHEMA)
-        or (backups_dir / f"private-{_today()}.dump").exists()
+    database_done = any(backups_dir.glob(f"database-{_today()}*.dump"))
+    mirror_status, mirror = _mirror_target()
+    mirror_done = mirror_status == "not_configured" or bool(
+        mirror and any(mirror.glob(f"platform-{_today()}*.dump"))
     )
-    if done:
-        return None
+    if database_done and mirror_done:
+        return {"status": "noop"}
     if not db.claim_job("backup", _today()):
-        # the claim commits before the copy, so a process killed between the
-        # two burns the day's claim with no file to show — and job_health only
-        # flags the backup stale at 48h, so without this line the lost day is
-        # invisible. (A copy still in flight on another process logs this
-        # once, then its file appears.)
-        log.error(
-            "backup claim for %s is taken but no backup file exists."
-            " A previous run was interrupted. POST /api/admin/backup runs one now.",
-            _today(),
+        reason = (
+            "The daily backup claim is taken, but the database or configured"
+            " mirror copy is incomplete. Run POST /api/admin/backup."
         )
-        return None
+        log.error(reason)
+        return {"status": "error", "reason": reason}
     return backup()
 
 
-def export(*, keep: int = 14) -> dict:
-    from .scope import CLASSIFIED, PRIVATE
+def _make_export(*, keep: int, actor: str, open_file: bool, max_bytes: int = 0):
+    from . import scope, work
 
-    dump = {}
-    for table in TABLES:
+    with _held_export_lock():
+        exports_dir = Path(config.DATA_DIR) / "exports"
+        exports_dir.mkdir(parents=True, exist_ok=True)
+        exports_dir.chmod(0o700)
+        for retained in exports_dir.glob("export-*.json"):
+            retained.chmod(0o600)
+        for stale in exports_dir.glob("export-*.json.tmp"):
+            stale.unlink(missing_ok=True)
+        stamp = db.now().replace(":", "")
+        path = exports_dir / f"export-{stamp}-{uuid4().hex[:8]}.json"
+        tmp = path.with_suffix(".json.tmp")
+        descriptor = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.close(descriptor)
+        counts = {}
         try:
-            # a private row leaves the box in this file otherwise. The export
-            # is plaintext JSON on disk under DATA_DIR, kept `keep` deep, and
-            # nothing downstream re-checks a column — NOT because _mirror
-            # copies it: _mirror has one caller, backup(), on the .db file.
-            # The cost of this line is that a restore from an export loses
-            # every private row with no signal. Only `private` is dropped;
-            # crew rows export in full, because an export is an operator
-            # artifact and a crew is not a secret from the operator.
-            where = f" WHERE visibility != '{PRIVATE}'" if table in CLASSIFIED else ""
-            dump[table] = db.query(f"SELECT * FROM {table}{where}")  # noqa: S608 — TABLES constant, and `where` interpolates only scope.PRIVATE
-        except Exception:
-            # LOGGED, not swallowed. One table left empty is indistinguishable
-            # from one table that is empty, and the completeness test only
-            # checks the key exists — so an export missing crew_members
-            # restores a workspace where nobody can read anything crew-scoped,
-            # and nothing anywhere said so.
-            log.exception("export skipped table %s — the dump is INCOMPLETE", table)
-            dump[table] = []
-    exports_dir = Path(config.DATA_DIR) / "exports"
-    exports_dir.mkdir(parents=True, exist_ok=True)
-    path = exports_dir / f"export-{db.now().replace(':', '')}.json"
-    path.write_text(json.dumps(dump, indent=1))
-    for old in sorted(exports_dir.glob("export-*.json"))[:-keep]:
-        old.unlink()
-    return {"path": str(path), "tables": {t: len(rows) for t, rows in dump.items()}}
+            with _export_writer(tmp, max_bytes) as fh, db.read_transaction():
+                fh.write("{\n")
+                portable_viewer = scope.Viewer("", False)
+                portable_viewer.crew_ids = [row["id"] for row in db.query("SELECT id FROM crews")]
+
+                def visible_ids(table: str, ids: set[int]) -> set[int]:
+                    found: set[int] = set()
+                    ordered = sorted(ids)
+                    visible, params = scope.visible_filter(portable_viewer, table)
+                    for offset in range(0, len(ordered), _EXPORT_ID_BATCH):
+                        batch = ordered[offset : offset + _EXPORT_ID_BATCH]
+                        marks = ",".join("?" for _ in batch)
+                        found.update(
+                            int(row["id"])
+                            for row in db.query(
+                                f"SELECT id FROM {table} WHERE id IN ({marks}) AND {visible}",  # noqa: S608 — table and marks are closed, scope emits bound SQL
+                                (*batch, *params),
+                            )
+                        )
+                    return found
+
+                for index, table in enumerate(TABLES):
+                    params: tuple
+                    if table == "allocations":
+                        sql = (
+                            "SELECT allocation.* FROM allocations allocation"
+                            " JOIN engagements engagement"
+                            " ON engagement.id = allocation.engagement_id"
+                            " WHERE engagement.visibility != ?"
+                        )
+                        params = (scope.PRIVATE,)
+                    else:
+                        where = (
+                            f" WHERE visibility != '{scope.PRIVATE}'"
+                            if table in scope.CLASSIFIED
+                            else ""
+                        )
+                        sql = f"SELECT * FROM {table}{where}"  # noqa: S608 — closed table set and private literal
+                        params = ()
+                    if index:
+                        fh.write(",\n")
+                    json.dump(table, fh)
+                    fh.write(": [")
+                    count = 0
+                    try:
+                        for rows in db.query_batches(sql, params, batch_size=_EXPORT_ID_BATCH):
+                            if table == "tasks":
+                                rows = work.redact_task_relationships(rows, portable_viewer)
+                            if table in ("tasks", "questions"):
+                                for row in rows:
+                                    row["source_finding_id"] = None
+                            if table != "allocations" and rows and "engagement_id" in rows[0]:
+                                parents = visible_ids(
+                                    "engagements",
+                                    {
+                                        int(row["engagement_id"])
+                                        for row in rows
+                                        if row.get("engagement_id")
+                                    },
+                                )
+                                for row in rows:
+                                    if int(row.get("engagement_id") or 0) not in parents:
+                                        row["engagement_id"] = None
+                            if table in ("blockers", "task_worklog"):
+                                visible_tasks = visible_ids(
+                                    "tasks",
+                                    {int(row["task_id"]) for row in rows if row.get("task_id")},
+                                )
+                                for row in rows:
+                                    if int(row.get("task_id") or 0) not in visible_tasks:
+                                        row["task_id"] = None
+                            if table == "memories":
+                                for row in rows:
+                                    row["thread_id"] = ""
+                                    row["source_kind"] = ""
+                                    row["source_id"] = ""
+                            if table == "artifacts":
+                                rows = [
+                                    {key: value for key, value in row.items() if key != "path"}
+                                    for row in rows
+                                ]
+                            for row in rows:
+                                if count:
+                                    fh.write(",")
+                                json.dump(row, fh, ensure_ascii=False, separators=(",", ":"))
+                                count += 1
+                    except Exception:
+                        # An unreadable table is not an empty table. Re-raise the
+                        # driver error so retryable load keeps its classification.
+                        log.exception("export failed while reading table %s", table)
+                        raise
+                    fh.write("]")
+                    counts[table] = count
+                fh.write("\n}\n")
+            tmp.chmod(0o600)
+            _sync_file(tmp)
+            os.replace(tmp, path)
+            path.chmod(0o600)
+            _sync_file(path)
+        finally:
+            tmp.unlink(missing_ok=True)
+        opened = path.open("rb") if open_file else None
+        if opened is not None:
+            # Linux keeps the open inode readable while removing transient disk
+            # use. Remove it before retention counts the files it must keep.
+            path.unlink(missing_ok=True)
+        keep = max(1, int(keep))
+        files = sorted(exports_dir.glob("export-*.json"))
+        excess = max(0, len(files) - keep)
+        for old in [item for item in files if item != path][:excess]:
+            old.unlink(missing_ok=True)
+        if actor:
+            db.log_activity(actor, "export", path.name)
+        return path, counts, opened
+
+
+def export(*, keep: int = 1, actor: str = "") -> dict:
+    """Create an export and keep the legacy metadata response contract."""
+    path, counts, _ = _make_export(keep=keep, actor=actor, open_file=False)
+    return {"path": str(path), "tables": counts}
+
+
+def export_download(*, keep: int = 1, actor: str = ""):
+    """Create a bounded export and pin it before retention can unlink its path."""
+    path, _, opened = _make_export(
+        keep=keep,
+        actor=actor,
+        open_file=True,
+        max_bytes=MAX_EXPORT_DOWNLOAD_BYTES,
+    )
+    return opened, path.name

@@ -41,6 +41,9 @@ os.environ["SKEIN_MCP_SERVERS_FILE"] = ""
 # west of UTC only until 20:00 local. A suite that reads the developer's zone
 # passes all day and fails after dinner, and CI (UTC, no .env) never sees it.
 os.environ["SKEIN_TZ"] = ""
+# An explicit mirror is trusted when its directory exists. Blank the developer
+# or deployment value so tests write only to their per-test data directory.
+os.environ["SKEIN_BACKUP_MIRROR"] = ""
 
 from datetime import UTC
 
@@ -186,6 +189,13 @@ def fresh_db(tmp_path, monkeypatch, _worker_db):
     if tables:
         names = ", ".join(r["t"] for r in tables)
         db.execute(f"TRUNCATE {names} RESTART IDENTITY CASCADE")
+    # Migration 008 records the existing unchained count once. TRUNCATE removes
+    # that migration-owned mark, so restore the empty post-migration state. A
+    # verifier must never recreate it from rows that arrived later.
+    db.execute(
+        "INSERT INTO app_settings (key, value, updated_at) VALUES (?, '0', ?)",
+        ("activity_chain_legacy", db.now()),
+    )
     extra = [
         r["t"]
         for r in db.query(
@@ -242,8 +252,14 @@ def scratch_db(worker_id, _worker_db, monkeypatch):
         # environment pointed at a scratch database that is never dropped, and
         # every later test in this worker would run against it.
         db.init_db()
+        from app.services import private_notes
+
+        private_notes._schema_ready = False
         yield db
     finally:
+        from app.services import private_notes
+
+        private_notes._schema_ready = False
         db.close_pool()
         config.DATABASE_URL = previous
         os.environ["SKEIN_DATABASE_URL"] = previous

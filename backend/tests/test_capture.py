@@ -1,7 +1,72 @@
 """Quick capture: prefix precedence over content heuristics, the grammar each
 prefix parses, and the mock agent's capture acknowledgement."""
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
+
+
+def test_a_repeated_capture_key_files_nothing_twice(client):
+    """D5: the CLI outbox re-sends a capture the server already accepted when
+    a crash lands between the accept and the outbox rewrite."""
+    body = {"text": "todo: ship the API", "capture_key": "abc123"}
+    first = client.post("/api/capture", json=body).json()
+    assert first["kind"] == "task"
+    replay = client.post("/api/capture", json=body).json()
+    assert replay == {"kind": "duplicate", "capture_key": "abc123"}
+    assert len(client.get("/api/tasks").json()) == 1
+
+    fresh = client.post(
+        "/api/capture", json={"text": "todo: ship the docs", "capture_key": "def456"}
+    ).json()
+    assert fresh["kind"] == "task"
+    assert len(client.get("/api/tasks").json()) == 2
+
+
+def test_concurrent_replays_file_once(client, monkeypatch):
+    from app.services import capture
+
+    barrier = threading.Barrier(2)
+    original = capture.db.claim_job
+
+    def overlap(job, run_key):
+        barrier.wait(timeout=3)
+        return original(job, run_key)
+
+    monkeypatch.setattr(capture.db, "claim_job", overlap)
+    body = {"text": "todo: one concurrent row", "capture_key": "same-key"}
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(lambda _index: client.post("/api/capture", json=body), range(2)))
+    payloads = [response.json() for response in responses]
+    assert sorted(row["kind"] for row in payloads) == ["duplicate", "task"]
+    assert len(client.get("/api/tasks").json()) == 1
+
+
+def test_capture_keys_are_scoped_per_user(client):
+    body = {"text": "todo: same token", "capture_key": "shared-token"}
+    for user in ("mira", "ava"):
+        assert (
+            client.post("/api/capture", json=body, headers={"X-User": user}).json()["kind"]
+            == "task"
+        )
+    assert len(client.get("/api/tasks").json()) == 2
+
+
+def test_a_refused_capture_does_not_burn_its_key(client):
+    """The claim row and the capture commit or roll back together, so a retry
+    of a failed capture files normally."""
+    body = {"text": "", "capture_key": "retry01"}
+    assert client.post("/api/capture", json=body).status_code == 400
+    body["text"] = "todo: the retry files"
+    assert client.post("/api/capture", json=body).json()["kind"] == "task"
+
+
+def test_a_capture_without_a_key_still_files(client):
+    """Older CLIs and the web composer send no key — at-least-once stays."""
+    for _ in range(2):
+        assert client.post("/api/capture", json={"text": "note: same twice"}).status_code == 200
+    assert len(client.get("/api/notes").json()) == 2
 
 
 def test_q_capture_assigns_known_user(client):

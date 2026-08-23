@@ -9,7 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .. import config, db
-from . import scope, wording
+from . import artifact_files, scope, wording
 from .scope import WORKSPACE_ONLY
 
 
@@ -355,46 +355,62 @@ def _assert_publishable(actor: str, crew_id: int, viewer: scope.Viewer) -> None:
     crews.assert_writable(crew_id, actor)
 
 
-def _store_pack(body: str, *, actor: str, crew_id: int) -> dict:
-    """Persist the exact pack body that the caller approved."""
-    digest = hashlib.sha256(body.encode()).hexdigest()[:16]
-    last = latest_pack(crew_id)
-    if last and last["content_hash"] == digest:
-        return {"version": last["version"], "hash": digest, "changed": False}
-    version = (last["version"] + 1) if last else 1
-    content = body.replace(
-        "# Team context pack",
-        f"# Team context pack\n\n*v{version} · generated {db.now()} · hash {digest}*",
-        1,
-    )
-    try:
-        # db.savepoint(), because the IntegrityError is CAUGHT: a failed
-        # statement aborts the whole transaction, so when this runs inside a
-        # caller's transaction (tools/portfolio.py publishes on first call
-        # under read_transaction) suppressing it kills every later statement,
-        # and the losing publisher takes the caller's request down with it.
-        with db.savepoint():
-            db.execute(
-                "INSERT INTO context_packs (version, content, content_hash, created_by,"
-                " created_at, crew_id) VALUES (?, ?, ?, ?, ?, ?)",
-                (version, content, digest, actor, db.now(), crew_id or None),
-            )
-    except db.IntegrityError:
-        # concurrent publisher won the version — serve theirs
-        last = latest_pack(crew_id)
-        if last is None:
-            # ValueError → 400 via the global handler; RuntimeError was a 500
-            raise ValueError("context pack vanished during concurrent publish — retry") from None
-        return {"version": last["version"], "hash": last["content_hash"], "changed": False}
-    pack_dir = Path(config.DATA_DIR) / "artifacts" / "context-pack"
-    pack_dir.mkdir(parents=True, exist_ok=True)
-    # the crew id is in the filename, not only the row: two crews at v3 would
-    # otherwise overwrite one file and the artifact would name the wrong pack
+def _pack_path(crew_id: int, version: int) -> tuple[str, Path]:
     stem = f"crew{crew_id}-v{version}" if crew_id else f"v{version}"
-    path = pack_dir / f"context-pack-{stem}.md"
-    path.write_text(content, encoding="utf-8")
-    db.log_activity(actor, "publish_context_pack", f"{stem} ({digest})")
-    return {"version": version, "hash": digest, "changed": True, "path": str(path)}
+    return stem, Path(config.DATA_DIR) / "artifacts" / "context-pack" / f"context-pack-{stem}.md"
+
+
+def _store_pack(body: str, *, actor: str, crew_id: int) -> dict:
+    """Persist one database version and its durable archive file together."""
+    with db.transaction():
+        digest = hashlib.sha256(body.encode()).hexdigest()[:16]
+        last = latest_pack(crew_id)
+        if last and last["content_hash"] == digest:
+            stem, path = _pack_path(crew_id, int(last["version"]))
+            if not path.is_file():
+                # Recheck AFTER the lock: two repairers can both observe the
+                # miss before either locks. Without this recheck, a later
+                # rollback deletes the file the first repairer committed.
+                db.name_lock(db.LOCK_ARTIFACT, f"pack:{crew_id}")
+                if not path.is_file():
+                    artifact_files.publish(path, str(last["content"]).encode("utf-8"))
+                    db.log_activity(actor, "publish_context_pack", f"repaired {stem} ({digest})")
+            return {
+                "version": last["version"],
+                "hash": digest,
+                "changed": False,
+                "path": str(path),
+            }
+        version = (last["version"] + 1) if last else 1
+        content = body.replace(
+            "# Team context pack",
+            f"# Team context pack\n\n*v{version} · generated {db.now()} · hash {digest}*",
+            1,
+        )
+        try:
+            # The error is caught, so isolate it from the caller's transaction.
+            with db.savepoint():
+                db.execute(
+                    "INSERT INTO context_packs (version, content, content_hash, created_by,"
+                    " created_at, crew_id) VALUES (?, ?, ?, ?, ?, ?)",
+                    (version, content, digest, actor, db.now(), crew_id or None),
+                )
+        except db.IntegrityError:
+            last = latest_pack(crew_id)
+            if last is None:
+                raise ValueError(
+                    "context pack vanished during concurrent publish — retry"
+                ) from None
+            return {
+                "version": last["version"],
+                "hash": last["content_hash"],
+                "changed": False,
+                "path": str(_pack_path(crew_id, int(last["version"]))[1]),
+            }
+        stem, path = _pack_path(crew_id, version)
+        artifact_files.publish(path, content.encode("utf-8"))
+        db.log_activity(actor, "publish_context_pack", f"{stem} ({digest})")
+        return {"version": version, "hash": digest, "changed": True, "path": str(path)}
 
 
 def publish_pack(

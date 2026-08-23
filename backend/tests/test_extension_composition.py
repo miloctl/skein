@@ -124,7 +124,10 @@ def test_route_resource_id_parameter_must_exist_in_the_declared_path():
         ExtensionRegistry.build((_module(routes=(contribution,)),))
 
 
-def test_catch_up_job_uses_the_composed_registry(fresh_db):
+@pytest.mark.parametrize(("enabled", "expected"), ((False, []), (True, ["job"])))
+def test_scheduler_setting_controls_composed_catch_up_jobs(
+    fresh_db, monkeypatch, enabled, expected
+):
     events: list[str] = []
 
     module = _module(
@@ -146,10 +149,23 @@ def test_catch_up_job_uses_the_composed_registry(fresh_db):
             ),
         ),
     )
-    settings = replace(AppSettings.from_config(), scheduler_enabled=False)
+    from app import main
+
+    real_run = main.run_job
+
+    def run_only_probe(spec):
+        return real_run(spec) if spec.name == "acme.workplace.sync" else None
+
+    class Scheduler:
+        def shutdown(self, wait=False):
+            return None
+
+    monkeypatch.setattr(main, "run_job", run_only_probe)
+    monkeypatch.setattr(main, "_start_scheduler", lambda _specs, _timezone: Scheduler())
+    settings = replace(AppSettings.from_config(), scheduler_enabled=enabled)
     with TestClient(create_app(settings, (module,)), headers={"X-User": "tester"}) as client:
         names = {item["job"] for item in client.get("/api/health").json()["jobs"]}
-        assert events == ["job"]
+        assert events == expected
         assert "acme.workplace.sync" in names
 
 

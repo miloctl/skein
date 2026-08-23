@@ -18,13 +18,16 @@ export const isUnreachable = (error: unknown) => error instanceof TypeError;
 /** The server's own words. String(error) on an Error prepends the class name,
  *  so every surface that interpolated one showed the reader "Error: Failed to
  *  fetch" — the "Error: " is JS internals, and nothing the reader can act on. */
-const detail = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const detail = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
 
 /** What a failed page LOAD says. A refusal the server actually answered is not
  *  an unreachable backend, and reporting it as one sends the reader to check a
  *  server that is running and replying. */
 export const loadError = (error: unknown) =>
-  isUnreachable(error) ? backendUnreachable(error) : `Could not load this page: ${detail(error)}`;
+  isUnreachable(error)
+    ? backendUnreachable(error)
+    : `Could not load this page: ${detail(error)}`;
 
 /** What a failed ACTION says — a write the reader just triggered, where "could
  *  not load this page" would name the wrong thing. A refusal the server
@@ -95,7 +98,12 @@ export function setApiKey(key: string) {
  *  last and proves only that the caller reached the app, since it ships inside
  *  the public JS bundle. */
 export async function bearer(): Promise<string> {
-  return (await accessToken()) || getApiKey() || process.env.NEXT_PUBLIC_API_TOKEN || "";
+  return (
+    (await accessToken()) ||
+    getApiKey() ||
+    process.env.NEXT_PUBLIC_API_TOKEN ||
+    ""
+  );
 }
 
 /** Short-lived GET cache. Pages fan out to the same handful of list
@@ -117,6 +125,28 @@ if (typeof window !== "undefined") {
   window.addEventListener("skein-chat-activity", () => getCache.clear());
 }
 
+export async function authenticatedFetch(
+  path: string,
+  init?: RequestInit,
+): Promise<Response> {
+  const auth = await bearer();
+  // Build this once. init.headers can replace Authorization, and a 401 belongs
+  // to the credential that the request actually sent.
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...userHeader(),
+    "X-Client": "web",
+    ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
+    ...(init?.headers as Record<string, string> | undefined),
+  };
+  const response = await fetch(`${API_URL}${path}`, { ...init, headers });
+  const sent = headers.Authorization?.slice(7) ?? "";
+  if (response.status === 401 && sent && sent === accessTokenSync()) {
+    sessionRejected(sent);
+  }
+  return response;
+}
+
 export async function api<T = unknown>(
   path: string,
   init?: RequestInit,
@@ -133,7 +163,8 @@ export async function api<T = unknown>(
     }
   }
   const hit = getCache.get(path);
-  if (hit && Date.now() - hit.at < GET_CACHE_TTL_MS) return hit.entry as Promise<T>;
+  if (hit && Date.now() - hit.at < GET_CACHE_TTL_MS)
+    return hit.entry as Promise<T>;
   const entry = request<T>(path, init);
   getCache.set(path, { at: Date.now(), entry });
   // a failure proves nothing about the next call — never serve it from cache
@@ -144,28 +175,7 @@ export async function api<T = unknown>(
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const auth = await bearer();
-  // built once and read back below: init.headers spreads LAST and may carry
-  // its own Authorization, so the credential this request actually sends is
-  // not always the one bearer() returned — and a 401 must be attributed to
-  // the credential that earned it
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...userHeader(),
-    "X-Client": "web",
-    ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
-    ...(init?.headers as Record<string, string> | undefined),
-  };
-  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
-  if (!res.ok) {
-    // a 401 on the stored OIDC token is about the SESSION, not this one
-    // request — sessionRejected renews it, or flips the auth gate to its
-    // re-sign-in state once, instead of every panel printing the same
-    // refusal. The comparison pins WHICH credential 401ed: a personal key or
-    // the shared token must not disturb a session that was never judged.
-    const sent = headers.Authorization?.slice(7) ?? "";
-    if (res.status === 401 && sent && sent === accessTokenSync()) sessionRejected(sent);
-    throw await errorFromResponse(res);
-  }
-  return res.json();
+  const response = await authenticatedFetch(path, init);
+  if (!response.ok) throw await errorFromResponse(response);
+  return response.json();
 }

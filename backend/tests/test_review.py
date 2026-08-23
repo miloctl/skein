@@ -8,6 +8,17 @@ from conftest import _delegated_task, _strong
 from app import db
 
 
+@pytest.mark.parametrize("reserved", ("actor", "origin"))
+def test_reserved_apply_keys_are_refused_before_proposal_storage(fresh_db, reserved):
+    from app.services import review
+
+    payload = {"title": "probe", reserved: "caller-controlled"}
+    with pytest.raises(ValueError, match=reserved) as exc:
+        review.propose_change("task", "create", payload, actor="scout")
+    assert "caller-controlled" not in str(exc.value)
+    assert fresh_db.query_one("SELECT id FROM pending_changes") is None
+
+
 def _approve_latest(client):
     from app.services.api_keys import create_key
 

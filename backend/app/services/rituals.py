@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from .. import config, db
-from . import scope, wording
+from . import artifact_files, scope, wording
 from .scope import WORKSPACE_ONLY
 
 
@@ -28,27 +28,17 @@ def _claim_week(job: str, week: str, force: bool) -> bool:
 
 
 def _existing_week_artifact(slug: str, today: date) -> int | None:
-    """Latest report for the claim. job_runs stores no artifact id, so the id
-    is recovered by matching the path.
-
-    None when no report matches: the claim outlives its artifact whenever the
-    row is deleted, or a pre-045 path never matched `YYYY-MM-DD-slug.md`. A
-    raise here answers every repeat press and every scheduler retry with a 500
-    for the rest of the claimed week. The repeat is still `skipped` — the CLAIM
-    is what stops the duplicate notification, not the report."""
-    suffix = f"-{slug}.md"
+    """Latest report for the claimed week, keyed by stored title not filename."""
+    prefix = "Week close-out " if slug == "week-close" else "Week open "
     target = today.isocalendar()[:2]
     rows = db.query(
-        f"SELECT id, path FROM artifacts WHERE kind = 'ritual' AND path LIKE ?"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT id, title FROM artifacts WHERE kind = 'ritual' AND title LIKE ?"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         f" AND {WORKSPACE_ONLY} ORDER BY id DESC",
-        (f"%{suffix}",),
+        (f"{prefix}%",),
     )
     for row in rows:
-        name = Path(row["path"]).name
-        if not name.endswith(suffix):
-            continue
         try:
-            artifact_day = date.fromisoformat(name[: -len(suffix)])
+            artifact_day = date.fromisoformat(row["title"].removeprefix(prefix))
         except ValueError:
             continue
         if artifact_day.isocalendar()[:2] == target:
@@ -57,21 +47,23 @@ def _existing_week_artifact(slug: str, today: date) -> int | None:
 
 
 def _write_artifact(slug: str, title: str, markdown: str, actor: str) -> tuple[int, str]:
-    """Returns (artifact id, path). The id is what a caller hands a reader:
-    the path is a server-side filename that no browser can open, and the
-    ritual's own response is the only place the id is knowable without
-    re-listing every artifact and matching on the title."""
-    day = db.today().isoformat()  # must match the heading and the claim key
-    out_dir = Path(config.DATA_DIR) / "artifacts" / "rituals"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{day}-{slug}.md"
-    path.write_text(markdown, encoding="utf-8")
-    # forced same-day reruns overwrite the file — upsert the row to match
-    existing = db.query_one("SELECT id FROM artifacts WHERE path = ?", (str(path),))
+    """Publish one logical ritual revision inside the caller's week lock."""
+    day = db.today().isoformat()
+    logical = Path(config.DATA_DIR) / "artifacts" / "rituals" / f"{day}-{slug}.md"
+    existing = db.query_one(
+        "SELECT id, path FROM artifacts WHERE kind = 'ritual' AND title = ? ORDER BY id LIMIT 1",
+        (title,),
+    )
+    path = artifact_files.unique_revision(logical)
+    artifact_files.publish(
+        path,
+        markdown.encode("utf-8"),
+        old=Path(existing["path"]) if existing else None,
+    )
     if existing:
         db.execute(
-            "UPDATE artifacts SET created_by = ?, created_at = ? WHERE id = ?",
-            (actor, db.now(), existing["id"]),
+            "UPDATE artifacts SET path = ?, created_by = ?, created_at = ? WHERE id = ?",
+            (str(path), actor, db.now(), existing["id"]),
         )
         return int(existing["id"]), str(path)
     aid = db.execute(

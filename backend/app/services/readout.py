@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from .. import config, db
-from . import wording
+from . import artifact_files, wording
 from .insights import digest_findings
 from .portfolio import allocation_conflicts, engagement_health, flow_metrics, health_changes
 from .pulse import season
@@ -154,25 +154,33 @@ def exec_readout(*, actor: str = "system") -> dict:
     ]
     markdown = "\n".join(lines)
 
-    readout_dir = Path(config.DATA_DIR) / "artifacts" / "portfolio"
-    readout_dir.mkdir(parents=True, exist_ok=True)
-    path = readout_dir / f"{_today().isoformat()}-exec-readout.md"
-    path.write_text(markdown, encoding="utf-8")
-    # same-day reruns overwrite the file, so upsert the artifact row too —
-    # N rows pointing at one file would imply history that doesn't exist
-    existing = db.query_one("SELECT id FROM artifacts WHERE path = ?", (str(path),))
-    if existing:
-        aid = existing["id"]
-        db.execute(
-            "UPDATE artifacts SET created_by = ?, created_at = ? WHERE id = ?",
-            (actor, db.now(), aid),
+    day = _today().isoformat()
+    title = f"Exec readout {day}"
+    logical = Path(config.DATA_DIR) / "artifacts" / "portfolio" / f"{day}-exec-readout.md"
+    with db.transaction():
+        db.name_lock(db.LOCK_ARTIFACT, f"readout:{day}")
+        existing = db.query_one(
+            "SELECT id, path FROM artifacts WHERE kind = 'readout' AND title = ?"
+            " ORDER BY id LIMIT 1",
+            (title,),
         )
-    else:
-        aid = db.execute(
-            "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)"
-            " RETURNING id",
-            (None, "readout", f"Exec readout {_today().isoformat()}", str(path), actor, db.now()),
+        path = artifact_files.unique_revision(logical)
+        artifact_files.publish(
+            path,
+            markdown.encode("utf-8"),
+            old=Path(existing["path"]) if existing else None,
         )
-    db.log_activity(actor, "exec_readout", f"artifact #{aid}")
-    return {"artifact_id": aid, "path": str(path), "markdown": markdown}
+        if existing:
+            aid = existing["id"]
+            db.execute(
+                "UPDATE artifacts SET path = ?, created_by = ?, created_at = ? WHERE id = ?",
+                (str(path), actor, db.now(), aid),
+            )
+        else:
+            aid = db.execute(
+                "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
+                (None, "readout", title, str(path), actor, db.now()),
+            )
+        db.log_activity(actor, "exec_readout", f"artifact #{aid}")
+        return {"artifact_id": aid, "path": str(path), "markdown": markdown}

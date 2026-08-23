@@ -1,12 +1,9 @@
 """Author-private notes: 1:1 prep + the feedback journal.
 
-Stored in their OWN SCHEMA (`private`) that the platform never reads anywhere
-else — not backup, not export, not search, not MCP, not the agent layer.
-Exclusion is structural (no code path outside this module names a `private.`
-table), not a filter every query must remember. The schema boundary is also
-what lets the backup exclude it by name: services/admin.py dumps the core with
---exclude-schema=private and dumps this separately, and the off-box mirror
-never receives it.
+Stored in their OWN SCHEMA (`private`). Portable export, search, MCP, and the
+agent layer never read it. Exclusion is structural, not a filter every query
+must remember. The local database backup includes this schema in its one
+recovery unit. The configured platform mirror excludes it.
 
 Provenance is kept in a local audit table inside the same schema; the
 team-visible activity ledger gets nothing, because even write cadence here is
@@ -28,7 +25,6 @@ KINDS = ("note", "feedback")
 FEEDBACK_GAP_DAYS = 21
 
 _SCHEMA = f"""
-CREATE SCHEMA IF NOT EXISTS {config.PRIVATE_SCHEMA};
 CREATE TABLE IF NOT EXISTS {config.PRIVATE_SCHEMA}.notes (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     author text NOT NULL,
@@ -51,16 +47,24 @@ CREATE TABLE IF NOT EXISTS {config.PRIVATE_SCHEMA}.audit (
 _schema_ready = False
 
 
+def _mark_schema_ready() -> None:
+    global _schema_ready
+    _schema_ready = True
+
+
 def _ready() -> None:
     """Create the schema on first use, here rather than in a core migration.
 
     Keeping the definition in this file is what makes the exclusion auditable:
     the only place that names these tables is the only place that describes
     them."""
-    global _schema_ready
     if not _schema_ready:
-        db.execute(_SCHEMA)
-        _schema_ready = True
+        with db.transaction():
+            # ensure_owned_schema's xact lock stays held until every table and
+            # index exists, so a concurrent first use cannot enter halfway.
+            db.ensure_owned_schema(config.PRIVATE_SCHEMA)
+            db.execute(_SCHEMA)
+            db.on_commit(_mark_schema_ready)
 
 
 def _now() -> str:

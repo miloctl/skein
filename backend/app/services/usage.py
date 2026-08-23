@@ -15,11 +15,23 @@ from . import scope
 
 
 def model_price(model_id: str) -> tuple[tuple[float, float] | None, str]:
-    """The price for future calls and its safe source, never historical cost."""
+    """The price for future calls and its safe source, never historical cost.
+
+    A (0, 0) pair is unpriced, not free: an unfilled rate and a real $0 are
+    indistinguishable in a table, and "honest, not zero" (module docstring)
+    must hold on every surface — the menu, the settings summary, and cost_for
+    all read THIS merge, so the rule lives here and nowhere else.
+    """
+
+    def _known(pair: tuple[float, float] | None) -> tuple[float, float] | None:
+        return None if not pair or pair == (0.0, 0.0) else pair
+
     entry = config.MODELS.get(model_id)
     if entry and entry["price"] is not None:
-        return entry["price"], "model_menu"
-    if pair := config.MODEL_PRICES.get(model_id):
+        # Field PRESENCE owns precedence. An explicit (0,0) normalizes to
+        # unknown and must not fall through to a nonzero global table price.
+        return _known(entry["price"]), "model_menu"
+    if pair := _known(config.MODEL_PRICES.get(model_id)):
         return pair, config.MODEL_PRICES_SOURCE
     return None, "unset"
 

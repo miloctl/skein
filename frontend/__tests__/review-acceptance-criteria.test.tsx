@@ -23,10 +23,14 @@ const row = {
     title: "Build the happy path",
     status: "in_progress",
     delegated_agent: "scout",
-    acceptance_criteria: "a runnable repro script",
+    acceptance_criteria: "a runnable repro script, blocker #3 resolved",
     forge_url: null,
     worklog: [],
     sponsor_was: "",
+    criteria_refs: [
+      { entity: "blocker", id: 3, state: "resolved" },
+      { entity: "task", id: 9999, state: "" },
+    ],
   },
 };
 
@@ -50,6 +54,20 @@ describe("acceptance criteria at the verdict", () => {
   it("shows what done means beside the evidence", async () => {
     render(<ReviewPage />);
     expect(await screen.findByText("What done means:")).toBeTruthy();
-    expect(screen.getByText("a runnable repro script")).toBeTruthy();
+    expect(
+      screen.getByText("a runnable repro script, blocker #3 resolved"),
+    ).toBeTruthy();
+  });
+
+  it("shows each named row's current state, and one sentence for an absent row", async () => {
+    render(<ReviewPage />);
+    await screen.findByText("What done means:");
+    expect(screen.getByText("resolved").parentElement?.textContent).toContain(
+      "blocker #3: resolved",
+    );
+    // absent and hidden rows read alike — the chip must not confirm existence
+    expect(screen.getByText("not found").parentElement?.textContent).toContain(
+      "task #9999: not found",
+    );
   });
 });

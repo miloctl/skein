@@ -439,11 +439,13 @@ async def lifespan(app: FastAPI):
         runtime_subjects, runtime_content_owners
     )
     try:
-        # claim-guarded catch-up runs fill in for cron firings missed while the
-        # process was down (no misfire replay); run_job never raises
-        for spec in specs:
-            if spec.catch_up:
-                run_job(spec)
+        # Claim-guarded catch-up runs fill in for missed cron firings only when
+        # the scheduler is enabled. A restore boot uses SKEIN_SCHEDULER=0 so no
+        # old notification, retention, or agent job runs before reconciliation.
+        if settings.scheduler_enabled:
+            for spec in specs:
+                if spec.catch_up:
+                    run_job(spec)
         setup_telemetry()
         from .agents.narrator import register_narrator
 
@@ -906,9 +908,9 @@ def create_app(
         for contribution in registry.migrations
         if isinstance(contribution.store, ExtensionStore)
     }
-    # EVERY store, plus the subset to dump. admin.backup excludes what it is
-    # given from the core file, so a store withheld here is not excluded —
-    # it rides the core dump off-box, which is the opposite of opting out.
+    # EVERY store, plus the subset for local recovery. The public mirror
+    # excludes every registered extension schema, including stores that opt out
+    # of the local database recovery unit.
     admin.set_extension_stores(
         {name: store.schema for name, store in stores.items()},
         {name for name, store in stores.items() if store.include_in_backup},
@@ -949,6 +951,7 @@ def create_app(
         allow_origins=list(selected_settings.cors_origins),
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Skein-Filename"],
         max_age=7200,
     )
 

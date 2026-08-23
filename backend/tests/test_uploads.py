@@ -71,6 +71,38 @@ def test_the_server_names_the_file_not_the_caller(client):
     assert stored.is_file()
 
 
+def test_upload_rollback_removes_the_file(fresh_db, monkeypatch):
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("ledger failed")
+
+    monkeypatch.setattr(uploads.db, "log_activity", fail)
+    with pytest.raises(RuntimeError, match="ledger failed"):
+        uploads.save_upload("notes.md", b"body", owner="mira")
+    assert db.query_one("SELECT id FROM artifacts WHERE kind = 'upload'") is None
+    root = Path(config.DATA_DIR) / "artifacts" / "uploads"
+    assert not root.exists() or list(root.iterdir()) == []
+
+
+def test_artifact_storage_fault_is_json_500(client, monkeypatch):
+    from app.services import artifact_files
+
+    monkeypatch.setattr(
+        artifact_files,
+        "_contained",
+        lambda _path: (_ for _ in ()).throw(RuntimeError("outside /secret/path")),
+    )
+    from fastapi.testclient import TestClient
+
+    quiet = TestClient(client.app, raise_server_exceptions=False)
+    try:
+        response = _upload(quiet, "notes.md", b"body")
+    finally:
+        quiet.close()
+    assert response.status_code == 500
+    assert response.headers["content-type"].startswith("application/json")
+    assert "/secret/path" not in response.text
+
+
 def test_refuses_a_type_that_is_not_on_the_allowlist(client):
     r = _upload(client, "payload.svg", b"<svg onload=alert(1)>")
     assert r.status_code == 400

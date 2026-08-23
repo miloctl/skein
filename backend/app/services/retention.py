@@ -39,6 +39,9 @@ def prune(*, actor: str = "scheduler") -> dict:
     month = db.today().isoformat()[:7]
     if not db.claim_job("retention-prune", month):
         return {"skipped": "already pruned this month"}
+    # tool_usage is deliberately absent: one row per (day, user, surface), so
+    # a year of a ten-person team is a few thousand rows, and the adoption
+    # trend is the read it exists for — pruning it deletes the trend.
     # usage_log is deliberately absent from this list: it is the platform's
     # cost history (spend per thread and engagement over time), it is not
     # derivable from anything else, and its ranged reads ride
@@ -84,6 +87,9 @@ def prune(*, actor: str = "scheduler") -> dict:
             ")",
             (_cutoff(READ_NOTIFICATION_DAYS),),
         ),
+        # This also expires capture idempotency receipts (`capture:<user>`),
+        # so an outbox row re-sent after the horizon files a duplicate —
+        # at-least-once, the safe direction, and old enough to notice.
         "job_runs": db.execute_rowcount(
             "DELETE FROM job_runs WHERE created_at < ?", (_cutoff(JOB_ROW_DAYS),)
         ),

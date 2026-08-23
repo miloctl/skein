@@ -377,10 +377,22 @@ def run_one(
         # is that the SCHEDULED JOB returns, so the rest of the fleet still
         # runs tonight.
         box: dict = {}
+        wake = _WAKE
+        if config.AGENT_DAILY_TOKENS:
+            # The ceiling refuses the NEXT run, never this one mid-turn — so
+            # the model is told what remains and told to converge near the
+            # limit, instead of exploring into a refusal it cannot see coming.
+            remaining = max(0, config.AGENT_DAILY_TOKENS - usage.spent_today(agent)["tokens"])
+            wake += (
+                f"\n\nToken budget for today: {remaining:,} of"
+                f" {config.AGENT_DAILY_TOKENS:,}. If less than a quarter"
+                " remains, do not explore: finish or record the one most"
+                " important step, then stop."
+            )
 
         def _turn() -> None:
             try:
-                box["reply"] = built(_WAKE)
+                box["reply"] = built(wake)
             except Exception as exc:  # carried out, not raised in this thread
                 box["error"] = exc
             finally:

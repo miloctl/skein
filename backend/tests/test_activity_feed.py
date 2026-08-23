@@ -172,7 +172,7 @@ def test_the_route_scopes_to_the_header_user(client, fresh_db):
 def test_rename_leaves_the_ledger_alone(fresh_db):
     """rename rewrote activity.actor in bulk, and every chained digest covers
     its actor — one rename permanently broke verify_chain at the renamed
-    person's earliest row, with the off-box anchor making re-chaining
+    person's earliest row, with the external anchor making re-chaining
     impossible by design. History stays under the old name."""
     _seed_people(fresh_db)
     db.log_activity("ben", "save_note", "#1 his")

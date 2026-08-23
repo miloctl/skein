@@ -32,6 +32,20 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    # Same service and URL as ci.yml: the suite has no in-process substitute,
+    # and conftest exits without a reachable server — a weekly run with no
+    # database fails every Monday.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: skein
+          POSTGRES_PASSWORD: skein
+          POSTGRES_DB: skein
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U skein -d skein"
+          --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - name: Checkout
         run: |
@@ -47,6 +61,18 @@ jobs:
         # deliberately uncached, unlike ci.yml: resolving the dependency
         # tree fresh is half of what this run exists to check
         run: pip install -e ".[dev]"
+      # Same reason as ci.yml: the backup suite needs a 17 client.
+      - name: PostgreSQL 17 client
+        run: |
+          if ! pg_dump --version 2>/dev/null | grep -q ' 17\.'; then
+            apt-get update -qq && apt-get install -y -qq curl ca-certificates
+            install -d /usr/share/postgresql-common/pgdg
+            curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+              -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+            echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] http://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo $VERSION_CODENAME)-pgdg main" \
+              > /etc/apt/sources.list.d/pgdg.list
+            apt-get update -qq && apt-get install -y -qq postgresql-client-17
+          fi
       - name: Lint
         run: ./scripts/lint.sh backend
       - name: Test
@@ -54,7 +80,14 @@ jobs:
         env:
           SKEIN_MODEL_PROVIDER: mock
           SKEIN_SCHEDULER: "0"
+          SKEIN_DATABASE_URL: postgresql://skein:skein@localhost:5432/skein
         run: pytest -q -n auto --cov=app --cov-fail-under=90
+      - name: Restricted database role contract
+        working-directory: backend
+        env:
+          SKEIN_DATABASE_URL: postgresql://skein:skein@localhost:5432/skein
+          SKEIN_ROLE_CONTRACT: "1"
+        run: pytest -q -n0 tests/test_database_role.py
       - name: Audit production dependencies
         run: ./scripts/audit-deps.sh backend
 

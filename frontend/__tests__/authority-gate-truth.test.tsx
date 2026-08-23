@@ -2,13 +2,13 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /** The Agents page answers one question: can an agent write without asking?
- *  The answer INVERTS with the review gate, which ships off by default
+ *  The answer INVERTS with the review gate, which ships on by default
  *  (config.py SKEIN_AGENT_REVIEW). tools/_gate.py takes the direct path on
  *  `not config.AGENT_REVIEW` whatever the authority level, so with the gate
  *  off autonomous, notify and review all mean "acts alone" and only
  *  forbidden stops a write. The page used to state the gate-on rule
  *  unconditionally — a false reassurance about a safety control, in the
- *  configuration that is the default. */
+ *  explicit opt-out configuration. */
 
 const gate: {
   on: boolean | "never";

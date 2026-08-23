@@ -96,8 +96,8 @@ model and constraints, is archived at
      Either half fails and it stays env-only.
 
   Nothing that can hold a credential goes in `app_settings` whatever its
-  shape — that table is in `services/admin.py::TABLES` and travels in every
-  export and backup, which is why `SKEIN_MCP_SERVERS` stops at question 3
+  shape. The table travels in every database backup, which is why
+  `SKEIN_MCP_SERVERS` stops at question 3
   and never reaches question 4 (an entry can carry a literal `auth_token`,
   `agents/mcp_tools.py`). There is no combined settings file: openclaw's
   `openclaw.json` was assessed as the model for one and refused, because

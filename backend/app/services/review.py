@@ -106,6 +106,14 @@ def unappliable(entity: str, payload: dict) -> str:
     from .intake import DETAIL_LEN
     from .work import DESCRIPTION_LEN, TITLE_LEN
 
+    # _apply splats a REGISTRY entity's payload beside actor= and origin=, so
+    # a payload carrying either key is a TypeError at apply — the generic
+    # handler resets the row to pending and the proposal boomerangs in the
+    # queue forever. extension_* payloads are never splatted (their apply uses
+    # the stored invocation); their fixed public keys just never collide.
+    for reserved in ("actor", "origin"):
+        if reserved in payload:
+            return f"the payload cannot carry '{reserved}' — the review records it"
     caps = {
         "task": (("title", TITLE_LEN), ("description", DESCRIPTION_LEN)),
         "milestone": (("title", TITLE_LEN), ("description", DESCRIPTION_LEN)),
@@ -451,6 +459,22 @@ def _assert_judgeable(change: dict, viewer: scope.Viewer) -> None:
         raise db.NotFound(f"pending change #{change['id']} not found")
 
 
+def _extension_execution_status(result: dict) -> str:
+    if result.get("status") == "completion_unknown":
+        return "completion_unknown"
+    workflow = result.get("workflow")
+    if isinstance(workflow, dict) and workflow.get("status") == "completion_unknown":
+        return "completion_unknown"
+    return "approved"
+
+
+def _extension_error_code(result: dict) -> str:
+    if result.get("error_code"):
+        return str(result["error_code"])
+    workflow = result.get("workflow")
+    return str(workflow.get("error_code") or "") if isinstance(workflow, dict) else ""
+
+
 def approve_change(
     change_id: int,
     note: str = "",
@@ -580,12 +604,14 @@ def _approve_change_locked(
                 if executor is None:
                     raise ValueError("the extension review executor is missing")
                 result = executor(invocation, change_id)
+                execution_status = _extension_execution_status(result)
                 db.execute(
-                    "UPDATE extension_review_invocations SET status = 'approved', result = ?,"
+                    "UPDATE extension_review_invocations SET status = ?, result = ?,"
                     " error_code = ?, executed_at = ? WHERE change_id = ?",
                     (
+                        execution_status,
                         json.dumps(result),
-                        str(result.get("error_code") or ""),
+                        _extension_error_code(result),
                         db.now(),
                         change_id,
                     ),
@@ -599,6 +625,13 @@ def _approve_change_locked(
                 # wrote it, not who clicked approve (the verdict is recorded on
                 # the pending_changes row + activity)
                 author = change["proposed_by"] or actor
+                # authority alone applies as the REVIEWER: the verdict is the
+                # substantive act (this path already requires a strong
+                # administrator), and `updated_by`/the ledger answer "who
+                # granted this" — a streak-filed promotion otherwise records
+                # the scheduler as the granter of a human-authorized elevation.
+                if change["entity"] == "authority":
+                    author = actor
                 if change["action"] == "update":
                     result = fn(
                         change["entity_id"], **payload, actor=author, origin="agent_verified"
@@ -674,7 +707,11 @@ def _approve_change_locked(
         + (f" (accepted for {sponsor})" if sponsor else ""),
     )
     _clear_review_ping(change_id)
-    return {"id": change_id, "status": "approved", "result": result}
+    response = {"id": change_id, "status": "approved", "result": result}
+    if is_extension:
+        response["execution_status"] = _extension_execution_status(result)
+        response["execution_error_code"] = _extension_error_code(result)
+    return response
 
 
 def _revalidate_policy(
@@ -1774,10 +1811,22 @@ def list_changes(
             resource_filter,
             allow_unclassified,
         )
+    invocation_ids = [
+        int(row["id"]) for row in rows if (row["entity"], row["action"]) in lexicon.REVIEW_ONLY
+    ]
+    execution = {}
+    if invocation_ids:
+        marks = ",".join("?" for _ in invocation_ids)
+        sql = (
+            "SELECT change_id, status, error_code FROM extension_review_invocations"  # noqa: S608 — controlled placeholders
+            f" WHERE change_id IN ({marks})"
+        )
+        execution = {int(row["change_id"]): row for row in db.query(sql, tuple(invocation_ids))}
     # only the pairs on THIS page: trust_scores computes for every pair in
     # the settled history, and a queue of 200 rows from one proposer would
     # otherwise pay for every agent the deployment has ever had.
     record = _trust_by_pair({(r["proposed_by"], r["entity"]) for r in rows}) if rows else {}
+    evidence_rows: list[dict] = []
     for r in rows:
         r["payload"] = json.loads(r["payload"])
         # The saved decision carries the requester's resolved roles,
@@ -1791,6 +1840,9 @@ def list_changes(
         # what this proposal is CALLED, resolved here so the header, the
         # checkbox label and the notification cannot drift apart
         r["label"] = lexicon.phrase(r["entity"], r["action"])
+        if stored := execution.get(int(r["id"])):
+            r["execution_status"] = stored["status"]
+            r["execution_error_code"] = stored["error_code"]
         # the UI shows whose verdict this is — acceptance belongs to the sponsor
         if r["entity"] == "task_completion":
             r["sponsor"] = _sponsor_of(r)
@@ -1803,7 +1855,15 @@ def list_changes(
             evidence = _acceptance_evidence(r, viewer)
             if evidence:
                 r["evidence"] = evidence
+                evidence_rows.append(evidence)
         r["record"] = record.get((r["proposed_by"], r["entity"]))
+    resolved = _criteria_refs(
+        [str(evidence["acceptance_criteria"] or "") for evidence in evidence_rows],
+        viewer,
+        resource_filter,
+    )
+    for evidence, refs in zip(evidence_rows, resolved, strict=True):
+        evidence["criteria_refs"] = refs
     return rows
 
 
@@ -1811,6 +1871,71 @@ def list_changes(
 # needs the shape of the work and its latest state, not the whole log — the
 # panel behind the task link holds all of it (frontend/components/task-peek).
 _EVIDENCE_NOTES = 5
+
+# Entities a criterion can name whose current state the evidence card shows.
+# Only tables with a status column; lesson/finding/intake/proposal render as
+# text in the criterion and get no chip.
+_CRITERIA_STATUS = {
+    "task": "tasks",
+    "milestone": "milestones",
+    "blocker": "blockers",
+    "question": "questions",
+    "decision": "decisions",
+    "promise": "promises",
+    "engagement": "engagements",
+}
+
+
+_EVIDENCE_REFS = 20
+
+
+def _criteria_refs(
+    criteria: list[str],
+    viewer: scope.Viewer,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None,
+) -> list[list[dict]]:
+    """Resolve one page of criterion references in bounded entity batches."""
+    from . import policy_context
+    from . import refs as entity_refs
+
+    parsed = [
+        [
+            ref
+            for ref in entity_refs.refs(text[:1000])[:_EVIDENCE_REFS]
+            if str(ref["entity"]) in _CRITERIA_STATUS
+        ]
+        for text in criteria
+    ]
+    resources = [(str(ref["entity"]), int(ref["id"])) for refs in parsed for ref in refs]
+    contexts = policy_context.resource_contexts(resources, viewer)
+    permitted = {
+        resource
+        for resource, attributes in contexts.items()
+        if str(attributes.get("relationship_conflict") or "").lower() != "true"
+        and (resource_filter is None or resource_filter(resource[0], resource[1], attributes))
+    }
+    states: dict[tuple[str, int], str] = {}
+    for entity, table in _CRITERIA_STATUS.items():
+        ids = sorted(rid for kind, rid in permitted if kind == entity)
+        if not ids:
+            continue
+        marks = ",".join("?" for _ in ids)
+        visible, params = scope.visible_filter(viewer, table)
+        rows = db.query(
+            f"SELECT id, status FROM {table} WHERE id IN ({marks}) AND {visible}",  # noqa: S608 — closed table map, controlled marks, scope fragment
+            (*ids, *params),
+        )
+        states.update({(entity, int(row["id"])): str(row["status"]) for row in rows})
+    return [
+        [
+            {
+                **ref,
+                "state": states.get((str(ref["entity"]), int(ref["id"])), ""),
+            }
+            for ref in refs
+        ]
+        for refs in parsed
+    ]
 
 
 def _acceptance_evidence(change: dict, viewer: scope.Viewer) -> dict:
@@ -1878,7 +2003,11 @@ def _acceptance_evidence(change: dict, viewer: scope.Viewer) -> dict:
         # Approve controls, which is a different sentence with a different
         # meaning.
         notes = []
-    return {**task, "worklog": notes, "sponsor_was": handover}
+    return {
+        **task,
+        "worklog": notes,
+        "sponsor_was": handover,
+    }
 
 
 def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:

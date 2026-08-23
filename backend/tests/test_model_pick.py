@@ -56,6 +56,38 @@ def real_provider(monkeypatch):
     monkeypatch.setattr(config, "VISION_MODEL", "")
 
 
+def test_the_menu_serves_merged_prices_and_zero_reads_as_unknown(
+    fresh_db, real_provider, client, monkeypatch
+):
+    """G7: the picker compares what accounting will actually charge. A model
+    priced only in SKEIN_MODEL_PRICES still shows its price, and a zero pair
+    reads as unknown — an unfilled rate and a real $0 are indistinguishable."""
+    monkeypatch.setattr(
+        config,
+        "MODELS",
+        dict(MENU)
+        | {
+            "zeroed": {**MENU["mini"], "id": "zeroed", "price": (0.0, 0.0)},
+        },
+    )
+    monkeypatch.setattr(
+        config,
+        "MODEL_PRICES",
+        {"mini": (1.0, 2.0), "zeroed": (9.0, 10.0)},
+    )
+    menu = {m["id"]: m for m in client.get("/api/settings/model").json()["menu"]}
+    assert menu["opus"]["price"] == [15.0, 75.0]  # registry entry wins
+    assert menu["mini"]["price"] == [1.0, 2.0]  # the operator table fills in
+    assert menu["zeroed"]["price"] is None  # zero is unknown, never free
+    # the same rule holds in accounting: a zeroed model logs cost NULL and
+    # counts as unpriced, never as a $0 total
+    from app.services import usage
+
+    assert usage.model_price("zeroed") == (None, "model_menu")
+    assert usage.cost_for("zeroed", 1000, 1000) is None
+    assert usage.cost_for("mini", 1_000_000, 0) == 1.0
+
+
 def test_a_pick_becomes_the_effective_model(fresh_db, real_provider):
     settings.set_model_pick("opus", actor="admin")
     assert settings.picked_model() == "opus"

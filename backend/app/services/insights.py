@@ -1023,11 +1023,12 @@ def _r_activity_chain() -> list[dict]:
     if not result["ok"]:
         at = result["broken_at"]
         where = f" at entry {at}" if at else ""
+        reason = result["reason"].rstrip(".")
         return [
             _finding(
                 "activity_chain_broken",
                 "high",
-                f"The activity chain does not verify{where}: {result['reason']}."
+                f"The activity chain does not verify{where}: {reason}."
                 " A row was changed, removed, or added outside the chain after"
                 " it was written. Compare the ledger against the most recent"
                 " backup in data/backups.",

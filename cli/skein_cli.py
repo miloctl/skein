@@ -33,6 +33,7 @@ Examples:
 """
 
 import argparse
+import fcntl
 import json
 import os
 import re
@@ -42,6 +43,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 CONFIG_PATH = Path(os.path.expanduser("~/.config/skein/config.json"))
@@ -162,22 +165,40 @@ def _mark_unreachable() -> None:
 OUTBOX = CONFIG_PATH.parent / "outbox.jsonl"
 
 
+@contextmanager
+def _outbox_lock():
+    """One cross-process owner for append, claim, and merge mutations."""
+    lock_path = OUTBOX.with_suffix(".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    with os.fdopen(descriptor, "r+") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
+def _retryable_http(error: urllib.error.HTTPError) -> bool:
+    return error.code == 429 or 500 <= error.code <= 599
+
+
 def _queue(path: str, body: dict) -> None:
     """Park a write for the next successful command.
 
-    AT LEAST ONCE, and deliberately not exactly once: a row leaves the file
-    only after the server accepts it, so a crash between the accept and the
-    rewrite re-sends it and files a duplicate. That is the safe direction —
-    the duplicate is visible in the feed and deletable, where a row dropped on
-    a crash is a capture the person believed they made. Server-side dedupe
-    needs an idempotency key the capture route reads, which it does not yet;
-    that half is the open part of D5 in docs/ROADMAP.md.
+    A row leaves the file only after the server accepts it, so a crash
+    between the accept and the rewrite re-sends it. The capture body carries
+    the `capture_key` minted at cmd_capture, and the server files a repeated
+    key as nothing — the re-send answers "duplicate" and the row retires.
+    A body with no key (an outbox written by an older CLI) still re-sends
+    at-least-once, which stays the safe direction: the duplicate is visible
+    and deletable, a dropped row is a capture the person believed they made.
     """
     try:
-        OUTBOX.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(OUTBOX, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-        with os.fdopen(fd, "a") as f:
-            f.write(json.dumps({"path": path, "body": body}) + "\n")
+        with _outbox_lock():
+            fd = os.open(OUTBOX, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            with os.fdopen(fd, "a") as f:
+                f.write(json.dumps({"path": path, "body": body}) + "\n")
     except OSError as exc:
         # the one write this feature exists to protect. If it cannot be parked
         # either, the text has to reach the person, not a traceback.
@@ -195,12 +216,15 @@ def flush_outbox() -> int:
     Two shells flushing at once each claim a different file rather than both
     sending the same rows.
     """
-    if _UNREACHABLE or not OUTBOX.exists():
+    if _UNREACHABLE:
         return 0
     claim = OUTBOX.with_suffix(f".{os.getpid()}.sending")
     try:
-        os.rename(OUTBOX, claim)
-        lines = claim.read_text().splitlines()
+        with _outbox_lock():
+            if not OUTBOX.exists():
+                return 0
+            os.rename(OUTBOX, claim)
+            lines = claim.read_text().splitlines()
     except OSError:
         return 0  # another shell claimed it, or the file went away
     rows = []
@@ -220,6 +244,11 @@ def flush_outbox() -> int:
     for i, row in enumerate(rows):
         got = api_quiet("POST", row["path"], row["body"])
         if isinstance(got, urllib.error.HTTPError):
+            if _retryable_http(got):
+                # Load or unknown server completion, not a permanent verdict.
+                # The capture key makes replay safe, so keep this row and tail.
+                left = rows[i:]
+                break
             # The SERVER's verdict, and it will be the same verdict forever.
             # Retrying it parked every later capture behind a row that could
             # never send. Say what was lost, then drop it.
@@ -235,24 +264,27 @@ def flush_outbox() -> int:
 
 
 def _merge_back(claim: Path, left: list) -> None:
-    """Put unsent rows back at the FRONT of the queue and drop the claim.
-    What did not send is older than anything a concurrent shell queued while
-    this call ran."""
+    """Put unsent rows at the front without erasing concurrent appends."""
     try:
-        rest = OUTBOX.read_text() if OUTBOX.exists() else ""
+        with _outbox_lock():
+            rest = OUTBOX.read_text() if OUTBOX.exists() else ""
+            body = "".join(json.dumps(r) + "\n" for r in left) + rest
+            if body:
+                temp = OUTBOX.with_suffix(f".{uuid.uuid4().hex}.merge")
+                descriptor = os.open(temp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                try:
+                    with os.fdopen(descriptor, "w") as file:
+                        file.write(body)
+                        file.flush()
+                        os.fsync(file.fileno())
+                    os.replace(temp, OUTBOX)
+                finally:
+                    temp.unlink(missing_ok=True)
+            else:
+                OUTBOX.unlink(missing_ok=True)
+            claim.unlink(missing_ok=True)
     except OSError:
-        rest = ""
-    body = "".join(json.dumps(r) + "\n" for r in left) + rest
-    try:
-        if body:
-            fd = os.open(OUTBOX, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "w") as f:
-                f.write(body)
-        else:
-            OUTBOX.unlink(missing_ok=True)
-        claim.unlink(missing_ok=True)
-    except OSError:
-        pass  # the claim file remains and the next flush ignores it
+        pass  # the claim file remains and the next flush can recover it
 
 
 def cmd_model(_args):
@@ -284,11 +316,22 @@ def cmd_config(args):
 
 
 def cmd_capture(args):
-    body = {"text": " ".join(args.text)}
+    # Minted HERE, once per invocation, so the direct attempt and any outbox
+    # re-send of the same capture carry one key. The server dedupes on it,
+    # which closes D5: a crash between the server's accept and the outbox
+    # rewrite re-sends the row and files nothing twice.
+    body = {"text": " ".join(args.text), "capture_key": uuid.uuid4().hex}
     got = api_quiet("POST", "/api/capture", body)
     if isinstance(got, urllib.error.HTTPError):
-        # the server REFUSED it. Queueing a refusal promises a filing that can
-        # never happen, and exits 0 on a write that did not land.
+        if _retryable_http(got):
+            # main() flushes after the command. Suppress that immediate retry;
+            # the next CLI process gets a fresh flag and can try the outbox.
+            _mark_unreachable()
+            _queue("/api/capture", body)
+            print("saved locally — it files on your next command that reaches the server")
+            return
+        # The server refused it permanently. Re-run through api() so the
+        # command exits with the normal error and never promises a future file.
         api("POST", "/api/capture", body)
         return
     if got is None:

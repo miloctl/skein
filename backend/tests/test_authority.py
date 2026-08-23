@@ -23,6 +23,16 @@ def test_authority_review_files_promotion_and_applies(client, fresh_db, monkeypa
     auth = next(p for p in pending if p["entity"] == "authority")
     client.post(f"/api/review/{auth['id']}/approve", json={}, headers=headers)
     assert delegation.authority_level("scribe", "note") == "notify"
+    # the verdict is the grant: the row and the ledger name the administrator
+    # who approved, never the scheduler that filed the suggestion
+    grant = fresh_db.query_row(
+        "SELECT updated_by FROM agent_authority WHERE agent = 'scribe' AND entity = 'note'"
+    )
+    assert grant["updated_by"] == "tester"
+    ledger = fresh_db.query_row(
+        "SELECT actor FROM activity WHERE action = 'set_authority' ORDER BY id DESC LIMIT 1"
+    )
+    assert ledger["actor"] == "tester"
 
 
 def test_authority_verdicts_need_strong_human_identity(client, fresh_db):

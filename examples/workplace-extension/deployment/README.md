@@ -36,10 +36,11 @@ values. `ATLAS_API_TOKEN` is sent only by the private `AtlasHttpClient` when
 `ATLAS_API_URL` is configured.
 
 The example declares one `skein-data` persistent volume claim, for artifacts
-and backups. The extension has no volume: its store is a schema of its own
-(`ext_atlas-extension`) inside the Skein database, named by
-`ATLAS_SKEIN_STORE`. The `skein-db-secret` Secret must carry a
-`SKEIN_DATABASE_URL` key.
+and backups. The extension has no volume: its store is schema
+`ext_atlas_extension` inside the Skein database, derived from
+`ATLAS_SKEIN_STORE`. Before deployment, the database administrator creates
+this schema with the Skein application role as owner. The `skein-db-secret`
+Secret must carry a `SKEIN_DATABASE_URL` key.
 
 Render or apply the overlay from its common parent. This keeps the content
 files inside the standard Kustomize load boundary:

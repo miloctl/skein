@@ -20,7 +20,7 @@ from pathlib import Path
 from PIL import Image, UnidentifiedImageError
 
 from .. import config, db
-from . import handoff
+from . import artifact_files, handoff
 
 # Exactly the formats strands' ContentBlock accepts (strands/types/media.py),
 # so nothing reaches a provider that the provider cannot parse. SVG is absent
@@ -169,7 +169,7 @@ def save_upload(filename: str, data: bytes, *, owner: str) -> dict:
         )
         path = root / f"{aid}.{ext}"
         db.execute("UPDATE artifacts SET path = ? WHERE id = ?", (str(path), aid))
-        path.write_bytes(data)
+        artifact_files.publish(path, data)
         db.log_activity(owner, "upload_file", f"artifact #{aid} ({len(data)} bytes)")
         return {
             "id": aid,
@@ -282,6 +282,6 @@ def delete_upload(artifact_id: int, owner: str) -> dict:
         # missing_ok: a row whose file is already gone (a restored database
         # beside an empty volume) is exactly the row somebody needs to delete
         # to free a stuck quota. Refusing it there would trap them.
-        db.on_commit(lambda: path.unlink(missing_ok=True))
+        artifact_files.delete_after_commit(path)
         db.log_activity(owner, "delete_file", f"artifact #{artifact_id} ({row['size']} bytes)")
         return {"id": artifact_id, "deleted": True}

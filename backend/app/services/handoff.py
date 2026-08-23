@@ -6,8 +6,8 @@ from pathlib import Path
 
 from .. import config, db
 from ..agents.identity import refuse_when_consultative
+from . import artifact_files, scope, wording
 from . import refs as entity_refs
-from . import scope, wording
 
 # The compatibility list and each cursor page use one bounded batch. The page
 # route scans more batches when policy denies rows, then returns at most this many.
@@ -140,47 +140,50 @@ def generate_handoff(
     safe_name = name.replace("/", "_")
     if safe_name in (".", ".."):
         safe_name = f"engagement-{engagement_id}"
-    artifacts_dir = Path(config.DATA_DIR) / "artifacts" / safe_name
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
-    # the engagement id is in the FILE name, not just the directory: two
-    # distinct names can sanitize to one directory ("ops/reset" and "ops_reset"
-    # both become "ops_reset"), and then the dated path collides. The upsert
-    # below matches on path alone, so the second engagement would take over the
-    # first one's artifact row — returning an id whose engagement, title and
-    # TIER belong to the other engagement, while the body it just wrote was
-    # narrowed for this one's audience.
-    path = artifacts_dir / f"{db.today().isoformat()}-handoff-{engagement_id}.md"
-    path.write_text(markdown, encoding="utf-8")
-
-    # The FILE is named by date, so a second handoff the same day overwrites
-    # it. The row must follow, or the list carries two identical links to one
-    # file and opening the older one shows the newer body — which is the same
-    # upsert `rituals._write_artifact` makes for the same reason.
-    existing = db.query_one("SELECT id FROM artifacts WHERE path = ?", (str(path),))
-    if existing:
-        db.execute(
-            "UPDATE artifacts SET created_by = ?, created_at = ? WHERE id = ?",
-            (actor, db.now(), existing["id"]),
+    day = db.today().isoformat()
+    logical = Path(config.DATA_DIR) / "artifacts" / safe_name / f"{day}-handoff-{engagement_id}.md"
+    with db.transaction():
+        db.name_lock(db.LOCK_ARTIFACT, f"handoff:{engagement_id}:{day}")
+        prefix = f"{day}-handoff-{engagement_id}"
+        existing = db.query_one(
+            "SELECT id, path FROM artifacts WHERE kind = 'handoff'"
+            " AND engagement_id = ? AND path LIKE ? ORDER BY id DESC LIMIT 1",
+            (engagement_id, f"%/{prefix}%"),
         )
-        db.log_activity(actor, "generate_handoff", f"#{engagement_id} {name} (rewritten)")
-        return {"artifact_id": int(existing["id"]), "path": str(path), "markdown": markdown}
-    aid = db.execute(
-        "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at,"
-        " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-        " RETURNING id",
-        (
-            engagement_id,
-            "handoff",
-            f"Handoff — {name}",
-            str(path),
-            actor,
-            db.now(),
-            eng["visibility"],
-            eng["crew_id"],
-        ),
-    )
-    db.log_activity(actor, "generate_handoff", f"engagement #{engagement_id} -> artifact #{aid}")
-    return {"artifact_id": aid, "path": str(path), "markdown": markdown}
+        path = artifact_files.unique_revision(logical)
+        artifact_files.publish(
+            path,
+            markdown.encode("utf-8"),
+            old=Path(existing["path"]) if existing else None,
+        )
+        title = f"Handoff — {name}"
+        if existing:
+            aid = int(existing["id"])
+            db.execute(
+                "UPDATE artifacts SET title = ?, path = ?, created_by = ?, created_at = ?"
+                " WHERE id = ?",
+                (title, str(path), actor, db.now(), aid),
+            )
+            db.log_activity(actor, "generate_handoff", f"#{engagement_id} {name} (rewritten)")
+        else:
+            aid = db.execute(
+                "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at,"
+                " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+                (
+                    engagement_id,
+                    "handoff",
+                    title,
+                    str(path),
+                    actor,
+                    db.now(),
+                    eng["visibility"],
+                    eng["crew_id"],
+                ),
+            )
+            db.log_activity(
+                actor, "generate_handoff", f"engagement #{engagement_id} -> artifact #{aid}"
+            )
+        return {"artifact_id": aid, "path": str(path), "markdown": markdown}
 
 
 class ArtifactUnreadable(RuntimeError):

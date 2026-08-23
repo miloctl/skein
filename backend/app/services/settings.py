@@ -9,9 +9,9 @@ deployment behaves per its .env, and clearing the setting returns to it
 rather than to a hardcoded guess.
 
 Registry content (config.MODELS: prices, params) is NEVER copied into
-app_settings — that table travels in every export and backup
-(services/admin.py::TABLES), and params values are a plausible place an
-operator put a credential. Only the pick itself is stored.
+app_settings. The table travels in every database backup, and params values
+are a plausible place an operator put a credential. Only the pick itself is
+stored.
 """
 
 import json
