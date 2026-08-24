@@ -36,6 +36,24 @@ PREFIX = re.compile(
     re.I,
 )
 
+
+def capture_body(text: str) -> str:
+    """Remove one explicit prefix, refusing a prefix that names no record."""
+    if re.fullmatch(r"\s*blocked on\s*", text, re.I):
+        raise ValueError(
+            "The capture prefix has no text after it. Add text after the prefix, then try again."
+        )
+    match = PREFIX.match(text)
+    if not match:
+        return text.strip()
+    body = text[match.end() :].strip()
+    if not body:
+        raise ValueError(
+            "The capture prefix has no text after it. Add text after the prefix, then try again."
+        )
+    return body
+
+
 # `q: mira — where do we log?` assigns to mira — same person-separator grammar
 # as fb:, but only when the name matches an active user (else it stays text).
 # The known-user gate is LOAD-BEARING: with re.S the person group can span
@@ -147,7 +165,7 @@ def plan(text: str, *, actor: str = "system", origin: str = "human") -> tuple[st
     that every payload above applies through the registry.
     """
     kind = classify(text)
-    body = PREFIX.sub("", text).strip() or text
+    body = capture_body(text)
     if kind == "question":
         assignee, q = split_assignee(body)
         return kind, "question", {"question": q, "asked_by": actor, "assigned_to": assignee}
@@ -238,7 +256,7 @@ def capture(
         result = private_notes.add_note(actor, person, body, kind="feedback")
         return {"kind": "feedback", **result}
     kind, _entity, _payload = plan(text, actor=actor, origin=origin)
-    body = PREFIX.sub("", text).strip() or text
+    body = capture_body(text)
     # one dict, splatted into every branch below (eight of them): the branches below are a
     # hand-written mirror of plan()'s payloads, so a tier added to one and
     # not the others would apply to some captured kinds and silently not

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { VisibilityPicker } from "@/components/visibility-picker";
-import { actionError, api, getUser, subscribeUser } from "@/lib/api";
+import { actionError, api, getUser, isUnreachable, subscribeUser } from "@/lib/api";
 import { notifyAttentionChange } from "@/lib/attention";
 import { isGated, subscribeGated } from "@/lib/gated";
 
@@ -38,6 +38,12 @@ const RULES: [string, RegExp][] = [
 // (docs/LEXICON.md row 1)
 const KNOWN_PREFIX =
   /^\s*(q|question|todo|task|note|fyi|til|decision|blocker|blocked|stuck|promised?|commitment|awaiting|waiting for|req|request|fb):\s*/i;
+
+function readyToCapture(text: string): boolean {
+  if (!text.trim() || /^\s*blocked on\s*$/i.test(text)) return false;
+  const prefix = KNOWN_PREFIX.exec(text);
+  return prefix === null || Boolean(text.slice(prefix[0].length).trim());
+}
 
 function previewKind(text: string): string {
   const lines = text.split("\n");
@@ -74,11 +80,14 @@ export function CapturePalette() {
   const user = useSyncExternalStore(subscribeUser, getUser, () => "anonymous");
   const canSearch = user !== "anonymous";
   const [text, setText] = useState("");
+  const [generatedDraft, setGeneratedDraft] = useState("");
   const [result, setResult] = useState<string | null>(null);
   const [tier, setTier] = useState({ visibility: "workspace", crew_id: 0 });
   const [busy, setBusy] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const placeCaretRef = useRef(false);
+  const generatedDraftRef = useRef("");
   // mirrors `text` for the once-mounted window listener below, which would
   // otherwise read the first render's empty string forever
   const textRef = useRef("");
@@ -87,6 +96,12 @@ export function CapturePalette() {
   }, [text]);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
+  const receiptRef = useRef<{
+    kind: string;
+    id: number;
+    firstWatchGeneration?: number;
+  } | null>(null);
+  const firstWatchGenerationRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     // No open-shortcut here. ⌘K belongs to search (components/nav-search.tsx),
@@ -94,18 +109,39 @@ export function CapturePalette() {
     // its own button. Escape still belongs to this dialog while it is open.
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        // same rule as the backdrop: never discard typed text. The first
-        // Escape clears the draft, the second closes — one rule for both
-        // gestures instead of a reflex that loses a sentence.
-        if (textRef.current.trim()) setText("");
-        else setOpen(false);
+        // A generated First Watch prefix is not a person's draft. It closes in
+        // one gesture; text they added keeps the existing clear-then-close rule.
+        const generated = textRef.current === generatedDraftRef.current;
+        if (textRef.current.trim() && !generated) {
+          generatedDraftRef.current = "";
+          setGeneratedDraft("");
+          setText("");
+        } else {
+          generatedDraftRef.current = "";
+          setGeneratedDraft("");
+          setText("");
+          setOpen(false);
+        }
       }
     };
     // the nav's Capture button dispatches this: it is the only door into
     // quick capture now that the keystroke names search
-    const onOpen = () => {
+    const onOpen = (event: Event) => {
       if (closeTimer.current) clearTimeout(closeTimer.current);
       openerRef.current = document.activeElement as HTMLElement | null;
+      const detail = (
+        event as CustomEvent<{ text?: string; firstWatchGeneration?: number }>
+      ).detail;
+      const initial = detail?.text;
+      firstWatchGenerationRef.current = detail?.firstWatchGeneration;
+      generatedDraftRef.current = "";
+          setGeneratedDraft("");
+      if (!textRef.current && initial) {
+        generatedDraftRef.current = initial;
+        setGeneratedDraft(initial);
+        placeCaretRef.current = true;
+        setText(initial);
+      }
       setResult(null);
       setOpen(true);
     };
@@ -120,8 +156,31 @@ export function CapturePalette() {
 
   // dialog contract: focus returns to whatever opened the palette
   useEffect(() => {
-    if (!open) openerRef.current?.focus();
+    if (open) return;
+    openerRef.current?.focus();
+    const receipt = receiptRef.current;
+    if (!receipt) return;
+    receiptRef.current = null;
+    firstWatchGenerationRef.current = undefined;
+    window.dispatchEvent(new CustomEvent("skein-capture-complete", { detail: receipt }));
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !placeCaretRef.current || !inputRef.current) return;
+    placeCaretRef.current = false;
+    inputRef.current.focus();
+    inputRef.current.setSelectionRange(text.length, text.length);
+  }, [open, text]);
+
+  useEffect(() => {
+    if (!open || gated) return;
+    const changed = [...document.body.children].filter(
+      (element) =>
+        !element.contains(dialogRef.current) && !element.hasAttribute("inert"),
+    ) as HTMLElement[];
+    changed.forEach((element) => element.setAttribute("inert", ""));
+    return () => changed.forEach((element) => element.removeAttribute("inert"));
+  }, [gated, open]);
 
   const trapTab = (e: React.KeyboardEvent) => {
     if (e.key !== "Tab" || !dialogRef.current) return;
@@ -149,7 +208,7 @@ export function CapturePalette() {
   };
 
   const submit = useCallback(async () => {
-    if (!text.trim() || busy) return;
+    if (!readyToCapture(text) || busy) return;
     setBusy(true);
     try {
       const r = await api<{ kind: string; id: number }>("/api/capture", {
@@ -157,7 +216,15 @@ export function CapturePalette() {
         body: JSON.stringify({ text, ...tier }),
       });
       notifyAttentionChange();
+      receiptRef.current = {
+        ...r,
+        ...(firstWatchGenerationRef.current === undefined
+          ? {}
+          : { firstWatchGeneration: firstWatchGenerationRef.current }),
+      };
       setResult(`Captured as ${r.kind} #${r.id}`);
+      generatedDraftRef.current = "";
+          setGeneratedDraft("");
       setText("");
       // the tier resets with the text. The dialog closes after each capture,
       // so a tier left behind is a tier nobody can see — the next unrelated
@@ -166,7 +233,10 @@ export function CapturePalette() {
       // long enough for the live region to announce before the dialog goes
       closeTimer.current = setTimeout(() => setOpen(false), 1400);
     } catch (err) {
-      setResult(`⚠️ ${actionError(err)}`);
+      const recovery = isUnreachable(err)
+        ? " Search for the record before you try again."
+        : "";
+      setResult(`⚠️ ${actionError(err)}${recovery}`);
     } finally {
       setBusy(false);
     }
@@ -186,12 +256,32 @@ export function CapturePalette() {
   // only ever answer 401
   if (!open || gated) return null;
   const kind = text.trim() ? previewKind(text) : "";
+  const hasRealDraft = Boolean(
+    text.trim() && text !== generatedDraft,
+  );
+  const closeOrClear = () => {
+    if (hasRealDraft) {
+      generatedDraftRef.current = "";
+          setGeneratedDraft("");
+      setText("");
+      return;
+    }
+    generatedDraftRef.current = "";
+          setGeneratedDraft("");
+    setText("");
+    setOpen(false);
+  };
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-4 pt-16 sm:pt-32"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto overscroll-contain bg-black/30 px-4 py-4 sm:pt-32"
       onClick={() => {
-        // most of a phone screen is backdrop — never discard typed text
-        if (!text.trim()) setOpen(false);
+        // most of a phone screen is backdrop — never discard text the person added
+        if (!text.trim() || text === generatedDraftRef.current) {
+          generatedDraftRef.current = "";
+          setGeneratedDraft("");
+          setText("");
+          setOpen(false);
+        }
       }}
     >
       <div
@@ -203,9 +293,18 @@ export function CapturePalette() {
         onClick={(e) => e.stopPropagation()}
         onKeyDown={trapTab}
       >
-        <p className="mb-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
-          Quick capture
-        </p>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+            Quick capture
+          </p>
+          <button
+            type="button"
+            onClick={closeOrClear}
+            className="min-h-6 rounded px-2 py-1 text-xs text-ink-2 hover:bg-raised hover:text-ink"
+          >
+            {hasRealDraft ? "Clear draft" : "Close"}
+          </button>
+        </div>
         <div className="mb-2 flex flex-wrap gap-1">
           {CHIPS.map((c) => (
             <button
@@ -221,6 +320,7 @@ export function CapturePalette() {
         <textarea
           autoFocus
           ref={inputRef}
+          name="capture-text"
           aria-label="What to capture"
           rows={3}
           value={text}
@@ -262,7 +362,7 @@ export function CapturePalette() {
           </span>
           <button
             onClick={submit}
-            disabled={busy || !text.trim()}
+            disabled={busy || !readyToCapture(text)}
             className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
           >
             Capture

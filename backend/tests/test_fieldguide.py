@@ -4,6 +4,8 @@ pinned here — if a service reworders its activity line, these break loudly
 instead of a knot silently going untieable."""
 
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -27,12 +29,23 @@ def test_registry_is_valid_and_complete(fresh_db):
     from app.services import fieldguide
 
     cards = fieldguide.registry()
-    assert len(cards) == 50
+    assert len(cards) == 52
     ids = {k["id"] for k in cards}
     assert ids == set(fieldguide.PREDICATES)
     for k in cards:
         assert k["set"] in fieldguide.SETS
         assert k["link"].startswith("/")
+
+
+def test_cached_registry_cards_cannot_be_poisoned(fresh_db):
+    from app.services import fieldguide
+
+    fieldguide.registry()  # fill the cache
+    caller_cards = fieldguide.registry()
+    original = caller_cards[0]["feature"]
+    caller_cards[0]["feature"] = "poisoned"
+
+    assert fieldguide.registry()[0]["feature"] == original
 
 
 def test_field_guide_tool_returns_the_live_registry(fresh_db):
@@ -75,7 +88,13 @@ def test_field_guide_for_route_does_not_consume_newly_tied_cards(client, fresh_d
 
     _mint(fresh_db, "tester")
     fieldguide.mark("tester", "search")
-    fieldguide.mark("tester", "review")
+    fresh_db.execute(
+        "INSERT INTO pending_changes (entity, entity_id, action, payload, proposed_by,"
+        " status, reviewed_by, created_at)"
+        " VALUES ('task', 1, 'update', '{}', 'agent', 'approved', 'tester', ?)",
+        (fresh_db.now(),),
+    )
+    fieldguide.detect("tester")
 
     response = client.get("/api/field-guide/for", params={"path": "/review"})
 
@@ -86,6 +105,45 @@ def test_field_guide_for_route_does_not_consume_newly_tied_cards(client, fresh_d
         ("tester", "review"),
     )
     assert unseen == {"seen": 0}
+
+
+def test_first_watch_projection_is_ordered_and_pure(client, fresh_db):
+    _mint(fresh_db, "tester")
+
+    response = client.get("/api/field-guide/first-watch")
+
+    assert response.status_code == 200
+    assert [row["id"] for row in response.json()["steps"]] == [
+        "first_watch",
+        "capture",
+        "task_peek",
+        "search",
+        "review",
+        "activity_feed",
+        "bosun",
+    ]
+    assert set(response.json()["steps"][0]) == {
+        "id",
+        "feature",
+        "knot",
+        "pitch",
+        "how",
+        "link",
+    }
+    assert fresh_db.query("SELECT * FROM feature_unlocks") == []
+
+
+def test_first_watch_start_marks_only_its_fixed_card(client, fresh_db):
+    from app.services import fieldguide
+
+    _mint(fresh_db, "tester")
+    assert client.get("/api/field-guide/first-watch").status_code == 200
+
+    response = client.post("/api/field-guide/first-watch")
+
+    assert response.status_code == 200
+    tied = {row["id"] for row in fieldguide.guide("tester")["cards"] if row["tied"]}
+    assert tied == {"first_watch"}
 
 
 def test_opening_page_help_ties_its_guide_card(client, fresh_db):
@@ -109,7 +167,7 @@ def test_hint_and_guide_use_the_same_tieable_total(fresh_db):
     from app.services import fieldguide
 
     _mint(fresh_db, "ava")
-    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 49
+    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 51
 
 
 def test_first_detection_seeds_silently(fresh_db):
@@ -253,6 +311,30 @@ def test_suggestion_never_pushes_manager_cards(fresh_db):
     assert s is not None and s["id"] not in manager_ids
 
 
+def test_task_peek_ties_only_after_a_readable_task_projection(client, fresh_db):
+    from app.services import fieldguide, work
+
+    _mint(fresh_db, "tester")
+    task = work.create_task(title="Readable", actor="tester")
+
+    assert client.get("/api/tasks/999999").status_code == 404
+    assert (
+        fresh_db.query_one(
+            "SELECT 1 FROM feature_unlocks WHERE person = ? AND knot = ?",
+            ("tester", "task_peek"),
+        )
+        is None
+    )
+    assert client.get(f"/api/tasks/{task['id']}").status_code == 200
+
+    tied = {row["id"] for row in fieldguide.guide("tester")["cards"] if row["tied"]}
+    assert "task_peek" in tied
+    assert fresh_db.query_one(
+        "SELECT COUNT(*) AS n FROM feature_unlocks WHERE person = ? AND knot = ?",
+        ("tester", "task_peek"),
+    ) == {"n": 1}
+
+
 def test_mark_ties_readonly_features_via_route(client, fresh_db):
     from app.services import fieldguide
 
@@ -260,6 +342,67 @@ def test_mark_ties_readonly_features_via_route(client, fresh_db):
     client.get("/api/search", params={"q": "anything"})
     g = fieldguide.guide("tester")
     assert any(c["id"] == "search" and c["tied"] for c in g["cards"])
+
+
+def test_mark_refuses_cards_without_mark_semantics(fresh_db):
+    from app.services import fieldguide
+
+    _mint(fresh_db, "ava")
+    fieldguide.mark("ava", "review")
+    fieldguide.mark("ava", "forge")
+    fieldguide.mark("ava", "missing")
+
+    assert fresh_db.query("SELECT knot FROM feature_unlocks WHERE person = ?", ("ava",)) == []
+
+
+def test_first_direct_mark_materializes_old_predicates_before_the_new_tie(fresh_db):
+    from app.services import capture, fieldguide
+
+    _mint(fresh_db, "ava")
+    capture.capture("todo: historical work", actor="ava")
+    fieldguide.mark("ava", "search")
+
+    guide = fieldguide.guide("ava")
+    assert [row["id"] for row in guide["newly_tied"]] == ["search"]
+    capture_card = next(row for row in guide["cards"] if row["id"] == "capture")
+    assert capture_card["tied"] is True
+
+
+def test_direct_mark_takes_the_person_lock(fresh_db, monkeypatch):
+    from app.services import fieldguide
+
+    _mint(fresh_db, "ava")
+    original = fieldguide.db.name_lock
+    calls = []
+
+    def tracked(namespace, name):
+        calls.append((namespace, name))
+        original(namespace, name)
+
+    monkeypatch.setattr(fieldguide.db, "name_lock", tracked)
+    fieldguide.mark("ava", "search")
+
+    assert calls == [(fieldguide.db.LOCK_FIELD_GUIDE, "ava")]
+
+
+def test_concurrent_first_marks_leave_one_visible_unlock(fresh_db):
+    from app.services import fieldguide
+
+    _mint(fresh_db, "ava")
+    start = threading.Barrier(2)
+
+    def mark(knot):
+        start.wait(timeout=3)
+        fieldguide.mark("ava", knot)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(mark, ("search", "page_help")))
+
+    rows = fresh_db.query(
+        "SELECT seen FROM feature_unlocks WHERE person = ? AND kind = 'tied' ORDER BY seen",
+        ("ava",),
+    )
+    assert rows == [{"seen": 0}, {"seen": 1}]
 
 
 def test_reports_page_ties_the_read_only_history_knot(client, fresh_db):
@@ -302,6 +445,18 @@ def test_todays_three_route_ties_only_its_fixed_knot(client, fresh_db):
     assert response.status_code == 200
     tied = {row["id"] for row in fieldguide.guide("tester")["cards"] if row["tied"]}
     assert tied == {"todays_three"}
+
+
+def test_first_watch_mark_is_rate_capped(client, fresh_db):
+    from app import ratelimit
+
+    _mint(fresh_db, "tester")
+    ratelimit.reset()
+    for _ in range(30):
+        assert client.post("/api/field-guide/first-watch").status_code == 200
+    response = client.post("/api/field-guide/first-watch")
+    assert response.status_code == 429
+    ratelimit.reset()
 
 
 def test_todays_three_mark_is_rate_capped(client, fresh_db):
@@ -376,8 +531,8 @@ def test_mark_seeds_silently_on_first_ever_unlock(fresh_db):
     _mint(fresh_db, "ava")
     fieldguide.mark("ava", "search")
     assert fieldguide.guide("ava")["newly_tied"] == []  # first unlock = seed
-    fieldguide.mark("ava", "chat")
-    assert [n["id"] for n in fieldguide.guide("ava")["newly_tied"]] == ["chat"]
+    fieldguide.mark("ava", "page_help")
+    assert [n["id"] for n in fieldguide.guide("ava")["newly_tied"]] == ["page_help"]
 
 
 def test_hint_never_consumes_the_newly_tied_strip(fresh_db):
@@ -412,6 +567,29 @@ def test_dismiss_is_rate_capped(client, fresh_db):
     r = client.post("/api/field-guide/dismiss", json={"knot": "growth"})
     assert r.status_code == 429 and "The limit for" in r.json()["detail"]
     ratelimit.reset()
+
+
+def test_registry_rejects_protocol_relative_links(fresh_db, tmp_path, monkeypatch):
+    from app.services import fieldguide
+
+    bad = tmp_path / "knots.yaml"
+    bad.write_text(
+        "knots:\n"
+        "  - id: capture\n"
+        "    feature: X\n"
+        "    knot: K\n"
+        "    set: loops\n"
+        "    pitch: p\n"
+        "    how: h\n"
+        "    link: //example.test/x\n"
+        "    since: 2026-07-31\n"
+    )
+    monkeypatch.setattr(fieldguide, "KNOTS_FILE", bad)
+    monkeypatch.setattr(fieldguide, "PREDICATES", {"capture": lambda _: False})
+    monkeypatch.setattr(fieldguide, "_registry_cache", None)
+    with pytest.raises(ValueError, match="in-app path") as exc:
+        fieldguide.registry()
+    assert "example.test" not in str(exc.value)
 
 
 def test_registry_rejects_manager_set_without_role(fresh_db, tmp_path, monkeypatch):
@@ -471,6 +649,29 @@ def test_a_card_must_say_how_it_ties(fresh_db, monkeypatch):
     capture["ties"] = "never"
     rebuild(base)
     with pytest.raises(ValueError, match="ties must be 'predicate'"):
+        fieldguide.registry()
+
+
+@pytest.mark.parametrize(
+    ("steps", "message"),
+    [
+        (["capture", "capture"], "repeats"),
+        (["missing"], "unknown knot"),
+        (["forge"], "never ties"),
+    ],
+)
+def test_tour_manifest_rejects_invalid_steps(fresh_db, monkeypatch, steps, message):
+    from app.services import fieldguide
+
+    cards = fieldguide.registry()
+    monkeypatch.setattr(fieldguide, "_registry_cache", None)
+    monkeypatch.setattr(
+        fieldguide.yaml,
+        "safe_load",
+        lambda _text: {"tours": {"first-watch": steps}, "knots": cards},
+    )
+
+    with pytest.raises(ValueError, match=message):
         fieldguide.registry()
 
 

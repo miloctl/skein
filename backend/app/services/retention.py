@@ -43,6 +43,7 @@ KEPT = {
     "api_keys": "credential audit rows: revocation deactivates in place",
     "app_settings": "admin-set values: the settings form owns their lifecycle",
     "agent_authority": "the authority matrix the tool gate reads",
+    "agent_wakeups": "one current operational wake state per agent, updated in place",
     "feature_unlocks": "one row per unlocked feature",
     "pending_changes": "review provenance beside the ledger",
     "extension_review_invocations": "execution outcome of a reviewed remote write",

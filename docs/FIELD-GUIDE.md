@@ -76,6 +76,37 @@ and judgment-laden surfaces; silent retroactive seeding; quiet cadence.
   (joining two ropes — cross-system seams, the highest-teaching-value
   cards), **Stoppers** (finishing), plus a manager-tagged group so IC
   completionists aren't chasing unreachable cards.
+- Named tours are ordered knot IDs in the same file. A tour repeats no card
+  copy or link. The fixed tour read projects the cards without running
+  detection, consuming `seen`, or writing unlock state.
+- `fieldguide.mark()` accepts only cards declared `ties: mark`. If the direct
+  mark is a person's first unlock, historical predicate evidence is detected
+  first so old use stays a silent seed.
+
+## First Watch
+
+First Watch is the deterministic newcomer journey over the field-guide
+registry. Its introduction is outside the step count. The six visible steps
+cover Capture, Work with Task Peek, Search, Inbox, Team, and Chat.
+
+- The teammate writes one real task. First Watch never creates placeholder
+  data and never deletes, voids, or edits that task during replay.
+- Progress is browser-local under the server-resolved identity. It stores the
+  step ID and task ID, never task text. There is no server completion row or
+  manager-visible progress view.
+- `GET /api/field-guide/first-watch` is a pure content read. The fixed,
+  rate-capped `POST` records that First Watch started. It does not record
+  completion or accept a knot ID from the browser.
+- Capture, Task Peek, Search, and Chat report successful results through their
+  existing frontend owners. Intent alone never advances the journey.
+- Bosun labels the deterministic guide. A healthy live provider prepares an
+  editable Bosun question in Chat. Mock mode, a provider error, or an agent
+  status failure prepares editable `/help` instead.
+- Pause and replay affect only browser state. Skip task practice jumps to
+  Inbox and leaves every real record unchanged.
+- Returning teammates can start or resume it under Settings → You → Guidance.
+  The Field Guide, My Day Page Help, and Guided First Week use the same start
+  event rather than maintaining separate tour state.
 
 ## Shipping a feature? Add its card.
 

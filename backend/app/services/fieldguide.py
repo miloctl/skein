@@ -7,6 +7,7 @@ the non-negotiables: docs/FIELD-GUIDE.md."""
 
 import contextlib
 import logging
+import re
 import time
 from collections.abc import Callable
 from datetime import date, timedelta
@@ -62,11 +63,13 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     "guided_first_week": lambda u: (
         _act(u, "capture") and _has("SELECT 1 FROM standups WHERE author = ?", (u,))
     ),
+    "first_watch": None,
     "todays_three": None,
     # trailing % : update_task's detail carries a channel suffix when a machine
     # wrote it (work.py's `note`), and an anchored pattern would silently stop
     # tying the day any human-actor caller passes one
     "task_done": lambda u: _act(u, "complete_task") or _act(u, "update_task", "#% done%"),
+    "task_peek": None,
     "decision": lambda u: _has(
         "SELECT 1 FROM decisions WHERE decided_by = ? AND review_by IS NOT NULL"
         " AND review_by != ''",
@@ -185,14 +188,15 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
 }
 
 _registry_cache: list[dict] | None = None
+_tours_cache: dict[str, tuple[str, ...]] = {}
 
 
 def registry() -> list[dict]:
-    """Load + validate knots.yaml once. Fails loudly on a card without a
-    predicate or a predicate without a card — both are shipping mistakes."""
-    global _registry_cache
+    """Load + validate knots.yaml once. Cards, predicates, and named tours
+    fail together so no help surface can publish a partial registry."""
+    global _registry_cache, _tours_cache
     if _registry_cache is not None:
-        return _registry_cache
+        return [dict(k) for k in _registry_cache]
     data = yaml.safe_load(KNOTS_FILE.read_text())
     knots = data.get("knots") if isinstance(data, dict) else None
     if not isinstance(knots, list) or not knots:
@@ -225,7 +229,13 @@ def registry() -> list[dict]:
         for field in ("feature", "knot", "pitch", "how", "link", "since"):
             if not k.get(field):
                 raise ValueError(f"knot '{kid}' is missing '{field}'")
-        if not str(k["link"]).startswith("/"):
+        link = urlsplit(str(k["link"]))
+        if (
+            link.scheme
+            or link.netloc
+            or not link.path.startswith("/")
+            or link.path.startswith("//")
+        ):
             raise ValueError(f"knot '{kid}' link must be an in-app path")
         db.validate_date("since", str(k["since"]), allow_clear=False)
         # suggestion exclusion keys on role, grouping keys on set — a card
@@ -236,10 +246,42 @@ def registry() -> list[dict]:
     orphans = set(PREDICATES) - seen
     if orphans:
         raise ValueError(f"predicates without a card in knots.yaml: {sorted(orphans)}")
+
+    raw_tours = data.get("tours", {})
+    if not isinstance(raw_tours, dict):
+        raise ValueError("knots.yaml is malformed (expected 'tours' to be a mapping)")
+    tours: dict[str, tuple[str, ...]] = {}
+    cards_by_id = {card["id"]: card for card in knots}
+    for name, raw_steps in raw_tours.items():
+        if not isinstance(name, str) or re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name) is None:
+            raise ValueError("knots.yaml has an invalid tour name")
+        if not isinstance(raw_steps, list) or not raw_steps:
+            raise ValueError(f"tour '{name}' must contain knot ids")
+        if any(not isinstance(kid, str) or not kid for kid in raw_steps):
+            raise ValueError(f"tour '{name}' must contain knot ids")
+        if len(set(raw_steps)) != len(raw_steps):
+            raise ValueError(f"tour '{name}' repeats a knot id")
+        for kid in raw_steps:
+            card = cards_by_id.get(kid)
+            if card is None:
+                raise ValueError(f"tour '{name}' references an unknown knot")
+            if card.get("ties") == "never":
+                raise ValueError(f"tour '{name}' references a knot that never ties")
+        tours[name] = tuple(raw_steps)
+
     _registry_cache = knots
-    # a copy per caller — the cache must not be poisonable by a mutating one.
-    # dict(k), not a bare list copy: the cards are the mutable part
+    _tours_cache = tours
     return [dict(k) for k in knots]
+
+
+def first_watch() -> dict:
+    cards = registry()
+    step_ids = _tours_cache.get("first-watch")
+    if step_ids is None:
+        raise ValueError("knots.yaml is missing the first-watch tour")
+    cards_by_id = {card["id"]: card for card in cards}
+    fields = ("id", "feature", "knot", "pitch", "how", "link")
+    return {"steps": [{field: cards_by_id[kid][field] for field in fields} for kid in step_ids]}
 
 
 def cards_for_path(path: str) -> list[dict]:
@@ -333,20 +375,35 @@ def mark(person: str, knot: str) -> None:
     # rolling back to a savepoint kills every statement the caller runs after
     # this one (CLAUDE.md).
     with contextlib.suppress(Exception), db.savepoint():
-        if knot not in PREDICATES:
-            # a typo'd knot id in a route would otherwise no-op forever
-            log.debug("mark() called with unknown knot %r", knot)
+        # FIRST: the tied-row read decides whether this mark is the silent seed.
+        # Without the person lock, two first marks can both classify themselves
+        # as old history and neither reaches the newly-tied strip.
+        db.name_lock(db.LOCK_FIELD_GUIDE, person)
+        cards = {card["id"]: card for card in registry()}
+        card = cards.get(knot)
+        if card is None or card.get("ties", "predicate") != "mark":
+            # A route typo or a client-selected predicate id must not mint false
+            # progress that detect() would never have found for this person.
+            log.debug("mark() called with non-mark knot %r", knot)
             return
         if not _is_active_human(person):
             return
-        seeding = not _has(
+        has_unlock = _has(
             "SELECT 1 FROM feature_unlocks WHERE person = ? AND kind = 'tied'", (person,)
         )
+        if not has_unlock:
+            # Materialize old predicate evidence before this direct mark decides
+            # whether the person is a silent seed; otherwise old work appears new
+            # on the next guide read.
+            detect(person)
+            has_unlock = _has(
+                "SELECT 1 FROM feature_unlocks WHERE person = ? AND kind = 'tied'", (person,)
+            )
         db.execute(
             "INSERT INTO feature_unlocks (person, knot, kind, seen, first_at)"
             " VALUES (?, ?, 'tied', ?, ?)"
             " ON CONFLICT DO NOTHING",
-            (person, knot, 1 if seeding else 0, db.now()),
+            (person, knot, 0 if has_unlock else 1, db.now()),
         )
 
 

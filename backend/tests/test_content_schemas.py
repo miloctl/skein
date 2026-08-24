@@ -3,6 +3,17 @@
 from pathlib import Path
 
 
+def test_content_validator_includes_field_guide(fresh_db, monkeypatch):
+    from app import content
+
+    def broken_registry():
+        raise ValueError("broken tour manifest")
+
+    monkeypatch.setattr("app.services.fieldguide.registry", broken_registry)
+    errors = content.validate()
+    assert any("field-guide" in error and "broken tour manifest" in error for error in errors)
+
+
 def test_unversioned_stock_content_is_version_one(fresh_db):
     from app.services import flocks, personas, playbooks
 

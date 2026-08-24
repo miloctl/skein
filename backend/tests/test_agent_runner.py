@@ -130,6 +130,146 @@ def test_one_run_per_agent_per_day(fresh_db, monkeypatch):
     assert len(calls) == 1
 
 
+def test_explicit_wake_bypasses_only_the_scheduled_allowlist(fresh_db, monkeypatch):
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", [])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    allowed = {"my_agent_inbox", "report_progress"}
+    builds = []
+
+    def _fake_build(thread, user="", **kwargs):
+        builds.append((thread, user, kwargs.get("allowed_tools")))
+        return lambda _msg: "did a thing"
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", _fake_build)
+    first = agent_runner.run_one(
+        "research-agent",
+        explicit_key="1",
+        allowed_tools=allowed,
+    )
+    assert first["ran"] is True
+    assert builds == [("wake:research-agent:1", "research-agent", allowed)]
+
+    second = agent_runner.run_one(
+        "research-agent",
+        explicit_key="1",
+        allowed_tools=allowed,
+    )
+    assert second["ran"] is False
+    assert "already ran" in second["reason"]
+
+
+def test_explicit_wake_uses_the_stock_persona_prompt(fresh_db, monkeypatch):
+    _delegated("backend-architect")
+    monkeypatch.setattr(config, "AGENT_RUNNER", [])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    seen = []
+
+    def _fake_build(_thread, user="", **kwargs):
+        seen.append((user, kwargs.get("persona")))
+        return lambda _message: "did a thing"
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", _fake_build)
+    out = agent_runner.run_one(
+        "backend-architect",
+        explicit_key="1",
+        allowed_tools={"my_agent_inbox"},
+    )
+    assert out["ran"] is True
+    assert seen == [("backend-architect", "backend-architect")]
+
+
+def test_a_second_concurrent_turn_for_one_agent_refuses(fresh_db, monkeypatch):
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", [])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    import threading
+
+    held = agent_runner._TURN_LOCKS.setdefault("research-agent", threading.Lock())
+    held.acquire()
+    try:
+        out = agent_runner.run_one(
+            "research-agent",
+            explicit_key="1",
+            allowed_tools={"my_agent_inbox"},
+        )
+    finally:
+        held.release()
+    assert out["ran"] is False
+    assert "already running" in out["reason"]
+    # the claim went back with the refusal, so the same wake key still works
+    monkeypatch.setattr(
+        "app.agents.team_agent.build_agent",
+        lambda _thread, user="", **_k: lambda _msg: "did a thing",
+    )
+    assert (
+        agent_runner.run_one(
+            "research-agent",
+            explicit_key="1",
+            allowed_tools={"my_agent_inbox"},
+        )["ran"]
+        is True
+    )
+
+
+def test_timeout_keeps_the_turn_lock_until_the_abandoned_thread_ends(fresh_db, monkeypatch):
+    """Releasing at the wall clock let a re-pended wake run a second turn
+    concurrently with the abandoned one — the lock's whole purpose."""
+    import threading
+    import time
+
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", [])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "AGENT_RUN_SECONDS", 0)
+    gate = threading.Event()
+
+    def _fake_build(_thread, user="", **_kwargs):
+        def turn(_message):
+            gate.wait(5)
+            return "late"
+
+        return turn
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", _fake_build)
+    out = agent_runner.run_one(
+        "research-agent",
+        explicit_key="1",
+        allowed_tools={"my_agent_inbox"},
+    )
+    assert out["completion_unknown"] is True
+    lock = agent_runner._TURN_LOCKS["research-agent"]
+    assert lock.locked()  # the abandoned thread still owns the turn
+
+    gate.set()
+    deadline = time.monotonic() + 5
+    while lock.locked() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not lock.locked()
+
+
+def test_explicit_wake_marks_post_invocation_failure_unknown(fresh_db, monkeypatch):
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", [])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+
+    def _fake_build(_thread, user="", **_kwargs):
+        def fail(_message):
+            raise RuntimeError("turn failed after it started")
+
+        return fail
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", _fake_build)
+    out = agent_runner.run_one(
+        "research-agent",
+        explicit_key="1",
+        allowed_tools={"my_agent_inbox"},
+    )
+    assert out["ran"] is False
+    assert out["fault"] is True
+    assert out["completion_unknown"] is True
+
+
 def test_the_wake_names_the_remaining_budget_when_a_ceiling_is_set(fresh_db, monkeypatch):
     """The ceiling refuses the NEXT run, never this one mid-turn — so the
     model must be told what remains and told to converge near the limit."""

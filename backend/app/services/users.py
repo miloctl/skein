@@ -701,6 +701,7 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     # names, and rename_user moves an agent row too — but a slug rename would
     # need a JSON rewrite, so only the asking human moves here
     "flock_traces": ("user",),
+    "agent_wakeups": ("agent", "requested_by"),
 }
 
 
@@ -849,6 +850,15 @@ def rename_user(
             "DELETE FROM chat_folders WHERE owner = ? AND EXISTS"
             " (SELECT 1 FROM chat_folders n WHERE n.name = chat_folders.name"
             " AND n.owner = ?)",
+            (old, new),
+        )
+        # agent_wakeups keys on agent alone, and both halves of a merged agent
+        # having been delegated to is the ordinary case — without this fold
+        # the generic UPDATE below hits the primary key and the whole merge
+        # answers 500. The target's row wins, like the other folds.
+        db.execute(
+            "DELETE FROM agent_wakeups WHERE agent = ? AND EXISTS"
+            " (SELECT 1 FROM agent_wakeups n WHERE n.agent = ?)",
             (old, new),
         )
         # notification_reads (notification_id, user): a dismissal the target

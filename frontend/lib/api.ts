@@ -65,6 +65,7 @@ export function setUser(name: string) {
   // storage events don't fire in the writing tab — nudge same-tab
   // subscribers (nav chip, guide page) like setApiKey does
   window.dispatchEvent(new Event("storage"));
+  window.dispatchEvent(new Event("skein-identity-change"));
 }
 
 // notifies on identity changes (cross-tab natively, same-tab via the
@@ -88,6 +89,7 @@ export function setApiKey(key: string) {
   // storage events don't fire in the writing tab — nudge same-tab
   // subscribers (nav dot, Settings key status) like every other writer
   window.dispatchEvent(new Event("storage"));
+  window.dispatchEvent(new Event("skein-identity-change"));
 }
 
 /** The credential this request carries, strongest first.

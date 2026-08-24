@@ -26,6 +26,12 @@ type Hit = { entity: string; entity_id: number; title: string; snippet: string }
 type Citation = { ref: string; title: string; snippet: string };
 type Answer = { question: string; citations: Citation[]; note: string };
 
+function announceSearchResult(entity: string, id: number) {
+  window.dispatchEvent(
+    new CustomEvent("skein-search-result", { detail: { entity, id } }),
+  );
+}
+
 /** FTS5 wraps matches in <b>. Rendered as HTML that would be an injection
  *  sink for every indexed row, so the tags are parsed into text runs and the
  *  emphasis is applied by React. Anything that is not a tag stays literal. */
@@ -90,7 +96,13 @@ function EntityLink({
     return (
       // onDone on the BUTTON, not a wrapping span: on the span, a click
       // landing in its padding closed the dropdown without opening anything
-      <PeekLink taskId={entityId} onActivate={onDone}>
+      <PeekLink
+        taskId={entityId}
+        onActivate={() => {
+          onDone();
+          announceSearchResult(entity, entityId);
+        }}
+      >
         {children}
       </PeekLink>
     );
@@ -126,6 +138,7 @@ function EntityLink({
       href={page}
       onClick={() => {
         onDone();
+        announceSearchResult(entity, entityId);
         // Announce the fragment, the same way PeekLink announces the peek.
         // A next/link soft navigation fires NO hashchange and NO popstate, so
         // a page already mounted at this route learns nothing: picking a
@@ -205,6 +218,8 @@ export function NavSearch() {
   const [busy, setBusy] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const focusPrefill = useRef(false);
+  const requestGeneration = useRef(0);
 
   // ⌘K focuses search. It is the command-palette convention every other
   // product follows, and it used to open quick capture here — a box that
@@ -223,6 +238,30 @@ export function NavSearch() {
   }, []);
 
   useEffect(() => {
+    const onPrefill = (event: Event) => {
+      const query = (event as CustomEvent<string>).detail;
+      if (typeof query !== "string" || !query.trim()) return;
+      requestGeneration.current += 1;
+      setQ(query);
+      setHits(null);
+      setAnswer(null);
+      focusPrefill.current = true;
+      setError("");
+      setBusy(false);
+      setOpen(false);
+    };
+    window.addEventListener("skein-search-prefill", onPrefill);
+    return () => window.removeEventListener("skein-search-prefill", onPrefill);
+  }, []);
+
+  useEffect(() => {
+    if (!focusPrefill.current) return;
+    focusPrefill.current = false;
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [q]);
+
+  useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
       if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
@@ -239,6 +278,7 @@ export function NavSearch() {
   const run = async () => {
     const query = q.trim();
     if (!query) return;
+    const current = ++requestGeneration.current;
     setBusy(true);
     setError("");
     setOpen(true);
@@ -246,15 +286,19 @@ export function NavSearch() {
     try {
       if (asking) {
         setHits(null);
-        setAnswer(await api<Answer>(`/api/ask?q=${encodeURIComponent(query.slice(1).trim())}`));
+        const result = await api<Answer>(
+          `/api/ask?q=${encodeURIComponent(query.slice(1).trim())}`,
+        );
+        if (current === requestGeneration.current) setAnswer(result);
       } else {
         setAnswer(null);
-        setHits(await api<Hit[]>(`/api/search?q=${encodeURIComponent(query)}`));
+        const result = await api<Hit[]>(`/api/search?q=${encodeURIComponent(query)}`);
+        if (current === requestGeneration.current) setHits(result);
       }
     } catch (e) {
-      setError(actionError(e));
+      if (current === requestGeneration.current) setError(actionError(e));
     } finally {
-      setBusy(false);
+      if (current === requestGeneration.current) setBusy(false);
     }
   };
 
@@ -345,27 +389,32 @@ export function NavSearch() {
               <CaptureHint />
             </>
           ) : (
-            <ul className="space-y-2">
-              {hits.map((h) => (
-                <li key={`${h.entity}-${h.entity_id}`} className="text-sm">
-                  <EntityLink
-                    entity={h.entity}
-                    entityId={h.entity_id}
-                    onDone={() => setOpen(false)}
-                  >
-                    <span className="text-ink-3">
-                      {h.entity} #{h.entity_id}
-                    </span>{" "}
-                    {h.title}
-                  </EntityLink>
-                  {h.snippet ? (
-                    <p className="text-xs text-ink-3">
-                      <Snippet text={h.snippet} />
-                    </p>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+            <>
+              <p className="sr-only">
+                {hits.length} search {hits.length === 1 ? "result" : "results"}.
+              </p>
+              <ul className="space-y-2">
+                {hits.map((h) => (
+                  <li key={`${h.entity}-${h.entity_id}`} className="text-sm">
+                    <EntityLink
+                      entity={h.entity}
+                      entityId={h.entity_id}
+                      onDone={() => setOpen(false)}
+                    >
+                      <span className="text-ink-3">
+                        {h.entity} #{h.entity_id}
+                      </span>{" "}
+                      {h.title}
+                    </EntityLink>
+                    {h.snippet ? (
+                      <p className="text-xs text-ink-3">
+                        <Snippet text={h.snippet} />
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </div>
       )}

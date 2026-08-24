@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { api, getUser, loadError, subscribeUser } from "@/lib/api";
+import { startFirstWatch } from "@/lib/first-watch";
 import { ShortcutText } from "@/components/shortcut";
+import { api, getUser, loadError, subscribeUser } from "@/lib/api";
 
 type Knot = {
   id: string;
@@ -80,6 +81,16 @@ export default function GuidePage() {
         )}
       </p>
 
+      {me !== "anonymous" ? (
+        <button
+          type="button"
+          onClick={startFirstWatch}
+          className="mb-4 min-h-8 rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-thread hover:bg-raised"
+        >
+          Start or resume First Watch
+        </button>
+      ) : null}
+
       {error && <p className="mb-4 text-sm text-danger">{error}</p>}
 
       {me === "anonymous" && (
@@ -148,7 +159,15 @@ export default function GuidePage() {
                     <p className="mb-2 text-xs text-ink-2">
                       <ShortcutText text={c.how} />
                     </p>
-                    {c.tied ? (
+                    {c.id === "first_watch" ? (
+                      <button
+                        type="button"
+                        onClick={startFirstWatch}
+                        className="text-xs font-medium text-thread underline hover:opacity-80"
+                      >
+                        {c.tied ? "Replay First Watch" : "Start First Watch"}
+                      </button>
+                    ) : c.tied ? (
                       <p className="text-xs text-ink-2">Tied · {c.tied_on}</p>
                     ) : (
                       <Link

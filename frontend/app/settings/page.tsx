@@ -23,6 +23,7 @@ import {
   setUser,
 } from "@/lib/api";
 import { signedInUser } from "@/lib/auth";
+import { startFirstWatch } from "@/lib/first-watch";
 import { reportStatus } from "@/lib/status";
 import { timeAgo } from "@/lib/time";
 import { copyText } from "@/lib/clipboard";
@@ -1801,7 +1802,22 @@ export default function SettingsPage() {
 
               <AttachedFilesCard headingLevel={3} />
 
-              <Section title="Dismissed cards" headingLevel={3}>
+              <Section title="Guidance" headingLevel={3}>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="max-w-2xl text-sm text-ink-2">
+                    <b>First Watch</b> follows one real task through My Day, Work,
+                    Search, Inbox, Team, and Chat. You can pause or restart it at
+                    any time.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={startFirstWatch}
+                    className="shrink-0 rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+                  >
+                    Start or resume First Watch
+                  </button>
+                </div>
+                <div className="mt-4 border-t border-line pt-4">
                 {/* While whoami is unresolved the flag is unreadable — claiming
             "nothing is dismissed" there is a false sentence during every
             load, and a lie whenever the request failed outright. */}
@@ -1843,6 +1859,7 @@ export default function SettingsPage() {
                   </a>{" "}
                   until acted on.
                 </p>
+                </div>
               </Section>
             </div>
           </section>

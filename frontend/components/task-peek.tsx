@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { actionError, api } from "@/lib/api";
@@ -39,6 +40,20 @@ export type PeekTask = {
   acceptance_criteria?: string;
   check_in_at?: string | null;
   sponsor?: string | null;
+  agent_wakeup?: {
+    status:
+      | "pending"
+      | "running"
+      | "completed"
+      | "refused"
+      | "failed"
+      | "completion_unknown";
+    requested_at: string;
+    started_at: string;
+    finished_at: string;
+    reason: string;
+    automation_enabled: boolean;
+  };
   forge_url?: string | null;
   waiting_on_type?: string | null;
   waiting_on_id?: number | null;
@@ -76,6 +91,18 @@ type WorklogRow = {
   author: string;
   note: string;
   created_at: string;
+};
+
+type AgentStatus = {
+  provider: string;
+  provider_error?: string;
+  runner_agents?: string[];
+};
+
+type Activation = {
+  agent: string;
+  status?: AgentStatus;
+  error?: boolean;
 };
 
 const PARAM = "task";
@@ -148,10 +175,12 @@ export function TaskPeek() {
   const [log, setLog] = useState<{ id: number; rows: WorklogRow[] } | null>(
     null,
   );
+  const [activation, setActivation] = useState<Activation | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   // where focus was before the panel took it — returning it is what keeps a
   // keyboard reader from being dropped at the top of the document on close
   const restoreFocus = useRef<HTMLElement | null>(null);
+  const openedTask = useRef<number | null>(null);
 
   // popstate fires for Back/Forward; the custom event covers same-page opens,
   // which pushState does NOT announce to anyone
@@ -179,15 +208,23 @@ export function TaskPeek() {
   useEffect(() => {
     if (!taskId) {
       const el = restoreFocus.current;
-      // .focus() on a DETACHED node silently no-ops, and the search
-      // dropdown unmounts its own row when the peek opens — so the trigger
-      // is gone by the time we restore, and focus lands on <body>: the exact
-      // drop this ref exists to prevent. Fall back to the search box.
-      if (el?.isConnected) el.focus();
+      const closedTask = openedTask.current;
+      // The search dropdown can unmount its row before this effect captures
+      // the opener, leaving <body> as the recorded target. Detached nodes and
+      // body both drop the reader at the document start; fall back to Search.
+      if (el?.isConnected && el !== document.body) el.focus();
       else document.getElementById("nav-search")?.focus();
       restoreFocus.current = null;
+      openedTask.current = null;
+      if (closedTask)
+        window.dispatchEvent(
+          new CustomEvent("skein-peek-close", {
+            detail: { taskId: closedTask },
+          }),
+        );
       return;
     }
+    openedTask.current = taskId;
     restoreFocus.current = document.activeElement as HTMLElement;
   }, [taskId]);
 
@@ -200,19 +237,64 @@ export function TaskPeek() {
   useEffect(() => {
     if (!taskId) return;
     let live = true;
-    api<PeekTask>(`/api/tasks/${taskId}`)
-      .then((t) => live && setLoaded({ id: taskId, task: t }))
+    const refresh = nonce ? `?refresh=${nonce}` : "";
+    api<PeekTask>(`/api/tasks/${taskId}${refresh}`)
+      .then((t) => {
+        if (!live) return;
+        setLoaded({ id: taskId, task: t });
+        window.dispatchEvent(
+          new CustomEvent("skein-peek-result", {
+            detail: { taskId, status: "loaded" },
+          }),
+        );
+      })
       // 404 covers "no such task" AND "not yours to read", deliberately —
       // services/scope.py raises the same sentence for both, because any
       // other pairing answers "does #12 exist" for sequential ids
-      .catch((e) => live && setLoaded({ id: taskId, error: actionError(e) }));
-    api<WorklogRow[]>(`/api/tasks/${taskId}/worklog`)
+      .catch((e) => {
+        if (!live) return;
+        setLoaded({ id: taskId, error: actionError(e) });
+        window.dispatchEvent(
+          new CustomEvent("skein-peek-result", {
+            detail: { taskId, status: "unavailable" },
+          }),
+        );
+      });
+    api<WorklogRow[]>(`/api/tasks/${taskId}/worklog${refresh}`)
       .then((w) => live && setLog({ id: taskId, rows: w }))
       .catch(() => live && setLog({ id: taskId, rows: [] }));
     return () => {
       live = false;
     };
   }, [taskId, nonce]);
+
+  const delegatedAgent =
+    loaded?.id === taskId ? String(loaded.task?.delegated_agent ?? "") : "";
+  useEffect(() => {
+    if (!delegatedAgent) return;
+    let live = true;
+    api<AgentStatus>("/api/agents/status")
+      .then((status) => {
+        if (live) setActivation({ agent: delegatedAgent, status });
+      })
+      .catch(() => {
+        if (live) setActivation({ agent: delegatedAgent, error: true });
+      });
+    return () => {
+      live = false;
+    };
+  }, [delegatedAgent]);
+
+  const activeWakeStatus =
+    loaded?.id === taskId ? loaded.task?.agent_wakeup?.status ?? "" : "";
+  useEffect(() => {
+    if (activeWakeStatus !== "pending" && activeWakeStatus !== "running") return;
+    // nonce is a dependency on purpose: it bumps on every reload, so the next
+    // timer arms even when the status is unchanged. Without it the poll fires
+    // once and a wake that stays "pending" reads as queued forever.
+    const timer = setTimeout(reload, 2000);
+    return () => clearTimeout(timer);
+  }, [activeWakeStatus, nonce, reload]);
 
   useEffect(() => {
     // `gated` too, and not only in the render below: an effect still runs for
@@ -334,6 +416,14 @@ export function TaskPeek() {
                 value={task.delegated_agent ? String(task.check_in_at ?? "") : ""}
               />
             </dl>
+            {task.delegated_agent ? (
+              <ActivationGuide
+                task={task}
+                activation={activation}
+                onLeave={() => setTaskId(null)}
+                onClose={close}
+              />
+            ) : null}
             <p className="text-xs">
               <VisibilityBadge
                 visibility={String(task.visibility ?? "workspace")}
@@ -850,5 +940,142 @@ function Row({ label, value }: { label: string; value?: string | null }) {
       <dt className="text-ink-3">{label}</dt>
       <dd className="text-ink-2">{value}</dd>
     </>
+  );
+}
+
+function ActivationGuide({
+  task,
+  activation,
+  onLeave,
+  onClose,
+}: {
+  task: PeekTask;
+  activation: Activation | null;
+  onLeave: () => void;
+  onClose: () => void;
+}) {
+  const agent = String(task.delegated_agent ?? "");
+  if (!agent) return null;
+  const current = activation?.agent === agent ? activation : null;
+  const status = current?.status;
+  const scheduled = Boolean(status?.runner_agents?.includes(agent));
+  const providerReady = Boolean(
+    status && status.provider !== "mock" && !status.provider_error,
+  );
+  const prompt = `/as ${agent} Check your inbox and claim task #${task.id}. Read its description and acceptance criteria. Record progress in the worklog, then submit it for acceptance.`;
+
+  const wake = task.agent_wakeup;
+  // mock is a working deployment, not a fault: the wake row says
+  // provider_unavailable there, and a fault-shaped sentence about the default
+  // keyless setup reads as breakage on every delegation
+  const deterministic = status?.provider === "mock";
+  let message = "Checking how this agent starts…";
+  let offerChat = false;
+  if (wake?.status === "pending") {
+    if (wake.automation_enabled) {
+      message = `${agent} is queued. Skein will start the agent turn shortly.`;
+    } else if (providerReady) {
+      message =
+        "The agent turn is queued, but background jobs are disabled. Start it in Chat or enable background jobs.";
+      offerChat = true;
+    } else {
+      message =
+        "The agent turn is queued, but background jobs are disabled. Enable background jobs to run it.";
+    }
+  } else if (wake?.status === "running") {
+    message = `${agent} is working its delegated inbox.`;
+  } else if (wake?.status === "completed") {
+    message =
+      "The agent turn finished. Read the worklog or the acceptance proposal for the result.";
+  } else if (wake?.status === "completion_unknown") {
+    message =
+      "The agent turn can have written records. Read the worklog and Inbox before you retry.";
+  } else if (wake?.status === "refused" && wake.reason === "provider_unavailable" && deterministic) {
+    message = "This workspace uses deterministic mode. Agent model turns are not available.";
+  } else if (wake?.status === "refused") {
+    const reasons: Record<string, string> = {
+      provider_unavailable:
+        "The agent did not start because the model provider is unavailable.",
+      authority_forbidden:
+        "The agent did not start because its task authority is forbidden.",
+      budget_spent:
+        "The agent did not start because its daily token budget is spent.",
+      wake_cap:
+        "The agent did not start because the daily cap on automatic agent turns is reached.",
+      turn_in_progress:
+        "The agent did not start because another turn for it was already running.",
+    };
+    message = reasons[wake.reason] ?? "The agent did not start. Open Team → Agents for details.";
+    offerChat = true;
+  } else if (wake?.status === "failed") {
+    message =
+      wake.reason === "build_failed"
+        ? "The agent failed before the model turn started."
+        : "The agent run failed. Read the server status before you retry.";
+    offerChat = true;
+  } else if (current?.error) {
+    message =
+      "Skein could not check automatic activation. Open Team → Agents to check the runner.";
+  } else if (status?.provider_error) {
+    message =
+      "The model provider is not available. Fix the provider configuration before this agent can work.";
+  } else if (status?.provider === "mock") {
+    message =
+      "This workspace uses deterministic mode. Agent model turns are not available.";
+  } else if (status && scheduled) {
+    message = `Scheduled runs include ${agent}. It can claim this task during the next agent run.`;
+    offerChat = true;
+  } else if (status) {
+    message = "This agent will not start automatically.";
+    offerChat = true;
+  }
+
+  const onChat =
+    typeof window !== "undefined" && window.location.pathname === "/chat";
+  return (
+    <section
+      aria-labelledby={`activation-${task.id}`}
+      className="rounded-lg border border-thread/25 bg-thread/5 p-3 text-xs"
+    >
+      <h3 id={`activation-${task.id}`} className="font-medium text-ink">
+        What happens next
+      </h3>
+      {/* role="status": the poll repaints pending → running → terminal, and
+          the transition is the whole point — silent for a screen reader
+          without a live region */}
+      <p role="status" className="mt-1 text-ink-2">
+        {message}
+      </p>
+      {providerReady && offerChat ? (
+        onChat ? (
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              requestAnimationFrame(() =>
+                window.dispatchEvent(
+                  new CustomEvent("skein-chat-compose", { detail: prompt }),
+                ),
+              );
+            }}
+            className="mt-2 font-medium text-thread underline"
+          >
+            Call {agent} in Chat
+          </button>
+        ) : (
+          <Link
+            href={{ pathname: "/chat", query: { compose: prompt } }}
+            onClick={onLeave}
+            className="mt-2 inline-block font-medium text-thread underline"
+          >
+            Call {agent} in Chat
+          </Link>
+        )
+      ) : current?.error ? (
+        <Link href="/agents" onClick={onLeave} className="mt-2 inline-block text-thread underline">
+          Open Team → Agents
+        </Link>
+      ) : null}
+    </section>
   );
 }

@@ -135,6 +135,12 @@ def delegate_task(
             source_entity="task",
             source_id=task_id,
         )
+        # Human delegation is the explicit request for one bounded agent turn.
+        # Agent-origin writes must not create an unattended fan-out chain.
+        if origin in ("human", "agent_verified"):
+            from . import agent_wakeups
+
+            agent_wakeups.enqueue(agent, task_id, requested_by=sponsor)
     return {"id": task_id, "delegated_agent": agent, "sponsor": sponsor}
 
 
@@ -176,7 +182,9 @@ def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
     refuse_when_consultative("claim delegated tasks")
     _check_not_forbidden(actor)
     with db.transaction():
-        task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        # The status read decides the claim write. Lock the existing task first,
+        # or two workers can both read todo and both log the same claim.
+        task = db.query_one("SELECT * FROM tasks WHERE id = ? FOR UPDATE", (task_id,))
         if not task:
             raise scope.missing("tasks", task_id)
         if task["delegated_agent"] != actor:

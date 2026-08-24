@@ -40,6 +40,19 @@ beforeEach(() => {
 });
 
 describe("Guided First Week settings", () => {
+  it("keeps First Watch available for returning users", async () => {
+    const starts = vi.fn();
+    window.addEventListener("skein-first-watch-start", starts);
+    render(<SettingsPage />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Start or resume First Watch" }),
+    );
+
+    expect(starts).toHaveBeenCalledOnce();
+    window.removeEventListener("skein-first-watch-start", starts);
+  });
+
   it("restores the checklist for the server-resolved identity", async () => {
     render(<SettingsPage />);
 

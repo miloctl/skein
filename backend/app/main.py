@@ -485,6 +485,16 @@ async def lifespan(app: FastAPI):
         scheduler = (
             _start_scheduler(specs, settings.timezone) if settings.scheduler_enabled else None
         )
+        # Recovery is unconditional: a crash mid-turn leaves a `running` row,
+        # and a restore boot with SKEIN_SCHEDULER=0 must not leave Task Peek
+        # claiming an agent is working. Only the kick is gated on the flag.
+        from .services.agent_wakeups import configure, recover_and_kick, recover_startup
+
+        if settings.scheduler_enabled:
+            configure(registry)
+            recover_and_kick()
+        else:
+            recover_startup()
         yield
     finally:
         # Keep each cleanup independent so one failure cannot skip the

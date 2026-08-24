@@ -124,6 +124,22 @@ def test_persona_allowlist_filters_the_agent_tools(bench, fresh_db, monkeypatch)
     assert sorted(agent.tool_names) == ["ask_question", "save_note"]
 
 
+def test_unattended_allowlist_is_the_final_tool_cap(bench, fresh_db, monkeypatch):
+    from app import config
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
+    monkeypatch.setattr(team_agent, "_model", lambda **_: _FakeModel())
+
+    agent = team_agent.build_agent(
+        "t-wake",
+        allowed_tools={"my_agent_inbox", "report_progress"},
+    )
+    assert sorted(agent.tool_names) == ["my_agent_inbox", "report_progress"]
+
+
 def test_no_allowlist_keeps_the_full_registry(bench, fresh_db, monkeypatch):
     from app import config
     from app.agents import team_agent

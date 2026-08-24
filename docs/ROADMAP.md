@@ -21,6 +21,9 @@ for a season with the review gate on (the default since 2026-08-21):
   `check_in_at` on `delegate_task`, surfaced in the agent inbox and the
   acceptance verdict, with the sweep nagging a missed check-in. The
   full contract entity stays in the cut table below.)
+  (The durable first-wake queue shipped 2026-08-24: a human delegation now
+  queues one bounded agent turn, while worklog and sponsor acceptance remain
+  the response path.)
   (Engagement-level cost attribution shipped with this posture note: the
   agent runner attributes a turn when every open delegated task resolves to
   one engagement, and chat turns keep the retroactive thread link.)

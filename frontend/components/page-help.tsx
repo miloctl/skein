@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+import { startFirstWatch } from "@/lib/first-watch";
 import { ShortcutText } from "@/components/shortcut";
 import { actionError, api } from "@/lib/api";
 
@@ -19,12 +20,13 @@ type Card = {
 export function PageHelp() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const [cards, setCards] = useState<Card[] | null>(null);
+  const [cards, setCards] = useState<{ path: string; rows: Card[] } | null>(null);
   const [live, setLive] = useState(false);
   const [error, setError] = useState("");
   const buttonRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const requestGeneration = useRef(0);
 
   useEffect(() => {
     if (open) closeRef.current?.focus();
@@ -45,15 +47,23 @@ export function PageHelp() {
   // its gap, so every control left of it jumped sideways on arrival.
   if (pathname === "/guide") return <div aria-hidden className="size-8 shrink-0" />;
 
+  const pageCards = cards?.path === pathname ? cards.rows : null;
   const load = () => {
     setOpen(true);
     setError("");
-    if (cards !== null) return;
+    if (pageCards !== null) return;
+    const current = ++requestGeneration.current;
+    const path = pathname;
     api<{ cards: Card[] }>(
-      `/api/field-guide/for?path=${encodeURIComponent(pathname)}`,
+      `/api/field-guide/for?path=${encodeURIComponent(path)}`,
     )
-      .then((response) => setCards(response.cards))
-      .catch((reason) => setError(actionError(reason)));
+      .then((response) => {
+        if (current === requestGeneration.current)
+          setCards({ path, rows: response.cards });
+      })
+      .catch((reason) => {
+        if (current === requestGeneration.current) setError(actionError(reason));
+      });
     api<{ provider: string; provider_error: string }>("/api/agents/status")
       .then((status) =>
         setLive(status.provider !== "mock" && !status.provider_error),
@@ -134,17 +144,17 @@ export function PageHelp() {
             </button>
           </div>
 
-          {cards === null ? (
+          {pageCards === null ? (
             <p role={error ? "alert" : "status"} className={error ? "text-xs text-danger" : "text-xs text-ink-3"}>
               {error || "Loading page help…"}
             </p>
           ) : null}
-          {cards?.length === 0 ? (
+          {pageCards?.length === 0 ? (
             <p className="text-xs text-ink-3">No field-guide cards match this page.</p>
           ) : null}
-          {cards && cards.length > 0 ? (
+          {pageCards && pageCards.length > 0 ? (
             <ul className="space-y-3">
-              {cards.map((card) => (
+              {pageCards.map((card) => (
                 <li key={card.id} className="border-b border-line pb-3 last:border-0 last:pb-0">
                   <div className="flex items-baseline justify-between gap-2">
                     <h3 className="text-xs font-semibold text-ink">{card.feature}</h3>
@@ -158,7 +168,18 @@ export function PageHelp() {
                   <p className="mt-1 text-xs text-ink-2">
                     <ShortcutText text={card.how} />
                   </p>
-                  {samePage(card.link) ? null : (
+                  {card.id === "first_watch" ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        dismiss(true);
+                        requestAnimationFrame(startFirstWatch);
+                      }}
+                      className="mt-1.5 text-xs font-medium text-thread underline hover:opacity-80"
+                    >
+                      Start First Watch
+                    </button>
+                  ) : samePage(card.link) ? null : (
                     <Link
                       href={card.link}
                       onClick={() => dismiss()}

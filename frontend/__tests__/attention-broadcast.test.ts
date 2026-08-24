@@ -6,8 +6,13 @@ import { describe, expect, it } from "vitest";
 
 import { bridgeAttentionChange, notifyAttentionChange } from "@/lib/attention";
 
-function flush() {
-  return new Promise((resolve) => setTimeout(resolve, 0));
+// BroadcastChannel delivery lands on its own schedule, not the next task
+// tick — one setTimeout(0) loses the race on a loaded machine
+async function flush(done: () => boolean = () => true) {
+  for (let i = 0; i < 40 && !done(); i++) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe("attention change broadcast", () => {
@@ -20,7 +25,7 @@ describe("attention change broadcast", () => {
     otherTab.onmessage = (event) => remote.push(event.data);
     try {
       notifyAttentionChange();
-      await flush();
+      await flush(() => remote.length > 0);
       expect(local).toEqual(["changed"]);
       expect(remote).toEqual(["changed"]);
     } finally {
@@ -37,12 +42,20 @@ describe("attention change broadcast", () => {
     const otherTab = new BroadcastChannel("skein-attention");
     try {
       otherTab.postMessage("changed");
-      await flush();
+      await flush(() => seen.length > 0);
       expect(seen).toEqual(["changed"]);
 
       unbridge();
+      // a probe channel proves delivery happened: BroadcastChannel orders
+      // messages, so once the probe hears this post, a still-open bridge
+      // would already have relayed it — the bare single-tick wait passed
+      // even when a broken unbridge simply delivered late
+      const probe = new BroadcastChannel("skein-attention");
+      const probed: unknown[] = [];
+      probe.onmessage = (event) => probed.push(event.data);
       otherTab.postMessage("changed");
-      await flush();
+      await flush(() => probed.length > 0);
+      probe.close();
       expect(seen).toEqual(["changed"]); // a closed bridge relays nothing
     } finally {
       window.removeEventListener("skein-attention-change", listener);

@@ -78,6 +78,19 @@ beforeEach(() => {
 });
 
 describe("Guided First Week", () => {
+  it("offers First Watch from the real-state setup card", async () => {
+    const starts = vi.fn();
+    window.addEventListener("skein-first-watch-start", starts);
+    render(<MyDay />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Start or resume First Watch" }),
+    );
+
+    expect(starts).toHaveBeenCalledOnce();
+    window.removeEventListener("skein-first-watch-start", starts);
+  });
+
   it("keeps personal work first and discloses team context on request", async () => {
     render(<MyDay />);
 

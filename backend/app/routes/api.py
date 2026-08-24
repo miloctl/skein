@@ -371,7 +371,16 @@ def get_task(
                 "rest",
                 viewer,
             )
-            return work.filter_task_projection(task, viewer, policy.permits)
+            result = work.filter_task_projection(task, viewer, policy.permits)
+        delegated_agent = str(result.get("delegated_agent") or "")
+        if delegated_agent:
+            from ..services import agent_wakeups
+
+            wake = agent_wakeups.status(delegated_agent, task_id=task_id)
+            if wake is not None:
+                result["agent_wakeup"] = wake
+        fieldguide.mark(user, "task_peek")
+        return result
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
 
@@ -958,12 +967,12 @@ def get_artifact(
                 review_route_permitted and review_policy.allows_unclassified()
             ),
         )
-        # AFTER the read succeeded: the agent_document knot ties on a person
-        # actually reading a document an agent wrote, and marking before the
-        # scope filter would tie it on a 404 probe
-        if body["kind"] == "document":
-            fieldguide.mark(user, "agent_document")
-        return body
+    # AFTER the read transaction: mark() takes the field-guide person lock
+    # first in its own transaction. Taking it after the artifact read's locks
+    # would invert the order against another request that starts with mark().
+    if body["kind"] == "document":
+        fieldguide.mark(user, "agent_document")
+    return body
 
 
 def _bounded_read(stream) -> bytes:
@@ -1277,6 +1286,18 @@ def get_field_guide(user: CurrentUser):
 @router.get("/field-guide/hint")
 def get_field_guide_hint(user: CurrentUser):
     return fieldguide.hint(user)
+
+
+@router.get("/field-guide/first-watch")
+def get_field_guide_first_watch(user: CurrentUser):
+    return fieldguide.first_watch()
+
+
+@router.post("/field-guide/first-watch")
+def post_field_guide_first_watch(user: CurrentUser):
+    ratelimit.check("write", user)
+    fieldguide.mark(user, "first_watch")
+    return {"started": True}
 
 
 @router.get("/field-guide/for")
