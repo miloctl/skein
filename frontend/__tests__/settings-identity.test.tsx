@@ -105,6 +105,10 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/settings" }));
 
 import SettingsPage from "@/app/settings/page";
 
+function openSettingsSection(name: "You" | "Connections" | "AI runtime" | "Team") {
+  fireEvent.click(screen.getByRole("link", { name }));
+}
+
 beforeEach(() => {
   state.identity = {
     user: "operator",
@@ -119,6 +123,7 @@ beforeEach(() => {
   state.modelPromise = null;
   state.tunables = [];
   window.localStorage.clear();
+  window.history.replaceState({}, "", "/settings");
   vi.unstubAllGlobals();
 });
 
@@ -126,13 +131,18 @@ describe("Settings identity states", () => {
   it("uses can_administer for AdminUser controls", async () => {
     render(<SettingsPage />);
 
+    openSettingsSection("Team");
     expect(
       await screen.findByRole("button", { name: "Back up now" }),
     ).toBeTruthy();
+
+    openSettingsSection("AI runtime");
     expect(
       ((await screen.findByRole("radio", { name: /Mini/ })) as HTMLInputElement)
         .disabled,
     ).toBe(false);
+
+    openSettingsSection("You");
     fireEvent.click(screen.getByRole("button", { name: /Customize & share/ }));
     expect(
       (
@@ -145,7 +155,6 @@ describe("Settings identity states", () => {
 
   it("groups cards under four fragment-linked settings sections", async () => {
     render(<SettingsPage />);
-    await screen.findByRole("heading", { name: "In force" });
 
     const nav = screen.getByRole("navigation", { name: "Settings sections" });
     expect(nav.className).toContain("flex-wrap");
@@ -159,39 +168,42 @@ describe("Settings identity states", () => {
       expect(screen.getByRole("link", { name }).getAttribute("href")).toBe(
         `#${id}`,
       );
-      expect(screen.getByRole("heading", { level: 2, name })).toBeTruthy();
+      expect(document.getElementById(id)).toBeTruthy();
     }
     expect(screen.getByRole("link", { name: "You" }).getAttribute("aria-current")).toBe(
       "location",
     );
     expect(nav.querySelectorAll('[aria-current="location"]')).toHaveLength(1);
 
-    const you = document.getElementById("settings-you");
-    const connections = document.getElementById("settings-connections");
-    const runtime = document.getElementById("settings-ai-runtime");
-    const team = document.getElementById("settings-team");
-    expect(you && connections && runtime && team).toBeTruthy();
+    const you = document.getElementById("settings-you")!;
     expect(
-      within(you!).getByRole("heading", { level: 3, name: "Appearance" }),
+      within(you).getByRole("heading", { level: 3, name: "Appearance" }),
     ).toBeTruthy();
     expect(
-      within(you!).getByRole("heading", { level: 3, name: "Attached files" }),
+      within(you).getByRole("heading", { level: 3, name: "Attached files" }),
     ).toBeTruthy();
+
+    openSettingsSection("Connections");
     expect(
-      within(connections!).getByRole("heading", {
+      screen.getByRole("heading", {
         level: 3,
         name: "Connect your own AI agent (optional)",
       }),
     ).toBeTruthy();
+
+    openSettingsSection("AI runtime");
     expect(
-      within(runtime!).getByRole("heading", { level: 3, name: "Model (team)" }),
+      screen.getByRole("heading", { level: 3, name: "Model (team)" }),
     ).toBeTruthy();
     expect(
-      within(runtime!).getByRole("heading", { level: 4, name: "In force" }),
+      await screen.findByRole("heading", { level: 4, name: "In force" }),
     ).toBeTruthy();
+
+    openSettingsSection("Team");
     expect(
-      within(team!).getByRole("heading", { level: 3, name: "Backups (team)" }),
+      screen.getByRole("heading", { level: 3, name: "Backups (team)" }),
     ).toBeTruthy();
+    expect(nav.querySelectorAll('[aria-current="location"]')).toHaveLength(1);
 
     expect(
       screen
@@ -204,6 +216,7 @@ describe("Settings identity states", () => {
   it("shows model state but not administrator controls to a strong non-administrator", async () => {
     state.identity = { ...state.identity, can_administer: false };
     render(<SettingsPage />);
+    openSettingsSection("AI runtime");
 
     expect(
       (
@@ -219,11 +232,14 @@ describe("Settings identity states", () => {
     expect(state.calls).not.toContain("/api/settings/context-strategy");
     expect(state.calls).not.toContain("/api/settings/tuning");
     expect(screen.queryByRole("radio", { name: /Mini/ })).toBeNull();
+
+    openSettingsSection("Team");
     expect(screen.queryByRole("button", { name: "Back up now" })).toBeNull();
   });
 
   it("clears administrator data when credentials change", async () => {
     render(<SettingsPage />);
+    openSettingsSection("AI runtime");
     expect(await screen.findByRole("radio", { name: /Mini/ })).toBeTruthy();
 
     state.identity = {
@@ -243,6 +259,8 @@ describe("Settings identity states", () => {
     await waitFor(() =>
       expect(screen.queryByRole("radio", { name: /Mini/ })).toBeNull(),
     );
+
+    openSettingsSection("Team");
     expect(screen.queryByRole("button", { name: "Back up now" })).toBeNull();
   });
 
@@ -263,10 +281,13 @@ describe("Settings identity states", () => {
       },
     ];
     render(<SettingsPage />);
+    openSettingsSection("AI runtime");
     const input = await screen.findByLabelText("Chat cap");
     fireEvent.change(input, { target: { value: "900" } });
     const knob = input.closest("div.rounded-xl") as HTMLElement;
-    fireEvent.click(within(knob).getByRole("button", { name: "Save" }));
+    fireEvent.click(
+      within(knob).getByRole("button", { name: "Save Chat cap" }),
+    );
     expect(await screen.findByText("Chat cap: 900 seconds.")).toBeTruthy();
 
     state.identity = {

@@ -219,21 +219,29 @@ export default function CharterPage() {
       </div>
 
       <div className="mb-6 space-y-2 rounded-xl border border-line bg-card p-4 shadow-card">
+        <label htmlFor="charter-entry-title" className="block text-xs font-medium text-ink-2">
+          Charter entry title
+        </label>
         <input
+          id="charter-entry-title"
+          name="charter-entry-title"
           value={title}
           maxLength={200}
-          aria-label="Charter entry title"
           onChange={(e) => setTitle(e.target.value)}
           placeholder="for example: Production incident escalation path"
           className="w-full rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
         />
+        <label htmlFor="charter-agreement" className="block text-xs font-medium text-ink-2">
+          Agreement
+        </label>
         <textarea
+          id="charter-agreement"
+          name="charter-agreement"
           value={text}
           maxLength={2000}
-          aria-label="The agreement itself"
           onChange={(e) => setText(e.target.value)}
           rows={2}
-          placeholder="The agreement itself…"
+          placeholder="For example: Escalate a production incident to the incident commander."
           className="w-full rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
         />
         <div className="flex items-center gap-2 text-xs text-ink-2">
@@ -279,7 +287,7 @@ export default function CharterPage() {
                 }
               >
                 {d.status === "stale"
-                  ? "⚠ stale — reconfirm or supersede"
+                  ? "stale — reconfirm or supersede"
                   : d.status}
                 {d.review_by ? ` · review by ${d.review_by}` : ""}
               </span>
@@ -296,6 +304,7 @@ export default function CharterPage() {
               <div className="mt-2 flex gap-2 text-xs">
                 {d.status === "stale" && (
                   <button
+                    aria-label={`Still true — reconfirm ${d.title}`}
                     onClick={async () => {
                       try {
                         await api(`/api/decisions/${d.id}/reconfirm`, {
@@ -315,6 +324,7 @@ export default function CharterPage() {
                 {superseding === d.id ? null : (
                   <button
                     id={`supersede-${d.id}`}
+                    aria-label={`Supersede ${d.title}`}
                     onClick={() => {
                       setSuperseding(Number(d.id));
                       setNewText("");

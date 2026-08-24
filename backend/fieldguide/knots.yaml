@@ -200,7 +200,7 @@ knots:
     knot: Spanish Bowline
     set: loops
     pitch: The Chief of Staff, the specialist bench, and slash commands that run without a model.
-    how: "Open Chat. Try `/help`, or `/as growth-mentor …` to call the bench."
+    how: "Open Team → Agents, choose Specialists, and select Ask in Chat. In Chat, try `/help` or call the bench with `/as growth-mentor …`."
     link: /chat
     since: 2026-07-31
 
@@ -210,7 +210,7 @@ knots:
     set: loops
     ties: mark
     pitch: A loose end is easier to tie when the right knot is already beside it.
-    how: Open ? in the top bar. Read the page cards, or ask the Bosun.
+    how: Open Help in the top bar. Read the first page cards, show more if needed, or ask the Bosun.
     link: /
     since: 2026-08-16
 
@@ -222,7 +222,7 @@ knots:
     knot: Bowline on a Bight
     set: loops
     pitch: One question, several specialists, one turn — the disagreement is the point.
-    how: "Open Chat. Run `/flocks` to see the groups, then `/flock engineering …`."
+    how: "Open Team → Agents, choose Flocks, and select Ask group. In Chat, `/flocks` lists the groups and `/flock engineering …` calls one."
     link: /chat
     since: 2026-08-05
 
@@ -294,7 +294,7 @@ knots:
     # so there is no write to detect
     ties: mark
     pitch: What the agents did, one sentence per action, next to your own.
-    how: "Team → Activity. Loud rows are the destructive ones. The raw toggle shows the ledger rows themselves."
+    how: "Team → Activity. Loud rows are the destructive ones. Open Details for the human summary, or Raw rows for the exact ledger fields."
     link: /activity
     since: 2026-08-02
 
@@ -344,7 +344,7 @@ knots:
     feature: Bill a chat to its engagement
     knot: Carrick Bend
     set: bends
-    pitch: Model spend in a linked chat counts toward that engagement's costs.
+    pitch: AI usage in a linked chat counts toward that engagement's estimated cost.
     how: "In the chat sidebar, open a thread's menu and pick Link to engagement — pick one, or type a name to create it on the spot. The costs land on /api/usage per engagement."
     link: /chat
     since: 2026-08-02
@@ -422,7 +422,7 @@ knots:
     set: manager
     role: manager
     pitch: Monday brief and Friday close-out — the week gets opened and settled on purpose.
-    how: Run one yourself from manager controls on Work → Health. If it already ran, Skein links the existing report and sends no duplicate notifications. A scheduler run does not count as yours.
+    how: Run one yourself from Management view on Work → Health. If it already ran, Skein links the existing report and sends no duplicate notifications. A scheduler run does not count as yours.
     link: /portfolio
     since: 2026-07-31
 
@@ -442,7 +442,7 @@ knots:
     set: manager
     role: manager
     pitch: The portfolio coiled for showing — health, ships, risks, promises.
-    how: Work → Health, under manager controls. It lands as an artifact.
+    how: Work → Health, under Management view. It lands as an artifact.
     link: /portfolio
     since: 2026-07-31
 
@@ -462,7 +462,7 @@ knots:
     set: manager
     role: manager
     pitch: Slide the whole team onto the right model for the week — no redeploy, no ticket, one knot to shift the load.
-    how: Read the In force block under Settings → AI runtime, or run `skein model`. If the team default must change, select a model from the menu.
+    how: Open Technical details under Settings → AI runtime and read In force, or run `skein model`. If the team default must change, select a model from the menu.
     link: /settings
     since: 2026-08-08
 
@@ -502,7 +502,7 @@ knots:
     set: manager
     role: manager
     pitch: Everything that needs a decision, in one list. What is escalated, overdue, unowned or drifting, ranked by what it costs to leave alone.
-    how: On Work → Plan the week, read card 2. Each row states what is true, who holds it, and the next move. Follow a receipt to check the claim.
+    how: On Work → Plan the week, open Needs a call. Each row states what is true, who holds it, and the next move. Follow a receipt to check the claim.
     link: /planning
     since: 2026-08-10
 

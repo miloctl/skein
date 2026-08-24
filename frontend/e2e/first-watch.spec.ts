@@ -46,7 +46,9 @@ async function expectAxeClean(page: Page) {
 
 async function identify(page: Page) {
   await page.goto("/");
-  await page.evaluate(() => window.localStorage.setItem("skein-user", "ava"));
+  await page.evaluate(() =>
+    window.localStorage.setItem("skein-user", "first-watch-browser"),
+  );
 }
 
 test("First Watch carries one real task through Skein by keyboard", async ({
@@ -59,6 +61,9 @@ test("First Watch carries one real task through Skein by keyboard", async ({
 
   const intro = page.getByRole("heading", { name: "Bosun’s First Watch" });
   await expect(intro).toBeFocused();
+  await expect(
+    page.getByRole("heading", { name: /Your first-week setup/ }),
+  ).toBeHidden();
   await expectAxeClean(page);
 
   const start = page
@@ -146,7 +151,7 @@ test("First Watch carries one real task through Skein by keyboard", async ({
   await tabTo(page, help);
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/chat/);
-  const composer = page.getByRole("combobox");
+  const composer = page.getByRole("textbox", { name: /Message/ });
   await expect(composer).toHaveValue("/help");
   await expect(composer).toBeFocused();
   await expect(page.getByRole("complementary", { name: /First Watch/ })).toHaveCount(0);

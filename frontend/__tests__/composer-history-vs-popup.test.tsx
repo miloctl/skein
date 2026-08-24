@@ -58,7 +58,7 @@ function Harness() {
   );
 }
 
-const composer = () => screen.getByRole("combobox") as HTMLTextAreaElement;
+const composer = () => screen.getByRole("textbox", { name: /Message/ }) as HTMLTextAreaElement;
 
 /** History must be NON-EMPTY before either assertion runs. With nothing to
  *  recall the hook returns early and ArrowUp is a no-op whatever the popup

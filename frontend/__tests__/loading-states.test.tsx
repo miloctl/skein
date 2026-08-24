@@ -35,6 +35,14 @@ const PAGES: [string, () => React.ReactElement, RegExp][] = [
   ["Charter", () => <CharterPage />, /No charter entries yet/],
 ];
 
+describe("persistent authoring labels", () => {
+  it("keeps Charter labels visible after the placeholders disappear", () => {
+    render(<CharterPage />);
+    expect(screen.getByText("Charter entry title", { selector: "label" })).toBeTruthy();
+    expect(screen.getByText("Agreement", { selector: "label" })).toBeTruthy();
+  });
+});
+
 describe("a list page mid-load", () => {
   for (const [name, Page, claim] of PAGES) {
     it(`${name} says Loading, not an empty queue`, () => {

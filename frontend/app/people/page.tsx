@@ -31,7 +31,8 @@ type Brief = {
 type User = { name: string; kind: string };
 
 export default function PeoplePage() {
-  const [people, setPeople] = useState<User[]>([]);
+  const [people, setPeople] = useState<User[] | null>(null);
+  const [peopleError, setPeopleError] = useState("");
   const [person, setPerson] = useState("");
   const [notes, setNotes] = useState<Note[]>([]);
   const [brief, setBrief] = useState<Brief | null>(null);
@@ -66,7 +67,15 @@ export default function PeoplePage() {
         });
     };
     refreshIdentity();
-    api<User[]>("/api/users").then(setPeople).catch(() => {});
+    api<User[]>("/api/users")
+      .then((rows) => {
+        setPeople(rows);
+        setPeopleError("");
+      })
+      .catch((e) => {
+        setPeople(null);
+        setPeopleError(loadError(e));
+      });
     return subscribeUser(refreshIdentity);
   }, []);
   const load = useCallback((p: string) => {
@@ -104,6 +113,8 @@ export default function PeoplePage() {
   }, [person, strong, load]);
 
   const [saving, setSaving] = useState(false);
+  const teammates = people?.filter((user) => user.kind !== "agent") ?? [];
+
   const addNote = async () => {
     if (saving || !draft.trim() || !person) return;
     setSaving(true); // a held Enter must not file N private notes
@@ -174,11 +185,20 @@ export default function PeoplePage() {
           collected an entry whose submit was going to refuse too — a wall of
           the same sentence three times, around a dead control */}
       {strong !== false && (
-      <>
+        <>
+          {people === null ? (
+            <p
+              role={peopleError ? "alert" : "status"}
+              className={peopleError ? "text-sm text-danger" : "text-sm text-ink-3"}
+            >
+              {peopleError || "Loading the team roster…"}
+            </p>
+          ) : teammates.length === 0 ? (
+            <EmptyState>No teammates are on the roster.</EmptyState>
+          ) : (
+            <>
       <div className="mb-6 flex flex-wrap gap-2">
-        {people
-          .filter((u) => u.kind !== "agent")
-          .map((u) => (
+        {teammates.map((u) => (
             <button
               key={u.name}
               onClick={() => {
@@ -224,7 +244,7 @@ export default function PeoplePage() {
               <div className="space-y-3 text-sm">
                 {brief.nudge && (
                   <p className="rounded-lg bg-weld/10 px-3 py-2 text-weld">
-                    💡 {brief.nudge}
+                    {brief.nudge}
                   </p>
                 )}
                 <BriefList
@@ -288,7 +308,8 @@ export default function PeoplePage() {
                   className="rounded-xl border border-line bg-card p-4 text-sm shadow-card"
                 >
                   <span className="mr-2 text-xs text-ink-3">
-                    {n.kind === "feedback" ? "💬" : "📝"} {n.created_at.slice(0, 10)}
+                    {n.kind === "feedback" ? "feedback" : "1:1 note"} ·{" "}
+                    {n.created_at.slice(0, 10)}
                   </span>
                   {n.body}
                 </li>
@@ -303,7 +324,9 @@ export default function PeoplePage() {
           </Card>
         </div>
       )}
-      </>
+            </>
+          )}
+        </>
       )}
     </main>
   );

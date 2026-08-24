@@ -517,7 +517,7 @@ const Composer = () => {
               .map((x) => ({
                 name: x.slug,
                 args: "",
-                description: `${x.emoji} ${x.description}`,
+                description: x.description,
                 mention: x.slug,
                 group: "Specialists",
               }))
@@ -532,7 +532,7 @@ const Composer = () => {
           .map((x) => ({
             name: `${arg.cmd} ${x.slug}`,
             args: "<message>",
-            description: `${x.emoji} ${x.description}`,
+            description: x.description,
           }))
       : cmdToken === null
         ? []
@@ -743,7 +743,6 @@ const Composer = () => {
       {activePersona && (
         <div className="mb-1.5 flex items-center gap-2 text-xs">
           <span className="flex items-center gap-1.5 rounded-full border border-thread-solid/40 bg-thread/10 py-0.5 pl-2 pr-1 font-medium text-thread">
-            <span aria-hidden>{activePersona.emoji}</span>
             {activePersona.name}
             <button
               onClick={() => setActivePersona(null)}
@@ -759,6 +758,11 @@ const Composer = () => {
           </span>
         </div>
       )}
+      <p role="status" aria-live="polite" className="sr-only">
+        {open && active
+          ? `${active.mention ? "Mention" : "Command"} suggestions open. ${active.name} selected.`
+          : ""}
+      </p>
       <ComposerPrimitive.Root className="rounded-xl border border-line-strong bg-card p-2 shadow-card">
         <ComposerPrimitive.Attachments components={{ Attachment: AttachmentChip }} />
         <div className="flex items-end gap-2">
@@ -772,12 +776,16 @@ const Composer = () => {
         <ComposerPrimitive.Input
           {...inputHistory}
           name="message"
-          role="combobox"
-          aria-expanded={open}
-          aria-controls={open ? "cmd-list" : undefined}
-          aria-describedby={open ? "cmd-hint" : undefined}
+          aria-label={
+            activePersona
+              ? `Message ${activePersona.name}`
+              : "Message the Chief of Staff"
+          }
+          aria-haspopup="listbox"
           aria-autocomplete="list"
+          aria-controls={open ? "cmd-list" : undefined}
           aria-activedescendant={open ? `cmd-${activeIdx}` : undefined}
+          aria-describedby={open ? "cmd-hint" : undefined}
           autoFocus
           placeholder={
             activePersona

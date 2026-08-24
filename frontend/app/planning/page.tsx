@@ -108,7 +108,11 @@ type Cockpit = {
 
 type Row = Record<string, string | number | null>;
 
-const DOT: Record<string, string> = { red: "🔴", yellow: "🟡", green: "🟢" };
+const HEALTH_TONE: Record<string, string> = {
+  red: "bg-danger",
+  yellow: "bg-weld",
+  green: "bg-ok",
+};
 
 /** The one-click half of a queue row's named move, beside the prose that
  *  names it. Every row stated its action ("Assign it or drop it") and
@@ -131,7 +135,7 @@ function QueueActions({ q, onDone }: { q: Intervention; onDone: () => void }) {
     }
   };
   const chip =
-    "rounded bg-raised px-2 py-0.5 text-xs hover:bg-line disabled:opacity-50";
+    "min-h-6 rounded bg-raised px-2 py-0.5 text-xs hover:bg-line disabled:opacity-50";
   if (q.kind === "work_unowned")
     return (
       <span className="mt-0.5 flex items-center gap-1.5 text-xs">
@@ -226,6 +230,7 @@ function QueueActions({ q, onDone }: { q: Intervention; onDone: () => void }) {
       <span className="mt-0.5 flex gap-1.5">
         <button
           disabled={busy}
+          aria-label={`Resolve blocker #${q.entity_id}: ${q.title}`}
           onClick={() =>
             run(
               api(`/api/blockers/${q.entity_id}/resolve`, {
@@ -287,7 +292,10 @@ export default function Planning() {
   if (error && !data)
     return (
       <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
-        <SectionTabs set="work" />
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <SectionTabs set="work" />
+          <ManageToggle />
+        </div>
         <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
           Planning
         </h1>
@@ -297,7 +305,10 @@ export default function Planning() {
   if (!data)
     return (
       <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
-        <SectionTabs set="work" />
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <SectionTabs set="work" />
+          <ManageToggle />
+        </div>
         <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
           Planning
         </h1>
@@ -337,10 +348,33 @@ export default function Planning() {
         The week, in the order the meeting runs it. Every number here also
         lives on its own page — this is the running order, not a second copy.
       </p>
+      <nav
+        aria-label="Planning agenda"
+        className="sticky top-[calc(var(--nav-h)+0.5rem)] z-[5] flex flex-wrap gap-1.5 rounded-xl border border-line bg-page/95 p-2 shadow-card backdrop-blur"
+      >
+        {[
+          ["planning-last-week", "Last week"],
+          ["planning-needs-call", "Needs a call"],
+          ["planning-this-week", "This week"],
+          ["planning-weeks-ahead", "Weeks ahead"],
+          ["planning-triage", "Triage"],
+          ["planning-portfolio-health", "Portfolio health"],
+          ["planning-stale-decisions", "Stale decisions"],
+          ["planning-close", "Close"],
+        ].map(([id, label]) => (
+          <a
+            key={id}
+            href={`#${id}`}
+            className="rounded-full bg-raised px-2.5 py-1 text-xs text-ink-2 hover:bg-line hover:text-ink"
+          >
+            {label}
+          </a>
+        ))}
+      </nav>
 
-
-      {/* 1 — how last week went, before anything about this one */}
-      <Card title={`1 · Last week (${d.last_week.week})`}>
+      {/* how last week went, before anything about this one */}
+      <div id="planning-last-week" className="scroll-mt-28">
+      <Card title={`Last week (${d.last_week.week})`}>
         <p className="text-sm">
           {d.last_week.kept_percent === null ? (
             "Nothing was committed."
@@ -394,6 +428,7 @@ export default function Planning() {
           </p>
         ) : null}
       </Card>
+      </div>
 
       {/* 2 — what needs a call, ranked, AFTER last week's result. The
           running order is load-bearing (this file's header, and
@@ -401,7 +436,8 @@ export default function Planning() {
           week before anyone has read whether the last one landed. Numbered
           like every other card, because the titles ARE the agenda and a reader
           working down the page in a meeting loses their place at a gap. */}
-      <Card title="2 · Needs a call">
+      <div id="planning-needs-call" className="scroll-mt-28">
+      <Card title="Needs a call">
         {queueError ? (
           <p className="text-sm text-danger">{queueError}</p>
         ) : queue === null ? (
@@ -436,7 +472,7 @@ export default function Planning() {
                     // of bold at the top of an agenda buries every row under it
                     <Link
                       href={q.link}
-                      className="line-clamp-2 font-medium hover:underline"
+                      className="font-medium hover:underline sm:line-clamp-2"
                     >
                       {q.title}
                     </Link>
@@ -469,9 +505,11 @@ export default function Planning() {
           </>
         )}
       </Card>
+      </div>
 
       {/* 3 — what the week already holds, and whether it fits */}
-      <Card title={`3 · This week (${d.week.week})`}>
+      <div id="planning-this-week" className="scroll-mt-28">
+      <Card title={`This week (${d.week.week})`}>
         <p className="text-sm">
           {d.week.committed === 0
             ? "Nothing committed yet. Draft the plan on Work → Health."
@@ -489,10 +527,12 @@ export default function Planning() {
           <p className="mt-2 text-xs text-ink-3">Nobody is over 100% today.</p>
         )}
       </Card>
+      </div>
 
       {/* 4 — the weeks after this one. Accepting work today against today's
           numbers is how a conflict gets noticed on the day it arrives. */}
-      <Card title="4 · The weeks ahead">
+      <div id="planning-weeks-ahead" className="scroll-mt-28">
+      <Card title="The weeks ahead">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <caption className="sr-only">
@@ -547,9 +587,11 @@ export default function Planning() {
           </table>
         </div>
       </Card>
+      </div>
 
-      {/* 5 — what wants in */}
-      <Card title={`5 · Waiting for triage (${d.intake.length})`}>
+      {/* what wants in */}
+      <div id="planning-triage" className="scroll-mt-28">
+      <Card title={`Waiting for triage (${d.intake.length})`}>
         {d.intake.length === 0 ? (
           <p className="text-sm text-ink-3">Nothing is waiting for triage.</p>
         ) : (
@@ -570,17 +612,16 @@ export default function Planning() {
           reason you give.
         </p>
       </Card>
+      </div>
 
       {/* the one move that releases the most work. Sits with the week's plan
           rather than with the stale list: it is a choice about what to start,
           not something that has gone wrong.
 
-          Numbered 5a, not 6: this card and 5b are CONDITIONAL, and a fixed
-          number would leave a gap in the agenda on any week without them. A
-          manager reads this page down in a meeting, and a gap is where they
-          lose their place. */}
+          Conditional, and therefore unnumbered: a missing card must not leave
+          a gap that reads like absent meeting content. */}
       {d.top_unblocking_move ? (
-        <Card title="5a · The move that unblocks the most">
+        <Card title="The move that unblocks the most">
           <p className="text-sm">
             <PeekLink taskId={d.top_unblocking_move.id}>
               <span className="text-ink-3">#{d.top_unblocking_move.id}</span>{" "}
@@ -613,7 +654,7 @@ export default function Planning() {
           writes them: numbering the agenda and then rendering 5a, 5c, 5b hands
           the reader the gap the numbering exists to prevent. */}
       {d.awaiting.length > 0 ? (
-        <Card title={`5b · Awaiting from other people (${d.awaiting.length})`}>
+        <Card title={`Awaiting from other people (${d.awaiting.length})`}>
           <ul className="space-y-1 text-sm">
             {d.awaiting.map((p) => {
               const late = p.due_date !== null && p.due_date < d.today;
@@ -649,8 +690,8 @@ export default function Planning() {
         <Card
           title={
             d.stakeholders.length > PARTY_CAP
-              ? `5c · Open outside the team (${PARTY_CAP} of ${d.stakeholders.length}, busiest first)`
-              : `5c · Open outside the team (${d.stakeholders.length})`
+              ? `Open outside the team (${PARTY_CAP} of ${d.stakeholders.length}, busiest first)`
+              : `Open outside the team (${d.stakeholders.length})`
           }
         >
           <ul className="space-y-2 text-sm">
@@ -677,7 +718,8 @@ export default function Planning() {
       {/* 6 — which way the portfolio moved. Split from the stale-decisions
           card: one card held both and its title named only the decisions, so
           a reader scanning the agenda by title never found the health list. */}
-      <Card title="6 · Portfolio health">
+      <div id="planning-portfolio-health" className="scroll-mt-28">
+      <Card title="Portfolio health">
         {d.health_changes.length > 0 ? (
           <>
             <h3 className="text-xs uppercase tracking-wide text-ink-3">
@@ -685,8 +727,11 @@ export default function Planning() {
             </h3>
             <ul className="mb-2 space-y-1 text-sm">
               {d.health_changes.map((c) => (
-                <li key={c.id}>
-                  {DOT[c.to]}{" "}
+                <li key={c.id} className="flex items-center gap-1.5">
+                  <span
+                    aria-hidden
+                    className={`size-2 shrink-0 rounded-full ${HEALTH_TONE[c.to]}`}
+                  />
                   <Link
                     href={`/engagement/${c.id}`}
                     className="font-medium hover:underline"
@@ -715,8 +760,12 @@ export default function Planning() {
             </h3>
             <ul className="mb-2 flex flex-wrap gap-x-3 gap-y-1 text-sm">
               {d.health.map((h) => (
-                <li key={h.id}>
-                  {DOT[h.health]}{" "}
+                <li key={h.id} className="flex items-center gap-1.5">
+                  <span
+                    aria-hidden
+                    className={`size-2 shrink-0 rounded-full ${HEALTH_TONE[h.health]}`}
+                  />
+                  <span className="text-xs font-medium text-ink-2">{h.health}</span>
                   <Link href={`/engagement/${h.id}`} className="hover:underline">
                     {h.name}
                   </Link>
@@ -732,9 +781,11 @@ export default function Planning() {
           </p>
         ) : null}
       </Card>
+      </div>
 
-      {/* 7 — decisions past their half-life */}
-      <Card title="7 · Stale decisions">
+      {/* decisions past their half-life */}
+      <div id="planning-stale-decisions" className="scroll-mt-28">
+      <Card title="Stale decisions">
         {d.stale_decisions.length === 0 ? (
           <p className="text-sm text-ink-3">No decision is past its review date.</p>
         ) : (
@@ -755,16 +806,18 @@ export default function Planning() {
           Reconfirm or supersede on Team → Charter.
         </p>
       </Card>
+      </div>
 
-      {/* 8 — the one write the ritual ends with. Manager-gated like the same
+      {/* the one write the ritual ends with. Manager-gated like the same
           button on Work → Health: the brief notifies the whole roster, and
           this page carried it ungated while Health gated it — one broadcast,
           two rules. */}
-      <Card title="8 · Close the meeting">
+      <div id="planning-close" className="scroll-mt-28">
+      <Card title="Close the meeting">
         {!manage ? (
           <p className="text-sm text-ink-3">
-            To file the week-open brief, turn on <b>manager controls</b> (top
-            right). The brief notifies every teammate, so one person runs it.
+            To file the week-open brief, turn on <b>Management view</b> at the
+            top of this page. The brief notifies every teammate, so one person runs it.
           </p>
         ) : (
         <button
@@ -801,6 +854,7 @@ export default function Planning() {
         </p>
         ) : null}
       </Card>
+      </div>
     </main>
   );
 }

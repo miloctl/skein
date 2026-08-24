@@ -23,6 +23,7 @@ export function PageHelp() {
   const [cards, setCards] = useState<{ path: string; rows: Card[] } | null>(null);
   const [live, setLive] = useState(false);
   const [error, setError] = useState("");
+  const [expanded, setExpanded] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -45,11 +46,13 @@ export function PageHelp() {
   // cards ARE the page, and the panel's footer links straight back to it), but
   // unmounting the button shrank the header's right cluster by the button plus
   // its gap, so every control left of it jumped sideways on arrival.
-  if (pathname === "/guide") return <div aria-hidden className="size-8 shrink-0" />;
+  if (pathname === "/guide")
+    return <div aria-hidden className="h-8 w-8 shrink-0 md:w-[3.75rem]" />;
 
   const pageCards = cards?.path === pathname ? cards.rows : null;
   const load = () => {
     setOpen(true);
+    setExpanded(false);
     setError("");
     if (pageCards !== null) return;
     const current = ++requestGeneration.current;
@@ -83,9 +86,11 @@ export function PageHelp() {
 
   const dismiss = (restoreFocus = false) => {
     setOpen(false);
+    setExpanded(false);
     if (restoreFocus) buttonRef.current?.focus();
   };
   const compose = `/as bosun I am on the ${pathname} page. `;
+  const visibleCards = pageCards && !expanded ? pageCards.slice(0, 3) : pageCards;
 
   return (
     <div
@@ -110,11 +115,12 @@ export function PageHelp() {
         aria-controls="page-help"
         title="Help for this page"
         onClick={() => (open ? dismiss() : load())}
-        // size-8 is duplicated by the /guide spacer above, which exists only to
-        // hold this width. Change one and the top bar reflows on /guide again.
-        className="flex size-8 items-center justify-center rounded-full border border-dashed border-line-strong font-mono text-xs text-ink-2 hover:bg-raised hover:text-ink"
+        // The /guide spacer above holds both responsive widths. Change one and
+        // the top bar reflows when the guide removes this control.
+        className="flex h-8 min-w-8 items-center justify-center gap-1 rounded-full border border-dashed border-line-strong px-2 font-mono text-xs text-ink-2 hover:bg-raised hover:text-ink"
       >
-        ?
+        <span aria-hidden>?</span>
+        <span className="hidden md:inline">Help</span>
       </button>
       {open && (
         <section
@@ -150,11 +156,26 @@ export function PageHelp() {
             </p>
           ) : null}
           {pageCards?.length === 0 ? (
-            <p className="text-xs text-ink-3">No field-guide cards match this page.</p>
+            pathname === "/people" ? (
+              <div className="space-y-2 text-xs text-ink-2">
+                <p>
+                  Private 1:1 prep and notes require deployment sign-in or a personal API key.
+                </p>
+                <Link
+                  href="/settings#settings-you"
+                  onClick={() => dismiss()}
+                  className="font-medium text-thread underline"
+                >
+                  Open Settings & access
+                </Link>
+              </div>
+            ) : (
+              <p className="text-xs text-ink-3">No field-guide cards match this page.</p>
+            )
           ) : null}
           {pageCards && pageCards.length > 0 ? (
-            <ul className="space-y-3">
-              {pageCards.map((card) => (
+            <ul id="page-help-cards" className="space-y-3">
+              {visibleCards?.map((card) => (
                 <li key={card.id} className="border-b border-line pb-3 last:border-0 last:pb-0">
                   <div className="flex items-baseline justify-between gap-2">
                     <h3 className="text-xs font-semibold text-ink">{card.feature}</h3>
@@ -191,6 +212,17 @@ export function PageHelp() {
                 </li>
               ))}
             </ul>
+          ) : null}
+          {pageCards && pageCards.length > 3 ? (
+            <button
+              type="button"
+              aria-expanded={expanded}
+              aria-controls="page-help-cards"
+              onClick={() => setExpanded((value) => !value)}
+              className="mt-2 text-xs font-medium text-thread underline"
+            >
+              {expanded ? "Show fewer" : `Show ${pageCards.length - 3} more`}
+            </button>
           ) : null}
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2">

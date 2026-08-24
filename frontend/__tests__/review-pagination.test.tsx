@@ -131,7 +131,9 @@ describe("the pending review cursor", () => {
     fireEvent.click(screen.getByRole("button", { name: "More proposals" }));
     await screen.findByText("proposal 55");
 
-    const approvals = screen.getAllByRole("button", { name: "Approve" });
+    const approvals = screen.getAllByRole("button", {
+      name: /^Approve proposal #\d+: add a task$/,
+    });
     // proposal 52, on the page the reviewer had to fetch: reloading from the
     // first page would take 51..55 away with it
     fireEvent.click(approvals[51]);

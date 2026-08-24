@@ -43,6 +43,17 @@ beforeEach(() => {
 const calls = (method: string) =>
   mocks.api.mock.calls.filter(([, o]) => o?.method === method);
 
+describe("Browse section navigation", () => {
+  it("links to stable section headings without unmounting the registers", async () => {
+    render(<Dashboard />);
+    const link = await screen.findByRole("link", { name: "Blockers" });
+    expect(link.getAttribute("href")).toBe("#browse-blockers");
+    expect(document.getElementById("browse-blockers-title")?.textContent).toBe(
+      "Blockers",
+    );
+  });
+});
+
 describe("the blocker register", () => {
   it("changes impact in place — the field that sets the escalation clock", async () => {
     render(<Dashboard />);
@@ -56,14 +67,22 @@ describe("the blocker register", () => {
 
   it("resolves from the register itself", async () => {
     render(<Dashboard />);
-    fireEvent.click(await screen.findByRole("button", { name: "resolve" }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Resolve blocker #3: vendor contract unsigned",
+      }),
+    );
     await waitFor(() => expect(calls("POST")).toHaveLength(1));
     expect(calls("POST")[0][0]).toBe("/api/blockers/3/resolve");
   });
 
   it("gives an unowned blocker an owner", async () => {
     render(<Dashboard />);
-    fireEvent.click(await screen.findByRole("button", { name: "assign…" }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Assign blocker #3: vendor contract unsigned",
+      }),
+    );
     const input = screen.getByLabelText("Give blocker #3 an owner");
     fireEvent.keyDown(input, { key: "Enter", target: { value: "ava" } });
     await waitFor(() => expect(calls("PATCH")).toHaveLength(1));

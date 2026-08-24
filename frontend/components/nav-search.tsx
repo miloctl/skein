@@ -200,6 +200,31 @@ function CitationRef({
  *  useful move. Outside the nav button this is the only place the shortcut
  *  is taught. It names the button rather than a keystroke: ⌘K focuses this
  *  search box, and capture has no shortcut of its own. */
+function exactReference(query: string): { entity: string; id: number } | null {
+  const short = /^#(\d+)$/.exec(query.trim());
+  if (short) return { entity: "task", id: Number(short[1]) };
+  const named = /^([a-z]+)\s+#?(\d+)$/i.exec(query.trim());
+  return named ? { entity: named[1].toLowerCase(), id: Number(named[2]) } : null;
+}
+
+function HitRow({ hit, onDone }: { hit: Hit; onDone: () => void }) {
+  return (
+    <li className="text-sm">
+      <EntityLink entity={hit.entity} entityId={hit.entity_id} onDone={onDone}>
+        <span className="text-ink-3">
+          {hit.entity} #{hit.entity_id}
+        </span>{" "}
+        {hit.title}
+      </EntityLink>
+      {hit.snippet ? (
+        <p className="text-xs text-ink-3">
+          <Snippet text={hit.snippet} />
+        </p>
+      ) : null}
+    </li>
+  );
+}
+
 function CaptureHint() {
   return (
     <p className="mt-1 text-xs text-ink-3">
@@ -302,6 +327,13 @@ export function NavSearch() {
     }
   };
 
+  const reference = exactReference(q);
+  const exactHit =
+    hits && reference && hits[0]?.entity === reference.entity && hits[0]?.entity_id === reference.id
+      ? hits[0]
+      : null;
+  const relatedHits = exactHit ? hits?.slice(1) ?? [] : hits ?? [];
+
   return (
     // flex-1 min-w-0 below `sm`, a fixed box above it. This field is the last
     // thing added to the phone header, and at a fixed 144px the row needed
@@ -320,6 +352,7 @@ export function NavSearch() {
         onChange={(e) => setQ(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && run()}
         onFocus={() => (hits || answer || error) && setOpen(true)}
+        enterKeyHint="search"
         // "or ? to ask" promised a question-answerer and delivered a second
         // pass over the same keyword index. Once semantic hits blend into
         // search() itself, the two return the SAME rows for a natural
@@ -337,7 +370,7 @@ export function NavSearch() {
         aria-hidden
         className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 font-mono text-[11px] text-ink-3 [@media(any-pointer:fine)]:block"
       >
-        <Shortcut />
+        {q.trim() ? "Enter" : <Shortcut />}
       </span>
       {open && (
         <div
@@ -393,27 +426,34 @@ export function NavSearch() {
               <p className="sr-only">
                 {hits.length} search {hits.length === 1 ? "result" : "results"}.
               </p>
-              <ul className="space-y-2">
-                {hits.map((h) => (
-                  <li key={`${h.entity}-${h.entity_id}`} className="text-sm">
-                    <EntityLink
-                      entity={h.entity}
-                      entityId={h.entity_id}
-                      onDone={() => setOpen(false)}
-                    >
-                      <span className="text-ink-3">
-                        {h.entity} #{h.entity_id}
-                      </span>{" "}
-                      {h.title}
-                    </EntityLink>
-                    {h.snippet ? (
-                      <p className="text-xs text-ink-3">
-                        <Snippet text={h.snippet} />
-                      </p>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
+              {exactHit ? (
+                <div className="mb-3">
+                  <p className="mb-1 font-mono text-[10px] font-medium uppercase tracking-wide text-ink-3">
+                    Exact match
+                  </p>
+                  <ul>
+                    <HitRow hit={exactHit} onDone={() => setOpen(false)} />
+                  </ul>
+                </div>
+              ) : null}
+              {relatedHits.length > 0 ? (
+                <div>
+                  {exactHit ? (
+                    <p className="mb-1 font-mono text-[10px] font-medium uppercase tracking-wide text-ink-3">
+                      Related results
+                    </p>
+                  ) : null}
+                  <ul className="space-y-2">
+                    {relatedHits.map((hit) => (
+                      <HitRow
+                        key={`${hit.entity}-${hit.entity_id}`}
+                        hit={hit}
+                        onDone={() => setOpen(false)}
+                      />
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </>
           )}
         </div>

@@ -173,6 +173,8 @@ def test_a_persisting_condition_is_one_row_across_weeks(fresh_db, monkeypatch):
     assert len(stale) == 1
     assert stale[0]["weeks_firing"] == 2
     assert stale[0]["first_week"] < stale[0]["week"]
+    assert stale[0]["audience"] == "system"
+    assert stale[0]["label"] == "Scheduled job"
 
     # the verdict lands on last week's row id; the feed's surviving row carries it
     insights.disposition_finding(old_row["id"], "dismissed", actor="tester")
@@ -191,7 +193,9 @@ def test_run_findings_dedupes_within_week(client, fresh_db):
     assert second["new"] == 0  # same week, same subjects — silence
 
     stored = insights.list_findings()
-    assert any(f["rule_id"] == "question_aging" for f in stored)
+    question = next(f for f in stored if f["rule_id"] == "question_aging")
+    assert question["audience"] == "team"
+    assert question["label"] == "Question aging"
 
 
 def test_digest_carries_top_findings(client, fresh_db):

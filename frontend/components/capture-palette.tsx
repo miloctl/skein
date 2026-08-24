@@ -387,8 +387,8 @@ export function CapturePalette() {
         </div>
         <div className="mt-3 border-t border-line pt-2 text-[11px] leading-relaxed text-ink-3">
           Tap a chip or type a prefix — the line above the button always shows
-          where your text will land. <code>req:</code> files a request for
-          triage. <code>fb: name — …</code> stays private to you.
+          where your text will land. No prefix files a note. <code>req:</code>{" "}
+          files a request for triage. <code>fb: name — …</code> stays private to you.
           {/* The read/write split is the reported confusion: this dialog and
               the nav search box look alike and do opposite things. Naming the
               other door here is what keeps a search from being typed into the

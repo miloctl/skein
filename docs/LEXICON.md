@@ -312,7 +312,7 @@ with nothing said; the loop now honors the validated input, pinned by
 manage gate was investigated and is NOT a defect: approvals take
 `CurrentUser` by design — "Humans hold every switch" means any identified
 human may verify agent work — and only `authority` changes require a
-strong identity (`services/review.py:204`). Manager controls is a
+strong identity (`services/review.py:204`). Management view is a
 per-browser display toggle that "does not grant permissions", so gating
 approvals behind it would hide a permitted action without restricting
 anyone. Intake is gated because triage is a manager function; approving

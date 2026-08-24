@@ -40,7 +40,7 @@ import AgentsPage from "@/app/agents/page";
 afterEach(() => window.localStorage.removeItem("skein-manage"));
 
 describe("the season readout card", () => {
-  it("renders the exit-trigger read behind manager controls", async () => {
+  it("renders the exit-trigger read behind Management view", async () => {
     window.localStorage.setItem("skein-manage", "1");
     render(<AgentsPage />);
     expect(await screen.findByText("Season readout — the trust loop")).toBeTruthy();
@@ -51,7 +51,7 @@ describe("the season readout card", () => {
     expect(screen.getByText(/scout/)).toBeTruthy();
   });
 
-  it("stays out of the way when manager controls are off", async () => {
+  it("stays out of the way when Management view are off", async () => {
     render(<AgentsPage />);
     expect(await screen.findByText(/Trust — earned from review verdicts/)).toBeTruthy();
     expect(screen.queryByText("Season readout — the trust loop")).toBeNull();

@@ -32,7 +32,7 @@ export function ManageToggle() {
         window.dispatchEvent(new Event("storage"));
       }}
       aria-pressed={on}
-      title="Show or hide manager controls (verdicts, readouts, authority) in this browser"
+      title="Show or hide management controls in this browser"
       className={
         "rounded-full px-3 py-1 text-[13px] transition-colors " +
         (on
@@ -40,7 +40,7 @@ export function ManageToggle() {
           : "bg-raised text-ink-2 hover:bg-line hover:text-ink-2")
       }
     >
-      {on ? "manager controls on" : "manager controls"}
+      Management view: {on ? "On" : "Off"}
       <span className="sr-only">
         — shows or hides triage verdicts, readouts, and authority editing in
         this browser. It does not grant permissions

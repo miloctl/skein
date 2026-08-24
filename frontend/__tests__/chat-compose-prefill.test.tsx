@@ -67,7 +67,7 @@ describe("chat composer handoff", () => {
     window.addEventListener("skein-chat-compose-ready", onReady);
     render(<Harness />);
 
-    const input = screen.getByRole("combobox") as HTMLTextAreaElement;
+    const input = screen.getByRole("textbox", { name: /Message/ }) as HTMLTextAreaElement;
     await waitFor(() => expect(input.value).toBe(compose));
     expect(document.activeElement).toBe(input);
     expect(ready).toEqual([compose]);
@@ -77,7 +77,7 @@ describe("chat composer handoff", () => {
 
   it("reports readiness when the same text is already in the mounted composer", async () => {
     render(<Harness />);
-    const input = screen.getByRole("combobox") as HTMLTextAreaElement;
+    const input = screen.getByRole("textbox", { name: /Message/ }) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "/help" } });
     await waitFor(() => expect(input.value).toBe("/help"));
     const ready: string[] = [];
@@ -102,7 +102,7 @@ describe("chat composer handoff", () => {
 
     render(<Harness />);
 
-    const input = screen.getByRole("combobox") as HTMLTextAreaElement;
+    const input = screen.getByRole("textbox", { name: /Message/ }) as HTMLTextAreaElement;
     await waitFor(() => expect(window.location.search).toBe(""));
     expect(input.value).toBe("");
     expect(getStatus()?.message).toBe(

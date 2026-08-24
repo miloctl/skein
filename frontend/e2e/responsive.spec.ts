@@ -349,8 +349,11 @@ for (const vw of [360, 1280]) {
       document.getElementById("settings-connections")!.scrollIntoView(),
     );
     await expect(
-      nav.getByRole("link", { name: "Connections", exact: true }),
+      nav.getByRole("link", { name: "Team", exact: true }),
     ).toHaveAttribute("aria-current", "location");
+    await expect(
+      nav.getByRole("link", { name: "Connections", exact: true }),
+    ).not.toHaveAttribute("aria-current");
     expect(await page.evaluate(() => location.hash)).toBe("#settings-team");
 
     expect(
@@ -362,6 +365,73 @@ for (const vw of [360, 1280]) {
     ).toBeLessThanOrEqual(1);
   });
 }
+
+test("a direct Settings section hash survives hydration", async ({ page }) => {
+  const faults: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") faults.push(message.text());
+  });
+  page.on("pageerror", (error) => faults.push(error.message));
+  await page.goto("/");
+  await page.evaluate(() => window.localStorage.setItem("skein-user", "ava"));
+
+  await page.goto("/settings#settings-team");
+
+  await expect(
+    page.getByRole("region", { name: "Team", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator("#settings-you")).toBeHidden();
+  await expect(
+    page
+      .getByRole("navigation", { name: "Settings sections" })
+      .getByRole("link", { name: "Team", exact: true }),
+  ).toHaveAttribute("aria-current", "location");
+  expect(faults, JSON.stringify(faults, null, 2)).toEqual([]);
+});
+
+test("changed forms reflow at 320px", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto("/");
+  await page.evaluate(
+    (name) => window.localStorage.setItem("skein-user", name),
+    LONG_NAME,
+  );
+
+  for (const path of ["/dashboard", "/intake", "/settings"]) {
+    await page.goto(path);
+    await page.waitForLoadState("networkidle").catch(() => {});
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth - window.innerWidth,
+      ),
+      `${path} overflows at 320px`,
+    ).toBeLessThanOrEqual(1);
+  }
+});
+
+test("changed inline actions meet the 24px target minimum", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto("/");
+  await page.evaluate(
+    (name) => window.localStorage.setItem("skein-user", name),
+    LONG_NAME,
+  );
+
+  for (const path of ["/planning", "/dashboard"]) {
+    await page.goto(path);
+    await page.waitForLoadState("networkidle").catch(() => {});
+    const scan = await new AxeBuilder({ page }).withRules(["target-size"]).analyze();
+    expect(
+      scan.violations.map((violation) => ({
+        page: path,
+        nodes: violation.nodes.map((node) => ({
+          target: node.target.join(" "),
+          summary: node.failureSummary,
+        })),
+      })),
+    ).toEqual([]);
+  }
+});
 
 /** A LAYOUT test, deliberately not a contrast one: check_theme_contrast.py
  *  already sweeps 7 packs x 6 colorways x 3 surfaces x both modes, plus all

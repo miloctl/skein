@@ -204,6 +204,12 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/settings" }));
 
 import SettingsPage from "@/app/settings/page";
 
+function renderModelSettings() {
+  const result = render(<SettingsPage />);
+  fireEvent.click(screen.getByRole("link", { name: "AI runtime" }));
+  return result;
+}
+
 beforeEach(() => {
   vi.useRealTimers();
   mode.pick = PICK;
@@ -231,7 +237,7 @@ beforeEach(() => {
 describe("the model section", () => {
   it("shows the server summary before the model controls", async () => {
     mode.pick = PICK;
-    render(<SettingsPage />);
+    renderModelSettings();
 
     const heading = await screen.findByRole(
       "heading",
@@ -272,7 +278,7 @@ describe("the model section", () => {
         ),
       },
     };
-    render(<SettingsPage />);
+    renderModelSettings();
     expect(
       await screen.findByText("Set in parameters (value hidden)"),
     ).toBeTruthy();
@@ -280,7 +286,7 @@ describe("the model section", () => {
 
   it("renders the menu with each entry's price and context size", async () => {
     mode.pick = PICK;
-    render(<SettingsPage />);
+    renderModelSettings();
     await screen.findByText(/Opus — deep work/);
     expect(
       screen.getByText(/\$15 in \/ \$75 out per million tokens/),
@@ -292,7 +298,7 @@ describe("the model section", () => {
 
   it("names the provenance of an override in force", async () => {
     mode.pick = PICK;
-    render(<SettingsPage />);
+    renderModelSettings();
     const line = await screen.findByText(/Set by boss on 2026-08-08\./);
     expect(line.textContent).toMatch(/Overrides the deployment default/);
     expect(line.textContent).toMatch(/env-default/);
@@ -305,7 +311,7 @@ describe("the model section", () => {
       ignored: "The picked model is no longer in the menu.",
       override: { ...PICK.override, model_id: "retired-model" },
     };
-    render(<SettingsPage />);
+    renderModelSettings();
     // the stored id AND the reason, both named — the reader cannot otherwise
     // tell that the model they picked is not the one running
     const warning = await screen.findByText(/is not in use/);
@@ -324,7 +330,7 @@ describe("the model section", () => {
       menu: [],
       applies: false,
     };
-    render(<SettingsPage />);
+    renderModelSettings();
     const warning = await screen.findByText(/is not in use/);
     expect(warning.textContent).toMatch(/opus/);
     expect(
@@ -340,7 +346,7 @@ describe("the model section", () => {
       menu: [],
       applies: false,
     };
-    render(<SettingsPage />);
+    renderModelSettings();
     const clear = await screen.findByRole("button", {
       name: /Use the deployment default/,
     });
@@ -364,7 +370,7 @@ describe("the model section", () => {
     // shows choices under "the model every chat runs on" and never says
     // which model that is
     mode.pick = { ...PICK, model: "env-default", override: null };
-    render(<SettingsPage />);
+    renderModelSettings();
     const line = await screen.findByText(/is in force/);
     expect(line.textContent).toMatch(/env-default/);
     expect(line.textContent).toMatch(/It is not in the menu\./);
@@ -378,7 +384,7 @@ describe("the model section", () => {
   it("routes a served refusal to Not saved, never to unreachable", async () => {
     mode.pick = PICK;
     mode.post = "refuse";
-    render(<SettingsPage />);
+    renderModelSettings();
     await screen.findByText(/Opus — deep work/);
     fireEvent.click(screen.getByRole("radio", { name: /mini/ }));
     const status = await screen.findByText(/Not saved\./);
@@ -391,7 +397,7 @@ describe("the model section", () => {
   it("confirms a save in the settled wording", async () => {
     mode.pick = PICK;
     mode.post = "ok";
-    render(<SettingsPage />);
+    renderModelSettings();
     await screen.findByText(/Opus — deep work/);
     fireEvent.click(screen.getByRole("radio", { name: /mini/ }));
     await screen.findByText(
@@ -405,7 +411,7 @@ describe("the model section", () => {
     mode.postPromise = new Promise((resolve) => {
       finishPost = resolve;
     });
-    render(<SettingsPage />);
+    renderModelSettings();
     const radio = await screen.findByRole("radio", { name: /mini/ });
     mode.pickQueue.push(
       new Promise((resolve) => {
@@ -463,7 +469,7 @@ describe("the model section", () => {
 
   it("releases a model write when its result stays unknown", async () => {
     mode.postPromise = new Promise(() => {});
-    render(<SettingsPage />);
+    renderModelSettings();
     const radio = await screen.findByRole("radio", { name: /mini/ });
     vi.useFakeTimers();
 
@@ -488,7 +494,7 @@ describe("the model section", () => {
     mode.postPromise = new Promise((resolve) => {
       finishPost = resolve;
     });
-    render(<SettingsPage />);
+    renderModelSettings();
     fireEvent.click(await screen.findByRole("radio", { name: /mini/ }));
     expect(
       requests.filter(
@@ -548,7 +554,7 @@ describe("the model section", () => {
     mode.contextPostPromise = new Promise((resolve) => {
       finishPost = resolve;
     });
-    render(<SettingsPage />);
+    renderModelSettings();
     const radio = await screen.findByRole("radio", {
       name: /Summarize the oldest messages/,
     });
@@ -582,7 +588,7 @@ describe("the model section", () => {
   });
 
   it("refreshes the model summary after the long-chat strategy changes", async () => {
-    render(<SettingsPage />);
+    renderModelSettings();
     await screen.findByText("sliding");
     requests.length = 0;
 
@@ -604,7 +610,7 @@ describe("the model section", () => {
   it("keeps the newest model summary when refreshes finish out of order", async () => {
     let finishOlder!: (value: unknown) => void;
     let finishNewer!: (value: unknown) => void;
-    render(<SettingsPage />);
+    renderModelSettings();
     await screen.findByText("sliding");
     mode.pickQueue.push(
       new Promise((resolve) => {
@@ -661,7 +667,7 @@ describe("the model section", () => {
       menu_error:
         "SKEIN_MODELS is unusable: entry 1 has no usable id. The model menu is off.",
     };
-    render(<SettingsPage />);
+    renderModelSettings();
     await screen.findByText(/SKEIN_MODELS is unusable/);
     expect(screen.queryByText(/Opus — deep work/)).toBeNull();
   });
@@ -674,7 +680,7 @@ describe("the model section", () => {
       applies: false,
       provider: "mock",
     };
-    render(<SettingsPage />);
+    renderModelSettings();
     await waitFor(() =>
       expect(
         screen.getAllByText(
@@ -687,7 +693,7 @@ describe("the model section", () => {
 
   it("carries no warmth, because its lines hold numbers", async () => {
     mode.pick = PICK;
-    const { container } = render(<SettingsPage />);
+    const { container } = renderModelSettings();
     await screen.findByText(/Opus — deep work/);
     const text = container.textContent ?? "";
     const ours = text.slice(

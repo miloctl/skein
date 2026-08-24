@@ -1,7 +1,10 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ api: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  api: vi.fn(),
+  roster: "data" as "data" | "empty" | "failed" | "pending",
+}));
 
 const roster = [
   { name: "operator", kind: "human", active: 1 },
@@ -24,7 +27,9 @@ import SettingsPage from "@/app/settings/page";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.roster = "data";
   window.localStorage.clear();
+  window.history.replaceState({}, "", "/settings");
   mocks.api.mockImplementation((path: string, opts?: { method?: string }) => {
     if (opts?.method) return Promise.resolve({});
     if (path === "/api/whoami")
@@ -35,7 +40,11 @@ beforeEach(() => {
         can_administer: true,
         keys_minted: 1,
       });
-    if (path === "/api/users?all=1") return Promise.resolve(roster);
+    if (path === "/api/users?all=1") {
+      if (mocks.roster === "failed") return Promise.reject(new Error("roster exploded"));
+      if (mocks.roster === "pending") return new Promise(() => {});
+      return Promise.resolve(mocks.roster === "empty" ? [] : roster);
+    }
     if (path === "/api/users/growth-interests")
       return Promise.resolve({ interests: "" });
     if (path === "/api/agents/status")
@@ -65,6 +74,11 @@ beforeEach(() => {
 });
 
 const rowFor = async (name: string) => {
+  const team = screen.queryByRole("link", { name: "Team" });
+  if (team) fireEvent.click(team);
+  await waitFor(() =>
+    expect(document.getElementById("settings-team")?.hidden).toBe(false),
+  );
   const nameNode = await screen.findByText(name, { selector: "li > span" });
   return within(nameNode.closest("li")!);
 };
@@ -77,6 +91,55 @@ const rosterWrites = () =>
   );
 
 describe("Settings roster confirmations", () => {
+  it("shows one top-level Settings section at a time", () => {
+    render(<SettingsPage />);
+    const you = document.getElementById("settings-you")!;
+    const team = document.getElementById("settings-team")!;
+    expect(you.hidden).toBe(false);
+    expect(team.hidden).toBe(true);
+
+    fireEvent.click(screen.getByRole("link", { name: "Team" }));
+
+    expect(you.hidden).toBe(true);
+    expect(team.hidden).toBe(false);
+  });
+
+  it("opens a valid direct hash", () => {
+    window.history.replaceState({}, "", "/settings#settings-team");
+    render(<SettingsPage />);
+    expect(document.getElementById("settings-team")?.hidden).toBe(false);
+    expect(document.getElementById("settings-you")?.hidden).toBe(true);
+  });
+
+  it("shows roster loading without claiming that nobody exists", async () => {
+    mocks.roster = "pending";
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByRole("link", { name: "Team" }));
+
+    expect(await screen.findByText("Loading the team roster…")).toBeTruthy();
+    expect(screen.queryByText("Nobody yet.")).toBeNull();
+  });
+
+  it("shows a roster error without claiming an empty team", async () => {
+    mocks.roster = "failed";
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByRole("link", { name: "Team" }));
+
+    expect(
+      await screen.findByText(/Could not load this page: roster exploded/),
+    ).toBeTruthy();
+    expect(screen.queryByText("Nobody yet.")).toBeNull();
+  });
+
+  it("shows a true empty roster only after a successful read", async () => {
+    mocks.roster = "empty";
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByRole("link", { name: "Team" }));
+
+    expect(await screen.findByText("No teammates are on the roster.")).toBeTruthy();
+    expect(screen.queryByText("Nobody yet.")).toBeNull();
+  });
+
   it("describes a rename without calling it irreversible", async () => {
     render(<SettingsPage />);
     const row = await rowFor("Ava");

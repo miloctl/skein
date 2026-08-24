@@ -242,7 +242,7 @@ export function FlockDiamond({ trace }: { trace: FlockTrace }) {
               x={xs[i]}
               y={midY}
               w={NODE_W}
-              label={`${m.emoji} ${m.name}`}
+              label={m.name}
               sub={[
                 statusWord(m.status),
                 `${m.ms} ms · ${m.receipts} proposal(s)`,

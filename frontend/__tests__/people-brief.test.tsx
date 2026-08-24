@@ -6,7 +6,11 @@ import { axe } from "vitest-axe";
  *  Brief object on success, so the card must not claim that no brief exists
  *  before it receives one. */
 
-const identity = vi.hoisted(() => ({ strong: false, briefDown: false }));
+const identity = vi.hoisted(() => ({
+  strong: false,
+  briefDown: false,
+  roster: "data" as "data" | "empty" | "failed" | "pending",
+}));
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
@@ -21,8 +25,13 @@ vi.mock("@/lib/api", async (importOriginal) => {
           can_administer: false,
           keys_minted: 0,
         });
-      if (path === "/api/users")
-        return Promise.resolve([{ name: "dana", kind: "human" }]);
+      if (path === "/api/users") {
+        if (identity.roster === "failed") return Promise.reject(new Error("roster exploded"));
+        if (identity.roster === "pending") return new Promise(() => {});
+        return Promise.resolve(
+          identity.roster === "empty" ? [] : [{ name: "dana", kind: "human" }],
+        );
+      }
       if (path.startsWith("/api/private/notes"))
         return identity.strong
           ? Promise.resolve([
@@ -66,10 +75,42 @@ import PeoplePage from "@/app/people/page";
 beforeEach(() => {
   identity.strong = false;
   identity.briefDown = false;
+  identity.roster = "data";
   window.localStorage.clear();
 });
 
 describe("the 1:1 identity boundary", () => {
+  it("does not point at a teammate picker while the roster is loading", async () => {
+    identity.strong = true;
+    identity.roster = "pending";
+    render(<PeoplePage />);
+
+    expect(await screen.findByText("Loading the team roster…")).toBeTruthy();
+    expect(screen.queryByText(/Pick a teammate above/)).toBeNull();
+  });
+
+  it("distinguishes a roster failure from an empty roster", async () => {
+    identity.strong = true;
+    identity.roster = "failed";
+    const view = render(<PeoplePage />);
+
+    expect(
+      await screen.findByText(/Could not load this page: roster exploded/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Pick a teammate above/)).toBeNull();
+    expect(screen.queryByText("No teammates are on the roster.")).toBeNull();
+    expect(await axe(view.container)).toHaveNoViolations();
+  });
+
+  it("shows the true empty state only after a successful roster read", async () => {
+    identity.strong = true;
+    identity.roster = "empty";
+    render(<PeoplePage />);
+
+    expect(await screen.findByText("No teammates are on the roster.")).toBeTruthy();
+    expect(screen.queryByText(/Pick a teammate above/)).toBeNull();
+  });
+
   it("reports a failed brief, never an empty brief", async () => {
     identity.strong = true;
     identity.briefDown = true;

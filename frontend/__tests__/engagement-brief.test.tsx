@@ -88,6 +88,19 @@ describe("the engagement brief", () => {
 
   const page = mount;
 
+  it("keeps the intended-outcome label visible while editing", async () => {
+    const prior = brief.engagement.outcome;
+    brief.engagement.outcome = "";
+    try {
+      page();
+      const label = await screen.findByText("Intended outcome", { selector: "label" });
+      const input = document.getElementById("engagement-outcome") as HTMLInputElement;
+      expect(label.getAttribute("for")).toBe(input.id);
+    } finally {
+      brief.engagement.outcome = prior;
+    }
+  });
+
   it("resolves the references inside a health receipt", async () => {
     page();
     // the sentence is split into runs by design — `milestone #4` becomes a

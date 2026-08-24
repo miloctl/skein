@@ -75,6 +75,9 @@ def test_artifact_body_returns_only_current_readable_typed_threads(client):
         actor="scout",
         notify_team=False,
     )
+    proposal_summary = db.query_one(
+        "SELECT summary FROM pending_changes WHERE id = ?", (proposal["id"],)
+    )["summary"]
     hidden = work.create_task(
         "Private thread",
         actor="tester",
@@ -99,9 +102,9 @@ def test_artifact_body_returns_only_current_readable_typed_threads(client):
 
     body = client.get(f"/api/artifacts/{aid}").json()
     assert body["threads"] == [
-        {"entity": "task", "id": task["id"]},
-        {"entity": "blocker", "id": blocker["id"]},
-        {"entity": "proposal", "id": proposal["id"]},
+        {"entity": "task", "id": task["id"], "title": "Readable thread"},
+        {"entity": "blocker", "id": blocker["id"], "title": "Readable blocker"},
+        {"entity": "proposal", "id": proposal["id"], "title": proposal_summary},
     ]
 
 
@@ -155,7 +158,9 @@ def test_artifact_threads_follow_each_destination_policy(client, monkeypatch):
 
     monkeypatch.setattr(api, "decide", destination_decision)
     body = client.get(f"/api/artifacts/{aid}").json()
-    assert body["threads"] == [{"entity": "blocker", "id": blocker["id"]}]
+    assert body["threads"] == [
+        {"entity": "blocker", "id": blocker["id"], "title": "Readable blocker thread"}
+    ]
 
 
 def test_artifact_threads_apply_row_level_policy_not_only_route_level(client, monkeypatch):
@@ -191,7 +196,54 @@ def test_artifact_threads_apply_row_level_policy_not_only_route_level(client, mo
 
     monkeypatch.setattr(api, "decide", row_decision)
     body = client.get(f"/api/artifacts/{aid}").json()
-    assert body["threads"] == [{"entity": "task", "id": kept["id"]}]
+    assert body["threads"] == [{"entity": "task", "id": kept["id"], "title": "Kept task thread"}]
+
+
+def test_artifact_thread_titles_batch_rows_of_one_entity(client, monkeypatch):
+    from app.services import refs
+
+    first = work.create_task("First batched thread", actor="tester")
+    second = work.create_task("Second batched thread", actor="tester")
+    root = Path(config.DATA_DIR) / "artifacts"
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / "batched-thread-titles.md"
+    path.write_text(
+        f"Task #{first['id']}. Task #{second['id']}.",
+        encoding="utf-8",
+    )
+    aid = db.execute(
+        "INSERT INTO artifacts (kind, title, path, created_by, created_at)"
+        " VALUES ('digest', 'Batched thread titles', ?, 'tester', ?) RETURNING id",
+        (str(path), db.now()),
+    )
+
+    original_one = refs.db.query_one
+    original_query = refs.db.query
+    title_one = 0
+    title_query = 0
+
+    def count_one(sql, *args, **kwargs):
+        nonlocal title_one
+        if " AS title FROM tasks " in sql:
+            title_one += 1
+        return original_one(sql, *args, **kwargs)
+
+    def count_query(sql, *args, **kwargs):
+        nonlocal title_query
+        if " AS title FROM tasks " in sql:
+            title_query += 1
+        return original_query(sql, *args, **kwargs)
+
+    monkeypatch.setattr(refs.db, "query_one", count_one)
+    monkeypatch.setattr(refs.db, "query", count_query)
+    body = client.get(f"/api/artifacts/{aid}").json()
+
+    assert body["threads"] == [
+        {"entity": "task", "id": first["id"], "title": "First batched thread"},
+        {"entity": "task", "id": second["id"], "title": "Second batched thread"},
+    ]
+    assert title_one == 0
+    assert title_query == 1
 
 
 def test_a_generated_report_does_not_thread_references_inside_titles(client):
@@ -216,7 +268,11 @@ def test_a_generated_report_does_not_thread_references_inside_titles(client):
     out = rituals.week_open(actor="tester", force=True)
     body = client.get(f"/api/artifacts/{out['artifact_id']}").json()
     threads = body["threads"]
-    assert {"entity": "task", "id": task["id"]} in threads
+    assert {
+        "entity": "task",
+        "id": task["id"],
+        "title": f"Bob's chase of decision #{decision['id']} approval",
+    } in threads
     assert not any(t["entity"] == "decision" for t in threads)
 
 

@@ -741,8 +741,8 @@ export default function ReviewPage() {
             aria-label={`Proposal #${c.id}: ${c.label}`}
             className="rounded-xl border border-line bg-card p-4 shadow-card"
           >
-            <div className="mb-2 flex items-center justify-between">
-              <span className="flex items-center gap-2 text-sm font-semibold">
+            <div className="mb-2 flex flex-wrap items-start gap-2">
+              <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2 break-words text-sm font-semibold">
                 <input
                   type="checkbox"
                   checked={selected.has(c.id)}
@@ -796,7 +796,7 @@ export default function ReviewPage() {
                   </span>
                 ) : null}
               </span>
-              <span className="text-xs text-ink-3">
+              <span className="ml-auto text-xs text-ink-3">
                 by {c.proposed_by} <OriginChip origin={c.origin} />
                 {c.requested_by ? ` · asked by ${c.requested_by}` : ""}
                 {c.sponsor
@@ -812,6 +812,11 @@ export default function ReviewPage() {
               <p className="mb-2 text-sm text-ink-2">{c.summary}</p>
             )}
             {c.evidence ? <AcceptanceEvidence evidence={c.evidence} /> : null}
+            <details className="mb-3">
+              <summary className="cursor-pointer text-xs font-medium text-thread underline">
+                Technical details
+              </summary>
+              <div className="mt-2">
             {diffs[c.id] ? (
               <div className="mb-3 overflow-x-auto">
                 <table className="w-full rounded-lg bg-raised text-xs">
@@ -870,6 +875,8 @@ export default function ReviewPage() {
             {c.record ? (
               <TrackRecord record={c.record} label={c.label} />
             ) : null}
+              </div>
+            </details>
             {asking?.id === c.id ? (
               <VerdictAsk
                 verb={asking.verb}
@@ -882,6 +889,7 @@ export default function ReviewPage() {
                 {forSponsor(c) ? (
                   <button
                     id={`verdict-approve-${c.id}`}
+                    aria-label={`Accept for ${c.sponsor} proposal #${c.id}: ${c.label}`}
                     onClick={() => setAsking({ id: c.id, verb: "approve" })}
                     title={`You are not the sponsor — your reason goes on the record and the verdict will not count toward ${c.proposed_by}'s trust streak`}
                     className="rounded-lg bg-ok-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
@@ -890,6 +898,7 @@ export default function ReviewPage() {
                   </button>
                 ) : (
                   <button
+                    aria-label={`Approve proposal #${c.id}: ${c.label}`}
                     onClick={() => act(c.id, "approve")}
                     className="rounded-lg bg-ok-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
                   >
@@ -898,6 +907,7 @@ export default function ReviewPage() {
                 )}
                 <button
                   id={`verdict-reject-${c.id}`}
+                  aria-label={`Reject proposal #${c.id}: ${c.label}`}
                   onClick={() => setAsking({ id: c.id, verb: "reject" })}
                   className="rounded-lg bg-danger/15 px-3 py-1.5 text-sm font-medium text-danger hover:bg-danger/20"
                 >

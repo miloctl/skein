@@ -56,6 +56,26 @@ function Badge({ value }: { value: string }) {
   );
 }
 
+const BROWSE_SECTIONS = [
+  "Engagements",
+  "Blockers",
+  "Capacity",
+  "Time away",
+  "Milestones",
+  "Tasks",
+  "Recently shipped",
+  "Open questions",
+  "Decisions",
+  "Recent standups",
+  "Calendar",
+  "Knowledge base",
+  "Recent activity",
+] as const;
+
+function browseSectionId(title: string) {
+  return `browse-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+}
+
 function Section({
   title,
   rows,
@@ -81,9 +101,15 @@ function Section({
   // its place.
   footer?: React.ReactNode;
 }) {
+  const id = browseSectionId(title);
   return (
-    <section className="rounded-xl border border-line bg-card p-4 shadow-card">
+    <section
+      id={id}
+      aria-labelledby={`${id}-title`}
+      className="scroll-mt-28 rounded-xl border border-line bg-card p-4 shadow-card"
+    >
       <h2
+        id={`${id}-title`}
         ref={headingRef}
         tabIndex={headingRef ? -1 : undefined}
         className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3 outline-none focus:ring-2 focus:ring-thread-solid"
@@ -233,8 +259,15 @@ function LessonsCard() {
 
 function StandupCard({ rows }: { rows: Row[] }) {
   return (
-    <section className="rounded-xl border border-line bg-card p-4 shadow-card">
-      <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+    <section
+      id="browse-recent-standups"
+      aria-labelledby="browse-recent-standups-title"
+      className="scroll-mt-28 rounded-xl border border-line bg-card p-4 shadow-card"
+    >
+      <h2
+        id="browse-recent-standups-title"
+        className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3"
+      >
         Recent standups
       </h2>
       {rows.length === 0 ? (
@@ -815,6 +848,20 @@ export default function Dashboard() {
           </button>
         </p>
       )}
+      <nav
+        aria-label="Browse sections"
+        className="sticky top-[calc(var(--nav-h)+0.5rem)] z-[5] mb-4 flex flex-wrap gap-1.5 rounded-xl border border-line bg-page/95 p-2 shadow-card backdrop-blur"
+      >
+        {BROWSE_SECTIONS.map((title) => (
+          <a
+            key={title}
+            href={`#${browseSectionId(title)}`}
+            className="rounded-full bg-raised px-2.5 py-1 text-xs text-ink-2 hover:bg-line hover:text-ink"
+          >
+            {title}
+          </a>
+        ))}
+      </nav>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <ExtensionDashboardCards />
         {pulse && (
@@ -972,6 +1019,7 @@ export default function Dashboard() {
                 {e.status !== "closed" && closing !== e.id && (
                   <button
                     id={`close-out-${e.id}`}
+                    aria-label={`Close out ${e.name}`}
                     onClick={() => {
                       const want = Number(e.id);
                       closingRef.current = want;
@@ -1071,6 +1119,7 @@ export default function Dashboard() {
                         }
                       }}
                       title={CONCLUSION_HINTS[c]}
+                      aria-label={`${c} — close out ${e.name}`}
                       className="rounded bg-raised px-2 py-0.5 hover:bg-line"
                     >
                       {c}
@@ -1158,6 +1207,7 @@ export default function Dashboard() {
                     </span>
                   ) : (
                     <button
+                      aria-label={`${b.owner ? "Reassign" : "Assign"} blocker #${b.id}: ${b.title}`}
                       onClick={() => setAssigningBlocker(Number(b.id))}
                       className="underline hover:text-ink-2"
                     >
@@ -1181,6 +1231,7 @@ export default function Dashboard() {
                     </select>
                   </label>
                   <button
+                    aria-label={`Resolve blocker #${b.id}: ${b.title}`}
                     onClick={async () => {
                       try {
                         await api(`/api/blockers/${b.id}/resolve`, {
@@ -1341,8 +1392,15 @@ export default function Dashboard() {
             </li>
           )}
         />
-        <section className="rounded-xl border border-line bg-card p-4 shadow-card">
-          <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+        <section
+          id="browse-time-away"
+          aria-labelledby="browse-time-away-title"
+          className="scroll-mt-28 rounded-xl border border-line bg-card p-4 shadow-card"
+        >
+          <h2
+            id="browse-time-away-title"
+            className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3"
+          >
             Time away
           </h2>
           <p className="mb-2 text-xs text-ink-3">
@@ -1583,7 +1641,7 @@ export default function Dashboard() {
             ) : (
               <li
                 key={t.id}
-                className="flex items-center justify-between gap-2 text-sm"
+                className="flex flex-col gap-1.5 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-2"
               >
                 <span className="min-w-0 break-words">
                   <PeekLink taskId={Number(t.id)}>
@@ -1614,14 +1672,14 @@ export default function Dashboard() {
                     </a>
                   ) : null}
                 </span>
-                <span className="flex shrink-0 items-center gap-1">
+                <span className="flex shrink-0 items-center gap-1 self-end sm:self-auto">
                   <button
                     id={`edit-task-${t.id}`}
                     aria-label={`Edit task #${t.id}: ${t.title}`}
                     onClick={() =>
                       setEditing({ kind: "task", id: Number(t.id) })
                     }
-                    className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                    className="min-h-7 rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
                   >
                     edit…
                   </button>

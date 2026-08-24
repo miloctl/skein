@@ -23,6 +23,7 @@ it the task meaning, but a receipt that means a task says "task".
 import re
 from collections.abc import Callable
 
+from .. import db
 from . import policy_context, scope
 
 ResourceFilter = Callable[[str, int, dict[str, str]], bool]
@@ -46,6 +47,22 @@ TARGETS = {
     "lesson": "lesson",
     "finding": "finding",
     "intake": "intake",
+}
+
+# Constant schema names, used only AFTER scope and policy permit the row. A
+# title resolved before that check would republish a private row through a
+# report chip even though its id was correctly filtered out.
+_TITLE_SOURCE = {
+    "task": ("tasks", "title"),
+    "milestone": ("milestones", "title"),
+    "blocker": ("blockers", "title"),
+    "question": ("questions", "question"),
+    "decision": ("decisions", "title"),
+    "promise": ("promises", "promise"),
+    "engagement": ("engagements", "name"),
+    "lesson": ("lessons", "title"),
+    "finding": ("findings", "message"),
+    "intake": ("intake_requests", "title"),
 }
 
 _REF = re.compile(r"\b(" + "|".join(TARGETS) + r")\s+#(\d+)\b", re.IGNORECASE)
@@ -121,6 +138,7 @@ def readable_refs(
         if permits(resource, attributes, resource_filter)
     }
 
+    titles: dict[tuple[str, int], str] = {}
     proposal_ids = {int(ref["id"]) for ref in parsed if ref["entity"] == "proposal"}
     if proposal_ids:
         from . import review
@@ -128,16 +146,35 @@ def readable_refs(
         def proposal_permits(entity: str, entity_id: int, attributes: dict[str, str]) -> bool:
             return permits((entity, entity_id), attributes, proposal_filter)
 
-        available.update(
-            ("proposal", int(row["id"]))
-            for row in review.pending_changes_by_ids(
-                proposal_ids,
-                viewer,
-                resource_filter=proposal_permits,
-                allow_unclassified=allow_unclassified_proposals,
-            )
+        proposals = review.pending_changes_by_ids(
+            proposal_ids,
+            viewer,
+            resource_filter=proposal_permits,
+            allow_unclassified=allow_unclassified_proposals,
         )
-    return [ref for ref in parsed if (str(ref["entity"]), int(ref["id"])) in available]
+        for row in proposals:
+            key = ("proposal", int(row["id"]))
+            available.add(key)
+            titles[key] = str(row.get("summary") or "")
+
+    for entity, (table, column) in _TITLE_SOURCE.items():
+        ids = sorted(entity_id for kind, entity_id in available if kind == entity)
+        if not ids:
+            continue
+        visible, params = scope.visible_filter(viewer, table)
+        marks = ", ".join("?" for _ in ids)
+        for title_row in db.query(
+            f"SELECT id, {column} AS title FROM {table}"  # noqa: S608 — constant map
+            f" WHERE id IN ({marks}) AND {visible}",
+            (*ids, *params),
+        ):
+            titles[(entity, int(title_row["id"]))] = str(title_row.get("title") or "")
+
+    return [
+        {**ref, **({"title": titles[key]} if titles.get(key) else {})}
+        for ref in parsed
+        if (key := (str(ref["entity"]), int(ref["id"]))) in available
+    ]
 
 
 def receipt(text: str) -> dict:

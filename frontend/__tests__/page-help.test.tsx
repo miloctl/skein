@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   cardId: "review",
   cardFeature: "Review queue",
   cardLink: "/review",
+  cardCount: 1,
   calls: [] as string[],
 }));
 
@@ -27,16 +28,14 @@ vi.mock("@/lib/api", async (importOriginal) => {
       if (path.startsWith("/api/field-guide/for")) {
         if (state.guideError) return Promise.reject(new Error("Guide unavailable"));
         return Promise.resolve({
-          cards: [
-            {
-              id: state.cardId,
-              feature: state.cardFeature,
-              knot: "Sheet bend",
-              pitch: "Keep agent changes under human control.",
-              how: "Open a proposal and record a verdict.",
-              link: state.cardLink,
-            },
-          ],
+          cards: Array.from({ length: state.cardCount }, (_, index) => ({
+            id: index === 0 ? state.cardId : `card-${index + 1}`,
+            feature: index === 0 ? state.cardFeature : `Feature ${index + 1}`,
+            knot: "Sheet bend",
+            pitch: "Keep agent changes under human control.",
+            how: "Open a proposal and record a verdict.",
+            link: index === 0 ? state.cardLink : `/feature-${index + 1}`,
+          })),
         });
       }
       return Promise.resolve({});
@@ -54,10 +53,49 @@ beforeEach(() => {
   state.cardId = "review";
   state.cardFeature = "Review queue";
   state.cardLink = "/review";
+  state.cardCount = 1;
   state.calls.length = 0;
 });
 
 describe("page help", () => {
+  it("uses a visible desktop Help label", () => {
+    render(<PageHelp />);
+    expect(screen.getByRole("button", { name: "Help for this page" }).textContent).toContain(
+      "Help",
+    );
+  });
+
+  it("shows three cards first and expands the rest on request", async () => {
+    state.cardCount = 5;
+    render(<PageHelp />);
+    fireEvent.click(screen.getByRole("button", { name: "Help for this page" }));
+
+    expect(await screen.findByText("Feature 3")).toBeTruthy();
+    expect(screen.queryByText("Feature 4")).toBeNull();
+    const more = screen.getByRole("button", { name: "Show 2 more" });
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    expect(more.getAttribute("aria-controls")).toBe("page-help-cards");
+    fireEvent.click(more);
+    expect(screen.getByText("Feature 5")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Show fewer" }).getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+  });
+
+  it("gives People useful local help when no guide card matches", async () => {
+    state.pathname = "/people";
+    state.cardCount = 0;
+    render(<PageHelp />);
+    fireEvent.click(screen.getByRole("button", { name: "Help for this page" }));
+
+    expect(
+      await screen.findByText(
+        "Private 1:1 prep and notes require deployment sign-in or a personal API key.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open Settings & access" })).toBeTruthy();
+  });
+
   it("loads guidance only after the user opens it", async () => {
     render(<PageHelp />);
     expect(state.calls).toEqual([]);
@@ -192,7 +230,7 @@ describe("page help", () => {
     // shrink-0 as well as the width: the cluster is min-w-0 and the search box
     // is flex-1 below sm, so a shrinkable spacer collapses and /guide reflows
     // again on exactly the narrow viewports this was reported from
-    expect(container.querySelector(".size-8.shrink-0")).not.toBeNull();
+    expect(container.querySelector(".h-8.w-8.shrink-0")).not.toBeNull();
   });
 
   it("offers help on Chat, handing the Bosun prefill to the live composer", async () => {

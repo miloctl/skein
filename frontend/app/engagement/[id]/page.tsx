@@ -241,9 +241,13 @@ export default function EngagementBrief({
               }
             }}
           >
+            <label htmlFor="engagement-outcome" className="w-full text-xs font-medium text-ink-2">
+              Intended outcome
+            </label>
             <input
-              aria-label="Intended outcome"
-              placeholder="what done looks like — the engagement closes against this"
+              id="engagement-outcome"
+              name="engagement-outcome"
+              placeholder="For example: Cut over without a read outage."
               value={outcomeDraft}
               onChange={(ev) => setOutcomeDraft(ev.target.value)}
               className="min-w-64 flex-1 rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
@@ -252,7 +256,7 @@ export default function EngagementBrief({
               disabled={!outcomeDraft.trim()}
               className="rounded-lg bg-raised px-2.5 py-1 text-xs font-medium hover:bg-line disabled:opacity-40"
             >
-              Record
+              Record outcome
             </button>
           </form>
         )}
