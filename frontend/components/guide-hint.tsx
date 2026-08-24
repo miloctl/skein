@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
+import { startFirstWatch } from "@/lib/first-watch";
 
 type Suggestion = { id: string; feature: string; pitch: string; link: string };
 
@@ -33,9 +34,15 @@ export function GuideHint() {
         Something you have not tried yet:{" "}
         <span className="font-medium text-ink-2">{s.feature}</span> — {s.pitch}
       </span>
-      <Link href={s.link} className="underline hover:text-ink-2">
-        Try it
-      </Link>
+      {s.id === "first_watch" ? (
+        <button type="button" onClick={startFirstWatch} className="underline hover:text-ink-2">
+          Start First Watch
+        </button>
+      ) : (
+        <Link href={s.link} className="underline hover:text-ink-2">
+          Try it
+        </Link>
+      )}
       <Link href="/guide" className="underline hover:text-ink-2">
         Field guide
       </Link>

@@ -8,6 +8,8 @@
 # deep link, must start with /) · since (YYYY-MM-DD the card entered the
 # guide — feeds the feature_unadopted grace window) · role (optional:
 # "manager" marks cards for the manager toggle so IC completionists know).
+# Tours contain ordered card ids only. Copy or links repeated under `tours`
+# drift away from Page Help, the Field Guide, and Bosun on the next edit.
 #
 # Voice rules: dry, terse, no exclamation marks, no praise adjectives.
 #
@@ -23,6 +25,16 @@
 # old date ships with the feature_unadopted grace window already expired and
 # fires a finding in week one. The registry is cached at startup and only
 # re-read on restart (uvicorn --reload watches *.py, not *.yaml).
+
+tours:
+  first-watch:
+    - first_watch
+    - capture
+    - task_peek
+    - search
+    - review
+    - activity_feed
+    - bosun
 
 knots:
   # ---- Loops — the solo basics ----------------------------------------
@@ -53,6 +65,16 @@ knots:
     link: /
     since: 2026-08-15
 
+  - id: first_watch
+    feature: First Watch
+    knot: Bowline on a Coil
+    set: loops
+    ties: mark
+    pitch: Bosun walks the line once, then leaves the watch in your hands.
+    how: Start First Watch from My Day or the Field Guide. Capture one real task, follow it through Skein, and finish in Chat.
+    link: /?tour=first-watch
+    since: 2026-08-23
+
   - id: todays_three
     feature: Today's Three
     knot: Trinity Knot
@@ -71,6 +93,16 @@ knots:
     how: Mark any task of yours done on Work → Browse. Open work stays in Tasks, and work from the last 7 days stays in Recently shipped.
     link: /dashboard
     since: 2026-07-31
+
+  - id: task_peek
+    feature: Task side peek
+    knot: Manharness Knot
+    set: loops
+    ties: mark
+    pitch: One task opens beside the page without pulling you away from the formation.
+    how: Open any task link. Read or edit the task in the side panel. Use Escape or Back to close it.
+    link: /dashboard
+    since: 2026-08-23
 
   - id: decision
     feature: Decisions with a half-life
@@ -249,8 +281,8 @@ knots:
     feature: Delegate to an agent
     knot: Rolling Hitch
     set: hitches
-    pitch: A task handed to an agent, with a human sponsor on record.
-    how: Pick a task on Work → Browse and delegate it. You become the sponsor. On Team → Agents, Has work shows identities with open tasks or pending proposals. Select All agents to inspect every identity.
+    pitch: A task handed to an agent starts moving, while a human sponsor still holds the finish.
+    how: Pick a task on Work → Browse and delegate it. You become the sponsor. If background jobs run and the deployment has a live provider, Skein queues one bounded agent turn. The task panel shows the wake state, worklog, and acceptance proposal.
     link: /dashboard
     since: 2026-07-31
 

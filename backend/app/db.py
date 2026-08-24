@@ -441,6 +441,7 @@ LOCK_JOB = 6
 LOCK_UPLOAD = 7
 LOCK_ARTIFACT = 8
 LOCK_SCHEMA = 9
+LOCK_FIELD_GUIDE = 10
 
 # EVERY advisory lock is scoped to the current database by this expression.
 # PostgreSQL advisory locks are CLUSTER-global: the key space is shared by

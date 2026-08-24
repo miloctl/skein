@@ -11,6 +11,7 @@ import "./globals.css";
 
 import { AuthGate } from "@/components/auth-gate";
 import { CapturePalette } from "@/components/capture-palette";
+import { FirstWatch } from "@/components/first-watch";
 import { Nav } from "@/components/nav";
 import { StatusRegion } from "@/components/status-region";
 import { TaskPeek } from "@/components/task-peek";
@@ -129,7 +130,10 @@ export default function RootLayout({
           <CapturePalette />
           {/* locked deployments (oidc, api-key): until an identity exists the
               gate renders instead of the page — see components/auth-gate.tsx */}
-          <AuthGate>{children}</AuthGate>
+          <AuthGate>
+            <FirstWatch />
+            {children}
+          </AuthGate>
           {/* mounted once for the whole app: any surface that names a task can
               link to ?task=<id>, and the panel opens over whatever page the
               reader was already on instead of navigating them away from it */}

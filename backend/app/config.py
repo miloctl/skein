@@ -1179,6 +1179,12 @@ AGENT_DAILY_TOKENS = _ctx_num("SKEIN_AGENT_DAILY_TOKENS", 0, int, low=0, high=10
 # STALL; it never caps a turn that keeps making progress in a loop it cannot
 # finish, which is the shape of a runaway.
 AGENT_RUN_SECONDS = _ctx_num("SKEIN_AGENT_RUN_SECONDS", 300, int, low=30, high=3600)
+# Workspace-wide daily cap on delegation-triggered wake turns. Bounded by
+# default on purpose: the wake path bypasses the runner allowlist, the token
+# ceiling defaults to 0, and a strong caller can mint fresh agent names — so
+# without an aggregate cap one authenticated loop converts delegations into
+# an unbounded provider bill. 0 removes the cap.
+AGENT_WAKES_PER_DAY = _ctx_num("SKEIN_AGENT_WAKES_PER_DAY", 24, int, low=0, high=10000)
 # Agents the runner may wake, comma-separated. Empty = the runner is OFF.
 # An allowlist, never "every agent with open work": a runner that discovers
 # its own fleet grows one every time somebody delegates to a new name.

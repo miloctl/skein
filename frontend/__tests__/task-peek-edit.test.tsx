@@ -29,7 +29,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.api.mockImplementation((path: string, opts?: { method?: string }) => {
     if (opts?.method === "PATCH") return Promise.resolve({ id: 4 });
-    if (path.endsWith("/worklog")) return Promise.resolve([]);
+    if (path.includes("/worklog")) return Promise.resolve([]);
     if (path === "/api/users") return Promise.resolve([]);
     return Promise.resolve({ ...task });
   });
@@ -83,7 +83,7 @@ describe("editing from the task panel", () => {
   it("offers restore on a voided task", async () => {
     mocks.api.mockImplementation((path: string, opts?: { method?: string }) => {
       if (opts?.method === "PATCH") return Promise.resolve({ id: 4 });
-      if (path.endsWith("/worklog")) return Promise.resolve([]);
+      if (path.includes("/worklog")) return Promise.resolve([]);
       if (path === "/api/users") return Promise.resolve([]);
       return Promise.resolve({ ...task, status: "void" });
     });
@@ -99,7 +99,7 @@ describe("editing from the task panel", () => {
   it("keeps status and done off a delegated task", async () => {
     task.status = "in_progress";
     mocks.api.mockImplementation((path: string) =>
-      path.endsWith("/worklog")
+      path.includes("/worklog")
         ? Promise.resolve([])
         : path === "/api/users"
           ? Promise.resolve([])

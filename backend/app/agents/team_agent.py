@@ -790,6 +790,7 @@ def build_agent(
     extensions: ExtensionRegistry | None = None,
     policy_subject=None,
     resolved_model: str = "",
+    allowed_tools: set[str] | frozenset[str] | None = None,
 ):
     """One agent per chat thread. Mock provider needs no keys and no Strands
     session; real providers persist conversations in the session tables
@@ -798,6 +799,10 @@ def build_agent(
     tools: a declared allowlist filters what BOTH this agent and its planner
     sub-agent are built with (the planner runs under the persona's identity,
     so its writes are the persona's writes).
+
+    allowed_tools applies one final structural cap after stock, extension, extra,
+    and remote tools are assembled. The unattended wake runner uses it to keep
+    unrelated writes and remote MCP calls out of an unobserved turn.
 
     stateless=True builds a flock member (docs/FLOCKS.md): no session manager,
     so the member reads and writes no session rows and answers the one message
@@ -1447,6 +1452,11 @@ def build_agent(
         known = {_tool_name(t) for t in (*ALL_TOOLS, plan_project)}
         allowed = set(beh["tools"]) & known
         tools = [t for t in tools if _tool_name(t) in allowed]
+    if allowed_tools is not None:
+        # The unattended runner has no human watching the tool stream. Apply
+        # this LAST so remote, contributed, extra, planning, and consultation
+        # tools cannot enter through an earlier assembly branch.
+        tools = [t for t in tools if _tool_name(t) in allowed_tools]
 
     # routes/chat.py resolves this before attachment preparation. Reading the
     # admin pick again here can send an image block to a text-only model when a

@@ -12,6 +12,7 @@ import {
 import { actionError, api, getUser, loadError, setUser } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import { StandupComposer } from "@/components/standup-card";
+import { startFirstWatch } from "@/lib/first-watch";
 import { GuideHint } from "@/components/guide-hint";
 import { emptyState, loadingLine } from "@/lib/whimsy";
 import { Card } from "@/components/card";
@@ -988,6 +989,16 @@ export default function MyDay() {
                     title="Bring it back anytime from Settings"
                   >
                     dismiss
+                  </button>
+                </div>
+                <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-ink-2">
+                  <span>Follow one real task through the main Skein surfaces.</span>
+                  <button
+                    type="button"
+                    onClick={startFirstWatch}
+                    className="min-h-7 rounded-md border border-line-strong px-2 py-1 font-medium text-thread hover:bg-raised"
+                  >
+                    Start or resume First Watch
                   </button>
                 </div>
                 <div className="relative mb-5 mt-4 h-[3px] rounded-full bg-line">

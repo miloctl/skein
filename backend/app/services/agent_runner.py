@@ -40,7 +40,7 @@ import contextvars
 import logging
 import threading
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .. import config, db
 from . import delegation, usage
@@ -49,6 +49,9 @@ if TYPE_CHECKING:
     from ..extensions import ExtensionRegistry, PolicyEngine
 
 log = logging.getLogger("skein")
+
+# One turn per agent per process at a time — see the acquire site in run_one.
+_TURN_LOCKS: dict[str, threading.Lock] = {}
 
 # Days without a worklog note before the sponsor hears about it. The sweep
 # runs daily, so without a threshold every open delegation pings every day.
@@ -88,12 +91,14 @@ def _delegated_at(task_id: int) -> str | None:
     return row["at"] if row else None
 
 
-def _release(agent: str) -> None:
-    """Hand back today's claim: a failure that spent nothing must not eat the
-    slot until tomorrow."""
+def _release(agent: str, *, explicit_key: str = "") -> None:
+    """Hand back a claim when no model invocation started."""
     db.execute(
         "DELETE FROM job_runs WHERE job = ? AND run_key = ?",
-        (f"agent-run:{agent}", db.today().isoformat()),
+        (
+            f"agent-wake:{agent}" if explicit_key else f"agent-run:{agent}",
+            explicit_key or db.today().isoformat(),
+        ),
     )
 
 
@@ -259,15 +264,19 @@ def _refused(agent: str, reason: str) -> dict:
 
 
 def _failed(agent: str, reason: str) -> dict:
-    """A run that was SUPPOSED to happen and did not.
-
-    A build that raised, a turn that raised, a turn abandoned at the wall
-    clock. `run` reports these to the scheduler as a partial or failed job:
-    without the distinction every allowlisted agent could fail all week while
-    `job_outcomes` recorded `ok` and /health showed the fleet green, because
-    the job itself returned a value rather than raising.
-    """
+    """A required turn failed before its completion became uncertain."""
     return {"agent": agent, "ran": False, "fault": True, "reason": reason}
+
+
+def _unknown(agent: str, reason: str) -> dict:
+    """A model invocation started and can already have written records."""
+    return {
+        "agent": agent,
+        "ran": False,
+        "fault": True,
+        "completion_unknown": True,
+        "reason": reason,
+    }
 
 
 def run_one(
@@ -276,6 +285,8 @@ def run_one(
     actor: str = "scheduler",
     extensions: ExtensionRegistry | None = None,
     policy: PolicyEngine | None = None,
+    explicit_key: str = "",
+    allowed_tools: set[str] | frozenset[str] | None = None,
 ) -> dict:
     """One bounded, unattended turn for one agent.
 
@@ -283,7 +294,7 @@ def run_one(
     act on — the caller runs a fleet, and one agent over budget must not stop
     the others.
     """
-    if agent not in config.AGENT_RUNNER:
+    if not explicit_key and agent not in config.AGENT_RUNNER:
         return _refused(agent, "not in SKEIN_AGENT_RUNNER")
     if config.EFFECTIVE_PROVIDER == "mock":
         # not an error: mock is a supported deployment, and sweep() above is
@@ -310,9 +321,20 @@ def run_one(
     with db.transaction():
         if not _due(agent, policy):
             return _refused(agent, "nothing delegated")
-        # once per (agent, team day): a restart must not re-spend the allowance
-        if not db.claim_job(f"agent-run:{agent}", db.today().isoformat()):
-            return _refused(agent, "already ran today")
+        claim_job = f"agent-wake:{agent}" if explicit_key else f"agent-run:{agent}"
+        claim_key = explicit_key or db.today().isoformat()
+        if not db.claim_job(claim_job, claim_key):
+            return _refused(agent, "already ran this wake" if explicit_key else "already ran today")
+
+    # The wake worker and the daily 05:30 job share one process and disjoint
+    # claim namespaces, so without this an agent runs two concurrent turns
+    # over the same inbox: double spend, duplicate proposals and notes.
+    turn_lock = _TURN_LOCKS.setdefault(agent, threading.Lock())
+    if not turn_lock.acquire(blocking=False):
+        # the claim goes back: this entrant spent nothing, and the turn that
+        # holds the lock owns the day's (or this wake's) allowance
+        _release(agent, explicit_key=explicit_key)
+        return _refused(agent, "a turn for this agent is already running")
 
     from ..agents.identity import reset_agent_identity, set_agent_identity
     from ..agents.team_agent import (
@@ -330,9 +352,13 @@ def run_one(
         set_policy_subject,
     )
 
-    # A thread id per agent per day, so the run has somewhere to keep its
-    # session and a human can read the transcript afterwards on /chat.
-    thread = f"run-{agent}-{db.today().isoformat()}"
+    # The ":" separator is outside chat_threads._THREAD_ID's charset, the same
+    # guarantee persona_session_id relies on: a runner session id cannot be
+    # typed, so no chat caller can claim it, restore the agent's unattended
+    # conversation, or mint usage rows that count against the wake cap.
+    thread = (
+        f"wake:{agent}:{explicit_key}" if explicit_key else f"run:{agent}:{db.today().isoformat()}"
+    )
     agent_subject = PolicySubject(
         agent,
         kind="agent",
@@ -345,26 +371,35 @@ def run_one(
     # A planner or specialist can be built after the outer agent starts. Freeze
     # the team pick so an admin change cannot split one unattended turn.
     model_token = set_team_model_snapshot(model_in_force())
+    invoked = False
     try:
         try:
+            build_kwargs: dict[str, Any] = {}
+            from .personas import bench_slugs
+
+            if agent in bench_slugs():
+                build_kwargs["persona"] = agent
+            if allowed_tools is not None:
+                build_kwargs["allowed_tools"] = set(allowed_tools)
             if extensions is not None:
                 built = build_agent(
                     thread,
                     user=agent,
                     extensions=extensions,
                     policy_subject=agent_subject,
+                    **build_kwargs,
                 )
             else:
-                built = build_agent(thread, user=agent)
+                built = build_agent(thread, user=agent, **build_kwargs)
         except Exception as exc:
             # the claim is RELEASED here: nothing reached the provider, so
             # nothing was spent, and a 30-second blip at 05:30 must not cost
             # the whole day on a job that runs once and does not catch up
-            _release(agent)
+            _release(agent, explicit_key=explicit_key)
             log.warning("agent build failed for %s: %s", agent, exc)
             return _failed(agent, f"could not build: {type(exc).__name__}")
         if built is None:
-            _release(agent)
+            _release(agent, explicit_key=explicit_key)
             return _failed(agent, "no agent could be built")
         # A DAEMON thread, not a ThreadPoolExecutor: the executor joins its
         # workers both on context exit AND through an atexit hook, so either
@@ -404,18 +439,27 @@ def run_one(
                 # both bounds written for it read zero forever: the daily
                 # ceiling (usage.assert_within_budget) and the runaway rule
                 # (insights.py::_r_turn_runaway).
-                row = usage.row_from_agent(built, thread, agent_name=agent)
-                if row:
-                    with contextlib.suppress(Exception):
-                        # a wake turn has no linkable chat thread, so its
-                        # spend sat under '(unlinked)' however clearly it was
-                        # one engagement's work — attributed only when every
-                        # open delegated task resolves to the same engagement
-                        # (usage.sole_delegation_engagement), never guessed
-                        usage.record_chat_usage(
-                            **row,
-                            engagement_id=usage.sole_delegation_engagement(agent),
-                        )
+                try:
+                    row = usage.row_from_agent(built, thread, agent_name=agent)
+                    if row:
+                        with contextlib.suppress(Exception):
+                            # a wake turn has no linkable chat thread, so its
+                            # spend sat under '(unlinked)' however clearly it
+                            # was one engagement's work — attributed only when
+                            # every open delegated task resolves to the same
+                            # engagement (usage.sole_delegation_engagement),
+                            # never guessed
+                            usage.record_chat_usage(
+                                **row,
+                                engagement_id=usage.sole_delegation_engagement(agent),
+                            )
+                finally:
+                    # An invoked turn owns the lock: run_one's finally released
+                    # it at the wall-clock timeout while this thread kept
+                    # calling tools, and the next wake ran a second concurrent
+                    # turn over the same inbox — the exact double spend the
+                    # lock exists to prevent.
+                    turn_lock.release()
 
         # copy_context(), because a ContextVar does NOT cross a bare
         # threading.Thread — the worker starts at the var's default. Without
@@ -431,13 +475,14 @@ def run_one(
             target=lambda: ctx.run(_turn), daemon=True, name=f"agent-run-{agent}"
         )
         worker.start()
+        invoked = True
         worker.join(timeout=config.AGENT_RUN_SECONDS)
         if worker.is_alive():
             # the claim key stays taken on purpose: a turn that ran long
             # enough to time out has already spent tokens, and retrying it
             # today would spend them again
             log.warning("agent run for %s exceeded %ss", agent, config.AGENT_RUN_SECONDS)
-            return _failed(agent, f"run exceeded {config.AGENT_RUN_SECONDS}s and was abandoned")
+            return _unknown(agent, f"run exceeded {config.AGENT_RUN_SECONDS}s and was abandoned")
         if "error" in box:
             raise box["error"]
         reply = box.get("reply", "")
@@ -449,6 +494,8 @@ def run_one(
         # and a raise there marks the whole sweep failed on /health when the
         # other agents ran fine.
         log.warning("agent run failed for %s: %s", agent, exc)
+        if invoked:
+            return _unknown(agent, f"run failed: {type(exc).__name__}")
         return _failed(agent, f"run failed: {type(exc).__name__}")
     finally:
         # in a finally, not after the call: an exception mid-turn would
@@ -458,6 +505,11 @@ def run_one(
         reset_agent_identity(token)
         reset_policy_subject(subject_token)
         reset_policy_engine(policy_token)
+        # only when no turn thread started: once invoked, _turn's finally is
+        # the sole releaser, so an abandoned turn keeps the agent locked until
+        # its thread actually ends
+        if not invoked:
+            turn_lock.release()
 
 
 def run(

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 class NoopResizeObserver {
@@ -62,11 +62,35 @@ describe("chat composer handoff", () => {
       `/chat?compose=${encodeURIComponent(compose)}`,
     );
 
+    const ready: string[] = [];
+    const onReady = (event: Event) => ready.push((event as CustomEvent<string>).detail);
+    window.addEventListener("skein-chat-compose-ready", onReady);
     render(<Harness />);
 
     const input = screen.getByRole("combobox") as HTMLTextAreaElement;
     await waitFor(() => expect(input.value).toBe(compose));
+    expect(document.activeElement).toBe(input);
+    expect(ready).toEqual([compose]);
     expect(window.location.search).toBe("");
+    window.removeEventListener("skein-chat-compose-ready", onReady);
+  });
+
+  it("reports readiness when the same text is already in the mounted composer", async () => {
+    render(<Harness />);
+    const input = screen.getByRole("combobox") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "/help" } });
+    await waitFor(() => expect(input.value).toBe("/help"));
+    const ready: string[] = [];
+    const onReady = (event: Event) => ready.push((event as CustomEvent<string>).detail);
+    window.addEventListener("skein-chat-compose-ready", onReady);
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("skein-chat-compose", { detail: "/help" }));
+    });
+
+    await waitFor(() => expect(ready).toEqual(["/help"]));
+    expect(document.activeElement).toBe(input);
+    window.removeEventListener("skein-chat-compose-ready", onReady);
   });
 
   it("removes an oversized prefill without putting it in the composer", async () => {

@@ -69,6 +69,32 @@ def test_a_capture_without_a_key_still_files(client):
     assert len(client.get("/api/notes").json()) == 2
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "todo:",
+        "q:",
+        "blocked:",
+        "blocked on",
+        "decision:",
+        "promised:",
+        "awaiting:",
+        "req:",
+        "note:",
+    ],
+)
+def test_explicit_capture_prefix_needs_a_body(client, fresh_db, text):
+    from app.services import capture
+
+    with pytest.raises(ValueError, match="Add text after the prefix"):
+        capture.plan(text, actor="tester")
+
+    response = client.post("/api/capture", json={"text": text})
+    assert response.status_code == 400
+    assert text not in response.text
+    assert fresh_db.query_one("SELECT 1 FROM activity WHERE action = 'capture'") is None
+
+
 def test_q_capture_assigns_known_user(client):
     client.post("/api/users/growth-interests", json={"interests": "x"}, headers={"X-User": "mira"})
     r = client.post("/api/capture", json={"text": "q: mira — where do the traces land?"})

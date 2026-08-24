@@ -646,6 +646,10 @@ UNSCOPED: dict[str, str] = {
     ),
     # --- infrastructure: no user-authored content ---
     "agent_authority": "the agent write matrix, not content",
+    "agent_wakeups": (
+        "operational state for one bounded agent turn. It stores identifiers,"
+        " timestamps and a safe reason code, never task or model text"
+    ),
     "api_keys": "credentials, owner-scoped, never listed to anyone else",
     "app_settings": "deployment configuration",
     "crew_members": "the membership the filter READS. Scoping it would be circular.",

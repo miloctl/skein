@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useRef,
   useState,
   useSyncExternalStore,
   type ComponentPropsWithoutRef,
@@ -377,11 +378,30 @@ const Composer = () => {
     getActivePersona,
     () => null,
   );
+  const pendingPrefill = useRef<string | null>(null);
+  const composerText = useRef(text);
 
   useEffect(() => {
-    const prefill = (text: string) => {
-      if (text.length <= COMPOSE_LIMIT) composer.setText(text);
-      else
+    composerText.current = text;
+  }, [text]);
+
+  useEffect(() => {
+    const prefill = (value: string) => {
+      if (value.length <= COMPOSE_LIMIT) {
+        pendingPrefill.current = value;
+        if (composerText.current === value) {
+          const input = document.querySelector<HTMLTextAreaElement>(
+            'textarea[name="message"]',
+          );
+          if (input) {
+            input.focus();
+            pendingPrefill.current = null;
+            window.dispatchEvent(
+              new CustomEvent("skein-chat-compose-ready", { detail: value }),
+            );
+          }
+        } else composer.setText(value);
+      } else
         reportStatus(
           "The chat prefill is too long. Shorten it to 500 characters or fewer.",
         );
@@ -401,6 +421,16 @@ const Composer = () => {
     window.addEventListener("skein-chat-compose", onPrefill);
     return () => window.removeEventListener("skein-chat-compose", onPrefill);
   }, [composer]);
+
+  useEffect(() => {
+    if (pendingPrefill.current !== text) return;
+    const input = document.querySelector<HTMLTextAreaElement>('textarea[name="message"]');
+    if (!input) return;
+    input.focus();
+    const ready = pendingPrefill.current;
+    pendingPrefill.current = null;
+    window.dispatchEvent(new CustomEvent("skein-chat-compose-ready", { detail: ready }));
+  }, [text]);
 
   useEffect(() => {
     chatCommands()
@@ -692,7 +722,7 @@ const Composer = () => {
                         {c.args}
                       </code>
                     )}
-                    <span className="truncate text-xs text-ink-3">
+                    <span className="truncate text-xs text-ink-2">
                       {c.description}
                     </span>
                     {i === activeIdx && (

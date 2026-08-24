@@ -8,9 +8,9 @@ import { describe, expect, it, vi } from "vitest";
 
 const entry = (seq: number, over: Partial<Record<string, unknown>> = {}) => ({
   seq,
-  actor: "emiliano",
+  actor: "mira",
   who: "you",
-  sentence: "emiliano deleted an attached file",
+  sentence: "mira deleted an attached file",
   salience: "normal",
   registered: true,
   action: "delete_file",

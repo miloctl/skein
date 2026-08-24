@@ -6,6 +6,8 @@ const state = vi.hoisted(() => ({
   provider: "ollama",
   providerError: "",
   guideError: false,
+  cardId: "review",
+  cardFeature: "Review queue",
   cardLink: "/review",
   calls: [] as string[],
 }));
@@ -27,8 +29,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
         return Promise.resolve({
           cards: [
             {
-              id: "review",
-              feature: "Review queue",
+              id: state.cardId,
+              feature: state.cardFeature,
               knot: "Sheet bend",
               pitch: "Keep agent changes under human control.",
               how: "Open a proposal and record a verdict.",
@@ -49,6 +51,8 @@ beforeEach(() => {
   state.provider = "ollama";
   state.providerError = "";
   state.guideError = false;
+  state.cardId = "review";
+  state.cardFeature = "Review queue";
   state.cardLink = "/review";
   state.calls.length = 0;
 });
@@ -63,6 +67,47 @@ describe("page help", () => {
     expect(await screen.findByText("Review queue")).toBeTruthy();
     expect(state.calls).toContain("/api/field-guide/for?path=%2Freview");
     expect(screen.getByText("Open a proposal and record a verdict.")).toBeTruthy();
+  });
+
+  it("starts First Watch only from its My Day card", async () => {
+    state.pathname = "/";
+    state.cardId = "first_watch";
+    state.cardFeature = "First Watch";
+    state.cardLink = "/?tour=first-watch";
+    const starts = vi.fn();
+    window.addEventListener("skein-first-watch-start", starts);
+    render(<PageHelp />);
+    const trigger = screen.getByRole("button", { name: "Help for this page" });
+    fireEvent.click(trigger);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Start First Watch" }));
+    expect(document.activeElement).toBe(trigger);
+    await waitFor(() => expect(starts).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("dialog", { name: "Help for this page" })).toBeNull();
+    window.removeEventListener("skein-first-watch-start", starts);
+  });
+
+  it("reloads cards when a persistent shell changes route", async () => {
+    state.pathname = "/";
+    state.cardId = "first_watch";
+    state.cardFeature = "First Watch";
+    state.cardLink = "/?tour=first-watch";
+    const view = render(<PageHelp />);
+    fireEvent.click(screen.getByRole("button", { name: "Help for this page" }));
+    await screen.findByText("First Watch");
+    fireEvent.click(screen.getByRole("button", { name: "Close page help" }));
+
+    state.pathname = "/review";
+    state.cardId = "review";
+    state.cardFeature = "Review queue";
+    state.cardLink = "/review";
+    view.rerender(<PageHelp />);
+    fireEvent.click(screen.getByRole("button", { name: "Help for this page" }));
+
+    expect(await screen.findByText("Review queue")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Start First Watch" })).toBeNull();
+    expect(state.calls).toContain("/api/field-guide/for?path=%2F");
+    expect(state.calls).toContain("/api/field-guide/for?path=%2Freview");
   });
 
   it("offers a visible Bosun handoff only with a live provider", async () => {

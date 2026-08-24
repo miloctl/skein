@@ -55,6 +55,7 @@ function readStored(): Stored | null {
 }
 
 function writeStored(t: Stored | null) {
+  const previousUser = readStored()?.user ?? "";
   try {
     if (t) {
       window.localStorage.setItem(TOKEN_KEY, JSON.stringify(t));
@@ -64,6 +65,8 @@ function writeStored(t: Stored | null) {
   } catch {}
   // same-tab subscribers (nav, settings) listen for this, as everywhere else
   window.dispatchEvent(new Event("storage"));
+  if (previousUser !== (t?.user ?? ""))
+    window.dispatchEvent(new Event("skein-identity-change"));
 }
 
 if (typeof window !== "undefined") {

@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 
 from . import config
-from .services import flocks, personas, playbooks
+from .services import fieldguide, flocks, personas, playbooks
 
 
 def validate(workflow_actions: set[str] | None = None) -> list[str]:
@@ -14,6 +14,10 @@ def validate(workflow_actions: set[str] | None = None) -> list[str]:
     errors.extend(f"playbook: {error}" for error in playbooks.validate_all(workflow_actions))
     errors.extend(f"persona: {error}" for error in personas.validate_all())
     errors.extend(f"flock: {error}" for error in flocks.validate_all())
+    try:
+        fieldguide.registry()
+    except ValueError as error:
+        errors.append(f"field-guide: {error}")
     return errors
 
 

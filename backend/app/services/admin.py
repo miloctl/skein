@@ -70,6 +70,7 @@ EXCLUDED = frozenset(
         "app_settings",
         "job_runs",
         "job_outcomes",
+        "agent_wakeups",
         # the immutable ledger carries historical settings and operational
         # details. A projection would no longer be a verifiable chain.
         "activity",
