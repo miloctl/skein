@@ -1448,9 +1448,13 @@ def list_findings(weeks: int = 4, limit: int = 50) -> list[dict]:
             "SELECT rule_id, subject, disposition FROM finding_dispositions ORDER BY id"
         )
     }
+    from .intervention import finding_audience, finding_label
+
     for r in rows:
         r["receipt"] = json.loads(r["receipt"])
         r["disposition"] = dispo.get((r["rule_id"], r["subject"]), "")
+        r["audience"] = finding_audience(str(r["rule_id"]))
+        r["label"] = finding_label(str(r["rule_id"]))
     return rows
 
 
@@ -1689,7 +1693,11 @@ def rule_stats() -> list[dict]:
         " FROM findings f LEFT JOIN latest l ON l.finding_id = f.id"
         " GROUP BY f.rule_id ORDER BY fired DESC"
     )
+    from .intervention import finding_audience, finding_label
+
     for r in rows:
+        r["audience"] = finding_audience(str(r["rule_id"]))
+        r["label"] = finding_label(str(r["rule_id"]))
         days = [
             x["d"]
             for x in db.query(

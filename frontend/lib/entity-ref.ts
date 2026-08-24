@@ -9,7 +9,7 @@
  *  reverse invents a link to a page that cannot show the row, which is worse
  *  than the id the reader started with.
  */
-export type EntityRef = { entity: string; id: number };
+export type EntityRef = { entity: string; id: number; title?: string };
 
 /** A receipt as the API sends it: the sentence first, always.
  *  A reader must be able to act on the words without following anything —

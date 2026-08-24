@@ -17,9 +17,9 @@ const OLDER = [
 ];
 
 const THREADS = [
-  { entity: "task", id: 12 },
-  { entity: "decision", id: 4 },
-  { entity: "proposal", id: 8 },
+  { entity: "task", id: 12, title: "Review the findings" },
+  { entity: "decision", id: 4, title: "Incident escalation path" },
+  { entity: "proposal", id: 8, title: "Create task" },
   { entity: "unknown", id: 9 },
 ];
 
@@ -128,12 +128,14 @@ describe("the Reports page", () => {
     expect(
       await screen.findByRole("heading", { level: 3, name: "Threads in this report" }),
     ).toBeTruthy();
-    const task = screen.getByText("task #12");
+    const task = screen.getByText("task #12: Review the findings");
     expect(task.closest("button")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "decision #4" }).getAttribute("href")).toBe(
+    expect(
+      screen.getByRole("link", { name: "decision #4: Incident escalation path" }).getAttribute("href"),
+    ).toBe(
       "/charter#charter-entry-4",
     );
-    expect(screen.getByRole("link", { name: "proposal #8" }).getAttribute("href")).toBe(
+    expect(screen.getByRole("link", { name: "proposal #8: Create task" }).getAttribute("href")).toBe(
       "/review?id=8",
     );
     const unknown = screen.getByText("unknown #9");

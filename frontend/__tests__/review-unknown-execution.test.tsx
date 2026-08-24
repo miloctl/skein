@@ -66,7 +66,11 @@ describe("reviewed execution with unknown completion", () => {
         <StatusRegion />
       </>,
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Approve proposal #41: run a governed stock tool",
+      }),
+    );
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toContain(
         "remote completion is unknown. Do not retry",

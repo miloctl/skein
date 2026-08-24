@@ -1,8 +1,9 @@
 # Field guide ("knots")
 
 First-use feature discovery. Every card in the guide is a shipped Skein
-feature; a card is **tied** once you've used the feature and **untied** until
-then. Untied cards carry the how-to and a deep link — the guide is
+feature. The stored state is **tied** after a person uses the feature and
+**untied** before that. The page calls these states **Explored** and **Not
+tried**. Not-tried cards carry the how-to and a deep link. The guide is
 progressive documentation with read-state, not an achievement system.
 
 Shaped by a three-agent concept review (PM, game design, behavioral
@@ -76,6 +77,11 @@ and judgment-laden surfaces; silent retroactive seeding; quiet cadence.
   (joining two ropes — cross-system seams, the highest-teaching-value
   cards), **Stoppers** (finishing), plus a manager-tagged group so IC
   completionists aren't chasing unreachable cards.
+- The page leads with the server-selected **Recommended next** feature. Local
+  controls filter the loaded cards by search text, feature state, audience,
+  and category. A polite status reports the result count after each change.
+  Card names are level-three headings. Plain category names lead, and
+  knot-family names stay secondary.
 - Named tours are ordered knot IDs in the same file. A tour repeats no card
   copy or link. The fixed tour read projects the cards without running
   detection, consuming `seen`, or writing unlock state.
@@ -93,7 +99,11 @@ cover Capture, Work with Task Peek, Search, Inbox, Team, and Chat.
   data and never deletes, voids, or edits that task during replay.
 - Progress is browser-local under the server-resolved identity. It stores the
   step ID and task ID, never task text. There is no server completion row or
-  manager-visible progress view.
+  manager-visible progress view. While the panel is visible, My Day hides the
+  separate Guided First Week progress card.
+- A passive restore failure leaves the page-level error state in control and
+  shows no false First Watch outage. An explicit start failure states the error
+  and tells the teammate to open the guide again.
 - `GET /api/field-guide/first-watch` is a pure content read. The fixed,
   rate-capped `POST` records that First Watch started. It does not record
   completion or accept a knot ID from the browser.

@@ -140,7 +140,7 @@ test("a chat turn round-trips through the mock agent", async ({ page }) => {
   await pickName(page);
   const faults = watch(page);
   await page.goto("/chat");
-  const composer = page.getByRole("combobox");
+  const composer = page.getByRole("textbox", { name: /Message/ });
   await composer.fill("/help");
   await composer.press("Enter");
   await expect(page.getByText("Mock agent").first()).toBeVisible({
@@ -159,6 +159,10 @@ test("the crews card is operable with a keyboard and announces what it did", asy
   const faults = watch(page);
   await page.goto("/settings");
   await page.waitForLoadState("networkidle");
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("link", { name: "Team", exact: true })
+    .click();
 
   const platform = page.getByRole("button", {
     name: "Remove marcus from Platform",
@@ -182,9 +186,7 @@ test("the crews card is operable with a keyboard and announces what it did", asy
   await expect(platform).toBeFocused();
 
   // and the write announces itself through the shared live region
-  await page
-    .getByLabel("Add someone to Platform")
-    .fill("annamaria-vandenberghe");
+  await page.getByLabel("Add someone to Platform").fill("mario");
   await page.getByRole("button", { name: "Add to Platform" }).click();
   await expect(
     page.getByRole("status").filter({ hasText: "added to Platform" }),

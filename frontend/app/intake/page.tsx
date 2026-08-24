@@ -402,7 +402,7 @@ export default function IntakePage() {
             ).length === 1
               ? " awaits"
               : "s await"}{" "}
-            triage — turn on <b>manager controls</b> (top right) to score and
+            triage — turn on <b>Management view</b> at the top of this page to score and
             decide.
           </p>
         )}

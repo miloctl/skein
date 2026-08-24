@@ -25,6 +25,21 @@ vi.mock("@/lib/api", async (importOriginal) => {
           ],
           note: "",
         });
+      if (path.includes("%2384"))
+        return Promise.resolve([
+          {
+            entity: "task",
+            entity_id: 84,
+            title: "Exact task",
+            snippet: "",
+          },
+          {
+            entity: "note",
+            entity_id: 7,
+            title: "related note",
+            snippet: "",
+          },
+        ]);
       return Promise.resolve([
         {
           entity: "note",
@@ -48,6 +63,21 @@ describe("the nav search box", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(screen.getByText("vendor call")).toBeTruthy());
     expect(calls.some((c) => c.startsWith("/api/search?q=vendor"))).toBe(true);
+  });
+
+  it("shows how to submit and separates an exact reference", async () => {
+    render(<NavSearch />);
+    const input = screen.getByLabelText(/Search Skein/);
+    expect(input.getAttribute("enterkeyhint")).toBe("search");
+
+    fireEvent.change(input, { target: { value: "#84" } });
+    expect(screen.getByText("Enter")).toBeTruthy();
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(await screen.findByText("Exact match")).toBeTruthy();
+    expect(screen.getByText("Related results")).toBeTruthy();
+    expect(screen.getByText("Exact task")).toBeTruthy();
+    expect(screen.getByText("related note")).toBeTruthy();
   });
 
   it("routes a leading ? to /ask, which answers with citations", async () => {

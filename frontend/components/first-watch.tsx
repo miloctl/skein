@@ -97,9 +97,10 @@ export function FirstWatch() {
       try {
         stored = parseFirstWatch(window.localStorage.getItem(firstWatchKey(who.user)));
       } catch {
-        reportStatus(
-          "First Watch did not read saved progress in this browser. Start it again to continue.",
-        );
+        if (requested)
+          reportStatus(
+            "First Watch did not read saved progress in this browser. Start it again to continue.",
+          );
       }
       if (!requested && !stored) {
         setLoading(false);
@@ -129,7 +130,8 @@ export function FirstWatch() {
       if (current !== generation.current) return;
       setAnnouncement("");
       setLoading(false);
-      reportStatus(`First Watch did not start: ${actionError(error)} Open it again to retry.`);
+      if (requested)
+        reportStatus(`First Watch did not start: ${actionError(error)} Open it again to retry.`);
     }
   }, [resetEvidence]);
 
@@ -360,7 +362,7 @@ export function FirstWatch() {
     return (
       <>
         {liveRegion}
-        <div className="border-b border-line bg-raised px-4 py-2 text-xs text-ink-3">
+        <div data-first-watch className="border-b border-line bg-raised px-4 py-2 text-xs text-ink-3">
           Loading First Watch…
         </div>
       </>
@@ -373,7 +375,7 @@ export function FirstWatch() {
     return (
       <>
         {liveRegion}
-        <aside aria-label="First Watch paused" className="border-b border-line bg-raised">
+        <aside data-first-watch aria-label="First Watch paused" className="border-b border-line bg-raised">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-2 px-4 py-2">
           <button
             ref={resumeRef}
@@ -522,7 +524,7 @@ export function FirstWatch() {
   return (
     <>
       {liveRegion}
-      <aside aria-labelledby="first-watch-title" className="border-b border-line bg-raised">
+      <aside data-first-watch aria-labelledby="first-watch-title" className="border-b border-line bg-raised">
       <div className="mx-auto max-w-5xl px-4 py-3">
         <div className="flex flex-wrap items-start gap-2">
           <div className="min-w-0 flex-1">

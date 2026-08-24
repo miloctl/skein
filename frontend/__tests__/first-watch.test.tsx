@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   provider: "mock",
   providerError: "",
   statusFails: false,
+  whoamiFails: false,
   pushes: [] as string[],
   calls: [] as Array<{ path: string; method: string }>,
 }));
@@ -48,7 +49,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
     ...real,
     api: (path: string, init?: RequestInit) => {
       state.calls.push({ path, method: init?.method ?? "GET" });
-      if (path === "/api/whoami") return Promise.resolve({ user: state.user });
+      if (path === "/api/whoami")
+        return state.whoamiFails
+          ? Promise.reject(new Error("backend unavailable"))
+          : Promise.resolve({ user: state.user });
       if (path === "/api/agents/status")
         return state.statusFails
           ? Promise.reject(new Error("status unavailable"))
@@ -66,6 +70,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 import { FirstWatch } from "@/components/first-watch";
 import { startFirstWatch } from "@/lib/first-watch";
+import { dismissStatus, getStatus } from "@/lib/status";
 
 beforeEach(() => {
   state.user = "resolved-user";
@@ -73,12 +78,35 @@ beforeEach(() => {
   state.provider = "mock";
   state.providerError = "";
   state.statusFails = false;
+  state.whoamiFails = false;
   state.pushes.length = 0;
   state.calls.length = 0;
+  window.localStorage.clear();
+  dismissStatus();
   window.history.replaceState({}, "", "/");
 });
 
 describe("First Watch", () => {
+  it("does not blame a passive restoration when the backend is unavailable", async () => {
+    state.whoamiFails = true;
+    render(<FirstWatch />);
+
+    await waitFor(() => expect(state.calls.some((call) => call.path === "/api/whoami")).toBe(true));
+    expect(getStatus()).toBeNull();
+  });
+
+  it("reports the same failure after an explicit start action", async () => {
+    state.whoamiFails = true;
+    render(<FirstWatch />);
+    await waitFor(() => expect(state.calls.some((call) => call.path === "/api/whoami")).toBe(true));
+
+    act(() => startFirstWatch());
+
+    await waitFor(() =>
+      expect(getStatus()?.message).toContain("First Watch did not start"),
+    );
+  });
+
   it("starts from the fixed event under the server-resolved identity", async () => {
     window.localStorage.setItem("skein-user", "browser-name");
     render(<FirstWatch />);

@@ -282,7 +282,7 @@ settled (time zone, the auth bridge, `wip_by_person` egress) were dropped
 
 - **Per-rule `enabled` flag for findings** — silence a noisy rule by config
   rather than a deploy. (The usage-UI item that lived beside this one
-  shipped: the Model spend card on Work → Health.)
+  shipped: the AI usage and estimated cost card on Work → Health.)
 - **job_stale rows dominate the findings feed** [S, decision first] — five
   stale jobs render five high-severity rows at the top of /insights and push
   team findings below the fold, while `digest_findings` already collapses
@@ -341,7 +341,7 @@ read-back (G3), the tab-title attention count (G8), the forward
 capacity view (G10), the planning cockpit (P1), the Recently shipped
 strip (self-serve 7), `skein standup --draft` (P5), the interrupt
 ratio in the cockpit (P4's ledger half), the turn-anomaly rules and
-the Model spend card (G7), the unattended runner under its ceilings
+the AI usage and estimated cost card (G7), the unattended runner under its ceilings
 (G4, G5, A3), and the trust-blocked line (G6's honesty half).
 
 Still open from that review:

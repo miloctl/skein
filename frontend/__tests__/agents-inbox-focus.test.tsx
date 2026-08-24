@@ -82,7 +82,8 @@ import AgentsPage from "@/app/agents/page";
 describe("Mission control inbox", () => {
   it("opens beside Mission control, moves focus, and shows task context", async () => {
     render(<AgentsPage />);
-    const button = await screen.findByRole("button", { name: "inbox" });
+    fireEvent.click(screen.getByRole("button", { name: "Active work" }));
+    const button = await screen.findByRole("button", { name: "Open inbox for agent" });
     fireEvent.click(button);
 
     const heading = await screen.findByRole("heading", { name: "Inbox — agent" });
@@ -90,6 +91,21 @@ describe("Mission control inbox", () => {
     expect(button.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText(/Read the study and summarize the evidence/)).toBeTruthy();
     expect(screen.getByText(/Engagement #3/)).toBeTruthy();
+  });
+
+  it("closes the selected inbox and does not carry it into another page view", async () => {
+    render(<AgentsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Active work" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open inbox for agent" }));
+    expect(await screen.findByRole("heading", { name: "Inbox — agent" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close inbox for agent" }));
+    expect(screen.queryByRole("heading", { name: "Inbox — agent" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open inbox for agent" }));
+    await screen.findByRole("heading", { name: "Inbox — agent" });
+    fireEvent.click(screen.getByRole("button", { name: "Specialists" }));
+    expect(screen.queryByRole("heading", { name: "Inbox — agent" })).toBeNull();
   });
 
   it("does not call an absent verified verdict a rejection", async () => {

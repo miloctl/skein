@@ -48,7 +48,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/intake" }));
 
-// the score panel lives behind manager controls
+// the score panel lives behind Management view
 vi.mock("@/components/manage-toggle", () => ({
   ManageToggle: () => null,
   useManageMode: () => true,

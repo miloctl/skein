@@ -87,7 +87,7 @@ type PromiseRow = {
   audience: "external" | "team";
 };
 
-const DOT = { red: "🔴", yellow: "🟡", green: "🟢" };
+const HEALTH_TONE = { red: "bg-danger", yellow: "bg-weld", green: "bg-ok" };
 
 /** Weekly throughput, one row per week. `flow_metrics` has returned this
  *  series since it shipped and nothing read it, so cycle time answered "how
@@ -225,7 +225,7 @@ export default function Portfolio() {
     api<PromiseRow[]>("/api/promises")
       .then(ok(setPromises, "promises"))
       .catch(fail("promises", "promises"));
-    api<Usage>("/api/usage").then(ok(setUsage, "usage")).catch(fail("usage", "model spend"));
+    api<Usage>("/api/usage").then(ok(setUsage, "usage")).catch(fail("usage", "AI usage"));
   }, []);
 
   /** What a card shows before its data arrives: the failure if there was
@@ -290,9 +290,11 @@ export default function Portfolio() {
             {health.map((h) => (
               <li key={h.id} className="text-sm">
                 <div className="flex items-center gap-2">
-                  <span role="img" aria-label={`health ${h.health}`} title={h.health}>
-                    {DOT[h.health]}
-                  </span>
+                  <span
+                    aria-hidden
+                    className={`size-2.5 shrink-0 rounded-full ${HEALTH_TONE[h.health]}`}
+                  />
+                  <span className="text-xs font-medium text-ink-2">{h.health}</span>
                   {/* the name is the way in to the whole engagement: this
                       card shows the call and its receipts, the brief shows
                       everything that produced them */}
@@ -461,7 +463,7 @@ export default function Portfolio() {
         )}
       </Card>
 
-      <Card title="Model spend">
+      <Card title="AI usage and estimated cost">
         {/* The budget finding pointed people at a raw JSON endpoint. Spend
             belongs beside engagement health because that is where the
             question is asked: what is the AI layer costing, and on what. */}
@@ -475,7 +477,7 @@ export default function Portfolio() {
           <p className="text-sm text-ink-3">Loading…</p>
         ) : usage.month.calls === 0 ? (
           <p className="text-sm text-ink-3">
-            No model calls recorded this month.
+            No AI model calls were recorded this month.
           </p>
         ) : (
           <>
@@ -494,8 +496,8 @@ export default function Portfolio() {
             {usage.month.unpriced_calls > 0 ? (
               <p className="text-xs text-weld">
                 {usage.month.unpriced_calls.toLocaleString()} call
-                {usage.month.unpriced_calls === 1 ? " carries" : "s carry"} no
-                price, so the cost above is not a total.
+                {usage.month.unpriced_calls === 1 ? " has" : "s have"} no price.
+                The estimated cost does not include {usage.month.unpriced_calls === 1 ? "it" : "them"}.
                 {/* the fix is an env var — whoever runs the server acts on
                     it, and for everyone else it is a wall of config they
                     cannot touch */}
@@ -610,8 +612,8 @@ export default function Portfolio() {
       <Card title="Promises — external + yours to the team">
         {!manage && promises?.some((c) => c.status === "open") && (
           <p className="mb-2 text-xs text-ink-3">
-            To mark a promise kept or missed, turn on <b>manager
-            controls</b> (top right).
+            To mark a promise kept or missed, turn on <b>Management view</b>
+            (top right).
           </p>
         )}
         {promises === null ? (

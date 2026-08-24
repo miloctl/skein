@@ -35,11 +35,21 @@ export { taskRef } from "@/lib/task-ref";
 import { taskRef } from "@/lib/task-ref";
 import { size } from "@/lib/size";
 
-// The ledger stores the exact byte count ("artifact #24 (1019072 bytes)") and
-// must keep it — detail is inside the hash chain. The sentence view humanizes
-// it at render; the Raw toggle and the expanded panel keep the stored text.
+// The ledger stores the exact detail inside the hash chain. The sentence view
+// humanizes it at render; Raw rows keeps the stored text.
 function humanize(detail: string): string {
-  return detail.replace(/\((\d+) bytes\)/, (_, n) => `(${size(Number(n))})`);
+  return detail
+    .replace(/\((\d+) bytes\)/, (_, n) => `(${size(Number(n))})`)
+    .replace(
+      /^#(\d+) create ([a-z_]+)(.*)$/i,
+      (_, id, entity, rest) =>
+        `proposal #${id} · add a ${entity.replaceAll("_", " ")}${rest}`,
+    )
+    .replace(
+      /^#(\d+) update ([a-z_]+)(.*)$/i,
+      (_, id, entity, rest) =>
+        `proposal #${id} · update ${entity.replaceAll("_", " ")}${rest}`,
+    );
 }
 
 export default function ActivityPage() {
@@ -160,6 +170,7 @@ export default function ActivityPage() {
                       setExpanded((cur) => (cur === e.seq ? null : e.seq))
                     }
                     aria-expanded={expanded === e.seq}
+                    aria-controls={`activity-${e.seq}-details`}
                     className={
                       "flex w-full items-baseline gap-2 py-2 text-left text-sm hover:bg-raised/50 " +
                       (run.every((c) => c.salience === "quiet")
@@ -186,21 +197,27 @@ export default function ActivityPage() {
                     </span>
                     <span className="min-w-0 flex-1 break-words text-ink sm:truncate">
                       {e.sentence}
-                      <span className="text-ink-3"> — {run.length} rows</span>
+                      <span className="text-ink-3">
+                        {" "}— {run.length} related actions
+                      </span>
                     </span>
                     <span className="shrink-0 text-xs text-ink-3">
                       {timeAgo(e.created_at)}
                     </span>
+                    <span className="shrink-0 text-xs font-medium text-thread">
+                      Details <span aria-hidden>{expanded === e.seq ? "▾" : "▸"}</span>
+                    </span>
                   </button>
                   {expanded === e.seq && (
-                    <div className="mb-2 ml-6 space-y-0.5 rounded-lg bg-raised px-3 py-2 font-mono text-[11px] text-ink-2">
-                      {/* the stored text, exactly — the sentence row above is
-                          the readable view, this is the forensic one */}
-                      {run.map((c) => (
-                        <div key={c.seq} className="break-all">
-                          #{c.seq} · {c.created_at}
-                          {c.detail ? ` · ${c.detail}` : ""}
-                        </div>
+                    <div
+                      id={`activity-${e.seq}-details`}
+                      className="mb-2 ml-6 space-y-1 rounded-lg bg-raised px-3 py-2 text-xs text-ink-2"
+                    >
+                      {run.map((entry) => (
+                        <p key={entry.seq} className="break-words">
+                          {entry.sentence}
+                          {entry.detail ? ` — ${humanize(entry.detail)}` : ""}
+                        </p>
                       ))}
                     </div>
                   )}
@@ -212,6 +229,7 @@ export default function ActivityPage() {
                       setExpanded((cur) => (cur === e.seq ? null : e.seq))
                     }
                     aria-expanded={expanded === e.seq}
+                    aria-controls={`activity-${e.seq}-details`}
                     className={
                       "flex w-full items-baseline gap-2 py-2 text-left text-sm hover:bg-raised/50 " +
                       (e.salience === "quiet" ? "text-ink-2" : "")
@@ -246,20 +264,19 @@ export default function ActivityPage() {
                     <span className="shrink-0 text-xs text-ink-3">
                       {timeAgo(e.created_at)}
                     </span>
+                    <span className="shrink-0 text-xs font-medium text-thread">
+                      Details <span aria-hidden>{expanded === e.seq ? "▾" : "▸"}</span>
+                    </span>
                   </button>
                   {expanded === e.seq && (
-                    <div className="mb-2 ml-6 rounded-lg bg-raised px-3 py-2 font-mono text-[11px] text-ink-2">
-                      <div>
-                        seq #{e.seq} · {e.created_at}
-                      </div>
-                      <div>
-                        actor {e.actor} · action {e.action}
-                        {!e.registered &&
-                          " · (no verb registered — shown as recorded)"}
-                      </div>
-                      {e.detail && (
-                        <div className="break-all">detail: {e.detail}</div>
-                      )}
+                    <div
+                      id={`activity-${e.seq}-details`}
+                      className="mb-2 ml-6 rounded-lg bg-raised px-3 py-2 text-xs text-ink-2"
+                    >
+                      <p className="break-words">
+                        {e.sentence}
+                        {e.detail ? ` — ${humanize(e.detail)}` : ""}
+                      </p>
                       {/* In the EXPANDED panel, not the row: the row is a
                           <button>, and a link inside a button is invalid and
                           unreachable for a keyboard reader. It is also where

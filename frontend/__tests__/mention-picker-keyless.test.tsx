@@ -55,7 +55,7 @@ function Harness() {
   );
 }
 
-const composer = () => screen.getByRole("combobox") as HTMLTextAreaElement;
+const composer = () => screen.getByRole("textbox", { name: /Message/ }) as HTMLTextAreaElement;
 
 async function type(value: string) {
   const box = composer();

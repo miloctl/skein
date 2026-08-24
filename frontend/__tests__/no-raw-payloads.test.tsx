@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /** Machine payloads must not reach a reader. Three surfaces shipped one:
@@ -78,7 +78,13 @@ describe("the Approvals diff table", () => {
       },
     ];
     render(<ReviewPage />);
-    expect(await screen.findByText("2, 7")).toBeTruthy();
+    await screen.findByText("the weekly line");
+    const ids = screen.getByText("2, 7");
+    expect((ids.closest("details") as HTMLDetailsElement).open).toBe(false);
+
+    fireEvent.click(screen.getByText("Technical details"));
+
+    expect((ids.closest("details") as HTMLDetailsElement).open).toBe(true);
     expect(screen.queryByText("[2,7]")).toBeNull();
   });
 });

@@ -19,6 +19,26 @@ def test_it_carries_the_joined_names(fresh_db):
     assert got["title"] == "flip the DNS"
 
 
+def test_it_states_when_delegated_work_awaits_acceptance(fresh_db):
+    from app.services import delegation, users
+
+    users.ensure_user("sponsor")
+    users.ensure_user("scout", kind="agent")
+    task = work.create_task("review the plan", actor="sponsor")
+    delegation.delegate_task(task["id"], "scout", "sponsor", actor="sponsor")
+    delegation.claim_task(task["id"], actor="scout")
+    delegation.report_progress(task["id"], "reviewed the plan", actor="scout")
+    delegation.submit_completion(task["id"], "ready for review", actor="scout")
+
+    got = work.get_task(task["id"], scope.Viewer.for_actor("sponsor"))
+    assert got["awaiting_acceptance"] is True
+
+
+def test_it_does_not_invent_an_acceptance_state(fresh_db):
+    task = work.create_task("draft the plan", actor="tester")
+    assert work.get_task(task["id"])["awaiting_acceptance"] is False
+
+
 def test_a_missing_task_raises_missing(fresh_db):
     try:
         work.get_task(9999)

@@ -63,6 +63,14 @@ const SETTINGS_SECTIONS = [
 ] as const;
 type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]["id"];
 
+function settingsSectionFromHash(): SettingsSectionId {
+  if (typeof window === "undefined") return "settings-you";
+  const id = window.location.hash.slice(1) as SettingsSectionId;
+  return SETTINGS_SECTIONS.some((section) => section.id === id)
+    ? id
+    : "settings-you";
+}
+
 function boundedWrite(path: string, init: RequestInit): Promise<unknown> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), WRITE_TIMEOUT_MS);
@@ -126,7 +134,7 @@ function ModelSummaryBlock({ summary }: { summary: ModelSummary }) {
   );
 }
 
-function CopyLine({ text }: { text: string }) {
+function CopyLine({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="flex items-center gap-2">
@@ -145,6 +153,7 @@ function CopyLine({ text }: { text: string }) {
             setTimeout(() => setCopied(false), 1500);
           }
         }}
+        aria-label={copied ? `Copied ${label}` : `Copy ${label}`}
         aria-live="polite"
         className="shrink-0 rounded bg-raised px-2 py-1 text-xs hover:bg-line"
       >
@@ -260,6 +269,9 @@ export default function SettingsPage() {
     getUser,
     () => "anonymous",
   );
+  // The server and first client render must match. Reading location.hash in
+  // this initializer leaves hidden and aria-current attributes unpatched after
+  // hydration; the effect below applies a direct fragment after mount.
   const [activeSection, setActiveSection] =
     useState<SettingsSectionId>("settings-you");
   const [name, setName] = useState("");
@@ -358,49 +370,10 @@ export default function SettingsPage() {
   const ctxWriteRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const sectionFromHash = () => {
-      const id = window.location.hash.slice(1) as SettingsSectionId;
-      return SETTINGS_SECTIONS.some((section) => section.id === id) ? id : null;
-    };
-    const update = () => {
-      const pageHeight = document.documentElement.scrollHeight;
-      const pageBottom =
-        pageHeight > window.innerHeight &&
-        window.scrollY + window.innerHeight >= pageHeight - 1;
-      if (pageBottom) {
-        setActiveSection(SETTINGS_SECTIONS.at(-1)!.id);
-        return;
-      }
-      const line =
-        (document.querySelector("header")?.getBoundingClientRect().bottom ?? 0) + 8;
-      const positions = SETTINGS_SECTIONS.map(
-        (section) =>
-          document.getElementById(section.id)?.getBoundingClientRect().top ??
-          Infinity,
-      );
-      if (positions.every((position) => position === positions[0])) return;
-      let current: SettingsSectionId = SETTINGS_SECTIONS[0].id;
-      positions.forEach((position, index) => {
-        if (position <= line) current = SETTINGS_SECTIONS[index].id;
-      });
-      setActiveSection(current);
-    };
-    const hashChanged = () => {
-      const section = sectionFromHash();
-      if (section) setActiveSection(section);
-      window.requestAnimationFrame(update);
-    };
-
-    const frame = window.requestAnimationFrame(update);
-    window.addEventListener("scroll", update, { passive: true });
-    window.addEventListener("resize", update);
-    window.addEventListener("hashchange", hashChanged);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
-      window.removeEventListener("hashchange", hashChanged);
-    };
+    const update = () => setActiveSection(settingsSectionFromHash());
+    update();
+    window.addEventListener("hashchange", update);
+    return () => window.removeEventListener("hashchange", update);
   }, []);
 
   // `settled` is the knob that was just written, and ONLY its draft is
@@ -712,12 +685,16 @@ export default function SettingsPage() {
   }, [refresh]);
 
   const [roster, setRoster] = useState<
-    { name: string; kind: string; active: number }[]
-  >([]);
+    { name: string; kind: string; active: number }[] | null
+  >(null);
+  const [rosterError, setRosterError] = useState("");
   const loadRoster = useCallback(() => {
     api<{ name: string; kind: string; active: number }[]>("/api/users?all=1")
-      .then((u) => setRoster(u.filter((x) => x.name !== "anonymous")))
-      .catch(() => {});
+      .then((users) => {
+        setRoster(users.filter((user) => user.name !== "anonymous"));
+        setRosterError("");
+      })
+      .catch((error) => setRosterError(loadError(error)));
   }, []);
   useEffect(loadRoster, [loadRoster]);
 
@@ -752,7 +729,7 @@ export default function SettingsPage() {
     setRenameConfirmation({
       from,
       to: target,
-      merge: roster.some((u) => u.name === target),
+      merge: (roster ?? []).some((user) => user.name === target),
     });
   };
 
@@ -1173,6 +1150,7 @@ export default function SettingsPage() {
             <a
               key={section.id}
               href={`#${section.id}`}
+              onClick={() => setActiveSection(section.id)}
               aria-current={activeSection === section.id ? "location" : undefined}
               className={
                 "rounded-lg px-3 py-2 text-sm transition-colors " +
@@ -1187,7 +1165,11 @@ export default function SettingsPage() {
         </nav>
 
         <div className="min-w-0 space-y-10">
-          <section id="settings-you" aria-labelledby="settings-you-heading">
+          <section
+            id="settings-you"
+            hidden={activeSection !== "settings-you"}
+            aria-labelledby="settings-you-heading"
+          >
             <h2
               id="settings-you-heading"
               className="mb-3 font-display text-lg font-semibold text-ink"
@@ -1222,6 +1204,7 @@ export default function SettingsPage() {
                     className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
                   />
                   <button
+                    aria-label="Save your name"
                     onClick={saveName}
                     disabled={!name.trim()}
                     className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
@@ -1310,6 +1293,7 @@ export default function SettingsPage() {
                           <div className="mt-2">
                             <CopyLine
                               text={`python -m app.bootstrap_key ${currentUser}`}
+                              label="server key command"
                             />
                             <p className="mt-2 text-xs text-ink-3">
                               Docker:{" "}
@@ -1361,7 +1345,7 @@ export default function SettingsPage() {
                     <p className="mb-2 text-sm">
                       Copy this key now. Skein will not show it again.
                     </p>
-                    <CopyLine text={createdKey} />
+                    <CopyLine text={createdKey} label="personal API key" />
                   </div>
                 )}
                 {/* keyed on createdKey too, so the list re-reads after a mint */}
@@ -1478,6 +1462,7 @@ export default function SettingsPage() {
                     className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
                   />
                   <button
+                    aria-label="Save growth interests"
                     onClick={async () => {
                       if (interestsBusy) return;
                       setInterestsBusy(true);
@@ -1735,7 +1720,7 @@ export default function SettingsPage() {
                         Theme code — copy to share this exact look, paste to
                         apply one
                       </p>
-                      <CopyLine text={themeCode()} />
+                      <CopyLine text={themeCode()} label="theme code" />
                       <div className="mt-1.5 flex gap-2">
                         <input
                           value={codeDraft}
@@ -1866,6 +1851,7 @@ export default function SettingsPage() {
 
           <section
             id="settings-connections"
+            hidden={activeSection !== "settings-connections"}
             aria-labelledby="settings-connections-heading"
           >
             <h2
@@ -1921,12 +1907,13 @@ export default function SettingsPage() {
                 </p>
                 <CopyLine
                   text={`claude mcp add skein -- env SKEIN_MCP_USER=${currentUser === "anonymous" ? "you" : currentUser} <path-to-backend>/.venv/bin/python -m app.mcp_server`}
+                  label="Claude Code registration"
                 />
                 <p className="mb-1 mt-3 text-xs font-medium text-ink-3">
                   Team context pack (org-brain for any agent — also an MCP
                   resource):
                 </p>
-                <CopyLine text={`${API_URL}/api/context-pack`} />
+                <CopyLine text={`${API_URL}/api/context-pack`} label="team context pack URL" />
                 <p className="mt-2 text-xs text-ink-3">
                   Scoped per-engagement packs: append ?engagement=&lt;id&gt;.
                   The CLI can also emit it:{" "}
@@ -1940,7 +1927,7 @@ export default function SettingsPage() {
                   milestone and promise dates. A calendar app can copy this data
                   outside the network.
                 </p>
-                <CopyLine text={`${API_URL}/api/calendar.ics`} />
+                <CopyLine text={`${API_URL}/api/calendar.ics`} label="calendar feed URL" />
                 <p className="mt-2 text-xs text-ink-3">
                   If the API is token-locked, whoever runs the server sets
                   SKEIN_ICS_TOKEN and the URL becomes
@@ -1957,7 +1944,7 @@ export default function SettingsPage() {
                   merges, the task finishes. Add this URL as a repository
                   webhook. Set the content type to JSON.
                 </p>
-                <CopyLine text={`${API_URL}/api/webhooks/forge`} />
+                <CopyLine text={`${API_URL}/api/webhooks/forge`} label="code forge webhook URL" />
                 <p className="mt-2 text-xs text-ink-3">
                   Whoever runs the server sets SKEIN_FORGE_WEBHOOK_SECRET. Put
                   the same secret in the webhook. If the secret is not set, the
@@ -1971,6 +1958,7 @@ export default function SettingsPage() {
 
           <section
             id="settings-ai-runtime"
+            hidden={activeSection !== "settings-ai-runtime"}
             aria-labelledby="settings-ai-runtime-heading"
           >
             <h2
@@ -1990,7 +1978,16 @@ export default function SettingsPage() {
                     <> No model is connected. This setting is not in use.</>
                   )}
                 </p>
-                {pick?.summary && <ModelSummaryBlock summary={pick.summary} />}
+                {pick?.summary && (
+                  <details className="mb-4">
+                    <summary className="cursor-pointer text-xs font-medium text-thread underline">
+                      Technical details
+                    </summary>
+                    <div className="mt-2">
+                      <ModelSummaryBlock summary={pick.summary} />
+                    </div>
+                  </details>
+                )}
                 {!canAdminister && (
                   <p className="text-sm text-ink-3">{adminAccessMessage}</p>
                 )}
@@ -2322,6 +2319,7 @@ export default function SettingsPage() {
                           <div className="mt-2 flex flex-wrap items-center gap-2">
                             <button
                               type="button"
+                              aria-label={`Save ${t.label}`}
                               // busy, not only unchanged: `changed` stays true for the
                               // whole flight (t.value updates after the reload), so a
                               // double press sent two writes — and each one appends to
@@ -2425,7 +2423,11 @@ export default function SettingsPage() {
             </div>
           </section>
 
-          <section id="settings-team" aria-labelledby="settings-team-heading">
+          <section
+            id="settings-team"
+            hidden={activeSection !== "settings-team"}
+            aria-labelledby="settings-team-heading"
+          >
             <h2
               id="settings-team-heading"
               className="mb-3 font-display text-lg font-semibold text-ink"
@@ -2455,31 +2457,47 @@ export default function SettingsPage() {
                   attributed. Roster changes require strong identity and
                   administrator access.
                 </p>
-                <h4 className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
-                  Teammates
-                </h4>
-                {roster.filter((u) => u.kind !== "agent").length === 0 ? (
-                  <p className="text-sm text-ink-3">Nobody yet.</p>
+                {roster === null ? (
+                  <p
+                    role={rosterError ? "alert" : "status"}
+                    className={rosterError ? "text-sm text-danger" : "text-sm text-ink-3"}
+                  >
+                    {rosterError || "Loading the team roster…"}
+                  </p>
                 ) : (
-                  <ul className="space-y-1">
-                    {rosterRows(roster.filter((u) => u.kind !== "agent"))}
-                  </ul>
-                )}
-                {roster.some((u) => u.kind === "agent") && (
                   <>
-                    <h4 className="mt-5 mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
-                      Agent identities
+                    {rosterError ? (
+                      <p className="mb-3 text-sm text-danger">
+                        Last roster refresh failed. Skein shows the last good list. {rosterError}
+                      </p>
+                    ) : null}
+                    <h4 className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+                      Teammates
                     </h4>
-                    <p className="mb-2 text-xs text-ink-3">
-                      Created automatically the first time an agent writes — the
-                      Chief-of-Staff and any bench persona someone has called
-                      with <code>/as</code>. Not teammates — they exist so every
-                      write stays attributed. Deactivate one to take the name
-                      out of use — its history stays.
-                    </p>
-                    <ul className="space-y-1">
-                      {rosterRows(roster.filter((u) => u.kind === "agent"))}
-                    </ul>
+                    {roster.filter((user) => user.kind !== "agent").length === 0 ? (
+                      <p className="text-sm text-ink-3">No teammates are on the roster.</p>
+                    ) : (
+                      <ul className="space-y-1">
+                        {rosterRows(roster.filter((user) => user.kind !== "agent"))}
+                      </ul>
+                    )}
+                    {roster.some((user) => user.kind === "agent") && (
+                      <>
+                        <h4 className="mt-5 mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+                          Agent identities
+                        </h4>
+                        <p className="mb-2 text-xs text-ink-3">
+                          Created automatically the first time an agent writes — the
+                          Chief-of-Staff and any bench persona someone has called
+                          with <code>/as</code>. Not teammates — they exist so every
+                          write stays attributed. Deactivate one to take the name
+                          out of use — its history stays.
+                        </p>
+                        <ul className="space-y-1">
+                          {rosterRows(roster.filter((user) => user.kind === "agent"))}
+                        </ul>
+                      </>
+                    )}
                   </>
                 )}
               </Section>

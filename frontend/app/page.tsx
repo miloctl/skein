@@ -949,6 +949,7 @@ export default function MyDay() {
 
       {onboarding && !onboarding.complete && (
         <section
+          data-first-week
           aria-labelledby="first-week-setup-title"
           className="mb-4 rounded-xl border border-thread-solid/25 bg-card p-4 text-sm shadow-card"
         >
@@ -1211,6 +1212,7 @@ export default function MyDay() {
                                         answer…
                                       </button>
                                       <button
+                                        aria-label={`Reassign ${a.label}`}
                                         onClick={() =>
                                           setQuestionAction({
                                             id: a.ref_id,
@@ -1228,6 +1230,7 @@ export default function MyDay() {
                             </span>
                             {a.kind === "blocker" && (
                               <button
+                                aria-label={`Resolve ${a.label}`}
                                 onClick={() => resolveBlocker(a.ref_id)}
                                 className="shrink-0 rounded bg-ok/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ok hover:bg-ok/20"
                               >
@@ -1428,9 +1431,14 @@ export default function MyDay() {
                           reportStatus(actionError(e));
                         }
                       }}
-                      className="mx-0.5 rounded bg-raised px-1.5 py-0.5 hover:bg-line"
+                      aria-label={
+                        v === "up"
+                          ? "Yes — Skein reduced coordination effort this week"
+                          : "No — Skein did not reduce coordination effort this week"
+                      }
+                      className="mx-0.5 min-h-6 min-w-6 rounded bg-raised px-2 py-0.5 hover:bg-line"
                     >
-                      {v === "up" ? "👍" : "👎"}
+                      {v === "up" ? "Yes" : "No"}
                     </button>
                   ))}
                 </>

@@ -835,6 +835,13 @@ select option {
   }
 }
 
+/* First Watch and first-week setup are sibling trees under the layout. Hide
+   the second progress system without a duplicate React state channel; when
+   First Watch unmounts, the setup card returns automatically. */
+body:has([data-first-watch]) [data-first-week] {
+  display: none;
+}
+
 /* forced-colors escape — last in the file on purpose: the base component
    rules and the equal-specificity per-pack flourishes above must lose to it
    on source order. WHCM forces background-color but NOT background-image —

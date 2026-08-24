@@ -41,11 +41,11 @@ describe("search and quick capture signpost each other", () => {
       expect(document.body.textContent).toContain("use quick capture"),
     );
     expect(document.body.textContent).toContain("Capture button");
-    // BOTH spellings ship and globals.css drops the wrong one — a hint that
-    // names only ⌘K is the reported bug, since the binding is metaKey OR
-    // ctrlKey and most readers are on the ctrl half. It rides the search box.
-    expect(document.body.textContent).toContain("⌘K");
-    expect(document.body.textContent).toContain("Ctrl+K");
+    // A non-empty search names the action that runs this query. The shortcut
+    // is useful only before someone starts typing.
+    expect(screen.getByText("Enter")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("⌘K");
+    expect(document.body.textContent).not.toContain("Ctrl+K");
   });
 
   it("teaches quick capture when an ask answers with no citations", async () => {

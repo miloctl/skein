@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const count = { value: 0 };
 const calls = { attention: 0, guide: 0 };
 const guide = { total: 39 };
+const navState = vi.hoisted(() => ({ pathname: "/dashboard" }));
 // held distinct from `yours` so the badge and the title cannot be confused
 const INBOX = 7;
 
@@ -52,7 +53,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
   };
 });
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/dashboard" }));
+vi.mock("next/navigation", () => ({ usePathname: () => navState.pathname }));
 
 import { Nav } from "@/components/nav";
 import { TaskPeek } from "@/components/task-peek";
@@ -60,6 +61,7 @@ import { setGated } from "@/lib/gated";
 
 beforeEach(() => {
   document.title = "Skein";
+  navState.pathname = "/dashboard";
   window.history.pushState({}, "", "/dashboard");
   window.localStorage.clear();
   calls.attention = 0;
@@ -75,13 +77,13 @@ describe("the tab title", () => {
   it("carries the count when work is waiting", async () => {
     count.value = 3;
     render(<Nav />);
-    await waitFor(() => expect(document.title).toBe("(3) Skein"));
+    await waitFor(() => expect(document.title).toBe("(3) Browse — Skein"));
   });
 
   it("stays clean at zero — an empty inbox must not look like one item", async () => {
     count.value = 0;
     render(<Nav />);
-    await waitFor(() => expect(document.title).toBe("Skein"));
+    await waitFor(() => expect(document.title).toBe("Browse — Skein"));
   });
 
   it("drops the count while the auth gate stands", async () => {
@@ -90,18 +92,29 @@ describe("the tab title", () => {
     // workspace that would not open
     count.value = 3;
     render(<Nav />);
-    await waitFor(() => expect(document.title).toBe("(3) Skein"));
+    await waitFor(() => expect(document.title).toBe("(3) Browse — Skein"));
     act(() => setGated(true));
-    await waitFor(() => expect(document.title).toBe("Skein"));
+    await waitFor(() => expect(document.title).toBe("Browse — Skein"));
+  });
+
+  it("names the route after client navigation", async () => {
+    const view = render(<Nav />);
+    await waitFor(() => expect(document.title).toBe("Browse — Skein"));
+
+    navState.pathname = "/settings";
+    window.history.pushState({}, "", "/settings");
+    view.rerender(<Nav />);
+
+    await waitFor(() => expect(document.title).toBe("Settings — Skein"));
   });
 
   it("never stacks prefixes when the title is rewritten", async () => {
     count.value = 2;
     render(<Nav />);
-    await waitFor(() => expect(document.title).toBe("(2) Skein"));
+    await waitFor(() => expect(document.title).toBe("(2) Browse — Skein"));
     // what a route change does: the metadata title lands on top of ours
     document.title = "Skein";
-    await waitFor(() => expect(document.title).toBe("(2) Skein"));
+    await waitFor(() => expect(document.title).toBe("(2) Browse — Skein"));
     expect(document.title.match(/\(/g)?.length).toBe(1);
   });
 });
@@ -147,6 +160,22 @@ describe("the nav under the auth gate", () => {
 });
 
 describe("navigation labels", () => {
+  it("describes name-only access without calling the identity weak", async () => {
+    window.localStorage.setItem("skein-user", "tester");
+    render(<Nav />);
+    fireEvent.click(screen.getByTitle("You — tester"));
+
+    const settings = await screen.findByRole("menuitem", {
+      name: /Settings & access/,
+    });
+    const access = await screen.findByText(
+      "Name-only access — team-visible work is available",
+    );
+    expect(settings.getAttribute("aria-describedby")).toBe(access.id);
+    expect(screen.getByRole("menu").textContent).toContain(access.textContent);
+    expect(screen.queryByText(/Weak identity/)).toBeNull();
+  });
+
   it("uses the visible capture action as its accessible name", () => {
     render(<Nav />);
     expect(
@@ -171,7 +200,7 @@ describe("the Inbox badge", () => {
     // the badge and the title come from one response but are written by two
     // different effects, so seeing the badge does not prove the title effect
     // has run. A wrong title still fails here — only a late one is tolerated.
-    await waitFor(() => expect(document.title).toBe("(3) Skein"));
+    await waitFor(() => expect(document.title).toBe("(3) Browse — Skein"));
   });
 
   it("refreshes when a verdict says the queue changed", async () => {

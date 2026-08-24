@@ -114,6 +114,27 @@ _SYSTEM_AUDIENCE = frozenset(
     }
 )
 
+_RULE_LABELS = {
+    "job_stale": "Scheduled job",
+    "activity_chain_broken": "Activity ledger integrity",
+    "ledger_rows_adopted": "Activity ledger recovery",
+    "flock_member_failing": "Flock member",
+    "token_anomaly": "Model token anomaly",
+    "turn_runaway": "Long agent turn",
+    "review_stall": "Review queue",
+    "rejection_spike": "Review quality",
+    "plan_drift": "Plan drift",
+    "interrupt_load": "Unplanned work",
+}
+
+
+def finding_audience(rule_id: str) -> str:
+    return "system" if rule_id in _SYSTEM_AUDIENCE else "team"
+
+
+def finding_label(rule_id: str) -> str:
+    return _RULE_LABELS.get(rule_id, rule_id.replace("_", " ").capitalize())
+
 
 # A finding is minted at most once per ISO week, so a condition that CLEARS
 # mid-week kept presenting as a current call for up to six days: "the review
@@ -410,7 +431,7 @@ def interventions(
                 # same sentence in the heading, the condition and the receipt
                 # printed it three times and said one thing.
                 "title": f["message"],
-                "condition": f"{f['severity']} · {f['rule_id']}",
+                "condition": f"{f['severity']} · {f.get('label') or finding_label(str(f['rule_id']))}",
                 # no owner, ever. `findings.subject` is the dedupe key for the
                 # (rule, subject, week) fire — "anchor:44", "promise-1",
                 # "job:digest" — so rendering it as a person put row keys where

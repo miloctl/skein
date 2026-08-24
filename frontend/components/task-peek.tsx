@@ -40,6 +40,7 @@ export type PeekTask = {
   acceptance_criteria?: string;
   check_in_at?: string | null;
   sponsor?: string | null;
+  awaiting_acceptance?: boolean;
   agent_wakeup?: {
     status:
       | "pending"
@@ -172,9 +173,11 @@ export function TaskPeek() {
     task?: PeekTask;
     error?: string;
   } | null>(null);
-  const [log, setLog] = useState<{ id: number; rows: WorklogRow[] } | null>(
-    null,
-  );
+  const [log, setLog] = useState<{
+    id: number;
+    rows: WorklogRow[];
+    error?: boolean;
+  } | null>(null);
   const [activation, setActivation] = useState<Activation | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   // where focus was before the panel took it — returning it is what keeps a
@@ -262,7 +265,7 @@ export function TaskPeek() {
       });
     api<WorklogRow[]>(`/api/tasks/${taskId}/worklog${refresh}`)
       .then((w) => live && setLog({ id: taskId, rows: w }))
-      .catch(() => live && setLog({ id: taskId, rows: [] }));
+      .catch(() => live && setLog({ id: taskId, rows: [], error: true }));
     return () => {
       live = false;
     };
@@ -336,6 +339,7 @@ export function TaskPeek() {
   const task = loaded?.id === taskId ? loaded.task : undefined;
   const error = loaded?.id === taskId ? loaded.error : undefined;
   const worklog = log?.id === taskId ? log.rows : null;
+  const worklogError = log?.id === taskId && log.error === true;
 
   return (
     <div
@@ -420,6 +424,8 @@ export function TaskPeek() {
               <ActivationGuide
                 task={task}
                 activation={activation}
+                worklog={worklog}
+                worklogError={worklogError}
                 onLeave={() => setTaskId(null)}
                 onClose={close}
               />
@@ -554,7 +560,11 @@ export function TaskPeek() {
             <h3 className="mt-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
               Worklog
             </h3>
-            {worklog === null ? (
+            {worklogError ? (
+              <p className="text-xs text-danger">
+                Skein could not read the worklog. Reload the page to try again.
+              </p>
+            ) : worklog === null ? (
               <p className="text-xs text-ink-3">Loading…</p>
             ) : worklog.length === 0 ? (
               <p className="text-xs text-ink-3">
@@ -946,11 +956,15 @@ function Row({ label, value }: { label: string; value?: string | null }) {
 function ActivationGuide({
   task,
   activation,
+  worklog,
+  worklogError,
   onLeave,
   onClose,
 }: {
   task: PeekTask;
   activation: Activation | null;
+  worklog: WorklogRow[] | null;
+  worklogError: boolean;
   onLeave: () => void;
   onClose: () => void;
 }) {
@@ -965,13 +979,24 @@ function ActivationGuide({
   const prompt = `/as ${agent} Check your inbox and claim task #${task.id}. Read its description and acceptance criteria. Record progress in the worklog, then submit it for acceptance.`;
 
   const wake = task.agent_wakeup;
+  const wakeStartedAt = Date.parse(wake?.started_at ?? "");
+  const recentAgentProgress = Boolean(
+    worklog?.some(
+      (row) =>
+        row.author === agent &&
+        Number.isFinite(wakeStartedAt) &&
+        Date.parse(row.created_at) >= wakeStartedAt,
+    ),
+  );
   // mock is a working deployment, not a fault: the wake row says
   // provider_unavailable there, and a fault-shaped sentence about the default
   // keyless setup reads as breakage on every delegation
   const deterministic = status?.provider === "mock";
   let message = "Checking how this agent starts…";
   let offerChat = false;
-  if (wake?.status === "pending") {
+  if (task.awaiting_acceptance) {
+    message = "The agent submitted this task for approval. Open Inbox to review it.";
+  } else if (wake?.status === "pending") {
     if (wake.automation_enabled) {
       message = `${agent} is queued. Skein will start the agent turn shortly.`;
     } else if (providerReady) {
@@ -985,8 +1010,17 @@ function ActivationGuide({
   } else if (wake?.status === "running") {
     message = `${agent} is working its delegated inbox.`;
   } else if (wake?.status === "completed") {
-    message =
-      "The agent turn finished. Read the worklog or the acceptance proposal for the result.";
+    if (task.blockers?.length) {
+      message = "This task has an open blocker. Resolve it before the task can continue.";
+    } else if (worklogError) {
+      message = "The agent turn completed. The worklog is unavailable below.";
+    } else if (worklog === null) {
+      message = "Reading the latest task outcome…";
+    } else if (recentAgentProgress) {
+      message = "The agent recorded progress. This task is still in progress.";
+    } else {
+      message = "The agent finished its turn but did not record progress.";
+    }
   } else if (wake?.status === "completion_unknown") {
     message =
       "The agent turn can have written records. Read the worklog and Inbox before you retry.";

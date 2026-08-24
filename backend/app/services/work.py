@@ -1069,8 +1069,18 @@ def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     # what finishing it releases, resolved here so the peek and any other
     # reader of one task get the same answer
     task = _redact_hidden_task_links(row)
+    awaiting_acceptance = (
+        db.query_one(
+            "SELECT 1 AS present FROM pending_changes"
+            " WHERE entity = 'task_completion' AND entity_id = ?"
+            " AND status = 'pending' LIMIT 1",
+            (task_id,),
+        )
+        is not None
+    )
     return {
         **task,
+        "awaiting_acceptance": awaiting_acceptance,
         **downstream(task_id, viewer),
         "blockers": blocking(task_id, viewer),
         # the finding that ASKED for this work, if one did. `source_finding_id`

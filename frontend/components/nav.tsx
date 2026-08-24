@@ -21,6 +21,25 @@ import { useFrontendExtensions } from "@/lib/extensions/context";
 // (Health/Browse/Insights), Inbox (Approvals/Requests/Paste notes), and Team
 // (1:1s/Charter beside Agents and the Activity feed, which was born a tab)
 // — their URLs are unchanged.
+const ROUTE_TITLES: Record<string, string> = {
+  "/": "My Day",
+  "/chat": "Chat",
+  "/planning": "Planning",
+  "/portfolio": "Health",
+  "/dashboard": "Browse",
+  "/insights": "Insights",
+  "/artifacts": "Reports",
+  "/review": "Approvals",
+  "/intake": "Requests",
+  "/ingest": "Paste notes",
+  "/agents": "Agents",
+  "/activity": "Activity",
+  "/people": "1:1s",
+  "/charter": "Charter",
+  "/guide": "Field guide",
+  "/settings": "Settings",
+};
+
 const GROUPS: { href: string; label: string; paths: string[] }[][] = [
   [
     { href: "/", label: "My Day", paths: ["/"] },
@@ -178,8 +197,29 @@ export function Nav() {
   useEffect(() => {
     const el = document.querySelector("title");
     if (!el) return;
-    const base = () => el.textContent?.replace(/^\(\d+\)\s+/, "") || "Skein";
+    const extension = navigation.find(
+      (item) => item.href.split(/[?#]/)[0] === pathname,
+    );
+    const routeLabel =
+      ROUTE_TITLES[pathname] ??
+      extension?.label ??
+      (pathname.startsWith("/engagement/") ? "Engagement" : "Skein");
+    const mapped = routeLabel === "Skein" ? "Skein" : `${routeLabel} — Skein`;
+    const known = new Set([
+      "Skein",
+      ...Object.values(ROUTE_TITLES).map((label) => `${label} — Skein`),
+    ]);
+    const clean = () => el.textContent?.replace(/^\(\d+\)\s+/, "") || "Skein";
+    let chatTitle =
+      pathname === "/chat" && !known.has(clean()) ? clean() : "";
+    const base = () => (pathname === "/chat" && chatTitle ? chatTitle : mapped);
     const apply = () => {
+      // ThreadTitle writes a conversation name after the route title. Preserve
+      // that one dynamic title; every known static title belongs to a route
+      // transition and must not leak into the new tab.
+      const current = clean();
+      if (pathname === "/chat" && current !== mapped && !known.has(current))
+        chatTitle = current;
       // the count is dropped while the gate stands, not just left to go
       // stale: a session that expires mid-task keeps its last number, and a
       // locked-out reader would sit in front of a tab promising them three
@@ -192,7 +232,7 @@ export function Nav() {
     const observer = new MutationObserver(apply);
     observer.observe(el, { childList: true, characterData: true, subtree: true });
     return () => observer.disconnect();
-  }, [attention.yours, gated]);
+  }, [attention.yours, gated, navigation, pathname]);
 
   const anonymous = user === "anonymous";
   const headerRef = useRef<HTMLElement>(null);
@@ -349,8 +389,9 @@ export function Nav() {
                   className="absolute right-0 top-full z-20 mt-1 w-56 rounded-xl border border-line bg-card p-1 shadow-float"
                 >
                   <Link
-                    href="/settings"
+                    href={anonymous && mode === "trusted-header" ? "/settings" : "/settings#settings-you"}
                     role="menuitem"
+                    aria-describedby="account-access-summary"
                     onClick={() => setMenuOpen(false)}
                     className="block w-full rounded px-2.5 py-2 text-left text-[13px] text-ink-2 hover:bg-raised focus:bg-raised md:py-1.5"
                   >
@@ -359,7 +400,7 @@ export function Nav() {
                       Offering it elsewhere invites a name the server ignores. */}
                     {anonymous && mode === "trusted-header"
                       ? "Pick your name…"
-                      : "Settings"}
+                      : "Settings & access"}
                   </Link>
                   {mode === "oidc" && (
                     <button
@@ -406,24 +447,27 @@ export function Nav() {
                       </span>
                     )}
                   </Link>
-                  <p className="mt-1 border-t border-line px-2.5 pb-1 pt-1.5 text-[11px] text-ink-3">
-                    {/* what the SERVER will make of this caller. "Weak identity"
-                      is true only where the name picker is the identity. */}
-                    {signedIn
-                      ? "Signed in — strong identity"
-                      : mode === "oidc"
-                        ? hasKey
-                          ? "Strong identity active"
-                          : "Signed out — sign in to open the workspace"
-                        : mode === "api-key"
+                  <p
+                    id="account-access-summary"
+                    className="mt-1 border-t border-line px-2.5 pb-1 pt-1.5 text-[11px] text-ink-3"
+                  >
+                    {!mode
+                      ? "Checking access…"
+                      : signedIn
+                        ? "Signed in"
+                        : mode === "oidc"
                           ? hasKey
-                            ? "Strong identity active"
-                            : "No API key — this deployment needs one"
-                          : anonymous
-                            ? "No name picked — writes will not be yours"
-                            : hasKey
-                              ? "Strong identity active"
-                              : "Weak identity — no API key"}
+                            ? "Personal API key stored"
+                            : "Signed out — sign in to open the workspace"
+                          : mode === "api-key"
+                            ? hasKey
+                              ? "Personal API key stored"
+                              : "No key stored — this deployment needs one"
+                            : anonymous
+                              ? "No name picked — writes will not be yours"
+                              : hasKey
+                                ? "Personal API key stored"
+                                : "Name-only access — team-visible work is available"}
                   </p>
                 </div>
               )}

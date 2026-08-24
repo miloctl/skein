@@ -50,7 +50,11 @@ describe("review verdict feedback", () => {
       </>,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Reject…" }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Reject proposal #1: add a task",
+      }),
+    );
     const reason = screen.getByLabelText(/Rejection reason/) as HTMLInputElement;
     expect(reason.maxLength).toBe(1000);
     expect(screen.getByText("Maximum 1,000 characters.")).toBeTruthy();

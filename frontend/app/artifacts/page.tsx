@@ -69,7 +69,7 @@ function idFromUrl(): number | null {
 }
 
 function ThreadLink({ thread }: { thread: EntityRef }) {
-  const label = `${thread.entity} #${thread.id}`;
+  const label = `${thread.entity} #${thread.id}${thread.title ? `: ${thread.title}` : ""}`;
   const chip = "rounded-md border border-line bg-raised px-2 py-1 text-xs text-ink-2";
   // hover styling on the interactive chips only: an entity this build cannot
   // route renders as text, and a hover affordance on it advertises a click

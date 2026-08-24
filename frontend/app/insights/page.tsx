@@ -12,6 +12,8 @@ import { openTaskPeek } from "@/components/task-peek";
 type Finding = {
   id: number;
   rule_id: string;
+  label?: string;
+  audience?: "team" | "system";
   severity: "high" | "medium" | "low" | "positive";
   message: string;
   n: number | null;
@@ -131,6 +133,8 @@ type Insights = {
   findings: Finding[];
   rule_stats: {
     rule_id: string;
+    label: string;
+    audience: "team" | "system";
     fired: number;
     dispositioned: number;
     converted: number;
@@ -140,11 +144,11 @@ type Insights = {
   pulse_tally: { week: string; up: number; down: number }[];
 };
 
-const SEV = {
-  high: "🔴",
-  medium: "🟡",
-  low: "·",
-  positive: "🟢",
+const SEVERITY_TONE: Record<string, string> = {
+  high: "bg-danger/15 text-danger",
+  medium: "bg-weld/15 text-weld",
+  low: "bg-raised text-ink-2",
+  positive: "bg-ok/15 text-ok",
 };
 
 
@@ -163,6 +167,7 @@ export default function InsightsPage() {
   const manage = useManageMode();
   const [d, setD] = useState<Insights | null>(null);
   const [open, setOpen] = useState<number | null>(null);
+  const [view, setView] = useState<"team" | "system">("team");
   const [error, setError] = useState<string | null>(null);
 
   const load = () =>
@@ -218,16 +223,23 @@ export default function InsightsPage() {
         tabIndex={-1}
         className="mx-auto w-full max-w-5xl p-4 sm:p-6 xl:max-w-6xl"
       >
-        <SectionTabs set="work" />
-        <p className="text-sm text-danger">
-          {error}
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <SectionTabs set="work" />
+          <ManageToggle />
+        </div>
+        <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+          Insights
+        </h1>
+        <p className="text-sm text-danger">{error}</p>
       </main>
     );
   if (!d)
     return (
       <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
-        <SectionTabs set="work" />
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <SectionTabs set="work" />
+          <ManageToggle />
+        </div>
         <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
           Insights
         </h1>
@@ -237,6 +249,12 @@ export default function InsightsPage() {
 
   const m = d.mttr;
   const smallN = m.current.n < 8 || m.previous.n < 8;
+  const findings = d.findings.filter(
+    (finding) => (finding.audience ?? "team") === view,
+  );
+  const ruleStats = (d.rule_stats ?? []).filter(
+    (rule) => (rule.audience ?? "team") === view,
+  );
 
   return (
     <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
@@ -248,32 +266,60 @@ export default function InsightsPage() {
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
         Everything on this page measures the system — rules, jobs, funnels —
         never individual people.
-        {/* the three cards under manager controls measure SKEIN (reach,
+        {/* the three cards under Management view measure SKEIN (reach,
             automation share, whether rules earn their keep) — a teammate has
             no decision attached to them, and they crowded the cards that
             carry one */}
         {manage
-          ? " Manager controls add the cards that measure Skein itself."
+          ? " Management view adds the cards that measure Skein itself."
           : ""}
       </p>
+      <div role="group" aria-label="Insights view" className="mb-4 flex gap-1.5">
+        {(["team", "system"] as const).map((option) => (
+          <button
+            key={option}
+            type="button"
+            aria-pressed={view === option}
+            onClick={() => setView(option)}
+            className={
+              "rounded-full px-3 py-1 text-xs " +
+              (view === option
+                ? "bg-thread-solid font-medium text-white"
+                : "bg-raised text-ink-2 hover:bg-line")
+            }
+          >
+            {option === "team" ? "Team signals" : "System health"}
+          </button>
+        ))}
+      </div>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      <Card title="Findings — click one for its evidence">
-        {d.findings.length === 0 ? (
+      <Card title={view === "team" ? "Team findings — select one for evidence" : "System findings — select one for evidence"}>
+        {findings.length === 0 ? (
           <p className="text-sm text-ink-3">
             Nothing to report — silence is a valid output. Findings appear here
             (and in the digest) as real usage accrues.
           </p>
         ) : (
           <ul className="space-y-2 text-sm">
-            {d.findings.map((f) => (
+            {findings.map((f) => (
               <li key={f.id}>
                 <button
                   onClick={() => setOpen(open === f.id ? null : f.id)}
                   aria-expanded={open === f.id}
                   aria-controls={`receipt-${f.id}`}
+                  aria-label={`${f.severity}: ${f.message} ${
+                    f.weeks_firing > 1
+                      ? `since ${f.first_week} · ${f.weeks_firing} weeks`
+                      : f.week
+                  }${f.n ? ` · n=${f.n}` : ""}${f.disposition ? ` · ${f.disposition}` : ""}`}
                   className="text-left"
                 >
-                  {SEV[f.severity] ?? "·"} {f.message}{" "}
+                  <span
+                    className={`mr-1.5 rounded px-1.5 py-px text-[10px] font-medium ${SEVERITY_TONE[f.severity] ?? SEVERITY_TONE.low}`}
+                  >
+                    {f.severity}
+                  </span>
+                  {f.message}{" "}
                   <span className="text-xs text-ink-3">
                     {/* one row per (rule, subject): a condition firing for
                         weeks says so instead of repeating as fresh rows */}
@@ -392,13 +438,16 @@ export default function InsightsPage() {
 
       {manage && (
       <Card title="Rule follow-through — do finding rules earn action?">
-        {(d.rule_stats ?? []).length === 0 ? (
+        {ruleStats.length === 0 ? (
           <p className="text-sm text-ink-3">No findings fired yet.</p>
         ) : (
           <ul className="space-y-1 text-xs text-ink-3">
-            {d.rule_stats.map((r) => (
+            {ruleStats.map((r) => (
               <li key={r.rule_id}>
-                <code>{r.rule_id}</code>: fired {r.fired} · acted on{" "}
+                <span title={r.rule_id} className="font-medium text-ink-2">
+                  {r.label ?? r.rule_id.replace(/_/g, " ")}
+                </span>
+                : fired {r.fired} · acted on{" "}
                 {r.dispositioned} · converted {r.converted} · dismissed{" "}
                 {r.dismissed}
                 {r.median_days_to_disposition !== null &&
@@ -415,17 +464,18 @@ export default function InsightsPage() {
       </Card>
       )}
 
+      {view === "team" && (
       <Card title="Weekly check-in — team tally">
         {(d.pulse_tally ?? []).length === 0 ? (
           <p className="text-sm text-ink-3">
-            No votes yet. The Monday digest asks the question. The 👍/👎 buttons
-            are on My Day.
+            No votes yet. The Monday digest asks the question. The Yes and No
+            buttons are on My Day.
           </p>
         ) : (
           <ul className="space-y-1 text-sm">
             {d.pulse_tally.map((w) => (
               <li key={w.week}>
-                {w.week}: 👍 {w.up} · 👎 {w.down}
+                {w.week}: Yes {w.up} · No {w.down}
                 <span className="ml-2 text-xs text-ink-3">
                   {w.up + w.down > 0 && w.down > w.up
                     ? "Skein is adding effort — worth a retro"
@@ -436,8 +486,9 @@ export default function InsightsPage() {
           </ul>
         )}
       </Card>
+      )}
 
-      {manage && (
+      {view === "system" && manage && (
       <Card title="Adoption — the tool's reach">
         <p className="text-sm">
           {d.adoption.weekly_active_users}/{d.adoption.team_humans} humans active
@@ -460,6 +511,7 @@ export default function InsightsPage() {
       </Card>
       )}
 
+      {view === "team" && (
       <Card title={`Blocker clear time — rolling ${m.window_days} days`}>
         <p className="text-sm">
           median{" "}
@@ -487,8 +539,9 @@ export default function InsightsPage() {
           </p>
         )}
       </Card>
+      )}
 
-      {manage && (
+      {view === "system" && manage && (
       <Card title="Automation ratio — share of writes made by agents">
         <p className="mb-2 text-xs text-ink-3">
           Read it next to the rejection rate below — volume only counts if
@@ -524,6 +577,7 @@ export default function InsightsPage() {
       </Card>
       )}
 
+      {view === "team" && (
       <Card title={`Intake funnel (${d.intake_funnel.window_weeks}w)`}>
         <p className="text-sm">
           {d.intake_funnel.submitted ?? 0} submitted → {d.intake_funnel.accepted ?? 0}{" "}
@@ -535,7 +589,9 @@ export default function InsightsPage() {
           disposition (n={d.intake_funnel.dispositioned_n})
         </p>
       </Card>
+      )}
 
+      {view === "team" && (
       <Card title="Forecast calibration">
         {/* The slip forecast gets quoted to stakeholders. snapshot_forecasts
             has recorded every forecast since it shipped so this could be
@@ -581,8 +637,10 @@ export default function InsightsPage() {
           </>
         )}
       </Card>
+      )}
 
-      <Card title="Token spend by week">
+      {view === "system" && (
+      <Card title="Model tokens by week">
         {d.token_spend_weekly.length === 0 ? (
           <p className="text-sm text-ink-3">No model usage recorded.</p>
         ) : (
@@ -596,6 +654,7 @@ export default function InsightsPage() {
           </ul>
         )}
       </Card>
+      )}
       </div>
     </main>
   );

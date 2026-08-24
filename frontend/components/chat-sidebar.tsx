@@ -746,7 +746,7 @@ export function ChatSidebar({
                       onClose={() => closeMenu(t.id)}
                     >
                       <p className="mb-1 px-1 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-ink-3">
-                        Model spend in this chat counts toward
+                        AI usage and estimated cost count toward
                       </p>
                       {/* the link now buys two things, so the menu says both:
                           spend attribution, and which engagement's memories

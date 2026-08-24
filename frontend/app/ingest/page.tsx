@@ -61,9 +61,12 @@ export default function IngestPage() {
       <SectionTabs set="inbox" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Paste meeting notes</h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
-        Lines that start with a prefix (todo:, q:, decision:, blocked on …,
-        promised:) become <b>review proposals</b> — nothing is written
-        directly. <code>fb:</code> lines are skipped, never stored.
+        Lines that start with <code>todo:</code>, <code>q:</code>,{" "}
+        <code>decision:</code> or <code>decided:</code>, <code>blocked on</code>,{" "}
+        <code>promised:</code>, <code>awaiting:</code>, <code>req:</code>, or{" "}
+        <code>note:</code> become <b>review proposals</b>. Plain lines stay under{" "}
+        <b>Not captured</b>. Nothing is written directly. <code>fb:</code> lines
+        are skipped and never stored.
       </p>
 
       <textarea
@@ -75,7 +78,7 @@ export default function IngestPage() {
         aria-label="Paste your notes, one item per line"
         rows={12}
         placeholder={
-          "- todo: update the runbook\n- q: who owns the staging cluster?\n- decided: we ship Fridays\n- blocked on the API key from vendor\n- promised: revised beta date to ops by Friday\n- note: retro moved to Thursdays"
+          "- todo: update the runbook\n- q: who owns the staging cluster?\n- decision: we ship Fridays\n- blocked on the API key from vendor\n- promised: revised beta date to ops by Friday\n- note: retro moved to Thursdays"
         }
         className="mb-3 w-full rounded-xl border border-line-strong bg-transparent p-3 font-mono text-sm outline-none focus:border-thread-solid"
       />

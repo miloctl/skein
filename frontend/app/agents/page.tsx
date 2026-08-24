@@ -186,6 +186,9 @@ export default function Agents() {
     context_error: string;
   } | null>(null);
   const manage = useManageMode();
+  const [mode, setMode] = useState<
+    "specialists" | "work" | "authority" | "memory" | "flocks"
+  >("specialists");
   const canManageAuthority =
     identity?.strong === true && identity.can_administer === true;
   const missionAgents =
@@ -297,6 +300,12 @@ export default function Agents() {
     if (inboxFor) inboxHeading.current?.focus();
   }, [inboxFor]);
 
+  const closeInbox = () => {
+    ++inboxGeneration.current; // a late response must not reopen the closed inbox
+    setInboxFor(null);
+    setInbox(null);
+  };
+
   const openInbox = (agent: string) => {
     const g = ++inboxGeneration.current;
     setInbox(null);
@@ -400,9 +409,41 @@ export default function Agents() {
           )}
         </p>
       )}
+      <div role="group" aria-label="Agents view" className="mb-4 flex flex-wrap gap-1.5">
+        {(
+          [
+            ["specialists", "Specialists"],
+            ["work", "Active work"],
+            ["authority", "Authority & trust"],
+            ["memory", "Memory"],
+            ["flocks", "Flocks"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={mode === value}
+            onClick={() => {
+              setMode(value);
+              if (value !== "work") closeInbox();
+            }}
+            className={
+              "rounded-full px-3 py-1 text-xs " +
+              (mode === value
+                ? "bg-thread-solid font-medium text-white"
+                : "bg-raised text-ink-2 hover:bg-line")
+            }
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {errors.bench && (
-          <section className="mb-4 rounded-xl border border-line bg-card p-4 shadow-card">
+          <section
+            hidden={mode !== "specialists"}
+            className="mb-4 rounded-xl border border-line bg-card p-4 shadow-card"
+          >
             <h2 className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
               The bench
             </h2>
@@ -410,7 +451,10 @@ export default function Agents() {
           </section>
         )}
         {bench.length > 0 && (
-          <section className="rounded-xl border border-line bg-card p-4 shadow-card md:col-span-2">
+          <section
+            hidden={mode !== "specialists"}
+            className="rounded-xl border border-line bg-card p-4 shadow-card md:col-span-2"
+          >
             <h2 className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
               The bench
             </h2>
@@ -426,8 +470,11 @@ export default function Agents() {
                     href={`/chat?as=${p.slug}`}
                     className="flex items-start gap-2.5 rounded-lg border border-line-strong p-2.5 transition-colors hover:border-thread-solid hover:bg-thread/5"
                   >
-                    <span aria-hidden className="text-lg leading-6">
-                      {p.emoji}
+                    <span
+                      aria-hidden
+                      className="flex size-7 shrink-0 items-center justify-center rounded-full bg-thread/10 font-mono text-xs font-semibold text-thread"
+                    >
+                      {p.name.slice(0, 1)}
                     </span>
                     <span className="min-w-0 text-sm">
                       <span className="flex items-baseline gap-2">
@@ -447,6 +494,9 @@ export default function Agents() {
                           {p.vibe}
                         </span>
                       )}
+                      <span className="mt-1 block text-xs font-medium text-thread">
+                        Ask in Chat
+                      </span>
                     </span>
                   </Link>
                 </li>
@@ -454,7 +504,7 @@ export default function Agents() {
             </ul>
           </section>
         )}
-        <Card title="Mission control">
+        <Card title="Mission control" className={mode === "work" ? "" : "hidden"}>
           {agents !== null && agents.length > 0 && (
             <div
               role="group"
@@ -506,8 +556,9 @@ export default function Agents() {
                   }
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-medium">🤖 {a.agent}</span>
+                    <span className="font-medium">{a.agent}</span>
                     <button
+                      aria-label={`${inboxFor === a.agent ? "Close" : "Open"} inbox for ${a.agent}`}
                       aria-expanded={inboxFor === a.agent}
                       // only the open row may point at #agent-inbox: the
                       // section is unmounted for every other row, and an
@@ -516,7 +567,9 @@ export default function Agents() {
                       aria-controls={
                         inboxFor === a.agent ? "agent-inbox" : undefined
                       }
-                      onClick={() => openInbox(a.agent)}
+                      onClick={() =>
+                        inboxFor === a.agent ? closeInbox() : openInbox(a.agent)
+                      }
                       className="rounded bg-raised px-2 py-0.5 text-xs hover:bg-line"
                     >
                       inbox
@@ -556,7 +609,7 @@ export default function Agents() {
           )}
         </Card>
 
-        {inboxFor && (
+        {mode === "work" && inboxFor && (
           <section
             id="agent-inbox"
             aria-labelledby="agent-inbox-heading"
@@ -646,6 +699,7 @@ export default function Agents() {
           </section>
         )}
 
+        <div className={mode === "authority" ? "contents" : "hidden"}>
         <Card title="Authority — what each agent can do alone">
           <p className="mb-2 text-xs text-ink-3">
             {gateOn === null ? (
@@ -865,7 +919,7 @@ export default function Agents() {
           )}
           {!manage && (
             <p className="text-xs text-ink-3">
-              Changing these needs “manager controls” (top right), administrator
+              Changing these needs Management view, administrator
               access, and strong identity.
             </p>
           )}
@@ -1019,8 +1073,12 @@ export default function Agents() {
             )}
           </Card>
         )}
+        </div>
 
-        <Card title="Team memory — steers agent chats (personal ones only their owner's)">
+        <Card
+          title="Team memory — steers agent chats (personal ones only their owner's)"
+          className={mode === "memory" ? "" : "hidden"}
+        >
           {errors.memories ? (
             failed("memories")
           ) : memories === null ? (
@@ -1135,7 +1193,7 @@ export default function Agents() {
             also strands its neighbour alone in the left column. */}
         <Card
           title="Flocks — the last turns, as they ran"
-          className="md:col-span-2"
+          className={mode === "flocks" ? "md:col-span-2" : "hidden"}
         >
           {/* the installed flocks as DOORS, like the bench cards above: a
               chip opens chat with `/flock <slug> ` already in the composer
@@ -1150,11 +1208,8 @@ export default function Agents() {
                     title={f.description}
                     className="flex items-center gap-1.5 rounded-full border border-line-strong px-2.5 py-1 text-xs transition-colors hover:border-thread-solid hover:bg-thread/5"
                   >
-                    <span aria-hidden>{f.emoji}</span>
                     <span className="font-medium">{f.slug}</span>
-                    <span aria-hidden className="text-ink-3">
-                      {f.members.map((m) => m.emoji).join(" ")}
-                    </span>
+                    <span className="text-ink-3">Ask group</span>
                     <span className="sr-only">
                       — open chat with /flock {f.slug} ready to send
                     </span>

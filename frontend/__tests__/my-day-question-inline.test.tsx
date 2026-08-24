@@ -93,7 +93,11 @@ describe("the question row on My Day", () => {
 
   it("reassigns in place", async () => {
     render(<MyDay />);
-    fireEvent.click(await screen.findByRole("button", { name: "reassign…" }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Reassign question #1: Do we have budget for a usability test round?",
+      }),
+    );
     const input = screen.getByLabelText("Assign question #1 to");
     fireEvent.keyDown(input, { key: "Enter", target: { value: "ava" } });
     await waitFor(() => expect(posts()).toHaveLength(1));

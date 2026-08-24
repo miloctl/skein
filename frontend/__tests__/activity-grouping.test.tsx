@@ -36,6 +36,13 @@ const FEED = {
       who: "agent",
       sentence: "research-agent deleted an attached file",
     }),
+    entry(4, {
+      actor: "backend-architect",
+      who: "agent",
+      action: "propose_change",
+      sentence: "backend-architect filed a proposal",
+      detail: "#34 update task_completion",
+    }),
   ],
   next_before: null,
 };
@@ -53,24 +60,27 @@ describe("activity feed grouping", () => {
     render(<ActivityPage />);
     // the human's 3-row burst is one row; the agent's row must NOT fold into
     // it even though the action matches — different actor
-    expect(await screen.findByText("— 3 rows")).toBeTruthy();
+    expect(await screen.findByText(/— 3 related actions/)).toBeTruthy();
     expect(
       screen.getByText("research-agent deleted an attached file"),
     ).toBeTruthy();
 
-    // expanding shows the stored text of every folded row
-    fireEvent.click(screen.getByText("— 3 rows"));
-    expect(screen.getByText(/#8 · .* artifact #8 \(1019072 bytes\)/)).toBeTruthy();
-    expect(screen.getByText(/#6 · .* artifact #6 \(1019072 bytes\)/)).toBeTruthy();
+    // expanding keeps the readable sentence view; exact stored fields stay
+    // behind Raw rows
+    fireEvent.click(screen.getByText(/— 3 related actions/));
+    expect(screen.getByText(/artifact #8 .*KB/)).toBeTruthy();
+    expect(screen.getByText(/artifact #6 .*KB/)).toBeTruthy();
+    expect(screen.queryByText(/#8 ·/)).toBeNull();
   });
 
-  it("humanizes byte counts in the sentence view and keeps them raw in Raw rows", async () => {
+  it("humanizes stored detail in the sentence view and keeps it raw in Raw rows", async () => {
     render(<ActivityPage />);
-    // the agent's single row renders its detail humanized (995 KB, not
-    // "0.9 MB" — lib/size.ts picks the unit that says something)
+    // the agent's single row renders its byte count as 995 KB, not 0.9 MB.
     expect(await screen.findByText(/995 KB/)).toBeTruthy();
+    expect(screen.getByText(/proposal #34 · update task completion/)).toBeTruthy();
 
     fireEvent.click(screen.getByLabelText?.("Raw rows") ?? screen.getByText("Raw rows"));
     expect(screen.getAllByText(/1019072 bytes/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/#34 update task_completion/)).toBeTruthy();
   });
 });

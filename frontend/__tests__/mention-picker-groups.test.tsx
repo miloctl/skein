@@ -62,7 +62,7 @@ function Harness() {
   );
 }
 
-const composer = () => screen.getByRole("combobox") as HTMLTextAreaElement;
+const composer = () => screen.getByRole("textbox", { name: /Message/ }) as HTMLTextAreaElement;
 
 /** Accessible names of the options inside one labelled group. Hidden nodes
  *  are dropped, so the ↵ badge on the selected row does not land in the name
@@ -88,13 +88,21 @@ async function type(value: string) {
 describe("the @ picker", () => {
   it("offers people and specialists at the start of a message", async () => {
     render(<Harness />);
-    await type("@");
+    const box = await type("@");
     await screen.findByRole("listbox");
+    expect(box.getAttribute("aria-autocomplete")).toBe("list");
+    expect(box.getAttribute("aria-controls")).toBe("cmd-list");
+    expect(box.getAttribute("aria-activedescendant")).toBe("cmd-0");
+    expect(
+      screen.getAllByRole("status").some((status) =>
+        /suggestions open/i.test(status.textContent ?? ""),
+      ),
+    ).toBe(true);
     // groups, not aria-label on each row: aria-label REPLACES the accessible
     // name, so labelling rows dropped the description that is the whole value
     // of a specialist row
     expect(groupNames("People")).toContain("@mira");
-    expect(groupNames("Specialists")).toContain("@growth-mentor🌱 coaching");
+    expect(groupNames("Specialists")).toContain("@growth-mentorcoaching");
   });
 
   it("offers specialists mid-sentence too, on a real provider", async () => {
@@ -105,7 +113,7 @@ describe("the @ picker", () => {
     await type("ask @");
     await screen.findByRole("listbox");
     expect(groupNames("People")).toContain("@mira");
-    expect(groupNames("Specialists")).toContain("@growth-mentor🌱 coaching");
+    expect(groupNames("Specialists")).toContain("@growth-mentorcoaching");
   });
 
   it("never offers a name the backend cannot match", async () => {
