@@ -3,10 +3,15 @@
 # hold real locks (db.py::name_lock, policy_context.hold_resource). What
 # still assumes one process: artifacts and exports on a ReadWriteOnce volume
 # (a second replica serves 404s for half of them), the in-process scheduler,
-# per-process rate-cap windows (app/ratelimit.py), and the chat turn registry
-# (routes/chat.py::_inflight). Raising replicas corrupts no data now, but it
-# double-fires the scheduler and halves every rate cap — do not raise it
-# until those three move.
+# per-process rate-cap windows (app/ratelimit.py), the chat turn registry
+# (routes/chat.py::_inflight), and the shared-chat agent worker
+# (services/shared_chat_agents.py serializes each model session with a
+# process-local lock, and recover_startup() at boot clears every execution
+# lease — a second replica booting marks the first replica's live turns
+# completion_unknown and lets a queued turn write the same model session).
+# Raising replicas double-fires the scheduler, halves every rate cap, and
+# corrupts in-flight shared-chat agent sessions — do not raise it until
+# those move.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

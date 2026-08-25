@@ -1329,3 +1329,111 @@ def test_one_agent_failure_keeps_the_other_agent_reply(client, monkeypatch):
         "SELECT author, content FROM chat_messages WHERE thread_id = ? AND author_kind = 'agent'",
         (room["id"],),
     ) == {"author": agents[1], "content": "second agent answered"}
+
+
+def test_shared_audience_policy_intersects_a_read_that_omitted_its_tool_name(fresh_db):
+    """permits_resource with tool="" is the only producer of tool_effect
+    "none". Passing it through to the base engine lets a future
+    SHARED_CHAT_TOOLS entry that forgets tool= read as the requester alone."""
+    del fresh_db
+    from app.extensions.policy import (
+        PolicyDecision,
+        PolicyEffect,
+        PolicyInput,
+        PolicyResource,
+        PolicySubject,
+    )
+    from app.services.shared_chat_agents import _AudiencePolicy
+
+    class BasePolicy:
+        def has_workplace_rules_for(self, action):
+            return bool(action)
+
+        def decide(self, request):
+            return PolicyDecision(
+                PolicyEffect.DENY if request.subject.name == "bob" else PolicyEffect.PERMIT
+            )
+
+    policy = _AudiencePolicy(
+        BasePolicy(),
+        (
+            PolicySubject("alice", strong=True),
+            PolicySubject("bob", strong=True),
+        ),
+    )
+    decision = policy.decide(
+        PolicyInput(
+            PolicySubject("alice", strong=True),
+            "skein.tool.read_artifact",
+            PolicyResource("artifact", "7"),
+            "agent_tool",
+            agent="backend-architect",
+            tool="",
+            tool_effect="none",
+        )
+    )
+    assert decision.effect == PolicyEffect.DENY
+
+
+def test_startup_recovery_executes_a_crash_orphaned_pending_run(client):
+    """The durable half of the queue: a pending row a crash left behind must
+    run at boot. Only the negative half (completion_unknown never retried)
+    was pinned before this test."""
+    from app.services import shared_chat_agents
+
+    agent = sorted(personas.bench_slugs())[0]
+    room, mira = create_room(client)
+    add_agent(client, room["id"], mira, agent)
+    post_message(
+        client,
+        room["id"],
+        mira,
+        f"@{agent} inspect this",
+        "orphaned-pending",
+        invoke_agent=agent,
+    )
+    run = wait_for_terminal_run(room["id"])
+    assert run["status"] == "completed"
+    # Let the drain worker go idle first: a still-running drain would claim
+    # the pending row itself, and the test would pass without recover_and_kick.
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline and shared_chat_agents._worker_running:
+        time.sleep(0.02)
+    assert not shared_chat_agents._worker_running
+    with db.transaction():
+        db.execute(
+            "UPDATE chat_agent_runs SET status = 'pending', started_at = NULL,"
+            " finished_at = NULL, response_message_id = NULL, execution_active = FALSE"
+            " WHERE turn_id = ?",
+            (run["turn_id"],),
+        )
+
+    result = shared_chat_agents.recover_and_kick()
+
+    assert result["started"] is True
+    settled = wait_for_terminal_run(room["id"])
+    assert settled["turn_id"] == run["turn_id"]
+    assert settled["status"] == "completed"
+
+
+def test_retried_client_key_naming_a_different_agent_set_is_a_conflict(client):
+    agent = sorted(personas.bench_slugs())[0]
+    room, mira = create_room(client)
+    add_agent(client, room["id"], mira, agent)
+    post_message(
+        client,
+        room["id"],
+        mira,
+        f"@{agent} first",
+        "retry-agent-set",
+        invoke_agent=agent,
+    )
+
+    response = client.post(
+        f"/api/shared-chats/{room['id']}/messages",
+        json={"message": f"@{agent} first", "client_key": "retry-agent-set"},
+        headers=mira,
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "This message key already names a different agent call."

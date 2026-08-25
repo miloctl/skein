@@ -117,7 +117,10 @@ describe("private shared chat list", () => {
 
     state.user = "dana";
     state.failSharedReads = true;
+    // A synthetic storage ping (sidebar toggle, theme) must not reset the list.
     act(() => window.dispatchEvent(new Event("storage")));
+    expect(screen.getByRole("button", { name: "Open Launch room, 3 unread" })).toBeTruthy();
+    act(() => window.dispatchEvent(new Event("skein-identity-change")));
     expect(screen.queryByRole("button", { name: "Open Launch room, 3 unread" })).toBeNull();
     expect(await screen.findByRole("alert")).toBeTruthy();
 

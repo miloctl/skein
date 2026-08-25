@@ -82,3 +82,15 @@ export type BenchPersona = {
 export function announceSharedChatActivity() {
   window.dispatchEvent(new Event("skein-shared-chat-activity"));
 }
+
+// Same-tab writers dispatch a synthetic new Event("storage") for ANY
+// localStorage change — the sidebar toggle (lib/chat-layout.ts), theme
+// adoption (lib/theme.ts), the manage toggle. Acting on that form wiped the
+// open private room on a sidebar click. Only a real cross-tab StorageEvent
+// carries a key; same-tab identity changes arrive as skein-identity-change
+// (lib/api.ts, lib/auth.ts). A null key on a real event is storage.clear().
+export function isIdentityEvent(event: Event): boolean {
+  if (event.type !== "storage") return true;
+  if (!(event instanceof StorageEvent)) return false;
+  return !event.key || ["skein-user", "skein-key", "skein-oidc"].includes(event.key);
+}
