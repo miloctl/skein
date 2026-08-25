@@ -71,11 +71,15 @@ function NavLink({
   label,
   active,
   badge,
+  badgeLabel = "awaiting a verdict",
+  badgeTone = "danger",
 }: {
   href: string;
   label: string;
   active: boolean;
   badge?: number;
+  badgeLabel?: string;
+  badgeTone?: "danger" | "quiet";
 }) {
   return (
     <Link
@@ -91,11 +95,16 @@ function NavLink({
         <>
           <span
             aria-hidden
-            className="ml-1.5 rounded-full border border-danger/25 bg-danger/10 px-1.5 py-px font-mono text-[10px] tabular-nums text-danger"
+            className={
+              "ml-1.5 rounded-full border px-1.5 py-px font-mono text-[10px] tabular-nums " +
+              (badgeTone === "danger"
+                ? "border-danger/25 bg-danger/10 text-danger"
+                : "border-thread/25 bg-thread/10 text-thread")
+            }
           >
             {badge}
           </span>
-          <span className="sr-only">, {badge} awaiting a verdict</span>
+          <span className="sr-only">, {badge} {badgeLabel}</span>
         </>
       ) : null}
       {active && (
@@ -113,7 +122,7 @@ export function Nav() {
   const pathname = usePathname();
   const user = useSyncExternalStore(subscribeUser, getUser, () => "anonymous");
   // two independent numbers — see the poll below for why they cannot be one
-  const [attention, setAttention] = useState({ inbox: 0, yours: 0 });
+  const [attention, setAttention] = useState({ inbox: 0, yours: 0, chats: 0 });
   const [menuOpen, setMenuOpen] = useState(false);
   // fetched lazily whenever the menu opens. Keeping the first answer forever
   // showed another identity's progress after a same-tab name change.
@@ -160,9 +169,10 @@ export function Nav() {
       // what is addressed to this person by name. The tab title carries
       // `yours` — it is the only part of Skein visible from an editor, and it
       // said "3" about a queue nobody had assigned to the reader.
-      api<{ inbox: number; yours: number }>("/api/attention")
+      api<{ inbox: number; yours: number; chats?: number }>("/api/attention")
         .then((r) => {
-          if (g === generation) setAttention({ inbox: r.inbox, yours: r.yours }); // ignore stale responses
+          if (g === generation)
+            setAttention({ inbox: r.inbox, yours: r.yours, chats: r.chats ?? 0 }); // ignore stale responses
         })
         .catch(() => {});
     };
@@ -173,6 +183,9 @@ export function Nav() {
     const t = setInterval(tick, 30_000);
     document.addEventListener("visibilitychange", tick);
     window.addEventListener("skein-attention-change", poll);
+    // read cursors and invitations move the Chat badge; the shared-chat
+    // surfaces announce those with this event, not skein-attention-change
+    window.addEventListener("skein-shared-chat-activity", poll);
     // nav mounts on every page, so this one bridge relays another tab's
     // change into this tab's window event for every listener at once
     const unbridge = bridgeAttentionChange();
@@ -181,6 +194,7 @@ export function Nav() {
       clearInterval(t);
       document.removeEventListener("visibilitychange", tick);
       window.removeEventListener("skein-attention-change", poll);
+      window.removeEventListener("skein-shared-chat-activity", poll);
       unbridge();
     };
   }, [gated]);
@@ -506,7 +520,16 @@ export function Nav() {
                   href={l.href}
                   label={l.label}
                   active={l.paths.includes(pathname)}
-                  badge={l.href === "/review" ? attention.inbox : undefined}
+                  badge={
+                    l.href === "/review"
+                      ? attention.inbox
+                      : l.href === "/chat"
+                        ? attention.chats
+                        : undefined
+                  }
+                  {...(l.href === "/chat"
+                    ? { badgeLabel: "waiting in private shared chats", badgeTone: "quiet" as const }
+                    : {})}
                 />
               ))}
             </div>

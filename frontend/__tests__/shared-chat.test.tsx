@@ -36,8 +36,18 @@ const detail = {
   viewer: "mira",
   role: "steward",
   members: [
-    { person: "mira", role: "steward", joined_at: "2026-08-24T11:00:00+00:00" },
-    { person: "dana", role: "member", joined_at: "2026-08-24T11:30:00+00:00" },
+    {
+      person: "mira",
+      role: "steward",
+      joined_at: "2026-08-24T11:00:00+00:00",
+      last_read_message_id: 0,
+    },
+    {
+      person: "dana",
+      role: "member",
+      joined_at: "2026-08-24T11:30:00+00:00",
+      last_read_message_id: 0,
+    },
   ],
   pending_invitations: [
     {
@@ -118,6 +128,16 @@ vi.mock("@/lib/api", async (importOriginal) => {
         return Promise.resolve(message);
       }
       if (path.endsWith("/read")) return Promise.resolve({});
+      const deleteTarget = path.match(/\/messages\/(\d+)$/);
+      if (deleteTarget && method === "DELETE") {
+        const message = state.messages.find(
+          (row) => Number(row.id) === Number(deleteTarget[1]),
+        );
+        if (!message) return Promise.reject(new Error("No message was found."));
+        message.content = "";
+        message.deleted_at = "2026-08-24T12:05:00+00:00";
+        return Promise.resolve({ ...message });
+      }
       if (path.endsWith("/invitations") && method === "POST") {
         return Promise.resolve({ id: 9, person: body.person, created_at: "now" });
       }
@@ -140,8 +160,18 @@ beforeEach(() => {
   state.failPost = false;
   state.engagementId = null;
   detail.members = [
-    { person: "mira", role: "steward", joined_at: "2026-08-24T11:00:00+00:00" },
-    { person: "dana", role: "member", joined_at: "2026-08-24T11:30:00+00:00" },
+    {
+      person: "mira",
+      role: "steward",
+      joined_at: "2026-08-24T11:00:00+00:00",
+      last_read_message_id: 0,
+    },
+    {
+      person: "dana",
+      role: "member",
+      joined_at: "2026-08-24T11:30:00+00:00",
+      last_read_message_id: 0,
+    },
   ];
   detail.pending_invitations = [
     {
@@ -241,20 +271,26 @@ describe("private shared chat", () => {
   });
 
   it("focuses a message named by a private chat notification and can load the history before it", async () => {
-    state.messages.push({
-      id: 2,
-      thread_id: "shared-room",
-      role: "user",
-      author_kind: "human",
-      author: "dana",
-      content: "Second private message",
-      created_at: "2026-08-24T12:02:00+00:00",
-      turn_id: "",
-      reply_to_message_id: null,
-    });
+    for (const [id, content] of [
+      [2, "Second private message"],
+      [3, "Third private message"],
+    ] as const) {
+      state.messages.push({
+        id,
+        thread_id: "shared-room",
+        role: "user",
+        author_kind: "human",
+        author: "dana",
+        content,
+        created_at: "2026-08-24T12:02:00+00:00",
+        turn_id: "",
+        reply_to_message_id: null,
+      });
+    }
     window.history.replaceState({}, "", "/chat?shared=shared-room#shared-message-2");
     render(<SharedChat threadId="shared-room" />);
     await screen.findByText("Second private message");
+    expect(screen.getByText("Third private message")).toBeTruthy();
     expect(screen.queryByText("First private message")).toBeNull();
 
     await waitFor(() =>
@@ -267,6 +303,13 @@ describe("private shared chat", () => {
           request.cache === "no-store",
       ),
     ).toBe(true);
+    // The deep link marks read only through the linked message — the rows
+    // after it were fetched, not seen.
+    const readBodies = state.requests
+      .filter((request) => request.path.endsWith("/read"))
+      .map((request) => (request.body as { message_id: number }).message_id);
+    expect(readBodies).toContain(2);
+    expect(readBodies).not.toContain(3);
 
     // The short deep-link page still has history before it.
     fireEvent.click(screen.getByRole("button", { name: "Load older messages" }));
@@ -274,6 +317,45 @@ describe("private shared chat", () => {
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "Load older messages" })).toBeNull(),
     );
+  });
+
+  it("author-deletes a message into a tombstone after a confirmation", async () => {
+    render(<SharedChat threadId="shared-room" />);
+    const composer = (await screen.findByLabelText(
+      "Message Launch room",
+    )) as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: "Remove me later" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await screen.findByText("Remove me later");
+
+    // dana's message (not mine) offers no delete control
+    expect(screen.getAllByRole("button", { name: /^Delete your message/ })).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /^Delete your message/ }));
+    const confirm = screen.getByRole("button", { name: "Confirm: delete message" });
+    expect(
+      screen.getByText("This message will be removed for every participant."),
+    ).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(confirm));
+    fireEvent.click(confirm);
+
+    expect(await screen.findByText("The author deleted this message.")).toBeTruthy();
+    expect(screen.queryByText("Remove me later")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Delete your message/ })).toBeNull();
+    expect(
+      state.requests.some(
+        (request) =>
+          request.method === "DELETE" &&
+          request.path === "/api/shared-chats/shared-room/messages/2",
+      ),
+    ).toBe(true);
+  });
+
+  it("shows which other participants have seen the newest message", async () => {
+    detail.members[1].last_read_message_id = 1;
+    render(<SharedChat threadId="shared-room" />);
+    await screen.findByText("First private message");
+    expect(screen.getByText("Seen by dana.")).toBeTruthy();
   });
 
   it("confirms that an invitation shares the complete earlier history", async () => {
@@ -429,6 +511,7 @@ describe("private shared chat", () => {
       person: "marcus",
       role: "member",
       joined_at: "2026-08-24T12:03:00+00:00",
+      last_read_message_id: 0,
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);

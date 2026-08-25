@@ -16,6 +16,8 @@ type SharedChatMember = {
   role: "steward" | "member";
   joined_at: string;
   kind?: "agent";
+  // human members only — agents carry no cursor
+  last_read_message_id?: number;
 };
 
 export type SharedChatInvitation = {
@@ -54,6 +56,7 @@ export type SharedChatMessage = {
   created_at: string;
   turn_id: string;
   reply_to_message_id: number | null;
+  deleted_at: string | null;
 };
 
 export type SharedChatAgentRun = {

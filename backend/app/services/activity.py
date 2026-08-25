@@ -991,6 +991,7 @@ VERBS: dict[str, tuple[str, str]] = {
     # Quiet: the detail carries an id, never private message text.
     "post_shared_chat_message": ("posted in a private shared chat", "quiet"),
     "invoke_shared_chat_agent": ("called an agent in a private shared chat", "quiet"),
+    "delete_shared_chat_message": ("deleted a private shared-chat message", "quiet"),
     "ask_question": ("asked a question", "normal"),
     "answer_question": ("answered a question", "normal"),
     "assign_question": ("assigned a question", "normal"),

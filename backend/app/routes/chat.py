@@ -466,6 +466,16 @@ def post_shared_chat_message(
     )
 
 
+@router.delete("/api/shared-chats/{thread_id}/messages/{message_id}")
+def delete_shared_chat_message(
+    thread_id: str,
+    message_id: int,
+    user: StrongUser,
+):
+    ratelimit.check("write", user)
+    return chat_threads.delete_shared_message(thread_id, user, message_id)
+
+
 @router.post("/api/shared-chats/{thread_id}/read")
 def post_shared_chat_read(thread_id: str, body: SharedReadIn, user: StrongUser):
     ratelimit.check("write", user)

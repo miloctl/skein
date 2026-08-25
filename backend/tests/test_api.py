@@ -52,7 +52,12 @@ def test_attention_count_is_personal_not_the_shared_queue(client):
     client.post("/api/intake", json={"title": "Need a thing"})
     review.propose_change("note", "create", {"topic": "t", "content": "c"}, actor="agent-x")
     # two things in the shared Inbox, nothing addressed to this reader
-    assert client.get("/api/attention").json() == {"count": 0, "inbox": 2, "yours": 0}
+    assert client.get("/api/attention").json() == {
+        "count": 0,
+        "inbox": 2,
+        "yours": 0,
+        "chats": 0,
+    }
 
     client.post("/api/blockers", json={"title": "Stuck", "owner": "tester"})
     counts = client.get("/api/attention").json()
