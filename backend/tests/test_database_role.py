@@ -3,6 +3,7 @@
 import os
 import shutil
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -28,7 +29,16 @@ def _require_disposable_superuser(control) -> None:
         )
 
 
-def test_bootstrap_role_runs_skein_without_database_create(_worker_db, monkeypatch):
+def _bootstrap_conninfo(info: dict, database: str, user: str) -> tuple[str, str]:
+    params = {key: value for key, value in info.items() if value is not None}
+    password = str(params.pop("password", ""))
+    params.update(dbname=database, user=user)
+    return make_conninfo(**{key: str(value) for key, value in params.items()}), password
+
+
+def test_bootstrap_role_runs_skein_without_database_create(monkeypatch):
+    from conftest import _create_test_database, _drop_test_database
+
     from app import config, db
     from app.extensions.contracts import ExtensionMigration
     from app.extensions.data import ExtensionStore
@@ -38,25 +48,32 @@ def test_bootstrap_role_runs_skein_without_database_create(_worker_db, monkeypat
     original_error = config.DATABASE_ERROR
     info = conninfo_to_dict(original_url)
     suffix = uuid4().hex[:8]
-    database = f"skein_role_{suffix}"
-    role = f"skein_app_{suffix}"
+    created = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    database = f"skein_role_{created}_{suffix}"
+    role = f"skein_app_{created}_{suffix}"
     password = "p@ss:w/x?#'quoted"
     script = Path(__file__).parents[2] / "deploy" / "postgres-init" / "10-app-role.sh"
 
     with psycopg.connect(original_url, autocommit=True) as control:
         _require_disposable_superuser(control)
-        control.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(database)))
+        bootstrap_user = control.info.user
+    _create_test_database(original_url, database)
 
+    # psql does not read SKEIN_DATABASE_URL. Pass its complete connection
+    # contract as conninfo (service, TLS, failover, options) and keep a literal
+    # password out of process arguments.
+    bootstrap_conninfo, bootstrap_password = _bootstrap_conninfo(info, database, bootstrap_user)
+    # Keep ambient PG settings because the configured conninfo can deliberately
+    # rely on PGSERVICEFILE, PGPASSFILE, or client-certificate paths.
     env = dict(os.environ)
     env.update(
         {
-            "POSTGRES_USER": str(info.get("user") or ""),
+            "POSTGRES_USER": bootstrap_user,
             "POSTGRES_DB": database,
+            "POSTGRES_CONNINFO": bootstrap_conninfo,
             "SKEIN_APP_USER": role,
             "SKEIN_APP_PASSWORD": password,
-            "PGHOST": str(info.get("host") or ""),
-            "PGPORT": str(info.get("port") or "5432"),
-            "PGPASSWORD": str(info.get("password") or ""),
+            **({"PGPASSWORD": bootstrap_password} if bootstrap_password else {}),
         }
     )
     try:
@@ -137,10 +154,8 @@ def test_bootstrap_role_runs_skein_without_database_create(_worker_db, monkeypat
         monkeypatch.setattr(config, "DATABASE_URL", original_url)
         monkeypatch.setattr(config, "DATABASE_ERROR", original_error)
         db.close_pool()
+        # Plain DROP exposes a leaked app or restore connection. Killing it
+        # here would let the security contract pass while its cleanup is broken.
+        _drop_test_database(original_url, database)
         with psycopg.connect(original_url, autocommit=True) as control:
-            # Plain DROP exposes a leaked app or restore connection. Killing it
-            # here would let the security contract pass while its cleanup is broken.
-            control.execute(
-                pgsql.SQL("DROP DATABASE IF EXISTS {}").format(pgsql.Identifier(database))
-            )
             control.execute(pgsql.SQL("DROP ROLE IF EXISTS {}").format(pgsql.Identifier(role)))

@@ -5,22 +5,9 @@ import threading
 import time
 from types import SimpleNamespace
 
-import pytest
-
 from app import db
 from app.services import personas, users
 from app.services.api_keys import create_key
-
-
-@pytest.fixture(autouse=True)
-def _wait_for_shared_chat_drain():
-    yield
-    from app.services import shared_chat_agents
-
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline and shared_chat_agents._worker_running:
-        time.sleep(0.02)
-    assert not shared_chat_agents._worker_running
 
 
 def auth(name: str) -> dict[str, str]:
@@ -677,6 +664,75 @@ def test_late_timeout_completion_persists_reply_receipts_and_releases_access(cli
     assert "Proposal queued for human review" in content
 
 
+def test_late_persistence_failure_releases_session_and_execution_slot(client, monkeypatch):
+    from app import config
+    from app.agents import team_agent
+    from app.services import shared_chat_agents
+
+    agent = sorted(personas.bench_slugs())[0]
+    room, mira = create_room(client)
+    add_agent(client, room["id"], mira, agent)
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "AGENT_RUN_SECONDS", 0.05)
+    started = threading.Event()
+    release = threading.Event()
+
+    class FakeAgent:
+        event_loop_metrics = SimpleNamespace(
+            accumulated_usage={}, accumulated_metrics={}, cycle_count=1
+        )
+        model = SimpleNamespace(get_config=lambda: {"model_id": "test-model"})
+
+        def __call__(self, prompt):
+            del prompt
+            started.set()
+            release.wait(2)
+            return "late answer that cannot persist"
+
+    monkeypatch.setattr(team_agent, "build_agent", lambda *_args, **_kwargs: FakeAgent())
+    monkeypatch.setattr(
+        shared_chat_agents,
+        "_finish_success",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("database fault")),
+    )
+    trigger = post_message(
+        client,
+        room["id"],
+        mira,
+        f"@{agent} fail after timeout",
+        "late-persistence-fault",
+        invoke_agent=agent,
+    )
+    assert started.wait(1)
+    try:
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            run = db.query_row(
+                "SELECT status, execution_active FROM chat_agent_runs WHERE trigger_message_id = ?",
+                (trigger["id"],),
+            )
+            if run["status"] == "completion_unknown":
+                break
+            time.sleep(0.01)
+        assert run == {"status": "completion_unknown", "execution_active": True}
+    finally:
+        release.set()
+
+    lock = shared_chat_agents._session_lock(room["id"], agent)
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        run = db.query_row(
+            "SELECT status, execution_active FROM chat_agent_runs WHERE trigger_message_id = ?",
+            (trigger["id"],),
+        )
+        if not run["execution_active"] and not lock.locked():
+            break
+        time.sleep(0.01)
+    assert run == {"status": "completion_unknown", "execution_active": False}
+    assert not lock.locked()
+    assert shared_chat_agents.wait_for_idle(2)
+
+
 def test_real_turn_uses_workspace_tools_and_forces_requester_attributed_review(client, monkeypatch):
     from app import config
     from app.agents import team_agent
@@ -1191,6 +1247,7 @@ def test_global_four_call_drain_refills_across_rooms(client, monkeypatch):
         add_agent(client, first_room["id"], first_headers, agent)
     add_agent(client, second_room["id"], second_headers, agents[4])
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "AGENT_RUN_SECONDS", 0.05)
     real_kick = shared_chat_agents.kick
     monkeypatch.setattr(shared_chat_agents, "kick", lambda: False)
 
@@ -1273,6 +1330,29 @@ def test_global_four_call_drain_refills_across_rooms(client, monkeypatch):
         assert first_wave == set(agents[:4])
         assert not fifth_entered.is_set()
         assert observed_max == 4
+
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            first_rows = db.query(
+                "SELECT status, execution_active FROM chat_agent_runs WHERE thread_id = ?",
+                (first_room["id"],),
+            )
+            if len(first_rows) == 4 and all(
+                row["status"] == "completion_unknown" for row in first_rows
+            ):
+                break
+            time.sleep(0.01)
+        assert len(first_rows) == 4
+        assert all(
+            row == {"status": "completion_unknown", "execution_active": True} for row in first_rows
+        )
+        fifth_run = db.query_row(
+            "SELECT status, execution_active FROM chat_agent_runs WHERE thread_id = ?",
+            (second_room["id"],),
+        )
+        # A call that has not acquired a real execution slot has not started.
+        # Keep it pending so restart does not mislabel it completion-unknown.
+        assert fifth_run == {"status": "pending", "execution_active": False}
 
         release_one.set()
         fifth_started = fifth_entered.wait(3)
@@ -1744,9 +1824,22 @@ def test_prompt_body_is_bounded_and_keeps_the_newest_message(client, monkeypatch
     separator = "\n\n---\n\n"
     expected = marker + separator.join(rendered[-2:])
     monkeypatch.setattr(shared_chat_agents, "_MAX_TRANSCRIPT_CHARS", len(expected))
+    real_query = db.query
+    prompt_queries: list[tuple[str, tuple]] = []
 
+    def bounded_query(sql: str, params=()):
+        if "FROM chat_messages" in sql:
+            prompt_queries.append((sql, tuple(params)))
+        return real_query(sql, params)
+
+    monkeypatch.setattr(shared_chat_agents.db, "query", bounded_query)
     body = _shared_prompt_body(shared_chat_agents._prompt(run))
 
+    assert prompt_queries
+    assert all("ORDER BY id DESC LIMIT ?" in sql for sql, _params in prompt_queries)
+    assert all(
+        params[-1] == shared_chat_agents._PROMPT_BATCH + 1 for _sql, params in prompt_queries
+    )
     assert body == expected
     assert len(body) <= shared_chat_agents._MAX_TRANSCRIPT_CHARS
     assert body.count(marker) == 1
@@ -1815,3 +1908,104 @@ def test_claim_scan_reaches_runnable_work_after_one_hundred_locked_rows(client):
             " finished_at = ?, error_code = 'test_settled' WHERE turn_id = 'runnable-turn'",
             (db.now(),),
         )
+
+
+def test_thread_start_failure_makes_pending_calls_visible_as_failed(client, monkeypatch):
+    from app.services import shared_chat_agents
+
+    agent = sorted(personas.bench_slugs())[0]
+    room, mira = create_room(client)
+    add_agent(client, room["id"], mira, agent)
+    real_kick = shared_chat_agents.kick
+    monkeypatch.setattr(shared_chat_agents, "kick", lambda: False)
+    trigger = post_message(
+        client,
+        room["id"],
+        mira,
+        f"@{agent} cannot start",
+        "thread-start-failure",
+        invoke_agent=agent,
+    )
+    monkeypatch.setattr(shared_chat_agents, "kick", real_kick)
+    monkeypatch.setattr(
+        threading.Thread,
+        "start",
+        lambda _thread: (_ for _ in ()).throw(RuntimeError("thread unavailable")),
+    )
+
+    try:
+        real_kick()
+        raise AssertionError("coordinator start unexpectedly succeeded")
+    except RuntimeError as error:
+        assert str(error) == "thread unavailable"
+
+    run = db.query_row(
+        "SELECT status, execution_active, error_code FROM chat_agent_runs"
+        " WHERE trigger_message_id = ?",
+        (trigger["id"],),
+    )
+    assert run == {
+        "status": "failed",
+        "execution_active": False,
+        "error_code": "worker_start_failed",
+    }
+    assert shared_chat_agents.wait_for_idle()
+
+
+def test_retry_timer_failure_stays_owned_until_pending_rows_settle(client, monkeypatch):
+    from app.services import shared_chat_agents
+
+    del client
+    settling = threading.Event()
+    release = threading.Event()
+
+    class FailedTimer:
+        daemon = True
+
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("timer unavailable")
+
+        def cancel(self):
+            pass
+
+    def settle(_error_code):
+        settling.set()
+        release.wait(2)
+
+    monkeypatch.setattr(shared_chat_agents.threading, "Timer", FailedTimer)
+    monkeypatch.setattr(shared_chat_agents, "_fail_pending_queue", settle)
+    scheduler = threading.Thread(target=shared_chat_agents._schedule_retry)
+    scheduler.start()
+    try:
+        assert settling.wait(1)
+        assert not shared_chat_agents.wait_for_idle(0.05)
+    finally:
+        release.set()
+        scheduler.join(2)
+    assert shared_chat_agents.wait_for_idle(1)
+
+
+def test_drain_retries_a_transient_coordinator_failure(client, monkeypatch):
+    from app.services import shared_chat_agents
+
+    del client
+    calls = 0
+    retried = threading.Event()
+
+    def flaky_claim():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("transient coordinator fault")
+        retried.set()
+        return None
+
+    monkeypatch.setattr(shared_chat_agents, "claim_next", flaky_claim)
+
+    assert shared_chat_agents.kick() is True
+    assert retried.wait(2)
+    assert shared_chat_agents.wait_for_idle(2)
+    assert calls >= 2

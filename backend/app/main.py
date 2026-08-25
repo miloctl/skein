@@ -515,6 +515,14 @@ async def lifespan(app: FastAPI):
             shutdown_mcp()
         except Exception:
             log.exception("MCP shutdown failed")
+        shared_chat_idle = True
+        try:
+            from .services import shared_chat_agents
+
+            shared_chat_idle = shared_chat_agents.shutdown()
+        except Exception:
+            shared_chat_idle = False
+            log.exception("shared-chat agent shutdown failed")
         try:
             from .services import adoption
 
@@ -522,7 +530,13 @@ async def lifespan(app: FastAPI):
         except Exception:
             log.exception("adoption flush failed")
         try:
-            db.close_pool()
+            if shared_chat_idle:
+                db.close_pool()
+            else:
+                # The process will close the pool at exit. Keeping it open here
+                # prevents a late model/tool thread from reopening a pool after
+                # the application lifespan has ended.
+                log.warning("database pool left open for an active shared-chat turn")
         finally:
             deactivate_runtime_machine_subjects(runtime_subject_token)
 

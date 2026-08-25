@@ -6,7 +6,6 @@ import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
 
 import conftest as fixtures
 import psycopg
@@ -21,6 +20,24 @@ class _Result:
 
     def fetchone(self):
         return self._row
+
+    def fetchall(self):
+        return self._row
+
+
+def _offline_env(**overrides):
+    env = dict(os.environ)
+    for name in (
+        "SKEIN_DATABASE_URL",
+        "SKEIN_DB_HOST",
+        "SKEIN_DB_PORT",
+        "SKEIN_DB_USER",
+        "SKEIN_DB_PASSWORD",
+        "SKEIN_DB_NAME",
+    ):
+        env[name] = ""
+    env.update(overrides)
+    return env
 
 
 class _ProbeConnection:
@@ -42,7 +59,7 @@ class _ProbeConnection:
         return _Result((1,))
 
 
-def test_database_names_are_unique_parseable_and_bounded():
+def test_database_names_are_unique_parseable_and_bounded(monkeypatch):
     created = datetime(2026, 8, 25, 1, 2, 3, tzinfo=UTC)
     first = fixtures._test_database_name(
         "scratch", created, "run id with punctuation", "gw0", suffix="0123abcd"
@@ -51,10 +68,21 @@ def test_database_names_are_unique_parseable_and_bounded():
         "scratch", created, "run id with punctuation", "gw0", suffix="89abcdef"
     )
 
+    suffixes = iter(("11111111", "22222222"))
+    monkeypatch.setattr(fixtures.secrets, "token_hex", lambda _bytes: next(suffixes))
+    random_first = fixtures._test_database_name(
+        "scratch", created, "run id with punctuation", "gw0"
+    )
+    random_second = fixtures._test_database_name(
+        "scratch", created, "run id with punctuation", "gw0"
+    )
+
     assert first != second
+    assert random_first != random_second
     assert first == "skein_scratch_20260825010203_43a79528105b_gw0_0123abcd"
     assert len(first.encode()) <= 63
     assert fixtures._test_database_created_at(first) == created
+    assert fixtures._test_database_created_at("skein_app_20260825010203_0123abcd") == created
     assert fixtures._test_database_created_at("skein_scratch_gw0_12345") is None
     assert fixtures._test_database_created_at("skein_test_20260825010203_bad") is None
 
@@ -74,6 +102,43 @@ def test_database_conninfo_replaces_only_the_database_name():
     assert changed == {**conninfo_to_dict(source), "dbname": "target"}
 
 
+def test_create_database_cleans_a_lost_ack_but_not_a_name_collision(monkeypatch):
+    dropped = []
+
+    class Admin:
+        def __init__(self, error):
+            self.error = error
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, _query):
+            raise self.error
+
+    monkeypatch.setattr(fixtures, "_drop_test_database", lambda *args: dropped.append(args))
+    monkeypatch.setattr(
+        psycopg,
+        "connect",
+        lambda *_args, **_kwargs: Admin(psycopg.OperationalError("lost acknowledgement")),
+    )
+    with pytest.raises(psycopg.OperationalError):
+        fixtures._create_test_database("base", "unique-name")
+    assert dropped == [("base", "unique-name")]
+
+    dropped.clear()
+    monkeypatch.setattr(
+        psycopg,
+        "connect",
+        lambda *_args, **_kwargs: Admin(psycopg.errors.DuplicateDatabase("collision")),
+    )
+    with pytest.raises(psycopg.errors.DuplicateDatabase):
+        fixtures._create_test_database("base", "not-owned")
+    assert dropped == []
+
+
 @pytest.mark.parametrize("flags", [(True, False), (False, True)])
 def test_postgres_preflight_accepts_superuser_or_createdb(monkeypatch, flags):
     connection = _ProbeConnection(flags)
@@ -85,6 +150,7 @@ def test_postgres_preflight_accepts_superuser_or_createdb(monkeypatch, flags):
 
     monkeypatch.setattr(psycopg, "connect", connect)
     monkeypatch.setattr(fixtures, "_old_test_databases", lambda _connection: [])
+    monkeypatch.setattr(fixtures, "_old_test_roles", lambda _connection: [])
 
     assert fixtures._postgres_preflight("postgresql://skein:secret@db/skein") is None
     assert call == {
@@ -123,29 +189,53 @@ def test_postgres_preflight_names_old_orphans_without_deleting(monkeypatch):
     orphan = "skein_test_20260823010203_0123456789ab_gw0_0123abcd"
     monkeypatch.setattr(psycopg, "connect", lambda *_args, **_kwargs: connection)
     monkeypatch.setattr(fixtures, "_old_test_databases", lambda _connection: [orphan])
+    monkeypatch.setattr(fixtures, "_old_test_roles", lambda _connection: [])
 
     error = fixtures._postgres_preflight("postgresql://skein:secret@db/skein")
 
     assert error == (
-        "Old inactive pytest databases were found. Delete these exact databases,"
+        "Old inactive pytest resources were found. Delete these exact names,"
         f" then run the tests again: {orphan}"
     )
-
-
-def test_session_preflight_skips_collectonly_and_workers(monkeypatch):
-    calls = []
-    monkeypatch.setattr(fixtures, "_postgres_preflight", lambda _url: calls.append(True))
-
-    collect = SimpleNamespace(config=SimpleNamespace(getoption=lambda name: name == "collectonly"))
-    fixtures.pytest_sessionstart(collect)
-
-    worker_config = SimpleNamespace(
-        workerinput={},
-        getoption=lambda _name: False,
+    assert all(
+        "drop database" not in query.lower() and "drop role" not in query.lower()
+        for query in connection.queries
     )
-    fixtures.pytest_sessionstart(SimpleNamespace(config=worker_config))
 
-    assert calls == []
+
+def test_orphan_database_catalog_is_scoped_to_the_current_owner():
+    class CatalogConnection:
+        query = ""
+
+        def execute(self, query):
+            self.query = str(query)
+            return _Result([])
+
+    connection = CatalogConnection()
+
+    assert fixtures._old_test_databases(connection) == []
+    assert "owner.rolname = current_user" in connection.query
+
+
+def test_pure_selection_runs_without_postgres():
+    path = Path(__file__)
+    result = subprocess.run(  # noqa: S603 — fixed Python, pytest module and test path
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-n0",
+            f"{path}::test_database_names_are_unique_parseable_and_bounded",
+        ],
+        cwd=path.parents[1],
+        env=_offline_env(),
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_role_contract_normal_skip_happens_before_database_fixtures():
@@ -153,7 +243,7 @@ def test_role_contract_normal_skip_happens_before_database_fixtures():
     result = subprocess.run(  # noqa: S603 — fixed Python, pytest module and test path
         [sys.executable, "-m", "pytest", "-q", "-n0", "--setup-show", str(path)],
         cwd=path.parents[1],
-        env={**os.environ, "SKEIN_ROLE_CONTRACT": "0"},
+        env=_offline_env(SKEIN_ROLE_CONTRACT="0"),
         capture_output=True,
         text=True,
         timeout=60,
@@ -165,6 +255,29 @@ def test_role_contract_normal_skip_happens_before_database_fixtures():
     assert "1 skipped" in output
     assert "_worker_db" not in output
     assert "scratch_db" not in output
+
+
+def test_role_contract_preserves_libpq_connection_parameters():
+    from test_database_role import _bootstrap_conninfo
+
+    source = {
+        "service": "skein-test",
+        "passfile": "/tmp/pass file",
+        "password": "literal-secret",
+        "sslmode": "verify-full",
+        "sslrootcert": "/tmp/root.pem",
+        "target_session_attrs": "read-write",
+        "options": "-c search_path=private",
+    }
+    conninfo, password = _bootstrap_conninfo(source, "role-db", "role-admin")
+
+    assert password == "literal-secret"
+    assert "literal-secret" not in conninfo
+    assert conninfo_to_dict(conninfo) == {
+        **{key: value for key, value in source.items() if key != "password"},
+        "dbname": "role-db",
+        "user": "role-admin",
+    }
 
 
 def test_explicit_role_contract_fails_closed_for_nonsuperuser():
@@ -185,6 +298,13 @@ def test_postgres_commands_allow_a_clean_twenty_minute_shutdown():
     root = Path(__file__).parents[2]
     compose = (root / "docker-compose.yml").read_text()
     assert "stop_grace_period: 20m" in compose
+    postgres = (root / "deploy" / "k8s" / "base" / "postgres.yaml").read_text()
+    assert "terminationGracePeriodSeconds: 1200" in postgres
+    role_contract = (root / "backend" / "tests" / "test_database_role.py").read_text()
+    assert "pg_terminate_backend" not in role_contract
+    bootstrap = (root / "deploy" / "postgres-init" / "10-app-role.sh").read_text()
+    assert "POSTGRES_CONNINFO" in bootstrap
+    assert "POSTGRES_CONNINFO" in postgres
 
     for path in (
         root / "CLAUDE.md",
@@ -193,6 +313,12 @@ def test_postgres_commands_allow_a_clean_twenty_minute_shutdown():
         root / "scripts" / "skein.sh",
     ):
         assert "--stop-timeout 1200" in path.read_text(), path
+    for path in (
+        root / "CLAUDE.md",
+        root / "backend" / ".env.example",
+        root / "scripts" / "skein.sh",
+    ):
+        assert "127.0.0.1:" in path.read_text(), path
 
 
 def test_worker_database_setup_failure_drops_the_created_database(
