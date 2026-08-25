@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { actionError, api } from "@/lib/api";
+import { actionError, api, loadError } from "@/lib/api";
 import {
   announceSharedChatActivity,
+  isIdentityEvent,
   type SharedChatDetail,
   type SharedChatInvitation,
   type SharedChatSummary,
@@ -59,14 +60,17 @@ export function SharedChatList({
       setInvitations(nextInvitations);
       setError("");
     } catch (caught) {
-      if (current === generation.current) setError(actionError(caught));
+      // A failed LIST fetch is a load, not an action — same wording as the
+      // sibling sidebar loads.
+      if (current === generation.current) setError(loadError(caught));
     }
   }, []);
 
   useEffect(() => {
     queueMicrotask(load);
     const onActivity = () => load();
-    const onIdentity = () => {
+    const onIdentity = (event: Event) => {
+      if (!isIdentityEvent(event)) return;
       generation.current += 1;
       setStrong(null);
       setRooms([]);
@@ -76,10 +80,12 @@ export function SharedChatList({
     };
     window.addEventListener("skein-shared-chat-activity", onActivity);
     window.addEventListener("storage", onIdentity);
+    window.addEventListener("skein-identity-change", onIdentity);
     return () => {
       generation.current += 1;
       window.removeEventListener("skein-shared-chat-activity", onActivity);
       window.removeEventListener("storage", onIdentity);
+      window.removeEventListener("skein-identity-change", onIdentity);
     };
   }, [load]);
 
@@ -173,7 +179,9 @@ export function SharedChatList({
                   maxLength={60}
                   onChange={(event) => setTitle(event.target.value)}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter") create();
+                    // isComposing: Enter that commits an IME conversion must
+                    // not create the chat with a half-composed title.
+                    if (event.key === "Enter" && !event.nativeEvent.isComposing) create();
                     if (event.key === "Escape") setCreating(false);
                   }}
                   className="mt-1 w-full rounded-lg border border-line-strong bg-transparent px-2 py-1.5 text-sm text-ink outline-none focus:border-thread-solid"

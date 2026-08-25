@@ -6,6 +6,7 @@ import { PersonInput } from "@/components/person-input";
 import { actionError, api } from "@/lib/api";
 import {
   announceSharedChatActivity,
+  isIdentityEvent,
   type BenchPersona,
   type SharedChatAgentRun,
   type SharedChatDetail,
@@ -172,6 +173,7 @@ export function SharedChat({
   const [titleDraft, setTitleDraft] = useState("");
   const [announcement, setAnnouncement] = useState("");
   const [accessAction, setAccessAction] = useState<AccessAction | null>(null);
+  const [dismissedRuns, setDismissedRuns] = useState<ReadonlySet<string>>(new Set());
   const latestId = useRef(0);
   const generation = useRef(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -218,8 +220,9 @@ export function SharedChat({
     const current = ++generation.current;
     latestId.current = 0;
     const target = window.location.hash.match(/^#shared-message-(\d+)$/);
-    const messagePath = target
-      ? `/api/shared-chats/${threadId}/messages?after=${Math.max(0, Number(target[1]) - 1)}`
+    const afterStart = target ? Math.max(0, Number(target[1]) - 1) : 0;
+    const messagePath = afterStart
+      ? `/api/shared-chats/${threadId}/messages?after=${afterStart}`
       : `/api/shared-chats/${threadId}/messages`;
     Promise.all([
       api<SharedChatDetail>(`/api/shared-chats/${threadId}`, { cache: "no-store" }),
@@ -239,7 +242,10 @@ export function SharedChat({
         setMessages(rows);
         setAgentRuns(runs);
         setPersonas(bench);
-        setHasOlder(rows.length === PAGE_SIZE);
+        // A deep-link fetch starts past zero, so messages can exist before
+        // the page even when it is short. loadOlder's own short before-page
+        // then hides the button when nothing older actually exists.
+        setHasOlder(rows.length === PAGE_SIZE || (afterStart > 0 && rows.length > 0));
         latestId.current = rows.at(-1)?.id ?? 0;
         markRead(latestId.current);
       })
@@ -278,13 +284,7 @@ export function SharedChat({
   useEffect(() => {
     let cleared = false;
     const clearForIdentity = (event: Event) => {
-      if (
-        event instanceof StorageEvent &&
-        event.key &&
-        !["skein-user", "skein-key", "skein-oidc"].includes(event.key)
-      ) {
-        return;
-      }
+      if (!isIdentityEvent(event)) return;
       if (cleared) return;
       cleared = true;
       generation.current += 1;
@@ -320,15 +320,21 @@ export function SharedChat({
     let live = true;
     let active = false;
     const refresh = async () => {
-      if (!live || active) return;
+      if (!live || active || document.visibilityState === "hidden") return;
       active = true;
       try {
         await loadDetail();
       } catch (caught) {
         if (!live) return;
         const said = actionError(caught);
-        setError(said);
-        if (/not found|not available|no shared chat/i.test(said)) onUnavailable?.();
+        // A transient detail fault leaves the loaded room in place — only a
+        // definite not-found means access ended. Same policy as the message
+        // poll below; anything else here left a permanent backend-unreachable
+        // alert over a composer that works.
+        if (/not found|not available|no shared chat/i.test(said)) {
+          setError(said);
+          onUnavailable?.();
+        }
       } finally {
         active = false;
       }
@@ -345,7 +351,9 @@ export function SharedChat({
     let live = true;
     let active = false;
     const poll = async () => {
-      if (!live || active) return;
+      // Hidden tabs skip the fetch; onVisibility below catches up with one
+      // poll plus a markRead when the tab returns.
+      if (!live || active || document.visibilityState === "hidden") return;
       active = true;
       try {
         const [rows, runs] = await Promise.all([
@@ -364,7 +372,12 @@ export function SharedChat({
           const newest = rows.at(-1);
           latestId.current = Math.max(latestId.current, newest?.id ?? 0);
           setMessages((current) => mergeMessages(current, rows));
-          if (newest) setAnnouncement(`New message from ${newest.author || "Skein"}.`);
+          // The message id keeps consecutive same-author strings distinct —
+          // identical state makes React skip the DOM write, and a live
+          // region that does not mutate announces nothing.
+          if (newest) {
+            setAnnouncement(`New message ${newest.id} from ${newest.author || "Skein"}.`);
+          }
           markRead(latestId.current);
         }
       } catch (caught) {
@@ -458,6 +471,7 @@ export function SharedChat({
   const invite = async () => {
     if (!inviteReview) return;
     setBusy(true);
+    setError("");
     try {
       await api(`/api/shared-chats/${threadId}/invitations`, {
         method: "POST",
@@ -476,6 +490,7 @@ export function SharedChat({
 
   const memberWrite = async (path: string, body: object, method = "POST") => {
     setBusy(true);
+    setError("");
     try {
       await api(path, { method, body: JSON.stringify(body) });
       await loadDetail();
@@ -491,6 +506,7 @@ export function SharedChat({
 
   const linkEngagement = async (engagementId: number) => {
     setBusy(true);
+    setError("");
     try {
       const room = await api<SharedChatDetail>(`/api/shared-chats/${threadId}`, {
         method: "PATCH",
@@ -508,6 +524,7 @@ export function SharedChat({
   const rename = async () => {
     if (!titleDraft.trim() || titleDraft.trim() === detail?.title) return;
     setBusy(true);
+    setError("");
     try {
       const room = await api<SharedChatDetail>(`/api/shared-chats/${threadId}`, {
         method: "PATCH",
@@ -525,6 +542,7 @@ export function SharedChat({
 
   const setArchived = async (archived: boolean) => {
     setBusy(true);
+    setError("");
     try {
       const room = await api<SharedChatDetail>(
         `/api/shared-chats/${threadId}/${archived ? "archive" : "restore"}`,
@@ -543,6 +561,7 @@ export function SharedChat({
 
   const leave = async () => {
     setBusy(true);
+    setError("");
     try {
       await api(`/api/shared-chats/${threadId}/leave`, { method: "POST" });
       announceSharedChatActivity();
@@ -637,7 +656,9 @@ export function SharedChat({
       latestRuns.set(run.agent, run);
     }
   }
-  const visibleRuns = [...latestRuns.values()].filter((run) => run.status !== "completed");
+  const visibleRuns = [...latestRuns.values()].filter(
+    (run) => run.status !== "completed" && !dismissedRuns.has(run.turn_id),
+  );
   return (
     <section className="flex min-h-0 flex-1 flex-col" aria-labelledby="shared-chat-title">
       <p role="status" aria-live="polite" className="sr-only">
@@ -763,7 +784,14 @@ export function SharedChat({
                     <label className="min-w-0 flex-1 text-xs text-ink-3">
                       Agent to add
                       <select
-                        value={agentDraft}
+                        // The detail poll can drop the drafted slug from
+                        // availablePersonas (another steward added it) — a
+                        // stale value renders blank while the button re-adds.
+                        value={
+                          availablePersonas.some((persona) => persona.slug === agentDraft)
+                            ? agentDraft
+                            : ""
+                        }
                         onChange={(event) => setAgentDraft(event.target.value)}
                         className="mt-1 w-full rounded-lg border border-line-strong bg-card px-2.5 py-1.5 text-sm text-ink outline-none focus:border-thread-solid"
                       >
@@ -777,7 +805,10 @@ export function SharedChat({
                     </label>
                     <button
                       type="button"
-                      disabled={!agentDraft || busy}
+                      disabled={
+                        busy ||
+                        !availablePersonas.some((persona) => persona.slug === agentDraft)
+                      }
                       onClick={(event) => {
                         const selected = personas.find((persona) => persona.slug === agentDraft);
                         if (selected) {
@@ -989,23 +1020,39 @@ export function SharedChat({
         </section>
       ) : null}
 
-      {visibleRuns.length > 0 ? (
-        <div aria-live="polite" className="shrink-0 border-b border-line px-3 py-2 sm:px-4">
-          {visibleRuns.map((run) => (
-            <p
-              key={run.turn_id}
-              className={
-                "text-xs " +
-                (run.status === "pending" || run.status === "running"
-                  ? "text-ink-3"
-                  : "text-danger")
-              }
-            >
-              {runMessage(run)}
-            </p>
-          ))}
-        </div>
-      ) : null}
+      {/* the live region stays mounted while empty — one that first appears
+          already populated is frequently not announced at all */}
+      <div
+        aria-live="polite"
+        className={
+          visibleRuns.length > 0
+            ? "shrink-0 border-b border-line px-3 py-2 sm:px-4"
+            : undefined
+        }
+      >
+        {visibleRuns.map((run) => {
+            const settled = run.status !== "pending" && run.status !== "running";
+            return (
+              <div key={run.turn_id} className="flex items-start justify-between gap-2">
+                <p className={"text-xs " + (settled ? "text-danger" : "text-ink-3")}>
+                  {runMessage(run)}
+                </p>
+                {settled ? (
+                  <button
+                    type="button"
+                    aria-label={`Dismiss the ${run.agent} status`}
+                    onClick={() =>
+                      setDismissedRuns((current) => new Set(current).add(run.turn_id))
+                    }
+                    className="min-h-8 shrink-0 rounded-lg px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                  >
+                    Dismiss
+                  </button>
+                ) : null}
+              </div>
+            );
+          })}
+      </div>
 
       <div
         tabIndex={0}
@@ -1116,7 +1163,13 @@ export function SharedChat({
                   setDraft(value);
                 }}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
+                  // isComposing: Enter that commits an IME conversion must
+                  // not send a half-composed message.
+                  if (
+                    event.key === "Enter" &&
+                    !event.shiftKey &&
+                    !event.nativeEvent.isComposing
+                  ) {
                     event.preventDefault();
                     send();
                   }

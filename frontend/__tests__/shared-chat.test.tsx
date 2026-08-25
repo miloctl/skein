@@ -94,7 +94,12 @@ vi.mock("@/lib/api", async (importOriginal) => {
       if (path.startsWith("/api/shared-chats/shared-room/messages") && method === "GET") {
         const url = new URL(path, "http://skein.test");
         const after = Number(url.searchParams.get("after") ?? 0);
-        return Promise.resolve(state.messages.filter((message) => Number(message.id) > after));
+        const before = Number(url.searchParams.get("before") ?? 0);
+        return Promise.resolve(
+          before
+            ? state.messages.filter((message) => Number(message.id) < before)
+            : state.messages.filter((message) => Number(message.id) > after),
+        );
       }
       if (path === "/api/shared-chats/shared-room/messages" && method === "POST") {
         if (state.failPost) return Promise.reject(new Error("message refused"));
@@ -211,27 +216,64 @@ describe("private shared chat", () => {
     render(<SharedChat threadId="shared-room" onUnavailable={onUnavailable} />);
     expect(await screen.findByText("First private message")).toBeTruthy();
 
-    act(() => window.dispatchEvent(new Event("storage")));
+    act(() => window.dispatchEvent(new Event("skein-identity-change")));
 
     expect(screen.queryByText("First private message")).toBeNull();
     expect(onUnavailable).toHaveBeenCalledOnce();
   });
 
-  it("focuses a message named by a private chat notification", async () => {
-    window.history.replaceState({}, "", "/chat?shared=shared-room#shared-message-1");
+  it("keeps the transcript through a synthetic storage ping, and clears on a cross-tab identity write", async () => {
+    const onUnavailable = vi.fn();
+    render(<SharedChat threadId="shared-room" onUnavailable={onUnavailable} />);
+    expect(await screen.findByText("First private message")).toBeTruthy();
+
+    // The sidebar toggle, theme adoption, and manage toggle all dispatch this
+    // bare form for non-identity localStorage writes.
+    act(() => window.dispatchEvent(new Event("storage")));
+    expect(screen.getByText("First private message")).toBeTruthy();
+    expect(onUnavailable).not.toHaveBeenCalled();
+
+    act(() =>
+      window.dispatchEvent(new StorageEvent("storage", { key: "skein-user" })),
+    );
+    expect(screen.queryByText("First private message")).toBeNull();
+    expect(onUnavailable).toHaveBeenCalledOnce();
+  });
+
+  it("focuses a message named by a private chat notification and can load the history before it", async () => {
+    state.messages.push({
+      id: 2,
+      thread_id: "shared-room",
+      role: "user",
+      author_kind: "human",
+      author: "dana",
+      content: "Second private message",
+      created_at: "2026-08-24T12:02:00+00:00",
+      turn_id: "",
+      reply_to_message_id: null,
+    });
+    window.history.replaceState({}, "", "/chat?shared=shared-room#shared-message-2");
     render(<SharedChat threadId="shared-room" />);
-    await screen.findByText("First private message");
+    await screen.findByText("Second private message");
+    expect(screen.queryByText("First private message")).toBeNull();
 
     await waitFor(() =>
-      expect(document.activeElement?.id).toBe("shared-message-1"),
+      expect(document.activeElement?.id).toBe("shared-message-2"),
     );
     expect(
       state.requests.some(
         (request) =>
-          request.path === "/api/shared-chats/shared-room/messages?after=0" &&
+          request.path === "/api/shared-chats/shared-room/messages?after=1" &&
           request.cache === "no-store",
       ),
     ).toBe(true);
+
+    // The short deep-link page still has history before it.
+    fireEvent.click(screen.getByRole("button", { name: "Load older messages" }));
+    expect(await screen.findByText("First private message")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Load older messages" })).toBeNull(),
+    );
   });
 
   it("confirms that an invitation shares the complete earlier history", async () => {
@@ -478,7 +520,10 @@ describe("private shared chat", () => {
     });
 
     expect(screen.getByText("Arrived from another browser")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toBe("New message from dana.");
+    // The id keeps consecutive same-author announcements distinct — without
+    // it the second one produces identical state, and the live region's DOM
+    // never mutates, so a screen reader announces nothing.
+    expect(screen.getByRole("status").textContent).toBe("New message 2 from dana.");
     expect(
       state.requests.some(
         (request) =>

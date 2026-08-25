@@ -110,7 +110,11 @@ class _AudiencePolicy(PolicyEngine):
     def decide(self, request):
         from ..extensions.policy import PolicyDecision, PolicyEffect
 
-        if request.tool_effect != "read":
+        # "none" here is a read check that omitted tool= — permits_resource is
+        # the only producer of it. Intersect it too, or a future
+        # SHARED_CHAT_TOOLS entry that forgets tool= reads as the requester
+        # alone and skips every other participant's workplace rules.
+        if request.tool_effect not in ("read", "none"):
             return self._base.decide(request)
         for subject in self._subjects:
             decision = self._base.decide(replace(request, subject=subject))
@@ -379,6 +383,7 @@ def _run_claim(
     run: dict,
     session_lock: threading.Lock,
     execution_lease: _ExecutionLease,
+    handoff: threading.Event,
 ) -> tuple[str, str, list[dict]]:
     if code := _authorization_error(run):
         session_lock.release()
@@ -549,6 +554,11 @@ def _run_claim(
     except Exception:
         session_lock.release()
         return "failed", "worker_start_failed", []
+    # From here the turn thread owns session_lock and execution_lease — its
+    # finally releases both, even on timeout. _process_run must not release
+    # either after this point, or a queued run for the same (thread, agent)
+    # writes the same model session while the timed-out turn is still in it.
+    handoff.set()
     if not turn_complete.wait(timeout=config.AGENT_RUN_SECONDS):
         box["timed_out"] = True
         monitor_decision.set()
@@ -659,8 +669,12 @@ def _finish_success(run: dict, reply: str, receipt_rows: list[dict]) -> None:
 def _process_run(run: dict, lock: threading.Lock) -> None:
     _execution_slots.acquire()
     execution_lease = _ExecutionLease()
+    # Set by _run_claim once the turn thread owns lock + lease. lock.locked()
+    # cannot stand in for it: it is true for ANY holder, so releasing on it
+    # here would unlock a timed-out turn thread's live session.
+    handoff = threading.Event()
     try:
-        status, value, receipt_rows = _run_claim(run, lock, execution_lease)
+        status, value, receipt_rows = _run_claim(run, lock, execution_lease, handoff)
         if status == "completed":
             _finish_success(run, value, receipt_rows)
         else:
@@ -669,22 +683,23 @@ def _process_run(run: dict, lock: threading.Lock) -> None:
                 status,
                 value,
                 receipt_rows,
-                keep_execution=lock.locked(),
+                keep_execution=handoff.is_set() and lock.locked(),
             )
     except Exception:
         log.exception("private shared-chat agent worker failed")
-        if lock.locked():
+        if not handoff.is_set() and lock.locked():
             lock.release()
         try:
             _settle(
                 str(run["turn_id"]),
                 "completion_unknown",
                 "worker_failed",
+                keep_execution=handoff.is_set() and lock.locked(),
             )
         except Exception:
             log.exception("private shared-chat agent run could not settle")
     finally:
-        if not lock.locked():
+        if not handoff.is_set():
             execution_lease.release()
 
 
