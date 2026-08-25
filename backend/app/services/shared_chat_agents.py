@@ -946,7 +946,12 @@ def kick() -> bool:
     except Exception:
         with _worker_lock:
             _worker_running = False
-        _schedule_retry()
+        # Native thread creation failed. A Timer needs the same resource, so a
+        # retry cannot start reliably; make every unstarted call visibly failed.
+        try:
+            _fail_pending_queue("worker_start_failed")
+        except Exception:
+            log.exception("private shared-chat pending runs could not fail visibly")
         raise
     return True
 
