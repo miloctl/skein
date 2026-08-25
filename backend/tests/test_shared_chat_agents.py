@@ -1927,17 +1927,18 @@ def test_thread_start_failure_makes_pending_calls_visible_as_failed(client, monk
         invoke_agent=agent,
     )
     monkeypatch.setattr(shared_chat_agents, "kick", real_kick)
-    monkeypatch.setattr(
-        threading.Thread,
-        "start",
-        lambda _thread: (_ for _ in ()).throw(RuntimeError("thread unavailable")),
-    )
-
-    try:
-        real_kick()
-        raise AssertionError("coordinator start unexpectedly succeeded")
-    except RuntimeError as error:
-        assert str(error) == "thread unavailable"
+    assert shared_chat_agents.wait_for_idle()
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            threading.Thread,
+            "start",
+            lambda _thread: (_ for _ in ()).throw(RuntimeError("thread unavailable")),
+        )
+        try:
+            real_kick()
+            raise AssertionError("coordinator start unexpectedly succeeded")
+        except RuntimeError as error:
+            assert str(error) == "thread unavailable"
 
     run = db.query_row(
         "SELECT status, execution_active, error_code FROM chat_agent_runs"
