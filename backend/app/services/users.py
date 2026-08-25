@@ -682,6 +682,7 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     # re-chaining impossible by design. A rename leaves ledger history under
     # the old name; the ledger records what was true when it was written.
     "tool_usage": ("user",),
+    "usage_log": ("requested_by",),
     "feedback": ("created_by",),  # pulse rows store '' and stay untouched
     "api_keys": ("owner",),
     "memories": ("user", "created_by"),
@@ -689,7 +690,11 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "artifacts": ("created_by",),
     "context_packs": ("created_by",),
     "finding_dispositions": ("created_by",),
-    "chat_threads": ("owner",),
+    "chat_threads": ("owner", "created_by"),
+    "chat_messages": ("author",),
+    "chat_members": ("person", "added_by"),
+    "chat_invitations": ("person", "invited_by"),
+    "chat_agent_runs": ("agent", "requested_by"),
     # crew membership keys on the roster name, and a rename that leaves it
     # behind silently drops the person out of every crew they could read
     "crew_members": ("person", "created_by"),
@@ -794,6 +799,22 @@ def rename_user(
             raise db.Conflict(
                 "The roster changed after this confirmation. Reload Settings, then confirm the action again."
             )
+        active_run = db.query_one(
+            "SELECT 1 FROM chat_agent_runs WHERE (agent = ? OR requested_by = ?)"
+            " AND (status IN ('pending', 'running') OR execution_active = TRUE) LIMIT 1",
+            (old, old),
+        )
+        if active_run:
+            raise db.Conflict(
+                "Wait for the shared-chat agent response before you rename this identity."
+            )
+        if current["kind"] == "agent" and db.query_one(
+            "SELECT 1 FROM chat_members WHERE person = ? AND left_at IS NULL LIMIT 1",
+            (old,),
+        ):
+            raise db.Conflict(
+                "Remove this agent from every private shared chat before you rename it."
+            )
         # unique-keyed tables first: fold rather than collide
         # tool_usage (day, user, surface): sum counts into the target's rows
         db.execute(
@@ -852,6 +873,47 @@ def rename_user(
             " AND n.owner = ?)",
             (old, new),
         )
+        # chat_members (thread_id, person): active beats left, and an ACTIVE
+        # steward on either half keeps the merged identity a steward. Losing
+        # either property can leave a private chat with nobody allowed to read
+        # it or nobody allowed to manage it.
+        db.execute(
+            "UPDATE chat_members AS target SET"
+            " role = CASE"
+            "   WHEN (target.left_at IS NULL AND target.role = 'steward')"
+            "     OR (source.left_at IS NULL AND source.role = 'steward')"
+            "   THEN 'steward'"
+            "   WHEN source.left_at IS NULL THEN source.role"
+            "   ELSE target.role END,"
+            " left_at = CASE WHEN target.left_at IS NULL OR source.left_at IS NULL"
+            "   THEN NULL ELSE target.left_at END,"
+            " joined_at = CASE WHEN target.left_at IS NULL THEN target.joined_at"
+            "   WHEN source.left_at IS NULL THEN source.joined_at"
+            "   ELSE target.joined_at END,"
+            " last_read_message_id = GREATEST("
+            "   target.last_read_message_id, source.last_read_message_id)"
+            " FROM chat_members AS source"
+            " WHERE target.person = ? AND source.person = ?"
+            " AND target.thread_id = source.thread_id",
+            (new, old),
+        )
+        db.execute(
+            "DELETE FROM chat_members WHERE person = ? AND EXISTS"
+            " (SELECT 1 FROM chat_members n"
+            " WHERE n.thread_id = chat_members.thread_id AND n.person = ?)",
+            (old, new),
+        )
+        # Only pending invitations are unique. Revoke the old duplicate before
+        # the generic attribution update moves its person onto the target row.
+        db.execute(
+            "UPDATE chat_invitations SET status = 'revoked',"
+            " responded_at = COALESCE(responded_at, ?)"
+            " WHERE person = ? AND status = 'pending' AND EXISTS"
+            " (SELECT 1 FROM chat_invitations n"
+            " WHERE n.thread_id = chat_invitations.thread_id"
+            " AND n.person = ? AND n.status = 'pending')",
+            (db.now(), old, new),
+        )
         # agent_wakeups keys on agent alone, and both halves of a merged agent
         # having been delegated to is the ordinary case — without this fold
         # the generic UPDATE below hits the primary key and the whole merge
@@ -873,6 +935,17 @@ def rename_user(
             '  WHERE n.notification_id = notification_reads.notification_id AND n."user" = ?)',
             (old, new),
         )
+        # Message idempotency is sender-scoped. Two identities can use the same
+        # key in one room, so clear the source receipt before both authors fold
+        # onto one name and violate uq_chat_messages_client_key.
+        db.execute(
+            "UPDATE chat_messages AS source SET client_key = ''"
+            " WHERE source.author = ? AND source.client_key != ''"
+            " AND EXISTS (SELECT 1 FROM chat_messages target"
+            " WHERE target.thread_id = source.thread_id AND target.author = ?"
+            " AND target.client_key = source.client_key)",
+            (old, new),
+        )
         for table, cols in _ATTRIBUTION.items():
             for col in cols:
                 # The column name is QUOTED because `user` is one of them and
@@ -885,6 +958,18 @@ def rename_user(
                 )
                 if n:
                     moved[f"{table}.{col}"] = moved.get(f"{table}.{col}", 0) + n
+        # A pending invitation to somebody already active in that chat can only
+        # demote or reset them if accepted. The merge itself supplies no new
+        # access, so revoke that stale invitation after every name has moved.
+        db.execute(
+            "UPDATE chat_invitations AS invitation"
+            " SET status = 'revoked', responded_at = COALESCE(responded_at, ?)"
+            " WHERE invitation.person = ? AND invitation.status = 'pending'"
+            " AND EXISTS (SELECT 1 FROM chat_members member"
+            " WHERE member.thread_id = invitation.thread_id"
+            " AND member.person = ? AND member.left_at IS NULL)",
+            (db.now(), new, new),
+        )
         if target:
             # merge keeps the target's person-level fields but backfills any
             # it never set — the typo'd row is usually the real profile
@@ -1057,11 +1142,36 @@ def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
     # failure after the UPDATE leaves someone off the roster holding live API
     # keys, which is the exact door this is supposed to close.
     with db.transaction():
+        db.name_lock(db.LOCK_IDENTITY, fold(name))
         row = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
         if not row:
             raise ValueError("no user with that name")
         if name == actor and not active:
             raise ValueError("you cannot deactivate yourself")
+        if not active:
+            running = db.query_one(
+                "SELECT 1 FROM chat_agent_runs WHERE (agent = ? OR requested_by = ?)"
+                " AND (status = 'running' OR execution_active = TRUE) LIMIT 1",
+                (name, name),
+            )
+            if running:
+                raise db.Conflict(
+                    "Wait for the shared-chat agent response before you deactivate this identity."
+                )
+            if row["kind"] == "agent":
+                db.execute(
+                    "UPDATE chat_agent_runs SET status = 'refused', finished_at = ?,"
+                    " error_code = 'agent_unavailable'"
+                    " WHERE agent = ? AND status = 'pending'",
+                    (db.now(), name),
+                )
+            else:
+                db.execute(
+                    "UPDATE chat_agent_runs SET status = 'refused', finished_at = ?,"
+                    " error_code = 'requester_unavailable'"
+                    " WHERE requested_by = ? AND status = 'pending'",
+                    (db.now(), name),
+                )
         db.execute("UPDATE users SET active = ? WHERE name = ?", (1 if active else 0, name))
         revoked = 0
         if not active:

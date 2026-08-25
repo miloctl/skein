@@ -590,9 +590,25 @@ NOUN: dict[str, str] = {
 # an absence with no comment reads as an oversight to the next reader.
 UNSCOPED: dict[str, str] = {
     # --- already scoped, by a stronger mechanism than a column ---
-    "chat_folders": "owner-scoped by primary key (services/chat_threads.py)",
-    "chat_messages": "reached only through chat_threads, which is owner-scoped",
-    "chat_threads": "owner-scoped, and POST /api/chat claims the id before use",
+    "chat_folders": "solo-thread folders are owner-scoped by primary key (services/chat_threads.py)",
+    "chat_invitations": (
+        "private shared-chat invitation state; only the invited strong identity"
+        " or an active steward can reach it through services/chat_threads.py"
+    ),
+    "chat_agent_runs": (
+        "private shared-chat operational state; only active members can reach"
+        " its safe projection through services/chat_threads.py"
+    ),
+    "chat_members": (
+        "the private shared-chat access list itself. Scoping it by its own"
+        " membership would be circular."
+    ),
+    "chat_messages": (
+        "reached only through a solo owner claim or an active private shared-chat membership"
+    ),
+    "chat_threads": (
+        "solo rows are owner-scoped; shared rows require active strong-identity membership"
+    ),
     "notifications": (
         "addressed per person already (user IN (?, 'team')), and every egress"
         " from it carries counts rather than bodies — the two Slack posts and"

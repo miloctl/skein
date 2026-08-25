@@ -164,6 +164,10 @@ export async function api<T = unknown>(
       getCache.clear();
     }
   }
+  // Cursor polling asks the server for state that can change in another
+  // browser. Serving that path from this tab's 15-second cache makes a live
+  // private chat look frozen after the first empty poll.
+  if (init?.cache === "no-store") return request<T>(path, init);
   const hit = getCache.get(path);
   if (hit && Date.now() - hit.at < GET_CACHE_TTL_MS)
     return hit.entry as Promise<T>;

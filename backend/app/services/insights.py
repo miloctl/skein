@@ -748,8 +748,13 @@ def _r_token_anomaly() -> list[dict]:
     med = _median([float(p) for p in prior])
     if med and current >= 2 * med and current >= 500_000:
         top = db.query(
-            "SELECT thread_id, model_id, SUM(input_tokens + output_tokens) AS tokens"
-            " FROM usage_log WHERE created_at >= ? GROUP BY thread_id, model_id"
+            "SELECT CASE WHEN thread.kind = 'shared' THEN '(private shared chat)'"
+            " ELSE usage.thread_id END AS thread_id, usage.model_id,"
+            " SUM(usage.input_tokens + usage.output_tokens) AS tokens"
+            " FROM usage_log usage LEFT JOIN chat_threads thread"
+            " ON thread.id = usage.thread_id WHERE usage.created_at >= ?"
+            " GROUP BY CASE WHEN thread.kind = 'shared' THEN '(private shared chat)'"
+            " ELSE usage.thread_id END, usage.model_id"
             " ORDER BY tokens DESC LIMIT 3",
             (_iso(_today() - timedelta(days=7)),),
         )

@@ -90,6 +90,17 @@ def set_force_review(on: bool) -> Token:
     return _force_review.set(on)
 
 
+_workspace_only_tools: ContextVar[bool] = ContextVar("workspace_only_tools", default=False)
+
+
+def workspace_only_tools() -> bool:
+    return _workspace_only_tools.get()
+
+
+def set_workspace_only_tools(on: bool) -> Token:
+    return _workspace_only_tools.set(on)
+
+
 def refuse_when_consultative(action: str) -> None:
     """Guard for the write paths that skip tools/_gate.py BY DESIGN — the
     delegation trio and the handoff generator (tests/test_gate_coverage.py

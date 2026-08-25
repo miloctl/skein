@@ -189,3 +189,44 @@ def _scan_locked(
             )
             notified.append(name)
     return notified
+
+
+def scan_shared_message(thread_id: str, message_id: int, text: str, *, actor: str) -> list[str]:
+    """Notify active human room members named in one persisted message."""
+    if not db.in_transaction():
+        raise RuntimeError("shared-chat mention scan needs the message transaction")
+    people, _agents = names_in(text, actor=actor)
+    if not people:
+        return []
+    members = {
+        row["person"]
+        for row in db.query(
+            "SELECT m.person FROM chat_members m JOIN users u ON u.name = m.person"
+            " WHERE m.thread_id = ? AND m.left_at IS NULL"
+            " AND u.kind = 'human' AND u.active = 1",
+            (thread_id,),
+        )
+    }
+    from .notifications import notify
+
+    notified = []
+    for person in people:
+        if person not in members:
+            continue
+        fresh = db.execute_rowcount(
+            "INSERT INTO mention_log"
+            " (entity, entity_id, person, mentioned_by, created_at)"
+            " VALUES ('chat_message', ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+            (message_id, person, actor, db.now()),
+        )
+        if fresh:
+            notify(
+                person,
+                f"{actor} mentioned you in a private shared chat.",
+                tier="immediate",
+                link=f"/chat?shared={thread_id}#shared-message-{message_id}",
+                source_entity="chat_message",
+                source_id=message_id,
+            )
+            notified.append(person)
+    return notified

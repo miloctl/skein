@@ -50,6 +50,25 @@ def test_prune_logs_a_sentence_not_a_payload(fresh_db):
     assert detail == "nothing old enough to remove"  # empty database
 
 
+def test_chat_message_mention_dedupe_leaves_only_with_its_message(fresh_db):
+    from app.services import chat_threads, retention, users
+
+    users.ensure_user("ava")
+    users.ensure_user("dana")
+    room = chat_threads.create_shared_chat("Private room", "ava")
+    message = chat_threads.post_shared_message(room["id"], "ava", "Hello @dana", "mention")
+    fresh_db.execute(
+        "INSERT INTO mention_log (entity, entity_id, person, mentioned_by, created_at)"
+        " VALUES ('chat_message', ?, 'dana', 'ava', ?),"
+        " ('chat_message', ?, 'dana', 'ava', ?)",
+        (message["id"], fresh_db.now(), message["id"] + 1000, fresh_db.now()),
+    )
+
+    removed = retention.prune(actor="tester")
+    assert removed["mention_log"] == 1
+    assert fresh_db.query_row("SELECT entity_id FROM mention_log")["entity_id"] == message["id"]
+
+
 def test_retention_accounts_for_every_table(fresh_db):
     """A migration decides each new table's retention fate explicitly —
     an unrecorded table silently defaults to kept-forever."""

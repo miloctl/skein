@@ -93,6 +93,12 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # that dies after the claim ties this too. Still the right probe:
     # tool_usage's 'chat' surface would tie on merely opening the page.
     "chat": lambda u: _has("SELECT 1 FROM chat_threads WHERE owner = ?", (u,)),
+    "shared_chat": lambda u: _has(
+        "SELECT 1 FROM chat_members member JOIN chat_threads thread"
+        " ON thread.id = member.thread_id"
+        " WHERE member.person = ? AND thread.kind = 'shared'",
+        (u,),
+    ),
     # Both features are reads. Their routes mark first use because no existing
     # record can distinguish opening page help or speaking to this persona.
     "page_help": None,

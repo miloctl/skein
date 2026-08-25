@@ -791,6 +791,7 @@ def build_agent(
     policy_subject=None,
     resolved_model: str = "",
     allowed_tools: set[str] | frozenset[str] | None = None,
+    review_forced: bool = False,
 ):
     """One agent per chat thread. Mock provider needs no keys and no Strands
     session; real providers persist conversations in the session tables
@@ -803,6 +804,9 @@ def build_agent(
     allowed_tools applies one final structural cap after stock, extension, extra,
     and remote tools are assembled. The unattended wake runner uses it to keep
     unrelated writes and remote MCP calls out of an unobserved turn.
+
+    review_forced tells a stateful caller the same truth that stateless carries:
+    tools/_gate.py queues every write whatever the deployment review flag says.
 
     stateless=True builds a flock member (docs/FLOCKS.md): no session manager,
     so the member reads and writes no session rows and answers the one message
@@ -1359,12 +1363,12 @@ def build_agent(
             from ..services.personas import get_persona
 
             p = get_persona(persona)
-        # a stateless member's writes ALWAYS queue (identity.force_review, read
-        # by tools/_gate.py), so the OFF line would be a false statement the
-        # model then repeats to the user as its own report of what it did
+        # A consultative caller's writes ALWAYS queue (identity.force_review,
+        # read by tools/_gate.py), so the OFF line would be a false statement the
+        # model then repeats to the user as its own report of what it did.
         gate = (
             "Review mode is ON: your writes become proposals a human approves."
-            if config.AGENT_REVIEW or stateless
+            if config.AGENT_REVIEW or stateless or review_forced
             else "Review mode is OFF: writes at your authority level apply"
             " directly — be conservative with them."
         )

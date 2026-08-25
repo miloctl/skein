@@ -228,6 +228,37 @@ def policy_filter(
     exists. Otherwise, omit them because their body cannot be classified
     safely.
     """
+    if viewer is None or not viewer.name:
+        rows = [
+            row
+            for row in rows
+            if row.get("source_entity") not in {"chat_invitation", "chat_message"}
+        ]
+    shared_ids = {
+        int(row.get("source_id") or 0)
+        for row in rows
+        if row.get("source_entity") == "chat_message" and row.get("source_id")
+    }
+    if shared_ids:
+        visible_shared: set[int] = set()
+        if viewer is not None and viewer.name:
+            marks = ",".join("?" for _ in shared_ids)
+            visible_shared = {
+                int(row["id"])
+                for row in db.query(
+                    f"SELECT message.id FROM chat_messages message"  # noqa: S608 — controlled marks
+                    " JOIN chat_members member ON member.thread_id = message.thread_id"
+                    f" WHERE message.id IN ({marks}) AND member.person = ?"
+                    " AND member.left_at IS NULL",
+                    (*sorted(shared_ids), viewer.name),
+                )
+            }
+        rows = [
+            row
+            for row in rows
+            if row.get("source_entity") != "chat_message"
+            or int(row.get("source_id") or 0) in visible_shared
+        ]
     if resource_filter is None:
         return [_public_row(row) for row in rows]
     from . import policy_context
@@ -246,6 +277,9 @@ def policy_filter(
     result: list[dict] = []
     for row, resource in zip(rows, resources, strict=True):
         entity, entity_id = resource
+        if entity == "chat_message":
+            result.append(_public_row(row))
+            continue
         if not entity or entity_id <= 0 or not policy_context.supports_resource(entity):
             if allow_unclassified:
                 result.append(_public_row(row))
@@ -305,7 +339,12 @@ def mark_read_matching(prefix: str) -> int:
     )
 
 
-def mark_read(user: str, notification_id: int = 0) -> dict:
+def mark_read(
+    user: str,
+    notification_id: int = 0,
+    *,
+    viewer: "scope.Viewer | None" = None,
+) -> dict:
     """Dismiss for THIS reader.
 
     A row addressed to the reader by name clears its own `read_at`. A 'team'
@@ -319,7 +358,23 @@ def mark_read(user: str, notification_id: int = 0) -> dict:
     double click counts once.
     """
     now = db.now()
+    viewer_name = viewer.name if viewer is not None else ""
     if notification_id:
+        row = db.query_one(
+            "SELECT * FROM notifications WHERE id = ? AND \"user\" IN (?, 'team')",
+            (notification_id, user),
+        )
+        if (
+            row
+            and row.get("source_entity") in {"chat_invitation", "chat_message"}
+            and not policy_filter(
+                [row],
+                None,
+                allow_unclassified=True,
+                viewer=viewer,
+            )
+        ):
+            raise db.NotFound("No notification was found.")
         n = db.execute_rowcount(
             'UPDATE notifications SET read_at = ? WHERE id = ? AND "user" = ?',
             (now, notification_id, user),
@@ -332,8 +387,17 @@ def mark_read(user: str, notification_id: int = 0) -> dict:
         )
     else:
         n = db.execute_rowcount(
-            'UPDATE notifications SET read_at = ? WHERE "user" = ? AND read_at IS NULL',
-            (now, user),
+            "UPDATE notifications notice SET read_at = ?"
+            ' WHERE notice."user" = ? AND notice.read_at IS NULL AND ('
+            " notice.source_entity NOT IN ('chat_invitation', 'chat_message')"
+            " OR (notice.source_entity = 'chat_invitation' AND ? != '')"
+            " OR (notice.source_entity = 'chat_message' AND EXISTS ("
+            "   SELECT 1 FROM chat_messages message JOIN chat_members member"
+            "   ON member.thread_id = message.thread_id"
+            "   WHERE message.id = notice.source_id AND member.person = ?"
+            "   AND member.left_at IS NULL))"
+            ")",
+            (now, user, viewer_name, viewer_name),
         )
         n += db.execute_rowcount(
             'INSERT INTO notification_reads (notification_id, "user", read_at)'
