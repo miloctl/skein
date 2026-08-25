@@ -93,6 +93,9 @@ EXCLUDED = frozenset(
         # purpose; the pg_dump backups still carry it
         "chat_threads",
         "chat_messages",
+        "chat_members",
+        "chat_invitations",
+        "chat_agent_runs",
         "chat_folders",
         "sessions",
         "session_agents",

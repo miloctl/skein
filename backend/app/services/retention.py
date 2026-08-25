@@ -53,7 +53,15 @@ KEPT = {
     "embeddings": _DERIVED,
     "context_packs": "versioned pack registry: one row per content change, kept forever",
     **dict.fromkeys(
-        ("chat_folders", "chat_threads", "chat_messages", "sessions"),
+        (
+            "chat_folders",
+            "chat_threads",
+            "chat_messages",
+            "chat_members",
+            "chat_invitations",
+            "chat_agent_runs",
+            "sessions",
+        ),
         _CHAT_LIFECYCLE,
     ),
     **dict.fromkeys(
@@ -191,6 +199,7 @@ def prune(*, actor: str = "scheduler") -> dict:
             " OR (entity = 'note' AND entity_id NOT IN (SELECT id FROM notes))"
             " OR (entity = 'question' AND entity_id NOT IN (SELECT id FROM questions))"
             " OR (entity = 'decision' AND entity_id NOT IN (SELECT id FROM decisions))"
+            " OR (entity = 'chat_message' AND entity_id NOT IN (SELECT id FROM chat_messages))"
         ),
     }
     # this detail renders verbatim in the My Day feed, so it is a sentence,

@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { SharedChatList } from "@/components/shared-chat-list";
 import { actionError, api, getUser, loadError as describeLoadError } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import { chatThreads, type ChatThread } from "@/lib/chat-threads";
@@ -93,6 +94,7 @@ export function ChatSidebar({
   mobileOpen = false,
   onMobileClose,
   threadId,
+  threadKind = "solo",
   onOpen,
   onNew,
 }: {
@@ -100,7 +102,8 @@ export function ChatSidebar({
   mobileOpen?: boolean;
   onMobileClose?: () => void;
   threadId: string;
-  onOpen: (id: string) => void;
+  threadKind?: "solo" | "shared";
+  onOpen: (id: string, kind?: "solo" | "shared") => void;
   onNew: () => void;
 }) {
   const [threads, setThreads] = useState<ChatThread[]>([]);
@@ -511,6 +514,12 @@ export function ChatSidebar({
           )}
         </div>
       )}
+      {!selectMode ? (
+        <SharedChatList
+          activeId={threadId}
+          onOpen={(id) => onOpen(id, "shared")}
+        />
+      ) : null}
       {creatingFolder && !selectMode && (
         <input
           autoFocus
@@ -530,7 +539,9 @@ export function ChatSidebar({
       {foldersError && !loadError && (
         <p className="px-1 text-xs text-danger">{foldersError}</p>
       )}
-      {!selectMode && !threads.some((t) => t.id === threadId) && (
+      {!selectMode &&
+        threadKind === "solo" &&
+        !threads.some((t) => t.id === threadId) && (
         <div className="mb-2 truncate rounded-lg bg-thread/10 px-2 py-1.5 text-sm font-medium text-ink">
           New chat
           <span className="ml-1.5 text-xs font-normal text-ink-3">
@@ -616,7 +627,7 @@ export function ChatSidebar({
                       onClick={() =>
                         selectMode
                           ? setSelChats(toggleSet(selChats, t.id))
-                          : onOpen(t.id)
+                          : onOpen(t.id, "solo")
                       }
                       draggable={!selectMode}
                       onDragStart={(e) =>

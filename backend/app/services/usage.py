@@ -159,14 +159,18 @@ def record_chat_usage(
     cycles: int = 0,
     latency_ms: int = 0,
     engagement_id: int = 0,
+    requested_by: str = "",
+    trigger_message_id: int = 0,
+    chat_agent_run_id: str = "",
 ) -> None:
     # engagement_id is for turns with NO linkable thread (the agent runner).
     # A chat turn leaves it 0 and attributes through the thread link, which
     # stays retroactive on purpose — linking a thread bills its past turns.
     db.execute(
         "INSERT INTO usage_log (thread_id, agent_name, model_id, input_tokens,"
-        " output_tokens, cycles, latency_ms, cost_usd, created_at, engagement_id)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " output_tokens, cycles, latency_ms, cost_usd, created_at, engagement_id,"
+        " requested_by, trigger_message_id, chat_agent_run_id)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             thread_id,
             agent_name,
@@ -178,6 +182,9 @@ def record_chat_usage(
             cost_for(model_id, input_tokens, output_tokens),
             db.now(),
             engagement_id or None,
+            requested_by,
+            trigger_message_id or None,
+            chat_agent_run_id or None,
         ),
     )
 

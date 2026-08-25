@@ -1538,8 +1538,8 @@ class MarkReadIn(BaseModel):
 
 
 @router.post("/notifications/read")
-def post_notifications_read(body: MarkReadIn, user: CurrentUser):
-    return notifications.mark_read(user, body.notification_id)
+def post_notifications_read(body: MarkReadIn, user: CurrentUser, viewer: ViewerDep):
+    return notifications.mark_read(user, body.notification_id, viewer=viewer)
 
 
 @router.get("/memories")
@@ -3329,8 +3329,8 @@ class SeenIn(BaseModel):
 
 
 @router.post("/review/seen")
-def post_review_seen(body: SeenIn, user: CurrentUser):
-    return review.mark_seen(body.ids, actor=user)
+def post_review_seen(body: SeenIn, user: CurrentUser, viewer: ViewerDep):
+    return review.mark_seen(body.ids, actor=user, viewer=viewer)
 
 
 @router.post("/review/approve-batch")

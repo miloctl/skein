@@ -13,9 +13,9 @@ import re
 import time
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
@@ -45,6 +45,7 @@ from ..extensions.fastapi import PolicyAPIRoute, subject_for
 from ..extensions.policy import (
     PolicyEngine,
     PolicySubject,
+    policy_subject_data,
     reset_policy_engine,
     reset_policy_subject,
     set_policy_engine,
@@ -63,7 +64,7 @@ from ..services import (
 from ..services.private_notes import FB_GUARD
 from ..services.usage import record_chat_usage
 from ..services.usage import row_from_agent as _usage_row
-from .deps import CurrentUser, ViewerDep
+from .deps import CurrentUser, StrongUser, ViewerDep
 
 router = APIRouter(route_class=PolicyAPIRoute)
 
@@ -304,6 +305,215 @@ def post_chat_folder(body: FolderIn, user: CurrentUser):
 def delete_chat_folder(name: str, user: CurrentUser):
     ratelimit.check("delete", user)
     return chat_threads.delete_folder(user, name)
+
+
+class SharedChatIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(min_length=1, max_length=chat_threads.TITLE_LEN)
+
+
+class SharedChatPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str | None = Field(default=None, min_length=1, max_length=chat_threads.TITLE_LEN)
+    engagement_id: int | None = Field(default=None, ge=0)
+
+
+class SharedInvitationIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    person: str = Field(min_length=1, max_length=64)
+    # The inviter confirms that accepting this invitation opens the complete
+    # existing transcript. False is not a second mode with unclear history.
+    share_history: Literal[True]
+
+
+class SharedMessageIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    message: str = Field(min_length=1, max_length=chat_threads.MESSAGE_TEXT_LEN)
+    client_key: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    invoke_agent: str = Field(default="", pattern=r"^(?:|[a-z0-9][a-z0-9-]{1,40})$")
+    invoke_agents: list[str] = Field(default_factory=list, max_length=4)
+
+
+class SharedAgentNameIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    agent: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{1,40}$")
+
+
+class SharedAgentIn(SharedAgentNameIn):
+    share_history: Literal[True]
+
+
+class SharedReadIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    message_id: int = Field(ge=0)
+
+
+class SharedInvitationIdIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    invitation_id: int = Field(gt=0)
+
+
+class SharedMemberIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    person: str = Field(min_length=1, max_length=64)
+
+
+class SharedMemberRoleIn(SharedMemberIn):
+    role: Literal["steward", "member"]
+
+
+@router.post("/api/shared-chats")
+def post_shared_chat(body: SharedChatIn, user: StrongUser):
+    ratelimit.check("write", user)
+    return chat_threads.create_shared_chat(body.title, user)
+
+
+@router.get("/api/shared-chats")
+def get_shared_chats(user: StrongUser):
+    return chat_threads.list_shared_chats(user)
+
+
+@router.get("/api/shared-chats/invitations")
+def get_shared_chat_invitations(user: StrongUser):
+    return chat_threads.list_shared_chat_invitations(user)
+
+
+@router.post("/api/shared-chats/invitations/{invitation_id}/accept")
+def accept_shared_chat_invitation(invitation_id: int, user: StrongUser):
+    ratelimit.check("write", user)
+    return chat_threads.accept_shared_chat_invitation(invitation_id, user)
+
+
+@router.post("/api/shared-chats/invitations/{invitation_id}/decline")
+def decline_shared_chat_invitation(invitation_id: int, user: StrongUser):
+    ratelimit.check("write", user)
+    return chat_threads.decline_shared_chat_invitation(invitation_id, user)
+
+
+@router.get("/api/shared-chats/{thread_id}")
+def get_shared_chat(thread_id: str, user: StrongUser):
+    return chat_threads.get_shared_chat(thread_id, user)
+
+
+@router.post("/api/shared-chats/{thread_id}/agents")
+def post_shared_chat_agent(thread_id: str, body: SharedAgentIn, user: StrongUser):
+    ratelimit.check("write", user)
+    return chat_threads.add_shared_chat_agent(
+        thread_id,
+        user,
+        body.agent,
+        share_history=body.share_history,
+    )
+
+
+@router.delete("/api/shared-chats/{thread_id}/agents")
+def delete_shared_chat_agent(thread_id: str, body: SharedAgentNameIn, user: StrongUser):
+    ratelimit.check("delete", user)
+    return chat_threads.remove_shared_chat_agent(thread_id, user, body.agent)
+
+
+@router.get("/api/shared-chats/{thread_id}/agent-runs")
+def get_shared_chat_agent_runs(
+    thread_id: str,
+    user: StrongUser,
+    after: int = Query(default=0, ge=0),
+):
+    return chat_threads.list_shared_agent_runs(thread_id, user, after=after)
+
+
+@router.patch("/api/shared-chats/{thread_id}")
+def patch_shared_chat(thread_id: str, body: SharedChatPatch, user: StrongUser):
+    ratelimit.check("write", user)
+    return chat_threads.update_shared_chat(
+        thread_id,
+        user,
+        title=body.title,
+        engagement_id=body.engagement_id,
+    )
+
+
+@router.get("/api/shared-chats/{thread_id}/messages")
+def get_shared_chat_messages(
+    thread_id: str,
+    user: StrongUser,
+    after: int | None = Query(default=None, ge=0),
+    before: int | None = Query(default=None, ge=1),
+):
+    return chat_threads.get_shared_messages(thread_id, user, after=after, before=before)
+
+
+@router.post("/api/shared-chats/{thread_id}/messages")
+def post_shared_chat_message(
+    thread_id: str,
+    body: SharedMessageIn,
+    request: Request,
+    user: StrongUser,
+):
+    requested_agents = list(
+        dict.fromkeys(([body.invoke_agent] if body.invoke_agent else []) + body.invoke_agents)
+    )
+    if len(requested_agents) > chat_threads.SHARED_AGENT_LIMIT:
+        raise ValueError("one message can call at most four agents")
+    ratelimit.check("chat", user, cost=max(1, len(requested_agents)))
+    return chat_threads.post_shared_message(
+        thread_id,
+        user,
+        body.message,
+        body.client_key,
+        invoke_agent=body.invoke_agent,
+        invoke_agents=body.invoke_agents,
+        requester_subject=policy_subject_data(subject_for(request, user)),
+    )
+
+
+@router.post("/api/shared-chats/{thread_id}/read")
+def post_shared_chat_read(thread_id: str, body: SharedReadIn, user: StrongUser):
+    ratelimit.check("write", user)
+    return chat_threads.mark_shared_chat_read(thread_id, user, body.message_id)
+
+
+@router.post("/api/shared-chats/{thread_id}/invitations")
+def post_shared_chat_invitation(thread_id: str, body: SharedInvitationIn, user: StrongUser):
+    ratelimit.check("write", user)
+    return chat_threads.invite_to_shared_chat(
+        thread_id, user, body.person, share_history=body.share_history
+    )
+
+
+@router.delete("/api/shared-chats/{thread_id}/invitations")
+def delete_shared_chat_invitation(thread_id: str, body: SharedInvitationIdIn, user: StrongUser):
+    ratelimit.check("delete", user)
+    return chat_threads.revoke_shared_chat_invitation(thread_id, user, body.invitation_id)
+
+
+@router.delete("/api/shared-chats/{thread_id}/members")
+def delete_shared_chat_member(thread_id: str, body: SharedMemberIn, user: StrongUser):
+    ratelimit.check("delete", user)
+    return chat_threads.remove_shared_chat_member(thread_id, user, body.person)
+
+
+@router.post("/api/shared-chats/{thread_id}/members/role")
+def post_shared_chat_member_role(thread_id: str, body: SharedMemberRoleIn, user: StrongUser):
+    ratelimit.check("write", user)
+    return chat_threads.set_shared_member_role(thread_id, user, body.person, body.role)
+
+
+@router.post("/api/shared-chats/{thread_id}/leave")
+def post_shared_chat_leave(thread_id: str, user: StrongUser):
+    ratelimit.check("delete", user)
+    return chat_threads.leave_shared_chat(thread_id, user)
+
+
+@router.post("/api/shared-chats/{thread_id}/archive")
+def post_shared_chat_archive(thread_id: str, user: StrongUser):
+    ratelimit.check("delete", user)
+    return chat_threads.set_shared_chat_archived(thread_id, user, True)
+
+
+@router.post("/api/shared-chats/{thread_id}/restore")
+def post_shared_chat_restore(thread_id: str, user: StrongUser):
+    ratelimit.check("write", user)
+    return chat_threads.set_shared_chat_archived(thread_id, user, False)
 
 
 @router.get("/api/chats/{thread_id}/messages")

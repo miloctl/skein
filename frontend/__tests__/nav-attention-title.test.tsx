@@ -49,6 +49,13 @@ vi.mock("@/lib/api", async (importOriginal) => {
         });
       return Promise.resolve({});
     },
+  };
+});
+
+vi.mock("@/lib/auth", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/auth")>();
+  return {
+    ...real,
     authConfig: () => Promise.resolve({ mode: "trusted-header" }),
   };
 });

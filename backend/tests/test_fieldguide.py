@@ -29,7 +29,7 @@ def test_registry_is_valid_and_complete(fresh_db):
     from app.services import fieldguide
 
     cards = fieldguide.registry()
-    assert len(cards) == 52
+    assert len(cards) == 53
     ids = {k["id"] for k in cards}
     assert ids == set(fieldguide.PREDICATES)
     for k in cards:
@@ -167,7 +167,7 @@ def test_hint_and_guide_use_the_same_tieable_total(fresh_db):
     from app.services import fieldguide
 
     _mint(fresh_db, "ava")
-    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 51
+    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 52
 
 
 def test_first_detection_seeds_silently(fresh_db):
@@ -523,6 +523,15 @@ def test_chat_ties_on_a_thread_not_a_page_load(fresh_db):
     # but CLI/MCP usage does tie offweb — that's the surface itself
     adoption.record_use("ava", "cli")
     assert fieldguide.PREDICATES["offweb"]("ava")
+
+
+def test_shared_chat_ties_only_after_membership_exists(fresh_db):
+    from app.services import chat_threads, fieldguide
+
+    _mint(fresh_db, "ava")
+    assert not fieldguide.PREDICATES["shared_chat"]("ava")
+    chat_threads.create_shared_chat("Private room", "ava")
+    assert fieldguide.PREDICATES["shared_chat"]("ava")
 
 
 def test_mark_seeds_silently_on_first_ever_unlock(fresh_db):

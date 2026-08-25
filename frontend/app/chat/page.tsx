@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 
 import { RuntimeProvider } from "../runtime-provider";
 import { ChatSidebar } from "@/components/chat-sidebar";
+import { SharedChat } from "@/components/shared-chat";
 import { ThreadTitle } from "@/components/thread-title";
 import { Thread } from "@/components/thread";
 import { setActivePersona } from "@/lib/persona";
@@ -27,26 +28,70 @@ function newId() {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
-function initialThread(): string {
-  // reopen where you left off — a daily driver must not forget your chat
-  // every time you visit another page (unsaved blanks leave no residue)
+type ChatSelection = { id: string; kind: "solo" | "shared" };
+type MissingCause = "" | "send" | "access";
+
+function initialThread(): ChatSelection {
+  if (typeof window !== "undefined") {
+    const shared = new URLSearchParams(window.location.search).get("shared") ?? "";
+    if (/^shared-[A-Za-z0-9_-]{1,57}$/.test(shared)) {
+      return { id: shared, kind: "shared" };
+    }
+  }
+  // Reopen where you left off. The old value was a bare solo-thread id, so a
+  // failed JSON parse preserves it instead of discarding every existing tab.
   try {
-    return sessionStorage.getItem(LAST_KEY) || newId();
+    const saved = sessionStorage.getItem(LAST_KEY);
+    if (!saved) return { id: newId(), kind: "solo" };
+    try {
+      const parsed = JSON.parse(saved) as ChatSelection;
+      if (
+        parsed &&
+        typeof parsed.id === "string" &&
+        (parsed.kind === "solo" || parsed.kind === "shared")
+      )
+        return parsed;
+    } catch {
+      return { id: saved, kind: "solo" };
+    }
+    return { id: newId(), kind: "solo" };
   } catch {
-    return newId();
+    return { id: newId(), kind: "solo" };
   }
 }
 
 export default function ChatPage() {
-  const [threadId, setThreadId] = useState<string>(initialThread);
-  const [missing, setMissing] = useState(false);
+  const [selection, setSelection] = useState<ChatSelection>(initialThread);
+  const [sharedTitle, setSharedTitle] = useState("Private shared chat");
+  const threadId = selection.id;
+  const [missing, setMissing] = useState<MissingCause>("");
   const recoveryRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     try {
-      sessionStorage.setItem(LAST_KEY, threadId);
+      sessionStorage.setItem(LAST_KEY, JSON.stringify(selection));
     } catch {}
-  }, [threadId]);
+    if (selection.kind === "shared") {
+      const current = new URLSearchParams(window.location.search).get("shared");
+      if (current !== selection.id) {
+        window.history.replaceState(
+          {},
+          "",
+          `/chat?shared=${encodeURIComponent(selection.id)}`,
+        );
+      }
+    } else {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("shared") || window.location.hash.startsWith("#shared-message-")) {
+        window.history.replaceState({}, "", "/chat");
+      }
+    }
+  }, [selection]);
+
+  useEffect(() => {
+    document.title =
+      selection.kind === "shared" ? `${sharedTitle} — Skein` : "Chat — Skein";
+  }, [selection.kind, sharedTitle]);
 
   useEffect(() => {
     const onMissing = (event: Event) => {
@@ -55,7 +100,7 @@ export default function ChatPage() {
       try {
         sessionStorage.removeItem(LAST_KEY);
       } catch {}
-      setMissing(true);
+      setMissing("send");
     };
     window.addEventListener("skein-chat-missing", onMissing);
     return () => window.removeEventListener("skein-chat-missing", onMissing);
@@ -65,11 +110,17 @@ export default function ChatPage() {
     if (missing) recoveryRef.current?.focus();
   }, [missing]);
 
-  const open = (id: string) => {
-    setMissing(false);
-    if (id === threadId) return;
+  const open = (id: string, kind: "solo" | "shared" = "solo") => {
+    setMissing("");
+    window.history.replaceState(
+      {},
+      "",
+      kind === "shared" ? `/chat?shared=${encodeURIComponent(id)}` : "/chat",
+    );
+    if (id === selection.id && kind === selection.kind) return;
     setActivePersona(null); // persona mode is per-conversation
-    setThreadId(id);
+    if (kind === "shared") setSharedTitle("Private shared chat");
+    setSelection({ id, kind });
     document.getElementById(`chat-${id}`)?.scrollIntoView({ block: "nearest" });
   };
 
@@ -80,6 +131,14 @@ export default function ChatPage() {
   );
   const [mobileChats, setMobileChats] = useState(false);
   const chatsBtnRef = useRef<HTMLButtonElement>(null);
+  const sharedUnavailable = useCallback(() => {
+    window.history.replaceState({}, "", "/chat");
+    try {
+      sessionStorage.removeItem(LAST_KEY);
+    } catch {}
+    setSharedTitle("Private shared chat");
+    setMissing("access");
+  }, []);
   const closeChats = useCallback(() => {
     setMobileChats(false);
     setTimeout(() => chatsBtnRef.current?.focus(), 0);
@@ -94,21 +153,23 @@ export default function ChatPage() {
   }, []);
 
   const startNew = () => {
-    setMissing(false);
+    window.history.replaceState({}, "", "/chat");
+    setMissing("");
     setActivePersona(null);
-    setThreadId(newId());
+    setSelection({ id: newId(), kind: "solo" });
   };
 
   return (
-    <div className="flex h-[calc(100dvh-var(--nav-h)-var(--selvage-h,2px))] w-full">
+    <div className="flex h-[calc(100dvh-var(--nav-h)-var(--selvage-h,2px))] w-full overflow-hidden">
       <ChatSidebar
           collapsed={collapsed}
           mobileOpen={mobileChats}
           onMobileClose={closeChats}
           threadId={threadId}
-          onOpen={(id) => {
+          threadKind={selection.kind}
+          onOpen={(id, kind = "solo") => {
             setMobileChats(false);
-            open(id);
+            open(id, kind);
           }}
           onNew={() => {
             setMobileChats(false);
@@ -155,14 +216,24 @@ export default function ChatPage() {
           >
             <span aria-hidden>☰</span> Chats
           </button>
-          <ThreadTitle threadId={threadId} />
+          {selection.kind === "shared" ? (
+            <p className="min-w-0 flex-1 truncate font-display text-sm font-semibold text-ink">
+              {sharedTitle}
+            </p>
+          ) : (
+            <ThreadTitle threadId={threadId} />
+          )}
         </div>
         {missing ? (
           <div
             role="alert"
             className="flex shrink-0 items-center justify-between gap-3 border-b border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger sm:px-4"
           >
-            <p>Message not sent. This chat is not available.</p>
+            <p>
+              {missing === "send"
+                ? "Message not sent. This chat is not available."
+                : "This private shared chat is no longer available. Select another chat."}
+            </p>
             <button
               ref={recoveryRef}
               type="button"
@@ -172,6 +243,14 @@ export default function ChatPage() {
               New chat
             </button>
           </div>
+        ) : selection.kind === "shared" ? (
+          <SharedChat
+            key={threadId}
+            threadId={threadId}
+            onTitle={setSharedTitle}
+            onUnavailable={sharedUnavailable}
+            onLeave={startNew}
+          />
         ) : (
           <RuntimeProvider key={threadId} threadId={threadId}>
             <Thread />

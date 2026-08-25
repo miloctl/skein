@@ -48,6 +48,8 @@ def main() -> None:
         # browser weak and the interactive crew controls never render.
         with patch("app.services.api_keys.secrets.token_hex", return_value="0" * 40):
             create_key("ava", "Playwright")
+        with patch("app.services.api_keys.secrets.token_hex", return_value="1" * 40):
+            create_key("marcus", "Playwright shared chat")
         uvicorn.run("app.main:app", host="127.0.0.1", port=8600)
     finally:
         signal.signal(signal.SIGTERM, previous_sigterm)

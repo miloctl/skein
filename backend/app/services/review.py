@@ -238,11 +238,14 @@ def _propose_change_locked(
             1,
         ),
     )
-    db.log_activity(
-        actor,
-        "propose_change",
-        f"#{pid} {action} {entity}" + (f" (asked by {requested_by})" if requested_by else ""),
-    )
+    if review_visibility == scope.PRIVATE and review_owner:
+        db.log_activity(review_owner, "propose_private_change", f"#{pid}")
+    else:
+        db.log_activity(
+            actor,
+            "propose_change",
+            f"#{pid} {action} {entity}" + (f" (asked by {requested_by})" if requested_by else ""),
+        )
     if notify_team:  # bulk producers (ingestion) send ONE summary instead
         from .notifications import notify
 
@@ -1221,6 +1224,7 @@ def change_diff(change_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
     if not change:
         raise db.NotFound(f"pending change #{change_id} not found")
+    _assert_judgeable(change, viewer)
     table = _DIFF_TABLES.get(change["entity"])
     if change["action"] != "update" or not table or not change["entity_id"]:
         return {"id": change_id, "diff": None}
@@ -1244,19 +1248,33 @@ def change_diff(change_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     return {"id": change_id, "diff": {"current": current, "proposed": payload}}
 
 
-def mark_seen(ids: list[int], *, actor: str = "system") -> dict:
+def mark_seen(
+    ids: list[int],
+    *,
+    actor: str = "system",
+    viewer: scope.Viewer = scope.NOBODY,
+) -> dict:
     """The review UI calls this when a human loads pending proposals —
     first-seen (claim_at) starts the active-review clock, so review burden
     can be measured as seen→verdict instead of created→verdict (which is
     dominated by queue wait, not human effort)."""
+    del actor
     batch = ids[:200]
     if not batch:
         return {"seen": 0}
     marks = ", ".join("?" for _ in batch)
+    rows = db.query(
+        f"SELECT * FROM pending_changes WHERE id IN ({marks}) AND status = 'pending'",  # noqa: S608 — placeholders built above
+        tuple(batch),
+    )
+    readable = [int(row["id"]) for row in _readable(rows, viewer)]
+    if not readable:
+        return {"seen": 0}
+    readable_marks = ", ".join("?" for _ in readable)
     n = db.execute_rowcount(
         f"UPDATE pending_changes SET claim_at = ?"  # noqa: S608 — placeholders built above
-        f" WHERE id IN ({marks}) AND status = 'pending' AND claim_at IS NULL",
-        (db.now(), *batch),
+        f" WHERE id IN ({readable_marks}) AND status = 'pending' AND claim_at IS NULL",
+        (db.now(), *readable),
     )
     return {"seen": n}
 
@@ -1418,6 +1436,12 @@ def _governing_tier(change: dict) -> tuple[str, int | None, str] | str | None:
     Three sources, in order: the row `entity_id` names (updates), the row the
     payload names (_CREATE_PARENT), then the tier the payload declares.
     """
+    if str(change.get("review_visibility") or scope.WORKSPACE) != scope.WORKSPACE:
+        return (
+            str(change["review_visibility"]),
+            change.get("review_crew_id"),
+            str(change.get("review_owner") or change.get("requested_by") or ""),
+        )
     if any(change["entity"] == entity for entity, _action in lexicon.REVIEW_ONLY):
         return (
             str(change.get("review_visibility") or scope.WORKSPACE),
@@ -1461,6 +1485,13 @@ def _governing_tiers(rows: list[dict]) -> list[tuple[str, int | None, str] | str
     resolved: dict[int, tuple[str, int | None, str] | str | None] = {}
     waiting: dict[tuple[str, int], list[int]] = {}
     for index, change in enumerate(rows):
+        if str(change.get("review_visibility") or scope.WORKSPACE) != scope.WORKSPACE:
+            resolved[index] = (
+                str(change["review_visibility"]),
+                change.get("review_crew_id"),
+                str(change.get("review_owner") or change.get("requested_by") or ""),
+            )
+            continue
         if any(change["entity"] == entity for entity, _action in lexicon.REVIEW_ONLY):
             resolved[index] = (
                 str(change.get("review_visibility") or scope.WORKSPACE),

@@ -17,7 +17,7 @@ import json
 
 from .. import db, ratelimit
 from ..agents import receipts
-from ..agents.identity import agent_identity, requester_identity
+from ..agents.identity import agent_identity, requester_identity, workspace_only_tools
 from ..extensions.policy import (
     PolicyEffect,
     PolicyInput,
@@ -151,6 +151,13 @@ def _gated_write_locked(
         return json.dumps({"error": str(exc)})
     from ..services import policy_context as domain_policy
 
+    if workspace_only_tools() and entity_id:
+        visible = domain_policy.existing_scoped(entity, entity_id, scope.NOBODY)
+        if str(visible.get("classification") or "") != scope.WORKSPACE:
+            detail = "No workspace-visible record was found."
+            receipts.record("refused", entity, detail, actor=actor)
+            return json.dumps({"error": detail})
+
     try:
         if entity == "task":
             if entity_id:
@@ -185,6 +192,10 @@ def _gated_write_locked(
         return json.dumps({"error": str(exc)})
     project_type = str(attributes.get("project_type") or "")
     classification = str(attributes.get("classification") or "")
+    if workspace_only_tools() and classification != scope.WORKSPACE:
+        detail = "This shared-chat agent can use tools on workspace-visible records only."
+        receipts.record("refused", entity, detail, actor=actor)
+        return json.dumps({"error": detail})
     subject = current_policy_subject()
     resolved_subject = requester_identity() or actor
     if subject.name == "agent" and resolved_subject != "agent":
@@ -258,6 +269,8 @@ def _gated_write_locked(
                 source_id=int(result.get("id") or entity_id or 0),
             )
         return json.dumps(result)
+    private_review = workspace_only_tools()
+    review_owner = requester_identity() if private_review else ""
     try:
         # Same reason as the direct() savepoint above: this catch RETURNS, so
         # the gate's transaction commits whatever propose_change wrote before
@@ -275,6 +288,9 @@ def _gated_write_locked(
                 policy_obligations=decision.obligations,
                 approver_groups=decision.approver_groups,
                 approver_capabilities=decision.approver_capabilities,
+                notify_team=not private_review,
+                review_visibility=scope.PRIVATE if private_review else scope.WORKSPACE,
+                review_owner=review_owner,
                 policy_context={
                     "input": policy_input_data(policy_input),
                     "contract": {
