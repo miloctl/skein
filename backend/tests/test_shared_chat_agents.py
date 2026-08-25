@@ -5,9 +5,22 @@ import threading
 import time
 from types import SimpleNamespace
 
+import pytest
+
 from app import db
 from app.services import personas, users
 from app.services.api_keys import create_key
+
+
+@pytest.fixture(autouse=True)
+def _wait_for_shared_chat_drain():
+    yield
+    from app.services import shared_chat_agents
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and shared_chat_agents._worker_running:
+        time.sleep(0.02)
+    assert not shared_chat_agents._worker_running
 
 
 def auth(name: str) -> dict[str, str]:
@@ -1166,6 +1179,132 @@ def test_distinct_invited_agents_execute_in_parallel_sessions(client, monkeypatc
     )
 
 
+def test_global_four_call_drain_refills_across_rooms(client, monkeypatch):
+    from app import config
+    from app.agents import team_agent
+    from app.services import shared_chat_agents
+
+    agents = sorted(personas.bench_slugs())[:5]
+    first_room, first_headers = create_room(client, owner="mira")
+    second_room, second_headers = create_room(client, owner="mira")
+    for agent in agents[:4]:
+        add_agent(client, first_room["id"], first_headers, agent)
+    add_agent(client, second_room["id"], second_headers, agents[4])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    real_kick = shared_chat_agents.kick
+    monkeypatch.setattr(shared_chat_agents, "kick", lambda: False)
+
+    state_lock = threading.Lock()
+    entered: list[str] = []
+    active = 0
+    max_active = 0
+    exited = 0
+    first_four_entered = threading.Event()
+    fifth_entered = threading.Event()
+    all_calls_exited = threading.Event()
+    release_one = threading.Event()
+    release_rest = threading.Event()
+    released_agent = agents[0]
+
+    class FakeAgent:
+        event_loop_metrics = SimpleNamespace(
+            accumulated_usage={}, accumulated_metrics={}, cycle_count=1
+        )
+        model = SimpleNamespace(get_config=lambda: {"model_id": "test-model"})
+
+        def __init__(self, agent):
+            self.agent = agent
+
+        def __call__(self, prompt):
+            nonlocal active, max_active, exited
+            del prompt
+            with state_lock:
+                entered.append(self.agent)
+                active += 1
+                max_active = max(max_active, active)
+                if len(entered) == 4:
+                    first_four_entered.set()
+                if self.agent == agents[4]:
+                    fifth_entered.set()
+            gate = release_one if self.agent == released_agent else release_rest
+            gate.wait(10)
+            with state_lock:
+                active -= 1
+                exited += 1
+                if exited == 5:
+                    all_calls_exited.set()
+            return f"reply from {self.agent}"
+
+    monkeypatch.setattr(
+        team_agent,
+        "build_agent",
+        lambda _thread_id, **kwargs: FakeAgent(kwargs["persona"]),
+    )
+    first = client.post(
+        f"/api/shared-chats/{first_room['id']}/messages",
+        json={
+            "message": " ".join(f"@{agent}" for agent in agents[:4]) + " compare",
+            "client_key": "global-four-first",
+            "invoke_agents": agents[:4],
+        },
+        headers=first_headers,
+    )
+    assert first.status_code == 200
+    post_message(
+        client,
+        second_room["id"],
+        second_headers,
+        f"@{agents[4]} fifth",
+        "global-four-fifth",
+        invoke_agent=agents[4],
+    )
+    monkeypatch.setattr(shared_chat_agents, "kick", real_kick)
+    assert real_kick() is True
+
+    fifth_started = False
+    active_when_fifth = 0
+    observed_max = 0
+    first_wave: set[str] = set()
+    try:
+        assert first_four_entered.wait(3)
+        with state_lock:
+            first_wave = set(entered)
+            observed_max = max_active
+        assert first_wave == set(agents[:4])
+        assert not fifth_entered.is_set()
+        assert observed_max == 4
+
+        release_one.set()
+        fifth_started = fifth_entered.wait(3)
+        with state_lock:
+            active_when_fifth = active
+            observed_max = max_active
+    finally:
+        release_one.set()
+        release_rest.set()
+        all_calls_exited.wait(5)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            rows = db.query(
+                "SELECT status, execution_active FROM chat_agent_runs WHERE thread_id IN (?, ?)",
+                (first_room["id"], second_room["id"]),
+            )
+            if (
+                len(rows) == 5
+                and all(row["status"] not in ("pending", "running") for row in rows)
+                and all(not row["execution_active"] for row in rows)
+                and not shared_chat_agents._worker_running
+            ):
+                break
+            time.sleep(0.02)
+
+    assert fifth_started
+    assert active_when_fifth == 4
+    assert observed_max == 4
+    assert all_calls_exited.is_set()
+    assert not shared_chat_agents._worker_running
+
+
 def test_four_real_agent_calls_record_independent_request_and_message_usage(client, monkeypatch):
     from app import config
     from app.agents import team_agent
@@ -1437,3 +1576,242 @@ def test_retried_client_key_naming_a_different_agent_set_is_a_conflict(client):
 
     assert response.status_code == 409
     assert response.json()["detail"] == "This message key already names a different agent call."
+
+
+def _shared_prompt_body(prompt: str) -> str:
+    return prompt.split("<shared-chat-transcript>\n", 1)[1].split("\n</shared-chat-transcript>", 1)[
+        0
+    ]
+
+
+def _shared_prompt_block(kind: str, author: str, message_id: int, content: str) -> str:
+    return f"[{kind} {author} | message {message_id}]\n{content}"
+
+
+def test_prompt_uses_the_last_completed_same_agent_boundary(client, monkeypatch):
+    from app.services import shared_chat_agents
+
+    target, other = sorted(personas.bench_slugs())[:2]
+    room, mira = create_room(client)
+    add_agent(client, room["id"], mira, target)
+    add_agent(client, room["id"], mira, other)
+    monkeypatch.setattr(shared_chat_agents, "kick", lambda: False)
+
+    before = post_message(client, room["id"], mira, "before boundary", "prompt-before")
+    completed = post_message(
+        client,
+        room["id"],
+        mira,
+        f"@{target} completed boundary",
+        "prompt-completed",
+        invoke_agent=target,
+    )
+    with db.transaction():
+        target_reply_id = db.execute(
+            "INSERT INTO chat_messages"
+            " (thread_id, role, content, created_at, author_kind, author, turn_id,"
+            " reply_to_message_id) VALUES (?, 'assistant', ?, ?, 'agent', ?, ?, ?)"
+            " RETURNING id",
+            (
+                room["id"],
+                "target old reply",
+                db.now(),
+                target,
+                completed["turn_id"],
+                completed["id"],
+            ),
+        )
+        db.execute(
+            "UPDATE chat_agent_runs SET status = 'completed', response_message_id = ?,"
+            " finished_at = ? WHERE turn_id = ?",
+            (target_reply_id, db.now(), completed["turn_id"]),
+        )
+
+    after = post_message(client, room["id"], mira, "after boundary", "prompt-after")
+    other_call = post_message(
+        client,
+        room["id"],
+        mira,
+        f"@{other} other call",
+        "prompt-other",
+        invoke_agent=other,
+    )
+    with db.transaction():
+        other_reply_id = db.execute(
+            "INSERT INTO chat_messages"
+            " (thread_id, role, content, created_at, author_kind, author, turn_id,"
+            " reply_to_message_id) VALUES (?, 'assistant', ?, ?, 'agent', ?, ?, ?)"
+            " RETURNING id",
+            (
+                room["id"],
+                "other agent reply",
+                db.now(),
+                other,
+                other_call["turn_id"],
+                other_call["id"],
+            ),
+        )
+        db.execute(
+            "UPDATE chat_agent_runs SET status = 'completed', response_message_id = ?,"
+            " finished_at = ? WHERE turn_id = ?",
+            (other_reply_id, db.now(), other_call["turn_id"]),
+        )
+    ordinary = post_message(client, room["id"], mira, "ordinary update", "prompt-ordinary")
+    failed = post_message(
+        client,
+        room["id"],
+        mira,
+        f"@{target} failed call",
+        "prompt-failed",
+        invoke_agent=target,
+    )
+    with db.transaction():
+        db.execute(
+            "UPDATE chat_agent_runs SET status = 'failed', finished_at = ?,"
+            " error_code = 'turn_failed' WHERE turn_id = ?",
+            (db.now(), failed["turn_id"]),
+        )
+    current = post_message(
+        client,
+        room["id"],
+        mira,
+        f"@{target} current call",
+        "prompt-current",
+        invoke_agent=target,
+    )
+    run = db.query_row(
+        "SELECT * FROM chat_agent_runs WHERE trigger_message_id = ?",
+        (current["id"],),
+    )
+
+    body = _shared_prompt_body(shared_chat_agents._prompt(run))
+
+    assert body == "\n\n---\n\n".join(
+        (
+            _shared_prompt_block("human", "mira", after["id"], "after boundary"),
+            _shared_prompt_block("human", "mira", other_call["id"], f"@{other} other call"),
+            _shared_prompt_block("agent", other, other_reply_id, "other agent reply"),
+            _shared_prompt_block("human", "mira", ordinary["id"], "ordinary update"),
+            _shared_prompt_block("human", "mira", failed["id"], f"@{target} failed call"),
+            _shared_prompt_block("human", "mira", current["id"], f"@{target} current call"),
+        )
+    )
+    assert "target old reply" not in body
+    assert _shared_prompt_block("human", "mira", before["id"], "before boundary") not in body
+    assert (
+        _shared_prompt_block("human", "mira", completed["id"], f"@{target} completed boundary")
+        not in body
+    )
+
+
+def test_prompt_body_is_bounded_and_keeps_the_newest_message(client, monkeypatch):
+    from app.services import shared_chat_agents
+
+    agent = sorted(personas.bench_slugs())[0]
+    room, mira = create_room(client)
+    add_agent(client, room["id"], mira, agent)
+    monkeypatch.setattr(shared_chat_agents, "kick", lambda: False)
+    post_message(client, room["id"], mira, "old " + "z" * 120, "bound-old")
+    post_message(client, room["id"], mira, "x", "bound-short")
+    post_message(client, room["id"], mira, "newer", "bound-newer")
+    current = post_message(
+        client,
+        room["id"],
+        mira,
+        f"@{agent} latest",
+        "bound-latest",
+        invoke_agent=agent,
+    )
+    run = db.query_row(
+        "SELECT * FROM chat_agent_runs WHERE trigger_message_id = ?",
+        (current["id"],),
+    )
+    rows = db.query(
+        "SELECT id, author_kind, author, content FROM chat_messages"
+        " WHERE thread_id = ? AND id <= ? ORDER BY id",
+        (room["id"], current["id"]),
+    )
+    rendered = [
+        _shared_prompt_block(
+            str(row["author_kind"]),
+            str(row["author"] or "Skein"),
+            int(row["id"]),
+            str(row["content"]),
+        )
+        for row in rows
+    ]
+    marker = "[Earlier shared-chat messages were omitted from this bounded turn.]\n\n"
+    separator = "\n\n---\n\n"
+    expected = marker + separator.join(rendered[-2:])
+    monkeypatch.setattr(shared_chat_agents, "_MAX_TRANSCRIPT_CHARS", len(expected))
+
+    body = _shared_prompt_body(shared_chat_agents._prompt(run))
+
+    assert body == expected
+    assert len(body) <= shared_chat_agents._MAX_TRANSCRIPT_CHARS
+    assert body.count(marker) == 1
+
+
+def test_claim_scan_reaches_runnable_work_after_one_hundred_locked_rows(client):
+    from app.services import shared_chat_agents
+
+    blocked_agent, runnable_agent = sorted(personas.bench_slugs())[:2]
+    blocked_room, blocked_headers = create_room(client, owner="mira")
+    runnable_room, runnable_headers = create_room(client, owner="mira")
+    add_agent(client, blocked_room["id"], blocked_headers, blocked_agent)
+    add_agent(client, runnable_room["id"], runnable_headers, runnable_agent)
+    now = db.now()
+    with db.transaction():
+        for index in range(100):
+            message_id = db.execute(
+                "INSERT INTO chat_messages"
+                " (thread_id, role, content, created_at, author_kind, author, client_key, turn_id)"
+                " VALUES (?, 'user', 'blocked', ?, 'human', 'mira', ?, ?) RETURNING id",
+                (blocked_room["id"], now, f"blocked-key-{index}", f"blocked-{index}"),
+            )
+            db.execute(
+                "INSERT INTO chat_agent_runs"
+                " (turn_id, batch_id, thread_id, trigger_message_id, agent, requested_by,"
+                " requester_subject, status, requested_at)"
+                " VALUES (?, ?, ?, ?, ?, 'mira', '{}', 'pending', ?)",
+                (
+                    f"blocked-{index}",
+                    f"blocked-{index}",
+                    blocked_room["id"],
+                    message_id,
+                    blocked_agent,
+                    now,
+                ),
+            )
+        runnable_message_id = db.execute(
+            "INSERT INTO chat_messages"
+            " (thread_id, role, content, created_at, author_kind, author, client_key, turn_id)"
+            " VALUES (?, 'user', 'runnable', ?, 'human', 'mira', 'runnable-key',"
+            " 'runnable-turn') RETURNING id",
+            (runnable_room["id"], now),
+        )
+        db.execute(
+            "INSERT INTO chat_agent_runs"
+            " (turn_id, batch_id, thread_id, trigger_message_id, agent, requested_by,"
+            " requester_subject, status, requested_at)"
+            " VALUES ('runnable-turn', 'runnable-turn', ?, ?, ?, 'mira', '{}', 'pending', ?)",
+            (runnable_room["id"], runnable_message_id, runnable_agent, now),
+        )
+
+    blocked_lock = shared_chat_agents._session_lock(blocked_room["id"], blocked_agent)
+    assert blocked_lock.acquire(blocking=False)
+    claimed = None
+    try:
+        assert shared_chat_agents._has_runnable_pending() is True
+        claimed = shared_chat_agents.claim_next()
+    finally:
+        blocked_lock.release()
+
+    assert claimed is not None
+    assert claimed["turn_id"] == "runnable-turn"
+    with db.transaction():
+        db.execute(
+            "UPDATE chat_agent_runs SET status = 'failed', execution_active = FALSE,"
+            " finished_at = ?, error_code = 'test_settled' WHERE turn_id = 'runnable-turn'",
+            (db.now(),),
+        )

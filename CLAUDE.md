@@ -138,13 +138,14 @@ model and constraints, is archived at
 # connects as one, so a local instance is expected to show that warning
 # and a deployed one is not. To rehearse the real privilege model
 # instead, use `docker compose up db`.
-docker run -d --name skein-db -p 5432:5432 \
+docker run -d --stop-timeout 1200 --name skein-db -p 5432:5432 \
   -e POSTGRES_USER=skein -e POSTGRES_PASSWORD=skein -e POSTGRES_DB=skein \
   postgres:17-alpine
 
 # backend (from backend/)
 uv venv .venv && uv pip install -e ".[dev]" --python .venv/bin/python   # deps
-.venv/bin/pytest      # tests — needs SKEIN_DATABASE_URL and the server above
+.venv/bin/pytest      # normal suite; one deployment-role contract is skipped
+SKEIN_ROLE_CONTRACT=1 .venv/bin/pytest -q -n0 tests/test_database_role.py # role drill
 .venv/bin/ruff check app tests seed.py ../cli/skein_cli.py ../scripts   # lint
 .venv/bin/ruff format app tests seed.py ../cli/skein_cli.py ../scripts # format
 .venv/bin/mypy                                          # type check

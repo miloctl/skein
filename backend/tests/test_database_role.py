@@ -11,10 +11,24 @@ import pytest
 from psycopg import sql as pgsql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
+pytestmark = pytest.mark.skipif(
+    os.getenv("SKEIN_ROLE_CONTRACT") != "1",
+    reason="run separately with SKEIN_ROLE_CONTRACT=1",
+)
 
-def test_bootstrap_role_runs_skein_without_database_create(scratch_db, monkeypatch):
-    if os.getenv("SKEIN_ROLE_CONTRACT") != "1":
-        pytest.skip("run separately with SKEIN_ROLE_CONTRACT=1")
+
+def _require_disposable_superuser(control) -> None:
+    current = control.execute(
+        "SELECT rolsuper FROM pg_roles WHERE rolname = current_user"
+    ).fetchone()
+    if not current or not current[0]:
+        pytest.fail(
+            "The database role contract requires the disposable PostgreSQL superuser.",
+            pytrace=False,
+        )
+
+
+def test_bootstrap_role_runs_skein_without_database_create(_worker_db, monkeypatch):
     from app import config, db
     from app.extensions.contracts import ExtensionMigration
     from app.extensions.data import ExtensionStore
@@ -30,11 +44,7 @@ def test_bootstrap_role_runs_skein_without_database_create(scratch_db, monkeypat
     script = Path(__file__).parents[2] / "deploy" / "postgres-init" / "10-app-role.sh"
 
     with psycopg.connect(original_url, autocommit=True) as control:
-        current = control.execute(
-            "SELECT rolsuper FROM pg_roles WHERE rolname = current_user"
-        ).fetchone()
-        if not current or not current[0]:
-            pytest.skip("the role contract needs the disposable test superuser")
+        _require_disposable_superuser(control)
         control.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(database)))
 
     env = dict(os.environ)
@@ -128,11 +138,8 @@ def test_bootstrap_role_runs_skein_without_database_create(scratch_db, monkeypat
         monkeypatch.setattr(config, "DATABASE_ERROR", original_error)
         db.close_pool()
         with psycopg.connect(original_url, autocommit=True) as control:
-            control.execute(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity"
-                " WHERE datname = %s AND pid <> pg_backend_pid()",
-                (database,),
-            )
+            # Plain DROP exposes a leaked app or restore connection. Killing it
+            # here would let the security contract pass while its cleanup is broken.
             control.execute(
                 pgsql.SQL("DROP DATABASE IF EXISTS {}").format(pgsql.Identifier(database))
             )

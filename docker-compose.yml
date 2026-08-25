@@ -19,6 +19,9 @@ services:
     # floating `postgres:latest` here breaks the Backups feature on the next
     # image pull, not on the next deploy.
     image: postgres:17-alpine
+    # Docker's 10-second default can kill PostgreSQL during its shutdown
+    # checkpoint. Twenty minutes is a ceiling; a clean stop returns at once.
+    stop_grace_period: 20m
     environment:
       # The BOOTSTRAP superuser, used once to initialise the cluster.
       POSTGRES_USER: skein_admin

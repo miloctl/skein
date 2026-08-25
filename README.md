@@ -272,7 +272,8 @@ npm install                                # backend URL defaults to :8000
 npm run dev                                # http://localhost:3000
 
 # or both: ./scripts/skein.sh dev      (detached: ./scripts/skein.sh start)
-# tests:   cd backend && .venv/bin/pytest
+# tests:   cd backend && .venv/bin/pytest  # one deployment-role contract is skipped
+# role:    SKEIN_ROLE_CONTRACT=1 .venv/bin/pytest -q -n0 tests/test_database_role.py
 # hooks:   git config core.hooksPath scripts/hooks   # lint + tests run before every push
 ```
 
