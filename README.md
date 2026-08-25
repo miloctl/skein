@@ -255,8 +255,8 @@ deliberately no individual leaderboards.
 
 ## Setup
 
-Prerequisites: Python 3.10+, Node 20+, [uv](https://github.com/astral-sh/uv),
-and pipx (for the CLI).
+Prerequisites: Python 3.10+, Node 20+, PostgreSQL 17,
+[uv](https://github.com/astral-sh/uv), and pipx (for the CLI).
 
 ```bash
 # backend
@@ -273,9 +273,13 @@ npm run dev                                # http://localhost:3000
 
 # or both: ./scripts/skein.sh dev      (detached: ./scripts/skein.sh start)
 # tests:   cd backend && .venv/bin/pytest  # one deployment-role contract is skipped
-# role:    SKEIN_ROLE_CONTRACT=1 .venv/bin/pytest -q -n0 tests/test_database_role.py
+# role:    cd backend && SKEIN_ROLE_CONTRACT=1 .venv/bin/pytest -q -n0 tests/test_database_role.py
 # hooks:   git config core.hooksPath scripts/hooks   # lint + tests run before every push
 ```
+
+The role drill needs PostgreSQL 17 `psql`, `pg_dump`, and `pg_restore`, plus a
+disposable superuser in `SKEIN_DATABASE_URL`. The Compose app role is intentionally
+not sufficient for this security contract.
 
 Model provider in `backend/.env`:
 

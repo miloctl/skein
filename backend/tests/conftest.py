@@ -1,3 +1,4 @@
+import contextlib
 import hashlib
 import os
 import re
@@ -53,7 +54,7 @@ from datetime import UTC, datetime, timedelta
 import psycopg
 import pytest
 from psycopg import sql as pgsql
-from psycopg.conninfo import conninfo_to_dict, make_conninfo
+from psycopg.conninfo import make_conninfo
 
 _POSTGRES_MISSING = (
     "SKEIN_DATABASE_URL is not set. Start PostgreSQL with the documented"
@@ -66,7 +67,10 @@ _POSTGRES_CAPABILITY = (
     "The PostgreSQL test role cannot create databases. Use a disposable SUPERUSER or CREATEDB role."
 )
 _TEST_DATABASE = re.compile(
-    r"^skein_(?:test|scratch)_(\d{14})_[0-9a-f]{12}_[a-z0-9]{1,8}_[0-9a-f]{8}$"
+    r"^(?:"
+    r"skein_(?:test|scratch)_(\d{14})_[0-9a-f]{12}_[a-z0-9]{1,8}_[0-9a-f]{8}"
+    r"|skein_(?:role|app)_(\d{14})_[0-9a-f]{8}"
+    r")$"
 )
 _ORPHAN_AGE = timedelta(hours=24)
 
@@ -90,15 +94,34 @@ def _test_database_created_at(name: str) -> datetime | None:
     if not match:
         return None
     try:
-        return datetime.strptime(match[1], "%Y%m%d%H%M%S").replace(tzinfo=UTC)
+        return datetime.strptime(match[1] or match[2], "%Y%m%d%H%M%S").replace(tzinfo=UTC)
     except ValueError:
         return None
 
 
 def _database_conninfo(base: str, database: str) -> str:
-    info = conninfo_to_dict(base)
-    info["dbname"] = database
-    return make_conninfo(**{key: str(value) for key, value in info.items() if value is not None})
+    return make_conninfo(base, dbname=database)
+
+
+def _drop_test_database(base: str, name: str) -> None:
+    with psycopg.connect(base, autocommit=True) as admin:
+        admin.execute(pgsql.SQL("DROP DATABASE IF EXISTS {}").format(pgsql.Identifier(name)))
+
+
+def _create_test_database(base: str, name: str) -> None:
+    try:
+        with psycopg.connect(base, autocommit=True) as admin:
+            admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(name)))
+    except psycopg.errors.DuplicateDatabase:
+        # A collision is not ownership. Never delete a database another run
+        # created, even though random names make this branch vanishingly rare.
+        raise
+    except psycopg.Error:
+        # CREATE DATABASE commits before CommandComplete. If that response is
+        # lost, remove this run's unique name before propagating the fault.
+        with contextlib.suppress(psycopg.Error):
+            _drop_test_database(base, name)
+        raise
 
 
 def _old_test_databases(connection, *, now: datetime | None = None) -> list[str]:
@@ -125,6 +148,22 @@ def _old_test_databases(connection, *, now: datetime | None = None) -> list[str]
     ]
 
 
+def _old_test_roles(connection, *, now: datetime | None = None) -> list[str]:
+    cutoff = (now or datetime.now(UTC)) - _ORPHAN_AGE
+    rows = connection.execute(
+        "SELECT role.rolname FROM pg_roles role"
+        " WHERE role.rolname LIKE 'skein_app_%'"
+        " AND NOT EXISTS ("
+        "   SELECT 1 FROM pg_stat_activity active WHERE active.usename = role.rolname"
+        " ) ORDER BY role.rolname"
+    ).fetchall()
+    return [
+        str(name)
+        for (name,) in rows
+        if (created_at := _test_database_created_at(str(name))) is not None and created_at < cutoff
+    ]
+
+
 def _postgres_preflight(url: str) -> str | None:
     if not url:
         return _POSTGRES_MISSING
@@ -142,24 +181,15 @@ def _postgres_preflight(url: str) -> str | None:
             ).fetchone()
             if not flags or not any(flags):
                 return _POSTGRES_CAPABILITY
-            if orphans := _old_test_databases(control):
+            resources = [*_old_test_databases(control), *_old_test_roles(control)]
+            if resources:
                 return (
-                    "Old inactive pytest databases were found. Delete these exact databases,"
-                    " then run the tests again: " + ", ".join(orphans)
+                    "Old inactive pytest resources were found. Delete these exact names,"
+                    " then run the tests again: " + ", ".join(resources)
                 )
     except psycopg.Error:
         return _POSTGRES_UNAVAILABLE
     return None
-
-
-@pytest.hookimpl(tryfirst=True)
-def pytest_sessionstart(session):
-    if session.config.getoption("collectonly") or hasattr(session.config, "workerinput"):
-        return
-    from app import config
-
-    if error := _postgres_preflight(config.DATABASE_URL):
-        pytest.exit(error, returncode=1)
 
 
 @pytest.fixture(autouse=True)
@@ -235,13 +265,14 @@ def _worker_db(worker_id, testrun_uid):
     from app import config, db
 
     base = config.DATABASE_URL
+    if error := _postgres_preflight(base):
+        pytest.exit(error, returncode=1)
     previous_error = config.DATABASE_ERROR
     previous_env = os.environ.get("SKEIN_DATABASE_URL")
     name = _test_database_name("test", datetime.now(UTC), testrun_uid, worker_id)
     # A random name must never exist already. Pre-dropping turns a rare
     # collision into deletion of another concurrent test run.
-    with psycopg.connect(base, autocommit=True) as admin:
-        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(name)))
+    _create_test_database(base, name)
     try:
         url = _database_conninfo(base, name)
         config.DATABASE_URL, config.DATABASE_ERROR = url, ""
@@ -269,15 +300,19 @@ def _worker_db(worker_id, testrun_uid):
         # Setup failures happen before pytest registers generator teardown, so
         # cleanup must enclose migrations and baseline discovery as well as yield.
         db.close_pool()
-        config.DATABASE_URL, config.DATABASE_ERROR = base, previous_error
-        if previous_env is None:
-            os.environ.pop("SKEIN_DATABASE_URL", None)
-        else:
-            os.environ["SKEIN_DATABASE_URL"] = previous_env
-        with psycopg.connect(base, autocommit=True) as admin:
-            # Plain DROP exposes a leaked connection. FORCE would hide the leak and
-            # can terminate work that no longer belongs to this fixture.
-            admin.execute(pgsql.SQL("DROP DATABASE IF EXISTS {}").format(pgsql.Identifier(name)))
+        try:
+            # Keep config pointed at the disposable database through DROP. A
+            # late daemon then makes DROP fail instead of writing into the base.
+            _drop_test_database(base, name)
+        finally:
+            # DROP can expose a late daemon that reopened the disposable pool.
+            # Close that pool before restoring the base connection settings.
+            db.close_pool()
+            config.DATABASE_URL, config.DATABASE_ERROR = base, previous_error
+            if previous_env is None:
+                os.environ.pop("SKEIN_DATABASE_URL", None)
+            else:
+                os.environ["SKEIN_DATABASE_URL"] = previous_env
 
 
 @pytest.fixture()
@@ -350,13 +385,13 @@ def scratch_db(worker_id, testrun_uid, _worker_db):
     from app import config, db
 
     name = _test_database_name("scratch", datetime.now(UTC), testrun_uid, worker_id)
-    with psycopg.connect(_worker_db, autocommit=True) as admin:
-        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(name)))
+    _create_test_database(_worker_db, name)
     previous = config.DATABASE_URL
-    config.DATABASE_URL = _database_conninfo(_worker_db, name)
-    os.environ["SKEIN_DATABASE_URL"] = config.DATABASE_URL  # reloads, as in _worker_db
-    db.close_pool()
+    previous_env = os.environ.get("SKEIN_DATABASE_URL")
     try:
+        config.DATABASE_URL = _database_conninfo(_worker_db, name)
+        os.environ["SKEIN_DATABASE_URL"] = config.DATABASE_URL  # reloads, as in _worker_db
+        db.close_pool()
         # INSIDE the try: a failure here would otherwise leave config and the
         # environment pointed at a scratch database that is never dropped, and
         # every later test in this worker would run against it.
@@ -370,10 +405,15 @@ def scratch_db(worker_id, testrun_uid, _worker_db):
 
         private_notes._schema_ready = False
         db.close_pool()
-        config.DATABASE_URL = previous
-        os.environ["SKEIN_DATABASE_URL"] = previous
-        with psycopg.connect(_worker_db, autocommit=True) as admin:
-            admin.execute(pgsql.SQL("DROP DATABASE IF EXISTS {}").format(pgsql.Identifier(name)))
+        try:
+            _drop_test_database(_worker_db, name)
+        finally:
+            db.close_pool()
+            config.DATABASE_URL = previous
+            if previous_env is None:
+                os.environ.pop("SKEIN_DATABASE_URL", None)
+            else:
+                os.environ["SKEIN_DATABASE_URL"] = previous_env
 
 
 @pytest.fixture()
@@ -381,9 +421,14 @@ def client(fresh_db):
     from fastapi.testclient import TestClient
 
     from app.main import app
+    from app.services import shared_chat_agents
 
     with TestClient(app, headers={"X-User": "tester"}) as c:
         yield c
+        # Wait before TestClient exits its lifespan and closes db.pool. Timed-out
+        # inner turns keep their drain wrappers active until the execution lease
+        # is released, so this covers both coordinator and model threads.
+        assert shared_chat_agents.wait_for_idle(), "shared-chat agent worker did not stop"
 
 
 def _strong(client=None, name="tester"):

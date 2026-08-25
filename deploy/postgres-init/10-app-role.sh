@@ -9,8 +9,12 @@
 # converges, and --single-transaction makes a failed run leave nothing.
 # To repair a broken bootstrap, re-run this script by hand as the superuser.
 set -euo pipefail
+connection=(--username "$POSTGRES_USER" --dbname "$POSTGRES_DB")
+if [[ -n ${POSTGRES_CONNINFO:-} ]]; then
+  connection=(--dbname "$POSTGRES_CONNINFO")
+fi
 psql -v ON_ERROR_STOP=1 --single-transaction \
-  --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+  "${connection[@]}" \
   -v app_user="$SKEIN_APP_USER" -v app_password="$SKEIN_APP_PASSWORD" \
   -v dbname="$POSTGRES_DB" <<-'EOSQL'
     SELECT format('CREATE ROLE %I', :'app_user')

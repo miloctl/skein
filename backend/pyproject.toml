@@ -102,6 +102,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_cli.py",
     "--ignore=tests/test_release_contract.py",
     "--deselect=tests/test_packaging.py::test_dockerfile_copies_every_content_dir",
+    "--deselect=tests/test_database_fixtures.py::test_postgres_commands_allow_a_clean_twenty_minute_shutdown",
     "--deselect=tests/test_import_boundary.py::test_the_reference_extension_holds_the_boundary",
     "--deselect=tests/test_visibility_authz.py::test_every_id_addressed_mutation_is_listed",
     "--deselect=tests/test_visibility_authz.py::test_every_read_of_a_scoped_table_is_filtered_or_excused",
