@@ -174,6 +174,11 @@ export function SharedChat({
   const [announcement, setAnnouncement] = useState("");
   const [accessAction, setAccessAction] = useState<AccessAction | null>(null);
   const [dismissedRuns, setDismissedRuns] = useState<ReadonlySet<string>>(new Set());
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    id: number;
+    trigger: HTMLButtonElement;
+  } | null>(null);
+  const deleteConfirmRef = useRef<HTMLButtonElement>(null);
   const latestId = useRef(0);
   const generation = useRef(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -247,7 +252,14 @@ export function SharedChat({
         // then hides the button when nothing older actually exists.
         setHasOlder(rows.length === PAGE_SIZE || (afterStart > 0 && rows.length > 0));
         latestId.current = rows.at(-1)?.id ?? 0;
-        markRead(latestId.current);
+        // A deep link marks read only through the linked message. The rows
+        // after it were fetched for the transcript, not seen — marking them
+        // read would clear unread the reader never looked at.
+        markRead(
+          target
+            ? Math.min(Number(target[1]), latestId.current)
+            : latestId.current,
+        );
       })
       .catch((caught) => {
         if (current !== generation.current) return;
@@ -315,6 +327,10 @@ export function SharedChat({
   useEffect(() => {
     if (accessAction) confirmRef.current?.focus();
   }, [accessAction]);
+
+  useEffect(() => {
+    if (deleteConfirm) deleteConfirmRef.current?.focus();
+  }, [deleteConfirm]);
 
   useEffect(() => {
     let live = true;
@@ -448,6 +464,36 @@ export function SharedChat({
     } finally {
       setBusy(false);
     }
+  };
+
+  const removeMessage = async (messageId: number) => {
+    setBusy(true);
+    setError("");
+    try {
+      const tombstone = await api<SharedChatMessage>(
+        `/api/shared-chats/${threadId}/messages/${messageId}`,
+        { method: "DELETE" },
+      );
+      setMessages((current) => mergeMessages(current, [tombstone]));
+      setDeleteConfirm(null);
+      // The trigger button is gone with the deleted text — land focus on the
+      // tombstoned message so keyboard position is not lost.
+      setTimeout(
+        () => document.getElementById(`shared-message-${messageId}`)?.focus(),
+        0,
+      );
+      announceSharedChatActivity();
+    } catch (caught) {
+      setError(actionError(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancelDelete = () => {
+    const trigger = deleteConfirm?.trigger;
+    setDeleteConfirm(null);
+    setTimeout(() => trigger?.focus(), 0);
   };
 
   const loadOlder = async () => {
@@ -658,6 +704,26 @@ export function SharedChat({
   }
   const visibleRuns = [...latestRuns.values()].filter(
     (run) => run.status !== "completed" && !dismissedRuns.has(run.turn_id),
+  );
+  const newestMessage = messages.at(-1);
+  const seenBy = newestMessage
+    ? detail.members
+        .filter(
+          (member) =>
+            member.kind !== "agent" &&
+            member.person !== detail.viewer &&
+            (member.last_read_message_id ?? 0) >= newestMessage.id,
+        )
+        .map((member) => member.person)
+    : [];
+  // An @mention calls an agent only at the start of the message (pinned by
+  // the backend's leading-mention check). A mid-message mention silently
+  // does nothing — surface that before the send, not after.
+  const agentSlugs = agents.map((member) => member.person);
+  const calledNow = invokedAgents(draft, agentSlugs);
+  const inertMention = agentSlugs.find(
+    (slug) =>
+      !calledNow.includes(slug) && new RegExp(`(^|\\s)@${slug}(?=\\s|$)`).test(draft),
   );
   return (
     <section className="flex min-h-0 flex-1 flex-col" aria-labelledby="shared-chat-title">
@@ -1077,12 +1143,17 @@ export function SharedChat({
           <ol className="space-y-3">
             {messages.map((message) => {
               const mine = message.author === detail.viewer;
+              const deletable =
+                mine &&
+                message.author_kind === "human" &&
+                !message.deleted_at &&
+                !detail.archived_at;
               return (
                 <li
                   key={message.id}
                   id={`shared-message-${message.id}`}
                   tabIndex={-1}
-                  className={`${mine ? "flex justify-end" : "flex justify-start"} ${HASH_TARGET}`}
+                  className={`flex flex-col ${mine ? "items-end" : "items-start"} ${HASH_TARGET}`}
                 >
                   <article
                     className={
@@ -1099,13 +1170,63 @@ export function SharedChat({
                       {message.author_kind === "agent" ? " · agent" : ""} ·{" "}
                       {timeAgo(message.created_at)}
                     </p>
-                    <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                    {message.deleted_at ? (
+                      <p className={"italic " + (mine ? "text-white/70" : "text-ink-3")}>
+                        The author deleted this message.
+                      </p>
+                    ) : (
+                      <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                    )}
                   </article>
+                  {deletable ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      aria-label={`Delete your message from ${timeAgo(message.created_at)}`}
+                      onClick={(event) =>
+                        setDeleteConfirm({
+                          id: message.id,
+                          trigger: event.currentTarget,
+                        })
+                      }
+                      className="mt-0.5 min-h-8 rounded-lg px-2 text-xs text-ink-3 hover:bg-line hover:text-ink"
+                    >
+                      Delete
+                    </button>
+                  ) : null}
+                  {deleteConfirm?.id === message.id ? (
+                    <div className="mt-1 max-w-[85%] rounded-lg border border-danger/30 bg-danger/5 p-2 text-xs text-danger">
+                      <p>This message will be removed for every participant.</p>
+                      <div className="mt-1.5 flex gap-2">
+                        <button
+                          ref={deleteConfirmRef}
+                          type="button"
+                          disabled={busy}
+                          onClick={() => removeMessage(message.id)}
+                          className="min-h-8 rounded-lg bg-danger-solid px-2.5 py-1 font-medium text-white"
+                        >
+                          Confirm: delete message
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelDelete}
+                          className="min-h-8 rounded-lg px-2.5 py-1 text-ink-2 hover:bg-line"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </li>
               );
             })}
           </ol>
         )}
+        {seenBy.length > 0 ? (
+          <p className="mt-2 text-right text-xs text-ink-3">
+            Seen by {seenBy.join(", ")}.
+          </p>
+        ) : null}
       </div>
 
       <div className="shrink-0 border-t border-line bg-page px-3 py-3 sm:px-4">
@@ -1145,6 +1266,12 @@ export function SharedChat({
                   </button>
                 ))}
               </div>
+            ) : null}
+            {inertMention ? (
+              <p className="mb-2 text-xs text-ink-3" role="status">
+                @{inertMention} in the middle of a message does not call the
+                agent. Start the message with @{inertMention} to call it.
+              </p>
             ) : null}
             <div className="flex items-end gap-2">
               <label className="sr-only" htmlFor="shared-chat-composer">

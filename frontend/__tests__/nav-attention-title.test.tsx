@@ -17,6 +17,8 @@ const guide = { total: 39 };
 const navState = vi.hoisted(() => ({ pathname: "/dashboard" }));
 // held distinct from `yours` so the badge and the title cannot be confused
 const INBOX = 7;
+// distinct from both: the Chat badge must read neither the queue nor the title number
+const CHATS = 4;
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
@@ -32,7 +34,12 @@ vi.mock("@/lib/api", async (importOriginal) => {
       // reads the wrong field pass every assertion by coincidence.
       if (path.startsWith("/api/attention")) {
         calls.attention += 1;
-        return Promise.resolve({ count: 0, yours: count.value, inbox: INBOX });
+        return Promise.resolve({
+          count: 0,
+          yours: count.value,
+          inbox: INBOX,
+          chats: CHATS,
+        });
       }
       if (path.startsWith("/api/field-guide/hint")) {
         calls.guide += 1;
@@ -208,6 +215,25 @@ describe("the Inbox badge", () => {
     // different effects, so seeing the badge does not prove the title effect
     // has run. A wrong title still fails here — only a late one is tolerated.
     await waitFor(() => expect(document.title).toBe("(3) Browse — Skein"));
+  });
+
+  it("puts the private shared-chat number on Chat, with its own words", async () => {
+    render(<Nav />);
+    const chat = await waitFor(() => {
+      const el = document.querySelector('a[href="/chat"]');
+      if (!el?.textContent?.includes(String(CHATS))) throw new Error("not yet");
+      return el;
+    });
+    // the sr text names chats, not the Inbox badge's "awaiting a verdict"
+    expect(chat.textContent).toContain(`${CHATS} waiting in private shared chats`);
+    expect(chat.textContent).not.toContain("awaiting a verdict");
+  });
+
+  it("refreshes the badges when a shared-chat read or invitation moves", async () => {
+    render(<Nav />);
+    await waitFor(() => expect(calls.attention).toBe(1));
+    act(() => window.dispatchEvent(new Event("skein-shared-chat-activity")));
+    await waitFor(() => expect(calls.attention).toBe(2));
   });
 
   it("refreshes when a verdict says the queue changed", async () => {

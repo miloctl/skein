@@ -9,7 +9,7 @@ from datetime import timedelta
 from typing import Any
 
 from .. import db
-from . import notifications, review, scope
+from . import chat_threads, notifications, review, scope
 from .scope import WORKSPACE_ONLY
 
 
@@ -638,7 +638,15 @@ def attention_count(
         # scope tuple follows the `?` it qualifies
         (user, *q_p, user, *b_p, user, week, user),
     )
+    # `chats` is a third number with its own reader: the Chat nav badge.
+    # It counts unread private shared-chat messages plus pending invitations
+    # — things waiting on the Chat page — and folds into NEITHER arm above:
+    # `inbox` promises the Approvals queue and `yours` must equal My Day's
+    # header, and a chat message is in neither place. viewer.name is "" for a
+    # weak identity, so its badge reads 0 (weak identities cannot open
+    # shared chats at all).
     return {
         "inbox": pending_total + (row["inbox_other"] if row else 0),
         "yours": requested_reviews + (row["yours"] if row else 0),
+        "chats": chat_threads.unread_shared_count(viewer.name),
     }

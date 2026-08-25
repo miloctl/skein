@@ -175,6 +175,12 @@ describe("one governed shared-chat agent", () => {
     fireEvent.change(composer, {
       target: { value: "Hello @backend-architect" },
     });
+    // The composer states the silent no-call before the send, not after.
+    expect(
+      screen.getByText(
+        /@backend-architect in the middle of a message does not call the agent/,
+      ),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     await waitFor(() => {
       const posts = state.requests.filter(
@@ -182,6 +188,13 @@ describe("one governed shared-chat agent", () => {
       );
       expect(posts.at(-1)?.body?.invoke_agents).toEqual([]);
     });
+
+    fireEvent.change(composer, {
+      target: { value: "@backend-architect hello" },
+    });
+    expect(
+      screen.queryByText(/does not call the agent/),
+    ).toBeNull();
   });
 
   it("keeps agent addition available until the room has four agents", async () => {

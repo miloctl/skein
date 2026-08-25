@@ -551,6 +551,7 @@ def _public_message(row: dict) -> dict:
             "created_at",
             "turn_id",
             "reply_to_message_id",
+            "deleted_at",
         )
     }
 
@@ -558,7 +559,8 @@ def _public_message(row: dict) -> dict:
 def _shared_details(thread_id: str, person: str) -> dict:
     thread, member = _require_member(thread_id, person)
     member_rows = db.query(
-        "SELECT m.person, m.role, m.joined_at, COALESCE(u.kind, 'human') AS kind"
+        "SELECT m.person, m.role, m.joined_at, m.last_read_message_id,"
+        " COALESCE(u.kind, 'human') AS kind"
         " FROM chat_members m LEFT JOIN users u ON u.name = m.person"
         " WHERE m.thread_id = ? AND m.left_at IS NULL"
         " ORDER BY m.role DESC, m.person",
@@ -569,7 +571,15 @@ def _shared_details(thread_id: str, person: str) -> dict:
             "person": row["person"],
             "role": row["role"],
             "joined_at": row["joined_at"],
-            **({"kind": "agent"} if row["kind"] == "agent" else {}),
+            # Read cursors feed the room's "Seen by" line. They go only to
+            # members (this whole payload is membership-gated) and only for
+            # humans — an agent's cursor never moves and would read as a
+            # participant who never looks.
+            **(
+                {"kind": "agent"}
+                if row["kind"] == "agent"
+                else {"last_read_message_id": int(row["last_read_message_id"])}
+            ),
         }
         for row in member_rows
     ]
@@ -645,6 +655,27 @@ def list_shared_chats(person: str) -> list[dict]:
         " ORDER BY t.updated_at DESC, t.id DESC LIMIT ?",
         (person, THREAD_LIMIT),
     )
+
+
+def unread_shared_count(person: str) -> int:
+    """The Chat nav badge's number: unread messages across this person's
+    active shared-chat memberships, plus their pending invitations. Callers
+    pass a STRONG identity's name or "" — a weak identity cannot read shared
+    chats, so its badge must read 0, not count rooms it cannot open."""
+    if not person:
+        return 0
+    row = db.query_one(
+        "SELECT"
+        " (SELECT COUNT(*) FROM chat_messages messages"
+        "  JOIN chat_members m ON m.thread_id = messages.thread_id"
+        "  JOIN chat_threads t ON t.id = m.thread_id"
+        "  WHERE t.kind = 'shared' AND m.person = ? AND m.left_at IS NULL"
+        "  AND messages.id > m.last_read_message_id)"
+        " + (SELECT COUNT(*) FROM chat_invitations"
+        "    WHERE person = ? AND status = 'pending') AS waiting",
+        (person, person),
+    )
+    return int(row["waiting"]) if row else 0
 
 
 def get_shared_chat(thread_id: str, person: str) -> dict:
@@ -1037,6 +1068,45 @@ def get_shared_messages(
             (thread_id, MESSAGE_LIMIT),
         )[::-1]
     return [_public_message(row) for row in rows]
+
+
+def delete_shared_message(thread_id: str, person: str, message_id: int) -> dict:
+    """Author-delete with a tombstone: the text leaves the database, the row
+    and its attribution stay, so reply references, run triggers, and read
+    cursors keep resolving."""
+    with db.transaction():
+        _hold_identities(person)
+        thread, _ = _require_locked_member(thread_id, person)
+        _require_open(thread)
+        row = db.query_one(
+            "SELECT * FROM chat_messages WHERE id = ? AND thread_id = ? FOR UPDATE",
+            (message_id, thread_id),
+        )
+        if not row:
+            raise db.NotFound("No message was found.")
+        if row["author_kind"] != "human" or row["author"] != person:
+            raise PermissionError("Only the author can delete a message.")
+        if row["deleted_at"]:
+            return _public_message(row)
+        live = db.query_one(
+            "SELECT 1 FROM chat_agent_runs WHERE trigger_message_id = ?"
+            " AND (status IN ('pending', 'running') OR execution_active = TRUE) LIMIT 1",
+            (message_id,),
+        )
+        if live:
+            raise db.Conflict(
+                "An agent is answering this message. Wait for the response, then delete."
+            )
+        updated = db.query_row(
+            "UPDATE chat_messages SET content = '', deleted_at = ? WHERE id = ? RETURNING *",
+            (db.now(), message_id),
+        )
+        db.log_activity(
+            person,
+            "delete_shared_chat_message",
+            f"thread {thread_id} message {message_id}",
+        )
+        return _public_message(updated)
 
 
 def list_shared_agent_runs(thread_id: str, person: str, *, after: int = 0) -> list[dict]:

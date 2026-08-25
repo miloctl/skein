@@ -50,7 +50,12 @@ def test_creator_is_the_first_steward_and_nonmembers_learn_nothing(client):
     assert room["kind"] == "shared"
     assert room["role"] == "steward"
     assert room["members"] == [
-        {"person": "mira", "role": "steward", "joined_at": room["members"][0]["joined_at"]}
+        {
+            "person": "mira",
+            "role": "steward",
+            "joined_at": room["members"][0]["joined_at"],
+            "last_read_message_id": 0,
+        }
     ]
     assert client.get("/api/shared-chats", headers=mira).json()[0]["id"] == room["id"]
     assert client.get("/api/shared-chats", headers=dana).json() == []
@@ -350,11 +355,13 @@ def test_identity_merge_folds_members_and_pending_invitations(client):
     users.rename_user("dana", "dana-alt", actor="dana", expected_merge=True)
 
     members = client.get(f"/api/shared-chats/{room['id']}", headers=other).json()["members"]
-    assert [member for member in members if member["person"] == "dana-alt"] == [
+    folded = [member for member in members if member["person"] == "dana-alt"]
+    assert folded == [
         {
             "person": "dana-alt",
             "role": "steward",
-            "joined_at": next(m["joined_at"] for m in members if m["person"] == "dana-alt"),
+            "joined_at": folded[0]["joined_at"],
+            "last_read_message_id": folded[0]["last_read_message_id"],
         }
     ]
     messages = client.get(f"/api/shared-chats/{room['id']}/messages", headers=other).json()
@@ -476,6 +483,7 @@ def test_acceptance_files_a_private_system_message_for_members(client):
             "created_at": messages[0]["created_at"],
             "turn_id": "",
             "reply_to_message_id": None,
+            "deleted_at": None,
         }
     ]
 
@@ -577,3 +585,109 @@ def test_shared_chat_links_only_workspace_engagements_under_stewardship(client):
     )
     assert cleared.status_code == 200
     assert cleared.json()["engagement_id"] is None
+
+
+def accept(client, headers: dict, invitation_id: int) -> dict:
+    response = client.post(f"/api/shared-chats/invitations/{invitation_id}/accept", headers=headers)
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_author_delete_leaves_a_tombstone_and_only_the_author_can(client):
+    room, mira = create_room(client)
+    dana = auth("dana")
+    accept(client, dana, invite(client, room["id"], mira, "dana")["id"])
+    message = post_message(client, room["id"], mira, "Remove me later", "delete-me")
+
+    refused = client.delete(
+        f"/api/shared-chats/{room['id']}/messages/{message['id']}", headers=dana
+    )
+    assert refused.status_code == 403
+    outsider = client.delete(
+        f"/api/shared-chats/{room['id']}/messages/{message['id']}",
+        headers=auth("outsider"),
+    )
+    assert outsider.status_code == 404
+
+    deleted = client.delete(
+        f"/api/shared-chats/{room['id']}/messages/{message['id']}", headers=mira
+    )
+    assert deleted.status_code == 200
+    body = deleted.json()
+    assert body["deleted_at"]
+    assert body["content"] == ""
+    assert body["author"] == "mira"
+    stored = db.query_row(
+        "SELECT content, deleted_at FROM chat_messages WHERE id = ?", (message["id"],)
+    )
+    assert stored["content"] == ""
+    assert stored["deleted_at"]
+    # idempotent: a repeat returns the tombstone, not an error
+    again = client.delete(f"/api/shared-chats/{room['id']}/messages/{message['id']}", headers=mira)
+    assert again.status_code == 200
+    listed = client.get(f"/api/shared-chats/{room['id']}/messages", headers=dana).json()
+    assert [row["deleted_at"] is not None for row in listed] == [False, True]
+
+
+def test_delete_refuses_archived_rooms_and_messages_with_live_agent_work(client):
+    room, mira = create_room(client)
+    message = post_message(client, room["id"], mira, "hold this", "hold-key")
+    with db.transaction():
+        db.execute(
+            "INSERT INTO chat_agent_runs"
+            " (turn_id, batch_id, thread_id, trigger_message_id, agent, requested_by,"
+            " requester_subject, status, requested_at)"
+            " VALUES ('t-live', 't-live', ?, ?, 'scout', 'mira', '{}', 'pending', ?)",
+            (room["id"], message["id"], db.now()),
+        )
+    blocked = client.delete(
+        f"/api/shared-chats/{room['id']}/messages/{message['id']}", headers=mira
+    )
+    assert blocked.status_code == 409
+    with db.transaction():
+        db.execute("UPDATE chat_agent_runs SET status = 'refused' WHERE turn_id = 't-live'")
+
+    assert client.post(f"/api/shared-chats/{room['id']}/archive", headers=mira).status_code == 200
+    archived = client.delete(
+        f"/api/shared-chats/{room['id']}/messages/{message['id']}", headers=mira
+    )
+    assert archived.status_code == 409
+
+
+def test_attention_carries_the_chat_badge_number(client):
+    """`chats` is the Chat nav badge: unread shared messages plus pending
+    invitations, and 0 for anyone with no private-chat work waiting."""
+    room, mira = create_room(client)
+    dana = auth("dana")
+    invitation = invite(client, room["id"], mira, "dana")
+    assert client.get("/api/attention", headers=dana).json()["chats"] == 1  # the invitation
+
+    accept(client, dana, invitation["id"])
+    post_message(client, room["id"], mira, "hello dana", "badge-key")
+    # two unread rows: the acceptance system message and mira's greeting
+    assert client.get("/api/attention", headers=dana).json()["chats"] == 2
+    assert client.get("/api/attention", headers=mira).json()["chats"] == 0  # own send is read
+
+    read = client.post(
+        f"/api/shared-chats/{room['id']}/read",
+        json={"message_id": 10_000},
+        headers=dana,
+    )
+    assert read.status_code == 200
+    assert client.get("/api/attention", headers=dana).json()["chats"] == 0
+
+
+def test_detail_shares_human_read_cursors_with_members_only(client):
+    room, mira = create_room(client)
+    dana = auth("dana")
+    accept(client, dana, invite(client, room["id"], mira, "dana")["id"])
+    message = post_message(client, room["id"], mira, "seen soon", "cursor-key")
+    client.post(
+        f"/api/shared-chats/{room['id']}/read",
+        json={"message_id": message["id"]},
+        headers=dana,
+    )
+    members = client.get(f"/api/shared-chats/{room['id']}", headers=mira).json()["members"]
+    cursors = {row["person"]: row.get("last_read_message_id") for row in members}
+    assert cursors["dana"] == message["id"]
+    assert cursors["mira"] == message["id"]  # the sender's own cursor advanced on send
