@@ -14,6 +14,8 @@ grep -q -- "--single-transaction" "$deployment/10-app-role.sh"
 grep -q "ext_atlas_extension" "$deployment/20-atlas-schema.sh"
 grep -q "skein_agents-0.3.0-py3-none-any.whl" "$deployment/Dockerfile"
 grep -q "atlas_skein_extension-2.0.0-py3-none-any.whl" "$deployment/Dockerfile"
+grep -q "id=pip-config.*required=true" "$deployment/Dockerfile"
+grep -q "id=npm-config.*required=true" "$deployment/Frontend.Dockerfile"
 if grep -Eq '(skein_agents|atlas_skein_extension)-\*\.whl' "$deployment/Dockerfile"; then
   echo "reference-deployment-contract: the backend image accepts an ambiguous wheel name" >&2
   exit 1
