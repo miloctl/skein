@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 FALLBACK_CORE_VERSION = "0.3.0"
 
 try:
-    SKEIN_CORE_VERSION = package_version("skein")
+    SKEIN_CORE_VERSION = package_version("skein-agents")
     CORE_VERSION_IS_INSTALLED = True
 except PackageNotFoundError:
     SKEIN_CORE_VERSION = FALLBACK_CORE_VERSION

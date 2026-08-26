@@ -36,6 +36,8 @@ from .services.personas import unlisted_model_warnings
 from .services.settings import context_strategy_override, model_pick_state
 from .telemetry import setup_telemetry
 
+__all__ = ["create_app"]
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -926,7 +928,7 @@ def create_app(
         # Every module compatibility range is checked against this number, so a
         # composition that guessed it can reject a valid private package.
         log.warning(
-            "no installed skein distribution: composing as core %s from the"
+            "no installed skein-agents distribution: composing as core %s from the"
             " source fallback. Install the wheel to report the real version.",
             SKEIN_CORE_VERSION,
         )

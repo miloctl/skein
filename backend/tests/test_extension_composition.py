@@ -317,7 +317,7 @@ def test_extension_compatibility_uses_the_installed_package_version():
 
     from app.extensions import SKEIN_CORE_VERSION
 
-    assert version("skein") == SKEIN_CORE_VERSION
+    assert version("skein-agents") == SKEIN_CORE_VERSION
 
 
 def test_factory_settings_control_auth_health_and_docs(fresh_db):
@@ -2222,7 +2222,7 @@ def test_composition_warns_when_no_installed_distribution_names_the_version(capl
     with caplog.at_level("WARNING"):
         create_app()
 
-    assert "no installed skein distribution" in caplog.text
+    assert "no installed skein-agents distribution" in caplog.text
 
 
 def test_composition_is_quiet_when_the_distribution_names_the_version(caplog, monkeypatch):
@@ -2231,4 +2231,4 @@ def test_composition_is_quiet_when_the_distribution_names_the_version(caplog, mo
     with caplog.at_level("WARNING"):
         create_app()
 
-    assert "no installed skein distribution" not in caplog.text
+    assert "no installed skein-agents distribution" not in caplog.text

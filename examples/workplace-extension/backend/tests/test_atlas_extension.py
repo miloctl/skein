@@ -8,6 +8,8 @@ idempotency, provenance, data ownership, and disabling the extension.
 """
 
 import asyncio
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -19,6 +21,7 @@ from app.extensions import (
     PolicyResource,
     PolicySubject,
     ToolCallContext,
+    assert_import_boundary,
     execute_tool,
     registry_for,
 )
@@ -26,6 +29,11 @@ from app.main import create_app
 from app.public import WorkItems, dispatch_events
 
 AGENT = "atlas.workplace.delivery-specialist"
+ATLAS_SOURCE = Path(__file__).resolve().parents[1] / "src" / "atlas_skein"
+
+
+def test_atlas_imports_only_published_backend_contracts():
+    assert_import_boundary(ATLAS_SOURCE)
 
 
 def _sync_tool_result(app, arguments=None, *, agent=AGENT, origin="agent_tool"):

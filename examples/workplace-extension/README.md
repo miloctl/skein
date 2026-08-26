@@ -1,118 +1,98 @@
 # Atlas workplace extension
 
-Atlas is a fictional private extension. It shows how a workplace repository can
-depend on Skein without copying the Skein source tree.
+Atlas is a fictional private extension. It shows how a workplace application can depend on Skein without a Skein source checkout.
 
-The example uses explicit startup and build-time composition. Skein does not
-scan installed packages or run unknown code.
+The workplace repository owns these items:
 
-## Contents
+- The Atlas Python package.
+- The Atlas frontend package.
+- One Python production lock.
+- One npm lock.
+- Content overlays.
+- Final runtime images.
+- Deployment files.
 
-- `backend/` provides a Python package and a private composition root.
-- `frontend/` provides a packed JavaScript extension and TypeScript declarations.
-- `content/` provides versioned playbook, persona, and flock overlays.
-- `deployment/` provides a derivative image and a Kustomize overlay.
-- `extension.toml` declares compatible backend and frontend API versions.
+Skein does not scan installed packages. The Atlas composition root explicitly passes its module to `create_app`.
 
-The backend package contributes one router, job, identity mapper, policy rule,
-context source, governed tool, specialist, event subscriber, migration stream,
-and workflow action. Its structured data stays in `atlas-extension.db`.
+## Package boundaries
 
-## Verify the backend package
+The backend depends on `skein-agents>=0.3.0,<0.4.0`. The distribution installs the public `app.*` imports.
+
+The frontend root pins these exact dependencies:
+
+- `@skein/frontend-host@0.3.0`
+- `@skein/extension-api@1.0.0`
+- `next@16.2.11`
+- `react@19.2.4`
+- `react-dom@19.2.4`
+
+The root also overrides `postcss` to `8.5.23` and `sharp` to `0.35.3`. Installed package overrides do not affect the root installation.
+
+Atlas uses Node 22. The Atlas frontend remains a local npm workspace. The workplace root compiles it before it runs `skein-frontend-build`.
+
+Atlas stores its data in PostgreSQL schema `ext_atlas_extension`. It has no database file or private data volume.
+
+## Run the backend package contract
+
+Start PostgreSQL. Then run the installed-wheel transition contract:
+
+```sh
+SKEIN_CONTRACT_RUN_ID=atlas_local \
+SKEIN_DATABASE_URL=postgresql://skein:skein@127.0.0.1:5432/skein \
+  scripts/reference-extension-contract.sh
+```
+
+The contract does these operations:
+
+1. It installs Skein 0.2.3 and Atlas 1.x from pinned wheels.
+2. It creates core and extension data.
+3. It removes both old distributions.
+4. It installs `skein-agents` 0.3.0 and Atlas 2.0 from new wheels.
+5. It starts the application against the same database.
+6. It compares fresh and upgraded core and Atlas schemas.
+
+The Atlas test suite imports only these public surfaces:
+
+- `app.extensions`
+- `app.public`
+- `app.main.create_app`
+
+The import-boundary test refuses other `app.*` imports.
+
+## Run the frontend package contract
 
 Run this command from the Skein repository root:
-
-```sh
-scripts/reference-extension-contract.sh
-```
-
-The script builds separate Skein and Atlas wheels. It installs them into a
-normal virtual environment and starts the installed application. It rejects
-the old core. It then moves the unchanged Atlas package from the prior
-release to a compatible newer artifact built from a different source tree.
-The test keeps the private Atlas data. It runs a real Atlas synchronization
-on both cores. It also checks the Atlas source against both public
-interfaces with strict mypy. It applies every pending core migration and the
-required legacy identity-owner claims. Run
-`scripts/upgrade-path.sh` to verify the historical base-to-current migrations,
-fresh-schema equality, and activity-chain integrity.
-
-Atlas migration 4 stores a short synchronization claim before a core create.
-This claim prevents route and job retries from creating two tasks for one
-Atlas item when the extension mapping write fails.
-
-`backend/tests/` holds the extension test suite. It uses only the public
-surfaces (`registry_for`, `execute_tool`, `dispatch_events`, `create_app`,
-and REST), and it covers registration, policy, tool gating, event
-idempotency, provenance, data ownership, and disabling the extension. Copy
-this pattern into a private repository. Run it with:
-
-```sh
-PYTHONPATH=backend:examples/workplace-extension/backend/src \
-  backend/.venv/bin/pytest examples/workplace-extension/backend/tests
-```
-
-## Verify the frontend package
-
-Run the clean package rehearsal:
 
 ```sh
 scripts/reference-frontend-contract.sh
 ```
 
-The script compiles `index.tsx` and packs the unchanged private package. It
-creates Skein frontend host artifacts for core `0.2.0` and the current
-version. It installs
-the same Atlas archive into each host and runs two production builds.
+The contract packs the host and extension API. It copies Atlas to a clean directory and runs one locked npm installation.
 
-`npm pack` runs `prepack`, which recompiles `dist` from source. A stale
-tracked build can therefore never ship. Install the devDependencies and the
-packed public API before you pack.
-
-`@skein/extension-api` is a peer dependency and is not in
-`devDependencies`. A private repository installs the packed archive before
-the TypeScript build:
+The build command is:
 
 ```sh
-npm install --save-dev --legacy-peer-deps skein-extension-api-1.0.0.tgz
+npm run build:frontend
 ```
 
-Use `--save-dev`, not `--no-save`. npm skips a bare archive argument under
-`--no-save`. The `--legacy-peer-deps` flag stops npm from fetching the
-`react` peer. The frontend host build supplies React.
-
-A workplace build can then install the package archive. Do not add Atlas to
-the core `package.json`.
+This command compiles the Atlas workspace. Then it runs:
 
 ```sh
-cd examples/workplace-extension/frontend
-npm_config_cache=/tmp/atlas-npm-cache npm pack --pack-destination /tmp
-cd ../../../frontend
-npm install --no-save --package-lock=false --legacy-peer-deps \
-  /tmp/atlas-skein-extension-1.0.0.tgz
-SKEIN_FRONTEND_EXTENSIONS=@atlas/skein-extension npm run build
-npm run --silent compose:extensions
+skein-frontend-build @atlas/skein-extension
 ```
 
-The last command restores the empty core manifest. A workplace deployment sets
-`SKEIN_FRONTEND_EXTENSIONS` during its image build.
+The host command writes `dist/frontend`. The directory contains a standalone `server.js`, traced dependencies, static files, and public assets.
 
-For an independent workplace repository, use
-`scripts/package-frontend-host.sh` to create a versioned source archive. You can
-also derive from the `host` stage in `frontend/Dockerfile`. The example
-`deployment/Frontend.Dockerfile` shows the container workflow.
+The host command does not install packages. It does not change `package.json`, `package-lock.json`, or `node_modules`.
 
-## Compose the MCP process
+The reference contract also proves these conditions:
 
-The standalone MCP server composes the same modules as the ASGI root:
-
-```sh
-SKEIN_MCP_MODULES=atlas_skein.composition SKEIN_MCP_USER=you-mcp \
-  python -m app.mcp_server
-```
-
-`atlas_skein.composition` exports the one `modules` tuple that
-`atlas_skein.app` also uses. Do not maintain two composition lists.
+- The Atlas manifest is in the production build.
+- The Atlas-only `mt-[7px]` class is in the production CSS.
+- Host and API tarballs have integrity entries in the lock.
+- A second build removes stale output.
+- Inherited build variables cannot select another extension.
+- The standalone server starts after the temporary stage is deleted.
 
 ## Run content validation
 
@@ -124,22 +104,43 @@ PYTHONPATH=backend backend/.venv/bin/python -m app.content \
   --workflow-action atlas.workplace.notify-manager
 ```
 
-## Deploy
+## Compose the MCP process
 
-The deployment README gives the exact wheel, frontend archive, and image build
-commands. Run the executable image rehearsal from the Skein root:
+The API and MCP processes use the same module tuple:
+
+```sh
+SKEIN_MCP_MODULES=atlas_skein.composition SKEIN_MCP_USER=you-mcp \
+  python -m app.mcp_server
+```
+
+Do not maintain a second composition list.
+
+## Build the runtime images
+
+Run the executable image contract:
 
 ```sh
 scripts/reference-images-contract.sh
 ```
 
-The overlay stores the extension database on its own volume. It uses the
-`atlas-skein-secrets` Secret for the token sent by `AtlasHttpClient`. Create
-that Secret outside Git before you apply the overlay:
+The contract builds the Skein wheel, Atlas wheel, frontend host, and extension API. It then builds the two final Atlas images.
+
+The backend image installs the combined production lock. It installs the two first-party wheels with `--no-deps`.
+
+The frontend image installs the workplace npm lock. It copies only the completed standalone output into the runtime stage.
+
+The workplace images do not inherit Skein application images.
+
+## Deploy
+
+Create `atlas-skein-secrets` through the deployment secret manager. Do not commit secret values.
+
+Render the OpenShift-compatible example:
 
 ```sh
 kubectl kustomize examples/workplace-extension
-kubectl apply -k examples/workplace-extension
 ```
+
+Apply it only after you configure the database, image names, Secrets, Routes, and storage class.
 
 Do not put real workplace names, URLs, or credentials in this example.

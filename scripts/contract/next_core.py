@@ -2,7 +2,7 @@ import asyncio
 import os
 import sys
 from dataclasses import replace
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from _expect import ok
@@ -52,9 +52,15 @@ assert all(
 )
 
 next_core = os.environ["NEXT_CORE"]
-assert version("skein") == next_core
+assert version("skein-agents") == next_core
 assert next_core == SKEIN_CORE_VERSION
 assert (Path(db.__file__).resolve().parent / "py.typed").is_file()
+try:
+    version("skein")
+except PackageNotFoundError:
+    pass
+else:
+    raise AssertionError("the old skein distribution remains installed")
 # The installed wheel must carry the migrations directory: a packaging edit
 # that drops it boots a fresh database into "no such table" with no other
 # CI symptom, because every test tree runs from source.
@@ -129,7 +135,7 @@ def review_local_work(request):
     return None
 
 
-Path("../extension-source/content/playbooks/current_reviewed_work.yaml").write_text(
+(Path(os.environ["EXTENSION_SOURCE"]) / "content/playbooks/current_reviewed_work.yaml").write_text(
     """\
 schema_version: 1
 name: Current reviewed local work

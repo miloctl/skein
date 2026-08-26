@@ -44,6 +44,8 @@ skein_hermetic_env() {
     done
 
     export SKEIN_DATABASE_URL="$database_url"
+    unset PYTHONPATH PYTHONHOME
+    export PYTHONNOUSERSITE=1
     # trusted-header, so both artifacts under test authenticate identically —
     # see the v0.2.3-vs-HEAD note above. The rehearsal drives the X-User door
     # the same way scripts/skein.sh and tests/conftest.py do.

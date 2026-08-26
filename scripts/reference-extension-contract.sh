@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Rehearse a private extension across an incompatible old core and two
-# compatible installed core artifacts. No source tree is on PYTHONPATH.
+# Rehearse the explicit 0.2.3 package transition and the current installed
+# dependency model. No source tree is on PYTHONPATH.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -9,45 +9,39 @@ python="backend/.venv/bin/python"
 if [[ "$python" != /* ]]; then
     python="$(pwd)/$python"
 fi
-
-# The rehearsal steps, as importable files rather than heredocs. Absolute,
-# because most steps run with cwd set to "$tmp/run". Each file runs under the
-# INSTALLED artifact's interpreter, never this repo's — that is the whole
-# point of the rehearsal, so these are not importable from backend/ and mypy
-# does not type them (its `files` list is app + seed.py). ruff does check
-# them, which is 654 lines it could not see while they were heredocs.
 contract="$(pwd)/scripts/contract"
 
 if [ -z "${SKEIN_DATABASE_URL:-}" ]; then
     echo "reference-extension-contract: SKEIN_DATABASE_URL is not set." >&2
     exit 1
 fi
-# Every OTHER SKEIN_* setting is this script's to state, not the caller's.
-# scripts/lib/hermetic-env.sh says which two regressions that closes.
+contract_run_label="${SKEIN_CONTRACT_RUN_ID:-}"
+release_dist="${SKEIN_RELEASE_DIST:-}"
 # shellcheck source=lib/hermetic-env.sh
 . "$(dirname "$0")/lib/hermetic-env.sh"
 skein_hermetic_env
-# Isolation is a DATABASE per instance now, not a directory per instance: the
-# app keeps no database under SKEIN_DATA_DIR any more, so two instances
-# sharing a server would otherwise share one schema and the upgrade rehearsal
-# would prove nothing. Names are suffixed with the PID so two runs on one
-# server cannot drop each other's.
+
 db_base="${SKEIN_DATABASE_URL%/*}"
-new_db() {  # new_db <label> -> echoes a URL
-    local name="skein_contract_$1_$$"
+if [[ ! "$contract_run_label" =~ ^[a-z0-9_]{1,20}$ ]]; then
+    echo "reference-extension-contract: set SKEIN_CONTRACT_RUN_ID to 1-20 lowercase letters, digits, or underscores." >&2
+    exit 1
+fi
+contract_run_id="${contract_run_label}_$$"
+created_dbs=()
+new_db() {  # new_db <label> <url-variable>
+    local name="skein_contract_$1_$contract_run_id"
+    if [ "${#name}" -gt 63 ]; then
+        echo "reference-extension-contract: a contract database name is too long. Use a shorter run ID." >&2
+        exit 1
+    fi
+    created_dbs+=("$name")
     psql "$SKEIN_DATABASE_URL" -qtAc "DROP DATABASE IF EXISTS \"$name\" WITH (FORCE)" >/dev/null
     psql "$SKEIN_DATABASE_URL" -qtAc "CREATE DATABASE \"$name\"" >/dev/null
-    echo "$db_base/$name"
+    printf -v "$2" '%s' "$db_base/$name"
 }
 drop_dbs() {
     local name
-    # Names come from the catalog, not from a list new_db appends to: every
-    # new_db call runs inside "$(...)", so an append there mutates a SUBSHELL
-    # copy and the parent's list stays empty — this dropped nothing, and each
-    # run leaked five databases that never collided (the PID suffix) and so
-    # never surfaced. Reading them back also cleans up after a killed run.
-    for name in $(psql "$SKEIN_DATABASE_URL" -qtAc \
-            "SELECT datname FROM pg_database WHERE datname LIKE 'skein_contract_%_$$'"); do
+    for name in "${created_dbs[@]}"; do
         psql "$SKEIN_DATABASE_URL" -qtAc "DROP DATABASE IF EXISTS \"$name\" WITH (FORCE)" >/dev/null 2>&1 || true
     done
 }
@@ -55,35 +49,21 @@ drop_dbs() {
 tmp="$(mktemp -d)"
 trap 'drop_dbs; rm -rf "$tmp"' EXIT
 
-db_core_data="$(new_db core_data)"
-db_legacy_core_data="$(new_db legacy_core_data)"
-db_extension_tests_current="$(new_db extension_tests_current)"
-db_extension_tests_next="$(new_db extension_tests_next)"
-db_fresh_next_data="$(new_db fresh_next_data)"
+new_db core_data db_core_data
+new_db legacy_core_data db_legacy_core_data
+new_db extension_tests db_extension_tests_current
+new_db fresh_current_data db_fresh_current_data
 mkdir -p \
-    "$tmp/base" "$tmp/current" "$tmp/current-source" "$tmp/next" \
-    "$tmp/extension" "$tmp/extension-source" "$tmp/run"
+    "$tmp/prior-core-source" "$tmp/prior-core" \
+    "$tmp/prior-extension-tree" "$tmp/prior-extension" \
+    "$tmp/current-core-source" "$tmp/current-core" \
+    "$tmp/current-extension-source" "$tmp/current-extension" "$tmp/run"
 
-# The prior-core fixture is the v0.2.3 release commit — the first
-# PostgreSQL-era version, pinned by SHA so a moved tag cannot silently change
-# what "prior" means. An extension's migrations are engine-specific SQL, so
-# no fixture from before the engine change can serve here: an older pin
-# turns every leg below into a false failure. HEAD claims its own version in
-# committed metadata — the pair is two real version identities from two real
-# trees, with no rewriting. The guard stops the rehearsal from ever
-# comparing one implementation with itself.
-#
-# This pin advances when the SUPPORTED FLOOR moves, never once per release.
-# Do not convert it to "the newest tag other than HEAD" the way
-# upgrade-path.sh derives its baseline: the two answer different questions.
-# That one asks what a deployment runs today, so newest is right. This one
-# asks whether ONE unchanged extension spans the range its own metadata
-# claims (skein>=0.2.0,<0.3.0), so the fixture must be the FLOOR of that
-# range — deriving it from the newest tag shrinks the rehearsed span to a
-# single patch release and weakens the check silently with every tag.
-# NEXT_CORE is already read from HEAD's pyproject.toml below, so tagging
-# 0.2.5, 0.2.6 and onward needs no edit here at all.
+# v0.2.3 is the first PostgreSQL-era core. Atlas 1.x is pinned to the tree
+# immediately before the dependency-model change, so the rehearsal never
+# rewrites one package identity with different dependency metadata.
 PRIOR_CORE="0.2.3"
+PRIOR_ATLAS_REF="60f03de5"
 export PRIOR_CORE
 prior_backend_tree="$(git rev-parse a9f67dd4e2c5a6adc50e896a9360330d8f6b6c39:backend)"
 next_backend_tree="$(git rev-parse HEAD:backend)"
@@ -92,110 +72,124 @@ if [[ "$prior_backend_tree" == "$next_backend_tree" ]]; then
     exit 1
 fi
 
-git archive 4b642300f96bb9e4944a640f373a41512d50f1f0 backend | tar -x -C "$tmp/base"
-UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
-    uv build --quiet --wheel --out-dir "$tmp/base-dist" "$tmp/base/backend"
 git archive a9f67dd4e2c5a6adc50e896a9360330d8f6b6c39 backend \
-    | tar -x -C "$tmp/current-source"
+    | tar -x -C "$tmp/prior-core-source"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
-    uv build --quiet --wheel --out-dir "$tmp/current" "$tmp/current-source/backend"
-tar --exclude=node_modules --exclude=build --exclude='*.egg-info' -cf - \
-    -C examples/workplace-extension . | tar -xf - -C "$tmp/extension-source"
-UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
-    uv build --quiet --wheel --out-dir "$tmp/extension" "$tmp/extension-source"
+    uv build --quiet --wheel --out-dir "$tmp/prior-core" "$tmp/prior-core-source/backend"
 
-mkdir -p "$tmp/core-next"
+git archive "$PRIOR_ATLAS_REF" examples/workplace-extension \
+    | tar -x -C "$tmp/prior-extension-tree"
+prior_extension_source="$tmp/prior-extension-tree/examples/workplace-extension"
+UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
+    uv build --quiet --wheel --out-dir "$tmp/prior-extension" "$prior_extension_source"
+
+tar --exclude=node_modules --exclude=build --exclude='*.egg-info' -cf - \
+    -C examples/workplace-extension . | tar -xf - -C "$tmp/current-extension-source"
+UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
+    uv build --quiet --wheel --out-dir "$tmp/current-extension" "$tmp/current-extension-source"
+
 tar --exclude=.venv --exclude=build --exclude='*.egg-info' -cf - -C backend . \
-    | tar -xf - -C "$tmp/core-next"
-# The next version comes from the source of truth, so a release bump does not
-# need an edit here. The guard is that the pair is two DIFFERENT identities.
-NEXT_CORE="$(sed -n 's/^version = "\(.*\)"/\1/p' "$tmp/core-next/pyproject.toml" | head -1)"
+    | tar -xf - -C "$tmp/current-core-source"
+NEXT_CORE="$(sed -n 's/^version = "\(.*\)"/\1/p' "$tmp/current-core-source/pyproject.toml" | head -1)"
 export NEXT_CORE
 if [[ -z "$NEXT_CORE" || "$NEXT_CORE" == "$PRIOR_CORE" ]]; then
     echo "reference-extension-contract: HEAD must claim a core version other than $PRIOR_CORE" >&2
     exit 1
 fi
-UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
-    uv build --quiet --wheel --out-dir "$tmp/next" "$tmp/core-next"
+if [ -n "$release_dist" ]; then
+    cp "$release_dist/skein_agents-$NEXT_CORE-py3-none-any.whl" "$tmp/current-core/"
+else
+    UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
+        uv build --quiet --wheel --out-dir "$tmp/current-core" "$tmp/current-core-source"
+fi
 
-# nullglob, so a build that produced NO wheel gives an empty array and the
-# count checks below fail. Without it bash leaves the unmatched pattern in
-# place as a literal, every array holds exactly one element, and all four
-# guards pass on zero wheels — the failure then surfaces at `uv pip install`
-# as a missing-file error naming a path with a `*` in it.
 shopt -s nullglob
-base_wheels=("$tmp/base-dist"/skein-*.whl)
-current_wheels=("$tmp/current"/skein-*.whl)
-next_wheels=("$tmp/next"/skein-*.whl)
-extension_wheels=("$tmp/extension"/atlas_skein_extension-*.whl)
+prior_core_wheels=("$tmp/prior-core"/skein-*.whl)
+current_core_wheels=("$tmp/current-core"/skein_agents-*.whl)
+prior_extension_wheels=("$tmp/prior-extension"/atlas_skein_extension-*.whl)
+current_extension_wheels=("$tmp/current-extension"/atlas_skein_extension-*.whl)
 shopt -u nullglob
-[ "${#base_wheels[@]}" -eq 1 ]
-[ "${#current_wheels[@]}" -eq 1 ]
-[ "${#next_wheels[@]}" -eq 1 ]
-[ "${#extension_wheels[@]}" -eq 1 ]
+[ "${#prior_core_wheels[@]}" -eq 1 ]
+[ "${#current_core_wheels[@]}" -eq 1 ]
+[ "${#prior_extension_wheels[@]}" -eq 1 ]
+[ "${#current_extension_wheels[@]}" -eq 1 ]
 
-BASE_WHEEL="${base_wheels[0]}" EXTENSION_WHEEL="${extension_wheels[0]}" \
+PRIOR_CORE_WHEEL="${prior_core_wheels[0]}" \
+NEXT_CORE_WHEEL="${current_core_wheels[0]}" \
+PRIOR_EXTENSION_WHEEL="${prior_extension_wheels[0]}" \
+NEXT_EXTENSION_WHEEL="${current_extension_wheels[0]}" \
     "$python" "$contract/wheel_metadata.py"
 
-UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv venv --quiet "$tmp/venv"
+UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv venv --quiet --python "$python" "$tmp/venv"
+run_python() {
+    env -u PYTHONPATH -u PYTHONHOME PYTHONNOUSERSITE=1 "$tmp/venv/bin/python" "$@"
+}
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip install --quiet \
-    --python "$tmp/venv/bin/python" "${current_wheels[0]}" "${extension_wheels[0]}" pytest
+    --python "$tmp/venv/bin/python" \
+    "${prior_core_wheels[0]}" "${prior_extension_wheels[0]}" pytest
+run_python -c \
+    'from importlib.metadata import version; import app; from pathlib import Path; assert version("skein") == "0.2.3"; assert "site-packages" in str(Path(app.__file__).resolve())'
 
-# A base-era deployment could have unversioned, open-ended content. Keep the
-# same files in place across both installed core artifacts.
 mkdir -p "$tmp/legacy-playbooks" "$tmp/legacy-personas" "$tmp/legacy-flocks"
 cp scripts/fixtures/legacy-content/playbooks/legacy_delivery.yaml "$tmp/legacy-playbooks/"
 cp scripts/fixtures/legacy-content/personas/legacy-reviewer.md "$tmp/legacy-personas/"
 cp scripts/fixtures/legacy-content/flocks/legacy-team.yaml "$tmp/legacy-flocks/"
 
-"$tmp/venv/bin/python" -m app.content \
-    --playbooks "$tmp/extension-source/content/playbooks" \
-    --personas "$tmp/extension-source/content/personas" \
-    --flocks "$tmp/extension-source/content/flocks" \
+run_python -m app.content \
+    --playbooks "$prior_extension_source/content/playbooks" \
+    --personas "$prior_extension_source/content/personas" \
+    --flocks "$prior_extension_source/content/flocks" \
     --workflow-action atlas.workplace.notify-manager
 
 (
     cd "$tmp/run"
-    SKEIN_DATABASE_URL="${db_core_data}" \
-    SKEIN_PLAYBOOKS_DIR="$tmp/extension-source/content/playbooks" \
-    SKEIN_PERSONAS_DIR="$tmp/extension-source/content/personas" \
-    SKEIN_FLOCKS_DIR="$tmp/extension-source/content/flocks" \
-    "$tmp/venv/bin/python" "$contract/prior_core.py"
+    SKEIN_DATABASE_URL="$db_core_data" \
+    SKEIN_PLAYBOOKS_DIR="$prior_extension_source/content/playbooks" \
+    SKEIN_PERSONAS_DIR="$prior_extension_source/content/personas" \
+    SKEIN_FLOCKS_DIR="$prior_extension_source/content/flocks" \
+        run_python "$contract/prior_core.py"
 )
-
-"$python" -m mypy \
-    --python-executable "$tmp/venv/bin/python" \
-    --strict \
-    --follow-imports=silent \
-    --no-incremental \
-    "$tmp/extension-source/backend/src/atlas_skein" \
-    "$tmp/extension-source/backend/typecheck_contract.py"
-
-# The reference extension test suite must pass against the installed
-# current-core artifact before the upgrade rehearses the next one.
-SKEIN_DATABASE_URL="${db_extension_tests_current}" \
-    "$tmp/venv/bin/python" -m pytest -q -p no:cacheprovider \
-    "$tmp/extension-source/backend/tests"
-
 (
     cd "$tmp/run"
-    SKEIN_DATABASE_URL="${db_legacy_core_data}" \
+    SKEIN_DATABASE_URL="$db_legacy_core_data" \
     SKEIN_PLAYBOOKS_DIR="$tmp/legacy-playbooks" \
     SKEIN_PERSONAS_DIR="$tmp/legacy-personas" \
     SKEIN_FLOCKS_DIR="$tmp/legacy-flocks" \
-    "$tmp/venv/bin/python" "$contract/legacy_content_prior.py"
+        run_python "$contract/legacy_content_prior.py"
 )
+
+UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip uninstall --quiet \
+    --python "$tmp/venv/bin/python" atlas-skein-extension skein
+run_python -c \
+    'from importlib.metadata import PackageNotFoundError, version
+for name in ("skein", "atlas-skein-extension"):
+    try:
+        version(name)
+    except PackageNotFoundError:
+        continue
+    raise AssertionError(f"{name} remains installed")'
 
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip install --quiet \
-    --python "$tmp/venv/bin/python" --no-deps --upgrade --reinstall "${next_wheels[0]}"
+    --python "$tmp/venv/bin/python" \
+    "${current_core_wheels[0]}" "${current_extension_wheels[0]}[test]"
+UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip check --python "$tmp/venv/bin/python"
+run_python -c \
+    'import os; from importlib.metadata import version; import app; from pathlib import Path; assert version("skein-agents") == os.environ["NEXT_CORE"]; assert version("atlas-skein-extension") == "2.0.0"; assert "site-packages" in str(Path(app.__file__).resolve())'
+
+run_python -m app.content \
+    --playbooks "$tmp/current-extension-source/content/playbooks" \
+    --personas "$tmp/current-extension-source/content/personas" \
+    --flocks "$tmp/current-extension-source/content/flocks" \
+    --workflow-action atlas.workplace.notify-manager
 
 (
     cd "$tmp/run"
-    SKEIN_DATABASE_URL="${db_core_data}" \
-    SKEIN_PLAYBOOKS_DIR="$tmp/extension-source/content/playbooks" \
-    SKEIN_PERSONAS_DIR="$tmp/extension-source/content/personas" \
-    SKEIN_FLOCKS_DIR="$tmp/extension-source/content/flocks" \
-    "$tmp/venv/bin/python" "$contract/next_core.py"
+    SKEIN_DATABASE_URL="$db_core_data" \
+    SKEIN_PLAYBOOKS_DIR="$tmp/current-extension-source/content/playbooks" \
+    SKEIN_PERSONAS_DIR="$tmp/current-extension-source/content/personas" \
+    SKEIN_FLOCKS_DIR="$tmp/current-extension-source/content/flocks" \
+    EXTENSION_SOURCE="$tmp/current-extension-source" \
+        run_python "$contract/next_core.py"
 )
 
 "$python" -m mypy \
@@ -203,26 +197,24 @@ UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip install --quiet \
     --strict \
     --follow-imports=silent \
     --no-incremental \
-    "$tmp/extension-source/backend/src/atlas_skein" \
-    "$tmp/extension-source/backend/typecheck_contract.py" \
-    "$tmp/extension-source/backend/typecheck_current_contract.py"
+    "$tmp/current-extension-source/backend/src/atlas_skein" \
+    "$tmp/current-extension-source/backend/typecheck_contract.py" \
+    "$tmp/current-extension-source/backend/typecheck_current_contract.py"
 
-# The unchanged extension test suite must also pass on the upgraded core.
-SKEIN_DATABASE_URL="${db_extension_tests_next}" \
-    "$tmp/venv/bin/python" -m pytest -q -p no:cacheprovider \
-    "$tmp/extension-source/backend/tests"
+SKEIN_DATABASE_URL="$db_extension_tests_current" \
+    run_python -m pytest -q -p no:cacheprovider \
+    "$tmp/current-extension-source/backend/tests"
 
 (
     cd "$tmp/run"
-    SKEIN_DATABASE_URL="${db_legacy_core_data}" \
+    SKEIN_DATABASE_URL="$db_legacy_core_data" \
     SKEIN_PLAYBOOKS_DIR="$tmp/legacy-playbooks" \
     SKEIN_PERSONAS_DIR="$tmp/legacy-personas" \
     SKEIN_FLOCKS_DIR="$tmp/legacy-flocks" \
-    "$tmp/venv/bin/python" "$contract/legacy_content_next.py"
+        run_python "$contract/legacy_content_next.py"
 )
 
-SKEIN_DATABASE_URL="${db_fresh_next_data}" "$tmp/venv/bin/python" -c \
-    "from app import db; db.init_db()"
-"$tmp/venv/bin/python" "$contract/schema_parity.py" "$db_core_data" "$db_fresh_next_data"
+SKEIN_DATABASE_URL="$db_fresh_current_data" run_python "$contract/fresh_current.py"
+run_python "$contract/schema_parity.py" "$db_core_data" "$db_fresh_current_data"
 
-echo "reference-extension-contract: old core rejected; unchanged Atlas sync and strict source checks passed distinct $PRIOR_CORE -> $NEXT_CORE implementations; $NEXT_CORE declared tool errors and reviewed local writes passed"
+echo "reference-extension-contract: explicit skein 0.2.3/Atlas 1.x to skein-agents $NEXT_CORE/Atlas 2.0 transition passed from installed wheels"

@@ -73,11 +73,12 @@ jobs, policy, identity, tools, specialists, events, extension-owned migrations,
 and workflow actions. The frontend accepts trusted build-time navigation and
 dashboard contributions. Skein does not find that code: the private
 composition root starts Skein and hands it the module list, so an upgrade
-never meets a local edit. Read
-[how it works](docs/EXTENSIONS.md#how-it-works) first for the model and the
-write path, then [extension authoring](docs/EXTENSIONS.md) for the contracts
-and the [fictional Atlas package](examples/workplace-extension/README.md) for
-a worked example.
+never meets a local edit. Start with the
+[workplace setup guide](docs/SETUP.md). Then read
+[how it works](docs/EXTENSIONS.md#how-it-works) for the model and the write
+path. Use [extension authoring](docs/EXTENSIONS.md) for the contracts and the
+[fictional Atlas package](examples/workplace-extension/README.md) for a worked
+example.
 
 Key mechanics:
 

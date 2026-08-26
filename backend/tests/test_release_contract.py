@@ -18,12 +18,25 @@ def _json(path: str) -> dict:
 
 
 def test_core_release_and_extension_api_versions_are_synchronized():
-    backend_version = _toml("backend/pyproject.toml")["project"]["version"]
-    frontend_version = _json("frontend/package.json")["version"]
-    frontend_api = _json("frontend/packages/extension-api/package.json")["version"]
+    backend = _toml("backend/pyproject.toml")["project"]
+    frontend = _json("frontend/package.json")
+    frontend_lock = _json("frontend/package-lock.json")
+    frontend_api = _json("frontend/packages/extension-api/package.json")
 
-    assert backend_version == frontend_version == SKEIN_CORE_VERSION
-    assert frontend_api.removesuffix(".0") == EXTENSION_API_VERSION
+    assert backend["name"] == "skein-agents"
+    assert backend["version"] == frontend["version"] == SKEIN_CORE_VERSION
+    assert frontend["name"] == "@skein/frontend-host"
+    assert frontend["private"] is False
+    assert frontend_lock["name"] == frontend["name"]
+    assert frontend_lock["version"] == frontend["version"]
+    assert frontend_lock["packages"][""]["name"] == frontend["name"]
+    assert frontend_lock["packages"][""]["version"] == frontend["version"]
+    assert frontend["peerDependencies"]["@skein/extension-api"] == frontend_api["version"]
+    assert frontend["engines"]["node"] == "22.x"
+    assert frontend_api["license"] == "Apache-2.0"
+    assert {"LICENSE", "NOTICE"} <= set(frontend["files"])
+    assert {"LICENSE", "NOTICE"} <= set(frontend_api["files"])
+    assert frontend_api["version"].removesuffix(".0") == EXTENSION_API_VERSION
 
 
 def test_the_source_fallback_version_matches_the_packaged_version():
@@ -44,14 +57,27 @@ def test_reference_extension_metadata_uses_owned_compatibility_literals():
     manifest = _toml("examples/workplace-extension/extension.toml")["extension"]
     backend_package = _toml("examples/workplace-extension/pyproject.toml")["project"]
     frontend_package = _json("examples/workplace-extension/frontend/package.json")
+    workplace_package = _json("examples/workplace-extension/package.json")
+    workplace_lock = _json("examples/workplace-extension/package-lock.json")
     source = (ROOT / "examples/workplace-extension/backend/src/atlas_skein/module.py").read_text()
     frontend_source = (ROOT / "examples/workplace-extension/frontend/index.tsx").read_text()
 
-    assert f"skein>={manifest['minimum_core']},<{manifest['maximum_core_exclusive']}" in tuple(
-        backend_package["dependencies"]
+    assert backend_package["version"] == manifest["version"]
+    assert frontend_package["version"] == manifest["version"]
+    assert workplace_package["version"] == manifest["version"]
+    assert workplace_lock["version"] == manifest["version"]
+    assert workplace_lock["packages"][""]["version"] == manifest["version"]
+    host_package = _json("frontend/package.json")
+    for name in ("next", "react", "react-dom"):
+        assert workplace_package["dependencies"][name] == host_package["dependencies"][name]
+    assert workplace_package["overrides"] == host_package["overrides"]
+    assert (
+        f"skein-agents>={manifest['minimum_core']},<{manifest['maximum_core_exclusive']}"
+        in tuple(backend_package["dependencies"])
     )
     assert frontend_package["version"] == manifest["version"]
     for literal in (
+        manifest["version"],
         manifest["extension_api"],
         manifest["minimum_core"],
         manifest["maximum_core_exclusive"],
@@ -65,8 +91,10 @@ def test_extension_api_one_exports_exactly_the_documented_surface():
     packages; an addition is a new compatibility commitment. Both need a
     deliberate edit here and in docs/EXTENSIONS.md, not a drive-by export."""
     import app.extensions as extensions
+    import app.main as main
     import app.public as public
 
+    assert main.__all__ == ["create_app"]
     assert set(public.__all__) == {
         "BlockerView",
         "CommandContext",
@@ -126,3 +154,15 @@ def test_extension_api_one_exports_exactly_the_documented_surface():
     }
     for package in (public, extensions):
         assert all(getattr(package, name, None) is not None for name in package.__all__)
+
+
+def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
+    gitea = (ROOT / ".gitea/workflows/ci.yml").read_text()
+    github = (ROOT / ".github/workflows/ci.yml").read_text()
+    for workflow in (gitea, github):
+        assert "actions/upload-artifact@v4" in workflow
+        assert "actions/download-artifact@v4" in workflow
+        assert "SKEIN_RELEASE_DIST:" in workflow
+    assert gitea.index("name: Publish the wheel") < gitea.index("name: Publish the npm packages")
+    assert "--check-url" in gitea
+    assert "./scripts/audit-deps.sh workplace" in (ROOT / ".gitea/workflows/weekly.yml").read_text()

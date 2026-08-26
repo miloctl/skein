@@ -2,6 +2,7 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    HOME=/tmp \
     SKEIN_DATA_DIR=/data
 
 WORKDIR /app
@@ -49,9 +50,10 @@ COPY seed.py ./
 RUN pip install --no-cache-dir --no-deps . \
     && useradd --create-home appuser \
     && mkdir -p /data \
-    && chown -R appuser:appuser /data /app
+    && chown -R appuser:0 /data /app \
+    && chmod -R g=u /data /app
 
-USER appuser
+USER appuser:0
 VOLUME /data
 EXPOSE 8000
 

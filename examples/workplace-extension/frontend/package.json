@@ -1,6 +1,6 @@
 {
   "name": "@atlas/skein-extension",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "files": [
@@ -13,8 +13,8 @@
     }
   },
   "peerDependencies": {
-    "@skein/extension-api": "^1.0.0",
-    "react": ">=19.0.0"
+    "@skein/extension-api": "1.0.0",
+    "react": ">=19.0.0 <20"
   },
   "scripts": {
     "build": "tsc --project tsconfig.json",

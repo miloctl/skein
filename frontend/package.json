@@ -1,8 +1,32 @@
 {
-  "name": "frontend",
+  "name": "@skein/frontend-host",
   "version": "0.3.0",
-  "private": true,
+  "private": false,
+  "description": "Buildable Skein frontend host for trusted workplace extensions",
   "license": "Apache-2.0",
+  "engines": {
+    "node": "22.x"
+  },
+  "bin": {
+    "skein-frontend-build": "scripts/skein-frontend-build.mjs"
+  },
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "app",
+    "components",
+    "lib",
+    "public",
+    "scripts/compose-extensions.mjs",
+    "scripts/skein-frontend-build.mjs",
+    "next.config.ts",
+    "postcss.config.mjs",
+    "tsconfig.json",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
   "scripts": {
     "compose:extensions": "node scripts/compose-extensions.mjs",
     "predev": "npm run compose:extensions",
@@ -17,26 +41,31 @@
     "test:watch": "NODE_OPTIONS=--no-experimental-webstorage vitest"
   },
   "dependencies": {
-    "@assistant-ui/react": "^0.14.27",
-    "@assistant-ui/react-markdown": "^0.14.6",
-    "@skein/extension-api": "file:packages/extension-api",
-    "canvas-confetti": "^1.9.4",
-    "mermaid": "^11.16.1",
+    "@assistant-ui/react": "0.14.27",
+    "@assistant-ui/react-markdown": "0.14.6",
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/canvas-confetti": "1.9.0",
+    "@types/node": "20.19.43",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "canvas-confetti": "1.9.4",
+    "mermaid": "11.16.1",
     "next": "16.2.11",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "4.0.1",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3"
+  },
+  "peerDependencies": {
+    "@skein/extension-api": "1.0.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
     "@playwright/test": "^1.62.1",
-    "@tailwindcss/postcss": "^4",
+    "@skein/extension-api": "file:packages/extension-api",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
-    "@types/canvas-confetti": "^1.9.0",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6.0.5",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9",
@@ -44,14 +73,12 @@
     "jsdom": "^29.1.1",
     "knip": "^6.29.0",
     "react-markdown": "^10.1.0",
-    "tailwindcss": "^4",
-    "typescript": "^5",
     "vitest": "^4.1.10",
     "vitest-axe": "^0.1.0"
   },
   "overrides": {
-    "sharp": "^0.35.0",
-    "postcss": "^8.5.10"
+    "sharp": "0.35.3",
+    "postcss": "8.5.23"
   },
   "knip": {
     "entry": [

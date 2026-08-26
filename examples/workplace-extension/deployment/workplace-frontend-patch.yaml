@@ -7,4 +7,4 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: atlas-skein-frontend:1.0.0
+          image: atlas-skein-frontend:2.0.0
