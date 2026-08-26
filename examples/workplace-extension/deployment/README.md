@@ -1,51 +1,91 @@
-# Atlas deployment overlay
+# Atlas deployment
 
-This directory is an example. It uses released Skein backend and frontend-host
-images as its bases. It installs only the private Atlas wheel, frontend package,
-and content.
+Atlas builds its final images from package dependencies. It does not inherit a Skein backend image or frontend-host image.
 
-The Kustomize patch changes the application entry point to
-`atlas_skein.app:app`. That module calls `create_app(modules=(atlas_module(...),))`.
-It does not modify the default Skein application.
+## Stage the packages
 
-Stage both private release artifacts, then build the derivative images:
+Run these commands from the Skein repository root:
 
 ```sh
+rm -rf examples/workplace-extension/dist
 mkdir -p examples/workplace-extension/dist
+uv build --wheel --out-dir examples/workplace-extension/dist backend
 uv build --wheel --out-dir examples/workplace-extension/dist \
   examples/workplace-extension
 npm pack --pack-destination examples/workplace-extension/dist \
-  examples/workplace-extension/frontend
-docker build -f examples/workplace-extension/deployment/Dockerfile \
-  --build-arg SKEIN_IMAGE=skein:0.2.1 \
-  -t atlas-skein:1.0.0 examples/workplace-extension
-docker build -f examples/workplace-extension/deployment/Frontend.Dockerfile \
-  --build-arg SKEIN_FRONTEND_HOST=skein-frontend-host:0.2.1 \
-  -t atlas-skein-frontend:1.0.0 examples/workplace-extension
+  ./frontend/packages/extension-api
+npm pack --pack-destination examples/workplace-extension/dist ./frontend
 ```
 
-`scripts/reference-images-contract.sh` stages the same artifacts in a
-temporary directory and builds both images as a release check. The frontend build argument
-`SKEIN_FRONTEND_HOST` names the compatible, versioned Skein host image. The
-unchanged Atlas package is composed before `next build`; no core source file is
-copied or patched.
+The Dockerfiles require the exact `0.3.0`, `1.0.0`, and `2.0.0` artifact names. A clean `dist` directory prevents an older artifact from entering a build.
 
-Create an `atlas-skein-secrets` Secret through the deployment secret manager.
-Use `secrets.env.example` only as a list of required names. Do not commit secret
-values. `ATLAS_API_TOKEN` is sent only by the private `AtlasHttpClient` when
-`ATLAS_API_URL` is configured.
+The Atlas npm lock contains the integrity values for the two npm tarballs. If the package bytes change, regenerate the lock.
 
-The example declares one `skein-data` persistent volume claim, for artifacts
-and backups. The extension has no volume: its store is schema
-`ext_atlas_extension` inside the Skein database, derived from
-`ATLAS_SKEIN_STORE`. Before deployment, the database administrator creates
-this schema with the Skein application role as owner. The `skein-db-secret`
-Secret must carry a `SKEIN_DATABASE_URL` key.
+## Build the final images
 
-Render or apply the overlay from its common parent. This keeps the content
-files inside the standard Kustomize load boundary:
+```sh
+docker build \
+  -f examples/workplace-extension/deployment/Dockerfile \
+  -t atlas-skein:2.0.0 \
+  examples/workplace-extension
+
+docker build \
+  --build-arg NEXT_PUBLIC_API_URL=https://skein-api.example.invalid \
+  --build-arg NEXT_PUBLIC_SITE_URL=https://skein.example.invalid \
+  -f examples/workplace-extension/deployment/Frontend.Dockerfile \
+  -t atlas-skein-frontend:2.0.0 \
+  examples/workplace-extension
+```
+
+The backend image installs `requirements.lock`. It then installs the Skein and Atlas wheels with `--no-deps`.
+
+The frontend image runs `npm ci` from the workplace lock. It compiles Atlas and runs `skein-frontend-build`.
+
+## Prepare PostgreSQL
+
+Run `deployment/10-app-role.sh` as the database administrator. Then run `deployment/20-atlas-schema.sh`.
+
+The scripts create these schemas for the restricted application role:
+
+- `public`
+- `private`
+- `ext_atlas_extension`
+
+The application role has no database-wide `CREATE` privilege. Atlas uses the fixed `ext_atlas_extension` schema.
+
+The `skein-db-secret` Secret supplies these values:
+
+- `SKEIN_APP_USER`
+- `SKEIN_APP_PASSWORD`
+- `POSTGRES_DB`
+
+The `skein-config` ConfigMap supplies `SKEIN_DB_HOST` and `SKEIN_DB_PORT`.
+
+## Configure Atlas
+
+Create `atlas-skein-secrets` through the deployment secret manager. Use `secrets.env.example` only as a list of names.
+
+`ATLAS_API_TOKEN` is sent only when `ATLAS_API_URL` is configured. Do not commit token values.
+
+## Render the deployment
+
+Run this command from the repository root:
 
 ```sh
 kubectl kustomize examples/workplace-extension
-kubectl apply -k examples/workplace-extension
+```
+
+The manifest uses OpenShift `restricted-v2` controls. It has no fixed `runAsUser` or `fsGroup`.
+
+The image contract runs both images with an arbitrary user ID and a read-only root filesystem. Only `/data` and `/tmp` are writable.
+
+The backend uses `Recreate` and one replica. It mounts `/data` and a temporary `/tmp` directory.
+
+The frontend is stateless. It mounts only a temporary `/tmp` directory.
+
+Run the executable contracts before deployment:
+
+```sh
+scripts/reference-deployment-contract.sh
+scripts/reference-images-contract.sh
 ```

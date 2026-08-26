@@ -38,6 +38,9 @@ if [ "$mode" != "frontend" ]; then
     # backend/ carries copies because PEP 639 forbids ../ in license-files;
     # a drifted copy would ship a wheel with the wrong license text.
     cmp LICENSE backend/LICENSE && cmp NOTICE backend/NOTICE
+    cmp LICENSE frontend/LICENSE && cmp NOTICE frontend/NOTICE
+    cmp LICENSE frontend/packages/extension-api/LICENSE
+    cmp NOTICE frontend/packages/extension-api/NOTICE
 
     echo "== theme contrast =="
     python3 scripts/check_theme_contrast.py

@@ -35,6 +35,23 @@ def test_a_public_contract_import_is_accepted(tmp_path):
     )
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import app.main\n",
+        "from app.main import *\n",
+        "from app.main import _job_specs\n",
+    ],
+)
+def test_app_main_exposes_only_create_app(tmp_path, source):
+    package = _package(tmp_path, source)
+
+    with pytest.raises(ExtensionValidationError) as exc:
+        assert_import_boundary(package)
+
+    assert "app.main" in str(exc.value)
+
+
 def test_an_internal_import_names_its_file_and_line(tmp_path):
     package = _package(tmp_path, "import os\n\nfrom app.services import work\n")
 
@@ -42,7 +59,7 @@ def test_an_internal_import_names_its_file_and_line(tmp_path):
         assert_import_boundary(package)
 
     assert "private_package/adapter.py:3 imports app.services" in str(exc.value)
-    assert "app.extensions, app.main, app.public" in str(exc.value)
+    assert "app.extensions, app.main.create_app, app.public" in str(exc.value)
 
 
 def test_a_module_named_in_the_alias_is_refused(tmp_path):
@@ -134,6 +151,16 @@ def test_an_exported_symbol_is_not_mistaken_for_a_submodule(tmp_path):
             "from app.main import create_app\n",
         )
     )
+
+
+def test_a_stub_file_cannot_import_an_internal_module(tmp_path):
+    package = _package(tmp_path, "")
+    (package / "adapter.pyi").write_text("from app.services import work\n")
+
+    with pytest.raises(ExtensionValidationError) as exc:
+        assert_import_boundary(package)
+
+    assert "adapter.pyi:1 imports app.services" in str(exc.value)
 
 
 def test_a_package_with_no_source_is_refused(tmp_path):

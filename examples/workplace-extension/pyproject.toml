@@ -1,10 +1,16 @@
 [project]
 name = "atlas-skein-extension"
-version = "1.0.0"
+version = "2.0.0"
 description = "Fictional workplace extension for the Skein extension contract"
 requires-python = ">=3.12"
 dependencies = [
-    "skein>=0.2.0,<0.4.0",
+    "skein-agents>=0.3.0,<0.4.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8",
+    "httpx2>=2.9",
 ]
 
 [build-system]

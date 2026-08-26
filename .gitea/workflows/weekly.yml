@@ -56,6 +56,9 @@ jobs:
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Install
         working-directory: backend
         # deliberately uncached, unlike ci.yml: resolving the dependency
@@ -89,7 +92,9 @@ jobs:
           SKEIN_ROLE_CONTRACT: "1"
         run: pytest -q -n0 tests/test_database_role.py
       - name: Audit production dependencies
-        run: ./scripts/audit-deps.sh backend
+        run: |
+          ./scripts/audit-deps.sh backend
+          ./scripts/audit-deps.sh workplace
 
   frontend:
     runs-on: ubuntu-latest

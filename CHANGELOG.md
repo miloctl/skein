@@ -14,7 +14,7 @@ A contract entry names the version a package must declare to use it. Additive
 contracts keep extension API 1.0: a package that does not use the new contract
 keeps its existing `minimum_core` and needs no change.
 
-## 0.3.0 — 2026-08-21
+## 0.3.0 — Unreleased
 
 Two deployment defaults changed, and both are visible to a private package.
 This is a MINOR release for exactly that reason: a package declaring
@@ -28,6 +28,16 @@ Widen to `<0.4.0` and re-read the two Behavior entries below before you do.
   compatibility range: a package that declared `maximum_core_exclusive =
   "0.3.0"` must declare `"0.4.0"` to load on this core. Nothing else in a
   package needs an edit for the version itself.
+- The Python distribution is now `skein-agents`. The public imports remain
+  `app.extensions`, `app.public`, and `app.main.create_app`. Public PyPI owns
+  the unrelated `skein` name, so current packages must not depend on it.
+  The import boundary now scans Python stubs and permits only `create_app`
+  from `app.main`. Bare, wildcard, private, and aliased private imports fail.
+- The complete frontend host now publishes as `@skein/frontend-host`. A
+  workplace project installs it with `@skein/extension-api` and runs
+  `skein-frontend-build` after it compiles its private extension.
+- Atlas 2.0 declares `skein-agents>=0.3.0,<0.4.0`. Atlas 1.x remains the
+  pinned fixture for the explicit 0.2.3 package transition.
 
 ### Behavior
 
@@ -71,14 +81,21 @@ Widen to `<0.4.0` and re-read the two Behavior entries below before you do.
   and in CI. Their steps are files under `scripts/contract/` rather than
   shell heredocs, so ruff checks them and a failure names a real file and
   line.
-- `reference-images-contract.sh` starts a PostgreSQL container of its own on
-  an isolated network and points the derivative image at it. The app has
-  been PostgreSQL-only since 0.2.3 and the gate never supplied a server, so
-  it could not reach startup; it deliberately does NOT use the caller's
-  `SKEIN_DATABASE_URL`, because it boots a real deployment image and would
-  otherwise run core migrations against a developer's database. Both
-  readiness loops now print the container's log when they give up, instead
-  of leaving the next command to report "container is not running".
+- `reference-images-contract.sh` builds and starts the core and Atlas images.
+  It starts a PostgreSQL container on an isolated network and points both
+  backend images at it. Skein requires PostgreSQL in 0.2.3 and later. The old
+  gate supplied no server, so the image could not start. The contract does
+  not use the caller's `SKEIN_DATABASE_URL`. That URL can point to a developer
+  database, where image startup can run core migrations. Each readiness loop
+  prints the container log when the service does not start.
+- The Atlas reference repository owns one npm lock and one combined Python
+  production lock. Its final images install exact package artifacts and do
+  not inherit Skein application images.
+- The old frontend-host archive and host-image contracts are removed. The
+  clean frontend contract installs npm tarballs and starts the completed
+  standalone server.
+- A 0.2.x deployment must uninstall the old `skein` and Atlas 1.x
+  distributions before it installs `skein-agents` and Atlas 2.0.
 
 ## 0.2.2 — 2026-08-13
 

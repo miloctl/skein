@@ -7,11 +7,8 @@ spec:
     spec:
       containers:
         - name: skein
-          image: atlas-skein:1.0.0
+          image: atlas-skein:2.0.0
           env:
-            # The store NAME, not a path: core maps it to a schema of its
-            # own (ext_<name>) inside the Skein database, so the extension
-            # needs no volume and no database of its own.
             - name: ATLAS_SKEIN_STORE
               value: atlas-extension
             - name: ATLAS_API_URL

@@ -1,0 +1,10 @@
+.env*
+*.env
+*.key
+*.pem
+.npmrc
+build/
+dist/
+.skein/
+node_modules/
+frontend/node_modules/

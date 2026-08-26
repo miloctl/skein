@@ -51,7 +51,7 @@ def _source_files(root: Path) -> Iterator[Path]:
     if root.is_file():
         yield root
         return
-    yield from sorted(root.rglob("*.py"))
+    yield from sorted(path for path in root.rglob("*") if path.suffix in {".py", ".pyi"})
 
 
 def _imported_modules(tree: ast.Module) -> Iterator[tuple[int, str]]:
@@ -63,6 +63,14 @@ def _imported_modules(tree: ast.Module) -> Iterator[tuple[int, str]]:
             # A relative import stays inside the private package's own tree and
             # can never name `app.`.
             if node.level or not node.module:
+                continue
+            if node.module == "app.main":
+                # create_app is the one symbol docs/EXTENSIONS.md publishes
+                # from this module. A module import or any other alias reaches
+                # private startup machinery that can change in a patch.
+                for alias in node.names:
+                    if alias.name != "create_app":
+                        yield node.lineno, f"app.main.{alias.name}"
                 continue
             yield node.lineno, node.module
             if node.module == "app" or node.module in _PUBLIC_MODULES:
@@ -78,6 +86,8 @@ def _imported_modules(tree: ast.Module) -> Iterator[tuple[int, str]]:
 def _is_internal(name: str) -> bool:
     if name != "app" and not name.startswith("app."):
         return False
+    if name == "app.main" or name.startswith("app.main."):
+        return True
     if name in _PUBLIC_MODULES:
         return False
     if name.count(".") > 1 and name.rsplit(".", 1)[0] in _PUBLIC_MODULES:
@@ -123,7 +133,7 @@ def assert_import_boundary(package: ModuleType | str | Path) -> None:
             " Point the check at the source tree, not an installed archive."
         )
     if violations:
-        allowed = ", ".join(sorted(_PUBLIC_MODULES))
+        allowed = ", ".join(("app.extensions", "app.main.create_app", "app.public"))
         raise ExtensionValidationError(
             "this package imports Skein internal modules:\n  "
             + "\n  ".join(sorted(violations))

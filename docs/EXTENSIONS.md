@@ -8,8 +8,10 @@ The extension APIs are narrow by design. Skein does not scan installed
 packages. It does not run arbitrary browser code at runtime. The deployment
 must explicitly select each trusted module.
 
-The fictional [Atlas example](../examples/workplace-extension/README.md)
-uses every supported contract.
+Start with [Workplace setup](SETUP.md) to create and deploy a private
+consumer repository. The fictional
+[Atlas example](../examples/workplace-extension/README.md) uses every
+supported contract.
 
 ## How it works
 
@@ -57,9 +59,9 @@ Skein stores the command itself, so approval runs that exact command later.
 Your integration stays the recorded author, and the reviewer is recorded
 beside it.
 
-Your extension owns its own database file, its own routes under its
-namespace, its own rules, and its own content files. Core owns its tables,
-its pages, and every module outside the three named below.
+Your extension owns its PostgreSQL schema, routes under its namespace,
+rules, and content files. Core owns its schemas, pages, and every module
+outside the three named below.
 
 ## Supported boundaries
 
@@ -114,9 +116,9 @@ from atlas.router import router
 
 atlas = SkeinModule(
     module_id="atlas.workplace",
-    version="1.0.0",
+    version="2.0.0",
     extension_api="1.0",
-    minimum_core="0.2.0",
+    minimum_core="0.3.0",
     maximum_core_exclusive="0.4.0",
     routes=(
         RouteContribution(
@@ -905,9 +907,9 @@ import {
 
 const extension: FrontendExtension = {
   id: "atlas.workplace",
-  version: "1.0.0",
+  version: "2.0.0",
   extensionApi: FRONTEND_EXTENSION_API,
-  minimumCore: "0.2.0",
+  minimumCore: "0.3.0",
   maximumCoreExclusive: "0.4.0",
   navigation: [],
   dashboardCards: [],
@@ -916,23 +918,22 @@ const extension: FrontendExtension = {
 export default extension;
 ```
 
-Set the package allowlist during the frontend build:
+Install the versioned host, extension API, and private extension in one
+workplace npm project. The workplace project owns its lock.
+
+Compile the private extension. Then run the host command with the explicit
+package allowlist:
 
 ```sh
-SKEIN_FRONTEND_EXTENSIONS=@atlas/skein-extension npm run build
+npm run build --workspace @atlas/skein-extension
+skein-frontend-build @atlas/skein-extension
 ```
 
-Create a versioned host artifact when the private repository cannot use the
-core source tree:
+The command stages the installed host and runs `next build`. It writes a
+standalone application to `dist/frontend`.
 
-```sh
-scripts/package-frontend-host.sh 0.2.2 dist/frontend-host
-```
-
-The archive contains the trusted build host and a manifest with the core and
-frontend API versions. The `host` stage in `frontend/Dockerfile` provides the
-same boundary for derivative container builds. Install the private packed
-package in that stage. Then compose the manifest and run `next build`.
+The command does not install packages. It does not change `package.json`,
+`package-lock.json`, or `node_modules`.
 
 The generator creates static imports and a Tailwind `@source` entry for each
 allowlisted package, so the production CSS contains the utilities that only
@@ -996,8 +997,10 @@ Skein reads its configuration once, when `app.config` imports. Set every
 variable before the process imports `app`. A value set later has no effect.
 An installed deployment sets at least:
 
-- `SKEIN_DATABASE_URL` is the PostgreSQL connection URL. It is required:
-  there is no default, and the process refuses to start without it.
+- Set `SKEIN_DATABASE_URL`, or set the database components:
+  `SKEIN_DB_HOST`, `SKEIN_DB_NAME`, `SKEIN_DB_USER`, and
+  `SKEIN_DB_PASSWORD`. `SKEIN_DB_PORT` is optional. Use component variables
+  in a deployment manifest because a password can contain URI punctuation.
 - `SKEIN_DATA_DIR` holds artifacts, backups, and exports — no database.
   Always set it for an installed package. The default resolves inside the
   installed package directory.
@@ -1010,34 +1013,78 @@ An installed deployment sets at least:
 - `SKEIN_PLAYBOOKS_DIR`, `SKEIN_PERSONAS_DIR`, and `SKEIN_FLOCKS_DIR` mount
   deployment content overlays.
 
-A `v*` tag publishes the release to the Gitea package registries: the core
-wheel to PyPI, `@skein/extension-api` to npm, and the frontend host archive
-beside them. A private repository installs a released core rather than
-building one:
+The intended tag job publishes these packages:
+
+- `skein-agents` to the selected Python registry.
+- `@skein/extension-api` to the selected npm registry.
+- `@skein/frontend-host` to the same npm registry.
+
+No tag has completed this publication. Treat the current job as an untested
+release path until the package registries are enabled.
+
+Use one controlled Python index that does not fall through to public package
+names. Do not use `--extra-index-url` for `skein-agents`. A hash-verified
+wheelhouse with `--no-index` is also permitted.
+
+If one controlled mirror contains the complete dependency closure, install the exact package from that mirror:
 
 ```sh
-pip install skein==0.2.2 --index-url https://<gitea-host>/api/packages/<owner>/pypi/simple
-npm install @skein/extension-api --registry https://<gitea-host>/api/packages/<owner>/npm/
+pip install skein-agents==0.3.0 \
+  --index-url https://<controlled-mirror>/simple
 ```
 
-Whoever runs the Gitea instance enables the package registry and adds a
-`PACKAGE_TOKEN` secret with `packages:write`. Without it the publish job
-fails, which is the intended outcome: a release that publishes nowhere is
-worse than a release that stops.
+A Gitea package registry does not mirror public dependencies. If Gitea contains only first-party wheels, install in two steps:
 
-Use separate versioned artifacts:
+```sh
+pip install --require-hashes -r requirements.lock \
+  --index-url https://<controlled-public-mirror>/simple
+pip install --no-deps skein-agents==0.3.0 \
+  --index-url https://<host>/api/packages/<owner>/pypi/simple
+```
 
-- A Skein Python wheel or backend image
-- A private workplace Python wheel
-- A packed private frontend package
-- A versioned frontend host archive or compatible `skein-frontend-host` image
-- A deployment overlay with secret references
+The production lock excludes `skein-agents` and the private workplace package. The image installs both exact wheels with `--no-deps` after the locked closure.
 
-Container layering is suitable for the backend. A derivative backend image
-can install the private wheel on top of a released Skein image. Frontend code
-must compose before `next build`. Use the versioned host archive or container
-stage as the build input. Copying edited core frontend files into an image is
-a hidden fork.
+When the npm registry is enabled, route the private scope to it. Keep the token in the deployment secret manager:
+
+```ini
+@skein:registry=https://<host>/api/packages/<owner>/npm/
+//<host>/api/packages/<owner>/npm/:_authToken=${NPM_TOKEN}
+```
+
+Use Node 22. Pin the frontend host, its peers, and Next directly in the workplace root:
+
+```json
+{
+  "dependencies": {
+    "@skein/extension-api": "1.0.0",
+    "@skein/frontend-host": "0.3.0",
+    "next": "16.2.11",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "overrides": {
+    "postcss": "8.5.23",
+    "sharp": "0.35.3"
+  }
+}
+```
+
+An installed package cannot apply its overrides to the workplace root. `skein-frontend-build` refuses missing or different pins.
+
+The workplace repository owns these release inputs:
+
+- The private Python package.
+- The private frontend package.
+- The combined Python production lock.
+- The npm lock.
+- Content overlays.
+- Final runtime images and deployment files.
+
+The workplace backend image installs the locked dependency closure. It then
+installs the Skein and workplace wheels with `--no-deps`.
+
+The workplace frontend image runs `npm ci` and `skein-frontend-build`. It
+copies only the completed standalone output into its runtime stage.
 
 Kustomize or Helm overlays are suitable for environment values, image tags,
 volumes, and Secret references. They are not suitable for changing application
@@ -1056,9 +1103,8 @@ reference overlay renders with the standard command:
 kubectl kustomize examples/workplace-extension
 ```
 
-Set a pod file-system group for persistent volumes that the non-root process
-writes. The reference deployment uses `fsGroup: 1000` and tests both core and
-extension data paths in the derivative backend image.
+Do not set a fixed `runAsUser` or `fsGroup` in an OpenShift deployment.
+The `restricted-v2` profile assigns values from the namespace range.
 
 ## Contract reference
 
@@ -1110,7 +1156,8 @@ A private extension repository must run these checks:
 The public packages export the surfaces these tests need:
 
 - `app.extensions.assert_import_boundary` raises when a package imports a
-  Skein module outside `app.extensions`, `app.public`, and `app.main`. Pass it
+  Skein module outside `app.extensions`, `app.public`, and
+  `app.main.create_app`. Pass it
   the imported package, its dotted name, or a path. A submodule of a public
   package is internal too: the export list is the contract. The check reads
   source and is not a security boundary, because a dynamic import evades it.
@@ -1138,31 +1185,28 @@ scripts/reference-deployment-contract.sh
 scripts/reference-images-contract.sh
 ```
 
-The backend script pins its whole `SKEIN_*` environment before it builds
-anything (`scripts/lib/hermetic-env.sh`), so a rehearsal answers the same way
-on a developer machine and in CI — the caller supplies only
-`SKEIN_DATABASE_URL`. Its steps are files under `scripts/contract/`, not
-shell heredocs, so ruff checks them and a failure names a real file and line.
-Where the review gate changes what a governed tool returns, the step
-rehearses BOTH settings: gate off returns the write, gate on returns
-`review_required` with the proposal a human judges.
+The backend script pins its configuration before it builds. The caller sets
+`SKEIN_DATABASE_URL` and a safe `SKEIN_CONTRACT_RUN_ID`.
 
-The backend script builds and installs separate wheels in a normal virtual
-environment. It starts the installed application. It then moves the unchanged
-private package from the prior release to the current compatible artifact. That
-pair uses different backend source trees. It applies every pending core migration.
-It also runs the documented legacy identity-owner claims before startup.
-The script runs a real Atlas synchronization on both core versions. It checks
-the Atlas source against each compatible public interface with strict mypy.
-`scripts/upgrade-path.sh` separately verifies all additive core migrations
-from the historical base, schema equality, and activity-chain integrity. The
-frontend script creates two host artifacts from distinct source
-trees. It installs the same packed private package into both hosts. Then it
-runs a production build in each host. A runtime test renders the packed Atlas
-card through the generated registry.
-The image script builds the backend
-and frontend derivative images from staged release artifacts. The main CI
-workflow runs all four extension contracts.
+The script builds and installs separate wheels in a normal virtual environment.
+It starts Skein 0.2.3 with Atlas 1.x and writes upgrade data.
+
+It removes both old distributions. Then it installs `skein-agents` 0.3.0 and
+Atlas 2.0 against the same database.
+
+The script runs a real Atlas synchronization on both package generations. It
+uses strict mypy against the installed current public contracts.
+
+The script compares fresh and upgraded core and extension schemas. It also
+keeps a data marker through the package transition.
+`scripts/upgrade-path.sh` separately validates all additive core migrations,
+schema equality, and activity-chain integrity.
+
+The frontend script packs the host and API. It installs them through the Atlas
+lock in a clean directory and starts the standalone server.
+
+The image script builds both final Atlas images from the package artifacts.
+The main CI workflow runs all four extension contracts.
 
 ## Upgrade a workplace deployment
 

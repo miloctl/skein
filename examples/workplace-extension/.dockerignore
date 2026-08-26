@@ -1,0 +1,12 @@
+.git/
+.env*
+*.env
+*.key
+*.pem
+.npmrc
+node_modules/
+.skein/
+dist/frontend/
+frontend/node_modules/
+frontend/dist/
+backend/tests/

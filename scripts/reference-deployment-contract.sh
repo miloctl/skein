@@ -7,16 +7,30 @@ command -v kubectl >/dev/null || {
   exit 1
 }
 
+deployment="$root/examples/workplace-extension/deployment"
+test -x "$deployment/10-app-role.sh"
+test -x "$deployment/20-atlas-schema.sh"
+grep -q -- "--single-transaction" "$deployment/10-app-role.sh"
+grep -q "ext_atlas_extension" "$deployment/20-atlas-schema.sh"
+grep -q "skein_agents-0.3.0-py3-none-any.whl" "$deployment/Dockerfile"
+grep -q "atlas_skein_extension-2.0.0-py3-none-any.whl" "$deployment/Dockerfile"
+if grep -Eq '(skein_agents|atlas_skein_extension)-\*\.whl' "$deployment/Dockerfile"; then
+  echo "reference-deployment-contract: the backend image accepts an ambiguous wheel name" >&2
+  exit 1
+fi
+
 rendered="$(mktemp)"
 trap 'rm -f "$rendered"' EXIT
 kubectl kustomize "$root/examples/workplace-extension" >"$rendered"
 grep -q "name: atlas-skein-content" "$rendered"
 grep -q "atlas_delivery.yaml" "$rendered"
-grep -q "image: atlas-skein:1.0.0" "$rendered"
-grep -q "image: atlas-skein-frontend:1.0.0" "$rendered"
+grep -q "image: atlas-skein:2.0.0" "$rendered"
+grep -q "image: atlas-skein-frontend:2.0.0" "$rendered"
 grep -q "name: ATLAS_SKEIN_STORE" "$rendered"
 grep -q "name: ATLAS_API_URL" "$rendered"
-grep -q "name: SKEIN_DATABASE_URL" "$rendered"
+grep -q "name: SKEIN_DB_HOST" "$rendered"
+grep -q "name: SKEIN_DB_USER" "$rendered"
+grep -q "name: SKEIN_DB_PASSWORD" "$rendered"
 # The extension store is a schema inside the Skein database. A PVC or a
 # file path here means the example regressed to the file-era wiring, which
 # the application no longer reads. An if, not `! grep`: set -e ignores a
@@ -27,9 +41,20 @@ for regressed in "atlas-skein-data" "ATLAS_SKEIN_DATA"; do
     exit 1
   fi
 done
-grep -q "fsGroup: 1000" "$rendered"
-grep -q "fsGroupChangePolicy: OnRootMismatch" "$rendered"
+grep -q "type: Recreate" "$rendered"
+grep -q "progressDeadlineSeconds: 1800" "$rendered"
+grep -q "name: skein-secrets" "$rendered"
 grep -q "runAsNonRoot: true" "$rendered"
+grep -q "type: RuntimeDefault" "$rendered"
+grep -q "readOnlyRootFilesystem: true" "$rendered"
+grep -q "startupProbe" "$rendered"
+grep -q "readinessProbe" "$rendered"
+grep -q "livenessProbe" "$rendered"
+grep -q "emptyDir: {}" "$rendered"
+if grep -q "fsGroup:" "$rendered"; then
+  echo "reference-deployment-contract: Atlas fixed fsGroup violates restricted-v2" >&2
+  exit 1
+fi
 echo "reference-deployment-contract: standard Kustomize render passed"
 
 # Core OpenShift overlays (deploy/k8s). Each assertion pins a decision

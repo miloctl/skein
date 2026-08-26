@@ -4,6 +4,9 @@ metadata:
   name: skein
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
+  progressDeadlineSeconds: 1800
   selector:
     matchLabels:
       app: skein
@@ -12,15 +15,17 @@ spec:
       labels:
         app: skein
     spec:
+      terminationGracePeriodSeconds: 210
       securityContext:
         runAsNonRoot: true
-        fsGroup: 1000
-        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: skein
-          image: skein:0.2.1
+          image: skein:0.3.0
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
@@ -28,22 +33,66 @@ spec:
             - name: http
               containerPort: 8000
           env:
-            # One secret key for the example. The production manifest sets
-            # SKEIN_DB_* components from the role secret and a host ConfigMap,
-            # and the backend composes the conninfo in code — copy
-            # deploy/k8s/base/backend.yaml, not this, for a real deployment.
-            - name: SKEIN_DATABASE_URL
+            - name: SKEIN_DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: skein-config
+                  key: SKEIN_DB_HOST
+            - name: SKEIN_DB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: skein-config
+                  key: SKEIN_DB_PORT
+            - name: SKEIN_DB_USER
               valueFrom:
                 secretKeyRef:
                   name: skein-db-secret
-                  key: SKEIN_DATABASE_URL
+                  key: SKEIN_APP_USER
+            - name: SKEIN_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: skein-db-secret
+                  key: SKEIN_APP_PASSWORD
+            - name: SKEIN_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: skein-db-secret
+                  key: POSTGRES_DB
+          envFrom:
+            - configMapRef:
+                name: skein-config
+            - secretRef:
+                name: skein-secrets
+                optional: true
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 150
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: skein-data
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -84,17 +133,38 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: frontend
-          image: skein-frontend:0.2.1
+          image: skein-frontend:0.3.0
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
           ports:
             - name: http
               containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
