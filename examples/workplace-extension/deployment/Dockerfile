@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -23,7 +24,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.lock /tmp/requirements.lock
-RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements.lock
+RUN --mount=type=secret,id=pip-config,target=/etc/pip.conf,required=true \
+    PIP_CONFIG_FILE=/etc/pip.conf \
+    pip install --no-cache-dir --require-hashes -r /tmp/requirements.lock
 COPY dist/skein_agents-0.3.0-py3-none-any.whl /tmp/skein_agents-0.3.0-py3-none-any.whl
 COPY dist/atlas_skein_extension-2.0.0-py3-none-any.whl /tmp/atlas_skein_extension-2.0.0-py3-none-any.whl
 RUN pip install --no-cache-dir --no-deps \

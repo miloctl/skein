@@ -39,6 +39,7 @@ Create this minimum layout:
 
 ```text
 workplace-skein/
+├── .dockerignore
 ├── backend/
 │   └── src/workplace_skein/
 │       ├── app.py
@@ -60,6 +61,7 @@ workplace-skein/
 │   └── skein.yaml
 ├── dist/
 ├── extension.toml
+├── kustomization.yaml
 ├── package.json
 ├── package-lock.json
 ├── pyproject.toml
@@ -83,6 +85,22 @@ frontend/node_modules/
 frontend/dist/
 ```
 
+Create `.dockerignore`. Keep `dist/` in the image context because it contains the exact first-party packages:
+
+```dockerignore
+.git/
+.env*
+*.env
+*.key
+*.pem
+.npmrc
+node_modules/
+.skein/
+frontend/node_modules/
+frontend/dist/
+backend/tests/
+```
+
 Keep secret examples free of real values. Store credentials in the workplace secret manager.
 
 ## 2. Configure the package registries
@@ -93,6 +111,7 @@ Route normal npm packages through the controlled npm mirror. Route the private s
 
 ```ini
 registry=https://<controlled-npm-mirror>/
+replace-registry-host=always
 @skein:registry=https://<host>/api/packages/<owner>/npm/
 //<host>/api/packages/<owner>/npm/:_authToken=${NPM_TOKEN}
 ```
@@ -279,6 +298,25 @@ Create `frontend/package.json`:
 }
 ```
 
+Create `frontend/tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "declaration": true,
+    "emitDeclarationOnly": false,
+    "skipLibCheck": true,
+    "outDir": "dist"
+  },
+  "include": ["index.tsx"]
+}
+```
+
 Export one `FrontendExtension` from `frontend/index.tsx`. Set its compatibility range to the supported Skein release:
 
 ```tsx
@@ -348,13 +386,33 @@ Use the Atlas Containerfiles as templates:
 - `examples/workplace-extension/deployment/Dockerfile`.
 - `examples/workplace-extension/deployment/Frontend.Dockerfile`.
 
+Create two registry configuration files outside the build context. Let the secret manager write credentials into these files:
+
+```ini
+# /run/secrets/pip.conf
+[global]
+index-url = https://<controlled-python-mirror>/simple
+```
+
+```ini
+# /run/secrets/npmrc
+registry=https://<controlled-npm-mirror>/
+replace-registry-host=always
+```
+
+The Containerfiles require these BuildKit secrets. The secret files do not enter an image layer.
+
 Build the images:
 
 ```sh
-docker build -f deployment/Dockerfile \
+docker build \
+  --secret id=pip-config,src=/run/secrets/pip.conf \
+  -f deployment/Dockerfile \
   -t <registry>/workplace-skein:1.0.0 .
 
-docker build -f deployment/Frontend.Dockerfile \
+docker build \
+  --secret id=npm-config,src=/run/secrets/npmrc \
+  -f deployment/Frontend.Dockerfile \
   --build-arg NEXT_PUBLIC_API_URL=https://<api-route> \
   --build-arg NEXT_PUBLIC_SITE_URL=https://<frontend-route> \
   -t <registry>/workplace-skein-frontend:1.0.0 .
@@ -364,12 +422,36 @@ Build a separate frontend image for each API and site URL pair. These values ent
 
 ## 9. Prepare PostgreSQL
 
+Let the secret manager export these values before you run the scripts:
+
+```text
+POSTGRES_ADMIN_CONNINFO
+POSTGRES_ADMIN_USER
+POSTGRES_DATABASE
+SKEIN_APP_USER
+SKEIN_APP_PASSWORD
+```
+
 Run the role bootstrap as the database administrator:
 
 ```sh
-deployment/10-app-role.sh
-deployment/20-workplace-schema.sh
+env \
+  POSTGRES_CONNINFO="$POSTGRES_ADMIN_CONNINFO" \
+  POSTGRES_USER="$POSTGRES_ADMIN_USER" \
+  POSTGRES_DB="$POSTGRES_DATABASE" \
+  SKEIN_APP_USER="$SKEIN_APP_USER" \
+  SKEIN_APP_PASSWORD="$SKEIN_APP_PASSWORD" \
+  deployment/10-app-role.sh
+
+env \
+  POSTGRES_CONNINFO="$POSTGRES_ADMIN_CONNINFO" \
+  POSTGRES_USER="$POSTGRES_ADMIN_USER" \
+  POSTGRES_DB="$POSTGRES_DATABASE" \
+  SKEIN_APP_USER="$SKEIN_APP_USER" \
+  deployment/20-workplace-schema.sh
 ```
+
+Do not put the administrator connection string or application password in the repository.
 
 Give the application role access only to these schemas:
 

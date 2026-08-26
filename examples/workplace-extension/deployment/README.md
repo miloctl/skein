@@ -23,13 +23,33 @@ The Atlas npm lock contains the integrity values for the two npm tarballs. If th
 
 ## Build the final images
 
+Create a pip configuration that points to the controlled Python mirror. Create an npm configuration that points to the controlled npm mirror.
+
+Keep both files outside the build context. Inject credentials through the secret manager.
+
+```ini
+# /run/secrets/pip.conf
+[global]
+index-url = https://<controlled-python-mirror>/simple
+```
+
+```ini
+# /run/secrets/npmrc
+registry=https://<controlled-npm-mirror>/
+replace-registry-host=always
+```
+
+Pass both files as BuildKit secrets:
+
 ```sh
 docker build \
+  --secret id=pip-config,src=/run/secrets/pip.conf \
   -f examples/workplace-extension/deployment/Dockerfile \
   -t atlas-skein:2.0.0 \
   examples/workplace-extension
 
 docker build \
+  --secret id=npm-config,src=/run/secrets/npmrc \
   --build-arg NEXT_PUBLIC_API_URL=https://skein-api.example.invalid \
   --build-arg NEXT_PUBLIC_SITE_URL=https://skein.example.invalid \
   -f examples/workplace-extension/deployment/Frontend.Dockerfile \

@@ -1,10 +1,13 @@
+# syntax=docker/dockerfile:1
 FROM node:22-alpine AS build
 WORKDIR /workplace
 
 COPY package.json package-lock.json ./
 COPY frontend/package.json ./frontend/package.json
 COPY dist/skein-extension-api-1.0.0.tgz dist/skein-frontend-host-0.3.0.tgz ./dist/
-RUN npm ci --no-audit --no-fund
+RUN --mount=type=secret,id=npm-config,target=/root/.npmrc,required=true \
+    NPM_CONFIG_USERCONFIG=/root/.npmrc \
+    npm ci --no-audit --no-fund
 COPY frontend ./frontend
 
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000

@@ -64,6 +64,13 @@ fi
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
     uv build --quiet --wheel --out-dir "$extension/dist" "$extension"
 
+pip_config="$tmp/pip.conf"
+npm_config="$tmp/npmrc"
+printf '[global]\nindex-url = %s\n' \
+    "${PIP_INDEX_URL:-https://pypi.org/simple}" >"$pip_config"
+printf 'registry=%s\nreplace-registry-host=always\n' \
+    "${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}" >"$npm_config"
+
 shopt -s nullglob
 core_wheels=("$extension/dist"/skein_agents-*.whl)
 atlas_wheels=("$extension/dist"/atlas_skein_extension-*.whl)
@@ -81,9 +88,12 @@ docker build --quiet \
     --build-arg NEXT_PUBLIC_SITE_URL=https://core-site.contract.invalid \
     --build-arg NEXT_PUBLIC_API_TOKEN=core-browser-token \
     -t "$core_frontend_image" frontend >/dev/null
-docker build --quiet -f "$extension/deployment/Dockerfile" \
+docker build --quiet \
+    --secret "id=pip-config,src=$pip_config" \
+    -f "$extension/deployment/Dockerfile" \
     -t "$backend_image" "$extension" >/dev/null
 docker build --quiet \
+    --secret "id=npm-config,src=$npm_config" \
     --build-arg NEXT_PUBLIC_API_URL=https://api.contract.invalid \
     --build-arg NEXT_PUBLIC_SITE_URL=https://site.contract.invalid \
     --build-arg NEXT_PUBLIC_API_TOKEN=contract-browser-token \
