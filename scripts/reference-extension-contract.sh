@@ -17,6 +17,10 @@ if [ -z "${SKEIN_DATABASE_URL:-}" ]; then
 fi
 contract_run_label="${SKEIN_CONTRACT_RUN_ID:-}"
 release_dist="${SKEIN_RELEASE_DIST:-}"
+contract_core_data_db="${SKEIN_CONTRACT_CORE_DATA_DB:-}"
+contract_legacy_core_data_db="${SKEIN_CONTRACT_LEGACY_CORE_DATA_DB:-}"
+contract_extension_tests_db="${SKEIN_CONTRACT_EXTENSION_TESTS_DB:-}"
+contract_fresh_current_data_db="${SKEIN_CONTRACT_FRESH_CURRENT_DATA_DB:-}"
 # shellcheck source=lib/hermetic-env.sh
 . "$(dirname "$0")/lib/hermetic-env.sh"
 skein_hermetic_env
@@ -28,16 +32,22 @@ if [[ ! "$contract_run_label" =~ ^[a-z0-9_]{1,20}$ ]]; then
 fi
 contract_run_id="${contract_run_label}_$$"
 created_dbs=()
-new_db() {  # new_db <label> <url-variable>
-    local name="skein_contract_$1_$contract_run_id"
+new_db() {  # new_db <label> <url-variable> <name-variable>
+    local label="$1" url_variable="$2" name_variable="$3"
+    local name="${!name_variable-}"
+    if [ -z "$name" ]; then
+        name="skein_contract_${label}_$contract_run_id"
+    elif [[ ! "$name" =~ ^skein_contract_[a-z0-9_]{1,48}$ ]]; then
+        echo "reference-extension-contract: an explicit database name is not safe." >&2
+        exit 1
+    fi
     if [ "${#name}" -gt 63 ]; then
         echo "reference-extension-contract: a contract database name is too long. Use a shorter run ID." >&2
         exit 1
     fi
-    created_dbs+=("$name")
-    psql "$SKEIN_DATABASE_URL" -qtAc "DROP DATABASE IF EXISTS \"$name\" WITH (FORCE)" >/dev/null
     psql "$SKEIN_DATABASE_URL" -qtAc "CREATE DATABASE \"$name\"" >/dev/null
-    printf -v "$2" '%s' "$db_base/$name"
+    created_dbs+=("$name")
+    printf -v "$url_variable" '%s' "$db_base/$name"
 }
 drop_dbs() {
     local name
@@ -49,10 +59,10 @@ drop_dbs() {
 tmp="$(mktemp -d)"
 trap 'drop_dbs; rm -rf "$tmp"' EXIT
 
-new_db core_data db_core_data
-new_db legacy_core_data db_legacy_core_data
-new_db extension_tests db_extension_tests_current
-new_db fresh_current_data db_fresh_current_data
+new_db core_data db_core_data contract_core_data_db
+new_db legacy_core_data db_legacy_core_data contract_legacy_core_data_db
+new_db extension_tests db_extension_tests_current contract_extension_tests_db
+new_db fresh_current_data db_fresh_current_data contract_fresh_current_data_db
 mkdir -p \
     "$tmp/prior-core-source" "$tmp/prior-core" \
     "$tmp/prior-extension-tree" "$tmp/prior-extension" \
@@ -120,12 +130,13 @@ PRIOR_EXTENSION_WHEEL="${prior_extension_wheels[0]}" \
 NEXT_EXTENSION_WHEEL="${current_extension_wheels[0]}" \
     "$python" "$contract/wheel_metadata.py"
 
-UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv venv --quiet --python "$python" "$tmp/venv"
+venv="$tmp/prior-venv"
+UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv venv --quiet --python "$python" "$venv"
 run_python() {
-    env -u PYTHONPATH -u PYTHONHOME PYTHONNOUSERSITE=1 "$tmp/venv/bin/python" "$@"
+    env -u PYTHONPATH -u PYTHONHOME PYTHONNOUSERSITE=1 "$venv/bin/python" "$@"
 }
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip install --quiet \
-    --python "$tmp/venv/bin/python" \
+    --python "$venv/bin/python" \
     "${prior_core_wheels[0]}" "${prior_extension_wheels[0]}" pytest
 run_python -c \
     'from importlib.metadata import version; import app; from pathlib import Path; assert version("skein") == "0.2.3"; assert "site-packages" in str(Path(app.__file__).resolve())'
@@ -159,7 +170,7 @@ run_python -m app.content \
 )
 
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip uninstall --quiet \
-    --python "$tmp/venv/bin/python" atlas-skein-extension skein
+    --python "$venv/bin/python" atlas-skein-extension skein
 run_python -c \
     'from importlib.metadata import PackageNotFoundError, version
 for name in ("skein", "atlas-skein-extension"):
@@ -169,10 +180,15 @@ for name in ("skein", "atlas-skein-extension"):
         continue
     raise AssertionError(f"{name} remains installed")'
 
+venv="$tmp/current-venv"
+UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv venv --quiet --python "$python" "$venv"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip install --quiet \
-    --python "$tmp/venv/bin/python" \
-    "${current_core_wheels[0]}" "${current_extension_wheels[0]}[test]"
-UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip check --python "$tmp/venv/bin/python"
+    --python "$venv/bin/python" \
+    --require-hashes -r "$tmp/current-extension-source/requirements-test.lock"
+UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip install --quiet \
+    --python "$venv/bin/python" --no-deps \
+    "${current_core_wheels[0]}" "${current_extension_wheels[0]}"
+UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip check --python "$venv/bin/python"
 run_python -c \
     'import os; from importlib.metadata import version; import app; from pathlib import Path; assert version("skein-agents") == os.environ["NEXT_CORE"]; assert version("atlas-skein-extension") == "2.0.0"; assert "site-packages" in str(Path(app.__file__).resolve())'
 
@@ -193,7 +209,7 @@ run_python -m app.content \
 )
 
 "$python" -m mypy \
-    --python-executable "$tmp/venv/bin/python" \
+    --python-executable "$venv/bin/python" \
     --strict \
     --follow-imports=silent \
     --no-incremental \

@@ -2,13 +2,14 @@
 
 Atlas is a fictional private extension. It shows how a workplace application can depend on Skein without a Skein source checkout.
 
-This file is the in-tree reference README. Commands that start with `scripts/`, `backend/`, or `PYTHONPATH=backend` run from the Skein source tree. If you copy this example into an external repository, replace this file with a consumer README that runs from the consumer root and uses installed Skein packages.
+This README labels each command by execution context. Keep the copied-consumer commands in an external repository. Remove Skein-checkout commands and do not copy Skein scripts.
 
 The workplace repository owns these items:
 
 - The Atlas Python package.
 - The Atlas frontend package.
 - One Python production lock.
+- One Python test lock.
 - One npm lock.
 - Content overlays.
 - Final runtime images.
@@ -37,10 +38,11 @@ Regenerate artifacts and locks in this order:
 2. Build the private extension wheel.
 3. Download the Skein wheel and repack the two Skein npm packages into `dist/`.
 4. Use Node 22 to regenerate `package-lock.json`.
-5. Regenerate `requirements.lock` only when the Python dependency graph changes.
-6. Run `npm ci`, `pip check`, and every package, image, deployment, and browser contract.
+5. Regenerate `requirements.lock` when the Python production graph changes.
+6. Regenerate `requirements-test.lock` when the Python production or test graph changes.
+7. Run `npm ci`, `pip check`, and every package, image, deployment, and browser contract.
 
-Do not hand-edit either lock. Keep the exact first-party artifacts in `dist/` while you create the npm lock and build the final images.
+Do not hand-edit a lock. Keep the exact first-party artifacts in `dist/` while you create the npm lock and build the final images.
 
 ## Package boundaries
 
@@ -64,7 +66,19 @@ Atlas uses Node 22. The Atlas frontend remains a local npm workspace. The workpl
 
 Atlas stores its data in PostgreSQL schema `ext_atlas_extension`. It has no database file or private data volume.
 
-## Run the backend package contract
+## Test group-gated identity
+
+`trusted-header` supplies a weak user name and no enterprise groups. Atlas navigation and routes stay unavailable in this mode.
+
+Use signed OIDC groups for permitted paths. The Skein-checkout browser contract uses these identities:
+
+- `ava` has no Atlas group and receives a policy denial.
+- `nina` has `atlas-integrations` and can synchronize.
+- `mira` has `atlas-delivery-managers` and can open the Atlas dashboard.
+
+A copied workplace must use its own test identity provider. Do not trust a browser-supplied group header.
+
+## Run the backend package contract from a Skein checkout
 
 Start PostgreSQL. Then run the installed-wheel transition contract:
 
@@ -91,30 +105,43 @@ The Atlas test suite imports only these public surfaces:
 
 The import-boundary test refuses other `app.*` imports.
 
-## Run backend tests in a copied repository
+## Run backend tests from a copied consumer root
 
-The test fixture sets `SKEIN_AUTH_MODE=trusted-header` before the first `app` import. It also refuses a missing database URL or a database name that does not contain `test`, `tests`, `contract`, or `scratch`.
+Install the hash-locked test closure before the two first-party wheels:
 
-Create an empty disposable PostgreSQL database for each run. Do not run extension tests against a populated development database:
+```sh
+uv venv --python 3.12 .venv-test
+uv pip install --python .venv-test/bin/python \
+  --require-hashes -r requirements-test.lock
+uv pip install --python .venv-test/bin/python --no-deps \
+  dist/skein_agents-0.3.0-py3-none-any.whl \
+  dist/atlas_skein_extension-2.0.0-py3-none-any.whl
+uv pip check --python .venv-test/bin/python
+```
+
+The test fixture sets `SKEIN_AUTH_MODE=trusted-header` before the first `app` import. It refuses an unsafe database name.
+
+Create an empty disposable PostgreSQL database for each run:
 
 ```sh
 dropdb --if-exists --host 127.0.0.1 --username skein skein_atlas_test
 createdb --host 127.0.0.1 --username skein skein_atlas_test
 
 SKEIN_DATABASE_URL=postgresql://skein:skein@127.0.0.1:5432/skein_atlas_test \
-  .venv/bin/python -m pytest -q backend/tests
+  .venv-test/bin/python -m pytest -q backend/tests
 
 dropdb --host 127.0.0.1 --username skein skein_atlas_test
 ```
 
-Run these commands from the copied consumer root after the installed wheel and test dependencies are in `.venv`.
+Do not run extension tests against a populated development database.
 
-## Run the frontend package contract
+## Run the frontend package contract from a Skein checkout
 
 Run this command from the Skein repository root:
 
 ```sh
-scripts/reference-frontend-contract.sh
+SKEIN_DATABASE_URL=postgresql://skein:skein@127.0.0.1:5432/skein \
+  scripts/reference-frontend-contract.sh
 ```
 
 The contract packs the host and extension API. It copies Atlas to a clean directory and runs one locked npm installation.
@@ -143,8 +170,10 @@ The reference contract also proves these conditions:
 - A second build removes stale output.
 - Inherited build variables cannot select another extension.
 - The standalone server starts after the temporary stage is deleted.
+- Signed OIDC users exercise the denied, integration, and manager paths.
+- The manager creates one core task through the package-built browser runtime.
 
-## Run content validation
+## Run content validation from a Skein checkout
 
 ```sh
 PYTHONPATH=backend backend/.venv/bin/python -m app.content \
@@ -154,7 +183,7 @@ PYTHONPATH=backend backend/.venv/bin/python -m app.content \
   --workflow-action atlas.workplace.notify-manager
 ```
 
-## Compose the MCP process
+## Compose the MCP process from a copied consumer root
 
 The API and MCP processes use the same module tuple:
 
@@ -165,7 +194,7 @@ SKEIN_MCP_MODULES=atlas_skein.composition SKEIN_MCP_USER=you-mcp \
 
 Do not maintain a second composition list.
 
-## Build the runtime images
+## Build the runtime images from a Skein checkout
 
 Run the executable image contract:
 
@@ -181,7 +210,7 @@ The frontend image installs the workplace npm lock. It copies only the completed
 
 The workplace images do not inherit Skein application images.
 
-## Deploy
+## Render the reference deployment from a Skein checkout
 
 Create `atlas-skein-secrets` through the deployment secret manager. Do not commit secret values.
 
@@ -198,7 +227,9 @@ Apply it only after you configure the database, image names, Secrets, Routes, an
 Run these checks from the consumer repository, outside the Skein source tree:
 
 - Import `app` from the installed wheel under `site-packages`, not from `PYTHONPATH` or an editable Skein checkout.
+- Install tests from `requirements-test.lock`, then install both first-party wheels with `--no-deps`.
 - Copy `dist/frontend` to a temporary directory outside the repository and start `node server.js` there.
+- Use signed OIDC users to test denied, manager, and integration group paths.
 - Run `kubectl kustomize .` from the consumer root without a path into a Skein checkout.
 - Confirm that the repository contains no Skein source directory or Skein Git history.
 - After a rename, confirm that the prior starter identity is absent from tracked paths, source text, compiled frontend extension text, and rendered deployment output.

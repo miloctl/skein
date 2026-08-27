@@ -396,8 +396,9 @@ transaction covers exact names and Unicode case-folded variants. A concurrent
 human sign-in cannot claim a machine name during that reservation. Skein
 refuses the human request if the machine reservation wins.
 Validated OIDC reads reserve human ownership before a handler runs. Weak
-trusted-header reads do not create roster rows and do not receive strong or
-private-data authority.
+trusted-header reads do not supply enterprise groups. They do not create roster
+rows or receive strong or private-data authority. Thus, group-gated extension
+contributions stay unavailable in trusted-header mode.
 Established OIDC users use a read-only ownership check. A first ownership
 claim can wait on a row lock. Skein returns a retryable `503` if
 that lock is busy.
@@ -1007,7 +1008,8 @@ An installed deployment sets at least:
 - `SKEIN_MODEL_PROVIDER` selects the model provider. The keyless `mock`
   provider is the default.
 - `SKEIN_AUTH_MODE` selects `api-key` (the default), `trusted-header` (the
-  `X-User` header names the caller — local dev), or `oidc`.
+  `X-User` header supplies a weak name), or `oidc`. Trusted-header mode supplies
+  no enterprise groups. Use signed OIDC groups to test group-gated contributions.
 - `SKEIN_SCHEDULER=0` disables the background scheduler. Extension tests
   use this.
 - `SKEIN_PLAYBOOKS_DIR`, `SKEIN_PERSONAS_DIR`, and `SKEIN_FLOCKS_DIR` mount
@@ -1019,7 +1021,7 @@ The protected GitHub `main` workflow publishes these packages when `.github/rele
 - `@miloctl/skein-extension-api` to private GitHub Packages.
 - `@miloctl/skein-frontend-host` to private GitHub Packages.
 
-No tag has completed this publication. Treat the current workflow as an untested release path until the first pull-back validation passes.
+Release `0.3.0` completed publication and registry pull-back validation. Tag `v0.3.0` records the exact published release commit.
 
 Install `skein-agents` from PyPI or a controlled mirror:
 
@@ -1031,6 +1033,8 @@ pip install skein-agents==0.3.0 \
 A hash-verified wheelhouse with `--no-index` is also permitted. The production lock excludes `skein-agents` and the private workplace package.
 
 The image installs both exact first-party wheels with `--no-deps` after the locked public closure.
+
+Keep test tools in a separate hash-locked `requirements-test.lock`. Install this lock before the same first-party wheels in a test environment.
 
 Route the private npm scope to GitHub Packages. Keep the token in the workplace secret manager:
 
@@ -1045,6 +1049,9 @@ Use Node 22. Pin the frontend host, its peers, and Next directly in the workplac
 
 ```json
 {
+  "engines": {
+    "node": "22.x"
+  },
   "dependencies": {
     "@miloctl/skein-extension-api": "1.0.0",
     "@miloctl/skein-frontend-host": "0.3.0",
@@ -1066,6 +1073,7 @@ The workplace repository owns these release inputs:
 - The private Python package.
 - The private frontend package.
 - The combined Python production lock.
+- The combined Python test lock.
 - The npm lock.
 - Content overlays.
 - Final runtime images and deployment files.
@@ -1141,6 +1149,7 @@ A private extension repository must run these checks:
 - Fresh and upgraded extension migration tests
 - Content validation
 - Frontend registry tests and a production build
+- A signed browser test of denied, integration, manager, and core-write paths
 - An artifact-level test against the lowest and highest compatible core release
 
 The public packages export the surfaces these tests need:
@@ -1169,14 +1178,18 @@ each of these surfaces and cover every required category.
 Run Skein's local reference rehearsal with:
 
 ```sh
-scripts/reference-extension-contract.sh
-scripts/reference-frontend-contract.sh
+SKEIN_CONTRACT_RUN_ID=local \
+SKEIN_DATABASE_URL=postgresql://skein:skein@127.0.0.1:5432/skein \
+  scripts/reference-extension-contract.sh
+SKEIN_DATABASE_URL=postgresql://skein:skein@127.0.0.1:5432/skein \
+  scripts/reference-frontend-contract.sh
 scripts/reference-deployment-contract.sh
 scripts/reference-images-contract.sh
 ```
 
-The backend script pins its configuration before it builds. The caller sets
-`SKEIN_DATABASE_URL` and a safe `SKEIN_CONTRACT_RUN_ID`.
+The two package scripts pin their configuration before they build. The caller
+sets `SKEIN_DATABASE_URL`. The backend script also requires a safe
+`SKEIN_CONTRACT_RUN_ID`.
 
 The script builds and installs separate wheels in a normal virtual environment.
 It starts Skein 0.2.3 with Atlas 1.x and writes upgrade data.
@@ -1193,7 +1206,9 @@ keeps a data marker through the package transition.
 schema equality, and activity-chain integrity.
 
 The frontend script packs the host and API. It installs them through the Atlas
-lock in a clean directory and starts the standalone server.
+lock in a clean directory and starts the standalone server. It also starts the
+installed Atlas backend and a signed test identity provider. A browser exercises
+the denied, integration, manager, and core-write paths.
 
 The image script builds both final Atlas images from the package artifacts.
 The main CI workflow runs all four extension contracts.

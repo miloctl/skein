@@ -6,18 +6,41 @@ cd "$(dirname "$0")/.."
 tmp="$(mktemp -d)"
 export npm_config_cache="$tmp/npm-cache"
 server_pid=""
+backend_pid=""
+idp_pid=""
 cleanup() {
     status=$?
     trap - EXIT
-    if [ -n "$server_pid" ]; then
-        kill "$server_pid" >/dev/null 2>&1 || true
-        wait "$server_pid" >/dev/null 2>&1 || true
-    fi
+    pids=("$server_pid" "$backend_pid" "$idp_pid")
+    for pid in "${pids[@]}"; do
+        [ -z "$pid" ] || kill "$pid" >/dev/null 2>&1 || true
+    done
+    for _attempt in $(seq 1 100); do
+        alive=""
+        for pid in "${pids[@]}"; do
+            if [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1; then
+                alive=1
+            fi
+        done
+        [ -n "$alive" ] || break
+        sleep 0.1
+    done
+    for pid in "${pids[@]}"; do
+        if [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1; then
+            kill -KILL "$pid" >/dev/null 2>&1 || true
+        fi
+        [ -z "$pid" ] || wait "$pid" >/dev/null 2>&1 || true
+    done
     rm -rf "$tmp"
     exit "$status"
 }
 trap cleanup EXIT
-mkdir -p "$tmp/tarballs" "$tmp/consumer/dist"
+mkdir -p "$tmp/tarballs" "$tmp/consumer/dist" "$tmp/run"
+
+if [ -z "${SKEIN_DATABASE_URL:-}" ]; then
+    echo "reference-frontend-contract: SKEIN_DATABASE_URL is not set." >&2
+    exit 1
+fi
 
 if [ -n "${SKEIN_RELEASE_DIST:-}" ]; then
     cp "$SKEIN_RELEASE_DIST/miloctl-skein-extension-api-1.0.0.tgz" "$tmp/tarballs/"
@@ -58,8 +81,25 @@ tar --exclude=node_modules --exclude=dist --exclude=.skein -cf - \
 cp "${api_tar[0]}" "$tmp/consumer/dist/miloctl-skein-extension-api-1.0.0.tgz"
 cp "${host_tar[0]}" "$tmp/consumer/dist/miloctl-skein-frontend-host-0.3.0.tgz"
 
+if [ -n "${SKEIN_RELEASE_DIST:-}" ]; then
+    cp "$SKEIN_RELEASE_DIST"/skein_agents-*.whl "$tmp/consumer/dist/"
+else
+    UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
+        uv build --quiet --wheel --out-dir "$tmp/consumer/dist" backend
+fi
+UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
+    uv build --quiet --wheel --out-dir "$tmp/consumer/dist" "$tmp/consumer"
+shopt -s nullglob
+core_wheels=("$tmp/consumer/dist"/skein_agents-*.whl)
+extension_wheels=("$tmp/consumer/dist"/atlas_skein_extension-*.whl)
+shopt -u nullglob
+[ "${#core_wheels[@]}" -eq 1 ]
+[ "${#extension_wheels[@]}" -eq 1 ]
+
 (
     cd "$tmp/consumer"
+    export NEXT_PUBLIC_API_URL=http://127.0.0.1:8601
+    export NEXT_PUBLIC_SITE_URL=http://127.0.0.1:3601
     npm ci --ignore-scripts --no-audit --no-fund >/dev/null
     npm ls @miloctl/skein-extension-api react react-dom --all >/dev/null
     node - <<'JS'
@@ -212,5 +252,77 @@ done
     echo "reference-frontend-contract: the standalone server was not ready. Read the log and fix the runtime." >&2
     exit 1
 }
+kill "$server_pid"
+wait "$server_pid" >/dev/null 2>&1 || true
+server_pid=""
 
-echo "reference-frontend-contract: packed @miloctl/skein-frontend-host and Atlas 2.0 built a clean standalone workplace frontend"
+python="backend/.venv/bin/python"
+[ -x "$python" ] || python="$(command -v python3)"
+UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv venv --quiet --python "$python" "$tmp/venv"
+UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip install --quiet \
+    --python "$tmp/venv/bin/python" \
+    --require-hashes -r "$tmp/consumer/requirements-test.lock"
+UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip install --quiet \
+    --python "$tmp/venv/bin/python" --no-deps \
+    "${core_wheels[0]}" "${extension_wheels[0]}"
+UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip check --python "$tmp/venv/bin/python"
+
+wait_for_url() {
+    pid="$1"
+    url="$2"
+    label="$3"
+    log="$4"
+    for _attempt in $(seq 1 120); do
+        if ! kill -0 "$pid" >/dev/null 2>&1; then
+            echo "reference-frontend-contract: the $label stopped before it was ready. Read the log and fix the runtime." >&2
+            while IFS= read -r line; do echo "$line" >&2; done <"$log"
+            exit 1
+        fi
+        if curl --fail --silent "$url" >/dev/null; then
+            return
+        fi
+        sleep 0.5
+    done
+    echo "reference-frontend-contract: the $label was not ready. Read the log and fix the runtime." >&2
+    while IFS= read -r line; do echo "$line" >&2; done <"$log"
+    exit 1
+}
+
+groups='{"ava":["skein-admins"],"nina":["skein-admins","atlas-integrations"],"mira":["skein-admins","atlas-delivery-managers"]}'
+"$tmp/venv/bin/python" scripts/stub-idp.py 8610 skein "$groups" >"$tmp/idp.log" 2>&1 &
+idp_pid=$!
+wait_for_url "$idp_pid" http://127.0.0.1:8610/jwks "stub identity provider" "$tmp/idp.log"
+
+env -C "$tmp/run" \
+    -u PYTHONPATH -u PYTHONHOME -u ATLAS_API_URL -u ATLAS_API_TOKEN \
+    PYTHONNOUSERSITE=1 \
+    ATLAS_SKEIN_STORE=atlas-contract \
+    SKEIN_DATABASE_URL="$SKEIN_DATABASE_URL" \
+    SKEIN_DATA_DIR="$tmp/data" \
+    SKEIN_MODEL_PROVIDER=mock \
+    SKEIN_SCHEDULER=0 \
+    SKEIN_AUTH_MODE=oidc \
+    SKEIN_OIDC_ISSUER=http://127.0.0.1:8610 \
+    SKEIN_OIDC_AUDIENCE=skein \
+    SKEIN_OIDC_CLIENT_ID=skein-web \
+    SKEIN_OIDC_ADMIN_GROUP=skein-admins \
+    SKEIN_CORS_ORIGINS=http://127.0.0.1:3601 \
+    SKEIN_PLAYBOOKS_DIR="$tmp/consumer/content/playbooks" \
+    SKEIN_PERSONAS_DIR="$tmp/consumer/content/personas" \
+    SKEIN_FLOCKS_DIR="$tmp/consumer/content/flocks" \
+    SKEIN_E2E_APP=atlas_skein.app:app \
+    SKEIN_E2E_PORT=8601 \
+    SKEIN_E2E_SEED=0 \
+    "$tmp/venv/bin/python" "$PWD/scripts/e2e-backend.py" >"$tmp/backend.log" 2>&1 &
+backend_pid=$!
+wait_for_url "$backend_pid" http://127.0.0.1:8601/health "installed Atlas backend" "$tmp/backend.log"
+
+env -C "$tmp/runtime" PORT=3601 HOSTNAME=127.0.0.1 node server.js >"$tmp/runtime.log" 2>&1 &
+server_pid=$!
+wait_for_url "$server_pid" http://127.0.0.1:3601/ "copied workplace frontend" "$tmp/runtime.log"
+
+env -C frontend PW_REUSE=1 SKEIN_WORKPLACE_RUNTIME=1 \
+    npx playwright test --config playwright.oidc.config.ts \
+    e2e-oidc/workplace-runtime.spec.ts
+
+echo "reference-frontend-contract: packed packages built and walked the signed Atlas workplace runtime"
