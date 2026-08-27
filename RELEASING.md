@@ -144,13 +144,19 @@ The protected `main` workflow builds each artifact once. The contracts and publi
 
 The workflow publishes the extension API before the frontend host. PyPI publication uses GitHub OIDC and stores no PyPI token.
 
-## Retry npm publication only
+## Retry a partial publication
 
-If PyPI succeeds and npm fails, do not change `.github/release-version`.
+Do not change `.github/release-version`. Copy the original release run ID from its Actions URL.
 
-Open the GitHub `ci` workflow and select **Run workflow**. Select branch `main` and set `retry_npm` to true.
+Open the GitHub `ci` workflow and select **Run workflow**. Select branch `main` and enter the original release run ID.
 
-The manual run repeats all five gates. It skips PyPI and runs only the npm publisher after the `npm` environment approval.
+The manual run repeats all five gates. It then checks the original run through the GitHub API.
+
+The retry proceeds only when the original run passed every release gate, attempted both publishers, and still holds one usable `release-packages` artifact. A normal CI run is not a release source.
+
+Both publishers consume that original artifact. An identical published file is a no-op, a missing file publishes, and different bytes fail closed.
+
+Approve both the `pypi` and `npm` environments. If the original artifact expired, publish a new version instead of rebuilding the old version from current source.
 
 ## Validate the published packages
 

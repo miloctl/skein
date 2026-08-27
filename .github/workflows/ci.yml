@@ -12,11 +12,10 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      retry_npm:
-        description: Retry only the npm publication after all gates pass
+      retry_run_id:
+        description: Original release workflow run ID
         required: true
-        type: boolean
-        default: false
+        type: string
 
 permissions:
   contents: read
@@ -279,9 +278,12 @@ jobs:
     if: github.ref == 'refs/heads/main'
     needs: [packages, backend, frontend, extension-contracts, e2e]
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     outputs:
+      artifact_run_id: ${{ steps.release.outputs.artifact_run_id }}
       publish: ${{ steps.release.outputs.publish }}
-      retry_npm: ${{ steps.release.outputs.retry_npm }}
       version: ${{ steps.release.outputs.version }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -291,18 +293,14 @@ jobs:
         id: release
         env:
           BEFORE_SHA: ${{ github.event.before }}
-          RETRY_NPM: ${{ inputs.retry_npm || false }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RETRY_RUN_ID: ${{ inputs.retry_run_id }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            if [ "$RETRY_NPM" != "true" ]; then
-              echo "release-guard: select retry_npm for a manual run." >&2
-              exit 1
-            fi
-            echo "publish=false" >>"$GITHUB_OUTPUT"
-            echo "retry_npm=true" >>"$GITHUB_OUTPUT"
+            python scripts/validate_release_run.py
+            echo "publish=true" >>"$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "retry_npm=false" >>"$GITHUB_OUTPUT"
           version="$(tr -d '[:space:]' <.github/release-version)"
           if [ "$version" = "unreleased" ]; then
             echo "publish=false" >>"$GITHUB_OUTPUT"
@@ -323,6 +321,7 @@ jobs:
             echo "release-guard: release-version does not match the declared version." >&2
             exit 1
           fi
+          echo "artifact_run_id=$GITHUB_RUN_ID" >>"$GITHUB_OUTPUT"
           echo "publish=true" >>"$GITHUB_OUTPUT"
           echo "version=$version" >>"$GITHUB_OUTPUT"
 
@@ -332,12 +331,15 @@ jobs:
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
+      actions: read
       id-token: write
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: release-packages
           path: dist
+          run-id: ${{ needs.release-guard.outputs.artifact_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Select the tested wheel
         run: |
           mkdir pypi-dist
@@ -350,17 +352,20 @@ jobs:
         run: uv publish --trusted-publishing always pypi-dist/*.whl
 
   publish-npm:
-    if: needs.release-guard.outputs.publish == 'true' || needs.release-guard.outputs.retry_npm == 'true'
+    if: needs.release-guard.outputs.publish == 'true'
     needs: [packages, backend, frontend, extension-contracts, e2e, release-guard]
     runs-on: ubuntu-latest
     environment: npm
     permissions:
+      actions: read
       packages: write
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: release-packages
           path: dist
+          run-id: ${{ needs.release-guard.outputs.artifact_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
