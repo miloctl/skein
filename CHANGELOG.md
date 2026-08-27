@@ -14,7 +14,7 @@ A contract entry names the version a package must declare to use it. Additive
 contracts keep extension API 1.0: a package that does not use the new contract
 keeps its existing `minimum_core` and needs no change.
 
-## 0.3.0 — Unreleased
+## 0.3.0 — 2026-08-27
 
 Two deployment defaults changed, and both are visible to a private package.
 This is a MINOR release for exactly that reason: a package declaring
