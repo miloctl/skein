@@ -29,11 +29,12 @@ app_password="contract-app-$suffix"
 cleanup() {
     status=$?
     if [ "$status" -ne 0 ]; then
-        docker logs "$db_container" >&2 || true
-        docker logs "$core_backend_container" >&2 || true
-        docker logs "$core_frontend_container" >&2 || true
-        docker logs "$backend_container" >&2 || true
-        docker logs "$frontend_container" >&2 || true
+        for container in "$db_container" "$core_backend_container" \
+            "$core_frontend_container" "$backend_container" "$frontend_container"; do
+            if docker container inspect "$container" >/dev/null 2>&1; then
+                docker logs "$container" >&2 || true
+            fi
+        done
     fi
     docker container rm -f "$frontend_container" "$backend_container" \
         "$core_frontend_container" "$core_backend_container" \
@@ -68,7 +69,7 @@ pip_config="$tmp/pip.conf"
 npm_config="$tmp/npmrc"
 printf '[global]\nindex-url = %s\n' \
     "${PIP_INDEX_URL:-https://pypi.org/simple}" >"$pip_config"
-printf 'registry=%s\nreplace-registry-host=always\n' \
+printf 'registry=%s\nreplace-registry-host=npmjs\n' \
     "${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}" >"$npm_config"
 
 shopt -s nullglob
@@ -82,23 +83,36 @@ shopt -u nullglob
 [ "${#api_packages[@]}" -eq 1 ]
 [ "${#host_packages[@]}" -eq 1 ]
 
-docker build --quiet -t "$core_backend_image" backend >/dev/null
-docker build --quiet \
+build_image() {
+    local label="$1" log="$tmp/build-$1.log" status
+    shift
+    if docker build --progress=plain "$@" >"$log" 2>&1; then
+        echo "reference-images-contract: built $label"
+        return
+    else
+        status=$?
+    fi
+    while IFS= read -r line; do echo "$line" >&2; done <"$log"
+    return "$status"
+}
+
+build_image core-backend -t "$core_backend_image" backend
+build_image core-frontend \
     --build-arg NEXT_PUBLIC_API_URL=https://core-api.contract.invalid \
     --build-arg NEXT_PUBLIC_SITE_URL=https://core-site.contract.invalid \
     --build-arg NEXT_PUBLIC_API_TOKEN=core-browser-token \
-    -t "$core_frontend_image" frontend >/dev/null
-docker build --quiet \
+    -t "$core_frontend_image" frontend
+build_image Atlas-backend \
     --secret "id=pip-config,src=$pip_config" \
     -f "$extension/deployment/Dockerfile" \
-    -t "$backend_image" "$extension" >/dev/null
-docker build --quiet \
+    -t "$backend_image" "$extension"
+build_image Atlas-frontend \
     --secret "id=npm-config,src=$npm_config" \
     --build-arg NEXT_PUBLIC_API_URL=https://api.contract.invalid \
     --build-arg NEXT_PUBLIC_SITE_URL=https://site.contract.invalid \
     --build-arg NEXT_PUBLIC_API_TOKEN=contract-browser-token \
     -f "$extension/deployment/Frontend.Dockerfile" \
-    -t "$frontend_image" "$extension" >/dev/null
+    -t "$frontend_image" "$extension"
 
 docker image inspect "$core_backend_image" "$core_frontend_image" \
     "$backend_image" "$frontend_image" >/dev/null

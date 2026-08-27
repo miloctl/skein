@@ -113,10 +113,12 @@ Route normal npm packages through the controlled npm mirror. Route the private s
 
 ```ini
 registry=https://<controlled-npm-mirror>/
-replace-registry-host=always
+replace-registry-host=npmjs
 @miloctl:registry=https://npm.pkg.github.com
 //npm.pkg.github.com/:_authToken=${NPM_TOKEN}
 ```
+
+Keep `replace-registry-host=npmjs`. The `always` value rewrites local `file:` tarballs as registry URLs under npm 10.
 
 Use a classic GitHub PAT with `read:packages` for local and non-GitHub installs. Do not commit the token.
 
@@ -401,7 +403,7 @@ index-url = https://<controlled-python-mirror>/simple
 ```ini
 # /run/secrets/npmrc
 registry=https://<controlled-npm-mirror>/
-replace-registry-host=always
+replace-registry-host=npmjs
 ```
 
 The Containerfiles require these BuildKit secrets. The secret files do not enter an image layer.

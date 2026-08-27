@@ -16,6 +16,11 @@ grep -q "skein_agents-0.3.0-py3-none-any.whl" "$deployment/Dockerfile"
 grep -q "atlas_skein_extension-2.0.0-py3-none-any.whl" "$deployment/Dockerfile"
 grep -q "id=pip-config.*required=true" "$deployment/Dockerfile"
 grep -q "id=npm-config.*required=true" "$deployment/Frontend.Dockerfile"
+grep -q "replace-registry-host=npmjs" "$root/scripts/reference-images-contract.sh"
+if grep -q "replace-registry-host=always" "$root/scripts/reference-images-contract.sh"; then
+  echo "reference-deployment-contract: npm always-mode rewrites local tarballs as registry URLs" >&2
+  exit 1
+fi
 if grep -Eq '(skein_agents|atlas_skein_extension)-\*\.whl' "$deployment/Dockerfile"; then
   echo "reference-deployment-contract: the backend image accepts an ambiguous wheel name" >&2
   exit 1
