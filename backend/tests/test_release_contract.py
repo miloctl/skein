@@ -203,7 +203,10 @@ def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
     assert "release-guard:" in github
     assert ".github/release-version" in github
     assert "github.event.before" in github
+    assert "workflow_dispatch:" in github
+    assert "retry_npm:" in github
     assert "needs.release-guard.outputs.publish == 'true'" in github
+    assert "needs.release-guard.outputs.retry_npm == 'true'" in github
     gated_publishers = (
         "needs: [packages, backend, frontend, extension-contracts, e2e, release-guard]"
     )
@@ -225,6 +228,8 @@ def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
     assert "dist.integrity" in github
     assert "E404|404 Not Found" in github
     assert "for attempt in 1 2 3" in github
+    assert "publish_package ./dist/miloctl-skein-extension-api-*.tgz" in github
+    assert "publish_package ./dist/miloctl-skein-frontend-host-*.tgz" in github
     assert github.index("miloctl-skein-extension-api-*.tgz") < github.index(
         "miloctl-skein-frontend-host-*.tgz"
     )
@@ -232,4 +237,5 @@ def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
     assert "reviewed release pull request" in releasing
     assert "pypi` and `npm` environments" in releasing
     assert "SKEIN_RELEASE_DIST=/tmp/skein-release" in releasing
+    assert "set `retry_npm` to true" in releasing
     assert "./scripts/audit-deps.sh workplace" in (ROOT / ".gitea/workflows/weekly.yml").read_text()

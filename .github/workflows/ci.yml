@@ -10,6 +10,13 @@ on:
     branches: [main]
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      retry_npm:
+        description: Retry only the npm publication after all gates pass
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -269,11 +276,12 @@ jobs:
         run: npx playwright test --config playwright.oidc.config.ts
 
   release-guard:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main'
     needs: [packages, backend, frontend, extension-contracts, e2e]
     runs-on: ubuntu-latest
     outputs:
       publish: ${{ steps.release.outputs.publish }}
+      retry_npm: ${{ steps.release.outputs.retry_npm }}
       version: ${{ steps.release.outputs.version }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -283,7 +291,18 @@ jobs:
         id: release
         env:
           BEFORE_SHA: ${{ github.event.before }}
+          RETRY_NPM: ${{ inputs.retry_npm || false }}
         run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$RETRY_NPM" != "true" ]; then
+              echo "release-guard: select retry_npm for a manual run." >&2
+              exit 1
+            fi
+            echo "publish=false" >>"$GITHUB_OUTPUT"
+            echo "retry_npm=true" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "retry_npm=false" >>"$GITHUB_OUTPUT"
           version="$(tr -d '[:space:]' <.github/release-version)"
           if [ "$version" = "unreleased" ]; then
             echo "publish=false" >>"$GITHUB_OUTPUT"
@@ -331,7 +350,7 @@ jobs:
         run: uv publish --trusted-publishing always pypi-dist/*.whl
 
   publish-npm:
-    if: needs.release-guard.outputs.publish == 'true'
+    if: needs.release-guard.outputs.publish == 'true' || needs.release-guard.outputs.retry_npm == 'true'
     needs: [packages, backend, frontend, extension-contracts, e2e, release-guard]
     runs-on: ubuntu-latest
     environment: npm
@@ -396,5 +415,5 @@ jobs:
             fi
             npm publish "$archive" --registry "$url"
           }
-          publish_package dist/miloctl-skein-extension-api-*.tgz
-          publish_package dist/miloctl-skein-frontend-host-*.tgz
+          publish_package ./dist/miloctl-skein-extension-api-*.tgz
+          publish_package ./dist/miloctl-skein-frontend-host-*.tgz
