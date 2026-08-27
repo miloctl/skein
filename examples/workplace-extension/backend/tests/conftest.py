@@ -1,4 +1,4 @@
-"""Compose Atlas against a disposable Skein data directory.
+"""Compose Atlas against disposable Skein test storage.
 
 Set the environment before the first `app` import. Skein binds its
 configuration when `app.config` imports, so a value set later has no
@@ -6,19 +6,27 @@ effect (docs/EXTENSIONS.md, "Package and deploy").
 """
 
 import os
+import re
 import tempfile
 import uuid
 from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+_DATABASE_URL = os.environ.get("SKEIN_DATABASE_URL", "")
+if not _DATABASE_URL:
+    raise RuntimeError("Set SKEIN_DATABASE_URL to a disposable PostgreSQL database before tests.")
+_DATABASE_NAME = unquote(urlparse(_DATABASE_URL).path.rsplit("/", 1)[-1])
+if not re.search(r"(?:^|[_.-])(?:test|tests|contract|scratch)(?:[_.-]|$)", _DATABASE_NAME):
+    raise RuntimeError("Use a disposable database name that contains test, contract, or scratch.")
 
 _DATA_DIR = Path(tempfile.mkdtemp(prefix="atlas-skein-test-"))
 os.environ.setdefault("SKEIN_DATA_DIR", str(_DATA_DIR))
+os.environ["SKEIN_AUTH_MODE"] = "trusted-header"
 os.environ.setdefault("SKEIN_MODEL_PROVIDER", "mock")
 os.environ.setdefault("SKEIN_SCHEDULER", "0")
 
-# The imports stay below the environment setup on purpose: importing any
-# `app` or `atlas_skein` module earlier would bind the default data paths.
+# Importing `app` or `atlas_skein` earlier binds configuration before test isolation is set.
 import pytest  # noqa: E402
-
 from atlas_skein.integration import AtlasItem, MemoryAtlasClient  # noqa: E402
 from atlas_skein.module import AtlasSettings, atlas_module  # noqa: E402
 

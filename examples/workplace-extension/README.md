@@ -2,6 +2,8 @@
 
 Atlas is a fictional private extension. It shows how a workplace application can depend on Skein without a Skein source checkout.
 
+This file is the in-tree reference README. Commands that start with `scripts/`, `backend/`, or `PYTHONPATH=backend` run from the Skein source tree. If you copy this example into an external repository, replace this file with a consumer README that runs from the consumer root and uses installed Skein packages.
+
 The workplace repository owns these items:
 
 - The Atlas Python package.
@@ -13,6 +15,32 @@ The workplace repository owns these items:
 - Deployment files.
 
 Skein does not scan installed packages. The Atlas composition root explicitly passes its module to `create_app`.
+
+## Customize before you create locks
+
+Rename the starter as one identity. Check all these surfaces:
+
+- The Python distribution and import package.
+- The root npm package and frontend workspace.
+- The extension ID, contribution IDs, policy actions, and capabilities.
+- Service identities, API routes, and environment variables.
+- The extension store and its derived PostgreSQL schema.
+- Content filenames and content references.
+- Backend and frontend images.
+- ConfigMaps, Secrets, tests, dependency lock inputs and generated locks, and documentation.
+
+Search tracked paths and file contents for `atlas` after the rename. Also check compiled frontend extension text and `kubectl kustomize .` output. Those generated surfaces can keep an old identity after the source rename is complete.
+
+Regenerate artifacts and locks in this order:
+
+1. Rename manifests, source, content, tests, and deployment files.
+2. Build the private extension wheel.
+3. Download the Skein wheel and repack the two Skein npm packages into `dist/`.
+4. Use Node 22 to regenerate `package-lock.json`.
+5. Regenerate `requirements.lock` only when the Python dependency graph changes.
+6. Run `npm ci`, `pip check`, and every package, image, deployment, and browser contract.
+
+Do not hand-edit either lock. Keep the exact first-party artifacts in `dist/` while you create the npm lock and build the final images.
 
 ## Package boundaries
 
@@ -62,6 +90,24 @@ The Atlas test suite imports only these public surfaces:
 - `app.main.create_app`
 
 The import-boundary test refuses other `app.*` imports.
+
+## Run backend tests in a copied repository
+
+The test fixture sets `SKEIN_AUTH_MODE=trusted-header` before the first `app` import. It also refuses a missing database URL or a database name that does not contain `test`, `tests`, `contract`, or `scratch`.
+
+Create an empty disposable PostgreSQL database for each run. Do not run extension tests against a populated development database:
+
+```sh
+dropdb --if-exists --host 127.0.0.1 --username skein skein_atlas_test
+createdb --host 127.0.0.1 --username skein skein_atlas_test
+
+SKEIN_DATABASE_URL=postgresql://skein:skein@127.0.0.1:5432/skein_atlas_test \
+  .venv/bin/python -m pytest -q backend/tests
+
+dropdb --host 127.0.0.1 --username skein skein_atlas_test
+```
+
+Run these commands from the copied consumer root after the installed wheel and test dependencies are in `.venv`.
 
 ## Run the frontend package contract
 
@@ -146,5 +192,15 @@ kubectl kustomize examples/workplace-extension
 ```
 
 Apply it only after you configure the database, image names, Secrets, Routes, and storage class.
+
+## Run clean-consumer acceptance
+
+Run these checks from the consumer repository, outside the Skein source tree:
+
+- Import `app` from the installed wheel under `site-packages`, not from `PYTHONPATH` or an editable Skein checkout.
+- Copy `dist/frontend` to a temporary directory outside the repository and start `node server.js` there.
+- Run `kubectl kustomize .` from the consumer root without a path into a Skein checkout.
+- Confirm that the repository contains no Skein source directory or Skein Git history.
+- After a rename, confirm that the prior starter identity is absent from tracked paths, source text, compiled frontend extension text, and rendered deployment output.
 
 Do not put real workplace names, URLs, or credentials in this example.
