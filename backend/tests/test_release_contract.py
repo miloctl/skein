@@ -1,6 +1,7 @@
 """Release metadata must not drift across the core and reference packages."""
 
 import json
+import re
 import tomllib
 from pathlib import Path
 
@@ -25,14 +26,25 @@ def test_core_release_and_extension_api_versions_are_synchronized():
 
     assert backend["name"] == "skein-agents"
     assert backend["version"] == frontend["version"] == SKEIN_CORE_VERSION
-    assert frontend["name"] == "@skein/frontend-host"
+    assert frontend["name"] == "@miloctl/skein-frontend-host"
     assert frontend["private"] is False
     assert frontend_lock["name"] == frontend["name"]
     assert frontend_lock["version"] == frontend["version"]
     assert frontend_lock["packages"][""]["name"] == frontend["name"]
     assert frontend_lock["packages"][""]["version"] == frontend["version"]
-    assert frontend["peerDependencies"]["@skein/extension-api"] == frontend_api["version"]
+    assert frontend_api["name"] == "@miloctl/skein-extension-api"
+    assert frontend["peerDependencies"]["@miloctl/skein-extension-api"] == frontend_api["version"]
     assert frontend["engines"]["node"] == "22.x"
+    for package, directory in (
+        (frontend, "frontend"),
+        (frontend_api, "frontend/packages/extension-api"),
+    ):
+        assert package["repository"] == {
+            "type": "git",
+            "url": "git+https://github.com/miloctl/skein.git",
+            "directory": directory,
+        }
+        assert package["publishConfig"] == {"registry": "https://npm.pkg.github.com"}
     assert frontend_api["license"] == "Apache-2.0"
     assert {"LICENSE", "NOTICE"} <= set(frontend["files"])
     assert {"LICENSE", "NOTICE"} <= set(frontend_api["files"])
@@ -71,6 +83,10 @@ def test_reference_extension_metadata_uses_owned_compatibility_literals():
     for name in ("next", "react", "react-dom"):
         assert workplace_package["dependencies"][name] == host_package["dependencies"][name]
     assert workplace_package["overrides"] == host_package["overrides"]
+    for name in ("@miloctl/skein-extension-api", "@miloctl/skein-frontend-host"):
+        locked = workplace_lock["packages"][f"node_modules/{name}"]
+        assert locked["integrity"].startswith("sha512-")
+        assert not locked.get("link", False)
     assert (
         f"skein-agents>={manifest['minimum_core']},<{manifest['maximum_core_exclusive']}"
         in tuple(backend_package["dependencies"])
@@ -159,10 +175,48 @@ def test_extension_api_one_exports_exactly_the_documented_surface():
 def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
     gitea = (ROOT / ".gitea/workflows/ci.yml").read_text()
     github = (ROOT / ".github/workflows/ci.yml").read_text()
+    releasing = (ROOT / "RELEASING.md").read_text()
     for workflow in (gitea, github):
-        assert "actions/upload-artifact@v4" in workflow
-        assert "actions/download-artifact@v4" in workflow
+        assert "actions/upload-artifact@" in workflow
+        assert "actions/download-artifact@" in workflow
         assert "SKEIN_RELEASE_DIST:" in workflow
-    assert gitea.index("name: Publish the wheel") < gitea.index("name: Publish the npm packages")
-    assert "--check-url" in gitea
+    for action in re.findall(r"uses:\s+(\S+)", github):
+        assert re.search(r"@[0-9a-f]{40}$", action), action
+
+    assert 'tags: ["v*"]' not in github + gitea
+    assert (ROOT / ".github/release-version").read_text() == "unreleased\n"
+    assert "\n  publish:" not in gitea
+    assert "PACKAGE_TOKEN" not in gitea + github
+    assert "release-guard:" in github
+    assert ".github/release-version" in github
+    assert "github.event.before" in github
+    assert "needs.release-guard.outputs.publish == 'true'" in github
+    gated_publishers = (
+        "needs: [packages, backend, frontend, extension-contracts, e2e, release-guard]"
+    )
+    assert github.count(gated_publishers) == 2
+
+    assert "publish-pypi:" in github
+    assert "environment: pypi" in github
+    assert "id-token: write" in github
+    assert 'version: "0.11.11"' in github
+    assert "pypi-dist" in github
+    assert "uv publish --trusted-publishing always" in github
+
+    assert "publish-npm:" in github
+    assert "environment: npm" in github
+    assert "packages: write" in github
+    assert "https://npm.pkg.github.com" in github
+    assert 'scope: "@miloctl"' in github
+    assert "secrets.GITHUB_TOKEN" in github
+    assert "dist.integrity" in github
+    assert "E404|404 Not Found" in github
+    assert "for attempt in 1 2 3" in github
+    assert github.index("miloctl-skein-extension-api-*.tgz") < github.index(
+        "miloctl-skein-frontend-host-*.tgz"
+    )
+    assert "ghcr.io" not in github
+    assert "reviewed release pull request" in releasing
+    assert "pypi` and `npm` environments" in releasing
+    assert "SKEIN_RELEASE_DIST=/tmp/skein-release" in releasing
     assert "./scripts/audit-deps.sh workplace" in (ROOT / ".gitea/workflows/weekly.yml").read_text()

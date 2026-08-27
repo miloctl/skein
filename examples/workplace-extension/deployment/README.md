@@ -17,6 +17,10 @@ npm pack --pack-destination examples/workplace-extension/dist \
 npm pack --pack-destination examples/workplace-extension/dist ./frontend
 ```
 
+These source commands are the local contract rehearsal. A separate workplace repository downloads `skein-agents` from PyPI and packs the private `@miloctl` packages from GitHub Packages.
+
+GitHub Packages installation needs a classic PAT with `read:packages` outside GitHub Actions. Complete the authenticated `.npmrc` before staging the tarballs.
+
 The Dockerfiles require the exact `0.3.0`, `1.0.0`, and `2.0.0` artifact names. A clean `dist` directory prevents an older artifact from entering a build.
 
 The Atlas npm lock contains the integrity values for the two npm tarballs. If the package bytes change, regenerate the lock.

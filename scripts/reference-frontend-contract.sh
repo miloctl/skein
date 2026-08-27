@@ -20,15 +20,15 @@ trap cleanup EXIT
 mkdir -p "$tmp/tarballs" "$tmp/consumer/dist"
 
 if [ -n "${SKEIN_RELEASE_DIST:-}" ]; then
-    cp "$SKEIN_RELEASE_DIST/skein-extension-api-1.0.0.tgz" "$tmp/tarballs/"
-    cp "$SKEIN_RELEASE_DIST/skein-frontend-host-0.3.0.tgz" "$tmp/tarballs/"
+    cp "$SKEIN_RELEASE_DIST/miloctl-skein-extension-api-1.0.0.tgz" "$tmp/tarballs/"
+    cp "$SKEIN_RELEASE_DIST/miloctl-skein-frontend-host-0.3.0.tgz" "$tmp/tarballs/"
 else
     npm pack --silent --pack-destination "$tmp/tarballs" ./frontend/packages/extension-api >/dev/null
     npm pack --silent --pack-destination "$tmp/tarballs" ./frontend >/dev/null
 fi
 shopt -s nullglob
-api_tar=("$tmp/tarballs"/skein-extension-api-*.tgz)
-host_tar=("$tmp/tarballs"/skein-frontend-host-*.tgz)
+api_tar=("$tmp/tarballs"/miloctl-skein-extension-api-*.tgz)
+host_tar=("$tmp/tarballs"/miloctl-skein-frontend-host-*.tgz)
 shopt -u nullglob
 [ "${#api_tar[@]}" -eq 1 ]
 [ "${#host_tar[@]}" -eq 1 ]
@@ -48,23 +48,23 @@ if grep -Eq 'package/(__tests__|node_modules|\.next|packages/extension-api)' "$h
 fi
 [ "$(tar -xOzf "${host_tar[0]}" package/package.json | node -e \
     'let s=""; process.stdin.on("data",c=>s+=c).on("end",()=>console.log(JSON.parse(s).name))')" \
-    = "@skein/frontend-host" ]
+    = "@miloctl/skein-frontend-host" ]
 [ "$(tar -xOzf "${api_tar[0]}" package/package.json | node -e \
     'let s=""; process.stdin.on("data",c=>s+=c).on("end",()=>console.log(JSON.parse(s).name))')" \
-    = "@skein/extension-api" ]
+    = "@miloctl/skein-extension-api" ]
 
 tar --exclude=node_modules --exclude=dist --exclude=.skein -cf - \
     -C examples/workplace-extension . | tar -xf - -C "$tmp/consumer"
-cp "${api_tar[0]}" "$tmp/consumer/dist/skein-extension-api-1.0.0.tgz"
-cp "${host_tar[0]}" "$tmp/consumer/dist/skein-frontend-host-0.3.0.tgz"
+cp "${api_tar[0]}" "$tmp/consumer/dist/miloctl-skein-extension-api-1.0.0.tgz"
+cp "${host_tar[0]}" "$tmp/consumer/dist/miloctl-skein-frontend-host-0.3.0.tgz"
 
 (
     cd "$tmp/consumer"
     npm ci --ignore-scripts --no-audit --no-fund >/dev/null
-    npm ls @skein/extension-api react react-dom --all >/dev/null
+    npm ls @miloctl/skein-extension-api react react-dom --all >/dev/null
     node - <<'JS'
 const lock = require("./package-lock.json");
-for (const name of ["@skein/extension-api", "@skein/frontend-host"]) {
+for (const name of ["@miloctl/skein-extension-api", "@miloctl/skein-frontend-host"]) {
   const entry = lock.packages[`node_modules/${name}`];
   if (!entry?.integrity || entry.link) throw new Error(`${name} is not an integrity-locked tarball`);
 }
@@ -86,7 +86,7 @@ JS
     expect_build_refusal missing-lock "The workplace package lock is absent."
     mv package-lock.saved package-lock.json
 
-    for dependency in @skein/frontend-host @skein/extension-api; do
+    for dependency in @miloctl/skein-frontend-host @miloctl/skein-extension-api; do
         cp package.json package.saved
         DEPENDENCY="$dependency" node - <<'JS'
 const fs = require("node:fs");
@@ -99,6 +99,11 @@ JS
         expect_build_refusal missing-direct "is not a direct workplace dependency."
         mv package.saved package.json
     done
+
+    cp dist/miloctl-skein-frontend-host-0.3.0.tgz host-tarball.saved
+    printf '\nchanged-after-lock\n' >>dist/miloctl-skein-frontend-host-0.3.0.tgz
+    expect_build_refusal changed-package-bytes "package bytes do not match the workplace lock."
+    mv host-tarball.saved dist/miloctl-skein-frontend-host-0.3.0.tgz
 
     manifests_before="$(sha256sum package.json package-lock.json)"
     modules_before="$(find node_modules -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum)"
@@ -208,4 +213,4 @@ done
     exit 1
 }
 
-echo "reference-frontend-contract: packed @skein/frontend-host and Atlas 2.0 built a clean standalone workplace frontend"
+echo "reference-frontend-contract: packed @miloctl/skein-frontend-host and Atlas 2.0 built a clean standalone workplace frontend"

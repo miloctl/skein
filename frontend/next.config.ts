@@ -14,7 +14,7 @@ const nextConfig: NextConfig = {
   // and installed extension packages live.
   turbopack: { root: workspaceRoot },
   outputFileTracingRoot: workspaceRoot,
-  transpilePackages: ["@skein/extension-api"],
+  transpilePackages: ["@miloctl/skein-extension-api"],
   // The packaged command owns one production shape regardless of inherited
   // Playwright variables. Source-tree e2e builds keep their separate dist dir.
   output: packagedBuild || !process.env.NEXT_DIST_DIR ? "standalone" : undefined,

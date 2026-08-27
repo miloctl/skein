@@ -10,8 +10,8 @@
     "build:frontend": "npm run build:extension && skein-frontend-build @atlas/skein-extension"
   },
   "dependencies": {
-    "@skein/extension-api": "file:dist/skein-extension-api-1.0.0.tgz",
-    "@skein/frontend-host": "file:dist/skein-frontend-host-0.3.0.tgz",
+    "@miloctl/skein-extension-api": "file:dist/miloctl-skein-extension-api-1.0.0.tgz",
+    "@miloctl/skein-frontend-host": "file:dist/miloctl-skein-frontend-host-0.3.0.tgz",
     "next": "16.2.11",
     "react": "19.2.4",
     "react-dom": "19.2.4"

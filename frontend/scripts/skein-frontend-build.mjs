@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   cpSync,
@@ -101,14 +102,14 @@ function packageRoot(name) {
 }
 
 const packageRoots = new Map(
-  ["@skein/frontend-host", "@skein/extension-api", ...extensions].map((name) => [
+  ["@miloctl/skein-frontend-host", "@miloctl/skein-extension-api", ...extensions].map((name) => [
     name,
     packageRoot(name),
   ]),
 );
 for (const name of [
-  "@skein/frontend-host",
-  "@skein/extension-api",
+  "@miloctl/skein-frontend-host",
+  "@miloctl/skein-extension-api",
   "next",
   "react",
   "react-dom",
@@ -124,19 +125,30 @@ for (const name of [
   if (!locked || locked.link || !locked.integrity) {
     throw new Error(`${name} is not integrity-locked. Regenerate the package lock.`);
   }
+  if (declared.startsWith("file:")) {
+    const archive = path.resolve(workplaceRoot, declared.slice("file:".length));
+    const relative = path.relative(workplaceRoot, archive);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      throw new Error(`${name} resolves outside the workplace root. Stage it inside the workplace root.`);
+    }
+    const integrity = `sha512-${createHash("sha512").update(readFileSync(archive)).digest("base64")}`;
+    if (locked.integrity !== integrity) {
+      throw new Error(`${name} package bytes do not match the workplace lock. Repack it and regenerate the lock.`);
+    }
+  }
   const root = packageRoots.get(name) ?? packageRoot(name);
   const installed = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
   if (locked.version !== installed.version) {
     throw new Error(`${name} does not match the installed package. Run npm ci.`);
   }
-  if (name.startsWith("@skein/") && !declared.startsWith("file:") && declared !== installed.version) {
+  if (name.startsWith("@miloctl/") && !declared.startsWith("file:") && declared !== installed.version) {
     throw new Error(`${name} is not pinned to an exact version. Pin the installed version.`);
   }
 }
 const installedApi = JSON.parse(
-  readFileSync(path.join(packageRoots.get("@skein/extension-api"), "package.json"), "utf8"),
+  readFileSync(path.join(packageRoots.get("@miloctl/skein-extension-api"), "package.json"), "utf8"),
 );
-if (installedApi.version !== hostManifest.peerDependencies["@skein/extension-api"]) {
+if (installedApi.version !== hostManifest.peerDependencies["@miloctl/skein-extension-api"]) {
   throw new Error("The extension API version does not match the frontend host. Install the required version.");
 }
 for (const name of ["postcss", "sharp"]) {

@@ -53,8 +53,8 @@ extension="$tmp"
 mkdir -p "$extension/dist"
 if [ -n "${SKEIN_RELEASE_DIST:-}" ]; then
     cp "$SKEIN_RELEASE_DIST/skein_agents-0.3.0-py3-none-any.whl" "$extension/dist/"
-    cp "$SKEIN_RELEASE_DIST/skein-extension-api-1.0.0.tgz" "$extension/dist/"
-    cp "$SKEIN_RELEASE_DIST/skein-frontend-host-0.3.0.tgz" "$extension/dist/"
+    cp "$SKEIN_RELEASE_DIST/miloctl-skein-extension-api-1.0.0.tgz" "$extension/dist/"
+    cp "$SKEIN_RELEASE_DIST/miloctl-skein-frontend-host-0.3.0.tgz" "$extension/dist/"
 else
     UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
         uv build --quiet --wheel --out-dir "$extension/dist" backend
@@ -74,8 +74,8 @@ printf 'registry=%s\nreplace-registry-host=always\n' \
 shopt -s nullglob
 core_wheels=("$extension/dist"/skein_agents-*.whl)
 atlas_wheels=("$extension/dist"/atlas_skein_extension-*.whl)
-api_packages=("$extension/dist"/skein-extension-api-*.tgz)
-host_packages=("$extension/dist"/skein-frontend-host-*.tgz)
+api_packages=("$extension/dist"/miloctl-skein-extension-api-*.tgz)
+host_packages=("$extension/dist"/miloctl-skein-frontend-host-*.tgz)
 shopt -u nullglob
 [ "${#core_wheels[@]}" -eq 1 ]
 [ "${#atlas_wheels[@]}" -eq 1 ]

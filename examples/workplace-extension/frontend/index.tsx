@@ -6,7 +6,7 @@ import {
   Card,
   type DashboardCardProps,
   type FrontendExtension,
-} from "@skein/extension-api";
+} from "@miloctl/skein-extension-api";
 
 function AtlasDeliveryCard({ api }: DashboardCardProps) {
   const [metrics, setMetrics] = useState<{

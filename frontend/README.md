@@ -1,6 +1,6 @@
 # Skein frontend
 
-This package is the Next.js host for Skein. It also publishes as `@skein/frontend-host` for trusted workplace builds.
+This package is the Next.js host for Skein. It also publishes as `@miloctl/skein-frontend-host` for trusted workplace builds.
 
 ## Work on the core frontend
 
@@ -15,12 +15,14 @@ The development server uses port 3000. The backend uses port 8000 by default.
 
 ## Build a workplace frontend
 
-Use Node 22 for a workplace build. Route the `@skein` scope to the private npm registry before installation.
+Use Node 22 for a workplace build. Route the `@miloctl` scope to `https://npm.pkg.github.com` before installation.
+
+Local and non-GitHub consumers need a classic PAT with `read:packages`.
 
 The workplace root pins these packages directly:
 
-- `@skein/frontend-host@0.3.0`
-- `@skein/extension-api@1.0.0`
+- `@miloctl/skein-frontend-host@0.3.0`
+- `@miloctl/skein-extension-api@1.0.0`
 - `next@16.2.11`
 - `react@19.2.4`
 - `react-dom@19.2.4`

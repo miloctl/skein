@@ -77,7 +77,7 @@ modules are internal. Their functions and dictionary shapes can change in a
 compatible core release.
 
 The frontend extension API version is also `1.0`. Import frontend contracts
-and components only from `@skein/extension-api`.
+and components only from `@miloctl/skein-extension-api`.
 
 | Concern | Contract | Composition time |
 |---|---|---|
@@ -903,7 +903,7 @@ The package exports one `FrontendExtension`:
 import {
   FRONTEND_EXTENSION_API,
   type FrontendExtension,
-} from "@skein/extension-api";
+} from "@miloctl/skein-extension-api";
 
 const extension: FrontendExtension = {
   id: "atlas.workplace",
@@ -973,7 +973,7 @@ against a missing API. An
 identity or credential change clears the old decision and loads current
 capabilities. A contribution with no policy action always renders.
 
-Only import the components that `@skein/extension-api` exports. A private
+Only import the components that `@miloctl/skein-extension-api` exports. A private
 package that imports `frontend/components` or `frontend/lib` uses an internal
 contract and can break on any release.
 
@@ -1013,51 +1013,41 @@ An installed deployment sets at least:
 - `SKEIN_PLAYBOOKS_DIR`, `SKEIN_PERSONAS_DIR`, and `SKEIN_FLOCKS_DIR` mount
   deployment content overlays.
 
-The intended tag job publishes these packages:
+The protected GitHub `main` workflow publishes these packages when `.github/release-version` changes:
 
-- `skein-agents` to the selected Python registry.
-- `@skein/extension-api` to the selected npm registry.
-- `@skein/frontend-host` to the same npm registry.
+- `skein-agents` to public PyPI through Trusted Publishing.
+- `@miloctl/skein-extension-api` to private GitHub Packages.
+- `@miloctl/skein-frontend-host` to private GitHub Packages.
 
-No tag has completed this publication. Treat the current job as an untested
-release path until the package registries are enabled.
+No tag has completed this publication. Treat the current workflow as an untested release path until the first pull-back validation passes.
 
-Use one controlled Python index that does not fall through to public package
-names. Do not use `--extra-index-url` for `skein-agents`. A hash-verified
-wheelhouse with `--no-index` is also permitted.
-
-If one controlled mirror contains the complete dependency closure, install the exact package from that mirror:
+Install `skein-agents` from PyPI or a controlled mirror:
 
 ```sh
 pip install skein-agents==0.3.0 \
-  --index-url https://<controlled-mirror>/simple
+  --index-url https://pypi.org/simple
 ```
 
-A Gitea package registry does not mirror public dependencies. If Gitea contains only first-party wheels, install in two steps:
+A hash-verified wheelhouse with `--no-index` is also permitted. The production lock excludes `skein-agents` and the private workplace package.
 
-```sh
-pip install --require-hashes -r requirements.lock \
-  --index-url https://<controlled-public-mirror>/simple
-pip install --no-deps skein-agents==0.3.0 \
-  --index-url https://<host>/api/packages/<owner>/pypi/simple
-```
+The image installs both exact first-party wheels with `--no-deps` after the locked public closure.
 
-The production lock excludes `skein-agents` and the private workplace package. The image installs both exact wheels with `--no-deps` after the locked closure.
-
-When the npm registry is enabled, route the private scope to it. Keep the token in the deployment secret manager:
+Route the private npm scope to GitHub Packages. Keep the token in the workplace secret manager:
 
 ```ini
-@skein:registry=https://<host>/api/packages/<owner>/npm/
-//<host>/api/packages/<owner>/npm/:_authToken=${NPM_TOKEN}
+@miloctl:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${NPM_TOKEN}
 ```
+
+Local and non-GitHub consumers need a classic PAT with `read:packages`. A GitHub Actions repository can use `GITHUB_TOKEN` after the package grants it read access.
 
 Use Node 22. Pin the frontend host, its peers, and Next directly in the workplace root:
 
 ```json
 {
   "dependencies": {
-    "@skein/extension-api": "1.0.0",
-    "@skein/frontend-host": "0.3.0",
+    "@miloctl/skein-extension-api": "1.0.0",
+    "@miloctl/skein-frontend-host": "0.3.0",
     "next": "16.2.11",
     "react": "19.2.4",
     "react-dom": "19.2.4"
