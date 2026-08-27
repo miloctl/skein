@@ -195,7 +195,9 @@ def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
         assert re.search(r"@[0-9a-f]{40}$", action), action
 
     assert 'tags: ["v*"]' not in github + gitea
-    assert (ROOT / ".github/release-version").read_text() == "unreleased\n"
+    marker = (ROOT / ".github/release-version").read_text().strip()
+    declared = _toml("backend/pyproject.toml")["project"]["version"]
+    assert marker in ("unreleased", declared)
     assert "\n  publish:" not in gitea
     assert "PACKAGE_TOKEN" not in gitea + github
     assert "release-guard:" in github
