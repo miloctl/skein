@@ -79,6 +79,9 @@ Ignore these generated paths:
 *.key
 *.pem
 .npmrc
+.venv/
+__pycache__/
+*.egg-info/
 build/
 dist/
 .skein/
@@ -96,6 +99,10 @@ Create `.dockerignore`. Keep `dist/` in the image context because it contains th
 *.key
 *.pem
 .npmrc
+.venv/
+__pycache__/
+*.egg-info/
+build/
 node_modules/
 .skein/
 frontend/node_modules/
@@ -104,6 +111,38 @@ backend/tests/
 ```
 
 Keep secret examples free of real values. Store credentials in the workplace secret manager.
+
+### Customize a copied starter
+
+Complete the rename before you create dependency locks. Rename each identity as one unit:
+
+- The Python distribution and import package.
+- The root npm package and frontend workspace.
+- The extension ID and every contribution ID derived from it.
+- Policy actions, capabilities, service identities, and route prefixes.
+- Extension environment variables.
+- The extension store and its derived PostgreSQL schema.
+- Persona, flock, and playbook filenames and content references.
+- Backend and frontend image names.
+- ConfigMap and Secret names and keys.
+- Tests, dependency lock inputs and generated locks, commands, and current documentation.
+
+Search both tracked paths and file contents for the old starter identity. Check the compiled frontend extension and the rendered deployment too. A source-only search does not find an old name in build output or a Kubernetes resource.
+
+The README in `examples/workplace-extension` documents contracts that run from the Skein source tree. If you copy the example into an external repository, replace that README with commands that run from the consumer root and use installed Skein packages. Do not copy Skein scripts into the workplace repository.
+
+### Regenerate locks after the rename
+
+Use this order:
+
+1. Rename the manifests, source packages, content, tests, and deployment files.
+2. Build the private extension wheel.
+3. Download the Skein wheel and repack the two Skein npm packages into `dist/`.
+4. Use Node 22 to regenerate `package-lock.json` from the renamed manifests and exact npm tarballs.
+5. Regenerate `requirements.lock` only when the Python dependency graph changes.
+6. Run `npm ci`, `pip check`, and the package, image, deployment, and browser contracts.
+
+Do not hand-edit either lock. If a first-party artifact changes bytes, stage the new artifact before you regenerate the npm lock.
 
 ## 2. Configure the package registries
 
@@ -529,18 +568,21 @@ Run a browser smoke test against the final frontend and backend images. Check th
 
 ## 12. Run the acceptance check
 
+Run acceptance from a clean checkout of the consumer repository, not from a Skein checkout. Copy the completed standalone runtime to a temporary directory outside the consumer source tree before you start it.
+
 A workplace setup is ready when all these statements are true:
 
-- The repository contains no Skein source directory or Git history.
-- Python imports resolve from the installed `skein-agents` wheel.
+- The repository contains no Skein source directory or Skein Git history.
+- Python imports resolve from the installed `skein-agents` wheel under `site-packages`, not from `PYTHONPATH` or an editable Skein checkout.
 - The private backend imports only public Skein modules.
 - Both dependency locks are committed.
 - Both first-party npm packages have lock integrity values.
-- `skein-frontend-build` writes a standalone runtime.
+- `skein-frontend-build` writes a standalone runtime that starts after it is copied outside the repository.
 - The extension UI appears only when its backend capability permits it.
 - Both final images run as arbitrary non-root users.
 - PostgreSQL uses a restricted application role.
-- Kustomize renders without fixed user or group IDs.
+- `kubectl kustomize .` renders from the consumer repository root without a path into the Skein source tree.
+- The old starter identity is absent from tracked paths, source text, compiled frontend extension text, and rendered deployment output.
 - The workplace registry owns the final image digests.
 
 ## Use local artifacts before publication
@@ -556,7 +598,7 @@ npm pack --pack-destination /path/to/workplace-skein/dist ./frontend
 
 Copy only the wheel and npm tarballs into the workplace build input. Do not copy the Skein source tree or Git history.
 
-Regenerate the workplace locks after the artifact bytes change. Then run every package, image, deployment, and browser gate.
+Regenerate the npm lock after npm artifact bytes change. Regenerate the Python lock only when the Python dependency graph changes. Then run every package, image, deployment, and browser gate.
 
 ## Upgrade Skein
 
@@ -566,7 +608,7 @@ For each Skein upgrade:
 2. Update the backend compatibility range.
 3. Update the frontend compatibility range.
 4. Stage the new wheel and npm tarballs.
-5. Regenerate both workplace locks.
+5. Regenerate the npm lock. Regenerate the Python lock only if the dependency graph changed.
 6. Run the installed-wheel transition against retained extension data.
 7. Compare a fresh schema with the upgraded schema.
 8. Build new workplace images.
