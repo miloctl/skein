@@ -13,7 +13,7 @@ import sys
 from contextlib import suppress
 from pathlib import Path
 from threading import Event, Thread, current_thread
-from time import monotonic, sleep
+from time import sleep
 
 import pytest
 
@@ -366,29 +366,36 @@ def test_established_oidc_read_is_not_blocked_by_a_concurrent_writer(client, mon
     _oidc(monkeypatch, {"tok": {"preferred_username": "established"}})
     holding = Event()
     release = Event()
+    finished = Event()
+    result = {}
 
     def hold_writer() -> None:
         with db.transaction():
             db.query("SELECT name FROM users WHERE name = ? FOR UPDATE", ("established",))
             holding.set()
-            release.wait(timeout=5)
+            release.wait(timeout=30)
+
+    def read_while_locked() -> None:
+        result["response"] = client.get("/api/tasks", headers={"Authorization": "Bearer tok"})
+        finished.set()
 
     holder = Thread(target=hold_writer)
+    reader = Thread(target=read_while_locked)
+    reader_started = False
     holder.start()
     try:
-        assert holding.wait(timeout=2)
-        # TIMED. Without the bound this passes even when the read blocks: the
-        # holder releases after 5s and the request then succeeds, so the
-        # assertion below cannot tell "never waited" from "waited five
-        # seconds". The bound is what makes it about concurrency.
-        started = monotonic()
-        response = client.get("/api/tasks", headers={"Authorization": "Bearer tok"})
-        waited = monotonic() - started
-        assert response.status_code == 200
-        assert waited < 1, f"the read waited {waited:.1f}s for a concurrent writer"
+        assert holding.wait(timeout=5)
+        reader.start()
+        reader_started = True
+        # The writer keeps the row lock for 30 seconds. A read that needs that
+        # lock cannot finish inside this 10-second scheduler budget.
+        assert finished.wait(timeout=10), "the read waited for a concurrent writer"
+        assert result["response"].status_code == 200
     finally:
         release.set()
-        holder.join(timeout=3)
+        holder.join(timeout=5)
+        if reader_started:
+            reader.join(timeout=5)
 
 
 def test_first_oidc_read_returns_retryable_503_when_identity_storage_is_busy(

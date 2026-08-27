@@ -40,8 +40,10 @@ index-url = https://<controlled-python-mirror>/simple
 ```ini
 # /run/secrets/npmrc
 registry=https://<controlled-npm-mirror>/
-replace-registry-host=always
+replace-registry-host=npmjs
 ```
+
+The `npmjs` value redirects npmjs lock entries and preserves local `file:` tarballs. Do not use `always` with npm 10.
 
 Pass both files as BuildKit secrets:
 

@@ -5,6 +5,9 @@ import re
 import tomllib
 from pathlib import Path
 
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
+
 from app.extensions import EXTENSION_API_VERSION, SKEIN_CORE_VERSION
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,6 +52,14 @@ def test_core_release_and_extension_api_versions_are_synchronized():
     assert {"LICENSE", "NOTICE"} <= set(frontend["files"])
     assert {"LICENSE", "NOTICE"} <= set(frontend_api["files"])
     assert frontend_api["version"].removesuffix(".0") == EXTENSION_API_VERSION
+
+    locked = {
+        canonicalize_name(line.split("==", 1)[0])
+        for line in (ROOT / "backend/requirements.lock").read_text().splitlines()
+        if line and not line[0].isspace() and "==" in line
+    }
+    direct = {canonicalize_name(Requirement(value).name) for value in backend["dependencies"]}
+    assert direct <= locked
 
 
 def test_the_source_fallback_version_matches_the_packaged_version():
