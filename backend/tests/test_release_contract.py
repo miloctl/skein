@@ -204,9 +204,10 @@ def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
     assert ".github/release-version" in github
     assert "github.event.before" in github
     assert "workflow_dispatch:" in github
-    assert "retry_npm:" in github
+    assert "retry_run_id:" in github
+    assert "scripts/validate_release_run.py" in github
+    assert "artifact_run_id:" in github
     assert "needs.release-guard.outputs.publish == 'true'" in github
-    assert "needs.release-guard.outputs.retry_npm == 'true'" in github
     gated_publishers = (
         "needs: [packages, backend, frontend, extension-contracts, e2e, release-guard]"
     )
@@ -217,6 +218,8 @@ def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
     assert "id-token: write" in github
     assert 'version: "0.11.11"' in github
     assert "pypi-dist" in github
+    assert github.count("run-id: ${{ needs.release-guard.outputs.artifact_run_id }}") == 2
+    assert github.count("actions: read") == 3
     assert "uv publish --trusted-publishing always" in github
 
     assert "publish-npm:" in github
@@ -237,5 +240,6 @@ def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
     assert "reviewed release pull request" in releasing
     assert "pypi` and `npm` environments" in releasing
     assert "SKEIN_RELEASE_DIST=/tmp/skein-release" in releasing
-    assert "set `retry_npm` to true" in releasing
+    assert "original release run ID" in releasing
+    assert "original artifact" in releasing
     assert "./scripts/audit-deps.sh workplace" in (ROOT / ".gitea/workflows/weekly.yml").read_text()
