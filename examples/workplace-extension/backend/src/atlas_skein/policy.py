@@ -24,6 +24,8 @@ def atlas_directory(name: str) -> dict[str, object] | None:
     """
     if name == "mira":
         return {"active": True, "groups": ("atlas-delivery-managers",)}
+    if name == "nina":
+        return {"active": True, "groups": ("atlas-integrations",)}
     if name == "ava":
         return {"active": True, "groups": ()}
     return None

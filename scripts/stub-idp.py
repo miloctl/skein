@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """A minimal OpenID provider, for the oidc browser walk only.
 
-    python scripts/stub-idp.py [port] [audience]
+    python scripts/stub-idp.py [port] [audience] ['{"user":["group"]}']
 
 It is NOT a mock: the backend validates a real RS256 signature against the
 JWKS this serves, then iss / aud / exp (app/oidc.py). A fake that skipped the
@@ -25,6 +25,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8610
 AUDIENCE = sys.argv[2] if len(sys.argv) > 2 else "skein"
+GROUPS_BY_USER = json.loads(sys.argv[3]) if len(sys.argv) > 3 else None
 ISSUER = f"http://127.0.0.1:{PORT}"
 KEY_ID = "stub-1"
 
@@ -35,6 +36,12 @@ _public_jwk.update({"kid": KEY_ID, "use": "sig", "alg": "RS256"})
 # code -> the username it was issued for. The walk drives one sign-in at a
 # time, so a dict with no expiry is enough; a real provider must not do this.
 _codes: dict[str, str] = {}
+
+
+def groups_for(user: str) -> list[str]:
+    if GROUPS_BY_USER is None:
+        return ["skein-admins"]
+    return GROUPS_BY_USER.get(user, [])
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -98,7 +105,7 @@ class Handler(BaseHTTPRequestHandler):
                 "aud": AUDIENCE,
                 "sub": user,
                 "preferred_username": user,
-                "groups": ["skein-admins"],
+                "groups": groups_for(user),
                 "iat": now,
                 "exp": now + 3600,
             },

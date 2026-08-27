@@ -21,6 +21,9 @@ const AUDIENCE = "skein";
 
 export default defineConfig({
   testDir: "./e2e-oidc",
+  testIgnore: process.env.SKEIN_WORKPLACE_RUNTIME
+    ? undefined
+    : "workplace-runtime.spec.ts",
   fullyParallel: false, // one backend, one stub IdP, one sign-in at a time
   retries: 0,
   reporter: [["list"]],

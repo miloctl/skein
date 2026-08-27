@@ -21,6 +21,15 @@ def _json(path: str) -> dict:
     return json.loads((ROOT / path).read_text())
 
 
+def _lock_versions(path: str) -> dict[str, str]:
+    versions = {}
+    for line in (ROOT / path).read_text().splitlines():
+        if line and not line[0].isspace() and "==" in line:
+            name, version = line.split("==", 1)
+            versions[canonicalize_name(name)] = version.split()[0]
+    return versions
+
+
 def test_core_release_and_extension_api_versions_are_synchronized():
     backend = _toml("backend/pyproject.toml")["project"]
     frontend = _json("frontend/package.json")
@@ -90,6 +99,31 @@ def test_reference_extension_metadata_uses_owned_compatibility_literals():
     assert workplace_package["version"] == manifest["version"]
     assert workplace_lock["version"] == manifest["version"]
     assert workplace_lock["packages"][""]["version"] == manifest["version"]
+    assert workplace_package["engines"] == {"node": "22.x"}
+    assert workplace_lock["packages"][""]["engines"] == {"node": "22.x"}
+
+    test_dependencies = {
+        canonicalize_name(Requirement(value).name)
+        for value in backend_package["optional-dependencies"]["test"]
+    }
+    assert {"pytest", "httpx2", "mypy", "pip-audit"} <= test_dependencies
+    test_lock = _lock_versions("examples/workplace-extension/requirements-test.lock")
+    production_lock = _lock_versions("examples/workplace-extension/requirements.lock")
+    assert test_dependencies <= test_lock.keys()
+    assert {"skein-agents", "atlas-skein-extension"}.isdisjoint(test_lock)
+    shared = test_lock.keys() & production_lock.keys()
+    assert {name: test_lock[name] for name in shared} == {
+        name: production_lock[name] for name in shared
+    }
+
+    test_input = (ROOT / "examples/workplace-extension/requirements-test.in").read_text()
+    core_version = _toml("backend/pyproject.toml")["project"]["version"]
+    assert test_input.splitlines() == [
+        "-c requirements.lock",
+        f"./dist/skein_agents-{core_version}-py3-none-any.whl",
+        f"./dist/atlas_skein_extension-{manifest['version']}-py3-none-any.whl[test]",
+    ]
+
     host_package = _json("frontend/package.json")
     for name in ("next", "react", "react-dom"):
         assert workplace_package["dependencies"][name] == host_package["dependencies"][name]

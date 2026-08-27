@@ -54,6 +54,28 @@ describe("Browse section navigation", () => {
   });
 });
 
+describe("Browse form metadata", () => {
+  it("gives each create control a stable name", async () => {
+    render(<Dashboard />);
+    const fields = [
+      ["Person to allocate", "allocate-person"],
+      ["Engagement to allocate to", "allocate-engagement"],
+      ["Percent of their time", "allocate-percent"],
+      ["New milestone title", "milestone-title"],
+      ["Milestone due date", "milestone-due-date"],
+      ["New event title", "event-title"],
+      ["Event start", "event-start"],
+    ] as const;
+    await screen.findByLabelText(fields[0][0]);
+    expect(
+      fields.map(([label]) => [
+        label,
+        screen.getByLabelText(label).getAttribute("name"),
+      ]),
+    ).toEqual(fields);
+  });
+});
+
 describe("the blocker register", () => {
   it("changes impact in place — the field that sets the escalation clock", async () => {
     render(<Dashboard />);

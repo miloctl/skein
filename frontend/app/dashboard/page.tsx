@@ -1333,6 +1333,7 @@ export default function Dashboard() {
                 />
                 <select
                   aria-label="Engagement to allocate to"
+                  name="allocate-engagement"
                   value={allocDraft.engagement}
                   onChange={(e) =>
                     setAllocDraft({ ...allocDraft, engagement: e.target.value })
@@ -1351,6 +1352,7 @@ export default function Dashboard() {
                   min={1}
                   max={100}
                   aria-label="Percent of their time"
+                  name="allocate-percent"
                   placeholder="100"
                   value={allocDraft.percent}
                   onChange={(e) =>
@@ -1516,6 +1518,7 @@ export default function Dashboard() {
             >
               <input
                 aria-label="New milestone title"
+                name="milestone-title"
                 placeholder="new milestone"
                 value={msDraft.title}
                 onChange={(e) => setMsDraft({ ...msDraft, title: e.target.value })}
@@ -1524,6 +1527,7 @@ export default function Dashboard() {
               <input
                 type="date"
                 aria-label="Milestone due date"
+                name="milestone-due-date"
                 value={msDraft.due}
                 onChange={(e) => setMsDraft({ ...msDraft, due: e.target.value })}
                 className="rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
@@ -1894,6 +1898,7 @@ export default function Dashboard() {
             >
               <input
                 aria-label="New event title"
+                name="event-title"
                 placeholder="new event"
                 value={evDraft.title}
                 onChange={(e) => setEvDraft({ ...evDraft, title: e.target.value })}
@@ -1902,6 +1907,7 @@ export default function Dashboard() {
               <input
                 type="datetime-local"
                 aria-label="Event start"
+                name="event-start"
                 value={evDraft.starts}
                 onChange={(e) => setEvDraft({ ...evDraft, starts: e.target.value })}
                 className="rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"

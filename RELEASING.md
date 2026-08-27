@@ -2,7 +2,7 @@
 
 ## Current release state
 
-No Python package, npm package, or image has completed the release path. The local tags stop at `v0.2.3`.
+Release `0.3.0` completed publication and registry pull-back validation. Tag `v0.3.0` records the published release commit.
 
 The package identities are:
 
@@ -14,7 +14,7 @@ The npm packages are private. The release workflow does not publish images. Work
 
 ## Configure the accounts
 
-Complete these account settings before the first release pull request.
+Keep these account settings for each release pull request.
 
 ### GitHub
 
@@ -89,7 +89,8 @@ Run these commands from the repository root:
 SKEIN_CONTRACT_RUN_ID=release \
 SKEIN_DATABASE_URL=postgresql://skein:skein@127.0.0.1:5432/skein \
   ./scripts/reference-extension-contract.sh
-./scripts/reference-frontend-contract.sh
+SKEIN_DATABASE_URL=postgresql://skein:skein@127.0.0.1:5432/skein \
+  ./scripts/reference-frontend-contract.sh
 ./scripts/reference-deployment-contract.sh
 ./scripts/reference-images-contract.sh
 ./scripts/upgrade-path.sh
@@ -99,6 +100,8 @@ SKEIN_DATABASE_URL=postgresql://skein:skein@127.0.0.1:5432/skein \
 (cd frontend && npx playwright test)
 (cd frontend && npx playwright test --config playwright.oidc.config.ts)
 ```
+
+The frontend package contract starts the installed workplace backend, signed test identities, and copied standalone runtime. Its browser walk includes one core write.
 
 If the release changes `app/services/`, run `./scripts/mutation-test.sh <module>` for each changed module.
 
@@ -187,6 +190,7 @@ SKEIN_CONTRACT_RUN_ID=pullback \
 SKEIN_DATABASE_URL=postgresql://skein:skein@127.0.0.1:5432/skein \
   ./scripts/reference-extension-contract.sh
 SKEIN_RELEASE_DIST=/tmp/skein-release \
+SKEIN_DATABASE_URL=postgresql://skein:skein@127.0.0.1:5432/skein \
   ./scripts/reference-frontend-contract.sh
 SKEIN_RELEASE_DIST=/tmp/skein-release \
   ./scripts/reference-images-contract.sh

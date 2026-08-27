@@ -213,6 +213,20 @@ jobs:
           python -m venv backend/.venv
           backend/.venv/bin/pip install -e "backend[dev]"
           npm --prefix frontend ci
+      - name: Cache the extension-contract Chromium download
+        uses: actions/cache@v4
+        id: extension-playwright
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+      - name: Install extension-contract Chromium
+        working-directory: frontend
+        run: |
+          if [ "${{ steps.extension-playwright.outputs.cache-hit }}" = "true" ]; then
+            npx playwright install-deps chromium
+          else
+            npx playwright install --with-deps chromium
+          fi
       - name: Backend package contract
         # psql guard: the self-hosted runner image ships no PostgreSQL
         # client, and the script creates its databases with psql.

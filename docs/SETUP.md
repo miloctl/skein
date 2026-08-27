@@ -12,11 +12,11 @@ The workplace repository owns its extension code, dependency locks, content, fin
 
 ## Current release status
 
-The Skein packages are not published at this time. The first release will publish `skein-agents` to PyPI and both npm packages to GitHub Packages.
+Release `0.3.0` is published. PyPI provides `skein-agents`, and GitHub Packages provides both private `@miloctl` npm packages.
 
-Complete the account and publication steps in `RELEASING.md` before a workplace installs from a registry.
+A workplace needs a classic GitHub PAT with `read:packages` outside GitHub Actions. `RELEASING.md` contains the publication and access procedure.
 
-For a local rehearsal, use the artifact procedure in [Use local artifacts before publication](#use-local-artifacts-before-publication).
+For an unreleased change, use the artifact procedure in [Use local artifacts before publication](#use-local-artifacts-before-publication).
 
 ## Prerequisites
 
@@ -68,7 +68,9 @@ workplace-skein/
 ├── package-lock.json
 ├── pyproject.toml
 ├── requirements.in
-└── requirements.lock
+├── requirements.lock
+├── requirements-test.in
+└── requirements-test.lock
 ```
 
 Ignore these generated paths:
@@ -129,7 +131,7 @@ Complete the rename before you create dependency locks. Rename each identity as 
 
 Search both tracked paths and file contents for the old starter identity. Check the compiled frontend extension and the rendered deployment too. A source-only search does not find an old name in build output or a Kubernetes resource.
 
-The README in `examples/workplace-extension` documents contracts that run from the Skein source tree. If you copy the example into an external repository, replace that README with commands that run from the consumer root and use installed Skein packages. Do not copy Skein scripts into the workplace repository.
+The two example READMEs label commands by execution context. Keep the consumer-root commands after you copy the example. Remove Skein-checkout commands and do not copy Skein scripts.
 
 ### Regenerate locks after the rename
 
@@ -139,10 +141,11 @@ Use this order:
 2. Build the private extension wheel.
 3. Download the Skein wheel and repack the two Skein npm packages into `dist/`.
 4. Use Node 22 to regenerate `package-lock.json` from the renamed manifests and exact npm tarballs.
-5. Regenerate `requirements.lock` only when the Python dependency graph changes.
-6. Run `npm ci`, `pip check`, and the package, image, deployment, and browser contracts.
+5. Regenerate `requirements.lock` when the Python production graph changes.
+6. Regenerate `requirements-test.lock` when the Python production or test graph changes.
+7. Run `npm ci`, `pip check`, and the package, image, deployment, and browser contracts.
 
-Do not hand-edit either lock. If a first-party artifact changes bytes, stage the new artifact before you regenerate the npm lock.
+Do not hand-edit a lock. If a first-party artifact changes bytes, stage the new artifact before you regenerate the npm lock.
 
 ## 2. Configure the package registries
 
@@ -204,6 +207,14 @@ dependencies = [
   "skein-agents>=0.3.0,<0.4.0",
 ]
 
+[project.optional-dependencies]
+test = [
+  "pytest>=8",
+  "httpx2>=2.9",
+  "mypy>=1.13",
+  "pip-audit>=2.7",
+]
+
 [build-system]
 requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
@@ -248,6 +259,14 @@ SKEIN_MCP_USER=<service-user> \
 
 Skein does not scan installed packages. Every process must name the composition module explicitly.
 
+### Test group-gated identity
+
+`trusted-header` supplies a weak user name and no enterprise groups. A group-gated navigation item or route stays unavailable in this mode.
+
+Use a signed OIDC test provider to test permitted group paths. Keep manager and integration groups separate when the workplace uses separate duties.
+
+Do not add a browser-supplied group header. The validated OIDC token or directory resolver must supply each group.
+
 ## 5. Build the Python production lock
 
 Build the private wheel:
@@ -287,6 +306,49 @@ python -m pip check
 
 The backend image must use this order. This order prevents pip from resolving a private package through a public fallback.
 
+### Build the Python test lock
+
+Set `requirements-test.in` to the same wheels. Enable the private package test extra:
+
+```text
+-c requirements.lock
+./dist/skein_agents-0.3.0-py3-none-any.whl
+./dist/workplace_skein_extension-1.0.0-py3-none-any.whl[test]
+```
+
+Compile the public production and test closure:
+
+```sh
+uv pip compile requirements-test.in \
+  --python-version 3.12 \
+  --index-url https://<controlled-python-mirror>/simple \
+  --no-emit-package skein-agents \
+  --no-emit-package workplace-skein-extension \
+  --generate-hashes \
+  --output-file requirements-test.lock
+```
+
+Install the test environment from the generated lock:
+
+```sh
+uv venv --python 3.12 .venv-test
+uv pip install --python .venv-test/bin/python \
+  --require-hashes -r requirements-test.lock
+uv pip install --python .venv-test/bin/python --no-deps \
+  dist/skein_agents-0.3.0-py3-none-any.whl \
+  dist/workplace_skein_extension-1.0.0-py3-none-any.whl
+uv pip check --python .venv-test/bin/python
+```
+
+Create an empty PostgreSQL database for each test run. Use a database name that contains `test`, `contract`, or `scratch`:
+
+```sh
+SKEIN_DATABASE_URL=postgresql://<user>:<password>@<host>:5432/skein_workplace_test \
+  .venv-test/bin/python -m pytest -q backend/tests
+```
+
+Do not install test tools into the production image.
+
 ## 6. Create the frontend extension
 
 Create the workplace root `package.json`:
@@ -296,6 +358,7 @@ Create the workplace root `package.json`:
   "name": "@workplace/skein-workplace",
   "version": "1.0.0",
   "private": true,
+  "engines": { "node": "22.x" },
   "workspaces": ["frontend"],
   "scripts": {
     "build:extension": "npm run build --workspace @workplace/skein-extension",
@@ -552,19 +615,20 @@ Check the rendered image names, Secret references, Routes, storage class, and da
 Run these gates against the workplace repository:
 
 ```sh
-python -m pip check
-python -m pytest
-python -m mypy --strict backend/src/workplace_skein
+uv pip check --python .venv-test/bin/python
+SKEIN_DATABASE_URL=postgresql://<user>:<password>@<host>:5432/skein_workplace_test \
+  .venv-test/bin/python -m pytest -q backend/tests
+.venv-test/bin/python -m mypy --strict backend/src/workplace_skein
 npm ci --ignore-scripts --no-audit --no-fund
 npm run build:frontend
 npm audit --omit=dev
-pip-audit --requirement requirements.lock --no-deps
+.venv-test/bin/pip-audit --requirement requirements.lock --no-deps
 kubectl kustomize . >/dev/null
 ```
 
 Add image checks that use an arbitrary user ID and a read-only root filesystem. Mount only `/data` and `/tmp` as writable paths.
 
-Run a browser smoke test against the final frontend and backend images. Check the console, failed requests, extension navigation, and extension API routes.
+Run a browser smoke test against the final frontend and backend images. Use signed OIDC users for denied, manager, and integration group paths. Check the console, failed requests, extension navigation, extension routes, and one core write.
 
 ## 12. Run the acceptance check
 
@@ -575,7 +639,7 @@ A workplace setup is ready when all these statements are true:
 - The repository contains no Skein source directory or Skein Git history.
 - Python imports resolve from the installed `skein-agents` wheel under `site-packages`, not from `PYTHONPATH` or an editable Skein checkout.
 - The private backend imports only public Skein modules.
-- Both dependency locks are committed.
+- The Python production lock, Python test lock, and npm lock are committed.
 - Both first-party npm packages have lock integrity values.
 - `skein-frontend-build` writes a standalone runtime that starts after it is copied outside the repository.
 - The extension UI appears only when its backend capability permits it.
@@ -598,7 +662,7 @@ npm pack --pack-destination /path/to/workplace-skein/dist ./frontend
 
 Copy only the wheel and npm tarballs into the workplace build input. Do not copy the Skein source tree or Git history.
 
-Regenerate the npm lock after npm artifact bytes change. Regenerate the Python lock only when the Python dependency graph changes. Then run every package, image, deployment, and browser gate.
+Regenerate the npm lock after npm artifact bytes change. Regenerate each Python lock when its dependency graph changes. Then run every package, image, deployment, and browser gate.
 
 ## Upgrade Skein
 
@@ -608,7 +672,7 @@ For each Skein upgrade:
 2. Update the backend compatibility range.
 3. Update the frontend compatibility range.
 4. Stage the new wheel and npm tarballs.
-5. Regenerate the npm lock. Regenerate the Python lock only if the dependency graph changed.
+5. Regenerate the npm lock. Regenerate each Python lock if its dependency graph changed.
 6. Run the installed-wheel transition against retained extension data.
 7. Compare a fresh schema with the upgraded schema.
 8. Build new workplace images.

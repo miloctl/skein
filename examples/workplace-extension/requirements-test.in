@@ -1,0 +1,3 @@
+-c requirements.lock
+./dist/skein_agents-0.3.0-py3-none-any.whl
+./dist/atlas_skein_extension-2.0.0-py3-none-any.whl[test]

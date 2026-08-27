@@ -2,7 +2,9 @@
 
 Atlas builds its final images from package dependencies. It does not inherit a Skein backend image or frontend-host image.
 
-## Stage the packages
+This README labels each command by execution context. Remove Skein-checkout commands after you copy the example.
+
+## Stage packages from a Skein checkout
 
 Run these commands from the Skein repository root:
 
@@ -17,17 +19,32 @@ npm pack --pack-destination examples/workplace-extension/dist \
 npm pack --pack-destination examples/workplace-extension/dist ./frontend
 ```
 
-These source commands are the local contract rehearsal. A separate workplace repository downloads `skein-agents` from PyPI and packs the private `@miloctl` packages from GitHub Packages.
+These commands build the source artifacts for the local reference contracts.
 
-GitHub Packages installation needs a classic PAT with `read:packages` outside GitHub Actions. Complete the authenticated `.npmrc` before staging the tarballs.
+## Stage packages from a copied consumer root
 
-The Dockerfiles require the exact `0.3.0`, `1.0.0`, and `2.0.0` artifact names. A clean `dist` directory prevents an older artifact from entering a build.
+Configure PyPI and GitHub Packages before you run these commands. Keep registry credentials outside the repository.
 
-The Atlas npm lock contains the integrity values for the two npm tarballs. If the package bytes change, regenerate the lock.
+```sh
+rm -rf dist
+mkdir -p dist
+uv build --wheel --out-dir dist .
+python -m pip download --no-deps --dest dist \
+  skein-agents==0.3.0 \
+  --index-url https://pypi.org/simple
+npm pack @miloctl/skein-extension-api@1.0.0 --pack-destination dist
+npm pack @miloctl/skein-frontend-host@0.3.0 --pack-destination dist
+```
 
-## Build the final images
+A local or non-GitHub consumer needs a classic GitHub PAT with `read:packages`.
 
-Create a pip configuration that points to the controlled Python mirror. Create an npm configuration that points to the controlled npm mirror.
+The Dockerfiles require the exact `0.3.0`, `1.0.0`, and `2.0.0` artifact names. A clean `dist` directory prevents an old artifact from entering the build.
+
+Regenerate `package-lock.json` with Node 22 after an npm artifact changes bytes. Regenerate each Python lock after its dependency graph changes.
+
+## Configure the image builds
+
+Create a pip configuration for the controlled Python mirror. Create an npm configuration for the controlled npm mirror.
 
 Keep both files outside the build context. Inject credentials through the secret manager.
 
@@ -45,7 +62,9 @@ replace-registry-host=npmjs
 
 The `npmjs` value redirects npmjs lock entries and preserves local `file:` tarballs. Do not use `always` with npm 10.
 
-Pass both files as BuildKit secrets:
+## Build images from a Skein checkout
+
+Run these commands from the Skein repository root:
 
 ```sh
 docker build \
@@ -63,11 +82,31 @@ docker build \
   examples/workplace-extension
 ```
 
+## Build images from a copied consumer root
+
+Run these commands from the copied repository root:
+
+```sh
+docker build \
+  --secret id=pip-config,src=/run/secrets/pip.conf \
+  -f deployment/Dockerfile \
+  -t atlas-skein:2.0.0 \
+  .
+
+docker build \
+  --secret id=npm-config,src=/run/secrets/npmrc \
+  --build-arg NEXT_PUBLIC_API_URL=https://skein-api.example.invalid \
+  --build-arg NEXT_PUBLIC_SITE_URL=https://skein.example.invalid \
+  -f deployment/Frontend.Dockerfile \
+  -t atlas-skein-frontend:2.0.0 \
+  .
+```
+
 The backend image installs `requirements.lock`. It then installs the Skein and Atlas wheels with `--no-deps`.
 
 The frontend image runs `npm ci` from the workplace lock. It compiles Atlas and runs `skein-frontend-build`.
 
-## Prepare PostgreSQL
+## Prepare PostgreSQL from a copied consumer root
 
 Run `deployment/10-app-role.sh` as the database administrator. Then run `deployment/20-atlas-schema.sh`.
 
@@ -93,25 +132,41 @@ Create `atlas-skein-secrets` through the deployment secret manager. Use `secrets
 
 `ATLAS_API_TOKEN` is sent only when `ATLAS_API_URL` is configured. Do not commit token values.
 
-## Render the deployment
+## Render from a Skein checkout
 
-Run this command from the repository root:
+Run this command from the Skein repository root:
 
 ```sh
 kubectl kustomize examples/workplace-extension
 ```
 
-The manifest uses OpenShift `restricted-v2` controls. It has no fixed `runAsUser` or `fsGroup`.
+## Render from a copied consumer root
 
-The image contract runs both images with an arbitrary user ID and a read-only root filesystem. Only `/data` and `/tmp` are writable.
+Run this command from the copied repository root:
+
+```sh
+kubectl kustomize .
+```
+
+The manifest uses OpenShift `restricted-v2` controls. It has no fixed `runAsUser` or `fsGroup`.
 
 The backend uses `Recreate` and one replica. It mounts `/data` and a temporary `/tmp` directory.
 
 The frontend is stateless. It mounts only a temporary `/tmp` directory.
 
-Run the executable contracts before deployment:
+## Run contracts from a Skein checkout
+
+Run these commands from the Skein repository root:
 
 ```sh
 scripts/reference-deployment-contract.sh
 scripts/reference-images-contract.sh
 ```
+
+The image contract uses an arbitrary user ID and a read-only root filesystem. Only `/data` and `/tmp` are writable.
+
+## Run gates from a copied consumer root
+
+Run the consumer-owned package, image, deployment, and browser gates. Use signed OIDC groups for extension policy paths.
+
+Do not copy or invoke Skein `scripts/reference-*` files from the consumer repository.
