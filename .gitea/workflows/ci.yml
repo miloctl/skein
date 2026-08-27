@@ -12,13 +12,6 @@ name: ci
 on:
   push:
     branches: [main]
-    # A v* tag runs the publish job below AND every job it needs: — the gates
-    # do not guard themselves off, because a tag that published a wheel no
-    # test ran against is the failure the needs: exists to prevent. So every
-    # gate must pass at the tagged commit, scripts/upgrade-path.sh included:
-    # its baseline is the newest OTHER tag, which at a release commit is the
-    # release before it.
-    tags: ["v*"]
 
 jobs:
   packages:
@@ -234,90 +227,6 @@ jobs:
         run: ./scripts/reference-images-contract.sh
       - name: Audit workplace production dependencies
         run: ./scripts/audit-deps.sh workplace
-
-  publish:
-    # Tag-triggered, so it stays inside the push-only rule at the top of this
-    # file: no untrusted pull_request code ever runs on this host. Needs
-    # PACKAGE_TOKEN with packages:write on the Gitea instance. Until that
-    # secret exists the job fails loudly rather than publishing nothing
-    # quietly, because a release that publishes nowhere is the failure this
-    # job exists to prevent.
-    if: startsWith(github.ref, 'refs/tags/v')
-    # Every gate first. Without this a tag on any commit publishes a wheel
-    # built from a tree that no test ever ran against.
-    needs: [packages, backend, frontend, extension-contracts, e2e]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        run: |
-          base="${{ github.server_url }}"
-          git clone --depth 50 "${base%%://*}://${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}@${base#*://}/${{ github.repository }}.git" .
-          git checkout "$GITHUB_SHA"
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@v6
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - name: Check the tag names the declared version
-        # A tag of v0.3.0 on a tree that declares 0.2.2 publishes mismatched
-        # Python and npm artifacts, and nothing else notices.
-        run: |
-          declared="$(sed -n 's/^version = "\(.*\)"/\1/p' backend/pyproject.toml | head -1)"
-          if [ "${GITHUB_REF_NAME#v}" != "$declared" ]; then
-            echo "tag ${GITHUB_REF_NAME} does not match declared version $declared" >&2
-            exit 1
-          fi
-      - name: Download the tested release packages
-        uses: actions/download-artifact@v4
-        with:
-          name: release-packages
-          path: dist
-      - name: Publish the wheel
-        # Publish first because both npm uploads are retry-safe. --check-url
-        # makes a lost upload response safe to retry without changing bytes.
-        env:
-          TOKEN: ${{ secrets.PACKAGE_TOKEN }}
-        run: |
-          [ -n "$TOKEN" ] || { echo "PACKAGE_TOKEN is required" >&2; exit 1; }
-          base="${{ github.server_url }}"
-          uv publish \
-            --publish-url "$base/api/packages/${{ github.repository_owner }}/pypi" \
-            --check-url "$base/api/packages/${{ github.repository_owner }}/pypi/simple" \
-            --username "${{ secrets.CI_CHECKOUT_USER }}" --password "$TOKEN" dist/*.whl
-      - name: Publish the npm packages
-        # API first: the host declares it as a peer and must never become
-        # installable while that exact API version is absent.
-        env:
-          TOKEN: ${{ secrets.PACKAGE_TOKEN }}
-          NPM_CONFIG_USERCONFIG: /tmp/skein-release-npmrc
-        run: |
-          [ -n "$TOKEN" ] || { echo "PACKAGE_TOKEN is required" >&2; exit 1; }
-          trap 'rm -f "$NPM_CONFIG_USERCONFIG"' EXIT
-          base="${{ github.server_url }}"
-          registry="${base#*://}"
-          url="$base/api/packages/${{ github.repository_owner }}/npm/"
-          npm config set "//$registry/api/packages/${{ github.repository_owner }}/npm/:_authToken" "$TOKEN"
-          publish_package() {
-            local package_dir="$1" archive="$2"
-            local name version
-            name="$(node -p "require('./$package_dir/package.json').name")"
-            version="$(node -p "require('./$package_dir/package.json').version")"
-            if remote_integrity="$(npm view "$name@$version" dist.integrity --registry "$url" 2>/dev/null)"; then
-              local local_integrity
-              local_integrity="sha512-$(node -e "const fs=require('node:fs'),crypto=require('node:crypto'); process.stdout.write(crypto.createHash('sha512').update(fs.readFileSync(process.argv[1])).digest('base64'))" "$archive")"
-              if [ "$remote_integrity" != "$local_integrity" ]; then
-                echo "$name@$version exists with different package bytes" >&2
-                exit 1
-              fi
-              echo "$name@$version already has the tested package bytes."
-            else
-              npm publish "$archive" --registry "$url"
-            fi
-          }
-          publish_package frontend/packages/extension-api dist/skein-extension-api-*.tgz
-          publish_package frontend dist/skein-frontend-host-*.tgz
 
   e2e:
     # a real browser walking the real app against a seeded mock-provider

@@ -41,8 +41,8 @@ fi
 # the engine change, this test passes and the check runs again.
 #
 # This branch reads as dead now that v0.2.3 is the newest tag, and it is not:
-# a v* tag push runs the Gitea backend job (the publish job needs: it), and at
-# the v0.2.3 COMMIT the baseline resolves to v0.2.2 — the last SQLite release.
+# a v* tag push runs the GitHub backend release gate, and at the v0.2.3 COMMIT
+# the baseline resolves to v0.2.2 — the last SQLite release.
 # Delete this and pushing that tag fails CI on a database that cannot exist.
 # grep reads to EOF on purpose (no -q): under pipefail, grep -q exiting on
 # the first match hands git show a SIGPIPE, the pipeline reports 141, and a

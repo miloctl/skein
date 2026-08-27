@@ -1,1 +1,1 @@
-export * from "@skein/extension-api";
+export * from "@miloctl/skein-extension-api";

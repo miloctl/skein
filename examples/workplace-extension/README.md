@@ -20,11 +20,15 @@ The backend depends on `skein-agents>=0.3.0,<0.4.0`. The distribution installs t
 
 The frontend root pins these exact dependencies:
 
-- `@skein/frontend-host@0.3.0`
-- `@skein/extension-api@1.0.0`
+- `@miloctl/skein-frontend-host@0.3.0`
+- `@miloctl/skein-extension-api@1.0.0`
 - `next@16.2.11`
 - `react@19.2.4`
 - `react-dom@19.2.4`
+
+The core wheel comes from PyPI. The two private npm packages come from GitHub Packages under the `@miloctl` scope.
+
+The executable contract packs the current source into local tarballs before `npm ci`. This proves the same package boundary without publishing during tests.
 
 The root also overrides `postcss` to `8.5.23` and `sharp` to `0.35.3`. Installed package overrides do not affect the root installation.
 

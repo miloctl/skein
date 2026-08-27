@@ -5,7 +5,7 @@ notes and deprecations. This file is those notes.
 
 Each release records three kinds of change. **Contracts** covers anything a
 private extension package imports or declares: `app.extensions`, `app.public`,
-`@skein/extension-api`, the content schemas, and the compatibility fields. A
+`@miloctl/skein-extension-api`, the content schemas, and the compatibility fields. A
 package author reads this section and nothing else to plan an upgrade.
 **Behavior** covers what the running system does differently. **Operations**
 covers what whoever runs the server must do differently.
@@ -23,18 +23,17 @@ Widen to `<0.4.0` and re-read the two Behavior entries below before you do.
 
 ### Contracts
 
-- No `app.extensions`, `app.public` or `@skein/extension-api` signature
+- No `app.extensions`, `app.public` or `@miloctl/skein-extension-api` signature
   changed, and extension API stays 1.0. The only contract action is the
   compatibility range: a package that declared `maximum_core_exclusive =
   "0.3.0"` must declare `"0.4.0"` to load on this core. Nothing else in a
   package needs an edit for the version itself.
-- The Python distribution is now `skein-agents`. The public imports remain
+- The Python distribution is now `skein-agents` and publishes to public PyPI through GitHub OIDC. The public imports remain
   `app.extensions`, `app.public`, and `app.main.create_app`. Public PyPI owns
   the unrelated `skein` name, so current packages must not depend on it.
   The import boundary now scans Python stubs and permits only `create_app`
   from `app.main`. Bare, wildcard, private, and aliased private imports fail.
-- The complete frontend host now publishes as `@skein/frontend-host`. A
-  workplace project installs it with `@skein/extension-api` and runs
+- The complete frontend host now publishes as the private GitHub package `@miloctl/skein-frontend-host`. A workplace project installs it with the private `@miloctl/skein-extension-api` package and runs
   `skein-frontend-build` after it compiles its private extension.
 - Atlas 2.0 declares `skein-agents>=0.3.0,<0.4.0`. Atlas 1.x remains the
   pinned fixture for the explicit 0.2.3 package transition.

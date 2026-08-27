@@ -13,7 +13,7 @@
     }
   },
   "peerDependencies": {
-    "@skein/extension-api": "1.0.0",
+    "@miloctl/skein-extension-api": "1.0.0",
     "react": ">=19.0.0 <20"
   },
   "scripts": {

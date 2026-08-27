@@ -5,14 +5,16 @@ Use this guide to create a private workplace repository that depends on Skein pa
 Skein uses three first-party packages:
 
 - `skein-agents` provides the Python backend.
-- `@skein/frontend-host` provides the Next.js host and production build command.
-- `@skein/extension-api` provides the public frontend types and components.
+- `@miloctl/skein-frontend-host` provides the Next.js host and production build command.
+- `@miloctl/skein-extension-api` provides the public frontend types and components.
 
 The workplace repository owns its extension code, dependency locks, content, final images, and deployment files.
 
 ## Current release status
 
-The Skein packages are not published at this time. Complete the registry and publication steps in `RELEASING.md` before a workplace installs from a registry.
+The Skein packages are not published at this time. The first release will publish `skein-agents` to PyPI and both npm packages to GitHub Packages.
+
+Complete the account and publication steps in `RELEASING.md` before a workplace installs from a registry.
 
 For a local rehearsal, use the artifact procedure in [Use local artifacts before publication](#use-local-artifacts-before-publication).
 
@@ -26,12 +28,12 @@ Install or obtain these tools and services:
 - Docker or another OCI image builder.
 - PostgreSQL 17 client tools.
 - `kubectl` for Kustomize validation.
-- A controlled Python package index.
-- A controlled npm mirror and private `@skein` registry.
+- PyPI access or a controlled Python mirror.
+- A controlled npm mirror and GitHub Packages access for `@miloctl`.
 - A workplace image registry.
 - A PostgreSQL 17 database.
 
-Do not use `--extra-index-url` for `skein-agents`. Pip does not give the first index priority over the extra index.
+Use one Python index for each installation command. A workplace can route PyPI through its controlled mirror.
 
 ## 1. Create the workplace repository
 
@@ -105,18 +107,20 @@ Keep secret examples free of real values. Store credentials in the workplace sec
 
 ## 2. Configure the package registries
 
-Configure pip authentication outside the repository. The Python index must contain only trusted packages or the complete controlled dependency mirror.
+Route PyPI through the controlled Python mirror when workplace policy requires it.
 
-Route normal npm packages through the controlled npm mirror. Route the private scope through the Skein registry:
+Route normal npm packages through the controlled npm mirror. Route the private scope through GitHub Packages:
 
 ```ini
 registry=https://<controlled-npm-mirror>/
 replace-registry-host=always
-@skein:registry=https://<host>/api/packages/<owner>/npm/
-//<host>/api/packages/<owner>/npm/:_authToken=${NPM_TOKEN}
+@miloctl:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${NPM_TOKEN}
 ```
 
-Do not commit the token. Supply `NPM_TOKEN` through the CI secret manager.
+Use a classic GitHub PAT with `read:packages` for local and non-GitHub installs. Do not commit the token.
+
+A GitHub Actions repository can use `GITHUB_TOKEN` after the package grants that repository read access.
 
 ## 3. Stage the exact Skein packages
 
@@ -126,22 +130,22 @@ Download the backend wheel without its dependencies:
 mkdir -p dist
 python -m pip download --no-deps --dest dist \
   skein-agents==0.3.0 \
-  --index-url https://<host>/api/packages/<owner>/pypi/simple
+  --index-url https://pypi.org/simple
 ```
 
 Pack the two npm packages into stable local files:
 
 ```sh
-npm pack @skein/extension-api@1.0.0 --pack-destination dist
-npm pack @skein/frontend-host@0.3.0 --pack-destination dist
+npm pack @miloctl/skein-extension-api@1.0.0 --pack-destination dist
+npm pack @miloctl/skein-frontend-host@0.3.0 --pack-destination dist
 ```
 
 The expected files are:
 
 ```text
 dist/skein_agents-0.3.0-py3-none-any.whl
-dist/skein-extension-api-1.0.0.tgz
-dist/skein-frontend-host-0.3.0.tgz
+dist/miloctl-skein-extension-api-1.0.0.tgz
+dist/miloctl-skein-frontend-host-0.3.0.tgz
 ```
 
 Remove old files from `dist` before you stage a new release. An old artifact with the same package family can enter a wildcard build.
@@ -257,8 +261,8 @@ Create the workplace root `package.json`:
     "build:frontend": "npm run build:extension && skein-frontend-build @workplace/skein-extension"
   },
   "dependencies": {
-    "@skein/extension-api": "file:dist/skein-extension-api-1.0.0.tgz",
-    "@skein/frontend-host": "file:dist/skein-frontend-host-0.3.0.tgz",
+    "@miloctl/skein-extension-api": "file:dist/miloctl-skein-extension-api-1.0.0.tgz",
+    "@miloctl/skein-frontend-host": "file:dist/miloctl-skein-frontend-host-0.3.0.tgz",
     "next": "16.2.11",
     "react": "19.2.4",
     "react-dom": "19.2.4"
@@ -285,7 +289,7 @@ Create `frontend/package.json`:
     }
   },
   "peerDependencies": {
-    "@skein/extension-api": "1.0.0",
+    "@miloctl/skein-extension-api": "1.0.0",
     "react": ">=19.0.0 <20"
   },
   "scripts": {
@@ -323,7 +327,7 @@ Export one `FrontendExtension` from `frontend/index.tsx`. Set its compatibility 
 import {
   FRONTEND_EXTENSION_API,
   type FrontendExtension,
-} from "@skein/extension-api";
+} from "@miloctl/skein-extension-api";
 
 const extension: FrontendExtension = {
   id: "workplace.extension",
@@ -342,7 +346,7 @@ Run npm once to create the lock:
 
 ```sh
 npm install --ignore-scripts
-npm ls @skein/extension-api @skein/frontend-host next react react-dom --all
+npm ls @miloctl/skein-extension-api @miloctl/skein-frontend-host next react react-dom --all
 ```
 
 Commit `package-lock.json`. The build command refuses a missing lock, indirect first-party packages, wrong versions, and missing integrity values.

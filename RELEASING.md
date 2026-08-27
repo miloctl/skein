@@ -4,44 +4,70 @@
 
 No Python package, npm package, or image has completed the release path. The local tags stop at `v0.2.3`.
 
-The current package identities are:
+The package identities are:
 
-- `skein-agents`
-- `@skein/extension-api`
-- `@skein/frontend-host`
+- `skein-agents` on public PyPI.
+- `@miloctl/skein-extension-api` on GitHub Packages.
+- `@miloctl/skein-frontend-host` on GitHub Packages.
 
-The Gitea package registry is not enabled. Treat the publish job as an untested release path.
+The npm packages are private. The release workflow does not publish images. Workplace repositories build and own their final images.
 
-## Select the package registries
+## Configure the accounts
 
-Select one authoritative Python index before the first package release. The index must not fall through to public indexes for private names.
+Complete these account settings before the first release pull request.
 
-Do not use `--extra-index-url` for `skein-agents`. pip selects candidates by version, not by index priority.
+### GitHub
 
-A hash-verified wheelhouse with `--no-index` is also permitted.
+1. Enable Actions for `miloctl/skein`.
+2. Confirm that repository policy permits job-level `packages: write`.
+3. Protect `main` with pull requests and the required GitHub CI checks.
+4. Restrict direct pushes and force pushes to `main`.
+5. Create GitHub environments named `pypi` and `npm`.
+6. Restrict both environments to `main`.
+7. Add a required reviewer to both environments.
 
-Publish both npm packages to the same registry. Configure the `@skein` scope for that registry.
+Publication starts only when a reviewed release pull request changes `.github/release-version` on protected `main`. Tags do not trigger publication.
 
-The Gitea publish job needs `PACKAGE_TOKEN` with `packages:write`. The tag job must fail if the token is absent.
+The npm publisher uses `GITHUB_TOKEN`. Do not add a package-publishing PAT to the Skein repository.
 
-## Publish container images
+After the first npm publication, confirm that both packages are private and linked to `miloctl/skein`.
 
-The target deployment registry stores the final images. For the first workplace deployment, use the workplace registry.
+### PyPI
 
-Run this command from the release tag:
+Create a pending Trusted Publisher with these exact values:
 
-```bash
-SKEIN_REGISTRY=<registry>/<path> ./scripts/publish-images.sh X.Y.Z \
-  prod=<backend-route-url>,<frontend-route-url>
+```text
+Project: skein-agents
+Owner: miloctl
+Repository: skein
+Workflow: ci.yml
+Environment: pypi
 ```
 
-The frontend image contains its API and site URLs. Build one frontend image for each environment.
+The pending publisher does not reserve the project name. The first successful publication creates the project.
 
-No image has completed this script. The first push validates the image-release path.
+PyPI is public. The published wheel contains the Skein Python source and package content.
+
+## Configure workplace access
+
+A local machine or non-GitHub CI process needs a classic GitHub PAT with `read:packages`.
+
+Store that token in the workplace secret manager. Configure npm with:
+
+```ini
+@miloctl:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${NPM_TOKEN}
+```
+
+GitHub Packages requires authentication for installation, including installation of public packages.
+
+A GitHub Actions workplace repository can use `GITHUB_TOKEN` after each package grants that repository read access.
 
 ## Prepare the release
 
-A release is a `v*` tag on `main`. The tag must match `backend/pyproject.toml`.
+A release starts when a reviewed pull request changes `.github/release-version` on protected `main`. The marker must match `backend/pyproject.toml`.
+
+The release tag records a successful publication. It does not start one.
 
 If a step fails, fix the cause before you continue.
 
@@ -50,7 +76,8 @@ If a step fails, fix the cause before you continue.
 3. Set the release version in `backend/pyproject.toml`.
 4. Set the same core version in the frontend host and CLI.
 5. Update the Atlas compatibility range only when its supported range changes.
-6. Regenerate all changed locks.
+6. Regenerate all changed locks with Node 22 and Python 3.12.
+7. Set `.github/release-version` to the exact release version.
 
 ## Run the release gates
 
@@ -81,28 +108,88 @@ If the release changes `app/services/`, run `./scripts/mutation-test.sh <module>
 2. Open each changed surface.
 3. Examine the browser console.
 4. Complete one write.
-5. Make sure that the result appears.
+5. Check that the result appears.
 6. Stop the stack with `./scripts/skein.sh stop`.
 
-## Tag and publish
+## Push the release
 
-1. Commit and push `main`.
-2. Wait for the push CI run.
-3. Create and push tag `vX.Y.Z`.
-4. Watch the tag run.
-5. Make sure that the registry contains the wheel and both npm packages.
-6. Push the deployment images.
-7. Update the private deployment repository with the new image digests.
+The local GitHub remote is named `github`.
 
-The package job builds each release artifact once. The dependency contracts use those artifacts, and the tag job publishes the same files.
+1. Open a release pull request that includes the version, changelog, locks, and release marker.
+2. Wait for every required GitHub check.
+3. Merge the reviewed pull request into protected `main`.
+4. Wait for all five gates and `release-guard` on the `main` push.
+5. Approve the protected `pypi` and `npm` environments.
+6. Watch both publication jobs.
+7. Create tag `vX.Y.Z` on the published `main` commit.
+8. Push the tag to the `github` remote.
 
-The tag job publishes the extension API before the frontend host.
+Example release preparation:
 
-The tag job does not create registry configuration. Missing registry access must stop the job.
+```sh
+printf '0.3.0\n' >.github/release-version
+git add .github/release-version CHANGELOG.md
+git commit -m "release: v0.3.0"
+git push github release/v0.3.0
+```
+
+After the release pull request publishes successfully:
+
+```sh
+git tag -a v0.3.0 -m "Skein 0.3.0" <published-main-sha>
+git push github v0.3.0
+```
+
+The protected `main` workflow builds each artifact once. The contracts and publishers consume the same uploaded files.
+
+The workflow publishes the extension API before the frontend host. PyPI publication uses GitHub OIDC and stores no PyPI token.
+
+## Validate the published packages
+
+Do not treat a successful upload as completed publication. Pull each package into a new empty directory.
+
+```sh
+rm -rf /tmp/skein-release
+mkdir -p /tmp/skein-release
+
+python -m pip download --no-deps \
+  --dest /tmp/skein-release \
+  skein-agents==0.3.0 \
+  --index-url https://pypi.org/simple
+
+npm pack @miloctl/skein-extension-api@1.0.0 \
+  --pack-destination /tmp/skein-release
+npm pack @miloctl/skein-frontend-host@0.3.0 \
+  --pack-destination /tmp/skein-release
+```
+
+Compare the pulled files with the tested GitHub Actions artifact. Use SHA-256 for the wheel and npm SHA-512 integrity for each tarball.
+
+Run each package-consuming contract against the pulled files:
+
+```sh
+SKEIN_RELEASE_DIST=/tmp/skein-release \
+SKEIN_CONTRACT_RUN_ID=pullback \
+SKEIN_DATABASE_URL=postgresql://skein:skein@127.0.0.1:5432/skein \
+  ./scripts/reference-extension-contract.sh
+SKEIN_RELEASE_DIST=/tmp/skein-release \
+  ./scripts/reference-frontend-contract.sh
+SKEIN_RELEASE_DIST=/tmp/skein-release \
+  ./scripts/reference-images-contract.sh
+./scripts/reference-deployment-contract.sh
+```
+
+Without `SKEIN_RELEASE_DIST`, the contracts rebuild local source artifacts and do not test the registry pull-back.
+
+## Publish workplace images
+
+The package workflow does not publish GHCR images. The workplace repository builds and pushes its own final images.
+
+Record each pushed image digest in the workplace deployment repository. Do not deploy a mutable tag without its digest.
 
 ## After the tag
 
-Do not move a published release. Do not publish the same version again.
+Do not move a published tag. Do not overwrite a published package version.
 
 If a release has a fault, publish a new version.
 

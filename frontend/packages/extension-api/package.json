@@ -1,9 +1,17 @@
 {
-  "name": "@skein/extension-api",
+  "name": "@miloctl/skein-extension-api",
   "version": "1.0.0",
   "private": false,
   "description": "Stable frontend contracts and components for Skein workplace extensions",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/miloctl/skein.git",
+    "directory": "frontend/packages/extension-api"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "type": "module",
   "files": [
     "index.js",

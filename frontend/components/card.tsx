@@ -1,3 +1,3 @@
 "use client";
 
-export { Card, EmptyState } from "@skein/extension-api";
+export { Card, EmptyState } from "@miloctl/skein-extension-api";

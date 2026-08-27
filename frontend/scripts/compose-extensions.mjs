@@ -62,7 +62,7 @@ writeFileSync(path.join(extensionsDir, "generated.ts"), source);
 // Tailwind scans no installed package on its own. The API contains shared
 // component classes, and every explicit extension contributes its compiled
 // package directory.
-const roots = [packageRoot("@skein/extension-api"), ...modules.map(packageRoot)];
+const roots = [packageRoot("@miloctl/skein-extension-api"), ...modules.map(packageRoot)];
 const sources = roots.map((root) => {
   const relative = path.relative(extensionsDir, root).split(path.sep).join("/");
   return `@source ${JSON.stringify(relative)};`;
