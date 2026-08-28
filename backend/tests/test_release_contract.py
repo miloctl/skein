@@ -1,6 +1,7 @@
 """Release metadata must not drift across the core and reference packages."""
 
 import json
+import os
 import re
 import tomllib
 from pathlib import Path
@@ -229,7 +230,10 @@ def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
         assert re.search(r"@[0-9a-f]{40}$", action), action
 
     assert 'tags: ["v*"]' not in github + gitea
-    marker = (ROOT / ".github/release-version").read_text().strip()
+    marker = (
+        os.environ.get("SKEIN_RELEASE_MARKER_OVERRIDE")
+        or (ROOT / ".github/release-version").read_text().strip()
+    )
     declared = _toml("backend/pyproject.toml")["project"]["version"]
     assert marker in ("unreleased", declared)
     assert "\n  publish:" not in gitea
@@ -240,7 +244,10 @@ def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
     assert "workflow_dispatch:" in github
     assert "retry_run_id:" in github
     assert "scripts/validate_release_run.py" in github
+    assert 'git show "$RETRY_RELEASE_SHA:.github/release-version"' in github
+    assert "original release version does not match the current marker" in github
     assert "artifact_run_id:" in github
+    assert "artifact_id:" in github
     assert "needs.release-guard.outputs.publish == 'true'" in github
     gated_publishers = (
         "needs: [packages, backend, frontend, extension-contracts, e2e, release-guard]"
@@ -252,9 +259,9 @@ def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
     assert "id-token: write" in github
     assert 'version: "0.11.11"' in github
     assert "pypi-dist" in github
-    assert github.count("run-id: ${{ needs.release-guard.outputs.artifact_run_id }}") == 2
+    assert github.count("run-id: ${{ needs.release-guard.outputs.artifact_run_id }}") == 4
     assert github.count("actions: read") == 3
-    assert "uv publish --trusted-publishing always" in github
+    assert "uv publish --trusted-publishing always --check-url https://pypi.org/simple/" in github
 
     assert "publish-npm:" in github
     assert "environment: npm" in github
@@ -273,7 +280,31 @@ def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
     assert "ghcr.io" not in github
     assert "reviewed release pull request" in releasing
     assert "pypi` and `npm` environments" in releasing
-    assert "SKEIN_RELEASE_DIST=/tmp/skein-release" in releasing
+    assert "`finalize-release` workflow" in releasing
+    assert "`release-finalization` environment" in releasing
     assert "original release run ID" in releasing
     assert "original artifact" in releasing
     assert "./scripts/audit-deps.sh workplace" in (ROOT / ".gitea/workflows/weekly.yml").read_text()
+
+
+def test_release_finalization_verifies_registry_bytes_before_tagging():
+    workflow = (ROOT / ".github/workflows/finalize-release.yml").read_text()
+    assert "workflow_dispatch:" in workflow
+    assert "release_run_id:" in workflow
+    assert "push:" not in workflow
+    for action in re.findall(r"uses:\s+(\S+)", workflow):
+        assert re.search(r"@[0-9a-f]{40}$", action), action
+    assert "cancel-in-progress: false" in workflow
+    assert "actions: read" in workflow
+    assert "packages: read" in workflow
+    assert workflow.count("contents: write") == 1
+    assert "environment: release-finalization" in workflow
+    assert "scripts/validate_release_run.py" in workflow
+    assert "scripts/verify_release_packages.py inspect" in workflow
+    assert "scripts/verify_release_packages.py compare" in workflow
+    assert "artifact-ids:" in workflow
+    assert "needs.verify.outputs.release_sha" in workflow
+    assert "git tag -a" in workflow
+    assert 'git push origin "refs/tags/$TAG"' in workflow
+    assert "--force" not in workflow
+    assert "uv build" not in workflow

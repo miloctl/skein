@@ -297,22 +297,39 @@ jobs:
       contents: read
     outputs:
       artifact_run_id: ${{ steps.release.outputs.artifact_run_id }}
+      artifact_id: ${{ steps.release.outputs.artifact_id }}
       publish: ${{ steps.release.outputs.publish }}
       version: ${{ steps.release.outputs.version }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+      - name: Validate the original retry run
+        if: github.event_name == 'workflow_dispatch'
+        id: retry
+        env:
+          RELEASE_RUN_ID: ${{ inputs.retry_run_id }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/validate_release_run.py
       - name: Check release marker
         id: release
         env:
           BEFORE_SHA: ${{ github.event.before }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RETRY_RUN_ID: ${{ inputs.retry_run_id }}
+          RETRY_RELEASE_SHA: ${{ steps.retry.outputs.release_sha }}
+          RETRY_ARTIFACT_RUN_ID: ${{ steps.retry.outputs.artifact_run_id }}
+          RETRY_ARTIFACT_ID: ${{ steps.retry.outputs.artifact_id }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            python scripts/validate_release_run.py
+            version="$(tr -d '[:space:]' <.github/release-version)"
+            original="$(git show "$RETRY_RELEASE_SHA:.github/release-version" | tr -d '[:space:]')"
+            if [ "$original" != "$version" ]; then
+              echo "release-guard: the original release version does not match the current marker." >&2
+              exit 1
+            fi
+            echo "artifact_run_id=$RETRY_ARTIFACT_RUN_ID" >>"$GITHUB_OUTPUT"
+            echo "artifact_id=$RETRY_ARTIFACT_ID" >>"$GITHUB_OUTPUT"
             echo "publish=true" >>"$GITHUB_OUTPUT"
+            echo "version=$version" >>"$GITHUB_OUTPUT"
             exit 0
           fi
           version="$(tr -d '[:space:]' <.github/release-version)"
@@ -349,6 +366,14 @@ jobs:
       id-token: write
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.release-guard.outputs.artifact_id != ''
+        with:
+          artifact-ids: ${{ needs.release-guard.outputs.artifact_id }}
+          path: dist
+          run-id: ${{ needs.release-guard.outputs.artifact_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.release-guard.outputs.artifact_id == ''
         with:
           name: release-packages
           path: dist
@@ -363,7 +388,7 @@ jobs:
         with:
           version: "0.11.11"
       - name: Publish skein-agents to PyPI
-        run: uv publish --trusted-publishing always pypi-dist/*.whl
+        run: uv publish --trusted-publishing always --check-url https://pypi.org/simple/ pypi-dist/*.whl
 
   publish-npm:
     if: needs.release-guard.outputs.publish == 'true'
@@ -375,6 +400,14 @@ jobs:
       packages: write
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.release-guard.outputs.artifact_id != ''
+        with:
+          artifact-ids: ${{ needs.release-guard.outputs.artifact_id }}
+          path: dist
+          run-id: ${{ needs.release-guard.outputs.artifact_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.release-guard.outputs.artifact_id == ''
         with:
           name: release-packages
           path: dist

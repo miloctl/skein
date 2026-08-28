@@ -12,11 +12,11 @@ The workplace repository owns its extension code, dependency locks, content, fin
 
 ## Current release status
 
-Release `0.3.0` is published. PyPI provides `skein-agents`, and GitHub Packages provides both private `@miloctl` npm packages.
+This revision prepares package line `0.3.2`. Use the exact registry commands after the `0.3.2` pull-back validation passes.
 
 A workplace needs a classic GitHub PAT with `read:packages` outside GitHub Actions. `RELEASING.md` contains the publication and access procedure.
 
-For an unreleased change, use the artifact procedure in [Use local artifacts before publication](#use-local-artifacts-before-publication).
+Before registry publication, use the artifact procedure in [Use local artifacts before publication](#use-local-artifacts-before-publication).
 
 ## Prerequisites
 
@@ -173,7 +173,7 @@ Download the backend wheel without its dependencies:
 ```sh
 mkdir -p dist
 python -m pip download --no-deps --dest dist \
-  skein-agents==0.3.0 \
+  skein-agents==0.3.2 \
   --index-url https://pypi.org/simple
 ```
 
@@ -181,15 +181,15 @@ Pack the two npm packages into stable local files:
 
 ```sh
 npm pack @miloctl/skein-extension-api@1.0.0 --pack-destination dist
-npm pack @miloctl/skein-frontend-host@0.3.0 --pack-destination dist
+npm pack @miloctl/skein-frontend-host@0.3.2 --pack-destination dist
 ```
 
 The expected files are:
 
 ```text
-dist/skein_agents-0.3.0-py3-none-any.whl
+dist/skein_agents-0.3.2-py3-none-any.whl
 dist/miloctl-skein-extension-api-1.0.0.tgz
-dist/miloctl-skein-frontend-host-0.3.0.tgz
+dist/miloctl-skein-frontend-host-0.3.2.tgz
 ```
 
 Remove old files from `dist` before you stage a new release. An old artifact with the same package family can enter a wildcard build.
@@ -278,7 +278,7 @@ uv build --wheel --out-dir dist .
 Set `requirements.in` to the two exact first-party wheels:
 
 ```text
-./dist/skein_agents-0.3.0-py3-none-any.whl
+./dist/skein_agents-0.3.2-py3-none-any.whl
 ./dist/workplace_skein_extension-1.0.0-py3-none-any.whl
 ```
 
@@ -299,7 +299,7 @@ Install the lock before the first-party wheels:
 ```sh
 python -m pip install --require-hashes -r requirements.lock
 python -m pip install --no-deps \
-  dist/skein_agents-0.3.0-py3-none-any.whl \
+  dist/skein_agents-0.3.2-py3-none-any.whl \
   dist/workplace_skein_extension-1.0.0-py3-none-any.whl
 python -m pip check
 ```
@@ -312,7 +312,7 @@ Set `requirements-test.in` to the same wheels. Enable the private package test e
 
 ```text
 -c requirements.lock
-./dist/skein_agents-0.3.0-py3-none-any.whl
+./dist/skein_agents-0.3.2-py3-none-any.whl
 ./dist/workplace_skein_extension-1.0.0-py3-none-any.whl[test]
 ```
 
@@ -335,7 +335,7 @@ uv venv --python 3.12 .venv-test
 uv pip install --python .venv-test/bin/python \
   --require-hashes -r requirements-test.lock
 uv pip install --python .venv-test/bin/python --no-deps \
-  dist/skein_agents-0.3.0-py3-none-any.whl \
+  dist/skein_agents-0.3.2-py3-none-any.whl \
   dist/workplace_skein_extension-1.0.0-py3-none-any.whl
 uv pip check --python .venv-test/bin/python
 ```
@@ -366,7 +366,7 @@ Create the workplace root `package.json`:
   },
   "dependencies": {
     "@miloctl/skein-extension-api": "file:dist/miloctl-skein-extension-api-1.0.0.tgz",
-    "@miloctl/skein-frontend-host": "file:dist/miloctl-skein-frontend-host-0.3.0.tgz",
+    "@miloctl/skein-frontend-host": "file:dist/miloctl-skein-frontend-host-0.3.2.tgz",
     "next": "16.2.11",
     "react": "19.2.4",
     "react-dom": "19.2.4"

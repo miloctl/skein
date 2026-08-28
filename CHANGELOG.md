@@ -14,6 +14,36 @@ A contract entry names the version a package must declare to use it. Additive
 contracts keep extension API 1.0: a package that does not use the new contract
 keeps its existing `minimum_core` and needs no change.
 
+## Unreleased
+
+### Contracts
+
+### Behavior
+
+### Operations
+
+## 0.3.2 — 2026-08-28
+
+The next patch aligns the published frontend host with the tested workplace package boundary. Existing `0.3.x` extensions need no compatibility change.
+
+### Contracts
+
+- No `app.extensions`, `app.public`, or `@miloctl/skein-extension-api` signature changed. Extension API stays 1.0.
+- Atlas stays at `2.0.0` with `skein-agents>=0.3.0,<0.4.0`. The next patch remains inside that range.
+
+### Behavior
+
+- Browse create controls now have stable form names. Browser autofill no longer reports empty form metadata for these controls.
+
+### Operations
+
+- Workplace tests use a hash-locked dependency closure constrained by the production lock. Current-package tests start in a fresh installed environment.
+- The package-built browser contract uses signed OIDC identities for denied, integration, and manager paths. It also completes one core write.
+- Contract cleanup is bounded and uses explicit disposable database names. Ambient Atlas credentials cannot enter the browser contract.
+- Partial publication retries validate the original run and reuse its tested artifact. PyPI skips an identical wheel and refuses different bytes.
+- Release preparation now uses one version input to update synchronized packages, exact artifacts, locks, documentation, and the release marker.
+- A protected finalization workflow verifies registry bytes from the original artifact before it creates an annotated release tag.
+
 ## 0.3.0 — 2026-08-27
 
 Two deployment defaults changed, and both are visible to a private package.

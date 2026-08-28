@@ -2,7 +2,7 @@
 
 ## Current release state
 
-Release `0.3.0` completed publication and registry pull-back validation. Tag `v0.3.0` records the published release commit.
+This revision prepares release `0.3.2`. Publication is complete only after registry pull-back passes and tag `v0.3.2` records the exact commit.
 
 The package identities are:
 
@@ -22,9 +22,10 @@ Keep these account settings for each release pull request.
 2. Confirm that repository policy permits job-level `packages: write`.
 3. Protect `main` with pull requests and the required GitHub CI checks.
 4. Restrict direct pushes and force pushes to `main`.
-5. Create GitHub environments named `pypi` and `npm`.
-6. Restrict both environments to `main`.
-7. Add a required reviewer to both environments.
+5. Create GitHub environments named `pypi`, `npm`, and `release-finalization`.
+6. Restrict all three environments to protected `main`.
+7. Add a required reviewer and disable self-approval for each environment.
+8. Add a `v*` tag ruleset that permits creation by GitHub Actions and refuses updates or deletion.
 
 Publication starts only when a reviewed release pull request changes `.github/release-version` on protected `main`. Tags do not trigger publication.
 
@@ -124,24 +125,20 @@ The local GitHub remote is named `github`.
 4. Wait for all five gates and `release-guard` on the `main` push.
 5. Approve the protected `pypi` and `npm` environments.
 6. Watch both publication jobs.
-7. Create tag `vX.Y.Z` on the published `main` commit.
-8. Push the tag to the `github` remote.
+7. Open the `finalize-release` workflow on branch `main` and enter the original release run ID.
+8. Approve the protected `release-finalization` environment.
+9. Confirm that the workflow creates annotated tag `vX.Y.Z` on the published `main` commit.
 
 Example release preparation:
 
 ```sh
-printf '0.3.0\n' >.github/release-version
+printf '0.3.2\n' >.github/release-version
 git add .github/release-version CHANGELOG.md
-git commit -m "release: v0.3.0"
-git push github release/v0.3.0
+git commit -m "release: v0.3.2"
+git push github release/0.3.2
 ```
 
-After the release pull request publishes successfully:
-
-```sh
-git tag -a v0.3.0 -m "Skein 0.3.0" <published-main-sha>
-git push github v0.3.0
-```
+After publication succeeds, the protected finalization workflow pulls the registry files and compares them with the original tested artifact. It creates the annotated tag only after every byte matches.
 
 The protected `main` workflow builds each artifact once. The contracts and publishers consume the same uploaded files.
 
@@ -161,43 +158,17 @@ Both publishers consume that original artifact. An identical published file is a
 
 Approve both the `pypi` and `npm` environments. If the original artifact expired, publish a new version instead of rebuilding the old version from current source.
 
-## Validate the published packages
+## Finalize the published release
 
-Do not treat a successful upload as completed publication. Pull each package into a new empty directory.
+Do not treat a successful upload as completed publication. Open the GitHub `finalize-release` workflow on branch `main` and enter the original release run ID.
 
-```sh
-rm -rf /tmp/skein-release
-mkdir -p /tmp/skein-release
+The workflow validates the original gated run and downloads its immutable artifact ID. It inspects the three package identities and versions without extracting them.
 
-python -m pip download --no-deps \
-  --dest /tmp/skein-release \
-  skein-agents==0.3.0 \
-  --index-url https://pypi.org/simple
+The workflow pulls the matching PyPI wheel and both GitHub npm tarballs with bounded retries. It compares the wheel with SHA-256 and each npm tarball with SHA-512.
 
-npm pack @miloctl/skein-extension-api@1.0.0 \
-  --pack-destination /tmp/skein-release
-npm pack @miloctl/skein-frontend-host@0.3.0 \
-  --pack-destination /tmp/skein-release
-```
+After the registry bytes match, approve the protected `release-finalization` environment. The tag job creates annotated tag `vX.Y.Z` at the original release SHA.
 
-Compare the pulled files with the tested GitHub Actions artifact. Use SHA-256 for the wheel and npm SHA-512 integrity for each tarball.
-
-Run each package-consuming contract against the pulled files:
-
-```sh
-SKEIN_RELEASE_DIST=/tmp/skein-release \
-SKEIN_CONTRACT_RUN_ID=pullback \
-SKEIN_DATABASE_URL=postgresql://skein:skein@127.0.0.1:5432/skein \
-  ./scripts/reference-extension-contract.sh
-SKEIN_RELEASE_DIST=/tmp/skein-release \
-SKEIN_DATABASE_URL=postgresql://skein:skein@127.0.0.1:5432/skein \
-  ./scripts/reference-frontend-contract.sh
-SKEIN_RELEASE_DIST=/tmp/skein-release \
-  ./scripts/reference-images-contract.sh
-./scripts/reference-deployment-contract.sh
-```
-
-Without `SKEIN_RELEASE_DIST`, the contracts rebuild local source artifacts and do not test the registry pull-back.
+An existing identical annotated tag is a no-op. A missing package, byte mismatch, rebuilt artifact, wrong SHA, lightweight tag, or different tag target fails closed.
 
 ## Publish workplace images
 

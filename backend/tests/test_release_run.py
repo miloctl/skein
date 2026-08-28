@@ -22,6 +22,9 @@ def _responses(
     skipped_publisher: str = "",
     incomplete_publisher: str = "",
     expired: bool = False,
+    artifact_id: object = 987,
+    artifact_sha: str = SHA,
+    duplicate_packages: bool = False,
 ):
     jobs = [
         {
@@ -45,6 +48,8 @@ def _responses(
         }
         for name in sorted(validate_release_run.PUBLISH_JOBS)
     )
+    if duplicate_packages:
+        jobs.append({"name": "packages", "status": "completed", "conclusion": "success"})
 
     def get_json(url: str, _token: str):
         if "/jobs?" in url:
@@ -52,7 +57,13 @@ def _responses(
         if "/artifacts?" in url:
             return {
                 "artifacts": [
-                    {"name": "release-packages", "expired": expired},
+                    {
+                        "id": artifact_id,
+                        "name": "release-packages",
+                        "expired": expired,
+                        "digest": "sha256:" + "b" * 64,
+                        "workflow_run": {"head_sha": artifact_sha},
+                    },
                 ]
             }
         return {
@@ -69,12 +80,12 @@ def _responses(
 def test_release_retry_accepts_the_gated_artifact(monkeypatch):
     monkeypatch.setattr(validate_release_run, "_get_json", _responses())
 
-    assert (
-        validate_release_run.validate_release_run(
-            "https://api.github.test", "miloctl/skein", "12345", "token"
-        )
-        == SHA
+    release = validate_release_run.validate_release_run(
+        "https://api.github.test", "miloctl/skein", "12345", "token"
     )
+    assert release.release_sha == SHA
+    assert release.artifact_id == 987
+    assert release.artifact_digest == "sha256:" + "b" * 64
 
 
 def test_release_retry_refuses_a_run_with_a_failed_gate(monkeypatch):
@@ -125,6 +136,30 @@ def test_release_retry_refuses_an_expired_artifact(monkeypatch):
     monkeypatch.setattr(validate_release_run, "_get_json", _responses(expired=True))
 
     with pytest.raises(validate_release_run.ValidationError, match="no usable"):
+        validate_release_run.validate_release_run(
+            "https://api.github.test", "miloctl/skein", "12345", "token"
+        )
+
+
+def test_release_retry_refuses_an_invalid_artifact_id(monkeypatch):
+    monkeypatch.setattr(validate_release_run, "_get_json", _responses(artifact_id="bad"))
+    with pytest.raises(validate_release_run.ValidationError, match="artifact ID"):
+        validate_release_run.validate_release_run(
+            "https://api.github.test", "miloctl/skein", "12345", "token"
+        )
+
+
+def test_release_retry_refuses_an_artifact_from_another_sha(monkeypatch):
+    monkeypatch.setattr(validate_release_run, "_get_json", _responses(artifact_sha="c" * 40))
+    with pytest.raises(validate_release_run.ValidationError, match="commit SHA"):
+        validate_release_run.validate_release_run(
+            "https://api.github.test", "miloctl/skein", "12345", "token"
+        )
+
+
+def test_release_retry_refuses_a_rebuilt_packages_job(monkeypatch):
+    monkeypatch.setattr(validate_release_run, "_get_json", _responses(duplicate_packages=True))
+    with pytest.raises(validate_release_run.ValidationError, match="packages job"):
         validate_release_run.validate_release_run(
             "https://api.github.test", "miloctl/skein", "12345", "token"
         )
