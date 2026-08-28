@@ -22,7 +22,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: skein
-          image: skein:0.3.0
+          image: skein:0.3.2
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -137,7 +137,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: frontend
-          image: skein-frontend:0.3.0
+          image: skein-frontend:0.3.2
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

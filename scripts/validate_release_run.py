@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 PUBLISH_JOBS = {"publish-pypi", "publish-npm"}
 REQUIRED_JOBS = {
@@ -24,6 +25,13 @@ REQUIRED_JOBS = {
 
 class ValidationError(ValueError):
     pass
+
+
+class ReleaseRun(NamedTuple):
+    artifact_run_id: str
+    artifact_id: int
+    artifact_digest: str
+    release_sha: str
 
 
 def _get_json(url: str, token: str) -> dict[str, Any]:
@@ -50,7 +58,7 @@ def validate_release_run(
     repository: str,
     run_id: str,
     token: str,
-) -> str:
+) -> ReleaseRun:
     if not run_id.isascii() or not run_id.isdigit():
         raise ValidationError("The release run ID must contain digits only.")
     parsed = urllib.parse.urlparse(api_url)
@@ -71,9 +79,12 @@ def validate_release_run(
     if len(head_sha) != 40 or any(char not in "0123456789abcdef" for char in head_sha):
         raise ValidationError("The selected run has an invalid commit SHA.")
 
-    jobs = _get_json(f"{base}/jobs?filter=latest&per_page=100", token).get("jobs")
+    jobs = _get_json(f"{base}/jobs?filter=all&per_page=100", token).get("jobs")
     if not isinstance(jobs, list):
         raise ValidationError("GitHub returned an invalid release-job list.")
+    package_jobs = [job for job in jobs if isinstance(job, dict) and job.get("name") == "packages"]
+    if len(package_jobs) != 1:
+        raise ValidationError("The selected run has more than one packages job attempt.")
     states = {
         str(job.get("name")): (job.get("status"), job.get("conclusion"))
         for job in jobs
@@ -99,22 +110,35 @@ def validate_release_run(
     ]
     if len(matches) != 1 or matches[0].get("expired") is not False:
         raise ValidationError("The selected run has no usable release-packages artifact.")
+    artifact = matches[0]
+    artifact_id = artifact.get("id")
+    if not isinstance(artifact_id, int) or artifact_id <= 0:
+        raise ValidationError("The selected artifact has an invalid artifact ID.")
+    workflow_run = artifact.get("workflow_run")
+    if isinstance(workflow_run, dict) and workflow_run.get("head_sha") not in (None, head_sha):
+        raise ValidationError("The selected artifact belongs to another commit SHA.")
+    digest = str(artifact.get("digest") or "")
+    if digest and not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        raise ValidationError("The selected artifact has an invalid digest.")
 
-    return head_sha
+    return ReleaseRun(run_id, artifact_id, digest, head_sha)
 
 
 def main() -> int:
     try:
-        head_sha = validate_release_run(
+        run_id = os.environ.get("RELEASE_RUN_ID") or os.environ["RETRY_RUN_ID"]
+        release = validate_release_run(
             os.environ.get("GITHUB_API_URL", "https://api.github.com"),
             os.environ["GITHUB_REPOSITORY"],
-            os.environ["RETRY_RUN_ID"],
+            run_id,
             os.environ["GITHUB_TOKEN"],
         )
         output = Path(os.environ["GITHUB_OUTPUT"])
         with output.open("a", encoding="utf-8") as stream:
-            stream.write(f"artifact_run_id={os.environ['RETRY_RUN_ID']}\n")
-            stream.write(f"release_sha={head_sha}\n")
+            stream.write(f"artifact_run_id={release.artifact_run_id}\n")
+            stream.write(f"artifact_id={release.artifact_id}\n")
+            stream.write(f"artifact_digest={release.artifact_digest}\n")
+            stream.write(f"release_sha={release.release_sha}\n")
         return 0
     except (KeyError, ValidationError) as exc:
         message = str(exc) if isinstance(exc, ValidationError) else "A release-run input is absent."

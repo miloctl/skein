@@ -30,15 +30,15 @@ rm -rf dist
 mkdir -p dist
 uv build --wheel --out-dir dist .
 python -m pip download --no-deps --dest dist \
-  skein-agents==0.3.0 \
+  skein-agents==0.3.2 \
   --index-url https://pypi.org/simple
 npm pack @miloctl/skein-extension-api@1.0.0 --pack-destination dist
-npm pack @miloctl/skein-frontend-host@0.3.0 --pack-destination dist
+npm pack @miloctl/skein-frontend-host@0.3.2 --pack-destination dist
 ```
 
 A local or non-GitHub consumer needs a classic GitHub PAT with `read:packages`.
 
-The Dockerfiles require the exact `0.3.0`, `1.0.0`, and `2.0.0` artifact names. A clean `dist` directory prevents an old artifact from entering the build.
+The Dockerfiles require the exact `0.3.2`, `1.0.0`, and `2.0.0` artifact names. A clean `dist` directory prevents an old artifact from entering the build.
 
 Regenerate `package-lock.json` with Node 22 after an npm artifact changes bytes. Regenerate each Python lock after its dependency graph changes.
 

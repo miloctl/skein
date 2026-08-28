@@ -1021,12 +1021,12 @@ The protected GitHub `main` workflow publishes these packages when `.github/rele
 - `@miloctl/skein-extension-api` to private GitHub Packages.
 - `@miloctl/skein-frontend-host` to private GitHub Packages.
 
-Release `0.3.0` completed publication and registry pull-back validation. Tag `v0.3.0` records the exact published release commit.
+This revision prepares package line `0.3.2`. Registry pull-back and tag `v0.3.2` are the authority for completed publication.
 
 Install `skein-agents` from PyPI or a controlled mirror:
 
 ```sh
-pip install skein-agents==0.3.0 \
+pip install skein-agents==0.3.2 \
   --index-url https://pypi.org/simple
 ```
 
@@ -1054,7 +1054,7 @@ Use Node 22. Pin the frontend host, its peers, and Next directly in the workplac
   },
   "dependencies": {
     "@miloctl/skein-extension-api": "1.0.0",
-    "@miloctl/skein-frontend-host": "0.3.0",
+    "@miloctl/skein-frontend-host": "0.3.2",
     "next": "16.2.11",
     "react": "19.2.4",
     "react-dom": "19.2.4"
@@ -1194,7 +1194,7 @@ sets `SKEIN_DATABASE_URL`. The backend script also requires a safe
 The script builds and installs separate wheels in a normal virtual environment.
 It starts Skein 0.2.3 with Atlas 1.x and writes upgrade data.
 
-It removes both old distributions. Then it installs `skein-agents` 0.3.0 and
+It removes both old distributions. Then it installs `skein-agents` 0.3.2 and
 Atlas 2.0 against the same database.
 
 The script runs a real Atlas synchronization on both package generations. It
