@@ -59,6 +59,25 @@ model and constraints, is archived at
   section that contradicted the design doc it cited). A neighbouring item
   that needs the context gets one line naming what shipped, not a
   resurrected entry.
+- **A release has one version input.** Do not prepare a release with manual
+  search-and-replace. Before the next release, add and use
+  `scripts/prepare-release.py X.Y.Z`. If the script is absent or stale, update
+  it before you change a version. The script must validate `X.Y.Z`, update the
+  backend, frontend host, CLI, fallback literal, exact artifact paths, active
+  documentation, and changelog, then set `.github/release-version` last. It
+  must build the exact wheel and npm tarballs before it regenerates consumer
+  locks. It uses Python 3.12 for Python locks and Node 22 for npm locks. It
+  fails when a current artifact path or synchronized version still names the
+  old release. `backend/tests/test_release_contract.py` remains the executable
+  authority for what must agree.
+- **A release tag is an output, never an input.** Publication still starts only
+  from the reviewed release-marker change on protected `main`. Before the next
+  release, add a protected `workflow_dispatch` finalization job that creates
+  annotated tag `vX.Y.Z` only after the package publishers and registry
+  pull-back succeed for the exact tested `main` commit. It must refuse a
+  partial publication, an expired or rebuilt artifact, an existing different
+  tag, and any SHA other than the published release SHA. Until that job exists,
+  create the tag manually only after pull-back. A tag never starts publication.
 - **A read takes no lock.** A transaction alone protects nothing: nothing is
   locked until a row is written, so two callers both read "absent" and both
   insert. Any read whose RESULT decides a later write must hold something —
