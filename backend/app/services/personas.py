@@ -334,8 +334,11 @@ def validate_all() -> list[str]:
     errors += _check_behavior(
         "pack defaults (merged)", merged.get("temperature", ""), merged.get("tools", ""), known
     )
-    # keyed by slug so an overlay's description replaces the stock one —
-    # the collision check judges the roster routing actually sees
+    # STOCK descriptions only: the routing-quality bar is ours to hold, and a
+    # new shape rule that hard-fails a deployment's existing overlay file on
+    # upgrade breaks the legacy-open-shape contract
+    # (tests/test_content_schemas.py). An overlay that overrides a stock slug
+    # takes its description out of the check — the deployment's choice.
     descriptions: dict[str, str] = {}
     for d in _persona_dirs():
         for path in sorted(d.glob("*.md")):
@@ -370,7 +373,12 @@ def validate_all() -> list[str]:
                 )
                 continue
             errors += _check_behavior(label, p["temperature"], p["tools"], known)
-            descriptions[path.stem] = p["description"]
+            if d == PERSONAS_DIR:
+                descriptions[path.stem] = p["description"]
+            else:
+                # an overlay override retires the stock description from the
+                # routing checks — routing sees the override, not the stock
+                descriptions.pop(path.stem, None)
     tokens = {slug: _description_tokens(desc) for slug, desc in descriptions.items()}
     for slug in sorted(tokens):
         if len(tokens[slug]) < _MIN_DESCRIPTION_TOKENS:
