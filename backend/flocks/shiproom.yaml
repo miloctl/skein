@@ -1,0 +1,8 @@
+name: Shiproom
+description: Ship readiness on one question — the exploit, the missing test, and the rollback path
+emoji: ⚓
+members:
+  - security-engineer
+  - test-engineer
+  - release-captain
+synthesis: true

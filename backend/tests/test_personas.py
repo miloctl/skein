@@ -13,7 +13,7 @@ def _read_chat(client, message):
 
 def test_bench_includes_the_bosun():
     roster = personas.list_personas()
-    assert len(roster) == 11
+    assert len(roster) == 23
     slugs = {p["slug"] for p in roster}
     assert {"bosun", "code-reviewer", "growth-mentor", "training-designer"} <= slugs
     assert all(p["name"] and p["description"] and p["emoji"] for p in roster)
@@ -53,7 +53,7 @@ def test_get_persona_body_and_unknown():
 
 def test_personas_rest(client):
     roster = client.get("/api/personas").json()
-    assert len(roster) == 11
+    assert len(roster) == 23
     assert "body" not in roster[0]
     one = client.get("/api/personas/growth-mentor").json()
     assert one["body"]
