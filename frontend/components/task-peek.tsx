@@ -823,7 +823,7 @@ function EditControls({ task, onSaved }: { task: PeekTask; onSaved: () => void }
         id={`peek-waiting-${task.id}`}
         value={draft.waiting_on}
         onChange={(e) => setDraft({ ...draft, waiting_on: e.target.value })}
-        placeholder="task:3 · blocker:12 · promise:7"
+        placeholder="task:3 · blocker:12 · promise:7 · question:5"
         className={field}
       />
       <span aria-hidden />
