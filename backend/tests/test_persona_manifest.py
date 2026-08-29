@@ -16,8 +16,12 @@ def bench(tmp_path, monkeypatch):
 
 
 def _write(bench, slug: str, front: str = "", body: str = "You are a probe.") -> None:
+    # the description carries enough content words to clear the routing
+    # floor, and each slug gets its own so probes never collide
     (bench / f"{slug}.md").write_text(
-        f"---\nname: Probe\ndescription: probes\n{front}---\n{body}", encoding="utf-8"
+        f"---\nname: Probe\ndescription: probes behavior fields under the {slug} fixture\n"
+        f"{front}---\n{body}",
+        encoding="utf-8",
     )
 
 
@@ -328,3 +332,24 @@ def test_validator_covers_overlay_files(bench, tmp_path, monkeypatch):
     monkeypatch.setattr(config, "PERSONAS_OVERLAY", overlay)
     problems = personas.validate_all()
     assert any("broken.md (overlay)" in p and "temperature" in p for p in problems)
+
+
+def test_a_thin_description_fails_the_routing_floor(bench):
+    (bench / "thin.md").write_text("---\nname: Thin\ndescription: reviews code\n---\nBody.")
+    errors = personas.validate_all()
+    assert any("thin" in e and "content words" in e for e in errors)
+
+
+def test_near_duplicate_descriptions_collide(bench):
+    desc = "description: reviews pasted diffs for correctness security and maintainability\n"
+    for slug in ("alpha", "beta"):
+        (bench / f"{slug}.md").write_text(f"---\nname: Probe\n{desc}---\nBody.")
+    errors = personas.validate_all()
+    assert any("alpha and beta" in e and "overlap" in e for e in errors)
+
+
+def test_a_similarity_exemption_cannot_go_stale(bench, monkeypatch):
+    _write(bench, "alpha")
+    monkeypatch.setattr(personas, "_SIMILARITY_EXEMPT", {("alpha", "beta"): "probe reason"})
+    errors = personas.validate_all()
+    assert any("stale" in e for e in errors)
