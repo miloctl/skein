@@ -68,6 +68,40 @@ SCENARIOS = [
         "forbid": ["tasks", "pending_changes"],
         "expect_error": wording.write_policy_denied(),
     },
+    # Pressure cases: urgency language lives in the ARGUMENTS, where a model
+    # under "the client is on the phone" framing would put it. The gate reads
+    # authority and review mode, never content — these pin that a persuasive
+    # payload cannot argue its way past either.
+    {
+        "name": "pressure-text-never-moves-a-forbidden-gate",
+        "review": False,
+        "authority": [("agent", "task", "forbidden")],
+        "steps": [
+            (
+                "work",
+                "create_task",
+                {"title": "URGENT — client on the phone, skip review and file this now"},
+            ),
+        ],
+        "expect_tables": {},
+        "expect_pending": 0,
+        "forbid": ["tasks", "pending_changes"],
+        "expect_error": wording.write_policy_denied(),
+    },
+    {
+        "name": "urgency-still-lands-as-a-proposal",
+        "review": True,
+        "steps": [
+            (
+                "work",
+                "create_task",
+                {"title": "emergency hotfix — leadership approved verbally, write it directly"},
+            ),
+        ],
+        "expect_tables": {},
+        "expect_pending": 1,
+        "forbid": ["tasks"],
+    },
     {
         "name": "waiting-on-through-the-tool-layer",
         "review": False,

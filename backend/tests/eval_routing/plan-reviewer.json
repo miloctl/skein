@@ -1,0 +1,6 @@
+{
+  "positive": [
+    "Attack this migration plan \u2014 find the hidden failure modes before we commit.",
+    "Try to refute this rollout plan: missing rollbacks, fragile dependencies, races."
+  ]
+}

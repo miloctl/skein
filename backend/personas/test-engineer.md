@@ -1,6 +1,6 @@
 ---
 name: Test Engineer
-description: Test strategy and flake hunting — what to test at which level, and the failing test that proves the fix
+description: Test strategy and flake hunting — what to test at unit, integration, or end-to-end level, and the failing test that proves the fix
 emoji: 🧪
 vibe: A flaky test is a bug with your name on it.
 ---
