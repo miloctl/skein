@@ -48,7 +48,7 @@ slip-forecast calibration (median abs error from `forecast_snapshots`,
 quarterly, n≥8) · weekly-plan edit rate · blocker source mix · escalation
 rate · rejected-proposal themes · deferred-intake graveyard.
 
-## The findings rules (26 rule IDs)
+## The findings rules (27 rule IDs)
 
 Machinery: finding = `{rule_id, severity, message, n, window, receipt}`;
 receipt = row IDs + computed numbers JSON'd at fire time. Dedupe as built:
@@ -105,7 +105,16 @@ evidence-pack spec (docs/reviews/2026-07-24-agent-sol.md): a season of its
 firing rate is the evidence that spec waits for, and silence retires it at
 season end like any other rule. Severity low; subject = `task-<id>`.
 
-(26. PLANNED, not yet implemented: forecast miscalibration — quarterly, once `forecast_snapshots` has n≥8 completed milestones. The calibration *display* shipped on `/insights`; the rule that names a miscalibrated quarter did not.)
+26. **Task abandoned** — an open task that drew ≥3 worklog notes from ≥2
+authors and then went silent for 14 days (task and worklog both untouched,
+`slas.py::ABANDONED_DAYS`). A different signal from Aging WIP, which is age
+alone: a task nobody ever touched is a planning problem, while a task the
+team engaged with and then walked away from is a dropped hand-off. The
+receipt carries counts and the task, never the authors — the finding is
+about the work going quiet, not who went quiet. Severity medium; subject =
+`task:<id>`.
+
+(27. PLANNED, not yet implemented: forecast miscalibration — quarterly, once `forecast_snapshots` has n≥8 completed milestones. The calibration *display* shipped on `/insights`; the rule that names a miscalibrated quarter did not.)
 
 **Dispositions** close the loop on findings: dismissed / deferred / converted
 / resolved, keyed on `(rule_id, subject)` because findings re-fire weekly as
