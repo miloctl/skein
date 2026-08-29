@@ -14,6 +14,7 @@ the shape (and versions it), this module owns identity and ordering
 (message_id is the SDK's own integer index).
 """
 
+import builtins
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -89,6 +90,77 @@ def session_manager(thread_id: str) -> RepositorySessionManager:
     )
 
 
+class DbOffloadStorage:
+    """strands unified Storage over session_offload, scoped to ONE session.
+
+    The context offloader writes an oversized tool result here and leaves a
+    preview plus reference in the persisted message; its
+    retrieve_offloaded_content tool reads the bytes back. Scoping is the
+    session_id column: the retrieval tool built into one thread's agent
+    reaches that thread's blobs and nothing else — the same visibility the
+    session_messages row the bytes used to live in. Rows CASCADE off the
+    sessions row (migration 017), so thread deletion cleans them. The plugin
+    calls write/read/delete only (eviction is disabled at the wiring site,
+    team_agent.build_agent); list completes the Storage protocol.
+    """
+
+    def __init__(self, session_id: str) -> None:
+        self.session_id = session_id
+
+    async def write(self, key: str, data: bytes) -> None:
+        def _write() -> None:
+            db.execute(
+                "INSERT INTO session_offload (session_id, key, content, created_at)"
+                " VALUES (?, ?, ?, ?)"
+                " ON CONFLICT (session_id, key) DO UPDATE SET content = excluded.content",
+                (self.session_id, key, data, db.now()),
+            )
+
+        await run_in_threadpool(_write)
+
+    async def read(self, key: str) -> bytes | None:
+        def _read() -> bytes | None:
+            row = db.query_one(
+                "SELECT content FROM session_offload WHERE session_id = ? AND key = ?",
+                (self.session_id, key),
+            )
+            return bytes(row["content"]) if row else None
+
+        return await run_in_threadpool(_read)
+
+    async def delete(self, key: str) -> None:
+        def _delete() -> None:
+            db.execute(
+                "DELETE FROM session_offload WHERE session_id = ? AND key = ?",
+                (self.session_id, key),
+            )
+
+        await run_in_threadpool(_delete)
+
+    async def list(self, query: str = "") -> list[str]:
+        def _list() -> list[str]:
+            # the plugin's keys carry '_' (toolUseId_blockIndex), a LIKE
+            # wildcard — escaped, or a prefix query over-matches
+            escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            rows = db.query(
+                "SELECT key FROM session_offload WHERE session_id = ?"
+                " AND key LIKE ? ESCAPE '\\' ORDER BY key",
+                (self.session_id, f"{escaped}%"),
+            )
+            return [r["key"] for r in rows]
+
+        return await run_in_threadpool(_list)
+
+    # builtins.list: the method named `list` above shadows the builtin inside
+    # this class body, the same reason the SDK's Storage protocol spells it out
+    async def search(self, query: str) -> builtins.list:
+        # protocol completeness only: the offloader never searches storage
+        # (its retrieval tool greps the retrieved bytes instead), and a
+        # keyword scan over opaque blobs would promise relevance it cannot
+        # judge — an empty answer is honest
+        return []
+
+
 # The formats routes/chat.py can attach, and the marker each leaves behind.
 _ATTACHMENT_BLOCKS = ("document", "image", "video")
 
@@ -129,6 +201,59 @@ def _without_attachment_bytes(payload: dict) -> dict:
             name = str(block[kind].get("name", ""))
         trimmed.append({"text": f"[attached file: {name}]" if name else "[attached file]"})
     return {**payload, "message": {**payload["message"], "content": trimmed}}
+
+
+# Backstop for paths the context offloader does not ride (plugin disabled,
+# wake turns, persona-allowlist agents — team_agent.build_agent names the
+# contracts): a stored toolResult past this size replays to the provider on
+# every later turn of the thread. 128 KB sits far above the offloader's
+# token threshold, so on covered paths this never fires.
+_TOOL_RESULT_MAX_STORED_BYTES = 128 * 1024
+
+
+def _without_bulky_tool_results(payload: dict) -> dict:
+    """One persisted message, with any oversized toolResult reduced to a
+    marker. toolUseId and status survive: _fix_broken_tool_use on restore and
+    find_valid_trim_point (team_agent._user_aligned_offset) both need every
+    toolUse to keep exactly one structurally valid result. The in-memory
+    message is untouched — the turn that fetched the result saw it in full,
+    the same contract _without_attachment_bytes pins for attachments."""
+    content = payload.get("message", {}).get("content")
+    if not isinstance(content, list):
+        return payload
+    trimmed = None
+    for i, block in enumerate(content):
+        if not isinstance(block, dict) or not isinstance(block.get("toolResult"), dict):
+            continue
+        result = block["toolResult"]
+        size = len(json.dumps(result.get("content", ""), default=str))
+        if size <= _TOOL_RESULT_MAX_STORED_BYTES:
+            continue
+        if trimmed is None:
+            trimmed = list(content)
+        trimmed[i] = {
+            "toolResult": {
+                **result,
+                "content": [
+                    {
+                        "text": f"[tool result truncated at storage: {size} bytes."
+                        " The turn that fetched it saw it in full. Call the"
+                        " tool again if a later turn needs it.]"
+                    }
+                ],
+            }
+        }
+    if trimmed is None:
+        return payload
+    return {**payload, "message": {**payload["message"], "content": trimmed}}
+
+
+def _stored_payload(session_message: SessionMessage) -> str:
+    """What both writers persist: the SDK dict, minus attachment bytes, minus
+    oversized tool results."""
+    return json.dumps(
+        _without_bulky_tool_results(_without_attachment_bytes(session_message.to_dict()))
+    )
 
 
 class DatabaseSessionRepository(SessionRepository):
@@ -193,7 +318,7 @@ class DatabaseSessionRepository(SessionRepository):
                 session_id,
                 agent_id,
                 session_message.message_id,
-                json.dumps(_without_attachment_bytes(session_message.to_dict())),
+                _stored_payload(session_message),
             ),
         )
 
@@ -218,7 +343,7 @@ class DatabaseSessionRepository(SessionRepository):
             "UPDATE session_messages SET payload = ?"
             " WHERE session_id = ? AND agent_id = ? AND message_id = ?",
             (
-                json.dumps(_without_attachment_bytes(session_message.to_dict())),
+                _stored_payload(session_message),
                 session_id,
                 agent_id,
                 session_message.message_id,
