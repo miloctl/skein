@@ -229,6 +229,16 @@ def _without_bulky_tool_results(payload: dict) -> dict:
         size = len(json.dumps(result.get("content", ""), default=str))
         if size <= _TOOL_RESULT_MAX_STORED_BYTES:
             continue
+        # the demand probe for extending the offloader to the excluded paths:
+        # every fire is a fat result the plugin did not catch, and a season of
+        # this line is the evidence that decision waits for (the evidence_gap
+        # pattern). Size and id only — the content is what must not spread.
+        log.warning(
+            "tool result truncated at storage: %s bytes (toolUseId=%s) —"
+            " the context offloader did not ride this path",
+            size,
+            result.get("toolUseId", "?"),
+        )
         if trimmed is None:
             trimmed = list(content)
         trimmed[i] = {
