@@ -21,7 +21,7 @@ from pathlib import Path
 from app.services import personas
 
 CASES_DIR = Path(__file__).parent / "eval_routing"
-RANK1_FLOOR = 0.8
+RANK1_FLOOR = 0.9
 
 _SUFFIXES = ("ing", "ers", "er", "es", "ed", "s")
 
