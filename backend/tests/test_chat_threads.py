@@ -167,6 +167,45 @@ def test_mid_stream_error_reaches_sse_and_transcript(client, monkeypatch):
     assert "⚠" not in msgs[-1]["content"]
 
 
+def test_provider_faults_classify_load_and_configuration(client, monkeypatch):
+    """An upstream 429 and a bad API key must stop reading identically: one
+    says retry, the other says fix the deployment (the main.py error-class
+    rule, applied inside the stream). The provider's own message never
+    surfaces — it carries request IDs and credential fragments."""
+
+    def exploding(kind):
+        class Exploding:
+            async def stream_async(self, message):
+                raise kind
+                yield  # pragma: no cover — makes this an async generator
+
+        return Exploding()
+
+    class RateLimitError(Exception):
+        status_code = 429
+
+    monkeypatch.setattr(
+        "app.routes.chat.build_agent",
+        lambda *a, **k: exploding(RateLimitError("rl-req-123 secret-fragment")),
+    )
+    body = client.post("/api/chat", json={"thread_id": "t-429", "message": "hi"}).text
+    assert "overloaded or unreachable" in body
+    assert "send the message again" in body
+    assert "rl-req-123" not in body
+
+    class AuthenticationError(Exception):
+        status_code = 401
+
+    monkeypatch.setattr(
+        "app.routes.chat.build_agent",
+        lambda *a, **k: exploding(AuthenticationError("sk-live-abc")),
+    )
+    body = client.post("/api/chat", json={"thread_id": "t-401", "message": "hi"}).text
+    assert "refused this deployment's configuration" in body
+    assert "check the provider credentials" in body
+    assert "sk-live-abc" not in body
+
+
 def test_attachments_and_agent_build_share_one_model_snapshot(client, monkeypatch):
     seen = {}
 
