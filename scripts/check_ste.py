@@ -113,6 +113,38 @@ def check_knots(path):
     return failures
 
 
+def warn_wording(path):
+    """WARN-ONLY ring over the shared user-visible strings: every plain
+    string constant in services/wording.py of sentence length, minus
+    docstrings (dev-facing). Promoted to fatal once the existing copy is
+    clean and stays clean — the same staging the knots gate went through.
+    f-string fragments are skipped on purpose: sentence rules misfire on
+    fragments."""
+    import ast
+
+    source = Path(path).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            body = getattr(node, "body", [])
+            if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+                docstrings.add(id(body[0].value))
+    warnings = []
+    for node in ast.walk(tree):
+        if (
+            not isinstance(node, ast.Constant)
+            or not isinstance(node.value, str)
+            or id(node) in docstrings
+            or len(node.value.split()) < 4
+        ):
+            continue
+        for kind, n in lint(node.value).items():
+            if n:
+                warnings.append(f"{Path(path).name}:{node.lineno}: {kind} x{n}")
+    return warnings
+
+
 SLOP_FIXTURE = (
     "Leveraging our robust retry mechanism, failed uploads are automatically\n"
     "reattempted, ensuring data integrity is maintained throughout the entire process which has\n"
@@ -166,6 +198,10 @@ def main():
             print(f"  {f}")
         sys.exit(1)
     print(f"knots.yaml how: strings pass ({len(failures)} violations)")
+    warnings = warn_wording(root / "backend" / "app" / "services" / "wording.py")
+    for w in warnings:
+        print(f"  warn (not fatal): {w}")
+    print(f"wording.py warn ring: {len(warnings)} STE warnings")
 
 
 if __name__ == "__main__":
