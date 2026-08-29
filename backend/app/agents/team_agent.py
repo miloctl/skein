@@ -524,6 +524,45 @@ def _conversation_manager():
     )
 
 
+def _offloader_plugins(thread_id: str, allowed_tools, beh: dict) -> list:
+    """The context offloader for a stateful chat agent, or nothing.
+
+    The plugin stores an oversized tool result in session_offload (scoped to
+    this thread's session) and leaves a preview plus a
+    retrieve_offloaded_content tool in its place — BEFORE the message is
+    persisted, so the blob never replays on later turns. Two exclusions,
+    because the plugin registers its retrieval tool through the plugin
+    framework, OUTSIDE the tool filtering above:
+
+    - allowed_tools set (the wake runner): the narrow WAKE_TOOLS contract in
+      docs/FEATURES.md says exactly which tools an unattended turn holds.
+    - a persona tools allowlist: "the persona gets exactly those and nothing
+      else" (docs/PERSONAS.md) must stay literally true.
+
+    Constructed per agent — the plugin caches its storage on the instance and
+    refuses sharing. eviction is off: rows CASCADE with the sessions row, and
+    cycle eviction would kill references a resumed session still cites.
+    """
+    if not config.OFFLOAD_RESULT_TOKENS or allowed_tools is not None or beh["tools"] is not None:
+        return []
+    from strands.vended_plugins.context_offloader import ContextOffloader
+
+    result_tokens = config.OFFLOAD_RESULT_TOKENS
+    preview_tokens = config.OFFLOAD_PREVIEW_TOKENS
+    if preview_tokens >= result_tokens:
+        # the plugin refuses the pair, and a bad env value must degrade,
+        # never take down chat — the provider-fault convention
+        result_tokens, preview_tokens = 2500, 1000
+    return [
+        ContextOffloader(
+            storage=session_store.DbOffloadStorage(thread_id),
+            max_result_tokens=result_tokens,
+            preview_tokens=preview_tokens,
+            evict_after_cycles=None,
+        )
+    ]
+
+
 def _user_aligned_offset(repo, thread_id: str, offset: int) -> int:
     """Walk the replay offset BACK to the nearest user turn.
 
@@ -1484,5 +1523,6 @@ def build_agent(
         system_prompt=system,
         tools=tools,
         session_manager=session_store.session_manager(thread_id),
+        plugins=_offloader_plugins(thread_id, allowed_tools, beh),
         callback_handler=None,
     )
