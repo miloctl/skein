@@ -496,6 +496,16 @@ knots:
     link: /dashboard
     since: 2026-08-10
 
+  - id: agent_pause
+    feature: Pause unattended agent runs
+    knot: Highwayman's Hitch
+    set: manager
+    role: manager
+    pitch: The whole fleet holds its breath on one tug — and one tug lets it go again.
+    how: Open Settings → AI runtime, the Unattended agent runs card. Pause stops the daily run and the wake queue. Queued work stays pending. Resume drains it. Authority grants do not change.
+    link: /settings
+    since: 2026-08-28
+
   - id: backup
     feature: Manual backup
     knot: Anchor Bend

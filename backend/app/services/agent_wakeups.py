@@ -286,8 +286,12 @@ def _drain() -> None:
     global _worker_running
     try:
         from .agent_runner import run_one
+        from .settings import agent_automation_enabled
 
-        while claim := claim_next():
+        # checked BEFORE claiming: a claim made while paused would finish as
+        # refused and need a fresh delegation to re-arm — left pending, the
+        # resume switch drains it with no data lost
+        while agent_automation_enabled() and (claim := claim_next()):
             try:
                 # its own guard, not the run_one try below: a database blip
                 # in this read must not mark a turn that never started as
