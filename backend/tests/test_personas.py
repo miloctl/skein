@@ -301,3 +301,30 @@ def test_the_default_agent_turn_carries_the_requester(client, fresh_db, monkeypa
     ) as resp:
         resp.read()
     assert seen["requester"] == "mira"
+
+
+# The closing block is copy-pasted into every consulting persona rather than
+# templated, so the files stay plain reviewable markdown. This pins the block
+# byte-for-byte: an edit to one copy must change all copies (and this string),
+# or the bench drifts one persona at a time.
+_CLOSING_BLOCK = """You work inside Skein, the team's coordination platform. You have the same
+tools as the Chief of Staff: tasks, questions, decisions, blockers,
+standups, engagements, search. Your writes are recorded under YOUR name; when review mode is
+on they land as proposals for a human to approve. Cite entity ids (#12) when
+you reference platform records. Stay in your lane: when a request is
+outside your specialty, say so and suggest the right persona or the
+Chief of Staff."""
+
+
+def test_every_consulting_persona_ends_with_the_canonical_block():
+    # bosun is the one persona with its own contract (read-only field guide).
+    checked = 0
+    for path in sorted(personas.PERSONAS_DIR.glob("*.md")):
+        if path.stem == "bosun":
+            continue
+        body = path.read_text().rstrip()
+        assert body.endswith(_CLOSING_BLOCK), (
+            f"{path.name} drifted from the canonical closing block"
+        )
+        checked += 1
+    assert checked >= 10
