@@ -2,5 +2,11 @@
   "positive": [
     "Threat model this new upload feature \u2014 what does an attacker do with it?",
     "Is this endpoint exploitable, and what must be fixed before merge?"
+  ],
+  "negative": [
+    {
+      "prompt": "Review this pasted diff \u2014 is the logic correct and maintainable?",
+      "owner": "code-reviewer"
+    }
   ]
 }
