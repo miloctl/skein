@@ -150,7 +150,7 @@ knots:
     # so there is no write to detect
     ties: mark
     pitch: Full-text over every entity; /ask answers with receipts, keyless.
-    how: "Press ⌘K, or use the nav box, `/search` in chat, or `skein search` in a terminal. Type `#42` and press Enter — task 42 is the first result. The box searches when you press Enter, not while you type. `blocker 3` finds blocker 3. Start the nav box with `?` to widen a query that matches nothing — it retries on the separate words and marks the results as loose."
+    how: "Press ⌘K, or use the nav box, `/search` in chat, or `skein search` in a terminal. Type `#42` and press Enter — task 42 is the first result. Press Enter to search — the box does not search while you type. `blocker 3` finds blocker 3. Start the nav box with `?` to widen a query that matches nothing. The retry uses the separate words and marks the results as loose."
     link: /chat
     since: 2026-07-31
 
@@ -210,7 +210,7 @@ knots:
     set: loops
     role: any
     pitch: Several strands enter one private loop, and only invited hands hold it.
-    how: "In Chat, create a private shared chat. Invite teammates. Add up to four agents, then start the message with their @mentions when you want answers."
+    how: "In Chat, create a private shared chat. Invite teammates. Add up to four agents. When you want their answers, start the message with their @mentions."
     link: /chat
     since: 2026-08-24
 
@@ -220,7 +220,7 @@ knots:
     set: loops
     ties: mark
     pitch: A loose end is easier to tie when the right knot is already beside it.
-    how: Open Help in the top bar. Read the first page cards, show more if needed, or ask the Bosun.
+    how: Open Help in the top bar. Read the first page cards or ask the Bosun. If you need more, select Show more.
     link: /
     since: 2026-08-16
 
@@ -355,7 +355,7 @@ knots:
     knot: Carrick Bend
     set: bends
     pitch: AI usage in a linked chat counts toward that engagement's estimated cost.
-    how: "In the chat sidebar, open a thread's menu and pick Link to engagement — pick one, or type a name to create it on the spot. The costs land on /api/usage per engagement."
+    how: "In the chat sidebar, open a thread's menu and pick Link to engagement. Pick one, or type a name to create it on the spot. The costs land on /api/usage per engagement."
     link: /chat
     since: 2026-08-02
 
@@ -569,7 +569,7 @@ knots:
     set: manager
     role: manager
     pitch: The capacity math is only as honest as the allocations under it.
-    how: "On Work → Browse, the Capacity card takes a teammate, an engagement, and a percent. Conflicts, the weeks ahead, and intake what-ifs all read from the same table. Delete an allocation from the same card when it ends."
+    how: "On Work → Browse, the Capacity card takes a teammate, an engagement, and a percent. Conflicts, the weeks ahead, and intake what-ifs all read from the same table. When an allocation ends, delete it from the same card."
     link: /dashboard
     since: 2026-08-20
 

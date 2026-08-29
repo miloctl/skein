@@ -44,6 +44,11 @@ if [ "$mode" != "frontend" ]; then
 
     echo "== theme contrast =="
     python3 scripts/check_theme_contrast.py
+
+    echo "== simplified english (knots how:) =="
+    # needs pyyaml: the PATH fallback above resolves python3 to the backend
+    # venv locally, and CI installs the backend deps into the runner's python
+    python3 scripts/check_ste.py
 fi
 
 if [ "$mode" != "backend" ]; then
