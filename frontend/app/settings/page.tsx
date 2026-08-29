@@ -105,6 +105,84 @@ type ModelSummary = {
   rows: { id: string; label: string; value: string; source: string }[];
 };
 
+function AgentAutomationSection({
+  canAdminister,
+  adminAccessMessage,
+}: {
+  canAdminister: boolean;
+  adminAccessMessage: string;
+}) {
+  // Self-contained: the parent remounts it (key={currentUser}) on an
+  // identity change, so no in-flight write can report under a new identity.
+  const [state, setState] = useState<{ enabled: boolean } | null>(null);
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(
+    () =>
+      api<{ enabled: boolean }>("/api/settings/agent-automation")
+        .then((r) => setState(r))
+        .catch((e) => setStatus(loadError(e))),
+    [],
+  );
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const write = async (enabled: boolean) => {
+    setBusy(true);
+    setStatus("Saving…");
+    try {
+      await boundedWrite("/api/settings/agent-automation", {
+        method: "POST",
+        body: JSON.stringify({ enabled }),
+      });
+      await load();
+      setStatus(
+        enabled
+          ? "Resumed. Queued work drains now."
+          : "Paused. A run in progress stops at its next step.",
+      );
+    } catch (e) {
+      if (isWriteTimeout(e)) {
+        setStatus(
+          "The save timed out. The result is unknown. Check the current setting before you try again.",
+        );
+        void load();
+        return;
+      }
+      setStatus(isUnreachable(e) ? backendUnreachable() : actionError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Section title="Unattended agent runs (team)" headingLevel={3}>
+      <p className="mb-3 text-sm text-ink-3">
+        The daily agent run and the delegation wake queue. Pause stops every
+        unattended turn without a redeploy and holds queued work as pending.
+        It does not change what any agent is allowed to do.
+      </p>
+      {state && (
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium text-ink">
+            {state.enabled ? "Running" : "Paused"}
+          </span>
+          <button
+            disabled={!canAdminister || busy}
+            onClick={() => void write(!state.enabled)}
+            className="rounded-lg bg-weld/15 px-3 py-1 text-xs font-medium text-weld hover:bg-weld/25 disabled:opacity-40"
+          >
+            {state.enabled ? "Pause unattended runs" : "Resume unattended runs"}
+          </button>
+        </div>
+      )}
+      <p role="status" aria-live="polite" className="min-h-4 text-xs text-ink-3">
+        {status || (canAdminister ? "" : adminAccessMessage)}
+      </p>
+    </Section>
+  );
+}
+
+
 function ModelSummaryBlock({ summary }: { summary: ModelSummary }) {
   return (
     <div className="mb-4">
@@ -2217,6 +2295,12 @@ export default function SettingsPage() {
                   </div>
                 )}
               </Section>
+
+              <AgentAutomationSection
+                key={currentUser}
+                canAdminister={canAdminister}
+                adminAccessMessage={adminAccessMessage}
+              />
 
               <Section title="Deployment limits (team)" headingLevel={3}>
                 <p className="mb-3 text-sm text-ink-3">

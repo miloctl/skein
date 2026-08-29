@@ -179,6 +179,42 @@ def test_explicit_wake_uses_the_stock_persona_prompt(fresh_db, monkeypatch):
     assert seen == [("backend-architect", "backend-architect")]
 
 
+def test_the_pause_switch_refuses_runs_and_arms_the_cancel_signal(fresh_db, monkeypatch):
+    """The operator stop: no redeploy, stops every unattended turn, and the
+    same flag cancels a turn already in flight at the next loop boundary."""
+    from app.services import settings
+
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+
+    settings.set_agent_automation(False, actor="admin")
+    out = agent_runner.run_one("research-agent")
+    assert out["ran"] is False
+    assert "paused" in out["reason"]
+    assert agent_runner._automation_stop.is_set()
+
+    settings.set_agent_automation(True, actor="admin")
+    assert not agent_runner._automation_stop.is_set()
+
+    def _fake_build(thread, user="", persona="", stateless=False):
+        return lambda _msg, **_kw: "did a thing"
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", _fake_build)
+    assert agent_runner.run_one("research-agent")["ran"] is True
+
+
+def test_agent_automation_rest_roundtrip(client, fresh_db):
+    from app.services.api_keys import create_key
+
+    key = {"Authorization": f"Bearer {create_key('operator', 'test')['key']}"}
+    assert client.get("/api/settings/agent-automation").json() == {"enabled": True}
+    r = client.post("/api/settings/agent-automation", json={"enabled": False}, headers=key)
+    assert r.status_code == 200 and r.json()["enabled"] is False
+    r = client.post("/api/settings/agent-automation", json={"enabled": True}, headers=key)
+    assert r.status_code == 200 and r.json()["enabled"] is True
+
+
 def test_the_turn_carries_the_sdk_limits_and_names_a_limit_stop(fresh_db, monkeypatch):
     """The wall clock abandons; Limits stop cleanly at a turn boundary with a
     reason the run record can name. Both bounds ride every unattended turn."""

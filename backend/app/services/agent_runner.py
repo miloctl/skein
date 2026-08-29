@@ -263,6 +263,20 @@ def _refused(agent: str, reason: str) -> dict:
     return {"agent": agent, "ran": False, "fault": False, "reason": reason}
 
 
+# Set while the operator pause is on. Doubles as the SDK cancel signal for a
+# turn already in flight when the switch flips — nothing else can stop that
+# thread cleanly (the wall clock only abandons it).
+_automation_stop = threading.Event()
+
+
+def automation_paused() -> None:
+    _automation_stop.set()
+
+
+def automation_resumed() -> None:
+    _automation_stop.clear()
+
+
 def _failed(agent: str, reason: str) -> dict:
     """A required turn failed before its completion became uncertain."""
     return {"agent": agent, "ran": False, "fault": True, "reason": reason}
@@ -294,6 +308,13 @@ def run_one(
     act on — the caller runs a fleet, and one agent over budget must not stop
     the others.
     """
+    from .settings import agent_automation_enabled
+
+    if not agent_automation_enabled():
+        # the operator switch (Settings → AI runtime): stops every unattended
+        # turn without a redeploy. It stops AUTOMATION only — authority,
+        # policy, and review gates are not reachable through it either way
+        return _refused(agent, "agent automation is paused")
     if not explicit_key and agent not in config.AGENT_RUNNER:
         return _refused(agent, "not in SKEIN_AGENT_RUNNER")
     if config.EFFECTIVE_PROVIDER == "mock":
@@ -436,7 +457,10 @@ def run_one(
 
         def _turn() -> None:
             try:
-                box["reply"] = built(wake, limits=limits)
+                # the pause switch doubles as the cancel signal: flipping it
+                # off mid-run stops this loop cleanly at the next boundary
+                # (stop_reason "cancelled") instead of waiting out the clock
+                box["reply"] = built(wake, limits=limits, cancel_signal=_automation_stop)
             except Exception as exc:  # carried out, not raised in this thread
                 box["error"] = exc
             finally:
@@ -499,7 +523,7 @@ def run_one(
         db.log_activity(actor, "agent_run", f"{agent}: unattended run")
         out = {"agent": agent, "ran": True, "fault": False, "thread": thread, "reply": text}
         stop = str(getattr(reply, "stop_reason", ""))
-        if stop.startswith("limit_"):
+        if stop.startswith("limit_") or stop == "cancelled":
             # an SDK literal, never model text — safe for job_outcomes.detail
             out["stopped"] = stop
             log.warning("agent run for %s stopped at %s", agent, stop)

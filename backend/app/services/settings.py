@@ -62,6 +62,43 @@ def effective_context_strategy() -> str:
     return context_strategy_override() or config.CONTEXT_STRATEGY
 
 
+AGENT_AUTOMATION = "agent_automation"
+
+
+def agent_automation_enabled() -> bool:
+    """One switch over every unattended turn — the 05:30 runner and the wake
+    worker read it through agent_runner.run_one, and the wake worker also
+    checks it before claiming so queued wakes stay pending across a pause.
+    It stops AUTOMATION, never authority: no policy or review decision is
+    reachable through this key in either direction. Stored 'off' pauses;
+    anything else, including absent, runs."""
+    row = db.query_one("SELECT value FROM app_settings WHERE key = ?", (AGENT_AUTOMATION,))
+    return (row["value"] if row else "") != "off"
+
+
+def set_agent_automation(enabled: bool, *, actor: str) -> dict:
+    db.execute(
+        "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET value = excluded.value,"
+        " updated_at = excluded.updated_at",
+        (AGENT_AUTOMATION, "" if enabled else "off", db.now()),
+    )
+    db.log_activity(
+        actor,
+        "set_agent_automation",
+        "unattended agent runs resumed" if enabled else "unattended agent runs paused",
+    )
+    from . import agent_runner, agent_wakeups
+
+    if enabled:
+        agent_runner.automation_resumed()
+        # queued wakes waited out the pause as pending rows — drain them now
+        agent_wakeups.kick()
+    else:
+        agent_runner.automation_paused()
+    return {"enabled": agent_automation_enabled()}
+
+
 MODEL_PICK = "model_pick"
 
 
