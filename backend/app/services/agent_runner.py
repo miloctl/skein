@@ -425,9 +425,18 @@ def run_one(
                 " important step, then stop."
             )
 
+        from . import tuning
+
+        # read before the thread starts: effective() hits the database, and
+        # the worker thread must not open a connection just to read two knobs
+        limits = {
+            "turns": tuning.effective("agent_run_turns"),
+            "total_tokens": tuning.effective("agent_run_tokens"),
+        }
+
         def _turn() -> None:
             try:
-                box["reply"] = built(wake)
+                box["reply"] = built(wake, limits=limits)
             except Exception as exc:  # carried out, not raised in this thread
                 box["error"] = exc
             finally:
@@ -488,7 +497,13 @@ def run_one(
         reply = box.get("reply", "")
         text = str(reply)[:2000]
         db.log_activity(actor, "agent_run", f"{agent}: unattended run")
-        return {"agent": agent, "ran": True, "fault": False, "thread": thread, "reply": text}
+        out = {"agent": agent, "ran": True, "fault": False, "thread": thread, "reply": text}
+        stop = str(getattr(reply, "stop_reason", ""))
+        if stop.startswith("limit_"):
+            # an SDK literal, never model text — safe for job_outcomes.detail
+            out["stopped"] = stop
+            log.warning("agent run for %s stopped at %s", agent, stop)
+        return out
     except Exception as exc:
         # Logged and reported, never raised: run() below is a scheduled job,
         # and a raise there marks the whole sweep failed on /health when the
