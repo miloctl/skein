@@ -325,7 +325,14 @@ class GovernedMCPTool(AgentTool):
         # eventually drop a healthy server.
         with _lock:
             _timeout_strikes.pop(self.server_id, None)
-        if not events or not _schema_matches(events[-1], self.metadata.output_schema):
+        # The SDK delegate yields a ToolResultEvent ENVELOPE — a dict shaped
+        # {"type": "tool_result", "tool_result": {...}} — and the declared
+        # output_schema describes the RESULT inside. Validating the envelope
+        # refused every valid result from a schema with required fields, and
+        # passed everything for a bare {"type": "object"}.
+        last = events[-1] if events else None
+        result = last.get("tool_result", last) if isinstance(last, dict) else last
+        if not events or not _schema_matches(result, self.metadata.output_schema):
             record("failed", self.tool_name, "invalid output", actor=actor)
             completion_status = (
                 "completion_unknown" if self.metadata.effect == "write" else "failed"
