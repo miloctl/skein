@@ -1,0 +1,6 @@
+{
+  "positive": [
+    "Dig through the codebase for drift \u2014 parallel implementations and orphaned config keys.",
+    "Many agent sessions have edited this repo. Find where the layers disagree."
+  ]
+}
