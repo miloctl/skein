@@ -124,3 +124,22 @@ def test_half_set_waiting_on_pair_is_refused_by_the_schema(fresh_db):
     for sets in ("waiting_on_type = 'task'", "waiting_on_id = 99"):
         with pytest.raises(db.IntegrityError):
             db.execute(f"UPDATE tasks SET {sets} WHERE id = ?", (t["id"],))  # noqa: S608
+
+
+def test_waiting_on_a_question_clears_when_answered(client, fresh_db):
+    from app.services import collab, portfolio, scope, work
+
+    t = work.create_task(title="draft the SOW", actor="m")
+    q = collab.ask_question("who signs the SOW?", asked_by="m", actor="m")
+    work.update_task(t["id"], waiting_on=f"question:{q['id']}", actor="m")
+    row = fresh_db.query_row("SELECT * FROM tasks WHERE id = ?", (t["id"],))
+    assert row["waiting_on_type"] == "question" and row["waiting_on_id"] == q["id"]
+
+    waits = [{"waiting_on_type": "question", "waiting_on_id": q["id"]}]
+    assert portfolio._satisfied_targets(waits) == set()
+    collab.answer_question(q["id"], "the sponsor signs", answered_by="m", actor="m")
+    assert portfolio._satisfied_targets(waits) == {("question", q["id"])}
+
+    peeked = work.get_task(t["id"], scope.Viewer("m", True))
+    assert peeked["waiting_on_type"] == "question"
+    assert peeked["waiting_on_id"] == q["id"]

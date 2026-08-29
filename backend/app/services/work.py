@@ -654,8 +654,13 @@ def consistent_task_rows(tasks: list[dict], viewer: scope.Viewer) -> list[dict]:
 
 # portfolio._WAIT_SATISFIED keys mirror this tuple — a new type needs its
 # satisfied-query there or /portfolio KeyErrors on the first wait using it
-WAITING_ON_TYPES = ("task", "blocker", "promise")
-_WAITING_TABLES = {"task": "tasks", "blocker": "blockers", "promise": "promises"}
+WAITING_ON_TYPES = ("task", "blocker", "promise", "question")
+_WAITING_TABLES = {
+    "task": "tasks",
+    "blocker": "blockers",
+    "promise": "promises",
+    "question": "questions",
+}
 
 
 def update_task(
@@ -750,8 +755,8 @@ def _update_task_locked(
         # isdecimal, not isdigit: '²' passes isdigit but blows up int()
         if kind not in WAITING_ON_TYPES or not ref.strip().lstrip("#").isdecimal():
             raise ValueError(
-                f"waiting_on must look like 'task:12', 'blocker:3', or"
-                f" 'promise:7' (one of {WAITING_ON_TYPES}), or '-' to clear"
+                f"waiting_on must look like 'task:12', 'blocker:3', 'promise:7',"
+                f" or 'question:5' (one of {WAITING_ON_TYPES}), or '-' to clear"
             )
         waiting_type, waiting_id = kind, int(ref.strip().lstrip("#"))
         if kind == "task" and waiting_id == task_id:
@@ -1048,11 +1053,12 @@ def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     wtfrag, wtp = scope.visible_filter(viewer, "tasks", alias="waiting_task")
     wbfrag, wbp = scope.visible_filter(viewer, "blockers", alias="waiting_blocker")
     wpfrag, wpp = scope.visible_filter(viewer, "promises", alias="waiting_promise")
+    wqfrag, wqp = scope.visible_filter(viewer, "questions", alias="waiting_question")
     row = db.query_one(
         "SELECT t.*, m.id AS visible_milestone_id, m.title AS milestone_title,"  # noqa: S608 — scope.visible_filter emits only bound marks
         " e.id AS visible_engagement_id, e.name AS engagement_name,"
-        " COALESCE(waiting_task.id, waiting_blocker.id, waiting_promise.id)"
-        " AS visible_waiting_id"
+        " COALESCE(waiting_task.id, waiting_blocker.id, waiting_promise.id,"
+        " waiting_question.id) AS visible_waiting_id"
         f" FROM tasks t LEFT JOIN milestones m ON m.id = t.milestone_id AND {mfrag}"
         f" LEFT JOIN engagements e ON e.id = t.engagement_id AND {efrag}"
         " LEFT JOIN tasks waiting_task ON t.waiting_on_type = 'task'"
@@ -1061,8 +1067,10 @@ def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
         f" AND waiting_blocker.id = t.waiting_on_id AND {wbfrag}"
         " LEFT JOIN promises waiting_promise ON t.waiting_on_type = 'promise'"
         f" AND waiting_promise.id = t.waiting_on_id AND {wpfrag}"
+        " LEFT JOIN questions waiting_question ON t.waiting_on_type = 'question'"
+        f" AND waiting_question.id = t.waiting_on_id AND {wqfrag}"
         f" WHERE t.id = ? AND {frag}",
-        (*mp, *ep, *wtp, *wbp, *wpp, task_id, *vp),
+        (*mp, *ep, *wtp, *wbp, *wpp, *wqp, task_id, *vp),
     )
     if not row:
         raise scope.missing("tasks", task_id)
@@ -1320,6 +1328,9 @@ def _blocked_by(task_ids: set[int], viewer: scope.Viewer) -> list[dict]:
     a blocker is a blocker verb, not a task one.
 
     `promise:N` is settled by a promise verdict, never by finishing a task.
+
+    `question:N` is settled by an answer (collab.answer_question), never by
+    finishing a task — same reasoning as the promise edge.
     """
     if not task_ids:
         return []
@@ -1423,11 +1434,12 @@ def list_tasks_joined(
     wtfrag, wtp = scope.visible_filter(viewer, "tasks", alias="waiting_task")
     wbfrag, wbp = scope.visible_filter(viewer, "blockers", alias="waiting_blocker")
     wpfrag, wpp = scope.visible_filter(viewer, "promises", alias="waiting_promise")
+    wqfrag, wqp = scope.visible_filter(viewer, "questions", alias="waiting_question")
     sql = (
         f"SELECT t.*, m.id AS visible_milestone_id, m.title AS milestone_title,"  # noqa: S608 — scope.visible_filter emits only bound marks
         " e.id AS visible_engagement_id,"
-        " COALESCE(waiting_task.id, waiting_blocker.id, waiting_promise.id)"
-        " AS visible_waiting_id FROM tasks t"
+        " COALESCE(waiting_task.id, waiting_blocker.id, waiting_promise.id,"
+        " waiting_question.id) AS visible_waiting_id FROM tasks t"
         f" LEFT JOIN milestones m ON m.id = t.milestone_id AND {mfrag}"
         f" LEFT JOIN engagements e ON e.id = t.engagement_id AND {efrag}"
         " LEFT JOIN tasks waiting_task ON t.waiting_on_type = 'task'"
@@ -1436,9 +1448,11 @@ def list_tasks_joined(
         f" AND waiting_blocker.id = t.waiting_on_id AND {wbfrag}"
         " LEFT JOIN promises waiting_promise ON t.waiting_on_type = 'promise'"
         f" AND waiting_promise.id = t.waiting_on_id AND {wpfrag}"
+        " LEFT JOIN questions waiting_question ON t.waiting_on_type = 'question'"
+        f" AND waiting_question.id = t.waiting_on_id AND {wqfrag}"
         f" WHERE {frag}"
     )
-    params: list[str | int] = [*mp, *ep, *wtp, *wbp, *wpp, *vp]
+    params: list[str | int] = [*mp, *ep, *wtp, *wbp, *wpp, *wqp, *vp]
     if status == "open":
         sql += " AND t.status NOT IN ('done', 'void')"
     elif status == "done":
