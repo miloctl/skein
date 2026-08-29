@@ -11,10 +11,13 @@ Source material: definitions adapted from `~/external/agency-agents`
 (867 agents; we vendor a curated subset as repo files — no runtime
 dependency on the external checkout).
 
-## Why these ten
+## The bench
 
-Eight picked for direct relevance to a dev strike team, two for career
-growth (pairs with Settings "growth interests" and the 1:1 loop):
+Picked for direct relevance to a dev strike team, plus career growth
+(pairs with Settings "growth interests" and the 1:1 loop) and team
+health. Before adding a persona: search this table for the lens, justify
+the gap it leaves, and prefer extending an existing persona over adding a
+near-duplicate.
 
 | Slug | From | Lens |
 |---|---|---|
@@ -28,6 +31,25 @@ growth (pairs with Settings "growth interests" and the 1:1 loop):
 | project-shepherd | project-management-project-shepherd | cross-engagement follow-through |
 | growth-mentor | specialized/personal-growth-mentor | goal clarity, habit design, accountability — career growth |
 | training-designer | specialized/corporate-training-designer | skill-building plans for the team — career growth |
+| security-engineer | security-appsec-engineer + agent-skills/security-auditor | threat models, exploitable-bug review, fix-before-merge triage |
+| test-engineer | agent-skills/test-engineer + testing-test-automation-engineer | test strategy, level selection, flake hunting |
+| requirements-interviewer | agent-skills/interview-me | one-question-at-a-time intake until the real ask surfaces — live conversation only, never in a flock |
+| workflow-architect | specialized-workflow-architect | every branch, failure mode, and recovery path before build |
+| release-captain | agent-skills/shipping-and-launch | rollout stages, rollback paths, the launch gate |
+| research-synthesist | research-synthesist | evidence grading, primary sources, what the search did not find |
+| plan-reviewer | agent-skills/doubt-driven-development + specialized-master-plan-architect | adversarial plan attack before commitment |
+| codebase-archaeologist | specialized-codebase-archaeologist | cross-session drift: parallel implementations, orphaned config |
+| migration-steward | agent-skills/deprecation-and-migration | sunset sequencing, consumer tracking, removal dates |
+| org-psychologist | specialized/organizational-psychologist | team conditions — safety, load, friction; patterns, never people |
+| technical-writer | engineering-technical-writer | doc audits and the deferred draft |
+| experiment-tracker | project-management-experiment-tracker | hypothesis, success criterion, stop rule before shipping |
+
+Discipline personas (security-engineer, test-engineer, plan-reviewer,
+minimal-change-engineer, code-reviewer, sprint-prioritizer) carry a
+"Rationalizations you refuse" list: the three excuses most used to argue
+the persona out of its discipline mid-conversation, each with its
+rebuttal. Keep the list at three — it is armor for the persona's spine,
+not a second body.
 
 ## Deployment overlay
 
