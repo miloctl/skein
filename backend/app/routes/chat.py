@@ -579,8 +579,32 @@ def _attributed(r: dict, head: str) -> dict:
 
 
 def _agent_fault(exc: Exception) -> str:
+    """One sentence per error class (the main.py classification, inside a
+    stream): load says retry, configuration says who to ask, anything else
+    stays the unknown-fault line. Classified from the status code and class
+    name only — a provider exception's MESSAGE carries request IDs and
+    credential fragments, and an error response never echoes it. The frame
+    stays an SSE error on purpose: by the time a turn fails the stream is the
+    response, and the pre-stream build_agent failure uses the same wording so
+    one condition reads the same on every path."""
+    status = getattr(exc, "status_code", None)
+    name = exc.__class__.__name__
+    if status in (408, 429, 500, 502, 503, 504, 529) or any(
+        marker in name for marker in ("Timeout", "Connection", "Overloaded", "RateLimit")
+    ):
+        return (
+            "The model provider is overloaded or unreachable."
+            " Wait a moment, then send the message again."
+        )
+    if status in (401, 402, 403, 404) or any(
+        marker in name for marker in ("Authentication", "Permission", "NotFound")
+    ):
+        return (
+            f"The model provider refused this deployment's configuration ({name})."
+            " Ask whoever runs the server to check the provider credentials and model id."
+        )
     return (
-        f"The agent turn failed ({exc.__class__.__name__})."
+        f"The agent turn failed ({name})."
         " Ask whoever runs the server to check the server log. Then try again."
     )
 
