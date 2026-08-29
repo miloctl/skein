@@ -35,6 +35,10 @@ _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 # by a number the operator writes in a file.
 MIN_MEMBERS = 2
 MAX_MEMBERS = 4
+# A flock member answers one shot with nobody to answer back. These personas
+# work only in live conversation (/as), so membership is refused here instead
+# of shipping a member whose whole turn is "I have nobody to interview".
+NEVER_FLOCK = frozenset({"requirements-interviewer"})
 SCHEMA_VERSION = 1
 _FIELDS = {"schema_version", "name", "description", "emoji", "members", "synthesis"}
 
@@ -106,7 +110,7 @@ def _parse(path: Path, bench: set[str]) -> dict | None:
         return None
     if len(set(members)) != len(members):
         return None
-    if any(m not in bench for m in members):
+    if any(m not in bench or m in NEVER_FLOCK for m in members):
         return None
     return {
         "schema_version": SCHEMA_VERSION,
@@ -228,6 +232,11 @@ def _check_members(label: str, members: object, bench: set[str]) -> list[str]:
     for m in names:
         if m and m not in bench:
             errors.append(f"{label}: members names {m!r}, which is not a persona on the bench")
+        elif m in NEVER_FLOCK:
+            errors.append(
+                f"{label}: members names {m!r}, which works only in live"
+                " conversation — a flock turn gives it nobody to interview"
+            )
         elif not m:
             errors.append(f"{label}: members has an empty entry")
     return errors

@@ -33,6 +33,48 @@ from ..identity_names import content_subject_refusal
 PERSONAS_DIR = config.STOCK_DIR / "personas"
 PACK_FILE = PERSONAS_DIR / "pack.json"
 
+# consult_specialist routes on descriptions alone (the roster is inlined in
+# the Chief-of-Staff prompt), so a description too thin to match on, or two
+# that read alike, misroutes silently — the wrong specialist answers and no
+# error surfaces. The shipped bench's highest pairwise overlap is 0.12, so
+# 0.5 flags only a near-duplicate, never shared domain vocabulary.
+_DESCRIPTION_STOPWORDS = frozenset(
+    [
+        "a",
+        "an",
+        "and",
+        "the",
+        "of",
+        "for",
+        "to",
+        "in",
+        "on",
+        "with",
+        "what",
+        "which",
+        "who",
+        "how",
+        "when",
+        "never",
+        "its",
+        "it",
+        "is",
+        "are",
+        "one",
+    ]
+)
+_MIN_DESCRIPTION_TOKENS = 5
+_SIMILARITY_LIMIT = 0.5
+# A pair allowed to share vocabulary needs a written reason HERE — a persona
+# file cannot exempt itself. A stale entry (pair no longer over the limit)
+# fails too, the tests/test_bounded_routes.py EXEMPT discipline.
+_SIMILARITY_EXEMPT: dict[tuple[str, str], str] = {}
+
+
+def _description_tokens(description: str) -> frozenset[str]:
+    words = re.findall(r"[a-z]+", description.lower())
+    return frozenset(w for w in words if w not in _DESCRIPTION_STOPWORDS and len(w) > 2)
+
 
 def _persona_dirs() -> list[Path]:
     """Stock first, overlay second — later wins."""
@@ -292,6 +334,9 @@ def validate_all() -> list[str]:
     errors += _check_behavior(
         "pack defaults (merged)", merged.get("temperature", ""), merged.get("tools", ""), known
     )
+    # keyed by slug so an overlay's description replaces the stock one —
+    # the collision check judges the roster routing actually sees
+    descriptions: dict[str, str] = {}
     for d in _persona_dirs():
         for path in sorted(d.glob("*.md")):
             label = path.name if d == PERSONAS_DIR else f"{path.name} (overlay)"
@@ -325,6 +370,33 @@ def validate_all() -> list[str]:
                 )
                 continue
             errors += _check_behavior(label, p["temperature"], p["tools"], known)
+            descriptions[path.stem] = p["description"]
+    tokens = {slug: _description_tokens(desc) for slug, desc in descriptions.items()}
+    for slug in sorted(tokens):
+        if len(tokens[slug]) < _MIN_DESCRIPTION_TOKENS:
+            errors.append(
+                f"{slug}: description has {len(tokens[slug])} content words —"
+                f" routing matches on the description, so it needs at least"
+                f" {_MIN_DESCRIPTION_TOKENS}"
+            )
+    over: set[tuple[str, str]] = set()
+    slugs = sorted(tokens)
+    for i, s1 in enumerate(slugs):
+        for s2 in slugs[i + 1 :]:
+            t1, t2 = tokens[s1], tokens[s2]
+            if t1 and t2 and len(t1 & t2) / len(t1 | t2) >= _SIMILARITY_LIMIT:
+                over.add((s1, s2))
+    for pair in sorted(over - set(_SIMILARITY_EXEMPT)):
+        errors.append(
+            f"{pair[0]} and {pair[1]}: descriptions overlap past {_SIMILARITY_LIMIT}"
+            " — routing cannot tell them apart. Sharpen one, or exempt the"
+            " pair in _SIMILARITY_EXEMPT with a reason"
+        )
+    for pair in sorted(set(_SIMILARITY_EXEMPT) - over):
+        errors.append(
+            f"{pair[0]} and {pair[1]}: _SIMILARITY_EXEMPT entry is stale —"
+            " the pair no longer overlaps, so the exemption must go"
+        )
     return errors
 
 

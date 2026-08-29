@@ -139,3 +139,10 @@ def test_live_flock_scan_never_exposes_a_core_machine_subject(overlay, slug):
     with pytest.raises(ValueError, match="no flock"):
         flocks.get_flock(slug)
     assert any("reserved for a composed machine identity" in item for item in flocks.validate_all())
+
+
+def test_a_live_conversation_only_persona_cannot_join_a_flock(overlay):
+    _write(overlay, "probe", members=["code-reviewer", "requirements-interviewer"])
+    assert all(f["slug"] != "probe" for f in flocks.list_flocks())
+    errors = flocks.validate_all()
+    assert any("nobody to interview" in e for e in errors)
