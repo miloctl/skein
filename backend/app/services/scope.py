@@ -618,6 +618,7 @@ UNSCOPED: dict[str, str] = {
     "session_agents": "cascades off sessions",
     "session_messages": "cascades off sessions",
     "session_multi_agents": "cascades off sessions",
+    "session_offload": "cascades off sessions — offloaded tool-result bytes, one session's own",
     "feature_unlocks": "self-visible only — the anti-surveillance rule already outranks provenance here",
     # --- the ledger ---
     "activity": (

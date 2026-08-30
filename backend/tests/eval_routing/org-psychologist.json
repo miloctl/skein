@@ -1,0 +1,12 @@
+{
+  "positive": [
+    "The team feels unsafe raising concerns and burnout risk is climbing \u2014 what conditions drive it?",
+    "Reviews sit for days and friction is up. Diagnose the pattern before we intervene."
+  ],
+  "negative": [
+    {
+      "prompt": "Help me design a personal habit to grow my own architecture skills.",
+      "owner": "growth-mentor"
+    }
+  ]
+}

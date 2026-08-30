@@ -56,6 +56,30 @@ def test_a_quiet_night_is_not_a_fault(fresh_db, monkeypatch):
     assert out["runs"][0]["fault"] is False
 
 
+def test_sdk_stop_reason_reaches_the_durable_job_outcome(fresh_db, monkeypatch):
+    from app import config
+    from app.services import agent_runner
+
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["scout"])
+    monkeypatch.setattr(agent_runner, "sweep", lambda _policy=None: {"swept": 0})
+    monkeypatch.setattr(
+        agent_runner,
+        "run_one",
+        lambda *_args, **_kwargs: {
+            "agent": "scout",
+            "ran": True,
+            "fault": False,
+            "stopped": "limit_turns",
+            "reply": "bounded stop",
+        },
+    )
+
+    jobs.run_job(_spec("probe-stop", agent_runner.run))
+    outcome = fresh_db.query_one("SELECT status, detail FROM job_outcomes WHERE job = 'probe-stop'")
+    assert outcome["status"] == "ok"
+    assert "stops=scout: limit_turns" in outcome["detail"]
+
+
 def test_a_fleet_that_could_not_build_reports_error(fresh_db, monkeypatch):
     from conftest import _delegated_task
 

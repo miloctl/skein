@@ -120,7 +120,7 @@ def test_one_run_per_agent_per_day(fresh_db, monkeypatch):
 
     def _fake_build(thread, user="", persona="", stateless=False):
         calls.append(thread)
-        return lambda _msg: "did a thing"
+        return lambda _msg, **_kw: "did a thing"
 
     monkeypatch.setattr("app.agents.team_agent.build_agent", _fake_build)
     assert agent_runner.run_one("research-agent")["ran"] is True
@@ -139,7 +139,7 @@ def test_explicit_wake_bypasses_only_the_scheduled_allowlist(fresh_db, monkeypat
 
     def _fake_build(thread, user="", **kwargs):
         builds.append((thread, user, kwargs.get("allowed_tools")))
-        return lambda _msg: "did a thing"
+        return lambda _msg, **_kw: "did a thing"
 
     monkeypatch.setattr("app.agents.team_agent.build_agent", _fake_build)
     first = agent_runner.run_one(
@@ -167,7 +167,7 @@ def test_explicit_wake_uses_the_stock_persona_prompt(fresh_db, monkeypatch):
 
     def _fake_build(_thread, user="", **kwargs):
         seen.append((user, kwargs.get("persona")))
-        return lambda _message: "did a thing"
+        return lambda _message, **_kw: "did a thing"
 
     monkeypatch.setattr("app.agents.team_agent.build_agent", _fake_build)
     out = agent_runner.run_one(
@@ -177,6 +177,186 @@ def test_explicit_wake_uses_the_stock_persona_prompt(fresh_db, monkeypatch):
     )
     assert out["ran"] is True
     assert seen == [("backend-architect", "backend-architect")]
+
+
+def test_the_pause_switch_refuses_runs_and_arms_the_cancel_signal(fresh_db, monkeypatch):
+    """The operator stop: no redeploy, stops every unattended turn, and the
+    same flag cancels a turn already in flight at the next loop boundary."""
+    from app.services import settings
+
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+
+    settings.set_agent_automation(False, actor="admin")
+    out = agent_runner.run_one("research-agent")
+    assert out["ran"] is False
+    assert "paused" in out["reason"]
+    assert agent_runner._automation_stop.is_set()
+
+    settings.set_agent_automation(True, actor="admin")
+    assert not agent_runner._automation_stop.is_set()
+
+    def _fake_build(thread, user="", persona="", stateless=False):
+        return lambda _msg, **_kw: "did a thing"
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", _fake_build)
+    assert agent_runner.run_one("research-agent")["ran"] is True
+
+
+def test_pause_calls_cancel_on_an_in_flight_agent(fresh_db, monkeypatch):
+    import threading
+
+    from app.extensions.policy import current_policy_engine
+    from app.services import settings
+
+    policy = current_policy_engine()
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    started = threading.Event()
+    released = threading.Event()
+    cancelled = threading.Event()
+    outcome: dict = {}
+
+    class Cancelled:
+        stop_reason = "cancelled"
+
+        def __str__(self):
+            return "stopped after pause"
+
+    class Cancellable:
+        def __call__(self, _message, **_kwargs):
+            started.set()
+            assert released.wait(timeout=3)
+            return Cancelled()
+
+        def cancel(self):
+            cancelled.set()
+            released.set()
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", lambda *_a, **_k: Cancellable())
+
+    worker = threading.Thread(
+        target=lambda: outcome.update(agent_runner.run_one("research-agent", policy=policy)),
+        name="pause-cancellable-agent",
+    )
+    worker.start()
+    assert started.wait(timeout=2)
+    try:
+        settings.set_agent_automation(False, actor="admin")
+        assert cancelled.wait(timeout=2)
+        worker.join(timeout=3)
+        assert not worker.is_alive()
+        assert outcome["ran"] is True
+        assert outcome["stopped"] == "cancelled"
+    finally:
+        released.set()
+        settings.set_agent_automation(True, actor="admin")
+        worker.join(timeout=3)
+
+
+def test_pause_during_agent_registration_does_not_start_or_consume_the_run(fresh_db, monkeypatch):
+    from app.extensions.policy import current_policy_engine
+    from app.services import settings
+
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    invoked: list[bool] = []
+
+    class NotStarted:
+        def __call__(self, _message, **_kwargs):
+            invoked.append(True)
+            return "unexpected invocation"
+
+    def pause_during_build(*_args, **_kwargs):
+        settings.set_agent_automation(False, actor="admin")
+        return NotStarted()
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", pause_during_build)
+    policy = current_policy_engine()
+    try:
+        result = agent_runner.run_one("research-agent", policy=policy)
+        assert result["paused"] is True
+        assert invoked == []
+
+        settings.set_agent_automation(True, actor="admin")
+        monkeypatch.setattr(
+            "app.agents.team_agent.build_agent",
+            lambda *_args, **_kwargs: lambda _message, **_state: "ran after resume",
+        )
+        assert agent_runner.run_one("research-agent", policy=policy)["ran"] is True
+    finally:
+        settings.set_agent_automation(True, actor="admin")
+
+
+def test_pause_sets_the_real_strands_cancel_signal():
+    from strands import Agent
+
+    class Model:
+        stateful = False
+
+        def __init__(self):
+            self.config = {"model_id": "cancel-test"}
+
+        def get_config(self):
+            return self.config
+
+        def update_config(self, **kwargs):
+            self.config.update(kwargs)
+
+    built = Agent(model=Model())
+    with agent_runner._active_lock:
+        agent_runner._active_agents[id(built)] = built
+    try:
+        agent_runner.automation_paused()
+        assert built._cancel_signal.is_set()
+    finally:
+        agent_runner._untrack_active(built)
+        agent_runner.automation_resumed()
+
+
+def test_agent_automation_rest_roundtrip(client, fresh_db):
+    from app.services.api_keys import create_key
+
+    key = {"Authorization": f"Bearer {create_key('operator', 'test')['key']}"}
+    assert client.get("/api/settings/agent-automation").json() == {"enabled": True}
+    r = client.post("/api/settings/agent-automation", json={"enabled": False}, headers=key)
+    assert r.status_code == 200 and r.json()["enabled"] is False
+    r = client.post("/api/settings/agent-automation", json={"enabled": True}, headers=key)
+    assert r.status_code == 200 and r.json()["enabled"] is True
+
+
+def test_the_turn_carries_the_sdk_limits_and_names_a_limit_stop(fresh_db, monkeypatch):
+    """The wall clock abandons; Limits stop cleanly at a turn boundary with a
+    reason the run record can name. Both bounds ride every unattended turn."""
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    seen = {}
+
+    class Capped:
+        stop_reason = "limit_turns"
+
+        def __str__(self):
+            return "stopped mid-plan"
+
+    def _fake_build(thread, user="", persona="", stateless=False):
+        def agent(_msg, **kw):
+            seen.update(kw)
+            return Capped()
+
+        return agent
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", _fake_build)
+    out = agent_runner.run_one("research-agent")
+    assert seen["limits"] == {
+        "turns": config.AGENT_RUN_TURNS,
+        "total_tokens": config.AGENT_RUN_TOKENS,
+    }
+    assert out["stopped"] == "limit_turns"
+    assert out["reply"] == "stopped mid-plan"
 
 
 def test_a_second_concurrent_turn_for_one_agent_refuses(fresh_db, monkeypatch):
@@ -200,7 +380,7 @@ def test_a_second_concurrent_turn_for_one_agent_refuses(fresh_db, monkeypatch):
     # the claim went back with the refusal, so the same wake key still works
     monkeypatch.setattr(
         "app.agents.team_agent.build_agent",
-        lambda _thread, user="", **_k: lambda _msg: "did a thing",
+        lambda _thread, user="", **_k: lambda _msg, **_kw: "did a thing",
     )
     assert (
         agent_runner.run_one(
@@ -225,7 +405,7 @@ def test_timeout_keeps_the_turn_lock_until_the_abandoned_thread_ends(fresh_db, m
     gate = threading.Event()
 
     def _fake_build(_thread, user="", **_kwargs):
-        def turn(_message):
+        def turn(_message, **_kw):
             gate.wait(5)
             return "late"
 
@@ -289,7 +469,7 @@ def test_the_wake_names_the_remaining_budget_when_a_ceiling_is_set(fresh_db, mon
     seen = []
 
     def _fake_build(thread, user="", persona="", stateless=False):
-        return lambda msg: seen.append(msg) or "did a thing"
+        return lambda msg, **_kw: seen.append(msg) or "did a thing"
 
     monkeypatch.setattr("app.agents.team_agent.build_agent", _fake_build)
     assert agent_runner.run_one("research-agent")["ran"] is True
@@ -315,7 +495,7 @@ def test_one_agent_failing_does_not_stop_the_fleet(fresh_db, monkeypatch):
     def _explode(thread, user="", persona="", stateless=False):
         if "research-agent" in thread:
             raise RuntimeError("provider exploded")
-        return lambda _msg: "fine"
+        return lambda _msg, **_kw: "fine"
 
     monkeypatch.setattr("app.agents.team_agent.build_agent", _explode)
     out = agent_runner.run()
@@ -370,7 +550,7 @@ def test_an_unattended_write_still_passes_the_gate(fresh_db, monkeypatch):
     def _writes(thread, user="", persona="", stateless=False):
         from app.tools.collab import ask_question
 
-        return lambda _msg: ask_question("what is the vendor SLA?", "research-agent")
+        return lambda _msg, **_kw: ask_question("what is the vendor SLA?", "research-agent")
 
     monkeypatch.setattr("app.agents.team_agent.build_agent", _writes)
     assert agent_runner.run_one("research-agent")["ran"] is True
@@ -525,7 +705,7 @@ def test_the_turn_runs_as_the_agent_it_woke(fresh_db, monkeypatch):
 
     def _capture(thread, user="", persona="", stateless=False):
         # read INSIDE the turn, which is what runs in the worker thread
-        return lambda _msg: seen.setdefault("identity", agent_identity())
+        return lambda _msg, **_kw: seen.setdefault("identity", agent_identity())
 
     monkeypatch.setattr("app.agents.team_agent.build_agent", _capture)
     assert agent_runner.run_one("research-agent")["ran"] is True
@@ -545,7 +725,7 @@ def test_an_unattended_turn_keeps_one_team_model_snapshot(fresh_db, monkeypatch)
     def build(thread, user="", persona="", stateless=False):
         seen["outer"] = team_agent.model_in_force()
 
-        def turn(_message):
+        def turn(_message, **_kw):
             current["model"] = "new-pick"
             seen["nested"] = team_agent.model_in_force()
             return "done"
@@ -620,7 +800,7 @@ def test_a_hanging_turn_is_abandoned_not_awaited_forever(fresh_db, monkeypatch):
     released = threading.Event()
 
     def _hang(thread, user="", persona="", stateless=False):
-        return lambda _msg: released.wait(30)
+        return lambda _msg, **_kw: released.wait(30)
 
     monkeypatch.setattr("app.agents.team_agent.build_agent", _hang)
     try:
@@ -666,7 +846,7 @@ def test_a_failure_that_spent_nothing_does_not_eat_the_day(fresh_db, monkeypatch
     # the claim is back, so a retry can still run today
     monkeypatch.setattr(
         "app.agents.team_agent.build_agent",
-        lambda thread, user="", persona="", stateless=False: lambda _m: "ok",
+        lambda thread, user="", persona="", stateless=False: lambda _m, **_kw: "ok",
     )
     assert agent_runner.run_one("research-agent")["ran"] is True
 
@@ -691,7 +871,7 @@ def test_the_run_is_recorded_under_the_scheduler_not_the_agent(fresh_db, monkeyp
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
     monkeypatch.setattr(
         "app.agents.team_agent.build_agent",
-        lambda thread, user="", persona="", stateless=False: lambda _m: "done",
+        lambda thread, user="", persona="", stateless=False: lambda _m, **_kw: "done",
     )
     assert agent_runner.run_one("research-agent", actor="scheduler")["ran"] is True
 
@@ -748,7 +928,7 @@ def test_unattended_turn_uses_composed_policy_and_registry(fresh_db, monkeypatch
         observed["subject"] = options.get("policy_subject")
         observed["engine"] = current_policy_engine()
 
-        def turn(_message):
+        def turn(_message, **_kw):
             observed["worker_subject"] = current_policy_subject()
             return gated_write(
                 "task",
@@ -953,7 +1133,7 @@ def test_runner_final_policy_check_and_daily_claim_share_one_transaction(fresh_d
     def build(_thread, **_options):
         assert writer_done.wait(5)
         build_called.set()
-        return lambda _message: "current inbox policy will filter the relinked task"
+        return lambda _message, **_kw: "current inbox policy will filter the relinked task"
 
     monkeypatch.setattr("app.agents.team_agent.build_agent", build)
     writer = Thread(target=relink)

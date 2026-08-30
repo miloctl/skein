@@ -271,3 +271,31 @@ def test_every_findings_rule_runs(fresh_db):
         except Exception as exc:
             broken.append(f"{rule.__name__}: {type(exc).__name__}: {exc}")
     assert not broken, "findings rules that cannot run:\n" + "\n".join(broken)
+
+
+def test_task_abandoned_fires_on_spike_then_silence_only(client, fresh_db):
+    from app.services import delegation, insights, work
+    from app.services.users import ensure_user
+
+    ensure_user("research-agent", kind="agent")
+    ensure_user("sponsor", kind="human")
+    t = work.create_task("port the exporter", actor="sponsor")
+    delegation.delegate_task(t["id"], agent="research-agent", sponsor="sponsor", actor="sponsor")
+    for actor in ("research-agent", "sponsor", "research-agent"):
+        delegation.report_progress(t["id"], "moved it forward", actor=actor)
+    # recently active: not abandoned, whatever the note count
+    assert insights._r_task_abandoned() == []
+
+    fresh_db.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", (_ago(20), t["id"]))
+    fresh_db.execute(
+        "UPDATE task_worklog SET created_at = ? WHERE task_id = ?", (_ago(20), t["id"])
+    )
+    out = insights._r_task_abandoned()
+    assert out and out[0]["subject"] == f"task:{t['id']}"
+    assert "3 worklog notes from 2 people" in out[0]["message"]
+    # the receipt names the work, never the people
+    assert "sponsor" not in str(out[0]["receipt"])
+
+    # one author working alone is aging_wip's territory, not a walk-away
+    fresh_db.execute("UPDATE task_worklog SET author = 'sponsor' WHERE task_id = ?", (t["id"],))
+    assert insights._r_task_abandoned() == []

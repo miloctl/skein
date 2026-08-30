@@ -54,7 +54,9 @@ a real extension needs them:
 
 - Frontend detail panels, forms, general actions, notification renderers,
   theme packages, and terminology packages
-- Durable pause and resume for long-running workflow approvals
+- Durable pause and resume for long-running workflow approvals (the strands
+  SDK now ships an interrupt primitive — `strands.interrupt`, stop reason
+  `interrupt` — which is the likely mechanism)
 - Public commands for core entities other than task, blocker, and promise
   work (0.2.2 shipped those three)
 - A supported alternative core database adapter

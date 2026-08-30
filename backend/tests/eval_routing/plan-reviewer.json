@@ -1,0 +1,12 @@
+{
+  "positive": [
+    "Attack this migration plan \u2014 find the hidden failure modes before we commit.",
+    "Try to refute this rollout plan: missing rollbacks, fragile dependencies, races."
+  ],
+  "negative": [
+    {
+      "prompt": "Design the schema for the new billing tables \u2014 which shape do you recommend?",
+      "owner": "backend-architect"
+    }
+  ]
+}

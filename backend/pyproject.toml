@@ -9,7 +9,8 @@ license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.12"
 dependencies = [
-    "strands-agents[anthropic,openai,ollama]>=1.0",
+    # >=1.50: agent_runner passes per-invocation Limits (strands.types.agent)
+    "strands-agents[anthropic,openai,ollama]>=1.50",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pydantic>=2.7",

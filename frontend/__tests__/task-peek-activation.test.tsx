@@ -281,6 +281,45 @@ describe("delegated task activation guidance", () => {
   });
 
   it.each([
+    [
+      "pending",
+      "Unattended agent runs are paused. This queued turn stays pending until an administrator resumes them.",
+    ],
+    [
+      "running",
+      "Unattended agent runs are paused. This turn stops at its next agent step.",
+    ],
+  ])("shows the durably paused %s state", async (status, message) => {
+    state.wakeup = {
+      status,
+      requested_at: "2026-08-24T12:00:00+00:00",
+      started_at: status === "running" ? "2026-08-24T12:00:01+00:00" : "",
+      finished_at: "",
+      reason: "automation_paused",
+      automation_enabled: false,
+    };
+    render(<TaskPeek />);
+    expect(await screen.findByText(message)).toBeTruthy();
+  });
+
+  it("states that a cancelled wake can already have written work", async () => {
+    state.wakeup = {
+      status: "completed",
+      requested_at: "2026-08-24T12:00:00+00:00",
+      started_at: "2026-08-24T12:00:01+00:00",
+      finished_at: "2026-08-24T12:00:02+00:00",
+      reason: "cancelled",
+      automation_enabled: false,
+    };
+    render(<TaskPeek />);
+    expect(
+      await screen.findByText(
+        "The agent turn stopped when unattended runs were paused. Read the worklog before you start another turn.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it.each([
     ["running", "backend-architect is working its delegated inbox."],
     [
       "completed",

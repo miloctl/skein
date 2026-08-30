@@ -693,6 +693,9 @@ async def perimeter_auth(request: Request, call_next):
         name = human["name"]
         # These walls apply to the bound Skein identity, not the mutable display
         # claim. A renamed claim must not change which private rows the token opens.
+        collision = await run_in_threadpool(identity_collision_refusal, name)
+        if collision:
+            return JSONResponse(status_code=403, content={"detail": collision})
         if await run_in_threadpool(is_agent, name):
             if await run_in_threadpool(is_content_identity, name):
                 return JSONResponse(

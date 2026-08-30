@@ -2572,6 +2572,24 @@ def _run_governed(governed):
         reset_policy_engine(policy_token)
 
 
+def test_governed_mcp_failure_logs_only_the_exception_class(fresh_db, caplog):
+    from app.agents.mcp_tools import GovernedMCPTool
+
+    canary = "sk-live-mcp-secret request_id=mcp-42"
+
+    class Broken(_RemoteTool):
+        async def stream(self, tool_use, invocation_state, **kwargs):
+            raise RuntimeError(canary)
+            yield  # pragma: no cover — keeps the remote shape an async generator
+
+    governed = GovernedMCPTool(Broken(), _mcp_metadata(timeout_seconds=5), "atlas-server")
+    events = _run_governed(governed)
+
+    assert events[-1]["status"] == "error"
+    assert canary not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
 def test_mcp_tool_result_volume_is_bounded(fresh_db):
     """The per-call timeout bounds time, not bytes: a server that streams
     inside its deadline can hand the model megabytes, blowing the context or
@@ -2998,6 +3016,91 @@ def test_successful_mcp_write_records_a_durable_receipt(fresh_db):
         "action": "external_tool",
         "detail": "atlas_remote completed",
     }
+
+
+def test_output_schema_judges_the_tool_result_not_the_event_envelope(fresh_db):
+    """The REAL delegate (strands MCPAgentTool) yields a ToolResultEvent
+    envelope {"type", "tool_result"}, not a bare ToolResult like _RemoteTool
+    above. A declared output_schema with required fields must validate the
+    RESULT inside — validated against the envelope, every valid result from a
+    real server is refused as invalid output."""
+    from strands.types._events import ToolResultEvent
+
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.agents.mcp_tools import GovernedMCPTool, MCPToolMetadata
+    from app.extensions.policy import (
+        PolicySubject,
+        reset_policy_engine,
+        reset_policy_subject,
+        set_policy_engine,
+        set_policy_subject,
+    )
+    from app.extensions.registry import ExtensionRegistry
+
+    class _EnvelopeRemote:
+        tool_name = "atlas_remote"
+        tool_spec: ClassVar = {
+            "name": "atlas_remote",
+            "description": "Remote Atlas operation",
+            "inputSchema": {"json": {"type": "object", "properties": {}}},
+        }
+
+        def __init__(self, result):
+            self.result = result
+
+        async def stream(self, tool_use, invocation_state, **kwargs):
+            yield ToolResultEvent(self.result)
+
+    def governed(result):
+        return GovernedMCPTool(
+            _EnvelopeRemote(result),
+            MCPToolMetadata(
+                version="1.0.0",
+                effect="read",
+                risk="low",
+                policy_action="atlas.remote.read",
+                allowed_agents=("agent",),
+                required_capabilities=("atlas.remote",),
+                output_schema={
+                    "type": "object",
+                    "required": ["status"],
+                    "properties": {"status": {"type": "string"}},
+                },
+                timeout_seconds=1,
+                error_codes=("remote_error",),
+                receipt="required",
+                provenance="service",
+            ),
+            "atlas-server",
+        )
+
+    registry = ExtensionRegistry.build(())
+    policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("mira", capabilities=("atlas.remote",)))
+    agent_token = set_agent_identity("agent")
+
+    async def run(tool):
+        return [
+            event
+            async for event in tool.stream(
+                {"toolUseId": "mcp-3", "name": "atlas_remote", "input": {}}, {}
+            )
+        ]
+
+    try:
+        good = asyncio.run(
+            run(governed({"toolUseId": "mcp-3", "status": "success", "content": []}))
+        )
+        # the schema's required key is missing from the RESULT — this one is
+        # the true invalid-output case and must still be refused
+        bad = asyncio.run(run(governed({"toolUseId": "mcp-3", "content": []})))
+    finally:
+        reset_agent_identity(agent_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+    assert good[-1]["tool_result"]["status"] == "success"
+    assert bad[-1]["status"] == "error"
+    assert "declared schema" in bad[-1]["content"][0]["text"]
 
 
 def test_core_agent_approval_rechecks_current_workplace_policy(fresh_db):

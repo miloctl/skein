@@ -1,0 +1,12 @@
+{
+  "positive": [
+    "Are we ready to ship tomorrow? Rollout stages, rollback path, and the launch checklist.",
+    "Gate this launch: what watches the deploy and who owns the first hour?"
+  ],
+  "negative": [
+    {
+      "prompt": "Production broke right after the deploy \u2014 coordinate the response now.",
+      "owner": "incident-commander"
+    }
+  ]
+}

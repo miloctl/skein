@@ -395,6 +395,42 @@ def test_an_oidc_first_sign_in_reserves_human_ownership(client, monkeypatch, fre
     assert fresh_db.query_one("SELECT kind FROM users WHERE name = 'newcomer'") == {"kind": "human"}
 
 
+def test_oidc_bound_identity_is_refused_when_content_claims_its_name(
+    client, monkeypatch, fresh_db, tmp_path
+):
+    from fastapi import HTTPException
+
+    from app import config
+    from app.routes.deps import _resolve
+    from app.services import oidc_identities, users
+
+    users.ensure_human_identity("future-specialist")
+    oidc_identities.bind_existing(
+        "https://idp.test", "stable-subject", "future-specialist", actor="test"
+    )
+    overlay = tmp_path / "personas"
+    overlay.mkdir()
+    (overlay / "future-specialist.md").write_text("configured machine identity\n")
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", overlay)
+    _oidc(
+        monkeypatch,
+        {
+            "tok": {"sub": "stable-subject", "preferred_username": "future-specialist"},
+            "renamed": {"sub": "stable-subject", "preferred_username": "New Display"},
+        },
+    )
+
+    for token in ("tok", "renamed"):
+        response = client.get("/api/personas", headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 403
+        assert response.json()["detail"] == users.IDENTITY_COLLISION
+        assert "New Display" not in response.text
+        with pytest.raises(HTTPException) as error:
+            _resolve("", f"Bearer {token}", "GET")
+        assert error.value.status_code == 403
+        assert error.value.detail == users.IDENTITY_COLLISION
+
+
 def test_established_oidc_read_is_not_blocked_by_a_concurrent_writer(client, monkeypatch, fresh_db):
     """The steady-state OIDC path is a reader, and a reader waits for nobody.
 
@@ -573,10 +609,14 @@ def test_oidc_read_reservation_blocks_a_concurrent_folded_machine_claim(fresh_db
     original_refuse_fold_collision = users.refuse_fold_collision
     results: dict[str, tuple[str, bool, list[str]]] = {}
     errors: dict[str, BaseException] = {}
+    oidc_checks = 0
 
     def pause_oidc_after_collision_check(name: str, *, ignore: str = "") -> None:
+        nonlocal oidc_checks
         original_refuse_fold_collision(name, ignore=ignore)
         if current_thread().name == "oidc-read":
+            oidc_checks += 1
+        if current_thread().name == "oidc-read" and oidc_checks == 1:
             oidc_checked.set()
             assert machine_attempted.wait(timeout=2)
             sleep(0.05)

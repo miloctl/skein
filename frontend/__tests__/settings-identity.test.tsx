@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -19,6 +20,9 @@ const state = vi.hoisted(() => ({
   requests: [] as { path: string; init?: RequestInit }[],
   identityError: "",
   modelPromise: null as Promise<unknown> | null,
+  automationEnabled: true,
+  automationWritePromise: null as Promise<unknown> | null,
+  automationReadFailsAfterWrite: false,
   createdKey: "sk-skein-created-once",
   tunables: [] as unknown[],
 }));
@@ -39,6 +43,25 @@ vi.mock("@/lib/api", async (importOriginal) => {
         return Promise.resolve({ interests: "" });
       if (path === "/api/agents/status")
         return Promise.resolve({ review_gate: true });
+      if (path === "/api/settings/agent-automation") {
+        if (init?.method === "POST") {
+          if (state.automationWritePromise) return state.automationWritePromise;
+          state.automationEnabled = Boolean(
+            JSON.parse(String(init.body)).enabled,
+          );
+          return Promise.resolve({ enabled: state.automationEnabled });
+        }
+        if (
+          state.automationReadFailsAfterWrite &&
+          state.requests.some(
+            (request) =>
+              request.path === "/api/settings/agent-automation" &&
+              request.init?.method === "POST",
+          )
+        )
+          return Promise.reject(new Error("automation refresh failed"));
+        return Promise.resolve({ enabled: state.automationEnabled });
+      }
       if (path === "/api/settings/model")
         return (
           state.modelPromise ??
@@ -121,6 +144,9 @@ beforeEach(() => {
   state.requests.length = 0;
   state.identityError = "";
   state.modelPromise = null;
+  state.automationEnabled = true;
+  state.automationWritePromise = null;
+  state.automationReadFailsAfterWrite = false;
   state.tunables = [];
   window.localStorage.clear();
   window.history.replaceState({}, "", "/settings");
@@ -302,6 +328,60 @@ describe("Settings identity states", () => {
     await waitFor(() =>
       expect(screen.queryByText("Chat cap: 900 seconds.")).toBeNull(),
     );
+  });
+
+  it("uses the automation write response without a fallible refresh", async () => {
+    state.automationReadFailsAfterWrite = true;
+    render(<SettingsPage />);
+    openSettingsSection("AI runtime");
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Pause unattended runs" }),
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "Resume unattended runs" }),
+    ).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Paused. A run in progress stops at its next step.",
+      ),
+    ).toBeTruthy();
+    expect(
+      state.calls.filter((path) => path === "/api/settings/agent-automation"),
+    ).toHaveLength(2);
+  });
+
+  it("drops a pending automation receipt when OIDC identity changes", async () => {
+    let finishWrite!: (value: unknown) => void;
+    state.automationWritePromise = new Promise((resolve) => {
+      finishWrite = resolve;
+    });
+    render(<SettingsPage />);
+    openSettingsSection("AI runtime");
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Pause unattended runs" }),
+    );
+    expect(await screen.findByText("Saving…")).toBeTruthy();
+
+    state.identity = { ...state.identity, user: "next-operator" };
+    state.automationEnabled = false;
+    window.dispatchEvent(new Event("storage"));
+
+    expect(
+      await screen.findByRole("button", { name: "Resume unattended runs" }),
+    ).toBeTruthy();
+    await act(async () => finishWrite({ enabled: false }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Paused. A run in progress stops at its next step."),
+      ).toBeNull(),
+    );
+    expect(
+      state.calls.filter((path) => path === "/api/settings/agent-automation"),
+    ).toHaveLength(3);
   });
 
   it("invalidates a model response and starts no replacement for anonymous", async () => {

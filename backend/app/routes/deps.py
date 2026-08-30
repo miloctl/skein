@@ -225,6 +225,10 @@ def _resolve(
                 ) from exc
             except ValueError as exc:
                 raise HTTPException(status_code=403, detail=str(exc)) from exc
+            # The OIDC subject stays bound to this roster row, but new content
+            # can claim its name after that bind. Apply the same ambiguity wall
+            # as every other credential door before the stable identity enters.
+            _refuse_ambiguous(name)
             if is_agent(name):
                 if is_content_identity(name):
                     raise HTTPException(

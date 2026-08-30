@@ -106,7 +106,7 @@ def _parse(path: Path, bench: set[str]) -> dict | None:
         return None
     if len(set(members)) != len(members):
         return None
-    if any(m not in bench for m in members):
+    if any(m not in bench or not personas.flock_allowed(m) for m in members):
         return None
     return {
         "schema_version": SCHEMA_VERSION,
@@ -228,6 +228,19 @@ def _check_members(label: str, members: object, bench: set[str]) -> list[str]:
     for m in names:
         if m and m not in bench:
             errors.append(f"{label}: members names {m!r}, which is not a persona on the bench")
+        elif m in bench:
+            try:
+                member = personas.get_persona(m)
+            except ValueError:
+                errors.append(
+                    f"{label}: members names {m!r}, which cannot be resolved to a valid persona"
+                )
+            else:
+                if not member["flock"]:
+                    errors.append(
+                        f"{label}: members names {m!r}, which works only in live"
+                        " conversation — a flock turn gives it nobody to interview"
+                    )
         elif not m:
             errors.append(f"{label}: members has an empty entry")
     return errors

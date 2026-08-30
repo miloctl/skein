@@ -395,6 +395,11 @@ def test_portable_export_excludes_live_chat_session_and_review_invocation_canari
         "default",
         SessionMessage.from_message({"role": "user", "content": [{"text": canary}]}, 0),
     )
+    import asyncio
+
+    from app.agents.session_store import DbOffloadStorage
+
+    asyncio.run(DbOffloadStorage("canary-session").write("offloader/canary_0", canary.encode()))
     proposal = review.propose_extension_invocation(
         "core_tool",
         {"tool": "create_task", "agent": "scout", "preview": canary},
@@ -423,6 +428,7 @@ def test_portable_export_excludes_live_chat_session_and_review_invocation_canari
         "sessions",
         "session_agents",
         "session_messages",
+        "session_offload",
         "extension_review_invocations",
     ):
         assert excluded not in dump

@@ -61,6 +61,7 @@ WAKE_TOOLS = frozenset(
 
 _worker_lock = threading.Lock()
 _worker_running = False
+_SAFE_STOP_REASONS = frozenset({"cancelled", "limit_turns", "limit_total_tokens"})
 
 
 def _kick_after_commit() -> None:
@@ -174,11 +175,23 @@ def finish(claim: dict, result: dict) -> None:
                     (now, agent),
                 )
             else:
+                stopped = str(result.get("stopped") or "")
+                reason = stopped if stopped in _SAFE_STOP_REASONS else ""
                 db.execute(
                     "UPDATE agent_wakeups SET status = 'completed', finished_at = ?,"
-                    " rerun_requested = 0, reason = '' WHERE agent = ?",
-                    (now, agent),
+                    " rerun_requested = 0, reason = ? WHERE agent = ?",
+                    (now, reason, agent),
                 )
+            return
+        if result.get("paused"):
+            # The pause raced the worker after it claimed this row but before
+            # any model call. Put the explicit delegation back for resume.
+            db.execute(
+                "UPDATE agent_wakeups SET status = 'pending', started_at = NULL,"
+                " finished_at = NULL, rerun_requested = 0, thread_id = '', reason = ''"
+                " WHERE agent = ?",
+                (agent,),
+            )
             return
         if result.get("completion_unknown"):
             # a queued rerun dies here on purpose: the abandoned turn's thread
@@ -245,15 +258,19 @@ def status(agent: str, *, task_id: int = 0) -> dict | None:
     )
     if not row or (task_id and int(row["trigger_task_id"]) != task_id):
         return None
+    enabled = _automation_enabled()
+    reason = row["reason"]
+    if config.SCHEDULER_ENABLED and not enabled and row["status"] in {"pending", "running"}:
+        reason = "automation_paused"
     return {
         "status": row["status"],
         "requested_at": row["requested_at"],
         "started_at": row["started_at"] or "",
         "finished_at": row["finished_at"] or "",
-        "reason": row["reason"],
+        "reason": reason,
         # one deployment-shape bit, on purpose: Task Peek cannot phrase
         # "queued" honestly without knowing whether anything will drain it
-        "automation_enabled": config.SCHEDULER_ENABLED,
+        "automation_enabled": enabled,
     }
 
 
@@ -286,8 +303,12 @@ def _drain() -> None:
     global _worker_running
     try:
         from .agent_runner import run_one
+        from .settings import agent_automation_enabled
 
-        while claim := claim_next():
+        # checked BEFORE claiming: a claim made while paused would finish as
+        # refused and need a fresh delegation to re-arm — left pending, the
+        # resume switch drains it with no data lost
+        while agent_automation_enabled() and (claim := claim_next()):
             try:
                 # its own guard, not the run_one try below: a database blip
                 # in this read must not mark a turn that never started as
@@ -336,10 +357,18 @@ def _drain() -> None:
                 kick()
 
 
+def _automation_enabled() -> bool:
+    if not config.SCHEDULER_ENABLED:
+        return False
+    from .settings import agent_automation_enabled
+
+    return agent_automation_enabled()
+
+
 def kick() -> bool:
     """Start one process-local queue drain after a committed delegation."""
     global _worker_running
-    if not config.SCHEDULER_ENABLED:
+    if not _automation_enabled():
         return False
     with _worker_lock:
         if _worker_running:

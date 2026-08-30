@@ -55,6 +55,19 @@ def _daily_backup():
     return backup_if_stale()
 
 
+def _embed_reconcile():
+    from .. import config
+    from .search import embed_missing
+
+    if not config.EMBED_READY:
+        return "embeddings off"
+    # bounded batch: a huge backlog (first enable, model change) must not hold
+    # a job slot for hours — the next hourly run continues where this stopped
+    done, failed = embed_missing(limit=200)
+    status = "error" if failed and not done else "partial" if failed else "ok"
+    return {"embedded": done, "failed": failed, "status": status}
+
+
 def _activity_verify():
     from .activity import nightly_verify
 
@@ -140,6 +153,10 @@ JOBS: tuple[JobSpec, ...] = (
     # is once per cycle (services/promises.py::NUDGE_CYCLE_HOURS)
     JobSpec("promise-chase", _chase_received, {"trigger": "interval", "hours": 1}, 1, True),
     JobSpec("daily-backup", _daily_backup, {"trigger": "cron", "hour": 3, "minute": 0}, 24, True),
+    # Hourly heal for _maybe_embed's best-effort gaps. No startup catch-up:
+    # 200 external calls at the five-second timeout can delay readiness by
+    # roughly 1000 seconds, and semantic repair is not a pre-serve dependency.
+    JobSpec("embed-reconcile", _embed_reconcile, {"trigger": "interval", "hours": 1}, 1),
     JobSpec(
         "activity-verify",
         _activity_verify,

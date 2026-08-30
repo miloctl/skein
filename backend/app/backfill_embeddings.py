@@ -10,7 +10,6 @@ permanently biased toward recently-edited records.
 Idempotent and resumable: each row is independent, already-covered rows are
 skipped, and a failed row is reported and skipped rather than aborting."""
 
-import json
 import sys
 
 from . import config, db
@@ -27,35 +26,19 @@ def main() -> None:
         raise SystemExit(2)
 
     db.init_db()
-    rows = db.query(
-        "SELECT s.entity, s.entity_id, s.title, s.body FROM search_index s"
-        " WHERE NOT EXISTS (SELECT 1 FROM embeddings e"
-        "   WHERE e.entity = s.entity AND e.entity_id = s.entity_id AND e.model = ?)"
-        " ORDER BY s.entity, s.entity_id",
-        (config.EMBED_MODEL,),
-    )
+    missing = search.missing_embeddings_count()
     covered = db.query_row(
         "SELECT COUNT(*) AS n FROM embeddings WHERE model = ?", (config.EMBED_MODEL,)
     )
-    print(f"model {config.EMBED_MODEL}: {covered['n']} covered, {len(rows)} to embed")
-    if dry or not rows:
+    print(f"model {config.EMBED_MODEL}: {covered['n']} covered, {missing} to embed")
+    if dry or not missing:
         return
 
-    done = failed = 0
-    for r in rows:
-        try:
-            vec = search._embed(f"{r['title']}\n{r['body']}")
-            db.execute(
-                "INSERT INTO embeddings (entity, entity_id, model, vector)"
-                " VALUES (?, ?, ?, ?)"
-                " ON CONFLICT (entity, entity_id) DO UPDATE SET"
-                " model = excluded.model, vector = excluded.vector",
-                (r["entity"], r["entity_id"], config.EMBED_MODEL, json.dumps(vec)),
-            )
-            done += 1
-        except Exception as exc:
-            failed += 1
-            print(f"  FAILED {r['entity']}#{r['entity_id']}: {exc}", file=sys.stderr)
+    done, failed = search.embed_missing(
+        on_error=lambda entity, eid, exc: print(
+            f"  FAILED {entity}#{eid} ({type(exc).__name__})", file=sys.stderr
+        )
+    )
     print(f"embedded {done}, failed {failed}")
     if failed:
         raise SystemExit(1)

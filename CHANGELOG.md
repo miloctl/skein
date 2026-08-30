@@ -22,6 +22,9 @@ keeps its existing `minimum_core` and needs no change.
 - The workplace template owns an unpublished local contract. It accepts current source or exact prebuilt Skein artifacts without a source checkout at runtime.
 - Artifact-only consumer contracts require one shared `SHA256SUMS` file for the exact Skein wheel and npm tarballs.
 - The reference directory resolver now fails closed. A private package must supply its authoritative server-side directory adapter before production approval revalidation.
+- The backend requires Strands Agents 1.50 or later for per-turn limits and context offload.
+- Persona frontmatter accepts optional `flock: false`. Flock validation reads the resolved overlay definition, and omitted means flock-eligible.
+- Task dependencies accept `waiting_on=question:<id>`. An answered question satisfies the edge through the existing shared work service.
 
 ### Behavior
 
@@ -36,6 +39,13 @@ keeps its existing `minimum_core` and needs no change.
 - A browser navigation can cancel an in-flight request body. Skein classifies that disconnect as a 400 instead of logging an unhandled server error.
 - Frontend extension policy reloads when the stored OIDC session, API key, or trusted-header identity changes. A sign-in cannot leave permitted extension UI hidden.
 - Zero-adoption findings start after the field-guide grace period. The final grace day no longer creates a finding.
+- The stock bench grows to 23 personas and 5 flocks. Deterministic routing evaluations and pressure traces keep adjacent specialist descriptions distinct.
+- Unattended turns have per-invocation turn and token limits. An administrator can pause all unattended runs, queued work stays pending, and cancelled turns retain a durable reason.
+- Oversized tool results move to session-scoped offload storage before chat persistence. A storage backstop truncates uncovered tool results above 128 KiB.
+- The hourly embedding reconcile job repairs missing vectors after provider recovery. It does not block startup, and partial or complete failures make job health red.
+- The findings engine adds `task_abandoned` for open work with multiple contributions followed by silence. Its receipt carries counts, never contributor names.
+- Chat distinguishes transient provider load from configuration faults by safe status and exception class. The orchestrator marks external and model-produced text as content, not instructions.
+- Governed MCP tools validate the nested result against `output_schema`. MCP and embedding failures log exception classes without remote response text or tracebacks.
 
 ### Operations
 
@@ -50,6 +60,11 @@ keeps its existing `minimum_core` and needs no change.
 - Package installers, frontend builds, identity providers, and browser tests do not receive the database administrator credential. Contract setup and test backends receive it only when they need database access. CI PostgreSQL services and helper images use immutable digests.
 - Image publication requires a clean commit at the trusted remote's annotated release tag. It validates every target tag before any build or push.
 - The installed frontend contract uses digest-pinned Node 22 and dynamic loopback ports. Ambient browser tokens cannot enter the build or managed runtime.
+- Core migration 017 extends task dependency types with questions. Core migration 018 adds session-scoped context-offload storage.
+- New reserved content identities are `security-engineer`, `test-engineer`, `requirements-interviewer`, `workflow-architect`, `release-captain`, `research-synthesist`, `plan-reviewer`, `codebase-archaeologist`, `migration-steward`, `org-psychologist`, `technical-writer`, `experiment-tracker`, `judgment`, `people`, and `shiproom`. Before upgrade, run `python -m app.identity_audit`. If a name conflicts, rename the incoming stock file and its references. Do not rename an established human or private machine identity.
+- `SKEIN_AGENT_RUN_TURNS` and `SKEIN_AGENT_RUN_TOKENS` bound unattended SDK loops. `SKEIN_OFFLOAD_RESULT_TOKENS` and `SKEIN_OFFLOAD_PREVIEW_TOKENS` control chat result offload.
+- The durable `agent_automation` setting pauses and resumes unattended runs without changing authority or review policy.
+- The lint gate runs the Simplified Technical English self-test, then checks field-guide `how:` instructions. Service wording remains a warning-only ring.
 
 ## 0.3.2 — 2026-08-28
 

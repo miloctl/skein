@@ -1179,6 +1179,21 @@ AGENT_DAILY_TOKENS = _ctx_num("SKEIN_AGENT_DAILY_TOKENS", 0, int, low=0, high=10
 # STALL; it never caps a turn that keeps making progress in a loop it cannot
 # finish, which is the shape of a runaway.
 AGENT_RUN_SECONDS = _ctx_num("SKEIN_AGENT_RUN_SECONDS", 300, int, low=30, high=3600)
+# In-turn bounds the SDK enforces at each loop boundary (strands Limits):
+# unlike the wall clock, these stop the turn CLEANLY — prior tool calls
+# complete and the stop reason is named in the run record. The wall clock
+# stays the outer backstop, because a turn stuck on one socket never reaches
+# a turn boundary for these to fire at. Admin-tunable via services/tuning.py.
+AGENT_RUN_TURNS = _ctx_num("SKEIN_AGENT_RUN_TURNS", 30, int, low=1, high=500)
+AGENT_RUN_TOKENS = _ctx_num("SKEIN_AGENT_RUN_TOKENS", 200_000, int, low=1_000, high=10_000_000)
+# Context offload: a chat tool result over this many (estimated) tokens is
+# stored in session_offload and replaced in context by a preview plus a
+# retrieval tool, so one fat read_artifact stops taxing every later turn of
+# the thread. 0 disables the plugin. Chat agents only — the wake runner's
+# narrow tool contract and a persona's declared allowlist both exclude it
+# (agents/team_agent.py::build_agent names the two contracts).
+OFFLOAD_RESULT_TOKENS = _ctx_num("SKEIN_OFFLOAD_RESULT_TOKENS", 2500, int, low=0, high=1_000_000)
+OFFLOAD_PREVIEW_TOKENS = _ctx_num("SKEIN_OFFLOAD_PREVIEW_TOKENS", 1000, int, low=0, high=1_000_000)
 # Workspace-wide daily cap on delegation-triggered wake turns. Bounded by
 # default on purpose: the wake path bypasses the runner allowlist, the token
 # ceiling defaults to 0, and a strong caller can mint fresh agent names — so

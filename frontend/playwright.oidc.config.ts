@@ -61,7 +61,7 @@ export default defineConfig({
         `SKEIN_DATA_DIR=/tmp/skein-oidc SKEIN_MODEL_PROVIDER=mock SKEIN_SCHEDULER=0 SKEIN_EMBEDDINGS=0 ` +
         `.venv/bin/python seed.py && ` +
         `SKEIN_DATA_DIR=/tmp/skein-oidc SKEIN_AUTH_MODE=oidc SKEIN_OIDC_ISSUER=${IDP} ` +
-        `.venv/bin/python -m app.bind_oidc ava=ava nina=nina mira=mira && ` +
+        `.venv/bin/python -m app.bind_oidc ava=ava && ` +
         `SKEIN_DATA_DIR=/tmp/skein-oidc SKEIN_MODEL_PROVIDER=mock SKEIN_SCHEDULER=0 SKEIN_EMBEDDINGS=0 ` +
         `SKEIN_AUTH_MODE=oidc SKEIN_OIDC_ISSUER=${IDP} SKEIN_OIDC_AUDIENCE=${AUDIENCE} ` +
         `SKEIN_OIDC_CLIENT_ID=skein-web SKEIN_OIDC_ADMIN_GROUP=skein-admins ` +
