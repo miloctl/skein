@@ -147,7 +147,7 @@ def atlas_module(
         version="2.0.0",
         extension_api="1.0",
         minimum_core="0.3.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         routes=(
             RouteContribution(
                 "atlas.workplace.routes",

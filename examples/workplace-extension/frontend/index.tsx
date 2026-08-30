@@ -77,7 +77,7 @@ const extension: FrontendExtension = {
   version: "2.0.0",
   extensionApi: "1.0",
   minimumCore: "0.3.0",
-  maximumCoreExclusive: "0.4.0",
+  maximumCoreExclusive: "0.5.0",
   navigation: [
     {
       id: "atlas.workplace.manager-nav",

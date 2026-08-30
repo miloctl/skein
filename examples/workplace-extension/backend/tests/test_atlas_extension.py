@@ -225,7 +225,7 @@ def test_a_workplace_review_rule_holds_the_sync_tool_for_approval(atlas):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("testlab.workplace.review-sync", ReviewAgentSync()),),
     )
     module, client = atlas
