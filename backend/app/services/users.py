@@ -142,9 +142,14 @@ def refuse_fold_collision(name: str, *, ignore: str = "") -> None:
             continue
         if fold(row["name"]) == target:
             article = "an" if row["kind"] == "agent" else "a"
+            # the EXISTING name only, never the submitted one: this message
+            # reaches 403 bodies at the credential doors (routes/deps.py and
+            # the main.py perimeter), and an error never echoes the rejected
+            # value — an OIDC claim here is provider-controlled text
             raise ValueError(
-                f"'{row['name']}' already exists as {article} {row['kind']} —"
-                f" '{name}' differs only by case, and one name must mean one identity"
+                f"'{row['name']}' already exists as {article} {row['kind']} — a name"
+                f" that differs only by case or width from it is refused, because"
+                f" one name must mean one identity"
             )
 
 

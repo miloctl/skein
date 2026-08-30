@@ -519,8 +519,16 @@ def _assert_final_state(root: Path, old: str, new: str) -> None:
     ]
     for relative in active:
         text = (root / relative).read_text()
-        if any(token in text for token in stale_tokens):
+        if any(_names_prior_release(text, token) for token in stale_tokens):
             raise ReleaseError(f"{relative} still names the prior release artifact.")
+
+
+def _names_prior_release(text: str, token: str) -> bool:
+    """A stale token followed by a digit is the NEW number, not a leftover:
+    0.3.2 is a prefix of 0.3.20, so a plain substring check refuses the
+    twentieth patch release with its own replacements. A non-digit follower
+    (newline, `-prod`, `.whl`) is a real leftover."""
+    return re.search(re.escape(token) + r"(?!\d)", text) is not None
 
 
 def prepare(

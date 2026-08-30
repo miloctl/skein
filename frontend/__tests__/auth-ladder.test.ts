@@ -451,3 +451,23 @@ describe("the credential ladder", () => {
     expect(source).not.toContain('"X-User": getUser()');
   });
 });
+
+describe("lock rejection during teardown", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    window.localStorage.clear();
+  });
+
+  it("signOut still ends the session when locks.request rejects", async () => {
+    // locks.request rejects when the document is no longer fully active
+    // (unload, bfcache). Unguarded, signOut threw here: the fallback write
+    // never ran, the nav never navigated, and the token JSON stayed behind.
+    const auth = await import("@/lib/auth");
+    signIn("ava-token");
+    vi.spyOn(navigator.locks, "request").mockRejectedValue(
+      new DOMException("Document is not fully active", "InvalidStateError"),
+    );
+    await expect(auth.signOut()).resolves.toBeUndefined();
+    expect(auth.accessTokenSync()).toBe("");
+  });
+});

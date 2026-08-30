@@ -103,8 +103,13 @@ def test_a_case_variant_of_the_other_kind_is_refused(fresh_db):
     users.ensure_user("scout", kind="agent")
     # one name, one identity: a human `Scout` beside the agent `scout` makes
     # every identity question depend on which row a query returns first
-    with pytest.raises(ValueError, match="differs only by case"):
+    with pytest.raises(ValueError, match="differs only by case") as exc:
         users.ensure_user("Scout")
+    # the refusal reaches 403 bodies at the credential doors, and an error
+    # never echoes the rejected value — the submitted variant can be a
+    # provider-controlled OIDC claim
+    assert "Scout" not in str(exc.value)
+    assert "'scout'" in str(exc.value)
 
 
 def test_a_case_variant_of_the_same_kind_is_refused_too(fresh_db):

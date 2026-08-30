@@ -471,3 +471,14 @@ def test_equal_or_lower_release_fails_before_commands(release_tree):
         with pytest.raises(prepare_release.ReleaseError, match="greater"):
             prepare_release.prepare(root, version, runner=runner)
         assert runner.calls == []
+
+
+def test_stale_check_is_not_fooled_by_a_version_prefix():
+    """Releasing 0.3.20 after 0.3.2: every replaced file contains the new
+    number, and the old number is a substring of it — a plain substring
+    check makes the twentieth patch release unreachable."""
+    token = "newTag: 0.3.2"
+    assert prepare_release._names_prior_release("newTag: 0.3.2\n", token)
+    assert prepare_release._names_prior_release("newTag: 0.3.2-prod\n", token)
+    assert not prepare_release._names_prior_release("newTag: 0.3.20\n", token)
+    assert not prepare_release._names_prior_release("newTag: 0.3.21-prod\n", token)
