@@ -112,13 +112,26 @@ function endSession(reason: "signed-out" | "expired") {
 async function withSessionLock<T>(run: () => T | Promise<T>): Promise<T | null> {
   const locks = navigator.locks;
   if (!locks) return null;
-  return locks.request("skein-oidc-session", run);
+  try {
+    return await locks.request("skein-oidc-session", run);
+  } catch {
+    // locks.request rejects when the document is no longer fully active
+    // (unload, bfcache freeze). Every caller treats null as "no verdict":
+    // a 401 during teardown must surface the response, and signOut must
+    // still take its fallback write — not throw a lock error.
+    return null;
+  }
 }
 
 async function withRefreshLock<T>(run: () => T | Promise<T>): Promise<T | null> {
   const locks = navigator.locks;
   if (!locks) return null;
-  return locks.request("skein-oidc-refresh", run);
+  try {
+    return await locks.request("skein-oidc-refresh", run);
+  } catch {
+    // same contract as the session lock above
+    return null;
+  }
 }
 
 if (typeof window !== "undefined") {
