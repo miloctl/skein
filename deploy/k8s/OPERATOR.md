@@ -38,6 +38,31 @@ returns 503 when authentication configuration is invalid. Both carry only `ok`, 
 | `activity_chain.unverified` | `0` or a small positive number (rows since the last nightly verify) | A NEGATIVE value means the ledger is shorter than what was already verified. That is truncation. Do not restart anything. Contact the maintainer. |
 | any other `*_error` field | `null` | Read the message — each one names its own fix. If the overlay values do not explain it, contact the maintainer. |
 
+## The agent spend bounds
+
+Unattended agent turns cost real tokens. Every bound below has a safe
+default, but nobody has chosen the values for YOUR deployment until an
+overlay sets them. Each one is an environment variable in the overlay
+ConfigMap (`deploy/k8s/overlays/*/kustomization.yaml`);
+`backend/.env.example` documents every value in full.
+
+| Variable | Default | What it bounds |
+|---|---|---|
+| `SKEIN_AGENT_RUNNER` | empty (off) | Which agents get one scheduled turn per day. Empty means the daily runner wakes nobody. |
+| `SKEIN_AGENT_WAKES_PER_DAY` | 24 | Workspace-wide cap on delegation-triggered turns per day. |
+| `SKEIN_AGENT_DAILY_TOKENS` | 0 (no ceiling) | Per-agent daily token ceiling. It refuses the NEXT run after the spend. Set this before you set a provider key. |
+| `SKEIN_AGENT_RUN_SECONDS` | 300 | Wall clock on one unattended turn. |
+| `SKEIN_AGENT_RUN_TURNS` | 30 | Turn cap on one unattended run, stopped cleanly with a named reason. An admin can change it later on Settings → AI runtime → Deployment limits. |
+| `SKEIN_AGENT_RUN_TOKENS` | 200000 | Token cap on one unattended run. Admin-adjustable like the turn cap. |
+| `SKEIN_OFFLOAD_RESULT_TOKENS` | 2500 | A chat tool result above this size is stored per session and replaced in context by a preview, so it stops being re-billed on every later turn. 0 turns the offload off. |
+| `SKEIN_OFFLOAD_PREVIEW_TOKENS` | 1000 | The preview size. Keep it under the result threshold. |
+
+**The stop switch.** Settings → AI runtime → "Unattended agent runs"
+pauses the daily runner and the wake queue without a redeploy. A run in
+progress stops at its next step. Queued work stays pending and drains when
+an admin resumes. The switch stops automation only — it does not change
+what any agent is allowed to do.
+
 ## Upgrade
 
 1. Pause ArgoCD auto-sync. Check the StorageClass for `skein-data` and

@@ -501,3 +501,18 @@ review. Each names the condition that reopens it.
 | Assumption records (statement, owner, verification plan, expiry) | An engagement fails on an assumption nobody wrote down, and the retro shows `kill_criteria` plus a dated decision could not have held it. |
 | Acceptance checks + validation evidence as records | The evidence-gap findings rule (Insights backlog) fires often enough that teams act on it. The rule is the cheap probe; the records are the expensive answer. The display half shipped 2026-08-22: rows an `acceptance_criteria` names now resolve to their current status on the approval card. |
 | Authority matrix split by action class (internal edit vs external send) | An agent holds `autonomous` on an entity where one verb is internal and another leaves Skein (mail, webhook, customer surface). Today no tool on a granted entity crosses that line — the split waits for the tool that does. |
+
+## Deferred by the agent-discovery adoption (2026-08-30)
+
+The adoption program refused each of these on purpose. The trigger column
+is the evidence that funds the build — none of them is worth building early.
+
+| Deferred item | Trigger |
+|---|---|
+| Context offloader on wake and allowlist paths | The storage backstop logs every tool result it truncates ("the context offloader did not ride this path", `agents/session_store.py`). A season of that line accumulating is the evidence. The build carries a documented exception to the WAKE_TOOLS contract, because the plugin registers its retrieval tool outside `build_agent`'s filtering. |
+| Plaintext-tool-call detection in the turn guard | A keyless operator reports empty turns on a local or `openai_compatible` model — those models can emit tool calls as TEXT, and the turn guard's "Nothing was filed" receipt cannot name the cause. Detect via the known marker grammar and attribute it. Never repair or execute the parsed call: it skipped the model's own tool interface and every gate assumption downstream. |
+| Token-budgeted context pack (`?budget=`) | An operator tunes `SKEIN_AGENT_RUN_TOKENS` — a per-run token ceiling is honest only when the wake prompt has a known size. Deterministic whole-section truncation in a declared priority order, reporting what was dropped. The refused version stays refused: no LLM summarizer inside the pack builder (keyless path). |
+| Watch subscriptions on tasks | People ask to follow work they neither own nor are named in, more than once. Self-visible ONLY — no watcher list, no "N people watching" — or it fails the anti-surveillance rule. |
+| Offload thresholds as admin tunables | An operator has a standing reason to change `SKEIN_OFFLOAD_RESULT_TOKENS` / `_PREVIEW_TOKENS` between deploys (the settings rule's question 4). Until then they stay env-only. |
+| `wording.py` STE ring promoted to fatal | The warn count in `scripts/check_ste.py` stays at zero across a few releases (currently zero). Same staging the knots gate went through: warn until clean stays clean, then gate. |
+| Live consult-quality eval | A deployment with a few weeks of real consults. The routing eval scores DESCRIPTIONS (TF-IDF), and the 2026-08-30 merge already showed the proxy's failure mode: a description tuned to the fixtures. Tier 1 is deterministic assertions over live traces — consult fired, right slug, count within the turn budget, writes landed as proposals — with cases accruing from the feedback corpus (`kind=finding`), not cold authoring. An LLM judge is NOT the gate: it would add cost, nondeterminism, and a second Goodhart surface to cover only the fuzzy remainder ("framed, not repeated"). At most it becomes an ad-hoc triage labeler once the corpus outgrows human reading. |
