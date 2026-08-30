@@ -1,4 +1,4 @@
-import { accessToken, accessTokenSync, sessionRejected } from "./auth";
+import { accessTokenResult, accessTokenSync, sessionRejected } from "./auth";
 import { API_URL } from "./config";
 
 export { API_URL };
@@ -100,12 +100,9 @@ export function setApiKey(key: string) {
  *  last and proves only that the caller reached the app, since it ships inside
  *  the public JS bundle. */
 export async function bearer(): Promise<string> {
-  return (
-    (await accessToken()) ||
-    getApiKey() ||
-    process.env.NEXT_PUBLIC_API_TOKEN ||
-    ""
-  );
+  const oidc = await accessTokenResult();
+  if (!oidc.canFallback) return oidc.token;
+  return getApiKey() || process.env.NEXT_PUBLIC_API_TOKEN || "";
 }
 
 /** Short-lived GET cache. Pages fan out to the same handful of list
@@ -144,7 +141,7 @@ export async function authenticatedFetch(
   const response = await fetch(`${API_URL}${path}`, { ...init, headers });
   const sent = headers.Authorization?.slice(7) ?? "";
   if (response.status === 401 && sent && sent === accessTokenSync()) {
-    sessionRejected(sent);
+    await sessionRejected(sent);
   }
   return response;
 }

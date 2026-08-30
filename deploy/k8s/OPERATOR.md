@@ -23,14 +23,14 @@ maintainer publishes a release, on your own schedule.
 Open `https://<backend-route-host>/api/health` with a credential — a
 personal API key, or a signed-in browser session. The page always returns
 200 when the process and the database are up: the content is the
-diagnosis, not the status code. The open `/health` endpoint answers the
-container probes and carries only `ok`, `auth_mode` and `auth_error` — if
-sign-in itself is broken, that is where the reason is readable without a
-credential.
+diagnosis, not the status code. The open `/health` endpoint answers startup
+and liveness probes. The open `/ready` endpoint answers readiness probes and
+returns 503 when authentication configuration is invalid. Both carry only `ok`, `auth_mode`, and
+`auth_error`, so the reason remains readable without a credential.
 
 | Field | Healthy value | If not |
 |---|---|---|
-| `auth_error` | `null` | Sign-in is broken for everyone. Read the message. Fix the named `SKEIN_*` value in the overlay and sync. |
+| `auth_error` | empty string | Sign-in is broken for everyone. Read the message. Fix the named `SKEIN_*` value in the overlay and sync. |
 | `provider_error`, `models_error`, `embeddings_error` | `null` | Agent chat degraded to mock. Deterministic features still work. Fix the named model setting when convenient. |
 | `overlay_errors` | `[]` | A persona/playbook/flock ConfigMap did not mount. Check the volume mounts against the `SKEIN_*_DIR` values. |
 | `timezone` / `timezone_error` | your team zone, error `null` | Rituals fire at UTC hours instead of local. Set `SKEIN_TZ` to an IANA `Region/City` name. |

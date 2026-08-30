@@ -67,6 +67,7 @@ beforeEach(() => {
 afterEach(() => {
   // the stub outlives the case otherwise, and the next file's fetch is this
   // file's config answer
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -195,17 +196,35 @@ describe("what the gate does to the surfaces around it", () => {
 describe("how a session ends", () => {
   it("records 'expired' when a stored token dies with nothing to renew from", async () => {
     signIn(-1_000); // expired, no refresh_token
+    const changed = vi.fn();
+    window.addEventListener("skein-identity-change", changed, { once: true });
     const { bearer } = await import("@/lib/api");
     expect(await bearer()).toBe("");
     expect(window.sessionStorage.getItem("skein-oidc-ended")).toBe("expired");
+    expect(changed).toHaveBeenCalledOnce();
   });
 
   it("records 'signed-out' on a chosen sign-out", async () => {
     signIn();
     const { signOut } = await import("@/lib/auth");
-    signOut();
+    await signOut();
     expect(window.sessionStorage.getItem("skein-oidc-ended")).toBe("signed-out");
     expect(window.localStorage.getItem("skein-oidc")).toBeNull();
+  });
+
+  it("signs out when the generation marker cannot be stored", async () => {
+    signIn();
+    const originalSetItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
+      if (key === "skein-oidc-generation") throw new DOMException("blocked");
+      return originalSetItem.call(this, key, value);
+    });
+    const { signOut } = await import("@/lib/auth");
+
+    await signOut();
+
+    expect(window.localStorage.getItem("skein-oidc")).toBeNull();
+    expect(window.sessionStorage.getItem("skein-oidc-ended")).toBe("signed-out");
   });
 
   it("sessionRejected touches only the session whose token was judged", async () => {
@@ -213,10 +232,33 @@ describe("how a session ends", () => {
     // a refresh may have replaced the token an in-flight request carried —
     // that request's 401 must not disturb the newer session
     signIn();
-    auth.sessionRejected("some-other-token");
+    await auth.sessionRejected("some-other-token");
     const before = window.localStorage.getItem("skein-oidc");
     expect(before).not.toBeNull();
-    auth.sessionRejected("tok");
+    await auth.sessionRejected("tok");
+    expect(window.localStorage.getItem("skein-oidc")).toBeNull();
+    expect(window.sessionStorage.getItem("skein-oidc-ended")).toBe("expired");
+  });
+
+  it("ends a rejected session when its refresh demotion cannot be stored", async () => {
+    window.localStorage.setItem(
+      "skein-oidc",
+      JSON.stringify({
+        access_token: "tok",
+        refresh_token: "renew-me",
+        expires_at: Date.now() + 3_600_000,
+        user: "casey",
+      }),
+    );
+    const originalSetItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
+      if (key === "skein-oidc") throw new DOMException("blocked");
+      return originalSetItem.call(this, key, value);
+    });
+    const auth = await import("@/lib/auth");
+
+    await auth.sessionRejected("tok");
+
     expect(window.localStorage.getItem("skein-oidc")).toBeNull();
     expect(window.sessionStorage.getItem("skein-oidc-ended")).toBe("expired");
   });
@@ -235,11 +277,11 @@ describe("how a session ends", () => {
       }),
     );
     const auth = await import("@/lib/auth");
-    auth.sessionRejected("tok");
+    await auth.sessionRejected("tok");
     const stored = JSON.parse(window.localStorage.getItem("skein-oidc") ?? "null");
     expect(stored?.refresh_token).toBe("renew-me");
     expect(window.sessionStorage.getItem("skein-oidc-ended")).toBeNull();
-    // back-dated, so the next accessToken() call renews instead of reusing it
+    // back-dated, so the next accessTokenResult() call renews instead of reusing it
     expect(stored.expires_at).toBeLessThan(Date.now());
   });
 
@@ -266,7 +308,7 @@ describe("how a session ends", () => {
     );
     const auth = await import("@/lib/auth");
 
-    expect(await auth.accessToken()).toBe("");
+    expect(await auth.accessTokenResult()).toEqual({ token: "", canFallback: false });
     expect(window.localStorage.getItem("skein-oidc")).not.toBeNull();
     expect(window.sessionStorage.getItem("skein-oidc-ended")).toBeNull();
   });

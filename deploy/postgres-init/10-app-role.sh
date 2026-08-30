@@ -21,7 +21,7 @@ psql -v ON_ERROR_STOP=1 --single-transaction \
     WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'app_user')
     \gexec
     ALTER ROLE :"app_user" LOGIN PASSWORD :'app_password'
-        NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+        NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
     GRANT CONNECT ON DATABASE :"dbname" TO :"app_user";
     -- CREATE as well as USAGE: the application applies its own migrations
     -- at startup, so it must be able to create tables in this schema.

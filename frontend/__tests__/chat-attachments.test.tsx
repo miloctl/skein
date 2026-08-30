@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   bearer: vi.fn(),
   chatThreads: vi.fn(),
   api: vi.fn(),
+  authenticatedFetch: vi.fn(),
   thread: {
     getState: vi.fn(() => ({ messages: [] as unknown[] })),
     reset: vi.fn(),
@@ -47,6 +48,7 @@ vi.mock("@assistant-ui/react", () => ({
 vi.mock("@/lib/api", () => ({
   API_URL: "http://backend.test",
   api: mocks.api,
+  authenticatedFetch: mocks.authenticatedFetch,
   bearer: mocks.bearer,
   userHeader: () => ({ "X-User": "tester" }),
   actionError: (e: unknown) => (e as Error).message,
@@ -70,6 +72,7 @@ function adapters() {
 
 beforeEach(() => {
   mocks.bearer.mockResolvedValue("");
+  mocks.authenticatedFetch.mockReset();
   mocks.captured = null;
 });
 
@@ -156,9 +159,7 @@ describe("attaching a file", () => {
   });
 
   it("sends the ids to the chat route, not the file content", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response("", { status: 500 }),
-    );
+    mocks.authenticatedFetch.mockResolvedValue(new Response("", { status: 500 }));
     const { chat } = adapters();
     const run = chat.run({
       messages: [
@@ -170,16 +171,14 @@ describe("attaching a file", () => {
     });
     await run.next().catch(() => undefined);
     const body = JSON.parse(
-      (fetchSpy.mock.calls[0][1] as { body: string }).body,
+      (mocks.authenticatedFetch.mock.calls[0][1] as { body: string }).body,
     );
     expect(body.attachments).toEqual([42, 43]);
     expect(body.message).toBe("what does it say?");
   });
 
   it("drops an attachment id that never became a stored file", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response("", { status: 500 }),
-    );
+    mocks.authenticatedFetch.mockResolvedValue(new Response("", { status: 500 }));
     const { chat } = adapters();
     const run = chat.run({
       messages: [
@@ -193,7 +192,7 @@ describe("attaching a file", () => {
     });
     await run.next().catch(() => undefined);
     const body = JSON.parse(
-      (fetchSpy.mock.calls[0][1] as { body: string }).body,
+      (mocks.authenticatedFetch.mock.calls[0][1] as { body: string }).body,
     );
     expect(body.attachments).toEqual([]);
   });

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ExtensionDashboardCards } from "@/components/extension-dashboard";
@@ -9,11 +9,15 @@ import {
 } from "@/lib/extensions/contracts";
 import { registerFrontendExtensions } from "@/lib/extensions/registry";
 
-const capability = vi.hoisted(() => ({ effect: "permit" }));
+const capability = vi.hoisted(() => ({ effect: "permit", failures: 0 }));
 
 vi.mock("@/lib/api", () => ({
   api: (path: string) => {
     if (!path.startsWith("/api/capabilities")) return Promise.resolve({});
+    if (capability.failures > 0) {
+      capability.failures -= 1;
+      return Promise.reject(new Error("identity is not ready"));
+    }
     return Promise.resolve({
       subject: "manager",
       roles: ["delivery-manager"],
@@ -64,6 +68,7 @@ function NavigationProbe() {
 
 beforeEach(() => {
   capability.effect = "permit";
+  capability.failures = 0;
 });
 
 describe("the frontend extension registry", () => {
@@ -111,6 +116,18 @@ describe("capability-aware contributions", () => {
     expect(screen.getByText("hidden")).toBeTruthy();
     expect(await screen.findByText("Atlas")).toBeTruthy();
     expect(screen.getByText("Atlas delivery indicators")).toBeTruthy();
+  });
+
+  it("rechecks capabilities when identity lands during the first mount", async () => {
+    capability.failures = 1;
+    render(
+      <ExtensionProvider extensions={[extension()]}>
+        <NavigationProbe />
+      </ExtensionProvider>,
+    );
+    window.localStorage.setItem("skein-oidc", "signed-in");
+    act(() => window.dispatchEvent(new Event("skein-identity-change")));
+    expect(await screen.findByText("Atlas")).toBeTruthy();
   });
 
   it("fails closed when the backend denies the policy action", async () => {

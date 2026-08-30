@@ -20,6 +20,7 @@
 import { API_URL } from "./config";
 
 const TOKEN_KEY = "skein-oidc";
+const GENERATION_KEY = "skein-oidc-generation";
 // the in-flight authorization: per tab, and gone when the tab closes. A second
 // tab must not be able to complete a sign-in this one started.
 const FLOW_KEY = "skein-oidc-flow";
@@ -42,20 +43,33 @@ type Stored = {
   refresh_token: string;
   expires_at: number; // epoch ms; 0 when the provider sent no lifetime
   user: string;
+  generation?: string;
 };
+
+function currentGeneration(): string {
+  try {
+    return window.localStorage.getItem(GENERATION_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
 
 function readStored(): Stored | null {
   try {
     const raw = window.localStorage.getItem(TOKEN_KEY);
     if (!raw) return null;
     const t = JSON.parse(raw);
-    if (typeof t?.access_token === "string" && t.access_token) return t as Stored;
+    if (
+      typeof t?.access_token === "string" &&
+      t.access_token &&
+      (t.generation ?? "") === currentGeneration()
+    )
+      return t as Stored;
   } catch {}
   return null;
 }
 
-function writeStored(t: Stored | null) {
-  const previousUser = readStored()?.user ?? "";
+function writeStored(t: Stored | null, previousUser = readStored()?.user ?? "") {
   try {
     if (t) {
       window.localStorage.setItem(TOKEN_KEY, JSON.stringify(t));
@@ -67,6 +81,44 @@ function writeStored(t: Stored | null) {
   window.dispatchEvent(new Event("storage"));
   if (previousUser !== (t?.user ?? ""))
     window.dispatchEvent(new Event("skein-identity-change"));
+}
+
+function setGeneration(generation: string): boolean {
+  try {
+    window.localStorage.setItem(GENERATION_KEY, generation);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function commitStored(generation: string, stored: Stored): boolean {
+  if (currentGeneration() !== generation) return false;
+  const expected = { ...stored, generation };
+  writeStored(expected);
+  return sameSession(readStored(), expected);
+}
+
+function endSession(reason: "signed-out" | "expired") {
+  const previousUser = readStored()?.user ?? "";
+  markEnded(reason);
+  // A marker failure must not leave the bearer token behind after sign-out.
+  setGeneration(randomString(16));
+  writeStored(null, previousUser);
+}
+
+/** Session commits and refresh single-flight use separate locks. If the IdP
+ *  stalls, sign-out can still invalidate the stored generation. */
+async function withSessionLock<T>(run: () => T | Promise<T>): Promise<T | null> {
+  const locks = navigator.locks;
+  if (!locks) return null;
+  return locks.request("skein-oidc-session", run);
+}
+
+async function withRefreshLock<T>(run: () => T | Promise<T>): Promise<T | null> {
+  const locks = navigator.locks;
+  if (!locks) return null;
+  return locks.request("skein-oidc-refresh", run);
 }
 
 if (typeof window !== "undefined") {
@@ -103,29 +155,31 @@ function markEnded(reason: "signed-out" | "expired") {
 }
 
 /** A 401 that arrived ON the stored access token: the server refused THIS
- *  token, which the proactive refresh in accessToken() cannot see — the token
+ *  token, which the proactive refresh in accessTokenResult() cannot see — the token
  *  still looked fresh when the request left.
  *
  *  A refusal of the access token is not a verdict on the session while a
  *  refresh token survives, so this DEMOTES rather than ends: it back-dates the
- *  expiry, and the next accessToken() call renews. Ending it here instead cost
+ *  expiry, and the next accessTokenResult() call renews. Ending it here instead cost
  *  a full sign-in every token lifetime on any IdP that omits `expires_in` —
- *  routes/auth.py stores 0 for that, accessToken() reads 0 as "no proactive
+ *  routes/auth.py stores 0 for that, accessTokenResult() reads 0 as "no proactive
  *  refresh", and the first 401 is therefore where such a session ALWAYS lands.
  *  The session ends only when the renewal itself is refused (refreshOnce). */
-export function sessionRejected(token: string) {
-  const t = readStored();
-  // several in-flight requests can 401 together, and a refresh may have
-  // already replaced the token they carried — only the CURRENT token counts
-  if (!t || t.access_token !== token) return;
-  if (t.refresh_token) {
-    // any past instant works; Date.now() keeps it one comparison away from
-    // the EXPIRY_MARGIN_MS test that reads it
-    writeStored({ ...t, expires_at: Date.now() - 1 });
-    return;
-  }
-  markEnded("expired");
-  writeStored(null);
+export async function sessionRejected(token: string) {
+  await withSessionLock(() => {
+    const t = readStored();
+    // several in-flight requests can 401 together, and a refresh may have
+    // already replaced the token they carried — only the CURRENT token counts
+    if (!t || t.access_token !== token) return;
+    if (t.refresh_token) {
+      // any past instant works; Date.now() keeps it one comparison away from
+      // the EXPIRY_MARGIN_MS test that reads it
+      if (!commitStored(t.generation ?? "", { ...t, expires_at: Date.now() - 1 }))
+        endSession("expired");
+      return;
+    }
+    endSession("expired");
+  });
 }
 
 /** Who is signed in, or "" — for display only. What the API trusts is the
@@ -197,17 +251,31 @@ export async function signIn(returnTo?: string): Promise<string> {
   if (cfg.error || !cfg.authorize_url || !cfg.client_id) {
     return cfg.error || "Sign-in is not configured. Ask whoever runs the server.";
   }
+  if (!navigator.locks)
+    return "This browser cannot coordinate sign-in across tabs. Use a current browser. Then start the sign-in again.";
   // S256 only. The "plain" method sends the verifier itself, which gives an
   // interceptor exactly what PKCE exists to withhold.
   const verifier = randomString(32);
   const state = randomString(16);
+  const generation = randomString(16);
+  const codeChallenge = await challenge(verifier);
   try {
     window.sessionStorage.setItem(
       FLOW_KEY,
-      JSON.stringify({ verifier, state, returnTo: returnTo || window.location.pathname }),
+      JSON.stringify({
+        verifier,
+        state,
+        generation,
+        returnTo: returnTo || window.location.pathname,
+      }),
     );
   } catch {
-    return "This browser blocks session storage, which sign-in needs.";
+    return "This browser blocks the storage that sign-in needs. Allow Skein to use browser storage. Then start the sign-in again.";
+  }
+  const generationSet = await withSessionLock(() => setGeneration(generation));
+  if (!generationSet) {
+    window.sessionStorage.removeItem(FLOW_KEY);
+    return "This browser cannot coordinate sign-in across tabs. Use a current browser. Then start the sign-in again.";
   }
   // No nonce. A nonce binds an ID TOKEN to this request, and this flow never
   // consumes one — the API validates the access token and answers with a name.
@@ -219,7 +287,7 @@ export async function signIn(returnTo?: string): Promise<string> {
     redirect_uri: redirectUri(),
     scope: cfg.scopes || "openid profile",
     state,
-    code_challenge: await challenge(verifier),
+    code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
   window.location.assign(`${cfg.authorize_url}?${params}`);
@@ -278,12 +346,17 @@ async function runCompleteSignIn(search: string): Promise<string> {
   }
   const code = params.get("code");
   const state = params.get("state");
-  let flow: { verifier: string; state: string; returnTo: string } | null = null;
+  let flow: {
+    verifier: string;
+    state: string;
+    generation: string;
+    returnTo: string;
+  } | null = null;
   try {
     flow = JSON.parse(window.sessionStorage.getItem(FLOW_KEY) || "null");
   } catch {}
   window.sessionStorage.removeItem(FLOW_KEY); // one code, one attempt
-  if (!code || !flow) {
+  if (!code || !flow?.generation) {
     throw new Error("This sign-in link is no longer valid. Start the sign-in again.");
   }
   // The state check is what makes a link someone else crafted useless: it can
@@ -296,7 +369,11 @@ async function runCompleteSignIn(search: string): Promise<string> {
     code_verifier: flow.verifier,
     redirect_uri: redirectUri(),
   });
-  writeStored(stored);
+  const committed = await withSessionLock(() =>
+    commitStored(flow.generation, stored),
+  );
+  if (!committed)
+    throw new Error("Another identity change replaced this sign-in. Start the sign-in again.");
   return localPath(flow.returnTo || "/");
 }
 
@@ -324,12 +401,10 @@ async function exchange(body: Record<string, string>): Promise<Stored> {
   } catch {}
   if (!res.ok || !payload.access_token) {
     const message = payload.detail || `Sign-in failed (HTTP ${res.status}).`;
-    // 4xx is the provider's verdict on this credential. 5xx and a dead
-    // connection are not, and the API answers 503 for an unreachable provider
-    // precisely so this side can tell the difference.
-    throw res.status >= 400 && res.status < 500
-      ? new Rejected(message)
-      : new Error(message);
+    // A 4xx response except 429 is the provider's verdict on this credential.
+    // After Retry-After, the same request can succeed without changes.
+    const rejected = res.status >= 400 && res.status < 500 && res.status !== 429;
+    throw rejected ? new Rejected(message) : new Error(message);
   }
   return {
     access_token: payload.access_token,
@@ -339,74 +414,92 @@ async function exchange(body: Record<string, string>): Promise<Stored> {
   };
 }
 
+type AccessTokenResult = { token: string; canFallback: boolean };
+
+const BLOCK_FALLBACK: AccessTokenResult = { token: "", canFallback: false };
+const ALLOW_FALLBACK: AccessTokenResult = { token: "", canFallback: true };
+const tokenResult = (token: string): AccessTokenResult => ({ token, canFallback: false });
+
 // one refresh at a time: a page that fires six requests at once must not send
 // six refreshes, which some providers answer by revoking the whole chain
-let refreshing: Promise<string> | null = null;
+let refreshing: Promise<AccessTokenResult> | null = null;
 const EXPIRY_MARGIN_MS = 60_000;
 
-/** A usable access token, refreshed if it is about to expire. "" when nobody
- *  is signed in or the session cannot be renewed. */
-export async function accessToken(): Promise<string> {
-  if (typeof window === "undefined") return "";
+/** This function resolves the OIDC rung and keeps each request bound to one
+ *  identity. Fallback is permitted only when no OIDC session exists or the
+ *  provider rejects that session. A temporary fault or identity change blocks
+ *  fallback. */
+export async function accessTokenResult(): Promise<AccessTokenResult> {
+  if (typeof window === "undefined") return ALLOW_FALLBACK;
   const t = readStored();
-  if (!t) return "";
-  if (!t.expires_at || t.expires_at - Date.now() > EXPIRY_MARGIN_MS) return t.access_token;
+  if (!t) return ALLOW_FALLBACK;
+  if (!t.expires_at || t.expires_at - Date.now() > EXPIRY_MARGIN_MS)
+    return tokenResult(t.access_token);
   if (!t.refresh_token) {
-    // expired with nothing to renew from: the session is over, and holding a
-    // dead token would show a signed-in UI that 401s on every request
-    markEnded("expired");
-    writeStored(null);
-    return "";
+    const ended = await withSessionLock(() => {
+      if (!sameSession(readStored(), t)) return BLOCK_FALLBACK;
+      endSession("expired");
+      return ALLOW_FALLBACK;
+    });
+    return ended ?? BLOCK_FALLBACK;
   }
   if (!refreshing) {
-    refreshing = withRefreshLock(() => refreshOnce(t.refresh_token)).finally(() => {
-      refreshing = null;
-    });
+    refreshing = withRefreshLock(() => refreshOnce(t))
+      .then((result) => result ?? BLOCK_FALLBACK)
+      .catch(() => BLOCK_FALLBACK)
+      .finally(() => {
+        refreshing = null;
+      });
   }
   return refreshing;
 }
 
-/** Serialize refreshes ACROSS tabs, not only within one.
- *
- *  `refreshing` is module state, so two tabs waking together each send their
- *  own refresh with the same token. A provider that rotates refresh tokens and
- *  detects reuse answers that by revoking the whole chain — the exact outcome
- *  the in-tab single-flight exists to avoid. Web Locks is the only cross-tab
- *  primitive here; where it is missing the old behavior is what remains. */
-async function withRefreshLock(run: () => Promise<string>): Promise<string> {
-  const locks = navigator.locks;
-  if (!locks) return run();
-  try {
-    return await locks.request("skein-oidc-refresh", run);
-  } catch {
-    return "";
-  }
+function sameSession(left: Stored | null, right: Stored): boolean {
+  return (
+    left?.access_token === right.access_token &&
+    left.refresh_token === right.refresh_token &&
+    left.expires_at === right.expires_at &&
+    left.user === right.user &&
+    (left.generation ?? "") === (right.generation ?? "")
+  );
 }
 
-async function refreshOnce(had: string): Promise<string> {
+async function refreshOnce(started: Stored): Promise<AccessTokenResult> {
   // re-read INSIDE the lock: while this tab waited, the other one may have
   // finished and stored a token that is good for another hour
   const now = readStored();
-  if (!now) return "";
+  if (!now || now.user !== started.user) return BLOCK_FALLBACK;
   const renewed = now.expires_at && now.expires_at - Date.now() > EXPIRY_MARGIN_MS;
-  if (now.refresh_token !== had || renewed) return now.access_token;
+  if (now.refresh_token !== started.refresh_token || renewed)
+    return tokenResult(now.access_token);
   try {
     const fresh = await exchange({ refresh_token: now.refresh_token });
-    // RFC 6749 §6: the provider MAY answer without a refresh_token when it
-    // does not rotate them, and several do. Dropping ours on that answer ends
-    // the session at the NEXT expiry, an hour later and far from the cause —
-    // so an absent one means "keep the one that still works".
-    writeStored({ ...fresh, refresh_token: fresh.refresh_token || now.refresh_token });
-    return fresh.access_token;
+    const committed = await withSessionLock(() => {
+      if (!sameSession(readStored(), now)) return BLOCK_FALLBACK;
+      // RFC 6749 §6 permits a provider to omit refresh_token when it does not
+      // rotate tokens. Several providers do this. If the response omits it,
+      // this code keeps the current refresh token.
+      const stored = {
+        ...fresh,
+        refresh_token: fresh.refresh_token || now.refresh_token,
+      };
+      return commitStored(now.generation ?? "", stored)
+        ? tokenResult(fresh.access_token)
+        : BLOCK_FALLBACK;
+    });
+    return committed ?? BLOCK_FALLBACK;
   } catch (err) {
-    // only a verdict ends the session. A transient fault keeps the tokens so
-    // the next call can try again — the alternative signs people out for
-    // waking a laptop before the network is up.
+    // Only a verdict ends the same session. A temporary fault or another tab's
+    // identity change blocks fallback and keeps the current session unchanged.
     if (err instanceof Rejected) {
-      markEnded("expired");
-      writeStored(null);
+      const rejected = await withSessionLock(() => {
+        if (!sameSession(readStored(), now)) return BLOCK_FALLBACK;
+        endSession("expired");
+        return ALLOW_FALLBACK;
+      });
+      return rejected ?? BLOCK_FALLBACK;
     }
-    return "";
+    return BLOCK_FALLBACK;
   }
 }
 
@@ -418,7 +511,17 @@ export function accessTokenSync(): string {
   return readStored()?.access_token ?? "";
 }
 
-export function signOut() {
+export async function signOut() {
+  const previousUser = readStored()?.user ?? "";
   markEnded("signed-out");
-  writeStored(null);
+  // Invalidate the generation first. Then an in-progress refresh fails its
+  // post-write check before this short lock clears the stored session.
+  setGeneration(randomString(16));
+  const ended = await withSessionLock(() => {
+    // A refresh commit can clear the reason while sign-out waits for this lock.
+    markEnded("signed-out");
+    writeStored(null, previousUser);
+    return true;
+  });
+  if (!ended) writeStored(null, previousUser);
 }

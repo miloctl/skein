@@ -3,6 +3,20 @@
 import pytest
 
 
+def test_client_disconnect_is_not_a_server_fault():
+    import asyncio
+
+    from starlette.requests import ClientDisconnect
+
+    from app.main import client_disconnect_handler
+
+    response = asyncio.run(client_disconnect_handler(None, ClientDisconnect()))
+    assert response.status_code == 400
+    assert (
+        response.body == b'{"detail":"The request body was not received. Send the request again."}'
+    )
+
+
 def test_overflow_ints_are_refused_not_crashed(client):
     """An id too large to exist is a 4xx, never a 500.
 

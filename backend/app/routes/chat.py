@@ -671,11 +671,13 @@ async def _summarize_title(thread_id: str, user: str) -> None:
         await run_in_threadpool(
             chat_threads.set_auto_title, thread_id, user, previous, "".join(parts)
         )
-    except Exception:
-        # exc_info, not a bare line: a rotated key and a 25 s stall need
-        # different fixes, and this is the only place either one is visible
+    except Exception as exc:
+        # Provider exceptions can carry prompt or credential fragments. The
+        # operation and class distinguish the fault without copying that body.
         logging.getLogger("skein.chat").warning(
-            "thread title summary did not finish (thread=%s)", thread_id, exc_info=True
+            "thread title summary did not finish (thread=%s error=%s)",
+            thread_id,
+            type(exc).__name__,
         )
 
 
@@ -781,11 +783,11 @@ async def _run_member(
         raise
     except Exception as exc:
         entry["status"] = "failed"
-        # the class name, never str(exc): a provider SDK error carries its raw
-        # HTTP body — request ids, key prefixes — and this line is served to
-        # the chat window, saved in the transcript, and fed to the merge step.
-        # The detail is in the log above. Same rule as the /as path below.
-        logging.getLogger("skein.chat").exception("flock member %s failed", slug)
+        # The class name is the complete diagnostic here. A provider SDK error
+        # can carry raw HTTP content, so neither the log nor transcript gets it.
+        logging.getLogger("skein.chat").warning(
+            "flock member %s failed (%s)", slug, type(exc).__name__
+        )
         out.put_nowait(
             {"type": "text", "text": f"{card['name']} did not answer ({exc.__class__.__name__})."}
         )
@@ -1464,9 +1466,12 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
         )
     except Exception as exc:
         # Provider exceptions can carry request IDs or credential fragments.
-        # The complete detail stays in the server log, never the transcript.
-        logging.getLogger("skein.chat").exception(
-            "agent construction failed (thread=%s user=%s)", thread_id, user
+        # The log gets the class only, and the transcript gets the public fault.
+        logging.getLogger("skein.chat").warning(
+            "agent construction failed (thread=%s user=%s error=%s)",
+            thread_id,
+            user,
+            type(exc).__name__,
         )
         fault = _agent_fault(exc)
         await run_in_threadpool(
@@ -1672,11 +1677,14 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
             # past that point is correct and unread until the next navigation
             await _summarize_title(ui_thread, user)
         except Exception as exc:  # surface model/config errors to the UI
-            logging.getLogger("skein.chat").exception(
-                "chat stream failed (thread=%s user=%s)", thread_id, user
-            )
             # Provider SDK errors can carry request IDs or credential fragments.
-            # The complete detail stays in the log line above.
+            # The log gets the class only, and the transcript gets the public fault.
+            logging.getLogger("skein.chat").warning(
+                "chat stream failed (thread=%s user=%s error=%s)",
+                thread_id,
+                user,
+                type(exc).__name__,
+            )
             fault = _agent_fault(exc)
             transcript.append(f"\n\n> {fault}\n")
             yield _sse({"type": "error", "message": fault})

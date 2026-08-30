@@ -233,7 +233,7 @@ def test_a_stopped_turn_still_records_every_member(client, fresh_db):
     assert all(m["status"] == "cancelled" for m in members)
 
 
-def test_a_failing_member_leaves_the_other_sections_intact(client, fresh_db, monkeypatch):
+def test_a_failing_member_leaves_the_other_sections_intact(client, fresh_db, monkeypatch, caplog):
     from app.routes import chat as chat_route
 
     real = chat_route.build_agent
@@ -246,9 +246,11 @@ def test_a_failing_member_leaves_the_other_sections_intact(client, fresh_db, mon
     monkeypatch.setattr(chat_route, "build_agent", flaky)
     out = _read_chat(client, "/flock engineering keep going", thread="flaky")
     assert "Code Reviewer did not answer (RuntimeError)" in out
-    # a provider error carries its raw HTTP body — request ids, key prefixes.
-    # It goes to the log, never to the chat window or the transcript.
+    # A provider error can carry its raw HTTP body. Only its class reaches
+    # the transcript or the platform log, where content ACLs do not apply.
     assert "sk-live-abcd" not in out and "request_id" not in out
+    assert "sk-live-abcd" not in caplog.text and "request_id" not in caplog.text
+    assert "RuntimeError" in caplog.text
     members = json.loads(
         fresh_db.query_row("SELECT * FROM flock_traces ORDER BY id DESC")["members"]
     )

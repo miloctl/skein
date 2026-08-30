@@ -18,18 +18,47 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- A retryable `PublicError` with status 503 includes `Retry-After: 60`. Scheduled extension jobs preserve the declared machine code and retryable value. They do not log chained adapter details.
+- The workplace template owns an unpublished local contract. It accepts current source or exact prebuilt Skein artifacts without a source checkout at runtime.
+- Artifact-only consumer contracts require one shared `SHA256SUMS` file for the exact Skein wheel and npm tarballs.
+- The reference directory resolver now fails closed. A private package must supply its authoritative server-side directory adapter before production approval revalidation.
+
 ### Behavior
+
+- A temporary OIDC refresh failure keeps the OIDC session. The browser does not send a stored key or shared token. The request stays bound to the signed-in identity.
+- OIDC issuer and endpoint URLs require HTTPS. Skein permits literal loopback HTTP only for local tests. Server-side redirects cannot change the origin.
+- OIDC discovery, token, error, and signing-key responses have a 256 KiB body limit and a 5-second total deadline. Four fixed provider slots bound timed-out reads.
+- OIDC requires `sub` and binds each human to the verified `(iss, sub)` pair. Username changes cannot transfer private data to a different subject. Overlength and control-character usernames are refused.
+- Provider failures write only the exception class to platform logs. Provider response text and tracebacks stay out of logs that bypass Skein content access rules.
+- The reference workplace adapter bounds response size and item count. It rejects malformed data, redirects, control characters, duplicate IDs, and unsupported status values.
+- The reference status outbox uses leases, per-item order, retry delays, dead-letter rows, and count and wall-clock drain limits. Task events use the same queue.
+- The reference dashboard shows an unavailable state when metrics fail. The **Try again** control loads the metrics without a page reload.
+- A browser navigation can cancel an in-flight request body. Skein classifies that disconnect as a 400 instead of logging an unhandled server error.
+- Frontend extension policy reloads when the stored OIDC session, API key, or trusted-header identity changes. A sign-in cannot leave permitted extension UI hidden.
+- Zero-adoption findings start after the field-guide grace period. The final grace day no longer creates a finding.
 
 ### Operations
 
+- The provider for OIDC browser tests handles concurrent connections from the browser and the backend. Browser preconnects no longer block the token exchange.
+- Kubernetes readiness uses `/ready` and returns 503 when authentication configuration is invalid. Startup and liveness remain on `/health`.
+- Atlas migration 5 adds ordered status leases and preserves pending migration 4 rows. The migration applies during normal extension composition.
+- Core, PostgreSQL, and workplace base images use immutable digests. A registry tag cannot change executed image bytes without a source diff.
+- OIDC browser tests disable embeddings and run the managed servers as direct child processes. Local runs can prestart the stack with `PW_REUSE=1`.
+- The consumer-owned contract uses a run-specific non-superuser database role. Build tools and tested application code never receive the administrator credential.
+- Existing roster users need an explicit `python -m app.bind_oidc '<subject>=<user>'` binding before an OIDC cutover. New users bind on first sign-in.
+- Application workloads disable default service-account tokens. PostgreSQL bootstrap also removes `REPLICATION` from a pre-existing app role.
+- Package installers, frontend builds, identity providers, and browser tests do not receive the database administrator credential. Contract setup and test backends receive it only when they need database access. CI PostgreSQL services and helper images use immutable digests.
+- Image publication requires a clean commit at the trusted remote's annotated release tag. It validates every target tag before any build or push.
+- The installed frontend contract uses digest-pinned Node 22 and dynamic loopback ports. Ambient browser tokens cannot enter the build or managed runtime.
+
 ## 0.3.2 — 2026-08-28
 
-The next patch aligns the published frontend host with the tested workplace package boundary. Existing `0.3.x` extensions need no compatibility change.
+This patch aligns the published frontend host with the tested workplace package boundary. Existing `0.3.x` extensions need no compatibility change.
 
 ### Contracts
 
 - No `app.extensions`, `app.public`, or `@miloctl/skein-extension-api` signature changed. Extension API stays 1.0.
-- Atlas stays at `2.0.0` with `skein-agents>=0.3.0,<0.4.0`. The next patch remains inside that range.
+- Atlas stays at `2.0.0` with `skein-agents>=0.3.0,<0.4.0`. Version `0.3.2` remains inside that range.
 
 ### Behavior
 

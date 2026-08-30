@@ -32,10 +32,12 @@ by the `skein-db` StatefulSet.
 ## The database
 
 `base/postgres.yaml` runs one PostgreSQL StatefulSet with its own PVC. The
-image tag pins a MAJOR version, and it must match the `pg_dump` the backend
-image installs (`backend/Dockerfile`, `PG_MAJOR`): `pg_dump` refuses a
-server newer than itself, and the failure lands in the nightly backup job
-rather than at boot, so the daily copy just stops being written.
+digest pins the executed bytes. The tag documents the PostgreSQL major.
+
+When the PostgreSQL major changes, update the tag and digest together. Also
+update `backend/Dockerfile` (`PG_MAJOR`), Compose, CI services, and contract
+scripts. `pg_dump` refuses a server newer than itself. This failure stops the
+nightly backup instead of stopping application boot.
 
 `skein-db-secret` carries FIVE keys, and the split is the point:
 
@@ -83,8 +85,9 @@ ALTER SCHEMA private OWNER TO <skein-app-role>;
 ## ArgoCD
 
 Point one ArgoCD `Application` at each overlay directory in your private
-deploy repo. An upgrade is a commit that bumps the image tags in the
-overlay. The sync recreates the backend pod, and the new pod applies
+deploy repo. An upgrade is a commit that bumps the image tags and immutable
+digests in the overlay. Replace every zero digest with the digest of the
+reviewed registry image. The sync recreates the backend pod, and the new pod applies
 migrations at startup as the sole writer.
 
 - **Upgrades take the service down** for the length of one pod restart.
@@ -115,18 +118,21 @@ runs). A keyless mock deployment needs no Secret: the reference is
 `scripts/publish-images.sh` pushes one backend image per version and one
 frontend image per version per environment. The frontend bakes its API
 URL at build time, so a prod image cannot serve dev. The overlay's
-`images:` block picks the registry, the version, and the environment
-suffix. Never use a moving tag: ArgoCD syncs what the tag names, and a
-moved tag deploys untracked changes.
+`images:` block records the registry, version, environment suffix, and
+digest. The digest prevents a moved tag from changing the executed bytes.
+Keep version tags immutable for registry history and the publication step
+that records this digest.
 
 ## PingFederate (oidc mode)
+
+CAUTION: Do not deploy the current browser sign-in to production. The browser stores provider tokens and personal API keys in `localStorage`. Complete the roadmap BFF session first.
 
 The backend validates the access token in-process as a JWT. Hand the IdP
 team this list. Item 1 is the one that blocks everything.
 
 1. A JSON Web Token Access Token Manager (ATM), RS256, mapped as this
    client's default. Opaque reference tokens do not work.
-2. The ATM attribute contract must carry `iss`, `aud`, `exp`, the
+2. The ATM attribute contract must carry `iss`, `sub`, `aud`, `exp`, the
    username claim (`preferred_username` preferred), and a multi-valued
    `groups` claim. `SKEIN_OIDC_USERNAME_CLAIM` and
    `SKEIN_OIDC_GROUPS_CLAIM` adapt to different names.
@@ -135,7 +141,9 @@ team this list. Item 1 is the one that blocks everything.
    `SKEIN_OIDC_AUTHORIZE_URL`, `SKEIN_OIDC_TOKEN_URL`, and
    `SKEIN_OIDC_JWKS_URL` override discovery. Ask which JWKS carries the
    access-token signing keys: an ATM can publish its own, separate from
-   the discovery document's.
+   the discovery document's. All issuer and endpoint URLs must use HTTPS.
+   Skein permits literal loopback HTTP only for local tests. Server-side
+   redirects cannot change the origin.
 4. The exact `aud` value the ATM stamps. Set it in
    `SKEIN_OIDC_AUDIENCE` verbatim.
 5. A public OAuth client: no secret, Authorization Code grant, PKCE
@@ -151,9 +159,20 @@ team this list. Item 1 is the one that blocks everything.
 9. An access-token lifetime of 2 minutes or more. The frontend refreshes
    60 seconds before expiry.
 
-First sign-in creates a roster row for any user the IdP authenticates.
-The PingFederate client assignment is therefore the access-control
-boundary: scope the client to the intended population.
+First sign-in creates a roster row only when the username is new. Skein then
+binds that row to the verified `(iss, sub)` pair. A changed username claim
+does not move private data to a different subject.
+
+Before an OIDC cutover, bind each existing roster user explicitly:
+
+```sh
+SKEIN_AUTH_MODE=oidc SKEIN_OIDC_ISSUER=https://idp.example.com \
+  python -m app.bind_oidc '<subject>=<existing-user>'
+```
+
+The command refuses a subject or user that already has a different binding.
+The PingFederate client assignment is also an access-control boundary. Scope
+the client to the intended population.
 
 ## Corporate CA and proxy
 
@@ -305,7 +324,7 @@ path separately.
 
 ## What differs per environment
 
-The overlays carry the full set: image tags, Route hosts,
+The overlays carry the full set: image tags and digests, Route hosts,
 `SKEIN_AUTH_MODE`, the `SKEIN_OIDC_*` block, `SKEIN_CORS_ORIGINS` (the
 exact frontend origin — scheme and host, no trailing slash),
 `SKEIN_ADMINS`, `SKEIN_TZ`, the model provider, and the CA mount. Dev
@@ -335,13 +354,13 @@ both-set fault for the three model settings.
 
 ## Observability
 
-`/health` is the probe target: open, and only `ok`, `auth_mode` and
-`auth_error` — the one fault readable without a credential, because a
-broken auth config refuses every authenticated request. `/api/health` is
-the diagnosis surface, behind identity: provider, timezone and overlay
-errors, per-job last-success with stale flags, database warnings, and
-the activity-chain state. Both return 200 whenever the process and the
-database are up, even when degraded to mock — alert on the error fields,
-not on the status code. Logs go to stdout as plain lines. There is no
+`/health` is the open startup and liveness target. `/ready` is the open
+readiness target and returns 503 when authentication configuration is invalid. Both carry
+only `ok`, `auth_mode`, and `auth_error`. `/api/health` is the diagnosis
+surface behind identity. It carries provider, timezone and overlay errors,
+per-job last-success with stale flags, database warnings, and activity-chain
+state. `/health` and `/api/health` return 200 when the process and database are
+up, including mock degradation. Alert on their error fields. Logs go to stdout
+as plain lines. There is no
 Prometheus endpoint: if the platform team requires metrics or JSON logs,
 that is new work — ask for their standard first.

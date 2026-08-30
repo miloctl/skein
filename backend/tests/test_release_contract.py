@@ -6,6 +6,7 @@ import re
 import tomllib
 from pathlib import Path
 
+import yaml
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
@@ -279,12 +280,41 @@ def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
     )
     assert "ghcr.io" not in github
     assert "reviewed release pull request" in releasing
+    assert "python3.12 scripts/prepare-release.py X.Y.Z" in releasing
+    assert "printf '" not in releasing
     assert "pypi` and `npm` environments" in releasing
     assert "`finalize-release` workflow" in releasing
     assert "`release-finalization` environment" in releasing
     assert "original release run ID" in releasing
     assert "original artifact" in releasing
     assert "./scripts/audit-deps.sh workplace" in (ROOT / ".gitea/workflows/weekly.yml").read_text()
+
+
+def test_ci_admin_database_url_is_scoped_to_database_contract_steps():
+    workflows = {
+        ".github/workflows/ci.yml": {"Backend package contract", "Frontend package contract"},
+        ".gitea/workflows/ci.yml": {"Backend package contract", "Frontend package contract"},
+    }
+    for relative, expected in workflows.items():
+        jobs = yaml.safe_load((ROOT / relative).read_text())["jobs"]
+        extension = jobs["extension-contracts"]
+        assert "SKEIN_DATABASE_URL" not in extension.get("env", {})
+        actual = {
+            step.get("name")
+            for step in extension["steps"]
+            if "SKEIN_DATABASE_URL" in step.get("env", {})
+        }
+        assert actual == expected
+
+    e2e = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]["e2e"]
+    assert "SKEIN_DATABASE_URL" not in e2e.get("env", {})
+    assert {
+        step.get("name") for step in e2e["steps"] if "SKEIN_DATABASE_URL" in step.get("env", {})
+    } == set()
+    for relative in ("frontend/playwright.config.ts", "frontend/playwright.oidc.config.ts"):
+        text = (ROOT / relative).read_text()
+        assert "env: BACKEND_ENV" in text
+        assert "env: CLEAN_ENV" in text
 
 
 def test_release_finalization_verifies_registry_bytes_before_tagging():

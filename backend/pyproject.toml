@@ -155,6 +155,8 @@ ignore_names = [
     # reset — the same place receipts.reset() is called from, which escapes
     # this list only because the bare name `reset` is used inside app/ too
     "reset_consults",
+    # PyJWT calls the safe redirect and cache override through its base class
+    "fetch_data",
     # the strands SDK calls register_hooks on every session manager it is
     # handed (Agent.__init__); the kwargs are its signature, not ours
     "register_hooks",

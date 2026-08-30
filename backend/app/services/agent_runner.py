@@ -396,7 +396,7 @@ def run_one(
             # nothing was spent, and a 30-second blip at 05:30 must not cost
             # the whole day on a job that runs once and does not catch up
             _release(agent, explicit_key=explicit_key)
-            log.warning("agent build failed for %s: %s", agent, exc)
+            log.warning("agent build failed for %s (%s)", agent, type(exc).__name__)
             return _failed(agent, f"could not build: {type(exc).__name__}")
         if built is None:
             _release(agent, explicit_key=explicit_key)
@@ -493,7 +493,7 @@ def run_one(
         # Logged and reported, never raised: run() below is a scheduled job,
         # and a raise there marks the whole sweep failed on /health when the
         # other agents ran fine.
-        log.warning("agent run failed for %s: %s", agent, exc)
+        log.warning("agent run failed for %s (%s)", agent, type(exc).__name__)
         if invoked:
             return _unknown(agent, f"run failed: {type(exc).__name__}")
         return _failed(agent, f"run failed: {type(exc).__name__}")

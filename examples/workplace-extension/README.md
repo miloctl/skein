@@ -56,15 +56,19 @@ The frontend root pins these exact dependencies:
 - `react@19.2.4`
 - `react-dom@19.2.4`
 
-The core wheel comes from PyPI. The two private npm packages come from GitHub Packages under the `@miloctl` scope.
+Released deployments get the core wheel from PyPI. The two private npm packages come from GitHub Packages under the `@miloctl` scope.
 
-The executable contract packs the current source into local tarballs before `npm ci`. This proves the same package boundary without publishing during tests.
+The executable contract builds the current Skein source in temporary staging and packs local npm tarballs before `npm ci`. These artifacts can differ from registry packages with the same version. Do not publish or distribute them. Release a new Skein version before production.
 
 The root also overrides `postcss` to `8.5.23` and `sharp` to `0.35.3`. Installed package overrides do not affect the root installation.
 
 Atlas uses Node 22. The Atlas frontend remains a local npm workspace. The workplace root compiles it before it runs `skein-frontend-build`.
 
 Atlas stores its data in PostgreSQL schema `ext_atlas_extension`. It has no database file or private data volume.
+
+Atlas limits each remote item response to 256 KiB and 500 items. It rejects malformed data, redirects, control characters, and unsupported status values. The sync REST route returns 503 with `Retry-After: 60` for temporary failures. It returns 502 for unusable responses. Status writes use ordered database leases. A remote call holds no database transaction.
+
+The queue can retry a temporary delivery failure after 60 seconds. Permanent delivery failures enter the dead-letter state and do not block other items. The dashboard shows an unavailable state when metrics fail. The **Try again** control loads the metrics without a page reload.
 
 ## Test group-gated identity
 
@@ -222,16 +226,47 @@ kubectl kustomize examples/workplace-extension
 
 Apply it only after you configure the database, image names, Secrets, Routes, and storage class.
 
-## Run clean-consumer acceptance
+## Run the local unpublished contract
 
-Run these checks from the consumer repository, outside the Skein source tree:
+Set `SKEIN_DATABASE_URL` to a PostgreSQL administrator database. The contract creates and deletes its own role and databases.
 
-- Import `app` from the installed wheel under `site-packages`, not from `PYTHONPATH` or an editable Skein checkout.
-- Install tests from `requirements-test.lock`, then install both first-party wheels with `--no-deps`.
-- Copy `dist/frontend` to a temporary directory outside the repository and start `node server.js` there.
-- Use signed OIDC users to test denied, manager, and integration group paths.
-- Run `kubectl kustomize .` from the consumer root without a path into a Skein checkout.
-- Confirm that the repository contains no Skein source directory or Skein Git history.
-- After a rename, confirm that the prior starter identity is absent from tracked paths, source text, compiled frontend extension text, and rendered deployment output.
+If the Skein checkout is available, build its current source once:
 
-Do not put real workplace names, URLs, or credentials in this example.
+```sh
+SKEIN_DATABASE_URL=postgresql://skein:skein@127.0.0.1:5432/skein \
+SKEIN_SOURCE=/path/to/skein \
+SKEIN_CONTRACT_RUN_ID=local \
+  scripts/local-contract.sh
+```
+
+If a separate process built the Skein artifacts, run without a Skein checkout:
+
+```sh
+SKEIN_DATABASE_URL=postgresql://skein:skein@127.0.0.1:5432/skein \
+SKEIN_LOCAL_DIST=/path/to/exact-skein-artifacts \
+SKEIN_CONTRACT_RUN_ID=local \
+  scripts/local-contract.sh
+```
+
+`SKEIN_LOCAL_DIST` must contain the exact Skein wheel, extension API tarball, and frontend host tarball. It must also contain `SHA256SUMS` with exactly those three files. Create this manifest once in the shared, read-only artifact directory:
+
+```sh
+sha256sum skein_agents-*.whl miloctl-skein-extension-api-*.tgz \
+  miloctl-skein-frontend-host-*.tgz >SHA256SUMS
+```
+
+Point every consumer contract at this same directory. The contract builds the Atlas wheel from this repository.
+
+The contract does these operations:
+
+- It reuses one exact artifact set for package tests and both final images.
+- It creates a run-specific non-superuser role that owns only the contract databases.
+- It installs the hash-locked Python closure and runs strict mypy and 50 backend tests.
+- It renders the OpenShift deployment and checks the health and readiness probes.
+- It runs both images with an arbitrary UID, a read-only root, and no Linux capabilities.
+- It checks invalid and valid OIDC readiness with a signed RS256 test provider.
+- It uses a real browser for denied, integration, manager, metrics-retry, and core-write paths.
+- It fails on unexpected browser console, page, request, or HTTP response errors.
+- It deletes the temporary role, databases, containers, images, Node runtime, and staging files.
+
+Install the Playwright Chromium browser before you run the contract. Do not put real workplace names, URLs, or credentials in this example.

@@ -33,7 +33,7 @@ configMapGenerator:
 
 # Overlays MUST set both images to the site registry and a version tag.
 # The frontend bakes NEXT_PUBLIC_API_URL at build time, so its tag names an
-# environment (0.2.2-prod), never a bare version — one frontend image cannot
+# environment (0.3.2-prod), never a bare version — one frontend image cannot
 # serve two environments.
 images:
   - name: skein

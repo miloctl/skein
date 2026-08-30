@@ -38,7 +38,7 @@ npm pack @miloctl/skein-frontend-host@0.3.2 --pack-destination dist
 
 A local or non-GitHub consumer needs a classic GitHub PAT with `read:packages`.
 
-The Dockerfiles require the exact `0.3.2`, `1.0.0`, and `2.0.0` artifact names. A clean `dist` directory prevents an old artifact from entering the build.
+The Dockerfiles require the exact `0.3.2`, `1.0.0`, and `2.0.0` artifact names. A clean `dist` directory prevents an old artifact from entering the build. The Dockerfiles pin each base image by digest. Before deployment, replace each zero application-image digest with the digest from the reviewed registry image.
 
 Regenerate `package-lock.json` with Node 22 after an npm artifact changes bytes. Regenerate each Python lock after its dependency graph changes.
 
@@ -126,6 +126,24 @@ The `skein-db-secret` Secret supplies these values:
 
 The `skein-config` ConfigMap supplies `SKEIN_DB_HOST` and `SKEIN_DB_PORT`.
 
+## Configure identity
+
+Atlas policy needs signed OIDC groups. Add these values to the existing `skein-config` ConfigMap:
+
+- `SKEIN_AUTH_MODE=oidc`
+- `SKEIN_OIDC_ISSUER=https://<identity-provider>`
+- `SKEIN_OIDC_AUDIENCE=<registered-audience>`
+- `SKEIN_OIDC_CLIENT_ID=<public-client-id>`
+- `SKEIN_OIDC_ADMIN_GROUP=<admin-group>`
+- `SKEIN_CORS_ORIGINS=https://<frontend-route>`
+- `SKEIN_TRUST_PROXY_HOPS=1` when one OpenShift router is in front of Skein.
+
+Use HTTPS for the production issuer and its endpoints. The ConfigMap must not contain credentials.
+
+The example directory resolver in `backend/src/atlas_skein/policy.py` returns no record and fails closed. Before production approval revalidation, replace it with an authoritative server-side directory adapter. The adapter must return no record during an outage.
+
+Build the frontend image with the external API and frontend Routes. Do not use loopback URLs for a deployed browser.
+
 ## Configure Atlas
 
 Create `atlas-skein-secrets` through the deployment secret manager. Use `secrets.env.example` only as a list of names.
@@ -150,7 +168,7 @@ kubectl kustomize .
 
 The manifest uses OpenShift `restricted-v2` controls. It has no fixed `runAsUser` or `fsGroup`.
 
-The backend uses `Recreate` and one replica. It mounts `/data` and a temporary `/tmp` directory.
+The backend uses `Recreate` and one replica. It mounts `/data` and a temporary `/tmp` directory. Startup and liveness use `/health`. Readiness uses `/ready`, so invalid authentication configuration keeps the pod out of service without a restart loop.
 
 The frontend is stateless. It mounts only a temporary `/tmp` directory.
 

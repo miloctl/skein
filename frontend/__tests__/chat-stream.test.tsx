@@ -1,19 +1,15 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-/** The chat adapter is the one write surface that does NOT go through
- *  api(), so every behavior api() gives the rest of the app has to be
- *  rebuilt here — and has drifted twice already (the bearer() ladder, the
- *  401 session handling; both are recorded in app/runtime-provider.tsx).
- *  These pin the rebuilt copies and the SSE reader.
+/** Chat needs the raw streaming response, so it calls authenticatedFetch()
+ *  instead of api(). The shared request path owns identity and 401 handling.
+ *  These tests pin the SSE reader and chat-specific error behavior.
  *
  *  The adapter is module-private, so the test captures it where the runtime
  *  library receives it. Everything below the capture is the real code. */
 
 const mocks = vi.hoisted(() => ({
-  bearer: vi.fn(),
-  accessTokenSync: vi.fn(),
-  sessionRejected: vi.fn(),
+  authenticatedFetch: vi.fn(),
   reportStatus: vi.fn(),
   chatThreads: vi.fn(),
   api: vi.fn(),
@@ -42,15 +38,9 @@ vi.mock("@assistant-ui/react", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
-  API_URL: "http://backend.test",
   api: mocks.api,
-  bearer: mocks.bearer,
-  userHeader: () => ({ "X-User": "tester" }),
+  authenticatedFetch: mocks.authenticatedFetch,
   actionError: (e: unknown) => (e as Error).message,
-}));
-vi.mock("@/lib/auth", () => ({
-  accessTokenSync: mocks.accessTokenSync,
-  sessionRejected: mocks.sessionRejected,
 }));
 vi.mock("@/lib/status", () => ({ reportStatus: mocks.reportStatus }));
 vi.mock("@/lib/chat-threads", () => ({ chatThreads: mocks.chatThreads }));
@@ -96,8 +86,9 @@ async function mountAndCapture() {
 }
 
 beforeEach(() => {
-  mocks.bearer.mockResolvedValue("tok");
-  mocks.accessTokenSync.mockReturnValue("tok");
+  mocks.authenticatedFetch.mockImplementation((path: string, init?: RequestInit) =>
+    fetch(`http://backend.test${path}`, init),
+  );
   mocks.chatThreads.mockResolvedValue([]);
   mocks.thread.getState.mockReturnValue({ messages: [] });
   mocks.captured = null;
@@ -180,51 +171,7 @@ describe("the chat SSE reader", () => {
   });
 });
 
-describe("the chat request carries the shared credential", () => {
-  it("sends the bearer() ladder's token, not a rebuilt one", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(ok([]));
-    vi.stubGlobal("fetch", fetchMock);
-    mocks.bearer.mockResolvedValue("ladder-token");
-    await mountAndCapture();
-    await drain();
-    const headers = fetchMock.mock.calls[0][1].headers;
-    expect(headers.Authorization).toBe("Bearer ladder-token");
-    expect(headers["X-User"]).toBe("tester");
-  });
-
-  it("ends the session when the backend rejects that exact token", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-        statusText: "Unauthorized",
-        json: async () => ({ detail: "token expired" }),
-      }),
-    );
-    await mountAndCapture();
-    await expect(drain()).rejects.toThrow("token expired");
-    expect(mocks.sessionRejected).toHaveBeenCalledWith("tok");
-  });
-
-  it("leaves the session alone when the 401 is not about the signed-in token", async () => {
-    // an api-key 401 must not sign an OIDC user out
-    mocks.bearer.mockResolvedValue("some-api-key");
-    mocks.accessTokenSync.mockReturnValue("a-different-oidc-token");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-        statusText: "Unauthorized",
-        json: async () => ({ detail: "bad key" }),
-      }),
-    );
-    await mountAndCapture();
-    await expect(drain()).rejects.toThrow("bad key");
-    expect(mocks.sessionRejected).not.toHaveBeenCalled();
-  });
-
+describe("chat request errors", () => {
   it("surfaces the body's message, which carries the usable instruction", async () => {
     // the rate-limit reply names the wait; the status line alone does not
     vi.stubGlobal(

@@ -12,6 +12,17 @@ import { defineConfig } from "@playwright/test";
 const API = "http://127.0.0.1:8600";
 const APP = "http://127.0.0.1:3600";
 
+// Only the backend receives the database administrator URL. Build tools and
+// browser processes must not inherit a credential that can create databases.
+const CLEAN_ENV: Record<string, string> = {};
+for (const [key, value] of Object.entries(process.env))
+  if (value !== undefined && key !== "SKEIN_DATABASE_URL") CLEAN_ENV[key] = value;
+const BACKEND_ENV = {
+  ...CLEAN_ENV,
+  SKEIN_DATABASE_URL:
+    process.env.SKEIN_DATABASE_URL ?? "postgresql://skein:skein@127.0.0.1:5432/skein",
+};
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false, // one shared backend; parallel writes would interleave seeds
@@ -37,6 +48,7 @@ export default defineConfig({
         // deterministic stack must not depend on a live model endpoint
         `SKEIN_EMBEDDINGS=0 ` +
         `SKEIN_CORS_ORIGINS=${APP} .venv/bin/python ../scripts/e2e-backend.py'`,
+      env: BACKEND_ENV,
       url: `${API}/health`,
       // PW_REUSE: on a host that drops connects to unbound ports (the
       // IPv4 note above), playwright's port preflight hangs too. Pre-start
@@ -57,8 +69,9 @@ export default defineConfig({
       // they will keep testing the previous build, and a fix that landed
       // reads as still broken. Drop PW_REUSE to rebuild.
       command:
-        `bash -c 'NEXT_DIST_DIR=.next-e2e NEXT_PUBLIC_API_URL=${API} npx next build && ` +
-        `NEXT_DIST_DIR=.next-e2e npx next start --port 3600'`,
+        `bash -c 'NEXT_DIST_DIR=.next-e2e NEXT_PUBLIC_API_URL=${API} NEXT_PUBLIC_API_TOKEN= npx next build && ` +
+        `exec env NEXT_DIST_DIR=.next-e2e NEXT_PUBLIC_API_TOKEN= node node_modules/next/dist/bin/next start --port 3600'`,
+      env: CLEAN_ENV,
       url: APP,
       reuseExistingServer: !!process.env.PW_REUSE,
       timeout: 180_000,

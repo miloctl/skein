@@ -419,10 +419,10 @@ export function Nav() {
                   {mode === "oidc" && (
                     <button
                       role="menuitem"
-                      onClick={() => {
+                      onClick={async () => {
                         setMenuOpen(false);
                         if (signedIn) {
-                          signOut();
+                          await signOut();
                           // A full navigation, and no setUser("anonymous").
                           // signOut clears the GET cache, but nothing
                           // re-fetches a card that already rendered — signing

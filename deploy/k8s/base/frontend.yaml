@@ -16,6 +16,9 @@ spec:
       labels:
         app: skein-frontend
     spec:
+      # No container calls the Kubernetes API. A projected token gives a
+      # compromised container unnecessary namespace credentials.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         seccompProfile:

@@ -13,12 +13,16 @@ resources:
 images:
   - name: skein
     newName: registry.example.com/skein/skein
-    newTag: 0.2.2
+    newTag: 0.3.2
+    # Replace this fail-closed placeholder with the digest from the reviewed image.
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
   # The frontend tag names the environment: its NEXT_PUBLIC_API_URL is
   # baked at build time (scripts/publish-images.sh builds one per env).
   - name: skein-frontend
     newName: registry.example.com/skein/skein-frontend
-    newTag: 0.2.2-prod
+    newTag: 0.3.2-prod
+    # The frontend build is environment-specific, so it gets its own digest.
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
 
 configMapGenerator:
   - name: skein-config

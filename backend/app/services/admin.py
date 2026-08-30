@@ -52,9 +52,10 @@ EXCLUDED = frozenset(
         "extension_event_attempts",
         "extension_command_receipts",
         "extension_review_invocations",
-        # secret hashes must not travel in portable exports — recreate keys
-        # after a restore
+        # secret hashes and IdP subject bindings must not travel in portable
+        # exports. Recreate keys, and preserve bindings only in full backups.
         "api_keys",
+        "oidc_identities",
         # proposal payloads can contain private target bodies and extension
         # previews. The portable export cannot reconstruct their governing tier.
         "pending_changes",

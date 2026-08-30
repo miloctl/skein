@@ -6,6 +6,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useSyncExternalStore,
 } from "react";
 
 import { api } from "@/lib/api";
@@ -18,6 +19,31 @@ type CapabilityResponse = { actions: Record<string, Decision> };
 
 const EMPTY = registerFrontendExtensions([]);
 const ExtensionContext = createContext<FrontendExtensionRegistry>(EMPTY);
+let identityEventRevision = 0;
+const identitySnapshot = () => {
+  if (typeof window === "undefined") return "0:[]";
+  try {
+    return `${identityEventRevision}:${JSON.stringify(
+      ["skein-oidc", "skein-user", "skein-key"].map((key) =>
+        window.localStorage.getItem(key),
+      ),
+    )}`;
+  } catch {
+    return `${identityEventRevision}:[]`;
+  }
+};
+const subscribeIdentity = (listener: () => void) => {
+  const changed = () => {
+    identityEventRevision += 1;
+    listener();
+  };
+  window.addEventListener("storage", changed);
+  window.addEventListener("skein-identity-change", changed);
+  return () => {
+    window.removeEventListener("storage", changed);
+    window.removeEventListener("skein-identity-change", changed);
+  };
+};
 
 export function ExtensionProvider({
   children,
@@ -30,19 +56,19 @@ export function ExtensionProvider({
     () => registerFrontendExtensions(extensions),
     [extensions],
   );
-  const [decisions, setDecisions] = useState<Record<string, Decision> | null>(
-    registry.policyActions.length ? null : {},
+  const currentIdentityRevision = useSyncExternalStore(
+    subscribeIdentity,
+    identitySnapshot,
+    () => "0:[]",
   );
-  const [identityRevision, setIdentityRevision] = useState(0);
-
-  useEffect(() => {
-    const refresh = () => {
-      setDecisions(null);
-      setIdentityRevision((current) => current + 1);
-    };
-    window.addEventListener("storage", refresh);
-    return () => window.removeEventListener("storage", refresh);
-  }, []);
+  const [decisionState, setDecisionState] = useState<{
+    revision: string;
+    actions: Record<string, Decision>;
+  } | null>(
+    registry.policyActions.length
+      ? null
+      : { revision: currentIdentityRevision, actions: {} },
+  );
 
   useEffect(() => {
     if (!registry.policyActions.length) return;
@@ -50,16 +76,28 @@ export function ExtensionProvider({
     const query = encodeURIComponent(registry.policyActions.join(","));
     api<CapabilityResponse>(`/api/capabilities?actions=${query}`)
       .then((value) => {
-        if (live) setDecisions(value.actions);
+        if (live)
+          setDecisionState({
+            revision: currentIdentityRevision,
+            actions: value.actions,
+          });
       })
       .catch(() => {
-        if (live) setDecisions({});
+        if (live)
+          setDecisionState({
+            revision: currentIdentityRevision,
+            actions: {},
+          });
       });
     return () => {
       live = false;
     };
-  }, [identityRevision, registry]);
+  }, [currentIdentityRevision, registry]);
 
+  const decisions =
+    decisionState?.revision === currentIdentityRevision
+      ? decisionState.actions
+      : null;
   const visible = useMemo(() => {
     const permitted = (action?: string) =>
       !action || decisions?.[action]?.effect === "permit";

@@ -238,6 +238,13 @@ D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped, without the proposed
   re-adding a pull_request trigger; consider rootless docker for the runner.
   Ops work on the runner host, not a repo change. (The proxy-aware client
   addresses item that lived beside this one shipped: `SKEIN_TRUST_PROXY_HOPS`.)
+- **OIDC BFF session before production** — replace browser `localStorage`
+  access and refresh tokens with a server-held session and an `HttpOnly`,
+  `Secure`, `SameSite` cookie. Add CSRF protection to cookie-authenticated
+  writes. Keep personal API keys as the automation path. Remove personal-key
+  persistence and fallback from the OIDC browser. If browser key sign-in stays,
+  exchange the key once for the same server-held session. Browser JavaScript
+  must receive identity metadata, never provider tokens or personal keys.
 
 ## Delight (2026-07-25)
 
