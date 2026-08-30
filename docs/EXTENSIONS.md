@@ -568,6 +568,12 @@ This tool behavior requires core `0.2.1` or later. Set `minimum_core` to
 `0.2.0` floor receives the older generic tool error on that core. Workflow
 actions already support public declared errors on core `0.2.0`.
 
+In the current source, a retryable `PublicError` with status 503 adds
+`Retry-After: 60`. The scheduled job wrapper records the machine code and
+retryable value. It does not log the detail or the chained adapter error. PyPI
+0.3.2 does not include this behavior. If a package depends on it, wait for the
+next Skein release. Then set `minimum_core` to that released version.
+
 Unknown effects fail closed. A review decision creates a durable proposal.
 Skein stores the executable arguments outside the review queue. A qualified
 human can approve the proposal and run the exact saved call. Before each
@@ -711,6 +717,14 @@ Subscribers select event types, schema versions, and visibility tiers. The
 dispatcher retries failures. It records one delivery receipt for each event
 and subscriber. A subscriber must also use the event ID as the idempotency key
 for its external side effect.
+
+If synchronization and event subscribers update the same remote entity, put
+both updates in one extension-owned outbox. Claim one row. Commit the claim
+before the remote call. After success, mark the row only when the lease token
+still matches. Keep later rows for one entity blocked until the earlier row
+settles.
+Use retry delays for temporary errors and dead-letter rows for permanent errors.
+Apply count and wall-clock limits to each drain.
 
 Each subscriber declares a service identity, policy action, effect, risk, and
 timeout. Skein checks policy before it calls the handler. A write timeout is
@@ -1021,7 +1035,9 @@ The protected GitHub `main` workflow publishes these packages when `.github/rele
 - `@miloctl/skein-extension-api` to private GitHub Packages.
 - `@miloctl/skein-frontend-host` to private GitHub Packages.
 
-This revision prepares package line `0.3.2`. Registry pull-back and tag `v0.3.2` are the authority for completed publication.
+This revision declares package line `0.3.2`. Registry pull-back and annotated tag `v0.3.2` are the authority for completed publication.
+
+The command that follows installs the contract for this revision. Run it only when the registry package and matching tag exist. It does not install later working-tree changes.
 
 Install `skein-agents` from PyPI or a controlled mirror:
 
@@ -1195,7 +1211,9 @@ The script builds and installs separate wheels in a normal virtual environment.
 It starts Skein 0.2.3 with Atlas 1.x and writes upgrade data.
 
 It removes both old distributions. Then it installs `skein-agents` 0.3.2 and
-Atlas 2.0 against the same database.
+Atlas 2.0 against the same database. This current-source wheel is a local test
+artifact and can differ from the registry wheel with the same version. Do not
+publish or distribute it.
 
 The script runs a real Atlas synchronization on both package generations. It
 uses strict mypy against the installed current public contracts.

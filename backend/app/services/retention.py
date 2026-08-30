@@ -40,6 +40,7 @@ KEPT = {
     "tool_usage": "one row per day/user/surface; the adoption trend is the read",
     "schema_version": "migration receipts the boot depends on",
     "users": "the roster: deactivation, never deletion, keeps provenance resolvable",
+    "oidc_identities": "stable sign-in bindings; removal would let a subject claim a new user",
     "api_keys": "credential audit rows: revocation deactivates in place",
     "app_settings": "admin-set values: the settings form owns their lifecycle",
     "agent_authority": "the authority matrix the tool gate reads",

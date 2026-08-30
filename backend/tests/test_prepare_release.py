@@ -27,6 +27,9 @@ RELEASE_FILES = (
     "cli/pyproject.toml",
     "docs/EXTENSIONS.md",
     "docs/SETUP.md",
+    "deploy/k8s/base/kustomization.yaml",
+    "deploy/k8s/overlays/example-dev/kustomization.yaml",
+    "deploy/k8s/overlays/example-prod/kustomization.yaml",
     "examples/workplace-extension/README.md",
     "examples/workplace-extension/deployment/Dockerfile",
     "examples/workplace-extension/deployment/Frontend.Dockerfile",
@@ -45,6 +48,8 @@ RELEASE_FILES = (
     "scripts/reference-deployment-contract.sh",
     "scripts/reference-frontend-contract.sh",
     "scripts/reference-images-contract.sh",
+    "scripts/publish-images.sh",
+    "examples/workplace-extension/scripts/local-contract.sh",
 )
 
 
@@ -69,15 +74,26 @@ def release_tree(tmp_path):
     target = f"{major}.{minor}.{patch + 1}"
     changelog = tmp_path / "CHANGELOG.md"
     text = changelog.read_text()
-    empty = "## Unreleased\n\n### Contracts\n\n### Behavior\n\n### Operations\n\n"
     filled = (
         "## Unreleased\n\n"
         "### Contracts\n\n- No contract change.\n\n"
         "### Behavior\n\n- One behavior fix.\n\n"
         "### Operations\n\n- One operations fix.\n\n"
     )
-    assert text.count(empty) == 1
-    changelog.write_text(text.replace(empty, filled))
+    start = text.index("## Unreleased\n")
+    end = text.index("\n## ", start + 1)
+    current = text[start:end]
+    for heading in ("### Contracts", "### Behavior", "### Operations"):
+        assert current.count(heading) == 1
+    changelog.write_text(text[:start] + filled + text[end + 1 :])
+    lock_path = tmp_path / "examples/workplace-extension/package-lock.json"
+    lock = json.loads(lock_path.read_text())
+    api_filename = "miloctl-skein-extension-api-1.0.0.tgz"
+    api_digest = base64.b64encode(hashlib.sha512(api_filename.encode()).digest()).decode()
+    lock["packages"]["node_modules/@miloctl/skein-extension-api"]["integrity"] = (
+        f"sha512-{api_digest}"
+    )
+    lock_path.write_text(f"{json.dumps(lock, indent=2)}\n")
     return ReleaseFixture(tmp_path, old, target)
 
 
@@ -89,11 +105,20 @@ class FakeRun:
         *,
         fail_build: bool = False,
         fail_test: bool = False,
+        changed_api: bool = False,
+        changed_api_source: bool = False,
+        untracked_api_source: bool = False,
+        trusted_tag: str = "annotated",
     ):
         self.root = root
         self.version = version
+        self.old = (root / ".github/release-version").read_text().strip()
         self.fail_build = fail_build
         self.fail_test = fail_test
+        self.changed_api = changed_api
+        self.changed_api_source = changed_api_source
+        self.untracked_api_source = untracked_api_source
+        self.trusted_tag = trusted_tag
         self.calls: list[tuple[list[str], str]] = []
 
     def __call__(self, args, *, cwd, **_kwargs):
@@ -102,6 +127,21 @@ class FakeRun:
         self.calls.append((args, marker))
         if args == ["node", "--version"]:
             return subprocess.CompletedProcess(args, 0, stdout="v22.23.2\n", stderr="")
+        if args[:3] == ["git", "ls-remote", "--exit-code"]:
+            if self.trusted_tag == "unavailable":
+                raise subprocess.CalledProcessError(2, args)
+            tag = f"refs/tags/v{self.old}"
+            lines = [f"{'a' * 40}\t{tag}"]
+            if self.trusted_tag != "lightweight":
+                lines.append(f"{'b' * 40}\t{tag}^{{}}")
+            return subprocess.CompletedProcess(args, 0, stdout="\n".join(lines) + "\n", stderr="")
+        if args[:3] == ["git", "cat-file", "-e"] and self.trusted_tag == "missing-object":
+            raise subprocess.CalledProcessError(1, args)
+        if args[:3] == ["git", "diff", "--quiet"] and self.changed_api_source:
+            raise subprocess.CalledProcessError(1, args)
+        if args[:2] == ["git", "ls-files"]:
+            stdout = "README.md\n" if self.untracked_api_source else ""
+            return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
         if args[:2] == ["npm", "version"]:
             for name in ("package.json", "package-lock.json"):
                 path = Path(cwd) / name
@@ -127,23 +167,34 @@ class FakeRun:
                 if args[-1].endswith("extension-api")
                 else f"miloctl-skein-frontend-host-{self.version}.tgz"
             )
-            (dist / filename).write_bytes(filename.encode())
+            content = filename.encode()
+            if self.changed_api and args[-1].endswith("extension-api"):
+                content += b"changed"
+            (dist / filename).write_bytes(content)
         elif args[:2] == ["npm", "update"]:
             workplace = self.root / "examples/workplace-extension"
             path = workplace / "package-lock.json"
             lock = json.loads(path.read_text())
-            filename = f"miloctl-skein-frontend-host-{self.version}.tgz"
-            archive = workplace / "dist" / filename
-            integrity = base64.b64encode(hashlib.sha512(archive.read_bytes()).digest()).decode()
-            lock["packages"][""]["dependencies"]["@miloctl/skein-frontend-host"] = (
-                f"file:dist/{filename}"
-            )
-            entry = lock["packages"]["node_modules/@miloctl/skein-frontend-host"]
-            entry.update(
-                version=self.version,
-                resolved=f"file:dist/{filename}",
-                integrity=f"sha512-{integrity}",
-            )
+            for package, package_version, filename in (
+                (
+                    "@miloctl/skein-extension-api",
+                    "1.0.0",
+                    "miloctl-skein-extension-api-1.0.0.tgz",
+                ),
+                (
+                    "@miloctl/skein-frontend-host",
+                    self.version,
+                    f"miloctl-skein-frontend-host-{self.version}.tgz",
+                ),
+            ):
+                archive = workplace / "dist" / filename
+                integrity = base64.b64encode(hashlib.sha512(archive.read_bytes()).digest()).decode()
+                lock["packages"][""]["dependencies"][package] = f"file:dist/{filename}"
+                lock["packages"][f"node_modules/{package}"].update(
+                    version=package_version,
+                    resolved=f"file:dist/{filename}",
+                    integrity=f"sha512-{integrity}",
+                )
             path.write_text(f"{json.dumps(lock, indent=2)}\n")
         elif len(args) > 2 and args[1:3] == ["-m", "pytest"] and self.fail_test:
             raise subprocess.CalledProcessError(1, args)
@@ -218,6 +269,50 @@ def test_changelog_promotion_resumes_across_a_date_boundary(tmp_path):
     assert path.read_text() == first
 
 
+def test_changelog_resume_refuses_new_unreleased_items(tmp_path):
+    (tmp_path / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## Unreleased\n\n"
+        "### Contracts\n\n- A late contract change.\n\n"
+        "### Behavior\n\n"
+        "### Operations\n\n"
+        "## 0.3.2 — 2026-08-28\n\nPrepared notes.\n"
+    )
+    with pytest.raises(prepare_release.ReleaseError, match="canonical resumed"):
+        prepare_release.promote_changelog(tmp_path, "0.3.2", date(2026, 8, 29))
+
+
+def test_changelog_resume_requires_target_as_the_first_release(tmp_path):
+    (tmp_path / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## Unreleased\n\n"
+        "### Contracts\n\n"
+        "### Behavior\n\n"
+        "### Operations\n\n"
+        "## 0.3.3 — 2026-08-29\n\nOther release.\n\n"
+        "## 0.3.2 — 2026-08-28\n\nStale target.\n"
+    )
+    with pytest.raises(prepare_release.ReleaseError, match="canonical resumed"):
+        prepare_release.promote_changelog(tmp_path, "0.3.2", date(2026, 8, 29))
+
+
+def test_changelog_resume_requires_populated_target_sections(tmp_path):
+    (tmp_path / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## Unreleased\n\n"
+        "### Contracts\n\n"
+        "### Behavior\n\n"
+        "### Operations\n\n"
+        "## 0.3.2 — 2026-08-28\n\n"
+        "### Contracts\n\n"
+        "### Behavior\n\n"
+        "### Operations\n\n"
+        "## 0.3.0 — 2026-08-27\n\nOld notes.\n"
+    )
+    with pytest.raises(prepare_release.ReleaseError, match="canonical resumed"):
+        prepare_release.promote_changelog(tmp_path, "0.3.2", date(2026, 8, 29))
+
+
 def test_unreleased_notes_require_all_sections(tmp_path):
     (tmp_path / "CHANGELOG.md").write_text(
         "# Changelog\n\n## Unreleased\n\n### Contracts\n\n- No change.\n"
@@ -247,6 +342,91 @@ def test_prepare_builds_artifacts_before_locks_and_writes_marker_last(release_tr
     assert (root / ".github/release-version").read_text() == f"{target}\n"
     assert f"## {target} — 2026-08-28" in (root / "CHANGELOG.md").read_text()
     assert ">=0.3.0,<0.4.0" in (root / "examples/workplace-extension/pyproject.toml").read_text()
+    assert (
+        f"newTag: {target}"
+        in (root / "deploy/k8s/overlays/example-prod/kustomization.yaml").read_text()
+    )
+    assert (
+        f"newTag: {target}-dev"
+        in (root / "deploy/k8s/overlays/example-dev/kustomization.yaml").read_text()
+    )
+    assert f"publish-images.sh {target}" in (root / "scripts/publish-images.sh").read_text()
+    extension_guide = (root / "docs/EXTENSIONS.md").read_text()
+    assert "In the current source" not in extension_guide
+    assert "Read the Contracts section" in extension_guide
+
+
+@pytest.mark.parametrize(
+    ("trusted_tag", "message"),
+    (
+        ("unavailable", "tag is unavailable"),
+        ("lightweight", "must be one annotated tag"),
+        ("missing-object", "is not in this clone"),
+    ),
+)
+def test_prior_release_requires_the_trusted_annotated_tag(release_tree, trusted_tag, message):
+    root, old, target = release_tree
+    runner = FakeRun(root, target, trusted_tag=trusted_tag)
+
+    with pytest.raises(prepare_release.ReleaseError, match=message):
+        prepare_release.prepare(root, target, runner=runner, today=date(2026, 8, 28))
+
+    assert (root / ".github/release-version").read_text() == f"{old}\n"
+    assert f"## {target}" not in (root / "CHANGELOG.md").read_text()
+
+
+def test_changed_extension_api_source_refuses_before_release_writes(release_tree):
+    root, old, target = release_tree
+    runner = FakeRun(root, target, changed_api_source=True)
+
+    with pytest.raises(prepare_release.ReleaseError, match="extension API source changed"):
+        prepare_release.prepare(root, target, runner=runner, today=date(2026, 8, 28))
+
+    assert (root / ".github/release-version").read_text() == f"{old}\n"
+    assert f"## {target}" not in (root / "CHANGELOG.md").read_text()
+    assert not any(args[:2] == ["npm", "update"] for args, _marker in runner.calls)
+
+
+def test_untracked_extension_api_source_refuses_before_release_writes(release_tree):
+    root, old, target = release_tree
+    runner = FakeRun(root, target, untracked_api_source=True)
+
+    with pytest.raises(prepare_release.ReleaseError, match="untracked files"):
+        prepare_release.prepare(root, target, runner=runner, today=date(2026, 8, 28))
+
+    assert (root / ".github/release-version").read_text() == f"{old}\n"
+    assert f"## {target}" not in (root / "CHANGELOG.md").read_text()
+
+
+def test_changed_extension_api_refuses_before_lock_update(release_tree):
+    root, old, target = release_tree
+    runner = FakeRun(root, target, changed_api=True)
+
+    with pytest.raises(prepare_release.ReleaseError, match="version change"):
+        prepare_release.prepare(
+            root,
+            target,
+            runner=runner,
+            today=date(2026, 8, 28),
+        )
+
+    assert not any(args[:2] == ["npm", "update"] for args, _marker in runner.calls)
+    assert (root / ".github/release-version").read_text() == f"{old}\n"
+
+
+def test_workplace_lock_checks_extension_api_bytes(release_tree):
+    root, _old, target = release_tree
+    prepare_release.prepare(
+        root,
+        target,
+        runner=FakeRun(root, target),
+        today=date(2026, 8, 28),
+    )
+    archive = root / "examples/workplace-extension/dist/miloctl-skein-extension-api-1.0.0.tgz"
+    archive.write_bytes(archive.read_bytes() + b"changed")
+
+    with pytest.raises(prepare_release.ReleaseError, match="extension-api"):
+        prepare_release._verify_workplace_lock(root, target)
 
 
 def test_build_failure_never_advances_the_marker(release_tree):

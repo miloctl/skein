@@ -564,7 +564,7 @@ def _run_claim(
             box["reply"] = str(built(prompt))
         except Exception as exc:
             box["error"] = type(exc).__name__
-            log.exception("private shared-chat agent turn failed")
+            log.warning("private shared-chat agent turn failed (%s)", type(exc).__name__)
         finally:
             try:
                 try:

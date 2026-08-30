@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import sys
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import jwt
@@ -120,5 +120,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    ISSUER = f"http://127.0.0.1:{server.server_port}"
     print(f"stub IdP on {ISSUER} (audience {AUDIENCE})", flush=True)
-    HTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    server.serve_forever()

@@ -2,7 +2,7 @@
 
 ## Current release state
 
-This revision prepares release `0.3.2`. Publication is complete only after registry pull-back passes and tag `v0.3.2` records the exact commit.
+The release marker names the package line for this revision. Registry pull-back and the matching annotated tag are the authority for completed publication.
 
 The package identities are:
 
@@ -72,13 +72,14 @@ The release tag records a successful publication. It does not start one.
 
 If a step fails, fix the cause before you continue.
 
-1. Update `CHANGELOG.md`.
+1. Add the release notes to the three `CHANGELOG.md` Unreleased sections.
 2. Remove each shipped item from `docs/ROADMAP.md`.
-3. Set the release version in `backend/pyproject.toml`.
-4. Set the same core version in the frontend host and CLI.
-5. Update the Atlas compatibility range only when its supported range changes.
-6. Regenerate all changed locks with Node 22 and Python 3.12.
-7. Set `.github/release-version` to the exact release version.
+3. Run `python3.12 scripts/prepare-release.py X.Y.Z`.
+4. Review every generated change.
+
+The script updates all synchronized versions and artifact paths. It builds the exact artifacts before it regenerates the locks. It writes `.github/release-version` last.
+
+The finalized prior tag must be reachable through Git remote `github`. If the trusted remote has another name, set `SKEIN_RELEASE_REMOTE` to that name.
 
 ## Run the release gates
 
@@ -132,10 +133,9 @@ The local GitHub remote is named `github`.
 Example release preparation:
 
 ```sh
-printf '0.3.2\n' >.github/release-version
-git add .github/release-version CHANGELOG.md
-git commit -m "release: v0.3.2"
-git push github release/0.3.2
+python3.12 scripts/prepare-release.py X.Y.Z
+./scripts/lint.sh
+git diff --check
 ```
 
 After publication succeeds, the protected finalization workflow pulls the registry files and compares them with the original tested artifact. It creates the annotated tag only after every byte matches.

@@ -685,6 +685,7 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "usage_log": ("requested_by",),
     "feedback": ("created_by",),  # pulse rows store '' and stay untouched
     "api_keys": ("owner",),
+    "oidc_identities": ("created_by",),
     "memories": ("user", "created_by"),
     "agent_authority": ("agent", "updated_by"),
     "artifacts": ("created_by",),
@@ -814,6 +815,23 @@ def rename_user(
         ):
             raise db.Conflict(
                 "Remove this agent from every private shared chat before you rename it."
+            )
+        if target:
+            if db.query_one(
+                "SELECT 1 FROM oidc_identities source"
+                " JOIN oidc_identities destination ON destination.issuer = source.issuer"
+                " WHERE source.user_id = ? AND destination.user_id = ? LIMIT 1",
+                (current["id"], target["id"]),
+            ):
+                raise db.Conflict(
+                    "These users have different OIDC subjects from the same issuer."
+                    " Do not merge them."
+                )
+            # The binding points at the stable user id. Move it before the old
+            # roster row is deleted, or the foreign key aborts an otherwise safe merge.
+            db.execute(
+                "UPDATE oidc_identities SET user_id = ? WHERE user_id = ?",
+                (target["id"], current["id"]),
             )
         # unique-keyed tables first: fold rather than collide
         # tool_usage (day, user, surface): sum counts into the target's rows

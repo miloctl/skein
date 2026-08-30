@@ -49,11 +49,16 @@ def _key(owner="tester"):
 def _oidc(monkeypatch, tokens):
     from app import config, oidc
 
+    issuer = "https://idp.test"
     monkeypatch.setattr(config, "AUTH_MODE", "oidc")
+    monkeypatch.setattr(config, "OIDC_ISSUER", issuer)
 
     def fake_validate(token):
         if token in tokens:
-            return tokens[token]
+            claims = dict(tokens[token])
+            claims.setdefault("iss", issuer)
+            claims.setdefault("sub", f"subject:{token}")
+            return claims
         raise oidc.OIDCError("the sign-in token was refused (Fake). Sign in again.")
 
     monkeypatch.setattr(oidc, "validate", fake_validate)
@@ -98,20 +103,53 @@ def test_broken_auth_config_fails_closed(client, monkeypatch):
     from app import config
 
     headers = _key()
-    monkeypatch.setattr(config, "AUTH_ERROR", "unknown SKEIN_AUTH_MODE 'oidk'")
+    error = "SKEIN_AUTH_MODE is not a known mode. Set it to one of: trusted-header, api-key, oidc."
+    monkeypatch.setattr(config, "AUTH_MODE", "operator-secret-value")
+    monkeypatch.setattr(config, "AUTH_ERROR", error)
     # everything is refused — even a valid key. A typo'd mode gets fixed,
     # never guessed around.
     assert client.get("/api/tasks").status_code == 503
     assert client.get("/api/tasks", headers=headers).status_code == 503
     h = client.get("/health")
     assert h.status_code == 200
+    assert h.json()["ok"] is True
+    assert h.json()["auth_mode"] == "invalid"
     assert "SKEIN_AUTH_MODE" in h.json()["auth_error"]
+    assert "operator-secret-value" not in h.text
+    ready = client.get("/ready")
+    assert ready.status_code == 503
+    assert ready.json() == {
+        "ok": False,
+        "auth_mode": "invalid",
+        "auth_error": error,
+    }
+    assert "operator-secret-value" not in ready.text
+    auth_config = client.get("/api/auth/config")
+    assert auth_config.status_code == 200
+    assert auth_config.json() == {"mode": "invalid", "error": error}
+    assert "operator-secret-value" not in auth_config.text
 
 
 def test_health_reports_auth_mode(client):
     h = client.get("/health").json()
     assert h["auth_mode"] == "trusted-header"
     assert h["auth_error"] == ""
+    ready = client.get("/ready")
+    assert ready.status_code == 200
+    assert ready.json() == {"ok": True, "auth_mode": "trusted-header", "auth_error": ""}
+
+
+def test_readiness_ignores_non_authentication_degradation(client, monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "provider is unavailable")
+    response = client.get("/ready")
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "auth_mode": "trusted-header",
+        "auth_error": "",
+    }
 
 
 def test_full_health_warns_about_trusted_header_and_only_there(client, monkeypatch):
@@ -136,6 +174,7 @@ def test_full_health_needs_a_credential_in_api_key_mode(client, monkeypatch):
 
     monkeypatch.setattr(config, "AUTH_MODE", "api-key")
     assert client.get("/health").status_code == 200
+    assert client.get("/ready").status_code == 200
     assert client.get("/api/health").status_code == 401
     assert client.get("/api/health", headers=_key()).status_code == 200
 
@@ -297,17 +336,17 @@ def test_absent_weak_header_keeps_the_synthetic_compatibility_subject(fresh_db):
 
 
 @pytest.mark.parametrize(
-    "claim",
+    ("claim", "status"),
     [
-        "ALICE",  # case
-        # the confusables are the test: each one folds onto "alice" and would
-        # resolve as her without the guard. noqa, or the linter deletes the case.
-        "ａlice",  # noqa: RUF001 — NFKC fullwidth
-        "al‍ice",
+        ("ALICE", 403),  # case
+        # The fullwidth name folds onto alice. The zero-width joiner is not
+        # printable, so the token is refused before roster resolution.
+        ("ａlice", 403),  # noqa: RUF001 — NFKC fullwidth
+        ("al‍ice", 401),
     ],
 )
 def test_an_oidc_claim_folding_onto_a_roster_name_is_refused_on_reads(
-    client, monkeypatch, fresh_db, claim
+    client, monkeypatch, fresh_db, claim, status
 ):
     """The read door skips ensure_user, so it must take the fold wall itself.
     Resolving the claim onto the roster row would hand one IdP principal every
@@ -318,8 +357,11 @@ def test_an_oidc_claim_folding_onto_a_roster_name_is_refused_on_reads(
     ensure_user("alice")
     _oidc(monkeypatch, {"tok": {"preferred_username": claim}})
     r = client.get("/api/private/notes", headers={"Authorization": "Bearer tok"})
-    assert r.status_code == 403
-    assert "one name must mean one identity" in r.json()["detail"]
+    assert r.status_code == status
+    if status == 403:
+        assert "one name must mean one identity" in r.json()["detail"]
+    else:
+        assert "control characters" in r.json()["detail"]
     # the write door already refused this claim; the two must agree, or one
     # credential is "not this person" for writes and "is this person" for reads
     w = client.post(
@@ -327,7 +369,7 @@ def test_an_oidc_claim_folding_onto_a_roster_name_is_refused_on_reads(
         json={"text": "x"},
         headers={"Authorization": "Bearer tok"},
     )
-    assert w.status_code == 403
+    assert w.status_code == status
 
 
 def test_an_oidc_claim_folding_onto_an_admin_name_does_not_reach_admin_surfaces(
@@ -360,10 +402,12 @@ def test_established_oidc_read_is_not_blocked_by_a_concurrent_writer(client, mon
     Under MVCC it is a claim about row locks: another transaction holding the
     caller's roster row must not delay a read that only needs to see it."""
     from app import db
+    from app.services import oidc_identities
     from app.services.users import ensure_human_identity
 
     ensure_human_identity("established")
     _oidc(monkeypatch, {"tok": {"preferred_username": "established"}})
+    oidc_identities.bind_existing("https://idp.test", "subject:tok", "established", actor="test")
     holding = Event()
     release = Event()
     finished = Event()
@@ -581,10 +625,12 @@ def test_deactivation_closes_every_door_not_only_the_key(client, monkeypatch, fr
     revoked API keys and nothing else, so an offboarded teammate kept strong
     read AND write through the OIDC door, and full access through the header
     door, until someone separately disabled the IdP account."""
+    from app.services import oidc_identities
     from app.services.users import ensure_user, set_active
 
     ensure_user("bob")
     _oidc(monkeypatch, {"tok": {"preferred_username": "bob"}})
+    oidc_identities.bind_existing("https://idp.test", "subject:tok", "bob", actor="test")
     assert client.get("/api/tasks", headers={"Authorization": "Bearer tok"}).status_code == 200
 
     set_active("bob", False, actor="admin")
@@ -655,7 +701,24 @@ def test_an_unreachable_identity_provider_is_a_503_not_a_sign_in_again(
     monkeypatch.setattr(oidc, "validate", down)
     r = client.get("/api/tasks", headers={"Authorization": "Bearer tok"})
     assert r.status_code == 503
+    assert r.headers["Retry-After"] == "60"
     assert "cannot be reached" in r.json()["detail"]
+
+
+def test_an_unusable_identity_provider_response_is_a_502(client, monkeypatch):
+    from app import config, oidc
+
+    monkeypatch.setattr(config, "AUTH_MODE", "oidc")
+    monkeypatch.setattr(
+        oidc,
+        "validate",
+        lambda _token: (_ for _ in ()).throw(
+            oidc.OIDCProviderError("The identity provider response is unusable.")
+        ),
+    )
+    response = client.get("/api/tasks", headers={"Authorization": "Bearer tok"})
+    assert response.status_code == 502
+    assert response.json()["detail"] == "The identity provider response is unusable."
 
 
 def test_slack_endpoint_keeps_its_own_gate(client, monkeypatch):
@@ -821,11 +884,13 @@ def test_every_door_stashes_the_group_claims(client, monkeypatch, fresh_db):
     request.state. Stashed by one dependency and not the others, whether an
     OIDC administrator is refused depends on which one the route picked."""
     from app import config
+    from app.services import oidc_identities
     from app.services.users import ensure_user
 
     _oidc(monkeypatch, {"tok": {"preferred_username": "casey", "groups": ["skein-admins"]}})
     monkeypatch.setattr(config, "OIDC_ADMIN_GROUP", "skein-admins")
     ensure_user("casey")
+    oidc_identities.bind_existing("https://idp.test", "subject:tok", "casey", actor="test")
     hdr = {"Authorization": "Bearer tok"}
 
     # CurrentUser (whoami), StrongUser (keys), AdminUser (admin keys) — all

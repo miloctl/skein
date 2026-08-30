@@ -18,10 +18,15 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .. import config, oidc, ratelimit
+from .. import config, db, oidc, ratelimit
 
 router = APIRouter(prefix="/api/auth")
 log = logging.getLogger("skein")
+
+
+def _fault_class(exc: BaseException) -> str:
+    cause = exc.__cause__
+    return type(cause).__name__ if cause is not None else type(exc).__name__
 
 
 @router.get("/config")
@@ -35,7 +40,8 @@ def get_auth_config(request: Request):
         from ..extensions import AppSettings
 
         settings = AppSettings.from_config()
-    out: dict = {"mode": settings.auth_mode, "error": settings.auth_error}
+    mode = settings.auth_mode if settings.auth_mode in config.AUTH_MODES else "invalid"
+    out: dict = {"mode": mode, "error": settings.auth_error}
     if settings.auth_error or settings.auth_mode != "oidc":
         return out
     out["client_id"] = config.OIDC_CLIENT_ID
@@ -120,7 +126,7 @@ def post_token(body: TokenIn, request: Request):
             headers={"Retry-After": "60"},
         ) from exc
     except oidc.OIDCError as exc:
-        log.exception("identity provider token exchange failed", exc_info=exc)
+        log.error("identity provider token exchange failed (%s)", _fault_class(exc))
         raise HTTPException(status_code=502, detail=oidc.SIGNIN_UNUSABLE) from exc
 
     token = str(payload.get("access_token") or "")
@@ -131,7 +137,9 @@ def post_token(body: TokenIn, request: Request):
     # every later request rejects, and the person sees a signed-in UI that
     # 401s on everything.
     try:
-        name, _ = oidc.principal(oidc.validate(token))
+        claims = oidc.validate(token)
+        issuer, subject = oidc.identity(claims)
+        display_name, _ = oidc.principal(claims)
     except oidc.OIDCUnavailable as exc:
         log.warning("identity provider token validation unavailable: %s", exc)
         raise HTTPException(
@@ -140,18 +148,26 @@ def post_token(body: TokenIn, request: Request):
             headers={"Retry-After": "60"},
         ) from exc
     except oidc.OIDCError as exc:
-        log.exception("identity provider returned an unusable token", exc_info=exc)
+        log.error("identity provider returned an unusable token (%s)", _fault_class(exc))
         raise HTTPException(status_code=502, detail=oidc.SIGNIN_UNUSABLE) from exc
-    from ..services.users import ensure_human_identity, is_active
+    from ..services import oidc_identities
+    from ..services.users import is_active
     from .deps import INACTIVE
 
     try:
-        ensure_human_identity(name)
+        human = oidc_identities.resolve(issuer, subject, display_name)
+    except db.BUSY_ERRORS as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="The database is busy. Wait 5 seconds, then send the request again.",
+            headers={"Retry-After": "5"},
+        ) from exc
     except ValueError as exc:
         # The rejected claim can contain provider-controlled text. Logging or
         # returning it lets a claim forge a log line or reflect into the browser.
-        log.error("identity provider claim conflicts with a reserved identity")
+        log.error("identity provider claim conflicts with an existing identity")
         raise HTTPException(status_code=403, detail=oidc.SIGNIN_UNUSABLE) from exc
+    name = human["name"]
     if not is_active(name):
         raise HTTPException(status_code=403, detail=INACTIVE)
     return {

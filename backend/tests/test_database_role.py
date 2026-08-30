@@ -58,6 +58,8 @@ def test_bootstrap_role_runs_skein_without_database_create(monkeypatch):
         _require_disposable_superuser(control)
         bootstrap_user = control.info.user
     _create_test_database(original_url, database)
+    with psycopg.connect(original_url, autocommit=True) as control:
+        control.execute(pgsql.SQL("CREATE ROLE {} REPLICATION").format(pgsql.Identifier(role)))
 
     # psql does not read SKEIN_DATABASE_URL. Pass its complete connection
     # contract as conninfo (service, TLS, failover, options) and keep a literal
@@ -98,11 +100,11 @@ def test_bootstrap_role_runs_skein_without_database_create(monkeypatch):
                 )
             )
             flags = control.execute(
-                "SELECT rolsuper, rolcreatedb, rolcreaterole, rolbypassrls"
+                "SELECT rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls"
                 " FROM pg_roles WHERE rolname = %s",
                 (role,),
             ).fetchone()
-            assert flags == (False, False, False, False)
+            assert flags == (False, False, False, False, False)
             assert control.execute(
                 "SELECT has_database_privilege(%s, %s, 'CREATE')", (role, database)
             ).fetchone() == (False,)

@@ -667,6 +667,9 @@ UNSCOPED: dict[str, str] = {
         " timestamps and a safe reason code, never task or model text"
     ),
     "api_keys": "credentials, owner-scoped, never listed to anyone else",
+    "oidc_identities": (
+        "authentication bindings, reached only while resolving one verified issuer and subject"
+    ),
     "app_settings": "deployment configuration",
     "crew_members": "the membership the filter READS. Scoping it would be circular.",
     "crews": "the crews the filter reads. Who is in which crew is not itself scoped.",

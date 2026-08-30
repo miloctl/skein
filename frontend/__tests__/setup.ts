@@ -32,10 +32,36 @@ if (typeof window.localStorage?.getItem !== "function") {
 Element.prototype.scrollIntoView ??= () => {};
 Element.prototype.scrollTo ??= () => {};
 
+// jsdom has no Web Locks API. OIDC session tests need the cross-tab lock that
+// supported browsers provide, or they exercise the deliberate fail-closed path.
+const lockTails = new Map<string, Promise<void>>();
+Object.defineProperty(navigator, "locks", {
+  configurable: true,
+  value: {
+    request: async <T>(name: string, run: () => T | Promise<T>): Promise<T> => {
+      const previous = lockTails.get(name) ?? Promise.resolve();
+      let release!: () => void;
+      lockTails.set(
+        name,
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+      );
+      await previous;
+      try {
+        return await run();
+      } finally {
+        release();
+      }
+    },
+  },
+});
+
 // localStorage and sessionStorage carry identity (the picked user, the pasted
 // API key, the OIDC token) and the once-per-session wave. Left dirty, one
 // test signs in the next one.
 beforeEach(() => {
+  lockTails.clear();
   window.localStorage.clear();
   window.sessionStorage.clear();
 });

@@ -461,8 +461,10 @@ def test_public_health_carries_no_deployment_topology(client, fresh_db):
     schedule, chain state, database warnings — is deployment topology and
     lives on /api/health behind identity. A new field added here reaches
     anonymous readers, so this assertion is exact, not a subset check."""
-    body = client.get("/health").json()
-    assert sorted(body) == ["auth_error", "auth_mode", "ok"]
+    for path in ("/health", "/ready"):
+        response = client.get(path)
+        assert response.status_code == 200
+        assert sorted(response.json()) == ["auth_error", "auth_mode", "ok"]
 
     full = client.get("/api/health", headers={"X-User": "mira"}).json()
     for key in ("provider", "model", "jobs", "activity_chain", "database_warnings"):

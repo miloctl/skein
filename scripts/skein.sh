@@ -158,7 +158,7 @@ db_reachable() {
   port_busy "$port" || die "no PostgreSQL on $host:$port — start one with:
   docker run -d --stop-timeout 1200 --name skein-db -p 127.0.0.1:${port}:5432 \\
     -e POSTGRES_USER=skein -e POSTGRES_PASSWORD=skein -e POSTGRES_DB=skein \\
-    postgres:17-alpine"
+    postgres:17-alpine@sha256:d4bb0a8c1b7bb2e29f976d099e7bfb9a5d8858cffe9e46b35cd302cd1f1f8168"
 }
 
 start_one() {

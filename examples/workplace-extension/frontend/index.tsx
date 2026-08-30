@@ -8,18 +8,36 @@ import {
   type FrontendExtension,
 } from "@miloctl/skein-extension-api";
 
+type MetricsState =
+  | { status: "loading" }
+  | { status: "ready"; linkedItems: number; syncRuns: number }
+  | { status: "unavailable" };
+
 function AtlasDeliveryCard({ api }: DashboardCardProps) {
-  const [metrics, setMetrics] = useState<{
-    linked_items: number;
-    sync_runs: number;
-  } | null>(null);
+  const [metrics, setMetrics] = useState<MetricsState>({ status: "loading" });
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
+    let active = true;
+    setMetrics({ status: "loading" });
     api<{ linked_items: number; sync_runs: number }>(
       "/api/extensions/atlas.workplace/metrics",
-    )
-      .then(setMetrics)
-      .catch(() => setMetrics({ linked_items: 0, sync_runs: 0 }));
-  }, [api]);
+    ).then(
+      (value) => {
+        if (active)
+          setMetrics({
+            status: "ready",
+            linkedItems: value.linked_items,
+            syncRuns: value.sync_runs,
+          });
+      },
+      () => {
+        if (active) setMetrics({ status: "unavailable" });
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [api, attempt]);
   return (
     <div id="atlas-delivery" className="md:col-span-2">
       <Card title="Atlas delivery indicators">
@@ -28,11 +46,27 @@ function AtlasDeliveryCard({ api }: DashboardCardProps) {
             are Tailwind sources only through the generated @source list, and
             without it this card rendered with its extension-only utilities
             silently missing. */}
-        <p className="mt-[7px] text-sm text-ink-2">
-          {metrics
-            ? `${metrics.linked_items} linked items · ${metrics.sync_runs} sync runs`
-            : "Loading Atlas delivery indicators…"}
-        </p>
+        <div className="mt-[7px] text-sm text-ink-2">
+          <p
+            role={metrics.status === "unavailable" ? "alert" : "status"}
+            aria-live="polite"
+          >
+            {metrics.status === "loading"
+              ? "Loading Atlas delivery indicators…"
+              : metrics.status === "ready"
+                ? `${metrics.linkedItems} linked ${metrics.linkedItems === 1 ? "item" : "items"} · ${metrics.syncRuns} sync ${metrics.syncRuns === 1 ? "run" : "runs"}`
+                : "Atlas delivery indicators are unavailable."}
+          </p>
+          {metrics.status === "unavailable" ? (
+            <button
+              type="button"
+              className="mt-2 underline hover:text-ink"
+              onClick={() => setAttempt((value) => value + 1)}
+            >
+              Try again
+            </button>
+          ) : null}
+        </div>
       </Card>
     </div>
   );

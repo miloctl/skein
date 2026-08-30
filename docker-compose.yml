@@ -14,11 +14,9 @@
 # restart.
 services:
   db:
-    # Pin the MAJOR version. backend/Dockerfile installs a pg_dump pinned to
-    # the same major, and pg_dump refuses a server newer than itself — a
-    # floating `postgres:latest` here breaks the Backups feature on the next
-    # image pull, not on the next deploy.
-    image: postgres:17-alpine
+    # Pin the major and digest. backend/Dockerfile installs the same pg_dump
+    # major, and a mutable database image changes code without a reviewed diff.
+    image: postgres:17-alpine@sha256:d4bb0a8c1b7bb2e29f976d099e7bfb9a5d8858cffe9e46b35cd302cd1f1f8168
     # Docker's 10-second default can kill PostgreSQL during its shutdown
     # checkpoint. Twenty minutes is a ceiling; a clean stop returns at once.
     stop_grace_period: 20m

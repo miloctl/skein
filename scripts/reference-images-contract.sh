@@ -26,6 +26,8 @@ db_admin="skein_bootstrap"
 db_password="contract-admin-$suffix"
 app_user="skein_app"
 app_password="contract-app-$suffix"
+node_image="node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32"
+postgres_image="postgres:17-alpine@sha256:d4bb0a8c1b7bb2e29f976d099e7bfb9a5d8858cffe9e46b35cd302cd1f1f8168"
 cleanup() {
     status=$?
     if [ "$status" -ne 0 ]; then
@@ -71,6 +73,14 @@ printf '[global]\nindex-url = %s\n' \
     "${PIP_INDEX_URL:-https://pypi.org/simple}" >"$pip_config"
 printf 'registry=%s\nreplace-registry-host=npmjs\n' \
     "${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}" >"$npm_config"
+docker run --rm \
+    --user "$(id -u):$(id -g)" \
+    -e HOME=/tmp \
+    -e NPM_CONFIG_USERCONFIG=/workplace/npmrc \
+    -v "$extension:/workplace" \
+    -w /workplace \
+    "$node_image" npm update @miloctl/skein-frontend-host \
+    --package-lock-only --ignore-scripts --no-audit --no-fund >/dev/null
 
 shopt -s nullglob
 core_wheels=("$extension/dist"/skein_agents-*.whl)
@@ -123,7 +133,7 @@ docker run --detach --name "$db_container" --network "$network" \
     -e POSTGRES_USER="$db_admin" \
     -e POSTGRES_PASSWORD="$db_password" \
     -e POSTGRES_DB=skein \
-    postgres:17-alpine >/dev/null
+    "$postgres_image" >/dev/null
 ready_count=0
 for _attempt in $(seq 1 120); do
     if docker exec "$db_container" psql -U "$db_admin" -d skein -qtAc "SELECT 1" \
@@ -156,7 +166,7 @@ wait_backend() {
     local container="$1" label="$2" ready=""
     for _attempt in $(seq 1 60); do
         if docker exec "$container" python -c \
-            "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)" \
+            "import urllib.request; [urllib.request.urlopen(f'http://127.0.0.1:8000/{path}', timeout=2) for path in ('health', 'ready')]" \
             >/dev/null 2>&1; then
             ready=1
             break
@@ -164,7 +174,7 @@ wait_backend() {
         sleep 1
     done
     if [ -z "$ready" ]; then
-        echo "reference-images-contract: the $label backend image never served /health" >&2
+        echo "reference-images-contract: the $label backend image never served /health and /ready" >&2
         docker logs "$container" >&2
         exit 1
     fi

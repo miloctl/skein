@@ -525,6 +525,24 @@ def test_a_specialist_that_fails_reports_the_class_not_the_provider_body(
     assert out["error"] == "code-reviewer failed to answer (RuntimeError)"
 
 
+def test_a_specialist_build_failure_logs_only_the_exception_class(
+    real_provider, monkeypatch, caplog
+):
+    agent = team_agent.build_agent("t-build-fail")
+    consult = _consult_tool(agent)
+    canary = "sk-live-build-secret request_id=build-42"
+
+    def broken(*_args, **_kwargs):
+        raise RuntimeError(canary)
+
+    monkeypatch.setattr(team_agent, "build_agent", broken)
+    out = json.loads(asyncio.run(_drain(consult("code-reviewer", "q")))[-1])
+
+    assert out["error"] == "code-reviewer failed to answer (RuntimeError)"
+    assert canary not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
 def test_the_turn_budget_stops_an_unbounded_fan_out(real_provider, monkeypatch):
     """The bench roster is in the prompt, so the MODEL picks how many
     specialists run — the one spend multiplier in the product not written by

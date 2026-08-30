@@ -3,6 +3,7 @@
 # dependency model. No source tree is on PYTHONPATH.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+root="$PWD"
 
 python="backend/.venv/bin/python"
 [ -x "$python" ] || python="$(command -v python)"
@@ -15,6 +16,7 @@ if [ -z "${SKEIN_DATABASE_URL:-}" ]; then
     echo "reference-extension-contract: SKEIN_DATABASE_URL is not set." >&2
     exit 1
 fi
+admin_database_url="$SKEIN_DATABASE_URL"
 contract_run_label="${SKEIN_CONTRACT_RUN_ID:-}"
 release_dist="${SKEIN_RELEASE_DIST:-}"
 contract_core_data_db="${SKEIN_CONTRACT_CORE_DATA_DB:-}"
@@ -24,16 +26,25 @@ contract_fresh_current_data_db="${SKEIN_CONTRACT_FRESH_CURRENT_DATA_DB:-}"
 # shellcheck source=lib/hermetic-env.sh
 . "$(dirname "$0")/lib/hermetic-env.sh"
 skein_hermetic_env
+unset SKEIN_DATABASE_URL
 
-db_base="${SKEIN_DATABASE_URL%/*}"
 if [[ ! "$contract_run_label" =~ ^[a-z0-9_]{1,20}$ ]]; then
     echo "reference-extension-contract: set SKEIN_CONTRACT_RUN_ID to 1-20 lowercase letters, digits, or underscores." >&2
     exit 1
 fi
 contract_run_id="${contract_run_label}_$$"
+role_name="skein_atlas_role_${contract_run_id}"
+role_password="$($python -c 'import secrets; print(secrets.token_hex(24))')"
+role_created=""
 created_dbs=()
-new_db() {  # new_db <label> <url-variable> <name-variable>
-    local label="$1" url_variable="$2" name_variable="$3"
+db_helper() {
+    SKEIN_DATABASE_URL="$admin_database_url" \
+    SKEIN_CONTRACT_ROLE_NAME="$role_name" \
+    SKEIN_CONTRACT_ROLE_PASSWORD="$role_password" \
+        "$python" "$root/examples/workplace-extension/scripts/contract-db.py" "$@"
+}
+new_db() {  # new_db <label> <database-variable> <name-variable>
+    local label="$1" database_variable="$2" name_variable="$3"
     local name="${!name_variable-}"
     if [ -z "$name" ]; then
         name="skein_contract_${label}_$contract_run_id"
@@ -45,19 +56,24 @@ new_db() {  # new_db <label> <url-variable> <name-variable>
         echo "reference-extension-contract: a contract database name is too long. Use a shorter run ID." >&2
         exit 1
     fi
-    psql "$SKEIN_DATABASE_URL" -qtAc "CREATE DATABASE \"$name\"" >/dev/null
+    db_helper create "$name"
     created_dbs+=("$name")
-    printf -v "$url_variable" '%s' "$db_base/$name"
+    printf -v "$database_variable" '%s' "$name"
 }
 drop_dbs() {
     local name
     for name in "${created_dbs[@]}"; do
-        psql "$SKEIN_DATABASE_URL" -qtAc "DROP DATABASE IF EXISTS \"$name\" WITH (FORCE)" >/dev/null 2>&1 || true
+        db_helper drop "$name" >/dev/null 2>&1 || true
     done
+    if [ -n "$role_created" ]; then
+        db_helper drop-role >/dev/null 2>&1 || true
+    fi
 }
 
 tmp="$(mktemp -d)"
 trap 'drop_dbs; rm -rf "$tmp"' EXIT
+db_helper create-role
+role_created=1
 
 new_db core_data db_core_data contract_core_data_db
 new_db legacy_core_data db_legacy_core_data contract_legacy_core_data_db
@@ -152,22 +168,18 @@ run_python -m app.content \
     --flocks "$prior_extension_source/content/flocks" \
     --workflow-action atlas.workplace.notify-manager
 
-(
-    cd "$tmp/run"
-    SKEIN_DATABASE_URL="$db_core_data" \
+db_helper run "$db_core_data" env -C "$tmp/run" \
+    -u PYTHONPATH -u PYTHONHOME PYTHONNOUSERSITE=1 \
     SKEIN_PLAYBOOKS_DIR="$prior_extension_source/content/playbooks" \
     SKEIN_PERSONAS_DIR="$prior_extension_source/content/personas" \
     SKEIN_FLOCKS_DIR="$prior_extension_source/content/flocks" \
-        run_python "$contract/prior_core.py"
-)
-(
-    cd "$tmp/run"
-    SKEIN_DATABASE_URL="$db_legacy_core_data" \
+    "$venv/bin/python" "$contract/prior_core.py"
+db_helper run "$db_legacy_core_data" env -C "$tmp/run" \
+    -u PYTHONPATH -u PYTHONHOME PYTHONNOUSERSITE=1 \
     SKEIN_PLAYBOOKS_DIR="$tmp/legacy-playbooks" \
     SKEIN_PERSONAS_DIR="$tmp/legacy-personas" \
     SKEIN_FLOCKS_DIR="$tmp/legacy-flocks" \
-        run_python "$contract/legacy_content_prior.py"
-)
+    "$venv/bin/python" "$contract/legacy_content_prior.py"
 
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip uninstall --quiet \
     --python "$venv/bin/python" atlas-skein-extension skein
@@ -198,15 +210,13 @@ run_python -m app.content \
     --flocks "$tmp/current-extension-source/content/flocks" \
     --workflow-action atlas.workplace.notify-manager
 
-(
-    cd "$tmp/run"
-    SKEIN_DATABASE_URL="$db_core_data" \
+db_helper run "$db_core_data" env -C "$tmp/run" \
+    -u PYTHONPATH -u PYTHONHOME PYTHONNOUSERSITE=1 \
     SKEIN_PLAYBOOKS_DIR="$tmp/current-extension-source/content/playbooks" \
     SKEIN_PERSONAS_DIR="$tmp/current-extension-source/content/personas" \
     SKEIN_FLOCKS_DIR="$tmp/current-extension-source/content/flocks" \
     EXTENSION_SOURCE="$tmp/current-extension-source" \
-        run_python "$contract/next_core.py"
-)
+    "$venv/bin/python" "$contract/next_core.py"
 
 "$python" -m mypy \
     --python-executable "$venv/bin/python" \
@@ -217,20 +227,23 @@ run_python -m app.content \
     "$tmp/current-extension-source/backend/typecheck_contract.py" \
     "$tmp/current-extension-source/backend/typecheck_current_contract.py"
 
-SKEIN_DATABASE_URL="$db_extension_tests_current" \
-    run_python -m pytest -q -p no:cacheprovider \
+db_helper run "$db_extension_tests_current" env \
+    -u PYTHONPATH -u PYTHONHOME PYTHONNOUSERSITE=1 \
+    "$venv/bin/python" -m pytest -q -p no:cacheprovider \
     "$tmp/current-extension-source/backend/tests"
 
-(
-    cd "$tmp/run"
-    SKEIN_DATABASE_URL="$db_legacy_core_data" \
+db_helper run "$db_legacy_core_data" env -C "$tmp/run" \
+    -u PYTHONPATH -u PYTHONHOME PYTHONNOUSERSITE=1 \
     SKEIN_PLAYBOOKS_DIR="$tmp/legacy-playbooks" \
     SKEIN_PERSONAS_DIR="$tmp/legacy-personas" \
     SKEIN_FLOCKS_DIR="$tmp/legacy-flocks" \
-        run_python "$contract/legacy_content_next.py"
-)
+    "$venv/bin/python" "$contract/legacy_content_next.py"
 
-SKEIN_DATABASE_URL="$db_fresh_current_data" run_python "$contract/fresh_current.py"
-run_python "$contract/schema_parity.py" "$db_core_data" "$db_fresh_current_data"
+db_helper run "$db_fresh_current_data" env \
+    -u PYTHONPATH -u PYTHONHOME PYTHONNOUSERSITE=1 \
+    "$venv/bin/python" "$contract/fresh_current.py"
+db_helper run "$db_core_data" env \
+    -u PYTHONPATH -u PYTHONHOME PYTHONNOUSERSITE=1 \
+    "$venv/bin/python" "$contract/schema_parity.py" "$db_fresh_current_data"
 
 echo "reference-extension-contract: explicit skein 0.2.3/Atlas 1.x to skein-agents $NEXT_CORE/Atlas 2.0 transition passed from installed wheels"

@@ -556,7 +556,7 @@ def unadopted(grace_days: int = UNADOPTED_GRACE_DAYS) -> list[dict]:
     cutoff = (db.today() - timedelta(days=grace_days)).isoformat()
     out = []
     for k in registry():
-        if str(k["since"]) > cutoff:
+        if str(k["since"]) >= cutoff:
             continue
         # a card that never ties has no adoption signal to report — listing it
         # would print a zero-adoption nag every day that nobody can satisfy

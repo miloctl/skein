@@ -1046,6 +1046,8 @@ VERBS: dict[str, tuple[str, str]] = {
     "approve_change": ("approved a proposal", "normal"),
     "reject_change": ("rejected a proposal", "loud"),
     "set_authority": ("changed an agent's authority", "loud"),
+    "oidc_identity_bound": ("bound an OIDC identity", "loud"),
+    "oidc_profile_updated": ("updated an OIDC profile", "quiet"),
     "create_api_key": ("minted an API key", "loud"),
     "revoke_api_key": ("revoked an API key", "loud"),
     "revoke_all_api_keys": ("revoked every API key", "loud"),

@@ -159,7 +159,7 @@ model and constraints, is archived at
 # instead, use `docker compose up db`.
 docker run -d --stop-timeout 1200 --name skein-db -p 127.0.0.1:5432:5432 \
   -e POSTGRES_USER=skein -e POSTGRES_PASSWORD=skein -e POSTGRES_DB=skein \
-  postgres:17-alpine
+  postgres:17-alpine@sha256:d4bb0a8c1b7bb2e29f976d099e7bfb9a5d8858cffe9e46b35cd302cd1f1f8168
 
 # backend (from backend/)
 uv venv .venv && uv pip install -e ".[dev]" --python .venv/bin/python   # deps

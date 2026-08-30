@@ -4,28 +4,19 @@ from __future__ import annotations
 
 import contextlib
 import json
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol
+from functools import partial
+from http.client import HTTPMessage
+from threading import BoundedSemaphore, Event, Thread
+from time import monotonic
+from typing import IO, Any, Literal, Protocol, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+from uuid import uuid4
 
-
-class _RefuseRedirect(HTTPRedirectHandler):
-    def redirect_request(
-        self,
-        req: Request,
-        fp: Any,
-        code: int,
-        msg: str,
-        headers: Any,
-        newurl: str,
-    ) -> Request | None:
-        raise AtlasUnavailableError("The Atlas API redirected an authenticated request.")
-
-
-_NO_REDIRECT_OPENER = build_opener(_RefuseRedirect)
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.extensions import EventExecutionContext, ExtensionStore
 from app.public import (
@@ -37,6 +28,127 @@ from app.public import (
     WorkItems,
 )
 
+MAX_RESPONSE_BYTES = 256 * 1024
+MAX_ITEMS = 500
+MAX_STATUS_DELIVERIES = 50
+STATUS_DRAIN_SECONDS = 10
+STATUS_LEASE_SECONDS = 30
+STATUS_RETRY_SECONDS = 60
+_TRANSIENT_HTTP_STATUSES = {408, 425, 429}
+_SYNC_ORIGINS = {
+    "extension:atlas.workplace.routes",
+    "extension:atlas.workplace.sync",
+    "extension:atlas.workplace.sync-tool",
+}
+
+
+class AtlasUnavailableError(RuntimeError):
+    """The Atlas adapter could not complete a temporary remote operation."""
+
+
+class AtlasBadResponseError(RuntimeError):
+    """The Atlas API refused the request or returned unusable data."""
+
+
+class _RefuseRedirect(HTTPRedirectHandler):
+    def http_error_302(
+        self,
+        _req: Request,
+        response: IO[bytes],
+        _code: int,
+        _message: str,
+        _headers: HTTPMessage,
+    ) -> Any | None:
+        response.close()
+        raise AtlasBadResponseError("The Atlas API redirected an authenticated request.")
+
+    # urllib gives every redirect code the same handler signature, but typeshed
+    # declares the inherited aliases as separate methods.
+    http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302  # type: ignore[assignment]
+
+
+_NO_REDIRECT_OPENER = build_opener(_RefuseRedirect)
+# Timed-out blocking calls cannot be killed. Fixed daemon slots keep slow
+# provider code from consuming the application's worker pool without limit.
+_HTTP_SLOTS = BoundedSemaphore(4)
+_STATUS_SLOTS = BoundedSemaphore(4)
+
+
+@dataclass
+class _ThreadResult[ResultT]:
+    value: ResultT | None = None
+    error: BaseException | None = None
+
+
+def _run_bounded[ResultT](
+    work: Callable[[], ResultT],
+    deadline: float,
+    slots: BoundedSemaphore,
+    *,
+    thread_name: str,
+    timeout_message: str,
+) -> ResultT:
+    remaining = max(0.0, deadline - monotonic())
+    if not slots.acquire(timeout=remaining):
+        raise AtlasUnavailableError(timeout_message)
+    done = Event()
+    result = _ThreadResult[ResultT]()
+
+    def run() -> None:
+        try:
+            result.value = work()
+        except BaseException as exc:
+            result.error = exc
+        finally:
+            done.set()
+            slots.release()
+
+    try:
+        Thread(target=run, name=thread_name, daemon=True).start()
+    except BaseException:
+        slots.release()
+        raise
+    if not done.wait(max(0.0, deadline - monotonic())):
+        raise AtlasUnavailableError(timeout_message)
+    if result.error is not None:
+        raise result.error
+    return cast(ResultT, result.value)
+
+
+def _run_http(work: Callable[[], bytes | None], deadline: float) -> bytes | None:
+    return _run_bounded(
+        work,
+        deadline,
+        _HTTP_SLOTS,
+        thread_name="atlas-http",
+        timeout_message="The Atlas API response timed out.",
+    )
+
+
+def _run_status(work: Callable[[], None], deadline: float) -> None:
+    return _run_bounded(
+        work,
+        deadline,
+        _STATUS_SLOTS,
+        thread_name="atlas-status",
+        timeout_message="The Atlas status delivery timed out.",
+    )
+
+
+def _read_bounded_response(response: Any, deadline: float) -> bytes:
+    raw = bytearray()
+    read = getattr(response, "read1", response.read)
+    while len(raw) <= MAX_RESPONSE_BYTES:
+        if monotonic() >= deadline:
+            raise AtlasUnavailableError("The Atlas API response timed out.")
+        chunk = read(MAX_RESPONSE_BYTES + 1 - len(raw))
+        if monotonic() >= deadline:
+            raise AtlasUnavailableError("The Atlas API response timed out.")
+        if not chunk:
+            break
+        raw.extend(chunk)
+    return bytes(raw)
+
 
 @dataclass(frozen=True)
 class AtlasItem:
@@ -46,8 +158,26 @@ class AtlasItem:
     classification: str = "internal"
 
 
-class AtlasUnavailableError(RuntimeError):
-    """The Atlas adapter could not complete a remote operation."""
+class _AtlasItemPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    external_id: str = Field(min_length=1, max_length=180)
+    title: str = Field(min_length=1, max_length=200)
+    status: Literal["todo", "in_progress", "blocked", "done", "void"] = "todo"
+    classification: str = Field("internal", min_length=1, max_length=80)
+
+    @field_validator("external_id", "title", "classification")
+    @classmethod
+    def usable_text(cls, value: str) -> str:
+        if not value.strip() or not value.isprintable():
+            raise ValueError("Atlas item text must be usable by Skein.")
+        return value
+
+
+class _AtlasItemsPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    items: list[_AtlasItemPayload] = Field(max_length=MAX_ITEMS)
 
 
 class AtlasClient(Protocol):
@@ -104,6 +234,8 @@ class AtlasHttpClient:
             parsed.scheme == "http" and parsed.hostname in ("localhost", "127.0.0.1", "::1")
         ):
             raise ValueError("The Atlas API URL must use HTTPS.")
+        if timeout_seconds <= 0:
+            raise ValueError("The Atlas API timeout must be greater than zero.")
         self.token = token
         self.timeout_seconds = timeout_seconds
 
@@ -112,6 +244,8 @@ class AtlasHttpClient:
         method: str,
         path: str,
         payload: dict[str, object] | None = None,
+        *,
+        read_json: bool = False,
     ) -> object:
         body = None if payload is None else json.dumps(payload).encode()
         request = Request(  # noqa: S310 -- constructor receives the validated HTTPS endpoint
@@ -124,39 +258,65 @@ class AtlasHttpClient:
                 "Content-Type": "application/json",
             },
         )
-        try:
-            # A redirect can move the Authorization header to another origin
-            # or downgrade it to plaintext; the opener refuses instead.
-            with _NO_REDIRECT_OPENER.open(request, timeout=self.timeout_seconds) as response:
-                raw = response.read()
-        except (HTTPError, URLError, TimeoutError, OSError) as exc:
-            raise AtlasUnavailableError("The Atlas API request failed.") from exc
-        if not raw:
+        deadline = monotonic() + self.timeout_seconds
+
+        def perform() -> bytes | None:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise AtlasUnavailableError("The Atlas API response timed out.")
+            try:
+                # A redirect can move the Authorization header to another origin
+                # or downgrade it to plaintext; the opener refuses instead.
+                with _NO_REDIRECT_OPENER.open(request, timeout=remaining) as response:
+                    if monotonic() >= deadline:
+                        raise AtlasUnavailableError("The Atlas API response timed out.")
+                    if not read_json:
+                        return None
+                    return _read_bounded_response(response, deadline)
+            except AtlasBadResponseError:
+                raise
+            except HTTPError as exc:
+                exc.close()
+                error = (
+                    AtlasUnavailableError
+                    if exc.code in _TRANSIENT_HTTP_STATUSES or 500 <= exc.code <= 599
+                    else AtlasBadResponseError
+                )
+                raise error("The Atlas API request failed.") from exc
+            except (URLError, TimeoutError, OSError) as exc:
+                raise AtlasUnavailableError("The Atlas API request failed.") from exc
+
+        raw = _run_http(perform, deadline)
+        if raw is None:
             return None
+        if len(raw) > MAX_RESPONSE_BYTES:
+            raise AtlasBadResponseError("The Atlas API response is too large.")
         try:
             parsed: object = json.loads(raw)
             return parsed
-        except (TypeError, ValueError) as exc:
-            raise AtlasUnavailableError("The Atlas API returned invalid JSON.") from exc
+        except (RecursionError, TypeError, ValueError) as exc:
+            raise AtlasBadResponseError("The Atlas API returned invalid JSON.") from exc
 
     def list_items(self) -> tuple[AtlasItem, ...]:
-        result = self._request("GET", "/items")
-        rows = result.get("items", []) if isinstance(result, dict) else result
-        if not isinstance(rows, list):
-            raise AtlasUnavailableError("The Atlas API returned an invalid item list.")
+        result = self._request("GET", "/items", read_json=True)
         try:
-            return tuple(
-                AtlasItem(
-                    external_id=str(row["external_id"]),
-                    title=str(row["title"]),
-                    status=str(row.get("status") or "todo"),
-                    classification=str(row.get("classification") or "internal"),
-                )
-                for row in rows
-                if isinstance(row, dict)
+            payload = _AtlasItemsPayload.model_validate(
+                result if isinstance(result, dict) else {"items": result}
             )
-        except KeyError as exc:
-            raise AtlasUnavailableError("The Atlas API returned an invalid item.") from exc
+        except ValidationError as exc:
+            raise AtlasBadResponseError("The Atlas API returned an invalid item list.") from exc
+        external_ids = [item.external_id for item in payload.items]
+        if len(set(external_ids)) != len(external_ids):
+            raise AtlasBadResponseError("The Atlas API returned duplicate item IDs.")
+        return tuple(
+            AtlasItem(
+                external_id=item.external_id,
+                title=item.title,
+                status=item.status,
+                classification=item.classification,
+            )
+            for item in payload.items
+        )
 
     def update_status(self, external_id: str, status: str, event_id: str = "") -> None:
         self._request(
@@ -216,7 +376,7 @@ class AtlasIntegration:
         # creating another task — and a slow remote never holds a write open.
         # (Core and extension data now live in one database, so this ordering
         # is a deliberate choice rather than something the storage forces.)
-        self._deliver_pending_statuses()
+        self._deliver_pending_statuses(work, context)
         return result
 
     def _sync_items(
@@ -388,37 +548,183 @@ class AtlasIntegration:
             self._execute("DELETE FROM sync_claims WHERE external_id = ?", (item.external_id,))
             return bool(inserted)
 
-    def _record_status(self, external_id: str, task: TaskView) -> None:
-        event_id = f"atlas-status:{external_id}:{task.updated_at}:{task.status}"
+    def _queue_status(self, event_id: str, external_id: str, status: str) -> None:
         self._execute(
             "INSERT INTO status_outbox"
             " (event_id, external_id, status, delivered) VALUES (?, ?, ?, 0)"
             " ON CONFLICT DO NOTHING",
-            (event_id, external_id, task.status),
+            (event_id, external_id, status),
         )
 
-    def _deliver_pending_statuses(self) -> None:
+    def _record_status(self, external_id: str, task: TaskView) -> None:
+        self._queue_status(
+            f"atlas-status:{external_id}:{task.updated_at}:{task.status}",
+            external_id,
+            task.status,
+        )
+
+    def _claim_pending_status(self) -> dict[str, Any] | None:
         with self._transaction():
-            pending = self._query(
-                "SELECT event_id, external_id, status FROM status_outbox"
-                " WHERE delivered = 0 ORDER BY event_id"
+            # An earlier row for the SAME item blocks every later status, even
+            # while another worker holds its lease. Other items stay claimable.
+            pending = self._query_one(
+                "SELECT pending.event_id, pending.external_id, pending.status"
+                " FROM status_outbox AS pending WHERE pending.delivered = 0"
+                " AND pending.dead = 0"
+                " AND (pending.lease_until IS NULL OR pending.lease_until <= now())"
+                " AND NOT EXISTS (SELECT 1 FROM status_outbox AS earlier"
+                " WHERE earlier.external_id = pending.external_id"
+                " AND earlier.delivered = 0 AND earlier.dead = 0"
+                " AND earlier.sequence_id < pending.sequence_id)"
+                " ORDER BY pending.sequence_id"
+                " FOR UPDATE OF pending SKIP LOCKED LIMIT 1"
             )
-            for delivery in pending:
-                self.client.update_status(
-                    str(delivery["external_id"]),
-                    str(delivery["status"]),
+            if pending is None:
+                return None
+            token = uuid4().hex
+            leased = self._query(
+                "UPDATE status_outbox SET lease_token = ?,"
+                " lease_until = now() + (? * INTERVAL '1 second')"
+                " WHERE event_id = ? AND delivered = 0"
+                " RETURNING event_id, external_id, status, lease_token",
+                (token, STATUS_LEASE_SECONDS, str(pending["event_id"])),
+            )
+            if not leased:
+                raise RuntimeError("The Atlas status delivery was not leased.")
+            return leased[0]
+
+    def _mark_status_delivered(self, delivery: dict[str, Any]) -> bool:
+        with self._transaction():
+            updated = self._query(
+                "UPDATE status_outbox SET delivered = 1, lease_token = '',"
+                " lease_until = NULL, error_code = ''"
+                " WHERE event_id = ? AND delivered = 0"
+                " AND lease_token = ? RETURNING event_id",
+                (str(delivery["event_id"]), str(delivery["lease_token"])),
+            )
+            return bool(updated)
+
+    def _defer_status(self, delivery: dict[str, Any], error_code: str) -> None:
+        with self._transaction():
+            self._execute(
+                "UPDATE status_outbox SET lease_token = '',"
+                " lease_until = now() + (? * INTERVAL '1 second'), error_code = ?"
+                " WHERE event_id = ? AND delivered = 0 AND dead = 0"
+                " AND lease_token = ?",
+                (
+                    STATUS_RETRY_SECONDS,
+                    error_code,
                     str(delivery["event_id"]),
+                    str(delivery["lease_token"]),
+                ),
+            )
+
+    def _dead_status(self, delivery: dict[str, Any], error_code: str) -> None:
+        with self._transaction():
+            self._execute(
+                "UPDATE status_outbox SET dead = 1, lease_token = '',"
+                " lease_until = NULL, error_code = ?"
+                " WHERE event_id = ? AND delivered = 0 AND lease_token = ?",
+                (
+                    error_code,
+                    str(delivery["event_id"]),
+                    str(delivery["lease_token"]),
+                ),
+            )
+
+    def _has_deferred_status(self) -> bool:
+        return (
+            self._query_one(
+                "SELECT 1 AS present FROM status_outbox WHERE delivered = 0"
+                " AND dead = 0 AND lease_token = '' AND lease_until > now() LIMIT 1"
+            )
+            is not None
+        )
+
+    def _status_settled(self, event_id: str) -> bool:
+        row = self._query_one(
+            "SELECT delivered, dead FROM status_outbox WHERE event_id = ?",
+            (event_id,),
+        )
+        return row is not None and bool(row["delivered"] or row["dead"])
+
+    def _status_is_current(
+        self,
+        delivery: dict[str, Any],
+        work: WorkItems,
+        context: CommandContext,
+    ) -> bool:
+        link = self._query_one(
+            "SELECT skein_task_id FROM work_links WHERE external_id = ?",
+            (str(delivery["external_id"]),),
+        )
+        if link is None:
+            return False
+        task = work.get_task(int(link["skein_task_id"]), context)
+        return task.status == str(delivery["status"])
+
+    def _deliver_pending_statuses(
+        self,
+        work: WorkItems | None = None,
+        context: CommandContext | None = None,
+    ) -> None:
+        deadline = monotonic() + STATUS_DRAIN_SECONDS
+        first_failure: Exception | None = None
+        for _ in range(MAX_STATUS_DELIVERIES):
+            if monotonic() >= deadline:
+                break
+            delivery = self._claim_pending_status()
+            if delivery is None:
+                break
+            if (
+                work is not None
+                and context is not None
+                and not self._status_is_current(delivery, work, context)
+            ):
+                self._dead_status(delivery, "ATLAS_STATUS_SUPERSEDED")
+                continue
+            external_id = str(delivery["external_id"])
+            status = str(delivery["status"])
+            event_id = str(delivery["event_id"])
+            try:
+                # The lease is committed before this call. A slow remote never
+                # holds an extension transaction or blocks claims for other items.
+                _run_status(
+                    partial(self.client.update_status, external_id, status, event_id),
+                    deadline,
                 )
-                self._execute(
-                    "UPDATE status_outbox SET delivered = 1 WHERE event_id = ?",
-                    (str(delivery["event_id"]),),
+            except AtlasBadResponseError as exc:
+                try:
+                    self._dead_status(delivery, "ATLAS_BAD_RESPONSE")
+                except Exception as settlement_error:
+                    raise exc from settlement_error
+                first_failure = first_failure or exc
+                continue
+            except Exception as exc:
+                error_code = (
+                    "ATLAS_UNAVAILABLE"
+                    if isinstance(exc, AtlasUnavailableError)
+                    else "ATLAS_DELIVERY_FAILED"
                 )
+                try:
+                    self._defer_status(delivery, error_code)
+                except Exception as settlement_error:
+                    raise exc from settlement_error
+                first_failure = first_failure or exc
+                continue
+            self._mark_status_delivered(delivery)
+        if first_failure is not None:
+            raise first_failure
+        if self._has_deferred_status():
+            raise AtlasUnavailableError("An Atlas status delivery is waiting for retry.")
 
     def deliver_task_event(
         self,
         event: DomainEvent,
         context: EventExecutionContext,
     ) -> None:
+        if event.origin in _SYNC_ORIGINS:
+            return
         link = self._query_one(
             "SELECT external_id FROM work_links WHERE skein_task_id = ?",
             (int(event.resource.id),),
@@ -427,7 +733,12 @@ class AtlasIntegration:
             return
         command_context = context.command_context()
         task = context.work_items.get_task(int(event.resource.id), command_context)
-        self.client.update_status(link["external_id"], task.status, context.delivery_id)
+        # Task events share the same queue as synchronization. A direct PATCH can
+        # overtake an older leased status and then be overwritten when it finishes.
+        self._queue_status(context.delivery_id, str(link["external_id"]), task.status)
+        self._deliver_pending_statuses(context.work_items, command_context)
+        if not self._status_settled(context.delivery_id):
+            raise AtlasUnavailableError("The Atlas status delivery is still pending.")
 
     def metrics(self) -> dict[str, int]:
         links = self._query_one("SELECT COUNT(*) AS count FROM work_links")

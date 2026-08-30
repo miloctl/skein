@@ -16,18 +16,8 @@ def atlas_identity(name: str, groups: tuple[str, ...], _strong: bool) -> dict[st
     return {"roles": tuple(roles), "capabilities": tuple(capabilities)}
 
 
-def atlas_directory(name: str) -> dict[str, object] | None:
-    """Fictional directory refresh used by the executable example.
-
-    A real private package calls its directory adapter here. Returning no
-    record makes approval fail closed.
-    """
-    if name == "mira":
-        return {"active": True, "groups": ("atlas-delivery-managers",)}
-    if name == "nina":
-        return {"active": True, "groups": ("atlas-integrations",)}
-    if name == "ava":
-        return {"active": True, "groups": ()}
+def atlas_directory(_name: str) -> dict[str, object] | None:
+    """Fail closed until the private package supplies its directory adapter."""
     return None
 
 

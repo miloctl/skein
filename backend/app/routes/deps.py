@@ -196,33 +196,27 @@ def _resolve(
                 claims = _cached(request, "auth_claims")
                 if claims is None:
                     claims = oidc.validate(authorization[7:])
-                name, groups = oidc.principal(claims)
+                issuer, subject = oidc.identity(claims)
+                display_name, groups = oidc.principal(claims)
+            except oidc.OIDCProviderError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
             except oidc.OIDCUnavailable as exc:
                 # 503, not 401: the token was never judged. Answering 401 tells
                 # a whole team of signed-in people to sign in again, at an
                 # identity provider that is the very thing that is down.
-                raise HTTPException(status_code=503, detail=str(exc)) from exc
+                raise HTTPException(
+                    status_code=503,
+                    detail=str(exc),
+                    headers={"Retry-After": "60"},
+                ) from exc
             except oidc.OIDCError as exc:
                 raise HTTPException(status_code=401, detail=str(exc)) from exc
-            if is_agent(name):
-                if is_content_identity(name):
-                    raise HTTPException(
-                        status_code=403,
-                        detail=content_on_signin(),
-                    )
-                raise HTTPException(status_code=403, detail=agent_on_signin(name))
-            # Apply the same walls for direct dependency calls that do not pass
-            # through the perimeter middleware.
-            _refuse_reserved(name)
-            _refuse_inactive(name)
             try:
-                # The perimeter reserves every validated OIDC principal before
-                # any handler runs. Direct calls and tests do the same here.
-                # Durable ownership prevents a new service, specialist, or MCP
-                # identity from taking the name during this request.
-                if _cached(request, "auth_human_owner") == name:
-                    return name, True, groups
-                return ensure_human_identity(name)["name"], True, groups
+                name = _cached(request, "auth_human_owner")
+                if name is None:
+                    from ..services import oidc_identities
+
+                    name = oidc_identities.resolve(issuer, subject, display_name)["name"]
             except db.BUSY_ERRORS as exc:
                 raise HTTPException(
                     status_code=503,
@@ -230,15 +224,19 @@ def _resolve(
                     headers={"Retry-After": "5"},
                 ) from exc
             except ValueError as exc:
-                # a reserved name (bench-persona slug) or a fold collision
-                # would otherwise refuse EVERY request, and an OIDC caller
-                # cannot pick another name the way the name picker can. Say
-                # what the operator must change.
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"{exc} Set SKEIN_OIDC_USERNAME_CLAIM to a claim"
-                    " that gives each person one name.",
-                ) from exc
+                raise HTTPException(status_code=403, detail=str(exc)) from exc
+            if is_agent(name):
+                if is_content_identity(name):
+                    raise HTTPException(
+                        status_code=403,
+                        detail=content_on_signin(),
+                    )
+                raise HTTPException(status_code=403, detail=agent_on_signin(name))
+            # Apply the same walls to the stable bound identity for direct
+            # dependency calls that do not pass through the perimeter middleware.
+            _refuse_reserved(name)
+            _refuse_inactive(name)
+            return name, True, groups
         raise HTTPException(status_code=401, detail=NEED_LOGIN)
     if auth_mode == "api-key":
         raise HTTPException(status_code=401, detail=NEED_KEY)

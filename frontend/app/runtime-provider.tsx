@@ -10,8 +10,14 @@ import {
   type ThreadMessageLike,
 } from "@assistant-ui/react";
 
-import { API_URL, actionError, api, bearer, userHeader } from "@/lib/api";
-import { accessTokenSync, sessionRejected } from "@/lib/auth";
+import {
+  API_URL,
+  actionError,
+  api,
+  authenticatedFetch,
+  bearer,
+  userHeader,
+} from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import { chatThreads } from "@/lib/chat-threads";
 import { outgoing } from "@/lib/persona";
@@ -138,18 +144,10 @@ function makeAdapter(threadId: string): ChatModelAdapter {
           .join("\n"),
       );
 
-      // bearer() itself, not a copy of its ladder: this call site rebuilt the
-      // ladder and lost the OIDC rung, so in oidc mode a signed-in user with
-      // no personal key got a 401 telling them to sign in. Chat is the one
-      // surface that does not go through api(), which is why it drifted.
-      const auth = await bearer();
-      const res = await fetch(`${API_URL}/api/chat`, {
+      // authenticatedFetch owns the credential ladder and 401 session update.
+      // Chat uses it directly because api() consumes the streaming response.
+      const res = await authenticatedFetch("/api/chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...userHeader(),
-          ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
-        },
         // the ids the attachment adapter got back from POST /api/files. The
         // backend resolves them owner-scoped and builds the model's content
         // blocks, so no file content crosses this boundary twice.
@@ -163,11 +161,6 @@ function makeAdapter(threadId: string): ChatModelAdapter {
         signal: abortSignal,
       });
       if (!res.ok || !res.body) {
-        // chat does not go through api(), so it is also the one 401 that
-        // never reached the session handling there. A person whose only
-        // activity is chatting kept a signed-in UI until some other surface
-        // happened to fetch. Same drift the bearer() comment above records.
-        if (res.status === 401 && auth && auth === accessTokenSync()) sessionRejected(auth);
         // the body carries the usable message ("The limit for chat is 20 per
         // minute per person. Wait 34 seconds, then send the request again.",
         // length caps) — surface it, not just the code

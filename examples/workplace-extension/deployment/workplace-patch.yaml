@@ -7,7 +7,8 @@ spec:
     spec:
       containers:
         - name: skein
-          image: atlas-skein:2.0.0
+          # Replace the fail-closed digest after the reviewed image reaches the registry.
+          image: atlas-skein:2.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
           env:
             - name: ATLAS_SKEIN_STORE
               value: atlas-extension

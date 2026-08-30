@@ -1,6 +1,8 @@
+import os
 import sys
 
 import psycopg
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 SCHEMAS = ("public", "private", "ext_atlas_contract")
 
@@ -46,7 +48,11 @@ def catalog(url):
     return columns, constraints, indexes, sequences
 
 
-upgraded, fresh = catalog(sys.argv[1]), catalog(sys.argv[2])
+base = os.environ["SKEIN_DATABASE_URL"]
+fields = conninfo_to_dict(base)
+fields["dbname"] = sys.argv[1]
+fresh_url = make_conninfo(**{key: str(value) for key, value in fields.items() if value is not None})
+upgraded, fresh = catalog(base), catalog(fresh_url)
 if upgraded != fresh:
     for label, upgraded_rows, fresh_rows in zip(
         ("columns", "constraints", "indexes", "sequences"), upgraded, fresh, strict=True

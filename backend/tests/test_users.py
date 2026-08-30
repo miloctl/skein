@@ -192,6 +192,9 @@ _NOT_RENAMED = {
         " repeated notification the next time the same row is scanned."
     ),
     ("mention_log", "mentioned_by"): ("the other half of the dedupe key above."),
+    ("oidc_identities", "subject"): (
+        "an opaque identity-provider identifier, not a Skein roster name"
+    ),
 }
 
 

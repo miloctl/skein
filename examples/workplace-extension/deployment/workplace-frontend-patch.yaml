@@ -7,4 +7,5 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: atlas-skein-frontend:2.0.0
+          # Replace the fail-closed digest after the environment build reaches the registry.
+          image: atlas-skein-frontend:2.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000

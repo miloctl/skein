@@ -12,7 +12,7 @@ The workplace repository owns its extension code, dependency locks, content, fin
 
 ## Current release status
 
-This revision prepares package line `0.3.2`. Use the exact registry commands after the `0.3.2` pull-back validation passes.
+Use an exact registry package only after its pull-back validation passes and the matching annotated tag exists. `docs/EXTENSIONS.md` names the package line for this revision.
 
 A workplace needs a classic GitHub PAT with `read:packages` outside GitHub Actions. `RELEASING.md` contains the publication and access procedure.
 

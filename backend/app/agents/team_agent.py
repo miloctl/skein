@@ -1201,7 +1201,7 @@ def build_agent(
                             # carries its raw HTTP body, and this string reaches the
                             # model, the transcript, and the user
                             failure = f"{slug} failed to answer ({type(payload).__name__})"
-                            log.warning("consult of %s failed", slug, exc_info=payload)
+                            log.warning("consult of %s failed (%s)", slug, type(payload).__name__)
                             break
                         answered.append(payload)
                         # the route renders the heading and forwards the text;
@@ -1222,7 +1222,7 @@ def build_agent(
                         yield {"skein_consult": slug, "receipt": r}
                 except Exception as exc:  # a consult must not kill the turn
                     failure = f"{slug} failed to answer ({type(exc).__name__})"
-                    log.warning("consult of %s failed to start", slug, exc_info=True)
+                    log.warning("consult of %s failed to start (%s)", slug, type(exc).__name__)
                 finally:
                     # sync: an await here raises when the scope is already cancelled
                     if task is not None:

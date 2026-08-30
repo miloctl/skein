@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
+from starlette.requests import ClientDisconnect
 
 from . import config, db, ratelimit
 from .extensions import AppSettings, ExtensionRegistry, SkeinModule
@@ -163,6 +164,18 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
                     ),
                 }
             return result
+        except PublicError as exc:
+            # The chained adapter error can contain private provider details.
+            # Record only the declared machine code.
+            log.warning(
+                "extension job failed",
+                extra={"job": contribution.name, "error_code": exc.code},
+            )
+            return {
+                "status": "error",
+                "error_code": exc.code,
+                "retryable": exc.retryable,
+            }
         except Exception:
             log.exception("extension job failed", extra={"job": contribution.name})
             return {
@@ -597,7 +610,6 @@ async def perimeter_auth(request: Request, call_next):
     )
     from .services.api_keys import PREFIX, verify_key
     from .services.users import (
-        ensure_human_identity,
         identity_collision_refusal,
         is_active,
         is_agent,
@@ -650,16 +662,37 @@ async def perimeter_auth(request: Request, call_next):
 
         try:
             claims = await run_in_threadpool(oidc.validate, auth[7:])
-            name, _ = oidc.principal(claims)
+            issuer, subject = oidc.identity(claims)
+            display_name, _ = oidc.principal(claims)
+        except oidc.OIDCProviderError as exc:
+            return JSONResponse(status_code=502, content={"detail": str(exc)})
         except oidc.OIDCUnavailable as exc:
             # the token was never judged, so this is our fault to report, not
             # the caller's to fix by signing in again
-            return JSONResponse(status_code=503, content={"detail": str(exc)})
+            return JSONResponse(
+                status_code=503,
+                content={"detail": str(exc)},
+                headers={"Retry-After": "60"},
+            )
         except oidc.OIDCError as exc:
             return JSONResponse(status_code=401, content={"detail": str(exc)})
-        # the agent wall again, for the same reason it is above: a sign-in
-        # naming an agent row must be refused before any handler, catalog
-        # reads included.
+        from .services import oidc_identities
+
+        try:
+            human = await run_in_threadpool(oidc_identities.resolve, issuer, subject, display_name)
+        except db.BUSY_ERRORS:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "detail": "The database is busy. Wait 5 seconds, then send the request again."
+                },
+                headers={"Retry-After": "5"},
+            )
+        except ValueError as exc:
+            return JSONResponse(status_code=403, content={"detail": str(exc)})
+        name = human["name"]
+        # These walls apply to the bound Skein identity, not the mutable display
+        # claim. A renamed claim must not change which private rows the token opens.
         if await run_in_threadpool(is_agent, name):
             if await run_in_threadpool(is_content_identity, name):
                 return JSONResponse(
@@ -672,26 +705,8 @@ async def perimeter_auth(request: Request, call_next):
             return JSONResponse(status_code=403, content={"detail": reserved})
         if not await run_in_threadpool(is_active, name):
             return JSONResponse(status_code=403, content={"detail": INACTIVE})
-        try:
-            human = await run_in_threadpool(ensure_human_identity, name)
-        except db.BUSY_ERRORS:
-            return JSONResponse(
-                status_code=503,
-                content={
-                    "detail": "The database is busy. Wait 5 seconds, then send the request again."
-                },
-                headers={"Retry-After": "5"},
-            )
-        except ValueError as exc:
-            return JSONResponse(
-                status_code=403,
-                content={
-                    "detail": f"{exc} Set SKEIN_OIDC_USERNAME_CLAIM to a claim"
-                    " that gives each person one name."
-                },
-            )
         request.state.auth_claims = claims
-        request.state.auth_human_owner = human["name"]
+        request.state.auth_human_owner = name
         return await call_next(request)
     detail = NEED_KEY if settings.auth_mode == "api-key" else NEED_LOGIN
     return JSONResponse(status_code=401, content={"detail": detail})
@@ -747,6 +762,7 @@ async def public_error_handler(request: Request, exc: PublicError):
             "obligations": list(exc.obligations),
             **({"review_id": exc.review_id} if exc.review_id else {}),
         },
+        headers={"Retry-After": "60"} if exc.retryable and exc.status_code in (429, 503) else None,
     )
 
 
@@ -795,6 +811,15 @@ async def overflow_error_handler(request: Request, exc: OverflowError):
     return JSONResponse(status_code=400, content={"detail": "value out of range"})
 
 
+async def client_disconnect_handler(request: Request, exc: ClientDisconnect):
+    # A navigation can cancel a body while policy reads it. The caller ended
+    # the request, so this is an input error and must not enter the server rate.
+    return JSONResponse(
+        status_code=400,
+        content={"detail": "The request body was not received. Send the request again."},
+    )
+
+
 async def unhandled_error_handler(request: Request, exc: Exception):
     """Anything with no handler above, as JSON with NOTHING from the exception.
 
@@ -833,6 +858,10 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
     return JSONResponse(status_code=422, content={"detail": detail, "errors": errors})
 
 
+def _public_auth_mode(settings: AppSettings) -> str:
+    return settings.auth_mode if settings.auth_mode in config.AUTH_MODES else "invalid"
+
+
 def public_health(settings: AppSettings | None = None):
     """The unauthenticated payload: enough for a probe and a sign-in flow.
 
@@ -847,9 +876,23 @@ def public_health(settings: AppSettings | None = None):
     selected = settings or AppSettings.from_config()
     return {
         "ok": True,
-        "auth_mode": selected.auth_mode,
+        "auth_mode": _public_auth_mode(selected),
         "auth_error": selected.auth_error,
     }
+
+
+def readiness(settings: AppSettings | None = None):
+    """Authentication readiness without the topology that /api/health exposes."""
+    selected = settings or AppSettings.from_config()
+    error = selected.auth_error
+    return JSONResponse(
+        status_code=503 if error else 200,
+        content={
+            "ok": not error,
+            "auth_mode": _public_auth_mode(selected),
+            "auth_error": error,
+        },
+    )
 
 
 def health(specs: Sequence[JobSpec] = JOBS, settings: AppSettings | None = None):
@@ -862,7 +905,7 @@ def health(specs: Sequence[JobSpec] = JOBS, settings: AppSettings | None = None)
     strategy_override = context_strategy_override()
     return {
         "ok": True,
-        "auth_mode": selected.auth_mode,
+        "auth_mode": _public_auth_mode(selected),
         "auth_error": selected.auth_error,
         # like database_warnings: a standing posture fault on the running
         # instance, not only a line in a startup log nobody reopens. Names
@@ -1002,6 +1045,7 @@ def create_app(
         handoff.ArtifactUnreadable, cast(Any, artifact_unreadable_handler)
     )
     application.add_exception_handler(OverflowError, cast(Any, overflow_error_handler))
+    application.add_exception_handler(ClientDisconnect, cast(Any, client_disconnect_handler))
     application.add_exception_handler(Exception, unhandled_error_handler)
     application.add_exception_handler(RequestValidationError, cast(Any, validation_error_handler))
 
@@ -1015,6 +1059,7 @@ def create_app(
         application.include_router(contribution.router, dependencies=dependencies)
     health_settings = selected_settings if explicit_settings else None
     application.add_api_route("/health", lambda: public_health(health_settings), methods=["GET"])
+    application.add_api_route("/ready", lambda: readiness(health_settings), methods=["GET"])
     # The full payload, behind identity: not in the perimeter's open list, so
     # api-key and oidc deployments require a credential while trusted-header
     # keeps its historical openness on the trusted network. CurrentUser, not

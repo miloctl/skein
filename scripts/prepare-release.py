@@ -19,12 +19,12 @@ ROOT = Path(__file__).resolve().parents[1]
 VERSION_RE = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 
 DOC_VERSION_COUNTS = {
-    "RELEASING.md": 5,
-    "docs/SETUP.md": 11,
+    "docs/SETUP.md": 9,
     "docs/EXTENSIONS.md": 5,
     "frontend/README.md": 1,
     "examples/workplace-extension/README.md": 3,
     "examples/workplace-extension/deployment/README.md": 3,
+    "scripts/publish-images.sh": 2,
 }
 
 
@@ -71,10 +71,6 @@ def _section_has_item(body: str, heading: str, next_heading: str | None) -> bool
 def promote_changelog(root: Path, version: str, today: date) -> None:
     path = root / "CHANGELOG.md"
     text = path.read_text()
-    if re.search(
-        rf"^## {re.escape(version)} — [0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}$", text, re.MULTILINE
-    ):
-        return
     heading = "## Unreleased\n"
     start = text.find(heading)
     if start < 0:
@@ -84,6 +80,31 @@ def promote_changelog(root: Path, version: str, today: date) -> None:
     if next_release < 0:
         raise ReleaseError("CHANGELOG.md has no prior release after Unreleased.")
     body = text[body_start:next_release].strip()
+    target_headings = list(
+        re.finditer(
+            rf"^## {re.escape(version)} — [0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}$",
+            text,
+            re.MULTILINE,
+        )
+    )
+    if target_headings:
+        empty = "### Contracts\n\n### Behavior\n\n### Operations"
+        target_start = target_headings[0].end()
+        target_end = text.find("\n## ", target_start)
+        target_body = text[target_start : target_end if target_end >= 0 else len(text)].strip()
+        target_required = (
+            _section_has_item(target_body, "Contracts", "Behavior"),
+            _section_has_item(target_body, "Behavior", "Operations"),
+            _section_has_item(target_body, "Operations", None),
+        )
+        if (
+            len(target_headings) != 1
+            or target_headings[0].start() != next_release + 1
+            or body != empty
+            or not all(target_required)
+        ):
+            raise ReleaseError("CHANGELOG.md is not in the canonical resumed release state.")
+        return
     required = (
         _section_has_item(body, "Contracts", "Behavior"),
         _section_has_item(body, "Behavior", "Operations"),
@@ -138,6 +159,40 @@ def _run(
         raise ReleaseError(f"Release command failed: {' '.join(args)}") from exc
 
 
+def _trusted_release_sha(
+    root: Path,
+    version: str,
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> str:
+    remote = os.environ.get("SKEIN_RELEASE_REMOTE", "github")
+    tag = f"refs/tags/v{version}"
+    try:
+        refs = _run(
+            runner,
+            ["git", "ls-remote", "--exit-code", "--tags", remote, tag, f"{tag}^{{}}"],
+            cwd=root,
+            capture=True,
+        ).stdout
+    except ReleaseError as exc:
+        raise ReleaseError(
+            "The finalized prior release tag is unavailable. Check the trusted Git remote and access."
+        ) from exc
+    peeled = [
+        line.split()[0]
+        for line in refs.splitlines()
+        if len(line.split()) == 2 and line.split()[1] == f"{tag}^{{}}"
+    ]
+    if len(peeled) != 1:
+        raise ReleaseError("The trusted prior release tag must be one annotated tag.")
+    try:
+        _run(runner, ["git", "cat-file", "-e", f"{peeled[0]}^{{commit}}"], cwd=root)
+    except ReleaseError as exc:
+        raise ReleaseError(
+            f"The finalized tag v{version} is not in this clone. Fetch it from {remote}."
+        ) from exc
+    return peeled[0]
+
+
 def _preflight(
     root: Path,
     requested: str,
@@ -164,10 +219,58 @@ def _preflight(
     node = _run(runner, ["node", "--version"], cwd=root, capture=True).stdout.strip()
     if not re.fullmatch(r"v22(?:\.[0-9]+){2}", node):
         raise ReleaseError("Release preparation requires Node 22.")
+    release_sha = _trusted_release_sha(root, marker, runner)
+    try:
+        _run(
+            runner,
+            [
+                "git",
+                "diff",
+                "--quiet",
+                release_sha,
+                "--",
+                "frontend/packages/extension-api",
+            ],
+            cwd=root,
+        )
+    except ReleaseError as exc:
+        raise ReleaseError(
+            "The extension API source changed without an extension API version change."
+        ) from exc
+    untracked = _run(
+        runner,
+        [
+            "git",
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "--",
+            "frontend/packages/extension-api",
+        ],
+        cwd=root,
+        capture=True,
+    ).stdout
+    if untracked.strip():
+        raise ReleaseError(
+            "The extension API package contains untracked files. Remove or commit them before release preparation."
+        )
     return marker
 
 
 def _replace_release_text(root: Path, old: str, new: str) -> None:
+    replace_expected(
+        root,
+        "docs/EXTENSIONS.md",
+        "In the current source, a retryable `PublicError` with status 503 adds\n"
+        "`Retry-After: 60`. The scheduled job wrapper records the machine code and\n"
+        "retryable value. It does not log the detail or the chained adapter error. PyPI\n"
+        f"{old} does not include this behavior. If a package depends on it, wait for the\n"
+        "next Skein release. Then set `minimum_core` to that released version.",
+        "A retryable `PublicError` with status 503 adds `Retry-After: 60`. The\n"
+        "scheduled job wrapper records the machine code and retryable value. It does\n"
+        "not log the detail or the chained adapter error. Read the Contracts section\n"
+        "of CHANGELOG.md for the minimum core version that includes this behavior.",
+    )
     replacements = [
         ("backend/pyproject.toml", f'version = "{old}"', f'version = "{new}"', 1),
         (
@@ -220,9 +323,63 @@ def _replace_release_text(root: Path, old: str, new: str) -> None:
             1,
         ),
         (
+            "deploy/k8s/overlays/example-prod/kustomization.yaml",
+            f"    newTag: {old}-prod\n",
+            f"    newTag: {new}-prod\n",
+            1,
+        ),
+        (
+            "deploy/k8s/overlays/example-prod/kustomization.yaml",
+            f"    newTag: {old}\n",
+            f"    newTag: {new}\n",
+            1,
+        ),
+        (
+            "deploy/k8s/overlays/example-dev/kustomization.yaml",
+            f"    newTag: {old}-dev\n",
+            f"    newTag: {new}-dev\n",
+            1,
+        ),
+        (
+            "deploy/k8s/overlays/example-dev/kustomization.yaml",
+            f"    newTag: {old}\n",
+            f"    newTag: {new}\n",
+            1,
+        ),
+        (
+            "deploy/k8s/base/kustomization.yaml",
+            f"environment ({old}-prod)",
+            f"environment ({new}-prod)",
+            1,
+        ),
+        (
+            "examples/workplace-extension/scripts/local-contract.sh",
+            f"skein_agents-{old}-py3-none-any.whl",
+            f"skein_agents-{new}-py3-none-any.whl",
+            4,
+        ),
+        (
+            "examples/workplace-extension/scripts/local-contract.sh",
+            f"miloctl-skein-frontend-host-{old}.tgz",
+            f"miloctl-skein-frontend-host-{new}.tgz",
+            3,
+        ),
+        (
             "scripts/reference-deployment-contract.sh",
             f"skein_agents-{old}-py3-none-any.whl",
             f"skein_agents-{new}-py3-none-any.whl",
+            1,
+        ),
+        (
+            "scripts/reference-deployment-contract.sh",
+            f"registry.example.com/skein/skein:{old}@sha256:",
+            f"registry.example.com/skein/skein:{new}@sha256:",
+            1,
+        ),
+        (
+            "scripts/reference-deployment-contract.sh",
+            f"registry.example.com/skein/skein-frontend:{old}-prod@sha256:",
+            f"registry.example.com/skein/skein-frontend:{new}-prod@sha256:",
             1,
         ),
         (
@@ -278,20 +435,46 @@ def _verify_artifacts(dist: Path, version: str) -> None:
         raise ReleaseError("The release artifacts do not match the expected package set.")
 
 
-def _verify_workplace_lock(root: Path, version: str) -> None:
+def _verify_extension_api_unchanged(root: Path) -> None:
     workplace = root / "examples/workplace-extension"
     lock = json.loads((workplace / "package-lock.json").read_text())
-    entry = lock.get("packages", {}).get("node_modules/@miloctl/skein-frontend-host", {})
-    filename = f"miloctl-skein-frontend-host-{version}.tgz"
+    entry = lock.get("packages", {}).get("node_modules/@miloctl/skein-extension-api", {})
+    filename = "miloctl-skein-extension-api-1.0.0.tgz"
     archive = workplace / "dist" / filename
     digest = base64.b64encode(hashlib.sha512(archive.read_bytes()).digest()).decode()
     if (
-        entry.get("version") != version
+        entry.get("version") != "1.0.0"
         or entry.get("resolved") != f"file:dist/{filename}"
         or entry.get("integrity") != f"sha512-{digest}"
         or entry.get("link") is True
     ):
-        raise ReleaseError("The workplace npm lock does not match the frontend host bytes.")
+        raise ReleaseError(
+            "The extension API bytes changed without an extension API version change."
+        )
+
+
+def _verify_workplace_lock(root: Path, version: str) -> None:
+    workplace = root / "examples/workplace-extension"
+    lock = json.loads((workplace / "package-lock.json").read_text())
+    packages = lock.get("packages", {})
+    expected = {
+        "@miloctl/skein-extension-api": ("1.0.0", "miloctl-skein-extension-api-1.0.0.tgz"),
+        "@miloctl/skein-frontend-host": (
+            version,
+            f"miloctl-skein-frontend-host-{version}.tgz",
+        ),
+    }
+    for package, (package_version, filename) in expected.items():
+        entry = packages.get(f"node_modules/{package}", {})
+        archive = workplace / "dist" / filename
+        digest = base64.b64encode(hashlib.sha512(archive.read_bytes()).digest()).decode()
+        if (
+            entry.get("version") != package_version
+            or entry.get("resolved") != f"file:dist/{filename}"
+            or entry.get("integrity") != f"sha512-{digest}"
+            or entry.get("link") is True
+        ):
+            raise ReleaseError(f"The workplace npm lock does not match {package} bytes.")
 
 
 def _assert_final_state(root: Path, old: str, new: str) -> None:
@@ -311,6 +494,7 @@ def _assert_final_state(root: Path, old: str, new: str) -> None:
         f"@miloctl/skein-frontend-host@{old}",
         f"image: skein:{old}",
         f"image: skein-frontend:{old}",
+        f"newTag: {old}",
     )
     active = [
         "RELEASING.md",
@@ -325,6 +509,10 @@ def _assert_final_state(root: Path, old: str, new: str) -> None:
         "examples/workplace-extension/deployment/Dockerfile",
         "examples/workplace-extension/deployment/Frontend.Dockerfile",
         "examples/workplace-extension/deployment/skein.yaml",
+        "examples/workplace-extension/scripts/local-contract.sh",
+        "deploy/k8s/base/kustomization.yaml",
+        "deploy/k8s/overlays/example-prod/kustomization.yaml",
+        "deploy/k8s/overlays/example-dev/kustomization.yaml",
         "scripts/reference-deployment-contract.sh",
         "scripts/reference-frontend-contract.sh",
         "scripts/reference-images-contract.sh",
@@ -400,6 +588,7 @@ def prepare(
     _verify_artifacts(dist, version)
 
     workplace = root / "examples/workplace-extension"
+    _verify_extension_api_unchanged(root)
     _run(
         runner,
         [

@@ -14,6 +14,7 @@ test("a signed-out visitor is gated, and the round trip opens the workspace", as
 }) => {
   const errors: string[] = [];
   await page.goto("/");
+  const appOrigin = new URL(page.url()).origin;
   // the gate, not the workspace: no name picker in oidc mode
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
   await expect(page.getByText("Sign in to open the workspace.")).toBeVisible();
@@ -21,10 +22,13 @@ test("a signed-out visitor is gated, and the round trip opens the workspace", as
   await page.getByRole("button", { name: "Sign in" }).click();
 
   // the browser really leaves for the IdP and really comes back
-  await page.waitForURL(/\/auth\/callback|\/$/, { timeout: 15_000 });
   await expect(page.getByRole("button", { name: "Sign in" })).toBeHidden({
     timeout: 15_000,
   });
+  await page.waitForURL(
+    (url) => url.origin === appOrigin && !url.pathname.startsWith("/auth/"),
+    { timeout: 15_000 },
+  );
 
   // the workspace renders under the IdP's identity, and the name comes from
   // the validated token rather than anything the browser asserted
@@ -51,15 +55,17 @@ test("an authenticated request carries the bearer token, not a name header", asy
   page,
 }) => {
   await page.goto("/");
+  const appOrigin = new URL(page.url()).origin;
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("button", { name: "Sign in" })).toBeHidden({
     timeout: 15_000,
   });
   // the callback page redirects to returnTo once the exchange lands; a
   // navigation issued before that settles is cancelled by it
-  await page.waitForURL((u) => !u.pathname.startsWith("/auth/"), {
-    timeout: 15_000,
-  });
+  await page.waitForURL(
+    (url) => url.origin === appOrigin && !url.pathname.startsWith("/auth/"),
+    { timeout: 15_000 },
+  );
 
   const authorized = page.waitForRequest(
     (r) => r.url().includes("/api/") && !!r.headers()["authorization"],
@@ -86,24 +92,30 @@ test("a callback that did not start in this tab is refused", async ({ page }) =>
 
 test("signing out clears the stored session", async ({ page }) => {
   await page.goto("/");
+  const appOrigin = new URL(page.url()).origin;
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("button", { name: "Sign in" })).toBeHidden({
     timeout: 15_000,
   });
   // the callback's redirect is still in flight here, and it destroys the
   // execution context an evaluate() runs in
-  await page.waitForURL((u) => !u.pathname.startsWith("/auth/"), {
-    timeout: 15_000,
-  });
+  await page.waitForURL(
+    (url) => url.origin === appOrigin && !url.pathname.startsWith("/auth/"),
+    { timeout: 15_000 },
+  );
   expect(
     await page.evaluate(() => window.localStorage.getItem("skein-oidc")),
   ).toBeTruthy();
 
   await page.getByRole("button", { name: /ava/i }).first().click();
+  const signedOut = page.waitForNavigation({
+    waitUntil: "domcontentloaded",
+    timeout: 15_000,
+  });
   await page.getByText("Sign out").click();
+  await signedOut;
 
-  // the gate returning is what proves the sign-out landed; reading storage
-  // before it destroys the execution context mid-navigation
+  // The reload commits the cleared session before this context reads storage.
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible({
     timeout: 15_000,
   });

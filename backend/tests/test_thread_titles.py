@@ -160,6 +160,19 @@ def test_a_real_summary_reaches_the_sidebar(client, monkeypatch):
 # browser. Do not add a pytest test claiming to cover it.
 
 
+def test_title_provider_failure_logs_only_the_exception_class(client, monkeypatch, caplog):
+    canary = "sk-live-title-secret request_id=title-42"
+
+    def broken():
+        raise RuntimeError(canary)
+
+    monkeypatch.setattr("app.routes.chat.build_titler", broken)
+    _read_chat(client, "keep the deterministic title", thread="tt-title-fault")
+
+    assert canary not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
 def test_a_later_turn_builds_no_titler_at_all(client, monkeypatch):
     """The cost bound is on the model CALL, not just on the write.
 

@@ -1,7 +1,7 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 
-const IDP = "http://127.0.0.1:8610";
-const API = "http://127.0.0.1:8601";
+const IDP = process.env.SKEIN_OIDC_IDP_URL ?? "http://127.0.0.1:8610";
+const API = process.env.SKEIN_OIDC_API_URL ?? "http://127.0.0.1:8601";
 
 async function signedInPage(browser: Browser, user: string) {
   const context = await browser.newContext();
@@ -25,21 +25,27 @@ async function signedInPage(browser: Browser, user: string) {
   );
   expect(session?.user).toBe(user);
   expect(session?.access_token).toBeTruthy();
+  await expect(page.getByRole("button", { name: new RegExp(user, "i") })).toBeVisible({
+    timeout: 15_000,
+  });
   return { context, page, token: String(session.access_token) };
 }
 
-function watchSignedInPage(page: Page) {
+function watchSignedInPage(page: Page, ignoredFailures: string[] = []) {
   const failures: string[] = [];
   page.on("console", (message) => {
-    if (message.type() === "error") failures.push(`console: ${message.text()}`);
+    const failure = `console: ${message.text()}`;
+    if (message.type() === "error" && !ignoredFailures.includes(failure))
+      failures.push(failure);
   });
   page.on("pageerror", (error) => failures.push(`page: ${error.message}`));
   page.on("requestfailed", (request) =>
     failures.push(`request: ${request.method()} ${request.url()}`),
   );
   page.on("response", (response) => {
-    if (response.status() >= 400)
-      failures.push(`response: ${response.status()} ${response.url()}`);
+    const failure = `response: ${response.status()} ${response.url()}`;
+    if (response.status() >= 400 && !ignoredFailures.includes(failure))
+      failures.push(failure);
   });
   return failures;
 }
@@ -80,13 +86,45 @@ test("the package-built workplace keeps core writes and extension policy togethe
   await integration.context.close();
 
   const manager = await signedInPage(browser, "mira");
-  const failures = watchSignedInPage(manager.page);
+  const capability = await request.get(
+    `${API}/api/capabilities?actions=atlas.dashboard.view`,
+    { headers: authorization(manager.token) },
+  );
+  expect(capability.status()).toBe(200);
+  expect((await capability.json()).actions["atlas.dashboard.view"].effect).toBe("permit");
+  const metricsUrl = `${API}/api/extensions/atlas.workplace/metrics`;
+  const failures = watchSignedInPage(manager.page, [
+    `response: 503 ${metricsUrl}`,
+    "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+  ]);
+  await manager.page.route(metricsUrl, (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "unavailable" }),
+    }),
+  );
   await manager.page.goto("/dashboard#atlas-delivery");
-  await expect(manager.page.getByRole("link", { name: "Atlas" })).toBeVisible();
+  await expect(manager.page.getByRole("link", { name: "Atlas" })).toBeVisible({
+    timeout: 15_000,
+  });
   await expect(
     manager.page.getByRole("heading", { name: "Atlas delivery indicators" }),
   ).toBeVisible();
-  await expect(manager.page.getByText("0 linked items · 1 sync runs")).toBeVisible();
+  const unavailable = manager.page.getByText(
+    "Atlas delivery indicators are unavailable.",
+  );
+  await expect(unavailable).toBeVisible();
+  await expect(unavailable).toHaveAttribute("role", "alert");
+  await expect(unavailable).toHaveAttribute("aria-live", "polite");
+  await expect(manager.page.getByText("0 linked items · 0 sync runs")).toHaveCount(0);
+  await expect(manager.page.getByText("Loading Atlas delivery indicators…")).toHaveCount(0);
+  await manager.page.unroute(metricsUrl);
+  await manager.page.getByRole("button", { name: "Try again" }).click();
+  const recovered = manager.page.getByText("0 linked items · 1 sync run");
+  await expect(recovered).toBeVisible();
+  await expect(recovered).toHaveAttribute("role", "status");
+  await expect(recovered).toHaveAttribute("aria-live", "polite");
   const managerSync = await request.post(`${API}/api/extensions/atlas.workplace/sync`, {
     headers: authorization(manager.token),
   });

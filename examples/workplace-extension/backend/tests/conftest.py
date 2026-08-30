@@ -22,8 +22,9 @@ if not re.search(r"(?:^|[_.-])(?:test|tests|contract|scratch)(?:[_.-]|$)", _DATA
 _DATA_DIR = Path(tempfile.mkdtemp(prefix="atlas-skein-test-"))
 os.environ.setdefault("SKEIN_DATA_DIR", str(_DATA_DIR))
 os.environ["SKEIN_AUTH_MODE"] = "trusted-header"
-os.environ.setdefault("SKEIN_MODEL_PROVIDER", "mock")
-os.environ.setdefault("SKEIN_SCHEDULER", "0")
+os.environ["SKEIN_MODEL_PROVIDER"] = "mock"
+os.environ["SKEIN_SCHEDULER"] = "0"
+os.environ["SKEIN_EMBEDDINGS"] = "0"
 
 # Importing `app` or `atlas_skein` earlier binds configuration before test isolation is set.
 import pytest  # noqa: E402

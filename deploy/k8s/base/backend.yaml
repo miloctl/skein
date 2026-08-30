@@ -34,6 +34,9 @@ spec:
       labels:
         app: skein-backend
     spec:
+      # No container calls the Kubernetes API. A projected token gives a
+      # compromised container unnecessary namespace credentials.
+      automountServiceAccountToken: false
       # 210s: an agent chat turn tolerates 180s of member silence
       # (routes/chat.py) — the default 30s grace kills mid-turn transcripts.
       terminationGracePeriodSeconds: 210
@@ -118,7 +121,7 @@ spec:
             failureThreshold: 150
           readinessProbe:
             httpGet:
-              path: /health
+              path: /ready
               port: http
             periodSeconds: 10
             timeoutSeconds: 5

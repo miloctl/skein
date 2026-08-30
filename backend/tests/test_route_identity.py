@@ -17,7 +17,8 @@ from app.routes.deps import admin_user, current_user, strong_user
 
 # path -> why this one answers a caller it cannot name
 OPEN_READS = {
-    "/health": "the liveness probe, outside /api and outside the perimeter",
+    "/health": "the startup and liveness probe, outside /api and outside the perimeter",
+    "/ready": "the auth-readiness probe, which must work before any sign-in can succeed",
     "/api/auth/config": (
         "the public OIDC client parameters. Read BEFORE a sign-in exists, so"
         " requiring identity here would make signing in impossible"
