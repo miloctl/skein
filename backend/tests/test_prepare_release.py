@@ -341,7 +341,7 @@ def test_prepare_builds_artifacts_before_locks_and_writes_marker_last(release_tr
     assert runner.calls[-1][0][1:3] == ["-m", "pytest"]
     assert (root / ".github/release-version").read_text() == f"{target}\n"
     assert f"## {target} — 2026-08-28" in (root / "CHANGELOG.md").read_text()
-    assert ">=0.3.0,<0.4.0" in (root / "examples/workplace-extension/pyproject.toml").read_text()
+    assert ">=0.3.0,<0.5.0" in (root / "examples/workplace-extension/pyproject.toml").read_text()
     assert (
         f"newTag: {target}"
         in (root / "deploy/k8s/overlays/example-prod/kustomization.yaml").read_text()

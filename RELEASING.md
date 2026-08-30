@@ -81,6 +81,29 @@ The script updates all synchronized versions and artifact paths. It builds the e
 
 The finalized prior tag must be reachable through Git remote `github`. If the trusted remote has another name, set `SKEIN_RELEASE_REMOTE` to that name.
 
+### When the release crosses a minor boundary
+
+The extension compatibility windows name the first incompatible core
+version (`maximum_core_exclusive`, and the `<X.Y.0` pip bound). A release
+that reaches that version must move every window forward FIRST, in its own
+reviewed commit, or the script refuses with a count mismatch — a bound that
+names the new version is a compatibility claim, not stale release text.
+The windows live in `extension.toml`, `module.py`, the frontend manifest,
+and their doc examples: search for the old bound before you run the script.
+Moving a window forward asserts the extension works on the new core. The
+passing contract suite is that evidence — do not move a window the suite
+has not earned.
+
+### Recover an abandoned prepared release
+
+If a release was prepared (the marker changed) but never published and
+finalized, the next preparation refuses because the finalized prior tag
+does not exist. Recovery: complete the abandoned release's publication
+(push its marker commit, run the publishers, finalize with the run ID). If
+that release predates the finalize workflow itself, create the annotated
+tag by hand at the release commit and push it — a one-time bootstrap, done
+for `v0.3.2` on 2026-08-30, never the normal path.
+
 ## Run the release gates
 
 Run these commands from the repository root:

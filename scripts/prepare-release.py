@@ -55,7 +55,13 @@ def replace_expected(
         return
     if old_count == 0 and new_count == count:
         return
-    raise ReleaseError(f"{relative} does not contain the expected release text.")
+    raise ReleaseError(
+        f"{relative} does not contain the expected release text:"
+        f" {old_count}x {old!r} (expected {count}), {new_count}x {new!r}"
+        f" (expected 0). A pre-existing match on the new version is usually a"
+        f" compatibility bound the release is crossing — see RELEASING.md,"
+        f" 'When the release crosses a minor boundary'."
+    )
 
 
 def _section_has_item(body: str, heading: str, next_heading: str | None) -> bool:
