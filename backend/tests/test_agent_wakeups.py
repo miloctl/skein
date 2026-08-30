@@ -116,6 +116,98 @@ def test_commit_starts_the_worker_when_background_jobs_are_enabled(fresh_db, mon
     assert agent_wakeups.status("backend-architect")["status"] == "completed"
 
 
+def test_pause_keeps_pending_wake_idle_without_respawning(fresh_db, monkeypatch):
+    from app import config
+    from app.services import agent_runner, agent_wakeups, settings
+
+    _mint(fresh_db, "sponsor")
+    _mint(fresh_db, "backend-architect", "agent")
+    starts: list[object] = []
+
+    class ProbeThread:
+        def __init__(self, *, target, **_kwargs):
+            self.target = target
+
+        def start(self):
+            starts.append(self.target)
+
+    monkeypatch.setattr(config, "SCHEDULER_ENABLED", True)
+    monkeypatch.setattr(agent_wakeups.threading, "Thread", ProbeThread)
+    settings.set_agent_automation(False, actor="sponsor")
+    try:
+        with fresh_db.transaction():
+            agent_wakeups.enqueue("backend-architect", 80, requested_by="sponsor")
+        projected = agent_wakeups.status("backend-architect")
+        assert projected["status"] == "pending"
+        assert projected["automation_enabled"] is False
+        assert projected["reason"] == "automation_paused"
+        assert starts == []
+
+        agent_wakeups._drain()
+        assert starts == []
+        assert agent_wakeups.status("backend-architect")["status"] == "pending"
+    finally:
+        fresh_db.execute("DELETE FROM app_settings WHERE key = ?", (settings.AGENT_AUTOMATION,))
+        agent_runner.automation_resumed()
+        with agent_wakeups._worker_lock:
+            agent_wakeups._worker_running = False
+
+
+def test_pause_race_returns_claimed_wake_to_pending(fresh_db, monkeypatch):
+    from app import config
+    from app.services import agent_runner, agent_wakeups, settings
+
+    monkeypatch.setattr(config, "SCHEDULER_ENABLED", True)
+    monkeypatch.setattr(agent_wakeups, "kick", lambda: False)
+    _mint(fresh_db, "sponsor")
+    _mint(fresh_db, "backend-architect", "agent")
+    with fresh_db.transaction():
+        agent_wakeups.enqueue("backend-architect", 80, requested_by="sponsor")
+    claim = agent_wakeups.claim_next()
+    assert claim
+
+    settings.set_agent_automation(False, actor="sponsor")
+    try:
+        result = agent_runner.run_one(
+            "backend-architect",
+            explicit_key=str(claim["attempts"]),
+            allowed_tools=agent_wakeups.WAKE_TOOLS,
+        )
+        assert result["paused"] is True
+        agent_wakeups.finish(claim, result)
+        projected = agent_wakeups.status("backend-architect")
+        assert projected["status"] == "pending"
+        assert projected["reason"] == "automation_paused"
+    finally:
+        monkeypatch.setattr(agent_wakeups, "kick", lambda: False)
+        settings.set_agent_automation(True, actor="sponsor")
+
+
+def test_cancelled_wake_keeps_its_safe_stop_reason(fresh_db):
+    from app.services import agent_wakeups
+
+    _mint(fresh_db, "sponsor")
+    _mint(fresh_db, "backend-architect", "agent")
+    with fresh_db.transaction():
+        agent_wakeups.enqueue("backend-architect", 80, requested_by="sponsor")
+    claim = agent_wakeups.claim_next()
+    assert claim
+
+    agent_wakeups.finish(
+        claim,
+        {
+            "agent": "backend-architect",
+            "ran": True,
+            "fault": False,
+            "stopped": "cancelled",
+        },
+    )
+
+    projected = agent_wakeups.status("backend-architect")
+    assert projected["status"] == "completed"
+    assert projected["reason"] == "cancelled"
+
+
 def test_startup_never_retries_unknown_completion(fresh_db):
     from app.services import agent_wakeups
 

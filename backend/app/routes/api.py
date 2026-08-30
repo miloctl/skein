@@ -2011,6 +2011,27 @@ def post_context_strategy(body: ContextStrategyIn, user: AdminUser):
         raise HTTPException(400, str(e)) from e
 
 
+class AgentAutomationIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
+
+
+@router.get("/settings/agent-automation")
+def get_agent_automation(user: CurrentUser):
+    """Reads for everyone — Task Peek's wake wording depends on whether
+    anything will drain the queue; writing is operator-only."""
+    return {"enabled": settings.agent_automation_enabled()}
+
+
+@router.post("/settings/agent-automation")
+def post_agent_automation(body: AgentAutomationIn, user: AdminUser):
+    """AdminUser, both directions: any administrator can pause every
+    unattended turn, and any administrator can resume them. The switch stops
+    automation only — no authority or review decision moves through it."""
+    ratelimit.check("write", user)
+    return settings.set_agent_automation(body.enabled, actor=user)
+
+
 class ModelPickIn(BaseModel):
     # extra=forbid + no default: same trap ContextStrategyIn names — a
     # mistyped field falling through to "" is the CLEAR sentinel
@@ -2502,7 +2523,8 @@ class TaskPatch(BaseModel):
     description: str = Field("", max_length=work.DESCRIPTION_LEN)
     title: str = Field("", max_length=work.TITLE_LEN)
     committed_week: str = Field("", max_length=10)
-    waiting_on: str = Field("", max_length=32)  # "blocker:12" | "task:3" | "-"
+    # task, blocker, promise, or question id; '-' clears the dependency.
+    waiting_on: str = Field("", max_length=32)
     milestone_id: int = 0  # relink (-1 unlinks)
     engagement_id: int = 0  # relink (-1 unlinks)
 

@@ -93,6 +93,9 @@ synthesis: false    # optional, default false — the +1 model call is opt-in
   lenient (a malformed file drops off the list rather than 500ing chat);
   `validate_all()` is the strict pass wired into `lint.sh`. Strict rules:
   - 2–4 members, all existing bench slugs, no duplicates
+  - every resolved member permits flock use. Persona frontmatter `flock: false`
+    makes a live-conversation-only persona ineligible. A same-slug persona
+    overlay wins and can restore eligibility by omitting the field
   - flock slug matches the persona slug charset and does not collide with
     a bench slug — `/flock <slug>` and `/as <slug>` share a namespace in
     the user's head, and a collision makes one of them unreachable
@@ -371,8 +374,9 @@ plus axe extends to the trace section.
 
 ## Open questions — closed (2026-08-09)
 
-- Stock flocks: two shipped, as the lean said — `engineering.yaml` and
-  `delivery.yaml` (project-shepherd, sprint-prioritizer, meeting-notes).
+- Stock flocks: five ship — `engineering.yaml`, `delivery.yaml`,
+  `judgment.yaml`, `people.yaml`, and `shiproom.yaml`. The new groups cover
+  adversarial decisions, team conditions, and release readiness.
 - The synthesis masthead did not get the goose. A merge section asks the
   reader to weigh answers, and the goose is earned only where nothing is
   asked of the reader.

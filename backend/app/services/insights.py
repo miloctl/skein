@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 from .. import db
 from . import scope, stats, wording
 from .scope import WORKSPACE_ONLY
-from .slas import AGING_WIP_DAYS, VERDICT_FLOOR_N
+from .slas import ABANDONED_DAYS, AGING_WIP_DAYS, VERDICT_FLOOR_N
 
 WINDOW_DAYS = 28
 # Round trips inside ONE turn's tool loop before it is worth a human's
@@ -458,6 +458,43 @@ def _r_aging_wip() -> list[dict]:
             n=len(aging),
             window="point-in-time",
         )
+    ]
+
+
+def _r_task_abandoned() -> list[dict]:
+    """Worked, then dropped: several hands on a task, then nothing.
+
+    A different signal from aging_wip, which is age alone: a task nobody ever
+    touched is new work with a planning problem, while a task that drew notes
+    from two people and then went silent is a task the team walked away from.
+    The receipt carries counts and the task, never the authors — the finding
+    is about the work going quiet, not about who went quiet (the field-guide
+    anti-surveillance rule)."""
+    cutoff = _iso(_today() - timedelta(days=ABANDONED_DAYS))
+    rows = db.query(
+        "SELECT t.id, t.title, COUNT(w.id) AS notes,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " COUNT(DISTINCT w.author) AS actors"
+        f" FROM tasks t JOIN task_worklog w ON w.task_id = t.id AND w.{WORKSPACE_ONLY}"
+        f" WHERE t.{WORKSPACE_ONLY} AND t.status NOT IN ('done', 'void')"
+        " AND t.updated_at < ?"
+        " GROUP BY t.id, t.title"
+        " HAVING COUNT(w.id) >= 3 AND COUNT(DISTINCT w.author) >= 2"
+        " AND MAX(w.created_at) < ?"
+        " ORDER BY t.id",
+        (cutoff, cutoff),
+    )
+    return [
+        _finding(
+            "task_abandoned",
+            "medium",
+            f"Task #{r['id']} drew {r['notes']} worklog notes from {r['actors']}"
+            f" people, then nothing for {ABANDONED_DAYS} days.",
+            {"task": {"id": r["id"], "title": r["title"]}},
+            n=r["notes"],
+            window="point-in-time",
+            subject=f"task:{r['id']}",
+        )
+        for r in rows
     ]
 
 
@@ -1345,6 +1382,7 @@ RULES = (
     _r_mttr,
     _r_escalation_spike,
     _r_aging_wip,
+    _r_task_abandoned,
     _r_commitment_line,
     _r_promises_external,
     _r_review_stall,

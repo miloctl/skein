@@ -11,13 +11,17 @@ Source material: definitions adapted from `~/external/agency-agents`
 (867 agents; we vendor a curated subset as repo files — no runtime
 dependency on the external checkout).
 
-## Why these ten
+## The bench
 
-Eight picked for direct relevance to a dev strike team, two for career
-growth (pairs with Settings "growth interests" and the 1:1 loop):
+Picked for direct relevance to a dev strike team, plus career growth
+(pairs with Settings "growth interests" and the 1:1 loop) and team
+health. Before adding a persona: search this table for the lens, justify
+the gap it leaves, and prefer extending an existing persona over adding a
+near-duplicate.
 
 | Slug | From | Lens |
 |---|---|---|
+| bosun | Skein-native | read-only product guide over the live field-guide registry |
 | code-reviewer | engineering-code-reviewer | correctness/security review of pasted diffs |
 | backend-architect | engineering-backend-architect | design consultations, tradeoff analysis |
 | minimal-change-engineer | engineering-minimal-change-engineer | scope discipline: the smallest fix that works |
@@ -28,6 +32,25 @@ growth (pairs with Settings "growth interests" and the 1:1 loop):
 | project-shepherd | project-management-project-shepherd | cross-engagement follow-through |
 | growth-mentor | specialized/personal-growth-mentor | goal clarity, habit design, accountability — career growth |
 | training-designer | specialized/corporate-training-designer | skill-building plans for the team — career growth |
+| security-engineer | security-appsec-engineer + agent-skills/security-auditor | threat models, exploitable-bug review, fix-before-merge triage |
+| test-engineer | agent-skills/test-engineer + testing-test-automation-engineer | test strategy, level selection, flake hunting |
+| requirements-interviewer | agent-skills/interview-me | one-question-at-a-time intake until the real ask surfaces — live conversation only, never in a flock |
+| workflow-architect | specialized-workflow-architect | every branch, failure mode, and recovery path before build |
+| release-captain | agent-skills/shipping-and-launch | rollout stages, rollback paths, the launch gate |
+| research-synthesist | research-synthesist | evidence grading, primary sources, what the search did not find |
+| plan-reviewer | agent-skills/doubt-driven-development + specialized-master-plan-architect | adversarial plan attack before commitment |
+| codebase-archaeologist | specialized-codebase-archaeologist | cross-session drift: parallel implementations, orphaned config |
+| migration-steward | agent-skills/deprecation-and-migration | sunset sequencing, consumer tracking, removal dates |
+| org-psychologist | specialized/organizational-psychologist | team conditions — safety, load, friction; patterns, never people |
+| technical-writer | engineering-technical-writer | doc audits and the deferred draft |
+| experiment-tracker | project-management-experiment-tracker | hypothesis, success criterion, stop rule before shipping |
+
+Discipline personas (security-engineer, test-engineer, plan-reviewer,
+minimal-change-engineer, code-reviewer, sprint-prioritizer) carry a
+"Rationalizations you refuse" list: the three excuses most used to argue
+the persona out of its discipline mid-conversation, each with its
+rebuttal. Keep the list at three — it is armor for the persona's spine,
+not a second body.
 
 ## Deployment overlay
 
@@ -43,7 +66,7 @@ validator covers overlay files and labels them `(overlay)`.
 
 - **`backend/personas/*.md`** — one file per persona, edited like code
   (the playbooks precedent). Frontmatter: `name`, `description`, `emoji`,
-  `vibe`, `disclosure`, plus the optional behavior fields (`model`,
+  `vibe`, `disclosure`, optional `flock`, plus the behavior fields (`model`,
   `temperature`, `tools` — see below); body = the persona system prompt,
   written Skein-aware (knows the capture grammar, the review gate, and its
   own lens). Slug = filename.
@@ -157,6 +180,14 @@ Frontmatter can add three optional fields; pack-wide defaults live in
   sees the rest. Extra/MCP tools cannot be allowlisted by name. A pack-wide
   `tools` default restricts every persona and no persona can override it
   back to unrestricted — keep pack defaults minimal.
+
+## Flock eligibility
+
+`flock: false` limits a persona to live conversation. The field is optional,
+and the default is `true`. Flock validation reads the resolved persona file,
+so a same-slug deployment overlay can omit the field and restore eligibility.
+An invalid value drops the persona at runtime and fails the strict validator.
+Pack defaults do not set this field.
 
 Runtime parsing is lenient (a malformed persona drops off the bench, chat
 stays up). `python -m app.services.personas` is the strict validator that

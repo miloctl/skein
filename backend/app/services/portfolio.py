@@ -26,6 +26,7 @@ _WAIT_SATISFIED = {
     "task": "SELECT id FROM tasks WHERE status IN ('done', 'void') AND id IN ({marks})",
     "blocker": "SELECT id FROM blockers WHERE status = 'resolved' AND id IN ({marks})",
     "promise": "SELECT id FROM promises WHERE status != 'open' AND id IN ({marks})",
+    "question": "SELECT id FROM questions WHERE status = 'answered' AND id IN ({marks})",
 }
 
 

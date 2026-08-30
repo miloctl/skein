@@ -1,0 +1,12 @@
+{
+  "positive": [
+    "Production is down and customers are complaining \u2014 coordinate this incident.",
+    "Checkout hangs intermittently and it is getting worse. Who owns comms, what is the timeline?"
+  ],
+  "negative": [
+    {
+      "prompt": "Are we ready to launch tomorrow \u2014 what is the rollback path?",
+      "owner": "release-captain"
+    }
+  ]
+}

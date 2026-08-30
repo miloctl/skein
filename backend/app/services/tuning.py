@@ -121,6 +121,29 @@ TUNABLES: tuple[Tunable, ...] = (
         " that fires.",
     ),
     Tunable(
+        "agent_run_turns",
+        "Unattended turn cap",
+        lambda: config.AGENT_RUN_TURNS,
+        1,
+        500,
+        "turns per unattended run",
+        True,
+        "Stops an unattended agent run at a turn boundary, with the stop"
+        " reason named in the run record. The wall clock is the backstop"
+        " for a run stuck on one connection.",
+    ),
+    Tunable(
+        "agent_run_tokens",
+        "Unattended token cap",
+        lambda: config.AGENT_RUN_TOKENS,
+        1_000,
+        10_000_000,
+        "tokens per unattended run",
+        True,
+        "Total token ceiling for one unattended run. The daily ceiling"
+        " still refuses the next run after heavy spend.",
+    ),
+    Tunable(
         "thread_pool",
         "Request thread pool",
         lambda: config.THREAD_POOL,

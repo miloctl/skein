@@ -187,7 +187,7 @@ def update_task(
         due_date: New due date (YYYY-MM-DD).
         description: New description.
         waiting_on: What this task is stuck behind — 'task:12', 'blocker:3',
-            or 'promise:7'; '-' clears it.
+            'promise:7', or 'question:5'; '-' clears it.
     """
     payload: dict[str, Any] = {
         "status": status,

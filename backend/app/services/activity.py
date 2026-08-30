@@ -1059,6 +1059,8 @@ VERBS: dict[str, tuple[str, str]] = {
     "claim_machine_identity": ("assigned machine identity ownership", "loud"),
     "set_user_active": ("changed whether a teammate is active", "loud"),
     "set_context_strategy": ("changed the long-chat strategy", "loud"),
+    # loud: it stops or restarts every unattended agent turn at once
+    "set_agent_automation": ("changed whether unattended agent runs happen", "loud"),
     # loud like the strategy above: it changes what every chat costs
     "set_model_pick": ("changed the team model", "loud"),
     "backup": ("took a manual backup", "normal"),

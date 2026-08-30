@@ -313,7 +313,11 @@ class GovernedMCPTool(AgentTool):
             )
             record("failed", self.tool_name, completion_status, actor=actor)
             _audit_mcp(actor, self.tool_name, completion_status, code)
-            log.exception("governed MCP tool failed", extra={"tool": self.tool_name})
+            log.warning(
+                "governed MCP tool failed (tool=%s error=%s)",
+                self.tool_name,
+                type(exc).__name__,
+            )
             yield _refusal(
                 tool_use,
                 "The remote tool failed. Read the server log for the cause.",
@@ -325,7 +329,14 @@ class GovernedMCPTool(AgentTool):
         # eventually drop a healthy server.
         with _lock:
             _timeout_strikes.pop(self.server_id, None)
-        if not events or not _schema_matches(events[-1], self.metadata.output_schema):
+        # The SDK delegate yields a ToolResultEvent ENVELOPE — a dict shaped
+        # {"type": "tool_result", "tool_result": {...}} — and the declared
+        # output_schema describes the RESULT inside. Validating the envelope
+        # refused every valid result from a schema with required fields, and
+        # passed everything for a bare {"type": "object"}.
+        last = events[-1] if events else None
+        result = last.get("tool_result", last) if isinstance(last, dict) else last
+        if not events or not _schema_matches(result, self.metadata.output_schema):
             record("failed", self.tool_name, "invalid output", actor=actor)
             completion_status = (
                 "completion_unknown" if self.metadata.effect == "write" else "failed"
@@ -627,11 +638,12 @@ def _finish_load(server_ids: set[str], configured_ids: set[str], generation: int
     loaded: list[_MCPConnection] = []
     try:
         _, loaded = _connect_servers(server_ids)
-    except Exception:
+    except Exception as exc:
         # A parser or import fault outside one server must leave the cache
         # retryable. Publishing an empty terminal cache makes recovery require
-        # a process restart.
-        log.exception("MCP configuration failed to load — MCP will retry")
+        # a process restart. The class is enough: configured URLs and remote
+        # response bodies must not enter platform logs.
+        log.warning("MCP configuration failed to load — MCP will retry (%s)", type(exc).__name__)
 
     close_after: list[Any] = []
     with _lock:
@@ -714,14 +726,17 @@ def mcp_tools(reserved_names: set[str] | None = None) -> list:
                 daemon=True,
                 name="skein-mcp-retry",
             ).start()
-        except RuntimeError:
+        except RuntimeError as exc:
             # start() fails under thread exhaustion. Only _finish_load resets
             # _loading, so leaving it set parks every retry until a process
             # restart — and the raise would reach build_agent and kill a chat
             # turn over a dead integration.
             with _lock:
                 _loading = False
-            log.exception("MCP retry thread failed to start — MCP will retry")
+            log.warning(
+                "MCP retry thread failed to start — MCP will retry (%s)",
+                type(exc).__name__,
+            )
         return _without_reserved(current, reserved)
     return _without_reserved(_finish_load(ready, configured_ids, generation), reserved)
 
@@ -773,7 +788,7 @@ def _connect_servers(server_ids: set[str] | None = None) -> tuple[list, list[_MC
             if entered and client is not None:
                 with contextlib.suppress(Exception):
                     client.__exit__(None, None, None)
-            log.warning("MCP server '%s' failed to connect: %s", server_id, exc)
+            log.warning("MCP server '%s' failed to connect (%s)", server_id, type(exc).__name__)
     return _composed_tools(connections), connections
 
 

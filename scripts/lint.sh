@@ -44,6 +44,14 @@ if [ "$mode" != "frontend" ]; then
 
     echo "== theme contrast =="
     python3 scripts/check_theme_contrast.py
+
+    echo "== simplified english (knots how:) =="
+    # needs pyyaml: the PATH fallback above resolves python3 to the backend
+    # venv locally, and CI installs the backend deps into the runner's python.
+    # The self-test makes a regex regression fail even when today's corpus
+    # happens not to exercise the broken rule.
+    python3 scripts/check_ste.py --self-test
+    python3 scripts/check_ste.py
 fi
 
 if [ "$mode" != "backend" ]; then

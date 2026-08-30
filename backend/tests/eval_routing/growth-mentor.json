@@ -1,0 +1,12 @@
+{
+  "positive": [
+    "I want to get better at public speaking this quarter \u2014 help me design a habit.",
+    "Hold me accountable to my growth goals — my stated goal and my actual habits diverge."
+  ],
+  "negative": [
+    {
+      "prompt": "The whole team feels unsafe raising concerns and burnout is climbing.",
+      "owner": "org-psychologist"
+    }
+  ]
+}

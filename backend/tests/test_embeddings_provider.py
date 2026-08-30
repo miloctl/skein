@@ -270,6 +270,8 @@ def test_service_write_survives_a_dead_endpoint(monkeypatch, fresh_db, caplog):
     assert db.query_one("SELECT 1 AS x FROM embeddings WHERE entity_id = 90004") is None
     warnings = [r for r in caplog.records if "embedding failed" in r.message]
     assert len(warnings) == 1  # once per outage, not per write
+    assert "endpoint down" not in caplog.text
+    assert "ConnectionError" in caplog.text
 
 
 def test_embed_api_key_satisfies_and_wins_for_openai(monkeypatch, restore_config):
@@ -332,6 +334,29 @@ def test_backfill_embeds_only_missing_rows(monkeypatch, fresh_db, capsys):
             "SELECT 1 AS x FROM embeddings WHERE entity_id = ? AND model = 'model-A'", (eid,)
         )
         assert row, f"{eid} missing a current-model vector"
+
+
+def test_backfill_failure_prints_only_the_exception_class(monkeypatch, fresh_db, capsys):
+    from app import backfill_embeddings
+
+    canary = "sk-live-embed-secret request_id=embed-42"
+    monkeypatch.setattr(sys, "argv", ["backfill_embeddings"])
+    monkeypatch.setattr(config, "EMBEDDINGS_ENABLED", True)
+    monkeypatch.setattr(config, "EMBEDDINGS_ERROR", "")
+    monkeypatch.setattr(search, "missing_embeddings_count", lambda: 1)
+
+    def fail(*, on_error):
+        on_error("note", 90020, RuntimeError(canary))
+        return 0, 1
+
+    monkeypatch.setattr(search, "embed_missing", fail)
+    with pytest.raises(SystemExit) as error:
+        backfill_embeddings.main()
+
+    output = capsys.readouterr()
+    assert error.value.code == 1
+    assert canary not in output.err
+    assert "RuntimeError" in output.err
 
 
 def test_backfill_refuses_when_misconfigured(monkeypatch):

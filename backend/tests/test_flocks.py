@@ -35,7 +35,7 @@ def overlay(tmp_path, monkeypatch):
 def test_stock_flocks_load_and_validate():
     roster = flocks.list_flocks()
     slugs = {f["slug"] for f in roster}
-    assert {"engineering", "delivery"} <= slugs
+    assert slugs == {"delivery", "engineering", "judgment", "people", "shiproom"}
     assert flocks.validate_all() == []
 
 
@@ -139,3 +139,58 @@ def test_live_flock_scan_never_exposes_a_core_machine_subject(overlay, slug):
     with pytest.raises(ValueError, match="no flock"):
         flocks.get_flock(slug)
     assert any("reserved for a composed machine identity" in item for item in flocks.validate_all())
+
+
+def test_a_live_conversation_only_persona_cannot_join_a_flock(overlay):
+    _write(overlay, "probe", members=["code-reviewer", "requirements-interviewer"])
+    assert all(f["slug"] != "probe" for f in flocks.list_flocks())
+    errors = flocks.validate_all()
+    assert any("nobody to interview" in e for e in errors)
+
+
+def test_non_file_persona_overlay_does_not_replace_a_stock_flock_member(
+    overlay, tmp_path, monkeypatch
+):
+    persona_overlay = tmp_path / "persona-overlay"
+    persona_overlay.mkdir()
+    (persona_overlay / "backend-architect.md").mkdir()
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", persona_overlay)
+
+    assert "engineering" in {item["slug"] for item in flocks.list_flocks()}
+    assert any("expected a file" in item for item in personas.validate_all())
+
+
+def test_malformed_persona_member_drops_the_flock_without_stopping_runtime(
+    overlay, tmp_path, monkeypatch
+):
+    persona_overlay = tmp_path / "persona-overlay"
+    persona_overlay.mkdir()
+    (persona_overlay / "backend-architect.md").write_text(
+        "---\nname: Broken architect\nflock: sometimes\n---\nMissing description.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", persona_overlay)
+
+    assert "engineering" not in {item["slug"] for item in flocks.list_flocks()}
+    assert any("cannot be resolved" in item for item in flocks.validate_all())
+
+
+def test_same_slug_persona_overlay_can_restore_flock_eligibility(overlay, tmp_path, monkeypatch):
+    persona_overlay = tmp_path / "persona-overlay"
+    persona_overlay.mkdir()
+    (persona_overlay / "requirements-interviewer.md").write_text(
+        "---\n"
+        "name: Requirements Collaborator\n"
+        "description: Resolves delivery requirements in one bounded team response\n"
+        "---\n"
+        "Give one complete response.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", persona_overlay)
+    _write(overlay, "probe", members=["code-reviewer", "requirements-interviewer"])
+
+    assert flocks.get_flock("probe")["members"] == [
+        "code-reviewer",
+        "requirements-interviewer",
+    ]
+    assert flocks.validate_all() == []

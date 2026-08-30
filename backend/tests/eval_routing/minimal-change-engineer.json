@@ -1,0 +1,6 @@
+{
+  "positive": [
+    "What is the smallest diff that truly fixes this bug without refactoring the module?",
+    "My fix is growing into a rewrite \u2014 help me scope it back down."
+  ]
+}

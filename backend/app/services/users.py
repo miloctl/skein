@@ -190,6 +190,11 @@ def reserve_content_identities(slugs: set[str]) -> tuple[set[str], list[dict]]:
     accepted: set[str] = set()
     conflicts: list[dict] = []
     with db.transaction():
+        # Content startup and OIDC first sign-in claim the same folded namespace.
+        # Take every identity lock in sorted order before the deciding read, or
+        # two replicas can commit case variants as a human and a content agent.
+        for identity in sorted({fold(slug) for slug in slugs}):
+            db.name_lock(db.LOCK_IDENTITY, identity)
         rows = db.query("SELECT name, kind, identity_owner FROM users")
         for slug in sorted(slugs):
             folded = fold(slug)

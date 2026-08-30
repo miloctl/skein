@@ -18,6 +18,13 @@ MIGRATIONS = Path(__file__).resolve().parent.parent / "app" / "core_migrations"
 BASELINE = "001_baseline.sql"
 
 
+def test_core_migration_numbers_are_unique():
+    files = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
+    numbers = [name.split("_", 1)[0] for name in files]
+    duplicates = sorted({number for number in numbers if numbers.count(number) > 1})
+    assert duplicates == [], f"duplicate core migration numbers: {duplicates}"
+
+
 def test_extension_review_status_accepts_unknown_completion(fresh_db):
     from app.services import review
 

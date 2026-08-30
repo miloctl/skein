@@ -33,6 +33,48 @@ from ..identity_names import content_subject_refusal
 PERSONAS_DIR = config.STOCK_DIR / "personas"
 PACK_FILE = PERSONAS_DIR / "pack.json"
 
+# consult_specialist routes on descriptions alone (the roster is inlined in
+# the Chief-of-Staff prompt), so a description too thin to match on, or two
+# that read alike, misroutes silently — the wrong specialist answers and no
+# error surfaces. The shipped bench's highest pairwise overlap is 0.12, so
+# 0.5 flags only a near-duplicate, never shared domain vocabulary.
+_DESCRIPTION_STOPWORDS = frozenset(
+    [
+        "a",
+        "an",
+        "and",
+        "the",
+        "of",
+        "for",
+        "to",
+        "in",
+        "on",
+        "with",
+        "what",
+        "which",
+        "who",
+        "how",
+        "when",
+        "never",
+        "its",
+        "it",
+        "is",
+        "are",
+        "one",
+    ]
+)
+_MIN_DESCRIPTION_TOKENS = 5
+_SIMILARITY_LIMIT = 0.5
+# A pair allowed to share vocabulary needs a written reason HERE — a persona
+# file cannot exempt itself. A stale entry (pair no longer over the limit)
+# fails too, the tests/test_bounded_routes.py EXEMPT discipline.
+_SIMILARITY_EXEMPT: dict[tuple[str, str], str] = {}
+
+
+def _description_tokens(description: str) -> frozenset[str]:
+    words = re.findall(r"[a-z]+", description.lower())
+    return frozenset(w for w in words if w not in _DESCRIPTION_STOPWORDS and len(w) > 2)
+
 
 def _persona_dirs() -> list[Path]:
     """Stock first, overlay second — later wins."""
@@ -53,7 +95,7 @@ def _persona_files() -> dict[str, Path]:
     files: dict[str, Path] = {}
     for d in _persona_dirs():
         for path in sorted(d.glob("*.md")):
-            if _SLUG.match(path.stem) and not content_subject_refusal(path.stem):
+            if path.is_file() and _SLUG.match(path.stem) and not content_subject_refusal(path.stem):
                 files[path.stem] = path
     return files
 
@@ -64,7 +106,7 @@ def configured_slugs() -> set[str]:
         path.stem
         for directory in _persona_dirs()
         for path in directory.glob("*.md")
-        if _SLUG.match(path.stem)
+        if path.is_file() and _SLUG.match(path.stem)
     }
 
 
@@ -101,6 +143,7 @@ _FIELDS = (
     "emoji",
     "vibe",
     "disclosure",
+    "flock",
     "model",
     "temperature",
     "tools",
@@ -113,7 +156,10 @@ def _parse(path: Path) -> dict | None:
     slug = path.stem
     if not _SLUG.match(slug) or content_subject_refusal(slug):
         return None
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
     if not text.startswith("---"):
         return None
     try:
@@ -130,6 +176,9 @@ def _parse(path: Path) -> dict | None:
     raw_version = meta.get("schema_version", str(SCHEMA_VERSION))
     if raw_version != str(SCHEMA_VERSION):
         return None
+    raw_flock = meta.get("flock", "true").lower()
+    if raw_flock not in {"true", "false"}:
+        return None
     return {
         "schema_version": SCHEMA_VERSION,
         "slug": slug,
@@ -138,6 +187,7 @@ def _parse(path: Path) -> dict | None:
         "emoji": meta.get("emoji", "🎭"),
         "vibe": meta.get("vibe", ""),
         "disclosure": meta.get("disclosure", ""),
+        "flock": raw_flock == "true",
         "model": meta.get("model", ""),
         "temperature": meta.get("temperature", ""),
         "tools": meta.get("tools", ""),
@@ -212,6 +262,16 @@ def behavior(slug: str) -> dict:
                 temperature = None
     tools = [t.strip() for t in merged["tools"].split(",") if t.strip()] or None
     return {"model": merged["model"].strip(), "temperature": temperature, "tools": tools}
+
+
+def flock_allowed(slug: str) -> bool:
+    """Whether the resolved persona can answer in a one-shot flock turn."""
+    try:
+        return bool(get_persona(slug)["flock"])
+    except ValueError:
+        # bench_slugs reserves valid filenames before parsing. A malformed
+        # overlay member drops its flock at runtime instead of crashing startup.
+        return False
 
 
 def _known_tool_names() -> set[str]:
@@ -292,9 +352,18 @@ def validate_all() -> list[str]:
     errors += _check_behavior(
         "pack defaults (merged)", merged.get("temperature", ""), merged.get("tools", ""), known
     )
+    # STOCK descriptions only: the routing-quality bar is ours to hold, and a
+    # new shape rule that hard-fails a deployment's existing overlay file on
+    # upgrade breaks the legacy-open-shape contract
+    # (tests/test_content_schemas.py). An overlay that overrides a stock slug
+    # takes its description out of the check — the deployment's choice.
+    descriptions: dict[str, str] = {}
     for d in _persona_dirs():
         for path in sorted(d.glob("*.md")):
             label = path.name if d == PERSONAS_DIR else f"{path.name} (overlay)"
+            if not path.is_file():
+                errors.append(f"{label}: expected a file")
+                continue
             if not _SLUG.match(path.stem):
                 errors.append(f"{label}: slug must match {_SLUG.pattern}")
                 continue
@@ -306,17 +375,24 @@ def validate_all() -> list[str]:
                 _, front, _body = text.split("---", 2)
             except ValueError:
                 front = ""
-            keys = {
-                key.strip()
+            frontmatter = {
+                key.strip(): value.strip()
                 for line in front.splitlines()
-                for key, separator, _value in (line.partition(":"),)
+                for key, separator, value in (line.partition(":"),)
                 if separator
             }
+            keys = set(frontmatter)
             unknown = keys - set(_FIELDS)
             # Old persona frontmatter was open-ended. A declared schema
             # version opts into the closed, versioned field contract.
             if "schema_version" in keys and unknown:
                 errors.append(f"{label}: unknown frontmatter field(s): {sorted(unknown)}")
+            if "flock" in frontmatter and frontmatter["flock"].lower() not in {
+                "true",
+                "false",
+            }:
+                errors.append(f"{label}: flock must be true or false")
+                continue
             p = _parse(path)
             if p is None:
                 errors.append(
@@ -325,6 +401,38 @@ def validate_all() -> list[str]:
                 )
                 continue
             errors += _check_behavior(label, p["temperature"], p["tools"], known)
+            if d == PERSONAS_DIR:
+                descriptions[path.stem] = p["description"]
+            else:
+                # an overlay override retires the stock description from the
+                # routing checks — routing sees the override, not the stock
+                descriptions.pop(path.stem, None)
+    tokens = {slug: _description_tokens(desc) for slug, desc in descriptions.items()}
+    for slug in sorted(tokens):
+        if len(tokens[slug]) < _MIN_DESCRIPTION_TOKENS:
+            errors.append(
+                f"{slug}: description has {len(tokens[slug])} content words —"
+                f" routing matches on the description, so it needs at least"
+                f" {_MIN_DESCRIPTION_TOKENS}"
+            )
+    over: set[tuple[str, str]] = set()
+    slugs = sorted(tokens)
+    for i, s1 in enumerate(slugs):
+        for s2 in slugs[i + 1 :]:
+            t1, t2 = tokens[s1], tokens[s2]
+            if t1 and t2 and len(t1 & t2) / len(t1 | t2) >= _SIMILARITY_LIMIT:
+                over.add((s1, s2))
+    for pair in sorted(over - set(_SIMILARITY_EXEMPT)):
+        errors.append(
+            f"{pair[0]} and {pair[1]}: descriptions overlap past {_SIMILARITY_LIMIT}"
+            " — routing cannot tell them apart. Sharpen one, or exempt the"
+            " pair in _SIMILARITY_EXEMPT with a reason"
+        )
+    for pair in sorted(set(_SIMILARITY_EXEMPT) - over):
+        errors.append(
+            f"{pair[0]} and {pair[1]}: _SIMILARITY_EXEMPT entry is stale —"
+            " the pair no longer overlaps, so the exemption must go"
+        )
     return errors
 
 

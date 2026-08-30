@@ -102,6 +102,7 @@ CASCADED = {
     "session_agents": "sessions",
     "session_messages": "session_agents",
     "session_multi_agents": "sessions",
+    "session_offload": "sessions",
 }
 # The private schema's tables carry the same contract, enumerated separately
 # because information_schema scoping differs (tests/test_retention.py).

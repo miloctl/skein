@@ -384,14 +384,16 @@ def _maybe_embed(entity: str, entity_id: int, text: str) -> None:
     except Exception as exc:
         # best-effort by design — FTS remains authoritative — but not silent:
         # a dead endpoint with valid config is otherwise invisible (/health
-        # only reports CONFIG faults). Once per outage, not per write.
+        # only reports CONFIG faults). Once per outage, not per write. The
+        # missing row is the repair queue: embed_missing (the embed-reconcile
+        # job) finds and heals it, so no per-row state is kept here.
         if not _embed_warned:
             _embed_warned = True
             logging.getLogger("skein").warning(
-                "embedding failed for %s#%s (further failures muted until one succeeds): %s",
+                "embedding failed for %s#%s (further failures muted until one succeeds) (%s)",
                 entity,
                 entity_id,
-                exc,
+                type(exc).__name__,
             )
 
 
@@ -420,6 +422,55 @@ def _embed(text: str) -> list[float]:
         _embed_client_key = key
     resp = _embed_client.embeddings.create(model=config.EMBED_MODEL, input=text[:8000])
     return resp.data[0].embedding
+
+
+def missing_embeddings_count() -> int:
+    """How many indexed rows lack a current-model vector — the queue depth
+    embed_missing works through."""
+    return db.query_row(
+        "SELECT COUNT(*) AS n FROM search_index s"
+        " WHERE NOT EXISTS (SELECT 1 FROM embeddings e"
+        "   WHERE e.entity = s.entity AND e.entity_id = s.entity_id AND e.model = ?)",
+        (config.EMBED_MODEL,),
+    )["n"]
+
+
+def embed_missing(limit: int = 0, on_error=None) -> tuple[int, int]:
+    """Embed every indexed row without a current-model vector; (done, failed).
+
+    The absence of an embeddings row IS the pending state — _maybe_embed is
+    best-effort, so a provider outage leaves gaps this query finds. Rows are
+    independent and the upsert idempotent, so a concurrent run (job beside a
+    manual backfill) double-embeds at worst. Shared by the embed-reconcile
+    job (bounded batch) and `python -m app.backfill_embeddings` (unbounded).
+    """
+    global _embed_warned
+    rows = db.query(
+        "SELECT s.entity, s.entity_id, s.title, s.body FROM search_index s"
+        " WHERE NOT EXISTS (SELECT 1 FROM embeddings e"
+        "   WHERE e.entity = s.entity AND e.entity_id = s.entity_id AND e.model = ?)"
+        # LIMIT NULL is LIMIT ALL, so limit=0 means unbounded
+        " ORDER BY s.entity, s.entity_id LIMIT ?",
+        (config.EMBED_MODEL, limit or None),
+    )
+    done = failed = 0
+    for r in rows:
+        try:
+            vec = _embed(f"{r['title']}\n{r['body']}")
+            db.execute(
+                "INSERT INTO embeddings (entity, entity_id, model, vector)"
+                " VALUES (?, ?, ?, ?)"
+                " ON CONFLICT (entity, entity_id) DO UPDATE SET"
+                " model = excluded.model, vector = excluded.vector",
+                (r["entity"], r["entity_id"], config.EMBED_MODEL, json.dumps(vec)),
+            )
+            done += 1
+            _embed_warned = False
+        except Exception as exc:
+            failed += 1
+            if on_error is not None:
+                on_error(r["entity"], r["entity_id"], exc)
+    return done, failed
 
 
 def semantic_search(q: str, limit: int = 10) -> list[dict]:

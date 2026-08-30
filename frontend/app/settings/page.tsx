@@ -105,6 +105,96 @@ type ModelSummary = {
   rows: { id: string; label: string; value: string; source: string }[];
 };
 
+function AgentAutomationSection({
+  canAdminister,
+  adminAccessMessage,
+}: {
+  canAdminister: boolean;
+  adminAccessMessage: string;
+}) {
+  // The parent remounts this section on every resolved identity revision. The
+  // mounted guard also stops a late write from fetching or reporting under the
+  // identity that replaced the one which started it.
+  const mounted = useRef(true);
+  const [state, setState] = useState<{ enabled: boolean } | null>(null);
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(
+    () =>
+      api<{ enabled: boolean }>("/api/settings/agent-automation")
+        .then((r) => {
+          if (mounted.current) setState(r);
+        })
+        .catch((e) => {
+          if (mounted.current) setStatus(loadError(e));
+        }),
+    [],
+  );
+  useEffect(() => {
+    mounted.current = true;
+    void load();
+    return () => {
+      mounted.current = false;
+    };
+  }, [load]);
+  const write = async (enabled: boolean) => {
+    setBusy(true);
+    setStatus("Saving…");
+    try {
+      const saved = (await boundedWrite("/api/settings/agent-automation", {
+        method: "POST",
+        body: JSON.stringify({ enabled }),
+      })) as { enabled: boolean };
+      if (!mounted.current) return;
+      setState(saved);
+      setStatus(
+        saved.enabled
+          ? "Resumed. Queued work drains now."
+          : "Paused. A run in progress stops at its next step.",
+      );
+    } catch (e) {
+      if (!mounted.current) return;
+      if (isWriteTimeout(e)) {
+        setStatus(
+          "The save timed out. The result is unknown. Check the current setting before you try again.",
+        );
+        void load();
+        return;
+      }
+      setStatus(isUnreachable(e) ? backendUnreachable() : actionError(e));
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  };
+  return (
+    <Section title="Unattended agent runs (team)" headingLevel={3}>
+      <p className="mb-3 text-sm text-ink-3">
+        The daily agent run and the delegation wake queue. Pause stops every
+        unattended turn without a redeploy and holds queued work as pending.
+        It does not change what any agent is allowed to do.
+      </p>
+      {state && (
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium text-ink">
+            {state.enabled ? "Running" : "Paused"}
+          </span>
+          <button
+            disabled={!canAdminister || busy}
+            onClick={() => void write(!state.enabled)}
+            className="rounded-lg bg-weld/15 px-3 py-1 text-xs font-medium text-weld hover:bg-weld/25 disabled:opacity-40"
+          >
+            {state.enabled ? "Pause unattended runs" : "Resume unattended runs"}
+          </button>
+        </div>
+      )}
+      <p role="status" aria-live="polite" className="min-h-4 text-xs text-ink-3">
+        {status || (canAdminister ? "" : adminAccessMessage)}
+      </p>
+    </Section>
+  );
+}
+
+
 function ModelSummaryBlock({ summary }: { summary: ModelSummary }) {
   return (
     <div className="mb-4">
@@ -277,6 +367,7 @@ export default function SettingsPage() {
   const [name, setName] = useState("");
   const [keyDraft, setKeyDraft] = useState("");
   const [who, setWho] = useState<WhoAmI | null>(null);
+  const [identityRevision, setIdentityRevision] = useState(0);
   // null until known: Connect your own AI agent explains what happens, and
   // the answer INVERTS with the review gate
   const [gateOn, setGateOn] = useState<boolean | null>(null);
@@ -654,6 +745,7 @@ export default function SettingsPage() {
 
   const refresh = useCallback(() => {
     const current = ++identityGeneration.current;
+    setIdentityRevision(current);
     setWho(null);
     setWhoError("");
     api<WhoAmI>("/api/whoami")
@@ -2217,6 +2309,14 @@ export default function SettingsPage() {
                   </div>
                 )}
               </Section>
+
+              {who?.user && who.user !== "anonymous" && (
+                <AgentAutomationSection
+                  key={`${who.user}:${identityRevision}`}
+                  canAdminister={canAdminister}
+                  adminAccessMessage={adminAccessMessage}
+                />
+              )}
 
               <Section title="Deployment limits (team)" headingLevel={3}>
                 <p className="mb-3 text-sm text-ink-3">

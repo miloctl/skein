@@ -1309,6 +1309,64 @@ def test_restart_does_not_activate_content_over_existing_human_or_generic_agent(
         ) == {"kind": "agent", "identity_owner": "generic-agent"}
 
 
+def test_content_reservation_serializes_with_a_folded_human_claim(fresh_db, monkeypatch):
+    from app.services import users
+
+    content_read = Event()
+    human_attempted = Event()
+    human_finished = Event()
+    real_query = users.db.query
+    results: dict[str, object] = {}
+    errors: dict[str, BaseException] = {}
+
+    def pause_after_content_read(sql: str, params=()):
+        rows = real_query(sql, params)
+        if (
+            current_thread().name == "content-reservation"
+            and sql == "SELECT name, kind, identity_owner FROM users"
+        ):
+            content_read.set()
+            assert human_attempted.wait(timeout=2)
+            sleep(0.05)
+            assert not human_finished.is_set()
+        return rows
+
+    monkeypatch.setattr(users.db, "query", pause_after_content_read)
+
+    def reserve_content() -> None:
+        try:
+            results["content"] = users.reserve_content_identities({"security-engineer"})
+        except BaseException as exc:  # pragma: no cover - reported below
+            errors["content"] = exc
+
+    def reserve_human() -> None:
+        try:
+            assert content_read.wait(timeout=2)
+            human_attempted.set()
+            users.ensure_human_identity("Security-Engineer")
+        except ValueError as exc:
+            errors["human"] = exc
+        except BaseException as exc:  # pragma: no cover - reported below
+            errors["unexpected"] = exc
+        finally:
+            human_finished.set()
+
+    content = Thread(target=reserve_content, name="content-reservation")
+    human = Thread(target=reserve_human, name="human-reservation")
+    content.start()
+    human.start()
+    content.join(timeout=3)
+    human.join(timeout=3)
+
+    assert not content.is_alive() and not human.is_alive()
+    assert set(errors) == {"human"}
+    assert results["content"] == ({"security-engineer"}, [])
+    rows = fresh_db.query(
+        "SELECT name, kind, identity_owner FROM users WHERE lower(name) = 'security-engineer'"
+    )
+    assert rows == [{"name": "security-engineer", "kind": "agent", "identity_owner": "content"}]
+
+
 def test_startup_persists_content_ownership_across_live_delete_and_restore(
     fresh_db, tmp_path, monkeypatch
 ):

@@ -823,7 +823,7 @@ function EditControls({ task, onSaved }: { task: PeekTask; onSaved: () => void }
         id={`peek-waiting-${task.id}`}
         value={draft.waiting_on}
         onChange={(e) => setDraft({ ...draft, waiting_on: e.target.value })}
-        placeholder="task:3 · blocker:12 · promise:7"
+        placeholder="task:3 · blocker:12 · promise:7 · question:5"
         className={field}
       />
       <span aria-hidden />
@@ -997,7 +997,10 @@ function ActivationGuide({
   if (task.awaiting_acceptance) {
     message = "The agent submitted this task for approval. Open Inbox to review it.";
   } else if (wake?.status === "pending") {
-    if (wake.automation_enabled) {
+    if (wake.reason === "automation_paused") {
+      message =
+        "Unattended agent runs are paused. This queued turn stays pending until an administrator resumes them.";
+    } else if (wake.automation_enabled) {
       message = `${agent} is queued. Skein will start the agent turn shortly.`;
     } else if (providerReady) {
       message =
@@ -1008,9 +1011,15 @@ function ActivationGuide({
         "The agent turn is queued, but background jobs are disabled. Enable background jobs to run it.";
     }
   } else if (wake?.status === "running") {
-    message = `${agent} is working its delegated inbox.`;
+    message =
+      wake.reason === "automation_paused"
+        ? "Unattended agent runs are paused. This turn stops at its next agent step."
+        : `${agent} is working its delegated inbox.`;
   } else if (wake?.status === "completed") {
-    if (task.blockers?.length) {
+    if (wake.reason === "cancelled") {
+      message =
+        "The agent turn stopped when unattended runs were paused. Read the worklog before you start another turn.";
+    } else if (task.blockers?.length) {
       message = "This task has an open blocker. Resolve it before the task can continue.";
     } else if (worklogError) {
       message = "The agent turn completed. The worklog is unavailable below.";

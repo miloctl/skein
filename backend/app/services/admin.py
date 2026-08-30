@@ -102,6 +102,7 @@ EXCLUDED = frozenset(
         "session_agents",
         "session_messages",
         "session_multi_agents",
+        "session_offload",
     }
 )
 TABLES = (

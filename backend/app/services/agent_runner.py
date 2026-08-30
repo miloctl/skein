@@ -263,6 +263,65 @@ def _refused(agent: str, reason: str) -> dict:
     return {"agent": agent, "ran": False, "fault": False, "reason": reason}
 
 
+# Set while the operator pause is on. automation_paused bridges it to each
+# active Strands Agent through Agent.cancel(); the wall clock remains the
+# backstop for a provider call that cannot reach a cancellation-safe point.
+_automation_stop = threading.Event()
+_active_lock = threading.Lock()
+_active_agents: dict[int, Any] = {}
+
+
+def _cancel_agent(agent: Any) -> None:
+    cancel = getattr(agent, "cancel", None)
+    if not callable(cancel):
+        return
+    try:
+        cancel()
+    except Exception as exc:
+        log.warning("active agent cancellation failed (%s)", type(exc).__name__)
+
+
+def _start_active(agent: Any, worker: threading.Thread) -> bool:
+    """Publish and start one invocation without crossing an existing pause."""
+    with _active_lock:
+        if _automation_stop.is_set():
+            return False
+        _active_agents[id(agent)] = agent
+        try:
+            worker.start()
+        except Exception:
+            _active_agents.pop(id(agent), None)
+            raise
+    return True
+
+
+def _untrack_active(agent: Any) -> None:
+    with _active_lock:
+        _active_agents.pop(id(agent), None)
+
+
+def automation_paused() -> None:
+    _automation_stop.set()
+    with _active_lock:
+        active = tuple(_active_agents.values())
+    for agent in active:
+        _cancel_agent(agent)
+
+
+def automation_resumed() -> None:
+    _automation_stop.clear()
+
+
+def _paused(agent: str) -> dict:
+    return {
+        "agent": agent,
+        "ran": False,
+        "fault": False,
+        "paused": True,
+        "reason": "agent automation is paused",
+    }
+
+
 def _failed(agent: str, reason: str) -> dict:
     """A required turn failed before its completion became uncertain."""
     return {"agent": agent, "ran": False, "fault": True, "reason": reason}
@@ -294,6 +353,13 @@ def run_one(
     act on — the caller runs a fleet, and one agent over budget must not stop
     the others.
     """
+    from .settings import agent_automation_enabled
+
+    if not agent_automation_enabled():
+        # the operator switch (Settings → AI runtime): stops every unattended
+        # turn without a redeploy. It stops AUTOMATION only — authority,
+        # policy, and review gates are not reachable through it either way
+        return _paused(agent)
     if not explicit_key and agent not in config.AGENT_RUNNER:
         return _refused(agent, "not in SKEIN_AGENT_RUNNER")
     if config.EFFECTIVE_PROVIDER == "mock":
@@ -425,9 +491,21 @@ def run_one(
                 " important step, then stop."
             )
 
+        from . import tuning
+
+        # read before the thread starts: effective() hits the database, and
+        # the worker thread must not open a connection just to read two knobs
+        limits = {
+            "turns": tuning.effective("agent_run_turns"),
+            "total_tokens": tuning.effective("agent_run_tokens"),
+        }
+
         def _turn() -> None:
             try:
-                box["reply"] = built(wake)
+                # automation_paused calls Agent.cancel() from the setting's
+                # request thread. Strands stops at its next cancellation-safe
+                # point and returns the literal stop reason `cancelled`.
+                box["reply"] = built(wake, limits=limits)
             except Exception as exc:  # carried out, not raised in this thread
                 box["error"] = exc
             finally:
@@ -454,6 +532,7 @@ def run_one(
                                 engagement_id=usage.sole_delegation_engagement(agent),
                             )
                 finally:
+                    _untrack_active(built)
                     # An invoked turn owns the lock: run_one's finally released
                     # it at the wall-clock timeout while this thread kept
                     # calling tools, and the next wake ran a second concurrent
@@ -474,7 +553,17 @@ def run_one(
         worker = threading.Thread(
             target=lambda: ctx.run(_turn), daemon=True, name=f"agent-run-{agent}"
         )
-        worker.start()
+        try:
+            started = _start_active(built, worker)
+        except Exception:
+            _release(agent, explicit_key=explicit_key)
+            raise
+        if not started:
+            # The pause landed after the initial guard but before the worker.
+            # No provider call started, so return the job claim and leave a
+            # delegation wake pending for resume.
+            _release(agent, explicit_key=explicit_key)
+            return _paused(agent)
         invoked = True
         worker.join(timeout=config.AGENT_RUN_SECONDS)
         if worker.is_alive():
@@ -488,7 +577,13 @@ def run_one(
         reply = box.get("reply", "")
         text = str(reply)[:2000]
         db.log_activity(actor, "agent_run", f"{agent}: unattended run")
-        return {"agent": agent, "ran": True, "fault": False, "thread": thread, "reply": text}
+        out = {"agent": agent, "ran": True, "fault": False, "thread": thread, "reply": text}
+        stop = str(getattr(reply, "stop_reason", ""))
+        if stop.startswith("limit_") or stop == "cancelled":
+            # an SDK literal, never model text — safe for job_outcomes.detail
+            out["stopped"] = stop
+            log.warning("agent run for %s stopped at %s", agent, stop)
+        return out
     except Exception as exc:
         # Logged and reported, never raised: run() below is a scheduled job,
         # and a raise there marks the whole sweep failed on /health when the
@@ -527,6 +622,7 @@ def run(
     ]
     ran = sum(1 for r in runs if r["ran"])
     faults = [r for r in runs if r.get("fault")]
+    stopped = [r for r in runs if r.get("stopped")]
     # `status` is read by jobs.run_job, which otherwise records `ok` for any
     # return value at all. Drop this key and a fleet where every agent fails to
     # build returns an ordinary dict: /health shows the job green and the
@@ -540,4 +636,7 @@ def run(
         # named, not counted: an operator fixing this needs to know WHICH
         # agent and WHY, and `_outcome_detail` reduces a list to its length
         "faults": " | ".join(f"{r['agent']}: {r['reason']}" for r in faults),
+        # `_outcome_detail` reduces lists to counts. Keep SDK stop literals in
+        # one safe scalar so the durable job row says why a bounded turn ended.
+        "stops": " | ".join(f"{r['agent']}: {r['stopped']}" for r in stopped),
     }
