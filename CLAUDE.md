@@ -70,14 +70,22 @@ model and constraints, is archived at
   synchronized version still names the old release.
   `backend/tests/test_release_contract.py` remains the executable authority for
   what must agree.
-- **A release tag is an output, never an input.** Publication starts only from
-  the reviewed release-marker change on protected `main`. Run the protected
-  `finalize-release` workflow with the original release run ID after both
-  publishers complete. It downloads the immutable tested artifact, pulls all
-  registry files, compares their bytes, and creates annotated tag `vX.Y.Z` at
-  the published release SHA. It refuses a partial publication, expired or
-  rebuilt artifact, registry mismatch, lightweight or different tag, and any
-  SHA other than the published release SHA. A tag never starts publication.
+- **A release tag is an output, never an input.** A push publishes nothing:
+  `ci.yml` runs the gates and stores one artifact. Publication is the
+  `publish-release` dispatch naming that run, and `.github/release-version`
+  is the credential it checks — a commit whose marker names X.Y.Z is the only
+  commit that may publish X.Y.Z, so the fix after a failed gate publishes the
+  release it fixed. No publication decision reads push-range state
+  (`github.event.before`); that trigger could not publish a release whose
+  gates failed, which is why it is gone (2026-08-30, pinned by
+  `test_release_contract.py`). Then run the protected `finalize-release`
+  workflow with the same run ID: it downloads the immutable tested artifact,
+  pulls all registry files, compares their bytes, and creates annotated tag
+  `vX.Y.Z` at the published release SHA. The byte comparison is the proof of
+  publication — no job status stands in for it. An existing tag forbids
+  publishing that version again; it never authorizes one. It refuses an
+  expired or rebuilt artifact, registry mismatch, lightweight or different
+  tag, and any SHA other than the published release SHA.
 - **A read takes no lock.** A transaction alone protects nothing: nothing is
   locked until a row is written, so two callers both read "absent" and both
   insert. Any read whose RESULT decides a later write must hold something —

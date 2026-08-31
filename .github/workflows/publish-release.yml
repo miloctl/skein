@@ -1,0 +1,190 @@
+# Publication, named explicitly. A push to main runs the gates and stores its
+# artifact; it never publishes. This workflow takes the run ID of a green main
+# run and publishes exactly the bytes that run tested.
+#
+# The trigger used to be "the marker file changed in this push". That is a fact
+# about an event payload, not about a commit: a release whose gates failed could
+# never be published from the fixed commit, because the fix did not touch the
+# marker (2026-08-30). The predicate here is a fact about the commit instead —
+# its marker NAMES this version — so any green commit carrying that marker is
+# publishable, and protected main supplies the review guarantee.
+#
+# A tag forbids, it never permits: an existing vX.Y.Z means finalize-release
+# already ran, so a second publication is a mistake.
+name: publish-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: Green ci run ID on main whose artifact is published
+        required: true
+        type: string
+      version:
+        description: The version that run declares (X.Y.Z)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      artifact_run_id: ${{ steps.release.outputs.artifact_run_id }}
+      artifact_id: ${{ steps.release.outputs.artifact_id }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Validate the named release run
+        id: release
+        env:
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/validate_release_run.py
+      - name: Bind the run to a reviewed release declaration
+        env:
+          # through env, never interpolated into the script body: an input
+          # expanded into a run: block is shell injection with extra steps
+          VERSION: ${{ inputs.version }}
+          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "publish-release: version must be X.Y.Z." >&2
+            exit 1
+          fi
+          # still on main: a force-push cannot strand publication on an
+          # orphaned commit, and the reviewed-PR guarantee rides on main
+          if ! git merge-base --is-ancestor "$RELEASE_SHA" origin/main; then
+            echo "publish-release: the named run is not an ancestor of main." >&2
+            exit 1
+          fi
+          marker="$(git show "$RELEASE_SHA:.github/release-version" | tr -d '[:space:]')"
+          if [ "$marker" != "$VERSION" ]; then
+            echo "publish-release: that commit does not declare this version." >&2
+            exit 1
+          fi
+          declared="$(git show "$RELEASE_SHA:backend/pyproject.toml" \
+            | sed -n 's/^version = "\(.*\)"/\1/p' | head -1)"
+          if [ "$declared" != "$VERSION" ]; then
+            echo "publish-release: the declared version does not match the marker." >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "publish-release: v$VERSION is already finalized. Publish a new version." >&2
+            exit 1
+          fi
+
+  publish-pypi:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: pypi
+    # on the constant, never on the run ID: grouping by input would let two
+    # dispatches naming DIFFERENT runs publish one version concurrently
+    concurrency:
+      group: release-publish
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.verify.outputs.artifact_id }}
+          path: dist
+          run-id: ${{ needs.verify.outputs.artifact_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Select the tested wheel
+        run: |
+          mkdir pypi-dist
+          cp dist/*.whl pypi-dist/
+          [ "$(find pypi-dist -maxdepth 1 -type f -name '*.whl' | wc -l)" -eq 1 ]
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: "0.11.11"
+      - name: Publish skein-agents to PyPI
+        run: uv publish --trusted-publishing always --check-url https://pypi.org/simple/ pypi-dist/*.whl
+
+  publish-npm:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: npm
+    concurrency:
+      group: release-publish
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.verify.outputs.artifact_id }}
+          path: dist
+          run-id: ${{ needs.verify.outputs.artifact_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          registry-url: https://npm.pkg.github.com
+          scope: "@miloctl"
+      - name: Publish the npm packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          url="https://npm.pkg.github.com"
+          manifest_field() {
+            tar -xOzf "$1" package/package.json \
+              | node -e 'let s=""; process.stdin.on("data",c=>s+=c).on("end",()=>process.stdout.write(String(JSON.parse(s)[process.argv[1]])))' "$2"
+          }
+          lookup_integrity() {
+            local name="$1" version="$2" output="$3" errors="$4" attempt
+            for attempt in 1 2 3; do
+              if npm view "$name@$version" dist.integrity --registry "$url" >"$output" 2>"$errors"; then
+                return 0
+              fi
+              if grep -Eq 'E404|404 Not Found' "$errors"; then
+                return 4
+              fi
+              if [ "$attempt" -lt 3 ]; then
+                sleep $((attempt * 5))
+              fi
+            done
+            while IFS= read -r line; do echo "$line" >&2; done <"$errors"
+            return 1
+          }
+          publish_package() {
+            local archive="$1" name version remote_integrity local_integrity output errors status
+            name="$(manifest_field "$archive" name)"
+            version="$(manifest_field "$archive" version)"
+            output="$RUNNER_TEMP/npm-view-$(basename "$archive").out"
+            errors="$RUNNER_TEMP/npm-view-$(basename "$archive").err"
+            if lookup_integrity "$name" "$version" "$output" "$errors"; then
+              remote_integrity="$(<"$output")"
+              local_integrity="sha512-$(node -e "const fs=require('node:fs'),crypto=require('node:crypto'); process.stdout.write(crypto.createHash('sha512').update(fs.readFileSync(process.argv[1])).digest('base64'))" "$archive")"
+              if [ "$remote_integrity" != "$local_integrity" ]; then
+                echo "$name@$version exists with different package bytes" >&2
+                exit 1
+              fi
+              echo "$name@$version already has the tested package bytes."
+              return
+            else
+              status=$?
+            fi
+            if [ "$status" -ne 4 ]; then
+              exit "$status"
+            fi
+            npm publish "$archive" --registry "$url"
+          }
+          publish_package ./dist/miloctl-skein-extension-api-*.tgz
+          publish_package ./dist/miloctl-skein-frontend-host-*.tgz

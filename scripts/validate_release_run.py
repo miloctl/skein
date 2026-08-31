@@ -1,4 +1,4 @@
-"""Validate a prior GitHub release run before retrying publication."""
+"""Validate the green ci run a publication or finalization names."""
 
 from __future__ import annotations
 
@@ -12,14 +12,18 @@ import urllib.request
 from pathlib import Path
 from typing import Any, NamedTuple
 
-PUBLISH_JOBS = {"publish-pypi", "publish-npm"}
+# The gates a publishable run must have passed. `release-guard` and the two
+# publisher jobs left ci.yml when publication moved to publish-release.yml, so
+# requiring them here would reject every run this validator now exists to
+# accept. Publication is no longer proved by a job status at all: finalize
+# compares the registry bytes against this run's artifact, which is a stronger
+# claim than "a publisher job ran" ever was.
 REQUIRED_JOBS = {
     "packages",
     "backend",
     "frontend",
     "extension-contracts",
     "e2e",
-    "release-guard",
 }
 
 
@@ -93,12 +97,6 @@ def validate_release_run(
     failed = sorted(name for name in REQUIRED_JOBS if states.get(name) != ("completed", "success"))
     if failed:
         raise ValidationError("The selected run did not pass every release gate.")
-    if any(
-        states.get(name, (None, None))[0] != "completed"
-        or states.get(name, (None, None))[1] in (None, "", "skipped")
-        for name in PUBLISH_JOBS
-    ):
-        raise ValidationError("The selected run did not attempt every publisher.")
 
     artifacts = _get_json(f"{base}/artifacts?per_page=100", token).get("artifacts")
     if not isinstance(artifacts, list):
@@ -126,7 +124,9 @@ def validate_release_run(
 
 def main() -> int:
     try:
-        run_id = os.environ.get("RELEASE_RUN_ID") or os.environ["RETRY_RUN_ID"]
+        # RETRY_RUN_ID was the retry path's name for it, and that path is gone.
+        # Both callers (publish-release, finalize-release) set RELEASE_RUN_ID.
+        run_id = os.environ["RELEASE_RUN_ID"]
         release = validate_release_run(
             os.environ.get("GITHUB_API_URL", "https://api.github.com"),
             os.environ["GITHUB_REPOSITORY"],
