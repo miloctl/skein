@@ -157,7 +157,7 @@ def test_workplace_policy_can_deny_forge_transitions(fresh_db, monkeypatch):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.forge", deny_forge),),
     )
     monkeypatch.setattr(config, "FORGE_WEBHOOK_SECRET", SECRET)
@@ -670,7 +670,7 @@ def test_workplace_policy_denies_a_forge_transition_in_the_write_transaction(fre
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.forge", deny_forge),),
     )
     body = json.dumps(_push(f"task/{task['id']}-probe")).encode()

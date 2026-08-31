@@ -63,8 +63,16 @@ def test_system_findings_stay_out_of_the_meeting_queue(client, fresh_db, monkeyp
     assert any(f["rule_id"] == "job_stale" for f in result["findings"])
     assert any(f["rule_id"] == "job_stale" for f in list_findings())
 
+    # SYSTEM findings, not every finding. "No finding row at all" held only
+    # while the field guide was young enough that feature_unadopted could not
+    # fire; the oldest cards passed their grace window on 2026-08-31 and the
+    # proxy broke. feature_unadopted is team-audience by classification
+    # (services/intervention.py::_SYSTEM_AUDIENCE), so it belongs here — what
+    # must not appear is the audience this test is named for.
+    system_ids = {f["id"] for f in list_findings() if f["audience"] == "system"}
+    assert system_ids
     rows = intervention.interventions(scope.Viewer("tester", True))
-    assert not [r for r in rows if r["kind"].startswith("finding_")]
+    assert not [r for r in rows if r["entity"] == "finding" and r["entity_id"] in system_ids]
 
 
 def test_a_skipped_finding_does_not_spend_the_findings_budget(client, fresh_db, monkeypatch):
