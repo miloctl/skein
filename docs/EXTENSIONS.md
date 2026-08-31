@@ -568,11 +568,10 @@ This tool behavior requires core `0.2.1` or later. Set `minimum_core` to
 `0.2.0` floor receives the older generic tool error on that core. Workflow
 actions already support public declared errors on core `0.2.0`.
 
-In the current source, a retryable `PublicError` with status 503 adds
-`Retry-After: 60`. The scheduled job wrapper records the machine code and
-retryable value. It does not log the detail or the chained adapter error. PyPI
-0.3.2 does not include this behavior. If a package depends on it, wait for the
-next Skein release. Then set `minimum_core` to that released version.
+A retryable `PublicError` with status 503 adds `Retry-After: 60`. The
+scheduled job wrapper records the machine code and retryable value. It does
+not log the detail or the chained adapter error. Read the Contracts section
+of CHANGELOG.md for the minimum core version that includes this behavior.
 
 Unknown effects fail closed. A review decision creates a durable proposal.
 Skein stores the executable arguments outside the review queue. A qualified
@@ -1035,14 +1034,14 @@ The protected GitHub `main` workflow publishes these packages when `.github/rele
 - `@miloctl/skein-extension-api` to private GitHub Packages.
 - `@miloctl/skein-frontend-host` to private GitHub Packages.
 
-This revision declares package line `0.3.2`. Registry pull-back and annotated tag `v0.3.2` are the authority for completed publication.
+This revision declares package line `0.4.0`. Registry pull-back and annotated tag `v0.4.0` are the authority for completed publication.
 
 The command that follows installs the contract for this revision. Run it only when the registry package and matching tag exist. It does not install later working-tree changes.
 
 Install `skein-agents` from PyPI or a controlled mirror:
 
 ```sh
-pip install skein-agents==0.3.2 \
+pip install skein-agents==0.4.0 \
   --index-url https://pypi.org/simple
 ```
 
@@ -1070,7 +1069,7 @@ Use Node 22. Pin the frontend host, its peers, and Next directly in the workplac
   },
   "dependencies": {
     "@miloctl/skein-extension-api": "1.0.0",
-    "@miloctl/skein-frontend-host": "0.3.2",
+    "@miloctl/skein-frontend-host": "0.4.0",
     "next": "16.2.11",
     "react": "19.2.4",
     "react-dom": "19.2.4"
@@ -1210,7 +1209,7 @@ sets `SKEIN_DATABASE_URL`. The backend script also requires a safe
 The script builds and installs separate wheels in a normal virtual environment.
 It starts Skein 0.2.3 with Atlas 1.x and writes upgrade data.
 
-It removes both old distributions. Then it installs `skein-agents` 0.3.2 and
+It removes both old distributions. Then it installs `skein-agents` 0.4.0 and
 Atlas 2.0 against the same database. This current-source wheel is a local test
 artifact and can differ from the registry wheel with the same version. Do not
 publish or distribute it.

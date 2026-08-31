@@ -12,12 +12,12 @@ resources:
 images:
   - name: skein
     newName: registry.example.com/skein/skein
-    newTag: 0.3.2
+    newTag: 0.4.0
     # Replace this fail-closed placeholder with the digest from the reviewed image.
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
   - name: skein-frontend
     newName: registry.example.com/skein/skein-frontend
-    newTag: 0.3.2-dev
+    newTag: 0.4.0-dev
     # The frontend build is environment-specific, so it gets its own digest.
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
 

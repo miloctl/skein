@@ -4,7 +4,7 @@ WORKDIR /workplace
 
 COPY package.json package-lock.json ./
 COPY frontend/package.json ./frontend/package.json
-COPY dist/miloctl-skein-extension-api-1.0.0.tgz dist/miloctl-skein-frontend-host-0.3.2.tgz ./dist/
+COPY dist/miloctl-skein-extension-api-1.0.0.tgz dist/miloctl-skein-frontend-host-0.4.0.tgz ./dist/
 RUN --mount=type=secret,id=npm-config,target=/root/.npmrc,required=true \
     NPM_CONFIG_USERCONFIG=/root/.npmrc \
     npm ci --no-audit --no-fund

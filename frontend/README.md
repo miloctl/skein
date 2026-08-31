@@ -21,7 +21,7 @@ Local and non-GitHub consumers need a classic PAT with `read:packages`.
 
 The workplace root pins these packages directly:
 
-- `@miloctl/skein-frontend-host@0.3.2`
+- `@miloctl/skein-frontend-host@0.4.0`
 - `@miloctl/skein-extension-api@1.0.0`
 - `next@16.2.11`
 - `react@19.2.4`
