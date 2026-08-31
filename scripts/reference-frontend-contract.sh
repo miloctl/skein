@@ -216,6 +216,47 @@ JS
         mv package.saved package.json
     done
 
+    # Overrides declared by a dependency package do NOT apply to the consumer
+    # root. Pikachu's clean registry install resolved vulnerable PostCSS and
+    # Sharp versions until the workplace-owned pair was present (2026-08-31).
+    # Pin both halves: the manifest is the admin's decision, and the lock is
+    # the bytes npm will actually install.
+    for override in postcss sharp; do
+        cp package.json package.saved
+        OVERRIDE="$override" node - <<'JS'
+const fs = require("node:fs");
+const manifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
+const name = process.env.OVERRIDE;
+if (!manifest.overrides?.[name]) throw new Error(`${name} override was not present before the test`);
+delete manifest.overrides[name];
+fs.writeFileSync("package.json", `${JSON.stringify(manifest, null, 2)}\n`);
+JS
+        expect_build_refusal "missing-$override-override" \
+            "$override override must be"
+        mv package.saved package.json
+    done
+
+    for override in postcss sharp; do
+        cp package-lock.json package-lock.saved
+        OVERRIDE="$override" node - <<'JS'
+const fs = require("node:fs");
+const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
+const name = process.env.OVERRIDE;
+let changed = 0;
+for (const [packagePath, entry] of Object.entries(lock.packages ?? {})) {
+  if (packagePath.endsWith(`node_modules/${name}`)) {
+    entry.version = "0.0.0-test-mismatch";
+    changed++;
+  }
+}
+if (!changed) throw new Error(`${name} had no locked entry before the test`);
+fs.writeFileSync("package-lock.json", `${JSON.stringify(lock, null, 2)}\n`);
+JS
+        expect_build_refusal "mismatched-$override-lock" \
+            "$override does not match the required override. Regenerate the package lock."
+        mv package-lock.saved package-lock.json
+    done
+
     cp dist/miloctl-skein-frontend-host-0.4.0.tgz host-tarball.saved
     printf '\nchanged-after-lock\n' >>dist/miloctl-skein-frontend-host-0.4.0.tgz
     expect_build_refusal changed-package-bytes "package bytes do not match the workplace lock."
