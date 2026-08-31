@@ -104,6 +104,12 @@ jobs:
           path: dist
           run-id: ${{ needs.verify.outputs.artifact_run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          # artifact-ids selects the action's multi-artifact path even for one
+          # ID. Without merge-multiple it extracts under
+          # dist/release-packages/, while the publishers intentionally match
+          # dist/*.whl and dist/*.tgz — the first dispatch failed with an
+          # unexpanded *.tgz glob (2026-08-31).
+          merge-multiple: true
       - name: Select the tested wheel
         run: |
           mkdir pypi-dist
@@ -132,6 +138,12 @@ jobs:
           path: dist
           run-id: ${{ needs.verify.outputs.artifact_run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          # artifact-ids selects the action's multi-artifact path even for one
+          # ID. Without merge-multiple it extracts under
+          # dist/release-packages/, while the publishers intentionally match
+          # dist/*.whl and dist/*.tgz — the first dispatch failed with an
+          # unexpanded *.tgz glob (2026-08-31).
+          merge-multiple: true
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
