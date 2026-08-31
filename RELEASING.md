@@ -25,11 +25,12 @@ Keep these account settings for each release pull request.
 5. Create GitHub environments named `pypi`, `npm`, and `release-finalization`.
 6. Restrict all three environments to protected `main`.
 7. Add a required reviewer and disable self-approval for each environment.
-8. Add a `v*` tag ruleset that permits creation by GitHub Actions and refuses updates or deletion.
+8. Create a fine-grained PAT scoped only to `miloctl/skein`, with repository permissions **Contents: read and write** and **Workflows: read and write**. Store it as the `RELEASE_TAG_TOKEN` secret on the protected `release-finalization` environment, never as a repository-wide secret. The separate Workflows permission is required when a tag points at a commit that changes `.github/workflows/*`; `GITHUB_TOKEN` cannot grant it through a workflow `permissions:` block.
+9. Add a `v*` tag ruleset that permits the PAT owner to create a tag after the `release-finalization` approval, and refuses updates or deletion. The environment is the creation gate; the ruleset makes the created tag immutable.
 
-Publication starts only when a reviewed release pull request changes `.github/release-version` on protected `main`. Tags do not trigger publication.
+A reviewed release pull request sets the marker on protected `main`. A push publishes nothing. Publication starts only when `publish-release` names a green `ci` run on protected `main` whose release marker and declared version agree. Tags do not trigger publication.
 
-The npm publisher uses `GITHUB_TOKEN`. Do not add a package-publishing PAT to the Skein repository.
+The npm publisher uses `GITHUB_TOKEN`. `RELEASE_TAG_TOKEN` is for the one annotated-tag push only — never for packages, gates, or registry access.
 
 After the first npm publication, confirm that both packages are private and linked to `miloctl/skein`.
 
