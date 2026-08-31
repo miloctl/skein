@@ -41,11 +41,13 @@ Create a pending Trusted Publisher with these exact values:
 Project: skein-agents
 Owner: miloctl
 Repository: skein
-Workflow: ci.yml
+Workflow: publish-release.yml
 Environment: pypi
 ```
 
 The pending publisher does not reserve the project name. The first successful publication creates the project.
+
+The workflow filename is part of the OIDC identity. If the publisher job moves to another file, register the new file as a second Trusted Publisher BEFORE that change merges, and remove the old one after the first successful publication from the new file. PyPI accepts several publishers for one project, so the two overlap safely. A publication from an unregistered workflow fails the OIDC exchange with no way to fix it from the run.
 
 PyPI is public. The published wheel contains the Skein Python source and package content.
 
@@ -66,7 +68,9 @@ A GitHub Actions workplace repository can use `GITHUB_TOKEN` after each package 
 
 ## Prepare the release
 
-A release starts when a reviewed pull request changes `.github/release-version` on protected `main`. The marker must match `backend/pyproject.toml`.
+A release starts when a reviewed pull request sets `.github/release-version` on protected `main`. The marker must match `backend/pyproject.toml`.
+
+The marker is a credential, not a trigger: a commit whose marker names X.Y.Z is the only commit that may publish X.Y.Z. Any green commit carrying that marker qualifies, so a fix commit after a failed gate publishes the release it fixed. The marker never rests at a sentinel value — `prepare-release.py` reads it as the previous version and refuses anything that is not X.Y.Z.
 
 The release tag records a successful publication. It does not start one.
 
@@ -162,12 +166,8 @@ The local GitHub remote is named `github`.
 1. Open a release pull request that includes the version, changelog, locks, and release marker.
 2. Wait for every required GitHub check.
 3. Merge the reviewed pull request into protected `main`.
-4. Wait for all five gates and `release-guard` on the `main` push.
-5. Approve the protected `pypi` and `npm` environments.
-6. Watch both publication jobs.
-7. Open the `finalize-release` workflow on branch `main` and enter the original release run ID.
-8. Approve the protected `release-finalization` environment.
-9. Confirm that the workflow creates annotated tag `vX.Y.Z` on the published `main` commit.
+4. Wait for all five gates on the `main` push. This run publishes nothing. It stores the artifact that a publication may later use.
+5. Publish it with the procedure below.
 
 Example release preparation:
 
@@ -177,33 +177,35 @@ python3.12 scripts/prepare-release.py X.Y.Z
 git diff --check
 ```
 
-After publication succeeds, the protected finalization workflow pulls the registry files and compares them with the original tested artifact. It creates the annotated tag only after every byte matches.
+The protected `main` workflow builds each artifact once. The contracts and the publishers consume the same uploaded files.
 
-The protected `main` workflow builds each artifact once. The contracts and publishers consume the same uploaded files.
+## Publish a prepared release
 
-The workflow publishes the extension API before the frontend host. PyPI publication uses GitHub OIDC and stores no PyPI token.
+A push never publishes. Publication names the run whose artifact it publishes, so a release whose gates failed is published from the commit that fixed them, with no marker edit.
 
-## Retry a partial publication
+Copy the run ID from the Actions URL of a green `ci` run on `main`. Open the GitHub `publish-release` workflow, select **Run workflow** on branch `main`, and enter that run ID with the version.
 
-Do not change `.github/release-version`. Copy the original release run ID from its Actions URL.
+The verify job accepts the run only when all of these hold:
 
-Open the GitHub `ci` workflow and select **Run workflow**. Select branch `main` and enter the original release run ID.
+- The run is a `ci` push run on `main` that passed every gate and still holds one usable `release-packages` artifact.
+- That run's commit is still an ancestor of `main`.
+- `.github/release-version` at that commit names the version you entered.
+- `backend/pyproject.toml` at that commit declares the same version.
+- No annotated tag `vX.Y.Z` exists yet. A tag means the version is finalized, so publishing again is a mistake.
 
-The manual run repeats all five gates. It then checks the original run through the GitHub API.
+Approve the protected `pypi` and `npm` environments. Both publishers consume that run's artifact. An identical published file is a no-op, a missing file publishes, and different bytes fail closed.
 
-The retry proceeds only when the original run passed every release gate, attempted both publishers, and still holds one usable `release-packages` artifact. A normal CI run is not a release source.
+One run ID publishes one version. After a version publishes from a run, use that same run ID to finalize it, and never publish that version from another run: a second run builds different bytes and fails the comparison.
 
-Both publishers consume that original artifact. An identical published file is a no-op, a missing file publishes, and different bytes fail closed.
-
-Approve both the `pypi` and `npm` environments. If the original artifact expired, publish a new version instead of rebuilding the old version from current source.
+If the artifact expired, publish a new version instead of rebuilding the old version from current source.
 
 ## Finalize the published release
 
-Do not treat a successful upload as completed publication. Open the GitHub `finalize-release` workflow on branch `main` and enter the original release run ID.
+Do not treat a successful upload as completed publication. Open the GitHub `finalize-release` workflow on branch `main` and enter the original release run ID — the same run ID that published the version.
 
 The workflow validates the original gated run and downloads its immutable artifact ID. It inspects the three package identities and versions without extracting them.
 
-The workflow pulls the matching PyPI wheel and both GitHub npm tarballs with bounded retries. It compares the wheel with SHA-256 and each npm tarball with SHA-512.
+The workflow pulls the matching PyPI wheel and both GitHub npm tarballs with bounded retries. It compares each registry file with the original artifact: the wheel with SHA-256, each npm tarball with SHA-512. That comparison is the proof of publication. No job status stands in for it.
 
 After the registry bytes match, approve the protected `release-finalization` environment. The tag job creates annotated tag `vX.Y.Z` at the original release SHA.
 

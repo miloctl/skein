@@ -222,12 +222,14 @@ def test_extension_api_one_exports_exactly_the_documented_surface():
 def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
     gitea = (ROOT / ".gitea/workflows/ci.yml").read_text()
     github = (ROOT / ".github/workflows/ci.yml").read_text()
+    publish = (ROOT / ".github/workflows/publish-release.yml").read_text()
+    finalize = (ROOT / ".github/workflows/finalize-release.yml").read_text()
     releasing = (ROOT / "RELEASING.md").read_text()
     for workflow in (gitea, github):
         assert "actions/upload-artifact@" in workflow
         assert "actions/download-artifact@" in workflow
         assert "SKEIN_RELEASE_DIST:" in workflow
-    for action in re.findall(r"uses:\s+(\S+)", github):
+    for action in re.findall(r"uses:\s+(\S+)", github + publish):
         assert re.search(r"@[0-9a-f]{40}$", action), action
 
     assert 'tags: ["v*"]' not in github + gitea
@@ -236,48 +238,84 @@ def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
         or (ROOT / ".github/release-version").read_text().strip()
     )
     declared = _toml("backend/pyproject.toml")["project"]["version"]
-    assert marker in ("unreleased", declared)
+    # equal, not "unreleased or equal": the marker is the credential that makes
+    # a commit publishable, and prepare-release.py::validate_version refuses a
+    # non-X.Y.Z marker as its previous version, so a resting sentinel would
+    # brick the one script authorized to write this file.
+    assert marker == declared
     assert "\n  publish:" not in gitea
     assert "PACKAGE_TOKEN" not in gitea + github
-    assert "release-guard:" in github
-    assert ".github/release-version" in github
-    assert "github.event.before" in github
-    assert "workflow_dispatch:" in github
-    assert "retry_run_id:" in github
-    assert "scripts/validate_release_run.py" in github
-    assert 'git show "$RETRY_RELEASE_SHA:.github/release-version"' in github
-    assert "original release version does not match the current marker" in github
-    assert "artifact_run_id:" in github
-    assert "artifact_id:" in github
-    assert "needs.release-guard.outputs.publish == 'true'" in github
-    gated_publishers = (
-        "needs: [packages, backend, frontend, extension-contracts, e2e, release-guard]"
-    )
-    assert github.count(gated_publishers) == 2
+    # THE regression pin for 2026-08-30: no publication decision may read
+    # push-range state. The marker-diff trigger could not publish a release
+    # whose gates failed, because the commit that fixed them did not touch the
+    # marker. ci.yml publishes nothing at all now.
+    assert "github.event.before" not in github + publish + finalize
+    # both dispatch paths judge a run through the same validator, and both
+    # name it the same way — RELEASE_RUN_ID, the only variable it now reads
+    assert finalize.count("scripts/validate_release_run.py") == 1
+    assert "RELEASE_RUN_ID: ${{ inputs.release_run_id }}" in finalize
+    assert "RELEASE_RUN_ID: ${{ inputs.release_run_id }}" in publish
+    assert "RETRY_RUN_ID" not in publish + finalize
+    assert "environment: release-finalization" in finalize
+    assert "publish-pypi:" not in github
+    assert "publish-npm:" not in github
+    assert "release-guard:" not in github
+    assert "retention-days: 90" in github
 
-    assert "publish-pypi:" in github
-    assert "environment: pypi" in github
-    assert "id-token: write" in github
-    assert 'version: "0.11.11"' in github
-    assert "pypi-dist" in github
-    assert github.count("run-id: ${{ needs.release-guard.outputs.artifact_run_id }}") == 4
-    assert github.count("actions: read") == 3
-    assert "uv publish --trusted-publishing always --check-url https://pypi.org/simple/" in github
+    # publication names a green run, and binds it to a reviewed declaration
+    assert "workflow_dispatch:" in publish
+    assert "release_run_id:" in publish
+    assert "version:" in publish
+    assert "scripts/validate_release_run.py" in publish
+    assert 'git show "$RELEASE_SHA:.github/release-version"' in publish
+    assert 'git show "$RELEASE_SHA:backend/pyproject.toml"' in publish
+    assert 'git merge-base --is-ancestor "$RELEASE_SHA" origin/main' in publish
+    # a tag forbids, it never permits
+    assert 'git ls-remote --exit-code --tags origin "refs/tags/v$VERSION"' in publish
+    assert "already finalized" in publish
+    # inputs reach the shell through env, never interpolated into a run: body
+    assert "${{ inputs.version }}" not in re.sub(r"(?m)^\s*VERSION: .*$", "", publish)
+    # one version at a time, whichever run is named
+    assert publish.count("group: release-publish") == 2
+    assert publish.count("cancel-in-progress: false") == 2
+    assert "artifact_run_id:" in publish
+    assert "artifact_id:" in publish
+    assert publish.count("needs: verify") == 2
 
-    assert "publish-npm:" in github
-    assert "environment: npm" in github
-    assert "packages: write" in github
-    assert "https://npm.pkg.github.com" in github
-    assert 'scope: "@miloctl"' in github
-    assert "secrets.GITHUB_TOKEN" in github
-    assert "dist.integrity" in github
-    assert "E404|404 Not Found" in github
-    assert "for attempt in 1 2 3" in github
-    assert "publish_package ./dist/miloctl-skein-extension-api-*.tgz" in github
-    assert "publish_package ./dist/miloctl-skein-frontend-host-*.tgz" in github
-    assert github.index("miloctl-skein-extension-api-*.tgz") < github.index(
+    assert "publish-pypi:" in publish
+    assert "environment: pypi" in publish
+    assert "id-token: write" in publish
+    assert 'version: "0.11.11"' in publish
+    assert "pypi-dist" in publish
+    # every artifact download names the validated run, and by artifact ID —
+    # the name fallback went with the guard that could leave the ID empty
+    assert publish.count("run-id: ${{ needs.verify.outputs.artifact_run_id }}") == 2
+    assert publish.count("artifact-ids: ${{ needs.verify.outputs.artifact_id }}") == 2
+    assert "name: release-packages" not in publish
+    assert publish.count("actions: read") == 3
+    assert "uv publish --trusted-publishing always --check-url https://pypi.org/simple/" in publish
+
+    assert "publish-npm:" in publish
+    assert "environment: npm" in publish
+    assert "packages: write" in publish
+    assert "https://npm.pkg.github.com" in publish
+    assert 'scope: "@miloctl"' in publish
+    assert "secrets.GITHUB_TOKEN" in publish
+    assert "dist.integrity" in publish
+    assert "E404|404 Not Found" in publish
+    assert "for attempt in 1 2 3" in publish
+    assert "publish_package ./dist/miloctl-skein-extension-api-*.tgz" in publish
+    assert "publish_package ./dist/miloctl-skein-frontend-host-*.tgz" in publish
+    assert publish.index("miloctl-skein-extension-api-*.tgz") < publish.index(
         "miloctl-skein-frontend-host-*.tgz"
     )
+
+    # The PyPI Trusted Publisher names ONE workflow file. Moving the publisher
+    # without re-registering it breaks the OIDC exchange on the next release,
+    # and nothing else in the suite compares the two.
+    assert "id-token: write" in publish and "id-token: write" not in github
+    workflow_line = re.search(r"^Workflow: (\S+)$", releasing, re.M)
+    assert workflow_line and workflow_line.group(1) == "publish-release.yml"
     assert "ghcr.io" not in github
     assert "reviewed release pull request" in releasing
     assert "python3.12 scripts/prepare-release.py X.Y.Z" in releasing
