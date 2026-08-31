@@ -115,7 +115,7 @@ database_created=1
 
 if [ -n "$release_dist" ]; then
     cp "$release_dist/miloctl-skein-extension-api-1.0.0.tgz" "$tmp/tarballs/"
-    cp "$release_dist/miloctl-skein-frontend-host-0.3.2.tgz" "$tmp/tarballs/"
+    cp "$release_dist/miloctl-skein-frontend-host-0.4.0.tgz" "$tmp/tarballs/"
 else
     npm pack --silent --pack-destination "$tmp/tarballs" ./frontend/packages/extension-api >/dev/null
     npm pack --silent --pack-destination "$tmp/tarballs" ./frontend >/dev/null
@@ -150,7 +150,7 @@ fi
 tar --exclude=node_modules --exclude=dist --exclude=.skein -cf - \
     -C examples/workplace-extension . | tar -xf - -C "$tmp/consumer"
 cp "${api_tar[0]}" "$tmp/consumer/dist/miloctl-skein-extension-api-1.0.0.tgz"
-cp "${host_tar[0]}" "$tmp/consumer/dist/miloctl-skein-frontend-host-0.3.2.tgz"
+cp "${host_tar[0]}" "$tmp/consumer/dist/miloctl-skein-frontend-host-0.4.0.tgz"
 
 if [ -n "$release_dist" ]; then
     cp "$release_dist"/skein_agents-*.whl "$tmp/consumer/dist/"
@@ -216,10 +216,10 @@ JS
         mv package.saved package.json
     done
 
-    cp dist/miloctl-skein-frontend-host-0.3.2.tgz host-tarball.saved
-    printf '\nchanged-after-lock\n' >>dist/miloctl-skein-frontend-host-0.3.2.tgz
+    cp dist/miloctl-skein-frontend-host-0.4.0.tgz host-tarball.saved
+    printf '\nchanged-after-lock\n' >>dist/miloctl-skein-frontend-host-0.4.0.tgz
     expect_build_refusal changed-package-bytes "package bytes do not match the workplace lock."
-    mv host-tarball.saved dist/miloctl-skein-frontend-host-0.3.2.tgz
+    mv host-tarball.saved dist/miloctl-skein-frontend-host-0.4.0.tgz
 
     manifests_before="$(sha256sum package.json package-lock.json)"
     modules_before="$(find node_modules -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum)"

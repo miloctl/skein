@@ -50,7 +50,7 @@ The backend depends on `skein-agents>=0.3.0,<0.5.0`. The distribution installs t
 
 The frontend root pins these exact dependencies:
 
-- `@miloctl/skein-frontend-host@0.3.2`
+- `@miloctl/skein-frontend-host@0.4.0`
 - `@miloctl/skein-extension-api@1.0.0`
 - `next@16.2.11`
 - `react@19.2.4`
@@ -97,7 +97,7 @@ The contract does these operations:
 1. It installs Skein 0.2.3 and Atlas 1.x from pinned wheels.
 2. It creates core and extension data.
 3. It removes both old distributions.
-4. It installs `skein-agents` 0.3.2 and Atlas 2.0 from new wheels.
+4. It installs `skein-agents` 0.4.0 and Atlas 2.0 from new wheels.
 5. It starts the application against the same database.
 6. It compares fresh and upgraded core and Atlas schemas.
 
@@ -118,7 +118,7 @@ uv venv --python 3.12 .venv-test
 uv pip install --python .venv-test/bin/python \
   --require-hashes -r requirements-test.lock
 uv pip install --python .venv-test/bin/python --no-deps \
-  dist/skein_agents-0.3.2-py3-none-any.whl \
+  dist/skein_agents-0.4.0-py3-none-any.whl \
   dist/atlas_skein_extension-2.0.0-py3-none-any.whl
 uv pip check --python .venv-test/bin/python
 ```
