@@ -95,13 +95,31 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     environment: release-finalization
+    # GITHUB_TOKEN is a GitHub App token. Even with contents: write, GitHub
+    # refuses a tag whose commit changes .github/workflows/* unless that App
+    # has the separate Workflows permission — which workflow permissions:
+    # cannot grant. The protected environment supplies a narrowly-held PAT
+    # instead; the automatic token needs read access only.
     permissions:
-      contents: write
+      contents: read
     steps:
+      - name: Check the release tag credential
+        env:
+          RELEASE_TAG_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN }}
+        run: |
+          [ -n "$RELEASE_TAG_TOKEN" ] || {
+            echo "finalize-release: RELEASE_TAG_TOKEN is not configured on the release-finalization environment." >&2
+            echo "Create a token with repository Contents write and Workflows write, then rerun this workflow." >&2
+            exit 1
+          }
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ needs.verify.outputs.release_sha }}
           fetch-depth: 0
+          # Persisted for the one `git push refs/tags/...` below. The secret is
+          # scoped to the protected release-finalization environment, so no
+          # gate or registry job receives it.
+          token: ${{ secrets.RELEASE_TAG_TOKEN }}
       - name: Create the immutable annotated tag
         env:
           RELEASE_SHA: ${{ needs.verify.outputs.release_sha }}
@@ -132,5 +150,15 @@ jobs:
             exit 0
           fi
           git tag -d "$TAG"
-          git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
-          verify_tag
+          # A concurrent finalizer may have won the race after the first
+          # ls-remote. Accept only its identical annotated tag. If no remote
+          # tag exists, keep the original push failure as the diagnosis — an
+          # unconditional fetch used to add a misleading "couldn't find remote
+          # ref" after a credential refusal.
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
+            verify_tag
+            exit 0
+          fi
+          echo "finalize-release: tag push failed and no remote tag exists." >&2
+          exit 1

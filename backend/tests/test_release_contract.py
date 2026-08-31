@@ -361,6 +361,9 @@ def test_ci_admin_database_url_is_scoped_to_database_contract_steps():
 
 def test_release_finalization_verifies_registry_bytes_before_tagging():
     workflow = (ROOT / ".github/workflows/finalize-release.yml").read_text()
+    releasing = (ROOT / "RELEASING.md").read_text()
+    parsed = yaml.safe_load(workflow)
+    tag_job = parsed["jobs"]["tag"]
     assert "workflow_dispatch:" in workflow
     assert "release_run_id:" in workflow
     assert "push:" not in workflow
@@ -369,7 +372,19 @@ def test_release_finalization_verifies_registry_bytes_before_tagging():
     assert "cancel-in-progress: false" in workflow
     assert "actions: read" in workflow
     assert "packages: read" in workflow
-    assert workflow.count("contents: write") == 1
+    # GITHUB_TOKEN cannot grant the separate Workflows permission needed to
+    # tag a commit that changes .github/workflows/*. The tag job's automatic
+    # token stays read-only; one protected-environment PAT is persisted only
+    # by checkout for the annotated-tag push.
+    assert tag_job["permissions"] == {"contents": "read"}
+    checkout = next(
+        step for step in tag_job["steps"] if "actions/checkout@" in step.get("uses", "")
+    )
+    assert checkout["with"]["token"] == "${{ secrets.RELEASE_TAG_TOKEN }}"
+    assert "RELEASE_TAG_TOKEN is not configured" in workflow
+    assert "RELEASE_TAG_TOKEN" in releasing
+    assert "Workflows: read and write" in releasing
+    assert "release-finalization" in releasing
     assert "environment: release-finalization" in workflow
     assert "scripts/validate_release_run.py" in workflow
     assert "scripts/verify_release_packages.py inspect" in workflow
