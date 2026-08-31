@@ -88,8 +88,24 @@ version (`maximum_core_exclusive`, and the `<X.Y.0` pip bound). A release
 that reaches that version must move every window forward FIRST, in its own
 reviewed commit, or the script refuses with a count mismatch — a bound that
 names the new version is a compatibility claim, not stale release text.
-The windows live in `extension.toml`, `module.py`, the frontend manifest,
-and their doc examples: search for the old bound before you run the script.
+A window lives in every place a manifest is DECLARED, and test fixtures
+declare far more of them than the shipped extension does. Crossing 0.3.x to
+0.4.0 moved 151 of them. Run this from the repository root — not from
+`backend/`, where a `backend/tests/` pathspec silently matches nothing:
+
+```sh
+grep -rn "maximum_core_exclusive\|maximumCoreExclusive" . \
+  --include="*.py" --include="*.ts" --include="*.tsx" \
+  --include="*.toml" --include="*.md" | grep -v node_modules
+```
+
+They live in the shipped manifests (`extension.toml`, `module.py`, the
+frontend `index.tsx`), their doc examples, the frontend test fixtures, the
+contract harnesses (`scripts/contract/`), and ~137 backend test fixtures.
+A missed one does not fail the script — it fails the backend, frontend, and
+extension-contract gates afterwards with `supports core versions from X up
+to but not including Y`. Leave the deliberately out-of-range bounds that
+pin the REFUSAL path alone (`minimum_core="9.0.0"`).
 Moving a window forward asserts the extension works on the new core. The
 passing contract suite is that evidence — do not move a window the suite
 has not earned.

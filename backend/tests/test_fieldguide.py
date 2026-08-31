@@ -483,8 +483,19 @@ def test_unadopted_is_nameless_and_respects_grace(fresh_db):
     from app.services import capture, fieldguide
 
     _mint(fresh_db, "ava")
-    # every card is inside its 30-day grace window on ship day
-    assert fieldguide.unadopted() == []
+    # The grace window is measured from each card's own `since`, so a fixed
+    # assertion about the DEFAULT grace decays into a failure as the registry
+    # ages past it — the oldest cards crossed 30 days on 2026-08-31 and took
+    # this test with them. Compute the span from the oldest card instead: the
+    # property worth pinning is that a card inside its window is not reported,
+    # not that every shipped card happens to be young.
+    from datetime import date
+
+    from app import db
+
+    oldest = min(str(k["since"]) for k in fieldguide.registry())
+    span = (db.today() - date.fromisoformat(oldest)).days
+    assert fieldguide.unadopted(grace_days=span + 1) == []
     zero_grace = fieldguide.unadopted(grace_days=0)
     assert any(k["id"] == "capture" for k in zero_grace)
     for k in zero_grace:

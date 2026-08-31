@@ -39,7 +39,7 @@ function extension(changes: Partial<FrontendExtension> = {}): FrontendExtension 
     version: "1.0.0",
     extensionApi: FRONTEND_EXTENSION_API,
     minimumCore: "0.2.0",
-    maximumCoreExclusive: "0.4.0",
+    maximumCoreExclusive: "0.5.0",
     navigation: [
       {
         id: "atlas.workplace.manager-nav",

@@ -89,7 +89,7 @@ def _module(handler=lambda external_id: {"updated": external_id}) -> SkeinModule
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.policy", _workplace_rule),),
         identities=(
             IdentityContribution(
@@ -160,7 +160,7 @@ def test_policy_contribution_can_declare_its_stable_actions(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(
             PolicyContribution(
                 "acme.workplace.scoped-policy",
@@ -201,7 +201,7 @@ def test_legacy_policy_callable_actions_member_is_not_scope_metadata(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.legacy-policy", LegacyRule()),),
     )
     engine = ExtensionRegistry.build((module,)).policy_engine
@@ -233,7 +233,7 @@ def test_policy_contribution_rejects_invalid_action_metadata(fresh_db, actions):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(
             PolicyContribution(
                 "acme.workplace.invalid-policy",
@@ -265,7 +265,7 @@ def test_opaque_project_policy_does_not_resolve_every_historical_row(fresh_db, m
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(
             PolicyContribution(
                 "acme.workplace.unrelated-policy",
@@ -954,7 +954,7 @@ def test_agent_policy_does_not_inspect_an_unreadable_private_entity(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.private-records", deny_private),),
     )
     registry = ExtensionRegistry.build((module,))
@@ -1158,7 +1158,7 @@ def test_rest_task_policy_uses_persisted_project_class(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.regulated-task", deny_regulated_task),),
     )
     with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
@@ -1197,7 +1197,7 @@ def test_rest_delegation_uses_transaction_bound_task_policy_context(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(
             PolicyContribution(
                 "acme.workplace.regulated-delegation",
@@ -1245,7 +1245,7 @@ def test_rest_worklog_read_uses_transaction_bound_task_policy_context(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(
             PolicyContribution(
                 "acme.workplace.regulated-worklog",
@@ -1285,7 +1285,7 @@ def test_rest_task_policy_does_not_inspect_a_hidden_relationship_before_refusal(
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.regulated-task", deny_regulated_task),),
     )
     with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
@@ -1332,7 +1332,7 @@ def test_rest_policy_loads_domain_context_for_an_existing_resource(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.regulated-read", deny_regulated_read),),
     )
     with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
@@ -1370,7 +1370,7 @@ def test_blocker_policy_uses_the_linked_task_project_for_rest_and_agent(fresh_db
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.blockers", deny_regulated_blocker),),
     )
     app = create_app(modules=(module,))
@@ -1464,7 +1464,7 @@ def test_stock_task_list_filters_each_row_through_workplace_policy(fresh_db):
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.4.0",
+                maximum_core_exclusive="0.5.0",
                 policies=(PolicyContribution("acme.workplace.agent-read", deny_regulated),),
             ),
         )
@@ -1567,7 +1567,7 @@ def test_rest_agent_inbox_conceals_a_delegated_task_with_hidden_legacy_parent(
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.inbox-context", inspect_context),),
     )
     with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
@@ -1620,7 +1620,7 @@ def test_stock_task_list_binds_rows_and_policy_to_one_snapshot(fresh_db, monkeyp
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.4.0",
+                maximum_core_exclusive="0.5.0",
                 policies=(PolicyContribution("acme.workplace.task-list", deny_regulated),),
             ),
         )
@@ -1714,7 +1714,7 @@ def test_blocker_collections_apply_linked_project_policy_per_row(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.blocker-list", deny_regulated),),
     )
     app = create_app(modules=(module,))
@@ -1773,7 +1773,7 @@ def test_all_project_aware_collections_apply_policy_per_row(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.collection-policy", deny_regulated),),
     )
     with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
@@ -1879,7 +1879,7 @@ def test_remaining_engagement_linked_collections_apply_policy_per_row(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.linked-collections", deny_regulated),),
     )
     with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
@@ -2059,7 +2059,7 @@ def test_agent_and_review_refresh_fail_closed_for_a_hidden_blocker_task(
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.4.0",
+                maximum_core_exclusive="0.5.0",
                 policies=(PolicyContribution("acme.workplace.blocker-review", review_edits),),
             ),
         )
@@ -2144,7 +2144,7 @@ def test_rest_task_read_checks_visibility_before_project_policy(fresh_db, projec
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.regulated-read", deny_regulated_read),),
     )
     with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
@@ -2736,7 +2736,7 @@ def test_review_verdict_supplies_the_current_grant_to_mcp_tool(fresh_db, monkeyp
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.4.0",
+                maximum_core_exclusive="0.5.0",
                 policies=(PolicyContribution("acme.workplace.remote-review", review_remote),),
             ),
         )
@@ -2826,7 +2826,7 @@ def test_mcp_rejection_uses_current_tool_metadata(fresh_db, monkeypatch):
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.4.0",
+                maximum_core_exclusive="0.5.0",
                 policies=(PolicyContribution("acme.workplace.remote-review", review_remote),),
             ),
         )
@@ -3120,7 +3120,7 @@ def test_core_agent_approval_rechecks_current_workplace_policy(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.mutable-policy", mutable_policy),),
     )
     registry = ExtensionRegistry.build((module,))
@@ -3168,7 +3168,7 @@ def test_legacy_unbound_agent_review_cannot_bypass_workplace_policy(fresh_db):
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.4.0",
+                maximum_core_exclusive="0.5.0",
                 policies=(PolicyContribution("acme.workplace.task-policy", deny_task),),
             ),
         )
@@ -3221,7 +3221,7 @@ def test_core_agent_approval_refuses_a_deactivated_requester(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.review-task", review_task),),
     )
     registry = ExtensionRegistry.build((module,))
@@ -3256,7 +3256,7 @@ def test_subject_refresh_fails_closed_when_directory_claims_are_unavailable(fres
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         identities=(
             IdentityContribution(
                 "acme.workplace.directory",
@@ -3282,7 +3282,7 @@ def test_zero_group_directory_subject_still_requires_refresh(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         identities=(
             IdentityContribution(
                 "acme.workplace.directory",
@@ -3310,7 +3310,7 @@ def test_profile_resolver_cannot_mask_unavailable_group_directory(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         identities=(
             IdentityContribution(
                 "acme.workplace.directory",
@@ -3346,7 +3346,7 @@ def test_registry_rejects_multiple_authoritative_group_resolvers():
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         identities=(
             IdentityContribution(
                 "acme.workplace.first-directory",
@@ -3375,7 +3375,7 @@ def test_a_resolver_without_group_ownership_cannot_return_groups(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         identities=(
             IdentityContribution(
                 "acme.workplace.directory",
@@ -3411,7 +3411,7 @@ def test_rest_playbook_policy_uses_authoritative_project_class(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.playbook-policy", deny_prototype_playbooks),),
     )
     with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
@@ -3439,7 +3439,7 @@ def test_stock_agent_playbook_tool_uses_authoritative_project_class(fresh_db):
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.4.0",
+                maximum_core_exclusive="0.5.0",
                 policies=(
                     PolicyContribution(
                         "acme.workplace.playbook-policy",
@@ -3561,7 +3561,7 @@ milestones:
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.4.0",
+                maximum_core_exclusive="0.5.0",
                 policies=(PolicyContribution("acme.workplace.review-playbook", review_playbooks),),
             ),
         )
@@ -3666,7 +3666,7 @@ def test_rest_playbook_policy_review_resumes_before_any_work(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         identities=(IdentityContribution("acme.workplace.identity", identity),),
         policies=(
             PolicyContribution("acme.workplace.playbook-review", review_prototype_playbooks),
@@ -3726,7 +3726,7 @@ def test_playbook_approval_uses_one_current_policy_decision(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         identities=(IdentityContribution("acme.workplace.identity", identity),),
         policies=(PolicyContribution("acme.workplace.changing-review", changing_review),),
     )
@@ -3769,7 +3769,7 @@ def test_legacy_playbook_review_can_be_rejected_but_not_approved(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         identities=(IdentityContribution("acme.workplace.identity", identity),),
         policies=(PolicyContribution("acme.workplace.playbook-review", review_playbook),),
     )
@@ -3851,7 +3851,7 @@ milestones:
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         identities=(IdentityContribution("acme.workplace.identity", identity),),
         policies=(PolicyContribution("acme.workplace.playbook-review", review_playbook),),
     )
@@ -3926,7 +3926,7 @@ milestones:
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         identities=(IdentityContribution("acme.workplace.identity", identity),),
         policies=(PolicyContribution("acme.workplace.playbook-review", review_playbooks),),
     )
@@ -3995,7 +3995,7 @@ def test_extension_rejection_uses_current_approver_group(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.current-approval", current_approval_policy),),
         tools=(
             ToolContribution(
@@ -4070,7 +4070,7 @@ def test_removed_tool_review_can_be_settled_without_retired_capability(fresh_db)
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.old-policy", old_policy),),
         tools=(tool,),
     )
@@ -4137,7 +4137,7 @@ def test_removed_identity_owning_module_does_not_strand_its_oidc_review(fresh_db
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         identities=(
             IdentityContribution(
                 "acme.workplace.directory",
@@ -4200,7 +4200,7 @@ def test_extension_rejection_recomputes_the_tool_resource(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.current-target", current_target_policy),),
         tools=(
             ToolContribution(
@@ -4300,7 +4300,7 @@ def test_rejection_serializes_current_policy_with_the_verdict(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.current-target", rule),),
         tools=(
             ToolContribution(
@@ -4363,7 +4363,7 @@ def test_subject_refresh_never_increases_authentication_strength(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         identities=(
             IdentityContribution(
                 "acme.workplace.directory",
@@ -4404,7 +4404,7 @@ def test_review_resume_cannot_upgrade_a_weak_requester(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         identities=(IdentityContribution("acme.workplace.identity", identity),),
         policies=(PolicyContribution("acme.workplace.strong-policy", rule),),
     )
@@ -4445,7 +4445,7 @@ def test_service_subject_refresh_does_not_use_human_identity_mapping(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         identities=(
             IdentityContribution(
                 "acme.workplace.humans",
@@ -4528,7 +4528,7 @@ def test_review_revalidation_uses_the_proposed_relationship_target(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.target-policy", target_rule),),
     )
     registry = ExtensionRegistry.build((module,))
@@ -4603,7 +4603,7 @@ def test_rest_policy_ignores_unpersisted_context_fields(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.private-notes", protect_private),),
     )
     key = create_key("mira", "test")["key"]
@@ -4648,7 +4648,7 @@ def test_core_agent_approval_observes_directory_group_removal(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         identities=(
             IdentityContribution(
                 "acme.workplace.directory",
@@ -4696,7 +4696,7 @@ def test_identity_mapper_rejects_string_role_and_capability_containers():
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         identities=(
             IdentityContribution(
                 "acme.workplace.invalid-identity",
@@ -4722,7 +4722,7 @@ def test_keyless_capture_obeys_the_domain_policy(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.keyless-policy", deny_agent_task),),
     )
     with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
@@ -4912,7 +4912,7 @@ def test_generic_rest_policy_does_not_read_a_hidden_milestone_project(
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("atlas.workplace.regulated", deny_regulated),),
     )
     with TestClient(create_app(modules=(module,))) as client:
@@ -4953,7 +4953,7 @@ def test_portfolio_health_filters_each_project_on_rest(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.portfolio-health", deny_regulated),),
     )
     with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
@@ -5045,7 +5045,7 @@ def test_rest_composites_filter_or_refuse_denied_projects(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.rest-composites", deny_regulated),),
     )
     with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
@@ -5109,7 +5109,7 @@ def test_opaque_composite_fails_closed_for_visible_legacy_child_with_hidden_pare
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.legacy-aggregate", deny_regulated),),
     )
     with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
@@ -5151,7 +5151,7 @@ def test_opaque_policy_considers_hidden_allocation_inputs(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.hidden-staffing", deny_regulated),),
     )
     with TestClient(create_app(modules=(module,)), headers={"X-User": "outsider"}) as client:
@@ -5291,7 +5291,7 @@ def test_explicit_engagement_composites_filter_each_nested_resource(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.nested-projection", deny_nested),),
     )
     with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
@@ -5361,7 +5361,7 @@ def test_interventions_filter_an_id_specific_denied_resource(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.intervention-row", deny_one_blocker),),
     )
     with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
@@ -5443,7 +5443,7 @@ def test_unkeyed_derivatives_fail_closed_for_an_exact_denied_task(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.unkeyed-derivative", deny_exact_task),),
     )
     with TestClient(create_app(modules=(module,)), headers={"X-User": "sponsor"}) as client:
@@ -5547,7 +5547,7 @@ def test_extension_review_summary_checks_saved_target_current_state(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(
             PolicyContribution("acme.workplace.current-review-summary", deny_regulated_briefing),
         ),
@@ -5660,7 +5660,7 @@ def test_task_reads_redact_each_denied_nested_resource(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.task-projection", deny_nested),),
     )
     with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
@@ -5794,7 +5794,7 @@ def test_capture_and_week_plan_apply_domain_policy_inside_the_write_transaction(
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.domain-writes", deny_domain_writes),),
     )
     with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
@@ -5864,7 +5864,7 @@ def test_hidden_parent_on_visible_promise_fails_closed_before_edit(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
     )
     with TestClient(create_app(modules=(module,)), headers={"X-User": "outsider"}) as client:
         hidden = client.patch(f"/api/promises/{promise}", json={"promise": "After"})
@@ -5909,7 +5909,7 @@ def test_generic_rest_policy_and_project_write_share_one_transaction(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.atomic-rest", policy_rule),),
     )
 
@@ -6070,7 +6070,7 @@ def test_capacity_is_not_denied_by_a_rule_about_types_it_does_not_compose(fresh_
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.tasks", deny_regulated_tasks),),
     )
     users.ensure_user("mira")
@@ -6099,7 +6099,7 @@ def test_capacity_still_fails_closed_on_a_rule_about_its_own_inputs(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("acme.workplace.projects", deny_regulated_engagements),),
     )
     users.ensure_user("mira")

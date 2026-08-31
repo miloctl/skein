@@ -164,7 +164,7 @@ def test_deterministic_writes_use_the_composed_workplace_policy(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.4.0",
+        maximum_core_exclusive="0.5.0",
         policies=(PolicyContribution("atlas.workplace.commands", deny_commands),),
     )
     from fastapi.testclient import TestClient
