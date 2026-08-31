@@ -291,6 +291,10 @@ def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
     # the name fallback went with the guard that could leave the ID empty
     assert publish.count("run-id: ${{ needs.verify.outputs.artifact_run_id }}") == 2
     assert publish.count("artifact-ids: ${{ needs.verify.outputs.artifact_id }}") == 2
+    # artifact-ids enters download-artifact's multi-artifact path even for one
+    # ID. Flattening is load-bearing: without it the archives land under
+    # dist/release-packages/, and the publishers' dist/*.tgz glob is literal.
+    assert publish.count("merge-multiple: true") == 2
     assert "name: release-packages" not in publish
     assert publish.count("actions: read") == 3
     assert "uv publish --trusted-publishing always --check-url https://pypi.org/simple/" in publish
@@ -371,6 +375,9 @@ def test_release_finalization_verifies_registry_bytes_before_tagging():
     assert "scripts/verify_release_packages.py inspect" in workflow
     assert "scripts/verify_release_packages.py compare" in workflow
     assert "artifact-ids:" in workflow
+    # verify_release_packages uses iterdir, not a recursive walk; the selected
+    # artifact must extract directly under artifact/, not artifact/release-packages/
+    assert workflow.count("merge-multiple: true") == 1
     assert "needs.verify.outputs.release_sha" in workflow
     assert "git tag -a" in workflow
     assert 'git push origin "refs/tags/$TAG"' in workflow

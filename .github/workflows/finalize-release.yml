@@ -51,6 +51,11 @@ jobs:
           path: artifact
           run-id: ${{ steps.release.outputs.artifact_run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          # artifact-ids uses the multi-artifact extraction layout. Flatten
+          # the single selected artifact so verify_release_packages.py sees
+          # the three files directly under artifact/ (it uses iterdir, never a
+          # recursive walk). Same contract as publish-release.yml.
+          merge-multiple: true
       - name: Inspect the tested packages
         id: packages
         run: python scripts/verify_release_packages.py inspect artifact
