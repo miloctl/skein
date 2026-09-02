@@ -133,7 +133,7 @@ testpaths = ["tests"]
 [tool.vulture]
 paths = ["app", "seed.py", "../cli/skein_cli.py"]
 # decorator-registered entry points look unused to static analysis
-ignore_decorators = ["@app.*", "@router.*", "@mcp.*", "@tool", "@pytest.fixture"]
+ignore_decorators = ["@app.*", "@router.*", "@mcp.*", "@_tool", "@tool", "@pytest.fixture"]
 ignore_names = [
     "row_factory", "isolation_level",  # sqlite3 connection config, write-only
     "repository",  # CIEventIn schema field, read via model_dump() in services/ci.py

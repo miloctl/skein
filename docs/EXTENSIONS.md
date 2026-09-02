@@ -664,7 +664,11 @@ from a chat turn refuses a fresh authorization demand at once. Pending
 flows live in the process that started them, so the callback must reach
 that replica.
 
-The standalone MCP server is a separate process and composes its own module
+Skein serves the same MCP tools two ways. The in-API endpoint
+(`/api/mcp-server`, `mcp_server.remote_app`) runs inside the API process with
+the API's composition, and resolves the caller per request: the policy subject
+is the person, the acting identity is their `<name>-mcp` agent, and the
+requester is the person. The standalone MCP server is a separate process and composes its own module
 list. Set `SKEIN_MCP_MODULES` to the dotted path of a module whose `modules`
 attribute is the same tuple the private composition root passes to
 `create_app`. The reference package exports one at

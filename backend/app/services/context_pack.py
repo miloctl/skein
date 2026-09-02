@@ -145,11 +145,19 @@ def build_pack(
     lines.append("")
 
     lines.append("## How to plug in")
+    # a lazy import: mcp_server imports this module at load
+    from ..mcp_server import REMOTE_PATH, TOOL_LINES
+
     lines += [
         "- REST API at /api (X-User header or a personal sk-skein- key)",
-        "- MCP server: `python -m app.mcp_server` (tools + this pack as a resource)",
+        f"- MCP server over HTTP at {REMOTE_PATH} with a personal sk-skein- key"
+        " (writes act as <you>-mcp under review); in-cluster stdio:"
+        " `python -m app.mcp_server`. This pack is the skein://context-pack resource.",
         "- CLI: `skein capture|my-day|tasks|context`",
+        "",
+        "MCP tools:",
     ]
+    lines += [f"- {line}" for line in TOOL_LINES]
     if crew_id:
         lines += _crew_section(crew_id, resource_filter, viewer)
     return "\n".join(lines)

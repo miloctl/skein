@@ -226,11 +226,9 @@ morning sweep, which notifies each delegated task's sponsor rather than filing
 D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped, without the proposed
 `--all-from <agent>` batch flag.
 
-- **D4 MCP mid-task parity** — `claim`, `report` and `submit` landed, and the
-  read side (`read_worklog`, from G3) landed 2026-08-08 with MCP parity.
-  `update_task`, `answer_question`, `resolve_blocker`, `ask` and `week` did
-  not. Review approval over MCP stays deliberately absent, because an agent
-  must not launder its own proposal.
+- **D4 MCP parity** — landed through `week` on 2026-09-02. Review approval
+  over MCP stays deliberately absent, because an agent must not launder its
+  own proposal.
 - **F6** CLI argument grammar normalization. The commands that take an
   action word still validate their own combinations by hand in `main()`.
 
