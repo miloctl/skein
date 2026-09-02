@@ -235,7 +235,10 @@ the agent's prompt) work keyless, in-app.
 - **CI webhook** — point GitHub Actions (or POST `{repo, branch, status, run_url}`)
   at `/api/webhooks/ci`: a red default-branch build files a deduped high-impact
   blocker; green auto-resolves it.
-- **MCP server** — your *other* AI agents join the platform:
+- **MCP server** — your *other* AI agents join the platform. Over HTTP,
+  with your personal key (writes act as `<you>-mcp` under review):
+  `claude mcp add --transport http skein https://<api>/api/mcp-server --header "Authorization: Bearer sk-skein-…"`.
+  In-cluster stdio:
   `claude mcp add skein -- env SKEIN_MCP_USER=you-mcp /abs/path/to/backend/.venv/bin/python -m app.mcp_server`
   (a DISTINCT name, never your own — the server reserves it as an agent
   identity, and an agent identity cannot use REST or the private surfaces)

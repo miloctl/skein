@@ -355,6 +355,11 @@ safe by construction: the URL check refuses this host and the metadata
 service, the policy decides everything else. Add a row for each service
 the deployment reaches before you apply it.
 
+Skein's own MCP server is `<backend URL>/api/mcp-server`, behind the
+perimeter like every other `/api` path. A person connects Claude Code with
+their personal API key as the bearer; the backend venv is not needed on
+their machine.
+
 An OAuth sign-in for a personal MCP server registers
 `<backend URL>/api/mcp/oauth/callback` as its redirect URI, built from the
 request's own base URL. Behind the router, set `SKEIN_TRUST_PROXY_HOPS` so

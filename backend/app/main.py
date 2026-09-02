@@ -515,7 +515,11 @@ async def lifespan(app: FastAPI):
         # deployments still drain it, unlike unattended and delegation work.
         shared_chat_agents.configure(registry)
         shared_chat_agents.recover_and_kick()
-        yield
+        from .mcp_server import session_manager
+
+        app.state.skein_mcp_manager = session_manager()
+        async with app.state.skein_mcp_manager.run():
+            yield
     finally:
         # Keep each cleanup independent so one failure cannot skip the
         # database close or the machine-subject release.
@@ -1025,6 +1029,13 @@ def create_app(
     application.state.skein_settings = selected_settings
     application.state.skein_explicit_settings = explicit_settings
     application.state.skein_registry = registry
+    # Skein as an MCP server, over HTTP, for the team's other agents. Under
+    # /api so the perimeter applies; identity per request inside the endpoint
+    # (mcp_server.remote_app). Its session manager is created and entered by
+    # the lifespan, once per entry.
+    from .mcp_server import REMOTE_PATH, remote_app
+
+    application.add_route(REMOTE_PATH, remote_app(registry))
 
     application.middleware("http")(perimeter_auth)
     # JSON payloads compress well at any level. Add gzip before CORS so CORS
