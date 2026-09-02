@@ -219,6 +219,16 @@ def test_extension_api_one_exports_exactly_the_documented_surface():
         assert all(getattr(package, name, None) is not None for name in package.__all__)
 
 
+def _pinned_actions(text: str) -> dict[str, str]:
+    """action -> the one SHA it is pinned to; two SHAs for one action is a bug."""
+    pins: dict[str, set[str]] = {}
+    for action, sha in re.findall(r"uses:\s+([^@\s]+)@([0-9a-f]{40})", text):
+        pins.setdefault(action, set()).add(sha)
+    doubled = {action: shas for action, shas in pins.items() if len(shas) > 1}
+    assert not doubled, doubled
+    return {action: next(iter(shas)) for action, shas in pins.items()}
+
+
 def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
     gitea = (ROOT / ".gitea/workflows/ci.yml").read_text()
     github = (ROOT / ".github/workflows/ci.yml").read_text()
@@ -229,8 +239,17 @@ def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
         assert "actions/upload-artifact@" in workflow
         assert "actions/download-artifact@" in workflow
         assert "SKEIN_RELEASE_DIST:" in workflow
-    for action in re.findall(r"uses:\s+(\S+)", github + publish):
+    weekly = (ROOT / ".gitea/workflows/weekly.yml").read_text()
+    # Every side pins by SHA. The self-hosted Gitea runner is the one that
+    # matters for supply chain, and a floating tag there moves under it.
+    for action in re.findall(r"uses:\s+(\S+)", github + publish + gitea + weekly):
         assert re.search(r"@[0-9a-f]{40}$", action), action
+    # Both sides pin the SAME SHA for the same action. Dependabot reaches only
+    # .github, so a bump there must fail here until .gitea follows it.
+    github_pins = _pinned_actions(github + publish + finalize)
+    gitea_pins = _pinned_actions(gitea + weekly)
+    for action in gitea_pins.keys() & github_pins.keys():
+        assert gitea_pins[action] == github_pins[action], action
 
     assert 'tags: ["v*"]' not in github + gitea
     marker = (
