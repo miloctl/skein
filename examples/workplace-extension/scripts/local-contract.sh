@@ -142,9 +142,9 @@ from pathlib import Path
 
 root = Path(sys.argv[1])
 expected = {
-    "skein_agents-0.4.0-py3-none-any.whl",
+    "skein_agents-0.5.0-py3-none-any.whl",
     "miloctl-skein-extension-api-1.0.0.tgz",
-    "miloctl-skein-frontend-host-0.4.0.tgz",
+    "miloctl-skein-frontend-host-0.5.0.tgz",
 }
 entries = {}
 manifest = root / "SHA256SUMS"
@@ -167,17 +167,17 @@ for name, digest in entries.items():
     if not artifact.is_file() or hashlib.sha256(artifact.read_bytes()).hexdigest() != digest:
         raise SystemExit("local-contract: A shared Skein artifact does not match SHA256SUMS.")
 PY
-    cp "$artifact_root/skein_agents-0.4.0-py3-none-any.whl" "$artifacts/"
+    cp "$artifact_root/skein_agents-0.5.0-py3-none-any.whl" "$artifacts/"
     cp "$artifact_root/miloctl-skein-extension-api-1.0.0.tgz" "$artifacts/"
-    cp "$artifact_root/miloctl-skein-frontend-host-0.4.0.tgz" "$artifacts/"
+    cp "$artifact_root/miloctl-skein-frontend-host-0.5.0.tgz" "$artifacts/"
 fi
 UV_PYTHON=python3.12 uv build --quiet --wheel --out-dir "$artifacts" "$stage"
 
 for artifact in \
-    skein_agents-0.4.0-py3-none-any.whl \
+    skein_agents-0.5.0-py3-none-any.whl \
     atlas_skein_extension-2.0.0-py3-none-any.whl \
     miloctl-skein-extension-api-1.0.0.tgz \
-    miloctl-skein-frontend-host-0.4.0.tgz; do
+    miloctl-skein-frontend-host-0.5.0.tgz; do
     test -f "$artifacts/$artifact"
 done
 artifact_count="$(find "$artifacts" -maxdepth 1 -type f ! -name '.*' | wc -l)"
@@ -218,7 +218,7 @@ UV_CACHE_DIR="$tmp/uv-cache" uv pip install --quiet \
     --python "$venv/bin/python" --require-hashes -r "$stage/requirements-test.lock"
 UV_CACHE_DIR="$tmp/uv-cache" uv pip install --quiet \
     --python "$venv/bin/python" --no-deps \
-    "$artifacts/skein_agents-0.4.0-py3-none-any.whl" \
+    "$artifacts/skein_agents-0.5.0-py3-none-any.whl" \
     "$artifacts/atlas_skein_extension-2.0.0-py3-none-any.whl"
 uv pip check --python "$venv/bin/python"
 "$venv/bin/python" -m mypy \

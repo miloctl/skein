@@ -18,6 +18,15 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+### Behavior
+
+### Operations
+
+## 0.5.0 — 2026-09-02
+
+### Contracts
+
+- This release reaches the compatibility ceiling of the previous line. A package that declared `maximum_core_exclusive = "0.5.0"` must declare `"0.6.0"` to load on this core, and a pip bound of `<0.5.0` must widen to `<0.6.0`. A package that does not move stops loading with `supports core versions from X up to but not including Y`. Nothing else in a package needs an edit for the version itself.
 - The in-API MCP endpoint composes the same modules as the REST API. A private package's policy, identity, and tool contributions apply to MCP calls over HTTP without `SKEIN_MCP_MODULES`.
 - MCP policy actions add `skein.mcp.week.read` and `skein.mcp.memories.read`. A workplace policy that enumerates MCP actions must include them.
 - A governed remote MCP server can omit its `tools` block. Skein then derives effect and risk from each tool's own MCP annotations, and every write from that server needs a human review.

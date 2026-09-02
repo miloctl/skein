@@ -14,7 +14,7 @@ test -x "$deployment/10-app-role.sh"
 test -x "$deployment/20-atlas-schema.sh"
 grep -q -- "--single-transaction" "$deployment/10-app-role.sh"
 grep -q "ext_atlas_extension" "$deployment/20-atlas-schema.sh"
-grep -q "skein_agents-0.4.0-py3-none-any.whl" "$deployment/Dockerfile"
+grep -q "skein_agents-0.5.0-py3-none-any.whl" "$deployment/Dockerfile"
 grep -q "atlas_skein_extension-2.0.0-py3-none-any.whl" "$deployment/Dockerfile"
 grep -q "id=pip-config.*required=true" "$deployment/Dockerfile"
 grep -q "id=npm-config.*required=true" "$deployment/Frontend.Dockerfile"
@@ -96,8 +96,8 @@ for overlay in example-prod example-dev; do
   "$python" "$root/scripts/contract/validate_probes.py" \
     "$rendered" skein-backend backend skein-frontend frontend --require-digests
   if [ "$overlay" = example-prod ]; then
-    grep -Fq 'image: registry.example.com/skein/skein:0.4.0@sha256:' "$rendered"
-    grep -Fq 'image: registry.example.com/skein/skein-frontend:0.4.0-prod@sha256:' "$rendered"
+    grep -Fq 'image: registry.example.com/skein/skein:0.5.0@sha256:' "$rendered"
+    grep -Fq 'image: registry.example.com/skein/skein-frontend:0.5.0-prod@sha256:' "$rendered"
   fi
   grep -q "type: Recreate" "$rendered"          # backend pods never overlap
   grep -q "replicas: 1" "$rendered"             # scheduler, rate caps, _inflight
