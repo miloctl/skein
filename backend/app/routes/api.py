@@ -2230,8 +2230,20 @@ def post_tuning(body: TuningIn, user: AdminUser):
 
 
 @router.get("/agents/trust")
-def get_agents_trust(user: CurrentUser):
-    return delegation.trust_scores()
+def get_agents_trust(user: CurrentUser, request: Request):
+    from ..services.users import MCP_SUFFIX
+
+    # `<person>-mcp` is one person's agent, so its rejection streak is that
+    # person's — the person-level judgment trust_scores exists to withhold.
+    # The owner and an administrator see it; nobody else does.
+    admin = is_administrator(user, request)
+    return [
+        row
+        for row in delegation.trust_scores()
+        if not str(row["agent"]).endswith(MCP_SUFFIX)
+        or admin
+        or row["agent"] == f"{user}{MCP_SUFFIX}"
+    ]
 
 
 @router.get("/agents/entities")

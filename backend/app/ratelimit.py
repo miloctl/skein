@@ -76,6 +76,9 @@ LIMITS = {
     # to record a 1:1 note. Same reasoning that gave `forge` its own bucket.
     "private": 20,
     "chat": 20,
+    # every MCP tool call, reads included: bodies share the thread pool with
+    # the sync REST handlers, and a client looping on list_tasks starves them
+    "mcp": 120,
     "write": 30,  # generic create-endpoint cap — content rows per person
     "artifact": 4,  # digest/readout/handoff each write a file per call
     # its own bucket rather than `write`: one upload can be 8 MB of body and a

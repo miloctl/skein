@@ -236,8 +236,9 @@ the agent's prompt) work keyless, in-app.
   at `/api/webhooks/ci`: a red default-branch build files a deduped high-impact
   blocker; green auto-resolves it.
 - **MCP server** — your *other* AI agents join the platform. Over HTTP,
-  with your personal key (writes act as `<you>-mcp` under review):
-  `claude mcp add --transport http skein https://<api>/api/mcp-server --header "Authorization: Bearer sk-skein-…"`.
+  with your personal key (writes act as `<you>-mcp` under review). Put this
+  in `.mcp.json` and export `SKEIN_API_KEY`, the variable the CLI reads too:
+  `{"mcpServers": {"skein": {"type": "http", "url": "https://<api>/api/mcp-server", "headers": {"Authorization": "Bearer ${SKEIN_API_KEY}"}}}}`
   In-cluster stdio:
   `claude mcp add skein -- env SKEIN_MCP_USER=you-mcp /abs/path/to/backend/.venv/bin/python -m app.mcp_server`
   (a DISTINCT name, never your own — the server reserves it as an agent

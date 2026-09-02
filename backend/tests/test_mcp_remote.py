@@ -7,6 +7,7 @@ import asyncio
 import json
 
 import httpx
+import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
@@ -97,12 +98,10 @@ def test_a_write_acts_as_the_persons_mcp_agent(fresh_db, monkeypatch):
     """Proves the request context reaches the tool body in its worker
     thread: the proposal names the agent as proposer and the person as
     requester, and a second person gets a second agent."""
-    from app import config, mcp_server
+    from app import config
     from app.services import users
 
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
-    # the reservation cache is per process and this database is fresh
-    monkeypatch.setattr(mcp_server, "_reserved", set())
     users.ensure_user("ava")
     users.ensure_user("bo")
 
@@ -159,10 +158,116 @@ def test_a_read_and_a_bounded_list_answer_over_http(fresh_db):
         work.create_task(f"task {n}", actor="ava")
 
     async def scenario(session):
+        every = _text(await session.call_tool("list_tasks", {}))
         page = _text(await session.call_tool("list_tasks", {"limit": 2, "offset": 1}))
         week = _text(await session.call_tool("week", {}))
-        return json.loads(page), json.loads(week)
+        return json.loads(every), json.loads(page), json.loads(week)
 
-    page, week = _session(_key("ava"), scenario)
-    assert len(page) == 2
+    every, page, week = _session(_key("ava"), scenario)
+    assert [row["id"] for row in page] == [row["id"] for row in every][1:3]
     assert "error" not in week
+
+
+def test_agent_key_wording_and_the_mcp_name_space(fresh_db):
+    from app import mcp_server
+    from app.services import users
+
+    users.ensure_agent_identity("bot", owner="mcp")
+    reply = _raw(_key("bot"))
+    assert reply.status_code == 403 and reply.json()["detail"] == mcp_server.PERSON_KEY_ONLY
+    # a human cannot take a person's agent name, so nobody is locked out
+    with pytest.raises(ValueError):
+        users.ensure_human_identity("ava-mcp")
+    # a renamed or deactivated agent row stops acting at once
+    users.ensure_user("ava")
+    _session(_key("ava"), lambda session: session.list_tools())
+    assert fresh_db.query_one("SELECT 1 FROM users WHERE name = 'ava-mcp' AND kind = 'agent'")
+    fresh_db.execute("UPDATE users SET active = 0 WHERE name = 'ava-mcp'")
+    refused = _raw(_key("ava"))
+    assert refused.status_code == 403 and refused.json()["detail"] == mcp_server.UNAVAILABLE
+    assert "ava-mcp" not in refused.text
+
+
+def test_rename_and_deactivation_carry_the_mcp_agent(fresh_db):
+    from app.services import users
+
+    users.ensure_user("ava")
+    _session(_key("ava"), lambda session: session.list_tools())
+    users.rename_user("ava", "avery", actor="admin")
+    rows = {r["name"]: r["active"] for r in fresh_db.query("SELECT name, active FROM users")}
+    assert "avery-mcp" in rows and "ava-mcp" not in rows
+    users.set_active("avery", False, actor="admin")
+    assert fresh_db.query_one("SELECT active FROM users WHERE name = 'avery-mcp'")["active"] == 0
+
+
+def test_refusals_and_bad_arguments_are_errors_without_echo(fresh_db, monkeypatch):
+    from app import mcp_server
+
+    async def scenario(session):
+        bad = await session.call_tool("list_tasks", {"limit": "not-a-number-XYZ"})
+        refusal = await session.call_tool("update_task", {"task_id": 1})
+        return bad, refusal
+
+    bad, refusal = _session(_key("ava"), scenario)
+    assert bad.isError and _text(bad) == mcp_server.ARGUMENTS_REFUSED
+    assert "XYZ" not in _text(bad)
+    assert refusal.isError and json.loads(_text(refusal))["error"]
+
+
+def test_busy_and_oversized_answers_are_named(fresh_db, monkeypatch):
+    import psycopg
+
+    from app import mcp_server
+
+    def busy(*_args, **_kwargs):
+        raise psycopg.errors.LockNotAvailable()
+
+    monkeypatch.setattr(mcp_server.briefing_svc, "my_day", busy)
+    monkeypatch.setattr(mcp_server.weekly, "week_view", lambda *_a, **_k: {"x": "y" * 300_000})
+
+    async def scenario(session):
+        return _text(await session.call_tool("get_my_day", {})), _text(
+            await session.call_tool("week", {})
+        )
+
+    day, week = _session(_key("ava"), scenario)
+    assert json.loads(day) == {"error": mcp_server.BUSY}
+    assert json.loads(week) == {"error": mcp_server.TOO_LARGE}
+
+
+def test_the_context_pack_resource_masks_errors(fresh_db, monkeypatch):
+    from app import mcp_server
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("secret path")
+
+    monkeypatch.setattr(mcp_server.context_pack, "get_pack", boom)
+
+    async def scenario(session):
+        result = await session.read_resource("skein://context-pack")
+        return result.contents[0].text
+
+    text = _session(_key("ava"), scenario)
+    assert json.loads(text) == {"error": mcp_server.FAILED}
+
+
+def test_a_persons_mcp_agent_is_hidden_from_other_peoples_trust_view(client, fresh_db):
+    from app.services import users
+
+    users.ensure_user("ava")
+    users.ensure_user("bo")
+    users.ensure_agent_identity("ava-mcp", owner="mcp")
+    users.ensure_agent_identity("shared-bot", owner="mcp")
+    for agent in ("ava-mcp", "shared-bot"):
+        fresh_db.execute(
+            "INSERT INTO pending_changes (entity, action, payload, proposed_by, requested_by,"
+            " status, created_at) VALUES ('task', 'create', '{}', ?, 'ava', 'rejected', ?)",
+            (agent, "2026-09-01T00:00:00+00:00"),
+        )
+
+    def seen(who: str) -> set[str]:
+        reply = client.get("/api/agents/trust", headers={"X-User": who})
+        return {row["agent"] for row in reply.json()}
+
+    assert "ava-mcp" in seen("ava")
+    assert "ava-mcp" not in seen("bo") and "shared-bot" in seen("bo")
