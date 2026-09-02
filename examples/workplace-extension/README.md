@@ -46,7 +46,7 @@ Do not hand-edit a lock. Keep the exact first-party artifacts in `dist/` while y
 
 ## Package boundaries
 
-The backend depends on `skein-agents>=0.3.0,<0.5.0`. The distribution installs the public `app.*` imports.
+The backend depends on `skein-agents>=0.3.0,<0.6.0`. The distribution installs the public `app.*` imports.
 
 The frontend root pins these exact dependencies:
 

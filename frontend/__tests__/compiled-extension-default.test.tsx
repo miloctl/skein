@@ -13,7 +13,7 @@ vi.mock("@/extensions/generated", async () => {
         version: "2.0.0",
         extensionApi: "1.0",
         minimumCore: "0.3.0",
-        maximumCoreExclusive: "0.5.0",
+        maximumCoreExclusive: "0.6.0",
         navigation: [
           {
             id: "atlas.workplace.manager-nav",

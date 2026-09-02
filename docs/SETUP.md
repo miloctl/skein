@@ -204,7 +204,7 @@ name = "workplace-skein-extension"
 version = "1.0.0"
 requires-python = ">=3.12"
 dependencies = [
-  "skein-agents>=0.3.0,<0.5.0",
+  "skein-agents>=0.3.0,<0.6.0",
 ]
 
 [project.optional-dependencies]
@@ -438,7 +438,7 @@ const extension: FrontendExtension = {
   version: "1.0.0",
   extensionApi: FRONTEND_EXTENSION_API,
   minimumCore: "0.3.0",
-  maximumCoreExclusive: "0.5.0",
+  maximumCoreExclusive: "0.6.0",
   navigation: [],
   dashboardCards: [],
 };

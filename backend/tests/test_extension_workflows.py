@@ -76,7 +76,7 @@ def _engine(calls: list[str], *, policy=True) -> WorkflowEngine:
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         workflow_actions=(_action(calls),),
         policies=(
             (PolicyContribution("atlas.workplace.regulated-release", _review_regulated),)
@@ -101,7 +101,7 @@ def test_async_workflow_actions_are_rejected_during_composition():
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         workflow_actions=(replace(_action([]), handler=send),),
     )
 
@@ -194,7 +194,7 @@ def test_one_grant_cannot_approve_two_occurrences_of_the_same_action(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         workflow_actions=(_action(calls),),
         policies=(PolicyContribution("atlas.workplace.review-send", review_send),),
     )
@@ -250,7 +250,7 @@ def test_workflow_grant_fails_closed_when_policy_obligations_change(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         workflow_actions=(_action(calls),),
         policies=(PolicyContribution("atlas.workplace.changing-policy", changing_policy),),
     )
@@ -329,7 +329,7 @@ def test_workflow_actions_require_a_policy_action():
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         workflow_actions=(action,),
     )
     with pytest.raises(ValueError, match="needs a policy action"):
@@ -350,7 +350,7 @@ def test_workflow_write_timeout_reports_unknown_completion(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         workflow_actions=(action,),
     )
     registry = ExtensionRegistry.build((module,))
@@ -393,7 +393,7 @@ def test_workflow_write_exception_after_side_effect_reports_unknown_completion(f
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         workflow_actions=(action,),
     )
     registry = ExtensionRegistry.build((module,))
@@ -430,7 +430,7 @@ def test_workflow_run_id_is_unique_between_runs_and_stable_for_a_retry(fresh_db)
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.5.0",
+                maximum_core_exclusive="0.6.0",
                 workflow_actions=(action,),
             ),
         )
@@ -509,7 +509,7 @@ workflow:
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         workflow_actions=(_action(calls),),
     )
     settings = replace(AppSettings.from_config(), scheduler_enabled=False)
@@ -564,7 +564,7 @@ workflow:
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         workflow_actions=(_action(calls),),
         policies=(PolicyContribution("atlas.workplace.changing", changing_policy),),
     )
@@ -631,7 +631,7 @@ workflow:
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         workflow_actions=(_action(calls),),
         policies=(PolicyContribution("atlas.workplace.review", review_action),),
         identities=(IdentityContribution("atlas.workplace.identity", identity),),
@@ -716,7 +716,7 @@ workflow:
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         workflow_actions=(_action(calls),),
         policies=(PolicyContribution("atlas.workplace.current-review", review_action),),
         identities=(IdentityContribution("atlas.workplace.identity", identity),),
@@ -820,7 +820,7 @@ workflow:
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         workflow_actions=(
             WorkflowActionContribution(
                 name="atlas.workplace.create-task",
@@ -1036,7 +1036,7 @@ def test_timed_out_workflow_closes_late_public_work_calls(fresh_db):
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.5.0",
+                maximum_core_exclusive="0.6.0",
                 workflow_actions=(action,),
             ),
         )
@@ -1099,7 +1099,7 @@ def test_workflow_work_completed_before_deadline_commits_with_unknown_completion
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.5.0",
+                maximum_core_exclusive="0.6.0",
                 workflow_actions=(action,),
             ),
         )
@@ -1164,7 +1164,7 @@ workflow:
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         workflow_actions=(low_action,),
         policies=(PolicyContribution("atlas.workplace.metadata-review", review_action),),
     )
