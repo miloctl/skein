@@ -7,7 +7,7 @@ from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, Response, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from .. import config, db, ratelimit
@@ -1500,6 +1500,7 @@ class McpServerIn(BaseModel):
     name: str = Field(..., max_length=40)
     url: str = Field(..., max_length=2000)
     auth_token: str = Field("", max_length=4000)
+    auth: Literal["token", "oauth"] = "token"
 
 
 # StrongUser throughout, as /keys: a personal server carries a credential and
@@ -1508,6 +1509,7 @@ class McpServerIn(BaseModel):
 
 @router.get("/mcp/servers")
 def get_mcp_servers(user: StrongUser):
+    from ..agents.mcp_oauth import needs_sign_in
     from ..agents.mcp_tools import status
     from ..services import credentials
 
@@ -1515,6 +1517,9 @@ def get_mcp_servers(user: StrongUser):
     live = {row["server_id"]: row for row in status()}
     for row in mine:
         row["status"] = live.get(row["server_id"])
+        row["sign_in_required"] = row["auth"] == "oauth" and (
+            not row["signed_in"] or needs_sign_in(row["server_id"])
+        )
     # an env server's URL is deployment shape; only its name and health show
     return {
         "sealing": credentials.available(),
@@ -1528,7 +1533,7 @@ def post_mcp_server(body: McpServerIn, user: StrongUser):
     from ..agents.mcp_tools import personal_mcp_tools, status
 
     ratelimit.check("write", user)
-    row = mcp_servers.add(user, body.name, body.url, body.auth_token, actor=user)
+    row = mcp_servers.add(user, body.name, body.url, body.auth_token, auth=body.auth, actor=user)
     # connect once now so the reply says what the server offers; a failed
     # connect is a field, the row stays and retries on the owner's next turn
     personal_mcp_tools(user)
@@ -1540,6 +1545,51 @@ def post_mcp_server(body: McpServerIn, user: StrongUser):
 def delete_mcp_server(server_id: int, user: StrongUser):
     ratelimit.check("write", user)
     return mcp_servers.delete(server_id, user, actor=user)
+
+
+@router.post("/mcp/servers/{server_id}/sign-in")
+def post_mcp_sign_in(server_id: int, request: Request, user: StrongUser):
+    """Begin the OAuth grant for one of the caller's servers. The reply
+    carries the authorization URL the browser must open; the authorization
+    server sends the code to the callback below."""
+    from ..agents import mcp_oauth
+
+    ratelimit.check("write", user)
+    sid, server = mcp_servers.entry_for(server_id, user)
+    if server["auth"] != "oauth":
+        raise ValueError("This server uses a bearer token. Delete it and add it again with OAuth.")
+    # the URI the browser must reach, registered with the authorization
+    # server as this client's redirect. Behind a router the scheme is the
+    # forwarded one when the deployment trusts its proxy (SKEIN_TRUST_PROXY_HOPS).
+    base = request.base_url
+    if config.TRUST_PROXY_HOPS and request.headers.get("x-forwarded-proto"):
+        base = base.replace(scheme=request.headers["x-forwarded-proto"].split(",")[0].strip())
+    redirect_uri = f"{base}api/mcp/oauth/callback"
+    mcp_servers.set_redirect_uri(server_id, redirect_uri)
+    server["oauth_redirect_uri"] = redirect_uri
+    return {"authorization_url": mcp_oauth.start(sid, server)}
+
+
+@router.get("/mcp/oauth/callback", response_class=HTMLResponse)
+def get_mcp_oauth_callback(state: str = "", code: str = "", error: str = ""):
+    """Where the authorization server sends the browser back. Open on the
+    perimeter (main.py open_paths): the browser arrives from the IdP with
+    no Skein credential. The state is the provider's 256-bit nonce and the
+    only key; nothing here is echoed, and an unknown state learns nothing."""
+    from ..agents import mcp_oauth
+
+    if not state or not mcp_oauth.complete(state, code, error or ""):
+        return HTMLResponse(
+            "<p>This sign-in is not known. Start it again from Skein Settings.</p>",
+            status_code=404,
+        )
+    if error:
+        return HTMLResponse(
+            "<p>The sign-in was refused. Start it again from Skein Settings.</p>", status_code=400
+        )
+    return HTMLResponse(
+        "<p>Sign-in received. Return to Skein Settings. This tab can be closed.</p>"
+    )
 
 
 @router.get("/admin/keys")

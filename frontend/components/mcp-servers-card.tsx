@@ -19,7 +19,10 @@ type PersonalServer = {
   id: number;
   name: string;
   url: string;
+  auth: "token" | "oauth";
   has_token: boolean;
+  signed_in: boolean;
+  sign_in_required?: boolean;
   server_id: string;
   status: ServerStatus | null;
 };
@@ -74,7 +77,12 @@ export function McpServersCard({
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [token, setToken] = useState("");
+  const [oauth, setOauth] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null);
+  // a sign-in finishes in another tab: poll until the server connects, or
+  // give up after the grant's own lifetime
+  const [awaiting, setAwaiting] = useState<number | null>(null);
+  const awaitingRef = useRef<number | null>(null);
   const [busy, setBusy] = useState("");
   const restoreTo = useRef<HTMLElement | null>(null);
   const introId = useId();
@@ -85,12 +93,19 @@ export function McpServersCard({
     api<Payload>("/api/mcp/servers")
       .then((p) => {
         if (mine !== gen.current) return;
+        const personal: PersonalServer[] = Array.isArray(p?.personal) ? p.personal : [];
         setData({
           sealing: !!p?.sealing,
           system: Array.isArray(p?.system) ? p.system : [],
-          personal: Array.isArray(p?.personal) ? p.personal : [],
+          personal,
         });
         setError("");
+        const row = personal.find((s) => s.id === awaitingRef.current);
+        if (row?.status?.connected) {
+          awaitingRef.current = null;
+          setAwaiting(null);
+          reportStatus(`Server "${row.name}" signed in and connected.`, "confirmation");
+        }
       })
       .catch((e) => {
         if (mine !== gen.current) return;
@@ -101,6 +116,18 @@ export function McpServersCard({
   useEffect(() => {
     if (strong) load();
   }, [load, strong]);
+  useEffect(() => {
+    if (awaiting === null) return;
+    const timer = setInterval(load, 3000);
+    const stop = setTimeout(() => {
+      awaitingRef.current = null;
+      setAwaiting(null);
+    }, 5 * 60 * 1000);
+    return () => {
+      clearInterval(timer);
+      clearTimeout(stop);
+    };
+  }, [awaiting, load]);
 
   const act = async (
     key: string,
@@ -204,9 +231,37 @@ export function McpServersCard({
                     <span>
                       <span className="font-medium">{s.name}</span>
                       <span className="ml-2 font-mono text-[10px] text-ink-3">
-                        {describe(s.status)}
+                        {s.auth === "oauth" && s.sign_in_required
+                          ? "sign-in needed"
+                          : describe(s.status)}
                         {s.has_token ? " · token stored" : ""}
+                        {s.auth === "oauth" && s.signed_in ? " · signed in" : ""}
                       </span>
+                      {s.auth === "oauth" && (
+                        <button
+                          disabled={!!busy || awaiting === s.id}
+                          onClick={async () => {
+                            const ok = await act(
+                              `s${s.id}`,
+                              async () => {
+                                const reply = await api<{ authorization_url: string }>(
+                                  `/api/mcp/servers/${s.id}/sign-in`,
+                                  { method: "POST" },
+                                );
+                                window.open(reply.authorization_url, "_blank", "noopener");
+                              },
+                              () => `Sign-in opened in a new tab for "${s.name}".`,
+                            );
+                            if (ok) {
+                              awaitingRef.current = s.id;
+                              setAwaiting(s.id);
+                            }
+                          }}
+                          className="ml-2 rounded-lg border border-line-strong px-2 py-0.5 text-xs hover:border-thread-solid disabled:opacity-50"
+                        >
+                          {awaiting === s.id ? "waiting for sign-in…" : "Sign in"}
+                        </button>
+                      )}
                     </span>
                     {deleting === s.id ? (
                       <span className="flex items-center gap-1.5 text-xs">
@@ -272,7 +327,8 @@ export function McpServersCard({
                     body: JSON.stringify({
                       name: name.trim(),
                       url: url.trim(),
-                      auth_token: token,
+                      auth_token: oauth ? "" : token,
+                      auth: oauth ? "oauth" : "token",
                     }),
                   }),
                 (result) =>
@@ -282,6 +338,7 @@ export function McpServersCard({
                 setName("");
                 setUrl("");
                 setToken("");
+                setOauth(false);
               }
             }}
           >
@@ -313,10 +370,19 @@ export function McpServersCard({
               placeholder={data.sealing ? "token (optional)" : "token storage is off"}
               value={token}
               maxLength={4000}
-              disabled={!data.sealing}
+              disabled={!data.sealing || oauth}
               onChange={(e) => setToken(e.target.value)}
               className="w-56 rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid disabled:opacity-50"
             />
+            <label className="flex items-center gap-1 text-xs text-ink-3">
+              <input
+                type="checkbox"
+                checked={oauth}
+                disabled={!data.sealing}
+                onChange={(e) => setOauth(e.target.checked)}
+              />
+              sign in with OAuth
+            </label>
             <button
               type="submit"
               disabled={!!busy || !name.trim() || !url.trim()}
@@ -329,6 +395,12 @@ export function McpServersCard({
             <p className="mt-2 text-xs text-ink-3">
               A token cannot be stored: SKEIN_CREDENTIAL_KEY is not set. Whoever
               runs the server must set it. A server without a token can be added.
+            </p>
+          )}
+          {data.sealing && (
+            <p className="mt-2 text-xs text-ink-3">
+              If the server uses OAuth, select sign in with OAuth, add the server,
+              then select Sign in on its row. The sign-in opens in a new tab.
             </p>
           )}
         </>

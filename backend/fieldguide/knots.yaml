@@ -346,7 +346,7 @@ knots:
     knot: Anchor Bend
     set: bends
     pitch: Your own tools, tied on for your turns alone — and every write they offer waits for a human hand.
-    how: "Open Settings → Connections → Remote MCP servers. Enter a name and the server URL. If the server needs a token, enter it. Skein classifies each tool from the server's own annotations. A read tool creates one review the first time it runs, then it runs under policy. A write tool creates a review each time. Only your own chat turns carry these tools."
+    how: "Open Settings → Connections → Remote MCP servers. Enter a name and the server URL. If the server needs a token, enter it. If the server uses OAuth, select sign in with OAuth, add the server, then select Sign in on its row. Skein classifies each tool from the server's own annotations. A read tool creates one review the first time it runs, then it runs under policy. A write tool creates a review each time. Only your own chat turns carry these tools."
     link: /settings#settings-connections
     since: 2026-09-01
 

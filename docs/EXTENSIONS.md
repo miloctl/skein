@@ -655,6 +655,15 @@ version, because annotations are the server's own claim. A personal tool
 joins only the chat turns its owner drives. Its token is
 sealed under `SKEIN_CREDENTIAL_KEY` and never travels in an export.
 
+A personal server that uses OAuth 2.1 signs in through the `mcp` package's
+client provider (`agents/mcp_oauth.py`). The provider runs the grant inside
+the first request of a connect. Skein parks the authorization URL for the
+settings card and receives the code on `/api/mcp/oauth/callback`, which is
+open on the perimeter and keyed on the provider's state nonce. A connect
+from a chat turn refuses a fresh authorization demand at once. Pending
+flows live in the process that started them, so the callback must reach
+that replica.
+
 The standalone MCP server is a separate process and composes its own module
 list. Set `SKEIN_MCP_MODULES` to the dotted path of a module whose `modules`
 attribute is the same tuple the private composition root passes to

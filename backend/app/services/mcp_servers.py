@@ -66,12 +66,17 @@ def check_url(url: str) -> None:
             raise ValueError("The URL points at this server or its host. Name a remote MCP server.")
 
 
+AUTH_MODES = ("token", "oauth")
+
+
 def _public(row: dict) -> dict:
     return {
         "id": row["id"],
         "name": row["name"],
         "url": row["url"],
+        "auth": row["auth"],
         "has_token": row["auth_token_sealed"] is not None,
+        "signed_in": row["oauth_tokens_sealed"] is not None,
         "server_id": server_id(row["owner"], row["name"]),
         "created_at": row["created_at"],
     }
@@ -88,12 +93,24 @@ def _rows(person: str) -> list[dict]:
     )
 
 
-def add(person: str, name: str, url: str, token: str = "", *, actor: str) -> dict:
+def add(
+    person: str, name: str, url: str, token: str = "", *, auth: str = "token", actor: str
+) -> dict:
     name = name.strip()
     if not _NAME.fullmatch(name):
         raise ValueError("The name must be 1 to 40 characters: lowercase letters, digits, - or _.")
+    if auth not in AUTH_MODES:
+        raise ValueError("The sign-in method must be token or oauth.")
     url = url.strip()
     check_url(url)
+    if auth == "oauth":
+        if token:
+            raise ValueError("An OAuth server takes no token. Leave the token field empty.")
+        if not credentials.available():
+            raise ValueError(
+                "OAuth tokens cannot be stored: SKEIN_CREDENTIAL_KEY is not set."
+                " Whoever runs the server must set it, then add the server again."
+            )
     sealed = credentials.seal(token) if token else None
     now = db.now()
     with db.transaction():
@@ -108,10 +125,10 @@ def add(person: str, name: str, url: str, token: str = "", *, actor: str) -> dic
         if len(rows) >= LIMIT:
             raise ValueError(f"You can register up to {LIMIT} servers. Delete one first.")
         sid = db.execute(
-            "INSERT INTO mcp_servers (scope, owner, name, url, auth_token_sealed,"
+            "INSERT INTO mcp_servers (scope, owner, name, url, auth, auth_token_sealed,"
             " origin, created_by, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, 'human', ?, ?, ?) RETURNING id",
-            (SCOPE, person, name, url, sealed, actor, now, now),
+            " VALUES (?, ?, ?, ?, ?, ?, 'human', ?, ?, ?) RETURNING id",
+            (SCOPE, person, name, url, auth, sealed, actor, now, now),
         )
         db.log_activity(actor, "add_mcp_server", f"#{sid} {name}")
     return _public(
@@ -120,7 +137,9 @@ def add(person: str, name: str, url: str, token: str = "", *, actor: str) -> dic
             "owner": person,
             "name": name,
             "url": url,
+            "auth": auth,
             "auth_token_sealed": sealed,
+            "oauth_tokens_sealed": None,
             "created_at": now,
         }
     )
@@ -154,21 +173,73 @@ def delete_for(person: str, *, actor: str = "system") -> int:
     return len(rows)
 
 
+def _entry(row: dict) -> tuple[str, dict]:
+    sid = server_id(row["owner"], row["name"])
+    return (
+        sid,
+        {
+            "id": row["id"],
+            "server_id": sid,
+            "name": row["name"],
+            "url": row["url"],
+            "auth": row["auth"],
+            "auth_token": credentials.unseal(row["auth_token_sealed"])
+            if row["auth_token_sealed"] is not None
+            else "",
+            "signed_in": row["oauth_tokens_sealed"] is not None,
+            "oauth_redirect_uri": row["oauth_redirect_uri"],
+            "derive": True,
+            "tier": SCOPE,
+            "stamp": row["updated_at"],
+        },
+    )
+
+
 def entries_for(person: str) -> list[tuple[str, dict]]:
     """Server entries in the shape mcp_tools consumes, token unsealed."""
-    return [
-        (
-            server_id(person, row["name"]),
-            {
-                "name": row["name"],
-                "url": row["url"],
-                "auth_token": credentials.unseal(row["auth_token_sealed"])
-                if row["auth_token_sealed"] is not None
-                else "",
-                "derive": True,
-                "tier": SCOPE,
-                "stamp": row["updated_at"],
-            },
+    return [_entry(row) for row in _rows(person)]
+
+
+def entry_for(sid: int, person: str) -> tuple[str, dict]:
+    row = db.query_one(
+        "SELECT * FROM mcp_servers WHERE id = ? AND scope = ? AND owner = ?", (sid, SCOPE, person)
+    )
+    if row is None:
+        raise db.NotFound(f"server #{sid} not found (or not yours)")
+    return _entry(row)
+
+
+def set_redirect_uri(sid: int, redirect_uri: str) -> None:
+    """The URI registered with the authorization server. Not a stamp change:
+    updated_at stays, so a live connection is not reopened for it."""
+    db.execute("UPDATE mcp_servers SET oauth_redirect_uri = ? WHERE id = ?", (redirect_uri, sid))
+
+
+def load_oauth(sid: int) -> tuple[str, str]:
+    """(tokens JSON, client JSON), each '' when absent or sealed under a
+    key that changed — then the next sign-in replaces it."""
+    row = db.query_one(
+        "SELECT oauth_tokens_sealed, oauth_client_sealed FROM mcp_servers WHERE id = ?", (sid,)
+    )
+    if row is None:
+        return "", ""
+    return tuple(  # type: ignore[return-value]
+        credentials.unseal(row[column]) if row[column] is not None else ""
+        for column in ("oauth_tokens_sealed", "oauth_client_sealed")
+    )
+
+
+def store_oauth(sid: int, *, tokens: str = "", client: str = "") -> None:
+    """Sealed writes from the provider's storage. Never touches updated_at:
+    a refreshed token is not an edit, and reopening the connection for it
+    would drop the session that just refreshed."""
+    if tokens:
+        db.execute(
+            "UPDATE mcp_servers SET oauth_tokens_sealed = ? WHERE id = ?",
+            (credentials.seal(tokens), sid),
         )
-        for row in _rows(person)
-    ]
+    if client:
+        db.execute(
+            "UPDATE mcp_servers SET oauth_client_sealed = ? WHERE id = ?",
+            (credentials.seal(client), sid),
+        )

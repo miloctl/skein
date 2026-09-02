@@ -27,6 +27,11 @@ OPEN_READS = {
         "its own door: a shared feed token compared with hmac. Calendar"
         " clients cannot send X-User or a bearer, so identity is the URL"
     ),
+    "/api/mcp/oauth/callback": (
+        "where an OAuth authorization server sends the browser back with a"
+        " code. It arrives from the IdP with no Skein credential; the"
+        " provider's state nonce is the only key, and it reads nothing"
+    ),
     "/api/chat/commands": "the composer's static command catalog, no database read",
     "/api/personas": "backend/personas/*.md, checked into the repository",
     "/api/personas/{slug}": "backend/personas/*.md, checked into the repository",
