@@ -355,6 +355,12 @@ safe by construction: the URL check refuses this host and the metadata
 service, the policy decides everything else. Add a row for each service
 the deployment reaches before you apply it.
 
+An OAuth sign-in for a personal MCP server registers
+`<backend URL>/api/mcp/oauth/callback` as its redirect URI, built from the
+request's own base URL. Behind the router, set `SKEIN_TRUST_PROXY_HOPS` so
+the forwarded scheme is used, and keep one backend replica: a pending
+sign-in lives in the process that started it.
+
 `SKEIN_CREDENTIAL_KEY` also belongs in `skein-secrets`. It seals the tokens
 people store for personal MCP servers through Settings. Without it, a
 personal server can be added without a token only.

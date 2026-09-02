@@ -157,6 +157,9 @@ ignore_names = [
     # reset — the same place receipts.reset() is called from, which escapes
     # this list only because the bare name `reset` is used inside app/ too
     "reset_consults",
+    # the mcp package's TokenStorage protocol, called by its OAuth client
+    # provider alone (agents/mcp_oauth.py::_SealedStorage)
+    "get_tokens", "set_tokens", "get_client_info", "set_client_info",
     # PyJWT calls the safe redirect and cache override through its base class
     "fetch_data",
     # the strands SDK calls register_hooks on every session manager it is

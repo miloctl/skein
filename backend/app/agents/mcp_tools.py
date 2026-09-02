@@ -854,6 +854,17 @@ def _publish_personal(entries: list[tuple[str, dict]], generation: int) -> None:
     _close_in_thread(close_after)
 
 
+def open_personal(server_id: str, server: dict) -> None:
+    """One connect for one personal server, from the sign-in thread. The
+    in-flight marker keeps a chat turn from opening the same server."""
+    with _lock:
+        if server_id in _opening:
+            return
+        _opening.add(server_id)
+        generation = _generation
+    _publish_personal([(server_id, server)], generation)
+
+
 def personal_mcp_tools(person: str, reserved_names: set[str] | None = None) -> list:
     """Tools from the servers `person` registered (services/mcp_servers.py).
     Only the turn that person drives receives them: build_agent attaches
@@ -883,6 +894,11 @@ def personal_mcp_tools(person: str, reserved_names: set[str] | None = None) -> l
                 _timeout_strikes.pop(server_id, None)
         for server_id, server in entries:
             if server_id in _connections or server_id in _opening:
+                continue
+            if server.get("auth") == "oauth" and not server.get("signed_in"):
+                # nothing to connect with until the person signs in
+                # (agents/mcp_oauth.py start); a connect here would only
+                # meet the authorization demand and refuse it
                 continue
             state = _retry_state.get(server_id)
             if state is None:
@@ -1048,6 +1064,7 @@ def _connect_servers(
             # collide. Env servers stay unprefixed: renaming their tools
             # would stale every pending proposal keyed on the old name.
             prefix = str(server.get("name") or "") if tier == PERSONAL else ""
+            startup = 30
             if tier == PERSONAL:
                 # re-checked at every connect, not only at add time: the
                 # host can resolve somewhere else once the row exists.
@@ -1056,15 +1073,30 @@ def _connect_servers(
                 from ..services.mcp_servers import check_url
 
                 check_url(url)
+                auth = None
+                if server.get("auth") == "oauth":
+                    from . import mcp_oauth
+
+                    auth = mcp_oauth.provider(server)
+                    if server.get("flow") is not None:
+                        # the grant runs inside this connect's first request
+                        # and waits for a person; the desktop default of 30
+                        # seconds would cancel it mid-sign-in
+                        startup = int(mcp_oauth.FLOW_SECONDS)
                 transport = partial(
                     streamablehttp_client,
                     url,
                     headers=headers,
                     httpx_client_factory=_no_redirect_client,
+                    auth=auth,
                 )
             else:
                 transport = partial(streamablehttp_client, url, headers=headers)
-            client = MCPClient(transport, prefix=prefix) if prefix else MCPClient(transport)
+            client = (
+                MCPClient(transport, prefix=prefix, startup_timeout=startup)
+                if prefix
+                else MCPClient(transport)
+            )
             client.__enter__()
             entered = True
             found = _list_tools(client)

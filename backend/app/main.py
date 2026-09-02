@@ -581,6 +581,9 @@ async def perimeter_auth(request: Request, call_next):
         "/api/calendar.ics",
         "/api/auth/",
         "/api/webhooks/forge",
+        # the OAuth authorization server sends the browser here with a code;
+        # a state nonce the provider minted is the only key (routes/api.py)
+        "/api/mcp/oauth/callback",
     )
     # OPTIONS must pass through so CORS preflights (which carry no Authorization
     # header) reach CORSMiddleware instead of 401ing here.

@@ -293,8 +293,11 @@ async def enforce_mutation_policy(
     """Apply workplace policy before one authenticated REST operation."""
 
     # The calendar feed has its own query-token gate because calendar clients
-    # cannot send API headers. It is not an authenticated REST operation.
-    if request.url.path == "/api/calendar.ics":
+    # cannot send API headers. The OAuth callback arrives from an
+    # authorization server with no Skein credential and is keyed on the
+    # provider's state nonce (routes/api.py). Neither is an authenticated
+    # REST operation. Both paths are also on main.py's open_paths.
+    if request.url.path in ("/api/calendar.ics", "/api/mcp/oauth/callback"):
         return
 
     # Use the existing identity swap point. Do not record adoption here:

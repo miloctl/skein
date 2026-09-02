@@ -534,12 +534,6 @@ write under review. What is left:
   rule relaxes to the policy engine's verdict because a steward classified
   the server on purpose. Trigger: a second person asks for the same server
   a colleague already registered.
-- **OAuth 2.1 for remote servers** — most hosted servers (GitHub, Atlassian)
-  refuse a static bearer token. The installed `mcp` package ships
-  `mcp.client.auth.OAuthClientProvider` with a `TokenStorage` protocol; the
-  build is a `TokenStorage` over the sealed column, a callback route, and a
-  "Connect" button on the card. The server-held OIDC session on the Ops
-  list needs the same secret store, so the two land together.
 - **Standing approval for one personal write tool** — a reviewer approves
   each personal write today. Once a tool has a run of approvals, a reviewer
   can grant it a bounded standing approval (a count or a date), recorded
