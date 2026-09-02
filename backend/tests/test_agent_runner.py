@@ -917,7 +917,7 @@ def test_unattended_turn_uses_composed_policy_and_registry(fresh_db, monkeypatch
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         policies=(PolicyContribution("acme.workplace.runner-policy", deny_agent_create),),
     )
     registry = ExtensionRegistry.build((core_module(), module))

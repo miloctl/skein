@@ -61,7 +61,7 @@ def test_workplace_policy_can_deny_ci_side_effects(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         policies=(PolicyContribution("acme.workplace.ci", deny_ci),),
     )
     with TestClient(create_app(modules=(module,))) as client:
@@ -101,7 +101,7 @@ def test_ci_policy_sees_the_repository_the_write_targets(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         policies=(PolicyContribution("acme.workplace.ci", deny_repo),),
     )
     with TestClient(create_app(modules=(module,))) as client:

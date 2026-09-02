@@ -85,7 +85,7 @@ def _event_context() -> EventExecutionContext:
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.5.0",
+                maximum_core_exclusive="0.6.0",
                 service_identities=(
                     ServiceIdentityContribution(
                         "atlas.workplace.event-identity",
@@ -347,7 +347,7 @@ def test_a_workplace_policy_can_require_a_manager_before_the_write(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         policies=(PolicyContribution("atlas.workplace.manager-review", manager_review),),
     )
     facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
@@ -377,7 +377,7 @@ def test_linked_engagement_context_overrides_caller_policy_context(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         policies=(PolicyContribution("atlas.workplace.regulated", require_review),),
     )
     facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
@@ -416,7 +416,7 @@ def test_crew_engagement_context_overrides_caller_policy_context(fresh_db, calle
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         policies=(PolicyContribution("atlas.workplace.regulated", require_review),),
     )
     facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
@@ -470,7 +470,7 @@ def test_crew_milestone_context_overrides_caller_policy_context(fresh_db, caller
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         policies=(PolicyContribution("atlas.workplace.regulated", require_review),),
     )
     facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
@@ -578,7 +578,7 @@ def test_visible_milestone_does_not_expose_a_hidden_parent_project_class(
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         policies=(PolicyContribution("atlas.workplace.regulated", deny_regulated),),
     )
     facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
@@ -620,7 +620,7 @@ def test_public_update_does_not_expose_a_hidden_engagement(fresh_db, hidden_proj
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         policies=(PolicyContribution("atlas.workplace.regulated", deny_regulated),),
     )
     facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
@@ -719,7 +719,7 @@ def test_public_read_does_not_expose_a_hidden_task_relationship(fresh_db, hidden
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         policies=(PolicyContribution("atlas.workplace.regulated", deny_regulated),),
     )
     facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
@@ -973,7 +973,7 @@ def test_idempotent_replay_rechecks_the_current_task_policy(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         policies=(PolicyContribution("atlas.workplace.regulated", deny_regulated_read),),
     )
     facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
@@ -1023,7 +1023,7 @@ def test_public_read_serializes_policy_and_returned_relationship(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         policies=(PolicyContribution("atlas.workplace.read", read_policy),),
     )
     facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
@@ -1070,7 +1070,7 @@ def test_public_read_redacts_a_policy_denied_relationship(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         policies=(PolicyContribution("atlas.workplace.link-policy", deny_milestone),),
     )
     facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
@@ -1105,7 +1105,7 @@ def test_public_update_policy_uses_target_engagement(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         policies=(PolicyContribution("atlas.workplace.target", deny_regulated),),
     )
     facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
@@ -1130,7 +1130,7 @@ def test_public_create_with_initial_status_requires_update_policy(fresh_db):
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.5.0",
+                maximum_core_exclusive="0.6.0",
                 policies=(PolicyContribution("atlas.workplace.no-updates", deny_updates),),
             ),
         )
@@ -1162,7 +1162,7 @@ def test_public_task_policy_receives_the_requested_fields(fresh_db):
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.5.0",
+                maximum_core_exclusive="0.6.0",
                 policies=(PolicyContribution("atlas.workplace.capture", capture),),
             ),
         )
@@ -1203,7 +1203,7 @@ def test_public_update_serializes_policy_decision_and_mutation(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         policies=(PolicyContribution("atlas.workplace.serialized", workplace_policy),),
     )
     facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
@@ -1236,7 +1236,7 @@ def test_public_update_policy_uses_target_milestone(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         policies=(PolicyContribution("atlas.workplace.target", deny_regulated),),
     )
     facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
@@ -1281,7 +1281,7 @@ def test_public_update_policy_uses_milestone_when_no_direct_engagement(fresh_db)
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         policies=(PolicyContribution("atlas.workplace.target", deny_regulated),),
     )
     facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
@@ -1489,7 +1489,7 @@ def test_event_policy_denial_stops_the_handler_before_external_effects(fresh_db)
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.5.0",
+                maximum_core_exclusive="0.6.0",
                 policies=(PolicyContribution("atlas.workplace.event-policy", deny_event),),
                 service_identities=(
                     ServiceIdentityContribution(
@@ -1545,7 +1545,7 @@ def test_event_policy_receives_the_task_project_type(fresh_db):
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.5.0",
+                maximum_core_exclusive="0.6.0",
                 policies=(
                     PolicyContribution(
                         "atlas.workplace.regulated-events",
@@ -1629,7 +1629,7 @@ def test_async_event_handlers_are_rejected_before_startup():
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         service_identities=(
             ServiceIdentityContribution(
                 "atlas.workplace.event-identity",
@@ -1725,7 +1725,7 @@ def test_extension_store_schema_collisions_are_refused_before_migration(fresh_db
             version="1.0.0",
             extension_api="1.0",
             minimum_core="0.2.0",
-            maximum_core_exclusive="0.5.0",
+            maximum_core_exclusive="0.6.0",
             migrations=(MigrationContribution("atlas.one.data", first, ()),),
         ),
         SkeinModule(
@@ -1733,7 +1733,7 @@ def test_extension_store_schema_collisions_are_refused_before_migration(fresh_db
             version="1.0.0",
             extension_api="1.0",
             minimum_core="0.2.0",
-            maximum_core_exclusive="0.5.0",
+            maximum_core_exclusive="0.6.0",
             migrations=(MigrationContribution("atlas.two.data", second, ()),),
         ),
     )
@@ -1788,7 +1788,7 @@ def test_a_route_grant_does_not_outlive_its_response(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         routes=(
             RouteContribution(
                 "atlas.workplace.routes",
@@ -1837,7 +1837,7 @@ def test_composition_applies_extension_migrations_before_routes(fresh_db, tmp_pa
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         migrations=(
             MigrationContribution(
                 "atlas.workplace.data",
@@ -1883,7 +1883,7 @@ def test_invalid_event_and_migration_contracts_are_rejected(tmp_path):
                     version="1.0.0",
                     extension_api="1.0",
                     minimum_core="0.2.0",
-                    maximum_core_exclusive="0.5.0",
+                    maximum_core_exclusive="0.6.0",
                     events=(
                         _event(
                             "atlas.workplace.empty",
@@ -1902,7 +1902,7 @@ def test_invalid_event_and_migration_contracts_are_rejected(tmp_path):
                     version="1.0.0",
                     extension_api="1.0",
                     minimum_core="0.2.0",
-                    maximum_core_exclusive="0.5.0",
+                    maximum_core_exclusive="0.6.0",
                     migrations=(
                         MigrationContribution(
                             "atlas.workplace.data",
@@ -2044,7 +2044,7 @@ def test_a_declared_extension_store_joins_the_database_recovery_unit(fresh_db, t
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         migrations=(
             MigrationContribution("atlas.workplace.data", store, ()),
             MigrationContribution("atlas.workplace.cache", skipped, ()),
@@ -2084,7 +2084,7 @@ def test_database_retention_leaves_legacy_extension_dumps_alone(fresh_db, tmp_pa
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         migrations=(MigrationContribution("atlas.workplace.data", store, ()),),
     )
     settings = replace(AppSettings.from_config(), scheduler_enabled=False)
@@ -2124,7 +2124,7 @@ def test_a_domain_write_carries_the_declared_operation_risk(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         policies=(PolicyContribution("atlas.workplace.recorder", Recorder()),),
         routes=(
             RouteContribution(
@@ -2184,7 +2184,7 @@ def test_an_unattended_integration_queues_its_held_write_for_approval(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         policies=(PolicyContribution("atlas.workplace.needs-manager", NeedsManager()),),
         routes=(
             RouteContribution(
@@ -2238,7 +2238,7 @@ def test_a_rejected_held_write_never_lands(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         service_identities=(
             ServiceIdentityContribution("atlas.workplace.sync-identity", "atlas-sync"),
         ),
@@ -2343,7 +2343,7 @@ def test_a_held_blocker_write_resumes_on_approval(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         service_identities=(
             ServiceIdentityContribution("atlas.workplace.sync-identity", "atlas-sync"),
         ),
@@ -2504,7 +2504,7 @@ def test_a_linked_write_carries_the_engagements_project_class(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         service_identities=(
             ServiceIdentityContribution("atlas.workplace.sync-identity", "atlas-sync"),
         ),
@@ -2542,7 +2542,7 @@ def test_one_approval_does_not_satisfy_a_second_review_gate(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         service_identities=(
             ServiceIdentityContribution("atlas.workplace.sync-identity", "atlas-sync"),
         ),
@@ -2578,7 +2578,7 @@ def test_the_review_queue_shows_what_it_is_approving(fresh_db):
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.5.0",
+        maximum_core_exclusive="0.6.0",
         service_identities=(
             ServiceIdentityContribution("atlas.workplace.sync-identity", "atlas-sync"),
         ),

@@ -154,7 +154,7 @@ local_write_module = SkeinModule(
     version="1.0.0",
     extension_api="1.0",
     minimum_core="0.2.1",
-    maximum_core_exclusive="0.5.0",
+    maximum_core_exclusive="0.6.0",
     workflow_actions=(
         WorkflowActionContribution(
             name="next.workplace.create-task",
@@ -186,7 +186,7 @@ compatibility = SkeinModule(
     version="1.0.0",
     extension_api="1.0",
     minimum_core="0.2.0",
-    maximum_core_exclusive="0.5.0",
+    maximum_core_exclusive="0.6.0",
     identities=(
         IdentityContribution(
             "upgrade.workplace.identity",
@@ -378,7 +378,7 @@ error_module = SkeinModule(
     version="1.0.0",
     extension_api="1.0",
     minimum_core="0.2.1",
-    maximum_core_exclusive="0.5.0",
+    maximum_core_exclusive="0.6.0",
     tools=(
         ToolContribution(
             name="next.workplace.failure-tool",
