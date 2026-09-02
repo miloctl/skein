@@ -18,9 +18,35 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- The in-API MCP endpoint composes the same modules as the REST API. A private package's policy, identity, and tool contributions apply to MCP calls over HTTP without `SKEIN_MCP_MODULES`.
+- MCP policy actions add `skein.mcp.week.read` and `skein.mcp.memories.read`. A workplace policy that enumerates MCP actions must include them.
+- A governed remote MCP server can omit its `tools` block. Skein then derives effect and risk from each tool's own MCP annotations, and every write from that server needs a human review.
+- A human identity cannot take a name that ends in `-mcp`. That suffix names the agent identity a person's remote MCP calls act through. Existing rows keep resolving.
+
 ### Behavior
 
+- Skein serves its own MCP tools over HTTP at `/api/mcp-server`. The endpoint sits under the perimeter and resolves each caller from a personal API key or deployment sign-in. A self-asserted `X-User` and an agent-owned key are refused.
+- A remote MCP caller acts as the agent `<name>-mcp`, reserved on first use. Writes record origin `agent`, actor `<name>-mcp`, and `requested_by` the person. Each person's MCP agent earns authority on its own matrix row.
+- The MCP server adds `update_task`, `ask_question`, `answer_question`, `resolve_blocker`, `recall_memories`, and `week`. It offers 23 tools. Every tool declares its MCP annotations.
+- `list_tasks` and `search_workspace` take a limit. An MCP result above 256 KiB and a request body above 1 MiB are refused. An unexpected tool error answers a fixed sentence, and the server log records the exception class.
+- A person registers their own remote MCP servers in Settings → Connections. Those tools join only the chat turns that person drives. A flock member, a shared chat, the unattended runner, and the MCP actor never receive them.
+- A personal MCP server signs in with OAuth 2.1 or a bearer token. Skein seals the tokens and the registered client under `SKEIN_CREDENTIAL_KEY`. A database backup carries ciphertext only.
+- Every write from a personal MCP server opens a review. A read opens one review the first time that server, tool, and version runs, then it runs under policy.
+- A registered MCP server URL cannot name loopback, link-local, multicast, or reserved addresses. Skein checks the URL again at every connect and does not follow redirects. A person registers up to 8 servers, and one server contributes up to 32 tools.
+- `GET /api/agents/trust` shows a person's `-mcp` agent to that person and to administrators only. Its rejection streak is person-level data.
+- A rename carries the person's MCP agent, its authority, and its trust history. Deactivation deactivates that agent and deletes the person's registered servers.
+
 ### Operations
+
+- `SKEIN_CREDENTIAL_KEY` seals personal MCP credentials and belongs in the deployment Secret. Generate it with `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. If the key is absent, a personal server accepts no token.
+- Core migration 019 adds the `mcp_servers` table. Core migration 020 adds its OAuth columns.
+- An OAuth sign-in for a personal MCP server lives in the process that started it. Run one backend replica, or a sign-in that returns to a different replica fails.
+- Claude Code reaches `/api/mcp-server` through a `.mcp.json` entry that reads `SKEIN_API_KEY`, the variable the CLI already uses. The key stays out of the shell history.
+- `deploy/k8s/overlays/example-prod/backend-egress.yaml` models the backend egress allowlist. Add one row for each service the deployment reaches before you apply it.
+- MCP tool bodies share the backend's sync thread pool with the REST handlers. Every MCP call, reads included, draws on the `mcp` rate bucket.
+- Release finalization signs the immutable tag with a fine-grained `RELEASE_TAG_TOKEN` from the protected environment. The token needs Contents write and Workflows write. A preflight names the missing secret before any checkout.
+- Release publication and finalization flatten downloaded artifacts. A single-ID download no longer lands under a nested directory the publishers cannot see.
+- The installed frontend contract proves the root-owned override refusals. It removes each override and corrupts each lock entry, and it requires the refusal both times.
 
 ## 0.4.0 — 2026-08-30
 
