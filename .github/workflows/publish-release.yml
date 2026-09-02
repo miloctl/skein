@@ -130,7 +130,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       actions: read
-      packages: write
+      id-token: write
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -147,14 +147,15 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
-          registry-url: https://npm.pkg.github.com
-          scope: "@miloctl"
+          registry-url: https://registry.npmjs.org
+      - name: Use an npm that publishes through OIDC
+        # trusted publishing needs npm 11.5.1 or later; Node 22 ships 10.x.
+        # No token anywhere: the CLI exchanges the job's OIDC token itself.
+        run: npm install -g npm@11.19.1
       - name: Publish the npm packages
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          url="https://npm.pkg.github.com"
+          url="https://registry.npmjs.org"
           manifest_field() {
             tar -xOzf "$1" package/package.json \
               | node -e 'let s=""; process.stdin.on("data",c=>s+=c).on("end",()=>process.stdout.write(String(JSON.parse(s)[process.argv[1]])))' "$2"
@@ -196,7 +197,7 @@ jobs:
             if [ "$status" -ne 4 ]; then
               exit "$status"
             fi
-            npm publish "$archive" --registry "$url"
+            npm publish "$archive" --registry "$url" --access public
           }
           publish_package ./dist/miloctl-skein-extension-api-*.tgz
           publish_package ./dist/miloctl-skein-frontend-host-*.tgz

@@ -58,7 +58,10 @@ def test_core_release_and_extension_api_versions_are_synchronized():
             "url": "git+https://github.com/miloctl/skein.git",
             "directory": directory,
         }
-        assert package["publishConfig"] == {"registry": "https://npm.pkg.github.com"}
+        assert package["publishConfig"] == {
+            "registry": "https://registry.npmjs.org",
+            "access": "public",
+        }
     assert frontend_api["license"] == "Apache-2.0"
     assert {"LICENSE", "NOTICE"} <= set(frontend["files"])
     assert {"LICENSE", "NOTICE"} <= set(frontend_api["files"])
@@ -320,9 +323,13 @@ def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
 
     assert "publish-npm:" in publish
     assert "environment: npm" in publish
-    assert "packages: write" in publish
-    assert "https://npm.pkg.github.com" in publish
-    assert 'scope: "@miloctl"' in publish
+    # OIDC trusted publishing, as PyPI: no registry token and no packages scope
+    assert "packages: write" not in publish
+    assert "NODE_AUTH_TOKEN" not in publish
+    assert "https://registry.npmjs.org" in publish
+    assert "npm.pkg.github.com" not in publish
+    assert re.search(r"npm install -g npm@11\.\d+\.\d+", publish)
+    assert "--access public" in publish
     assert "secrets.GITHUB_TOKEN" in publish
     assert "dist.integrity" in publish
     assert "E404|404 Not Found" in publish
@@ -390,7 +397,10 @@ def test_release_finalization_verifies_registry_bytes_before_tagging():
         assert re.search(r"@[0-9a-f]{40}$", action), action
     assert "cancel-in-progress: false" in workflow
     assert "actions: read" in workflow
-    assert "packages: read" in workflow
+    # the pull-back reads public npmjs.com, so no packages scope and no token
+    assert "packages: read" not in workflow
+    assert "NODE_AUTH_TOKEN" not in workflow
+    assert "https://registry.npmjs.org" in workflow
     # GITHUB_TOKEN cannot grant the separate Workflows permission needed to
     # tag a commit that changes .github/workflows/*. The tag job's automatic
     # token stays read-only; one protected-environment PAT is persisted only

@@ -14,7 +14,7 @@ The workplace repository owns its extension code, dependency locks, content, fin
 
 Use an exact registry package only after its pull-back validation passes and the matching annotated tag exists. `docs/EXTENSIONS.md` names the package line for this revision.
 
-A workplace needs a classic GitHub PAT with `read:packages` outside GitHub Actions. `RELEASING.md` contains the publication and access procedure.
+The npm packages are public on npmjs.com and install with no token. `RELEASING.md` contains the publication procedure.
 
 Before registry publication, use the artifact procedure in [Use local artifacts before publication](#use-local-artifacts-before-publication).
 
@@ -151,20 +151,14 @@ Do not hand-edit a lock. If a first-party artifact changes bytes, stage the new 
 
 Route PyPI through the controlled Python mirror when workplace policy requires it.
 
-Route normal npm packages through the controlled npm mirror. Route the private scope through GitHub Packages:
+Route npm through the controlled npm mirror. The `@miloctl` packages are public on npmjs.com, so the mirror serves them like any other package. No scope routing and no token is needed:
 
 ```ini
 registry=https://<controlled-npm-mirror>/
 replace-registry-host=npmjs
-@miloctl:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${NPM_TOKEN}
 ```
 
 Keep `replace-registry-host=npmjs`. The `always` value rewrites local `file:` tarballs as registry URLs under npm 10.
-
-Use a classic GitHub PAT with `read:packages` for local and non-GitHub installs. Do not commit the token.
-
-A GitHub Actions repository can use `GITHUB_TOKEN` after the package grants that repository read access.
 
 ## 3. Stage the exact Skein packages
 

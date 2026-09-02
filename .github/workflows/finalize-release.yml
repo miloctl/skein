@@ -22,7 +22,6 @@ jobs:
     permissions:
       actions: read
       contents: read
-      packages: read
     outputs:
       release_sha: ${{ steps.release.outputs.release_sha }}
       version: ${{ steps.packages.outputs.version }}
@@ -37,8 +36,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
-          registry-url: https://npm.pkg.github.com
-          scope: "@miloctl"
+          registry-url: https://registry.npmjs.org
       - name: Validate the original release run
         id: release
         env:
@@ -61,7 +59,6 @@ jobs:
         run: python scripts/verify_release_packages.py inspect artifact
       - name: Pull and compare registry packages
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_CACHE: ${{ runner.temp }}/finalize-npm-cache
           VERSION: ${{ steps.packages.outputs.version }}
           EXTENSION_VERSION: ${{ steps.packages.outputs.extension_version }}
@@ -75,9 +72,9 @@ jobs:
                 --dest registry "skein-agents==$VERSION" \
                 --index-url https://pypi.org/simple \
                 && npm pack "@miloctl/skein-extension-api@$EXTENSION_VERSION" \
-                  --pack-destination registry --registry https://npm.pkg.github.com >/dev/null \
+                  --pack-destination registry --registry https://registry.npmjs.org >/dev/null \
                 && npm pack "@miloctl/skein-frontend-host@$VERSION" \
-                  --pack-destination registry --registry https://npm.pkg.github.com >/dev/null; then
+                  --pack-destination registry --registry https://registry.npmjs.org >/dev/null; then
               success=1
               break
             fi

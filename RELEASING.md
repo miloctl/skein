@@ -30,9 +30,9 @@ Keep these account settings for each release pull request.
 
 A reviewed release pull request sets the marker on protected `main`. A push publishes nothing. Publication starts only when `publish-release` names a green `ci` run on protected `main` whose release marker and declared version agree. Tags do not trigger publication.
 
-The npm publisher uses `GITHUB_TOKEN`. `RELEASE_TAG_TOKEN` is for the one annotated-tag push only — never for packages, gates, or registry access.
+Both publishers use OIDC Trusted Publishing. No registry token is stored anywhere. `RELEASE_TAG_TOKEN` is for the one annotated-tag push only — never for packages, gates, or registry access.
 
-After the first npm publication, confirm that both packages are private and linked to `miloctl/skein`.
+After each npm publication, confirm that both packages are public on npmjs.com, carry provenance, and are linked to `miloctl/skein`.
 
 ### PyPI
 
@@ -52,20 +52,34 @@ The workflow filename is part of the OIDC identity. If the publisher job moves t
 
 PyPI is public. The published wheel contains the Skein Python source and package content.
 
-## Configure workplace access
+### npm
 
-A local machine or non-GitHub CI process needs a classic GitHub PAT with `read:packages`.
+npm attaches a Trusted Publisher to an EXISTING package, so the first version of each package is published by hand, once, and every later version by the workflow. Publish the exact tarballs from the green `ci` run's `release-packages` artifact — the bytes finalize-release verified — never a local `npm pack`:
 
-Store that token in the workplace secret manager. Configure npm with:
-
-```ini
-@miloctl:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${NPM_TOKEN}
+```sh
+npm login
+npm publish miloctl-skein-extension-api-<version>.tgz --access public
+npm publish miloctl-skein-frontend-host-<version>.tgz --access public
 ```
 
-GitHub Packages requires authentication for installation, including installation of public packages.
+Then, on npmjs.com, for each of `@miloctl/skein-extension-api` and `@miloctl/skein-frontend-host`, open Settings → Publishing access → Add trusted publisher:
 
-A GitHub Actions workplace repository can use `GITHUB_TOKEN` after each package grants that repository read access.
+```text
+Provider: GitHub Actions
+Organization or user: miloctl
+Repository: skein
+Workflow filename: publish-release.yml
+Environment name: npm
+Allowed actions: npm publish
+```
+
+Select **Require two-factor authentication and disallow tokens** on the same page. The workflow filename is part of the OIDC identity here too: moving the publisher job means adding the new file as a trusted publisher BEFORE the change merges.
+
+The publisher runs `npm install -g npm@11.19.1` first: trusted publishing needs npm 11.5.1 or later and Node 22 ships 10.x. npm generates provenance automatically, and only from a PUBLIC repository — make the repository public before the first workflow publication, or that run fails.
+
+## Configure workplace access
+
+The npm packages are public on npmjs.com and install with no token. A controlled npm mirror serves them like any other package; no scope routing is needed.
 
 ## Prepare the release
 

@@ -1075,14 +1075,7 @@ The image installs both exact first-party wheels with `--no-deps` after the lock
 
 Keep test tools in a separate hash-locked `requirements-test.lock`. Install this lock before the same first-party wheels in a test environment.
 
-Route the private npm scope to GitHub Packages. Keep the token in the workplace secret manager:
-
-```ini
-@miloctl:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${NPM_TOKEN}
-```
-
-Local and non-GitHub consumers need a classic PAT with `read:packages`. A GitHub Actions repository can use `GITHUB_TOKEN` after the package grants it read access.
+The `@miloctl` npm packages are public on npmjs.com and install with no token. A controlled npm mirror serves them like any other package.
 
 Use Node 22. Pin the frontend host, its peers, and Next directly in the workplace root:
 

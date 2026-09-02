@@ -10,7 +10,8 @@
     "directory": "frontend/packages/extension-api"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
   },
   "type": "module",
   "files": [

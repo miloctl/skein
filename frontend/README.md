@@ -15,9 +15,7 @@ The development server uses port 3000. The backend uses port 8000 by default.
 
 ## Build a workplace frontend
 
-Use Node 22 for a workplace build. Route the `@miloctl` scope to `https://npm.pkg.github.com` before installation.
-
-Local and non-GitHub consumers need a classic PAT with `read:packages`.
+Use Node 22 for a workplace build. The `@miloctl` packages are public on npmjs.com and install with no token.
 
 The workplace root pins these packages directly:
 
