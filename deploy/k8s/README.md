@@ -349,6 +349,10 @@ contains a literal `auth_token`, mount it from a Secret. A file that uses
 `auth_token_env` can stay in a ConfigMap, but `skein-secrets` must supply
 the named environment variable.
 
+`SKEIN_CREDENTIAL_KEY` also belongs in `skein-secrets`. It seals the tokens
+people store for personal MCP servers through Settings. Without it, a
+personal server can be added without a token only.
+
 Set one form of a structured setting, never both. `/api/health` reports a
 both-set fault for the three model settings.
 

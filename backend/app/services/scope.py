@@ -668,6 +668,7 @@ UNSCOPED: dict[str, str] = {
         " timestamps and a safe reason code, never task or model text"
     ),
     "api_keys": "credentials, owner-scoped, never listed to anyone else",
+    "mcp_servers": "sealed personal credentials, owner-scoped, never listed to anyone else",
     "oidc_identities": (
         "authentication bindings, reached only while resolving one verified issuer and subject"
     ),

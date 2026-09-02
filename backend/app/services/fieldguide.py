@@ -129,6 +129,9 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # use — and services/forge.py deliberately keeps the pusher out of the
     # ledger, so there is no honest per-person signal to key on either.
     "forge": None,
+    "remote-tools": lambda u: _has(
+        "SELECT 1 FROM mcp_servers WHERE scope = 'personal' AND owner = ?", (u,)
+    ),
     # reviewed_override=0 on a task_completion verdict means the reviewer WAS
     # the sponsor at verdict time — the loop closed the designed way
     "sponsor_verdict": lambda u: _has(

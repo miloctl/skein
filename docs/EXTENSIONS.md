@@ -644,6 +644,15 @@ Use `auth_token_env` to name an environment variable that contains an MCP
 token. An inline `auth_token` remains compatible, but Skein logs a warning.
 Keep tokens in the deployment secret manager.
 
+A personal MCP server (`services/mcp_servers.py`, Settings → Connections)
+carries no governance block, and its owner writes none. Skein derives the
+effect and risk of each tool from the server's MCP annotations, and it
+stamps the version from the input schema. Every write from a personal
+server opens a review, also when the policy engine permits it, because an
+`mcp-tool` authority grant was made for operator-classified servers. A
+personal tool joins only the chat turns its owner drives. Its token is
+sealed under `SKEIN_CREDENTIAL_KEY` and never travels in an export.
+
 The standalone MCP server is a separate process and composes its own module
 list. Set `SKEIN_MCP_MODULES` to the dotted path of a module whose `modules`
 attribute is the same tuple the private composition root passes to

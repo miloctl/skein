@@ -41,6 +41,7 @@ from ..services import (
     ingest,
     intake,
     intervention,
+    mcp_servers,
     memory,
     notifications,
     personas,
@@ -1493,6 +1494,52 @@ def get_keys(user: StrongUser):
 @router.delete("/keys/{key_id}")
 def delete_key(key_id: int, user: StrongUser):
     return api_keys.revoke_key(key_id, user)
+
+
+class McpServerIn(BaseModel):
+    name: str = Field(..., max_length=40)
+    url: str = Field(..., max_length=2000)
+    auth_token: str = Field("", max_length=4000)
+
+
+# StrongUser throughout, as /keys: a personal server carries a credential and
+# a private URL, and under trusted-header a bare X-User names anyone.
+
+
+@router.get("/mcp/servers")
+def get_mcp_servers(user: StrongUser):
+    from ..agents.mcp_tools import status
+    from ..services import credentials
+
+    mine = mcp_servers.list_for(user)
+    live = {row["server_id"]: row for row in status()}
+    for row in mine:
+        row["status"] = live.get(row["server_id"])
+    # an env server's URL is deployment shape; only its name and health show
+    return {
+        "sealing": credentials.available(),
+        "system": [row for row in live.values() if row["tier"] == "system"],
+        "personal": mine,
+    }
+
+
+@router.post("/mcp/servers")
+def post_mcp_server(body: McpServerIn, user: StrongUser):
+    from ..agents.mcp_tools import personal_mcp_tools, status
+
+    ratelimit.check("write", user)
+    row = mcp_servers.add(user, body.name, body.url, body.auth_token, actor=user)
+    # connect once now so the reply says what the server offers; a failed
+    # connect is a field, the row stays and retries on the owner's next turn
+    personal_mcp_tools(user)
+    row["status"] = next((s for s in status() if s["server_id"] == row["server_id"]), None)
+    return row
+
+
+@router.delete("/mcp/servers/{server_id}")
+def delete_mcp_server(server_id: int, user: StrongUser):
+    ratelimit.check("write", user)
+    return mcp_servers.delete(server_id, user, actor=user)
 
 
 @router.get("/admin/keys")

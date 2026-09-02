@@ -437,7 +437,7 @@ def test_mcp_retries_only_failed_servers_and_keeps_successes_available(monkeypat
             self.tool_name = name
 
     class FakeClient:
-        def __init__(self, factory):
+        def __init__(self, factory, **_kwargs):
             self.name = "a" if "a.invalid" in factory.args[0] else "b"
 
         def __enter__(self):
@@ -507,7 +507,7 @@ def test_a_recovered_mcp_collision_removes_both_tools(monkeypatch, clean_mcp):
         tool_name = "shared"
 
     class FakeClient:
-        def __init__(self, factory):
+        def __init__(self, factory, **_kwargs):
             self.name = "a" if "a.invalid" in factory.args[0] else "b"
 
         def __enter__(self):
@@ -704,3 +704,104 @@ def test_the_slack_digest_carries_no_message_body(fresh_db, monkeypatch):
     notifications.notify("ava", "ZZSECRETZZ escalated", tier="immediate")
     assert len(posts) == 2
     assert "ZZSECRETZZ" not in posts[1]
+
+
+def _personal_client(monkeypatch, m, seen: list[str]):
+    class RemoteTool:
+        def __init__(self, name, prefix):
+            self.tool_name = f"{prefix}_{name}"
+            self.tool_spec = {"name": name, "inputSchema": {}}
+            self.mcp_tool = None
+
+    class FakeClient:
+        def __init__(self, factory, prefix=None, **_kwargs):
+            self.prefix = prefix
+            seen.append(factory.args[0])
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def list_tools_sync(self):
+            return [RemoteTool("ping", self.prefix)]
+
+    monkeypatch.setattr("strands.tools.mcp.MCPClient", FakeClient)
+
+
+def test_personal_servers_never_join_the_process_wide_list_and_follow_their_row(
+    fresh_db, monkeypatch, clean_mcp
+):
+    """A personal connection shares the cache with the env servers but not
+    their tool list, and an edit or delete of its row (another pod's write)
+    is honoured on the owner's next build without a broadcast."""
+    from app import db
+    from app.services import mcp_servers
+
+    m = clean_mcp
+    seen: list[str] = []
+    _personal_client(monkeypatch, m, seen)
+    monkeypatch.setattr("app.config.MCP_SERVERS", "")
+    mcp_servers.add("ava", "notes", "https://notes.example/mcp", actor="ava")
+
+    mine = m.personal_mcp_tools("ava")
+    assert [t.tool_name for t in mine] == ["notes_ping"]
+    assert mine[0].tier == "personal" and mine[0].server_id == "personal:ava:notes"
+    # an unannotated tool is a write at the top of the scale, and the
+    # process-wide list stays empty
+    assert (mine[0].metadata.effect, mine[0].metadata.risk) == ("write", "high")
+    assert m.mcp_tools() == []
+    assert m.personal_mcp_tools("bo") == []
+    assert len(seen) == 1
+    m.personal_mcp_tools("ava")
+    assert len(seen) == 1, "a cached connection is reused"
+
+    db.execute("UPDATE mcp_servers SET updated_at = ? WHERE name = 'notes'", ("2099-01-01",))
+    m.personal_mcp_tools("ava")
+    assert len(seen) == 2, "a changed row reopens the connection"
+
+    db.execute("DELETE FROM mcp_servers")
+    assert m.personal_mcp_tools("ava") == []
+    assert "personal:ava:notes" not in m._connections
+    assert [row["tier"] for row in m.status()] == []
+
+
+def test_personal_tools_reach_only_the_turn_their_owner_drives(fresh_db, monkeypatch, clean_mcp):
+    import app.routes.chat  # noqa: F401  (bind build_agent before any patch, as test_specialist_consult explains)
+    from app import config
+    from app.agents import team_agent
+    from app.agents.team_agent import build_agent
+    from app.services import mcp_servers
+
+    class FakeModel:
+        stateful = False
+
+        def __init__(self):
+            self.config = {"model_id": "fake"}
+
+        def get_config(self):
+            return self.config
+
+        def update_config(self, **kwargs):
+            self.config.update(kwargs)
+
+    # a genuine Agent, so the tool registry is inspectable: build_agent
+    # returns MockAgent before any tool exists on the mock provider
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
+    monkeypatch.setattr(team_agent, "_model", lambda **_: FakeModel())
+    m = clean_mcp
+    _personal_client(monkeypatch, m, [])
+    monkeypatch.setattr("app.config.MCP_SERVERS", "")
+    mcp_servers.add("ava", "notes", "https://notes.example/mcp", actor="ava")
+
+    def names(**kwargs):
+        agent = build_agent("t-personal", "ava", **kwargs)
+        return {getattr(t, "tool_name", "") for t in agent.tool_registry.registry.values()}
+
+    assert "notes_ping" in names(personal_tools_for="ava")
+    assert "notes_ping" not in names()
+    assert "notes_ping" not in names(personal_tools_for="ava", stateless=True)
+    assert "notes_ping" not in names(personal_tools_for="bo")
