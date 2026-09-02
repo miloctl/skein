@@ -17,6 +17,14 @@ on:
 permissions:
   contents: read
 
+# One run per ref. A superseded pull-request run is cancelled: its commit is
+# gone and its minutes are paid. A main run is never cancelled: a green main
+# run stores the artifact publish-release.yml names, and cancelling it would
+# drop the one artifact a release can still be completed from.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # 60 is a hang ceiling, not a budget: GitHub's default is 360, and a job
   # stuck on a dead database or a hung transport would hold a runner for six
