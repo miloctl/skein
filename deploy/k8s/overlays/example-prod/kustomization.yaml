@@ -9,6 +9,8 @@ namespace: skein
 
 resources:
   - ../../base
+  # egress allowlist for the backend pod; edit its rows before you apply it
+  - backend-egress.yaml
 
 images:
   - name: skein

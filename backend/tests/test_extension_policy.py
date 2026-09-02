@@ -6251,3 +6251,64 @@ def test_a_personal_remote_write_needs_a_human_even_under_permit(fresh_db, monke
     )
     assert approved["result"]["status"] == "completed"
     assert personal_remote.called is True
+
+
+def test_a_personal_read_runs_under_policy_only_after_one_approval(fresh_db, monkeypatch):
+    """Annotations are the server's claim, so a personal read is reviewed
+    once per (server, tool, version). After that approval, a call with a
+    different input runs without a proposal."""
+    from app import config
+    from app.agents import mcp_tools as mcp_module
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.agents.mcp_tools import GovernedMCPTool, execute_reviewed_mcp
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import review, users
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", False)
+    registry = ExtensionRegistry.build(())
+    metadata = _mcp_metadata(effect="read", risk="low", policy_action="mcp:read")
+    remote = _RemoteTool()
+    sid = "personal:requester:atlas"
+    tool = GovernedMCPTool(remote, metadata, sid, "personal")
+    mcp_module._connections[sid] = mcp_module._MCPConnection(sid, object(), (tool,), 1, "personal")
+
+    async def run(payload):
+        return [
+            event
+            async for event in tool.stream(
+                {"toolUseId": "mcp-1", "name": "atlas_remote", "input": payload}, {}
+            )
+        ]
+
+    def call(payload):
+        policy_token = set_policy_engine(registry.policy_engine)
+        subject_token = set_policy_subject(registry.refresh_subject(PolicySubject("requester")))
+        agent_token = set_agent_identity("agent")
+        try:
+            return asyncio.run(run(payload))
+        finally:
+            reset_agent_identity(agent_token)
+            reset_policy_subject(subject_token)
+            reset_policy_engine(policy_token)
+
+    assert call({"q": "first"})[-1]["completionStatus"] == "review_required"
+    assert remote.called is False
+    pending = fresh_db.query_one(
+        "SELECT id FROM pending_changes WHERE entity = 'extension_mcp_tool' AND status = 'pending'"
+    )
+    assert pending is not None
+    users.ensure_user("manager")
+
+    def resume(invocation, _change_id):
+        return asyncio.run(execute_reviewed_mcp(invocation, registry))
+
+    approved = review.approve_change(
+        pending["id"], actor="manager", extension_executor=resume, policy_registry=registry
+    )
+    assert approved["result"]["status"] == "completed"
+    assert remote.called is True
+
+    remote.called = False
+    assert call({"q": "second, never reviewed"})[-1]["status"] == "success"
+    assert remote.called is True
+    assert fresh_db.query_one("SELECT 1 FROM pending_changes WHERE status = 'pending'") is None

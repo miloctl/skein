@@ -349,6 +349,12 @@ contains a literal `auth_token`, mount it from a Secret. A file that uses
 `auth_token_env` can stay in a ConfigMap, but `skein-secrets` must supply
 the named environment variable.
 
+The example-prod overlay carries `backend-egress.yaml`, an egress allowlist
+for the backend pod. It is the control that makes a personal MCP server
+safe by construction: the URL check refuses this host and the metadata
+service, the policy decides everything else. Add a row for each service
+the deployment reaches before you apply it.
+
 `SKEIN_CREDENTIAL_KEY` also belongs in `skein-secrets`. It seals the tokens
 people store for personal MCP servers through Settings. Without it, a
 personal server can be added without a token only.

@@ -145,9 +145,9 @@ export function McpServersCard({
         A remote MCP server gives the agent more tools. Whoever runs the server
         configures the system-wide list. You can add your own servers. Your
         servers join only the chat turns you start. Skein classifies each tool
-        from the server&apos;s own annotations: a read tool runs under policy,
-        and a write tool creates a review before it runs. To add a server, use
-        strong identity.
+        from the server&apos;s own annotations: a read tool creates one review
+        the first time it runs, and a write tool creates a review each time.
+        To add a server, use strong identity.
       </p>
 
       <p role="status" className="text-sm text-danger empty:hidden">
