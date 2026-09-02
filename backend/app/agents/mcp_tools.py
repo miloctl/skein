@@ -247,7 +247,11 @@ class GovernedMCPTool(AgentTool):
         # approval fingerprint from it, and a substituted REVIEW decision
         # would stale every approval.
         needs_review = decision.effect == PolicyEffect.REVIEW or (
-            self.tier == PERSONAL and self.metadata.effect == "write"
+            self.tier == PERSONAL
+            and (
+                self.metadata.effect == "write"
+                or not _first_use_approved(self.server_id, self.tool_name, self.metadata.version)
+            )
         )
         if needs_review and approved_fingerprint != fingerprint:
             from ..services import review
@@ -395,6 +399,25 @@ class GovernedMCPTool(AgentTool):
             _audit_mcp(actor, self.tool_name, "completed")
         for event in events:
             yield event
+
+
+def _first_use_approved(server: str, tool: str, version: str) -> bool:
+    """A personal READ runs under policy only after one human approved it.
+    Annotations are the server's own claim: a hostile server labels an
+    exfiltration tool read-only, and the model can be steered to pass
+    private context as its arguments. One approval per (server, tool,
+    version) — a changed input contract is a new tool."""
+    from .. import db
+
+    return (
+        db.query_one(
+            "SELECT 1 FROM extension_review_invocations WHERE kind = 'mcp_tool'"
+            " AND status = 'approved' AND invocation::jsonb ->> 'server' = ?"
+            " AND invocation::jsonb ->> 'tool' = ? AND invocation::jsonb ->> 'version' = ?",
+            (server, tool, version),
+        )
+        is not None
+    )
 
 
 def _agent_name() -> str:

@@ -1,0 +1,56 @@
+# Where the backend pod may connect. Without this, the URL check on a
+# personal MCP server (backend/app/services/mcp_servers.py) is the only thing
+# between the API pod and every port on the cluster network. With it, the
+# check is a courtesy and this policy is the control.
+#
+# Example: every deployment adds its own rows. A model provider on the
+# cluster network, an internal MCP server, an OIDC issuer, Slack, and the
+# OTLP collector each need a `to` entry here or the feature fails closed and
+# /api/health reports it. Private ranges are excluded from the internet rule
+# on purpose: a personal MCP server on the cluster network is registered by
+# adding its pod or CIDR below, not by widening the rule.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: skein-backend-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: skein-backend
+  policyTypes:
+    - Egress
+  egress:
+    # cluster DNS. OpenShift serves it from openshift-dns; a vanilla
+    # cluster uses kube-system with the k8s-app=kube-dns pod label.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # the database, matching base/network-policy.yaml from the other side
+    - to:
+        - podSelector:
+            matchLabels:
+              app: skein-db
+      ports:
+        - protocol: TCP
+          port: 5432
+    # HTTPS to the internet: model providers, hosted MCP servers, the IdP,
+    # Slack. Link-local (cloud metadata), loopback and private ranges are
+    # carved out; add a private range back only for a named service.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443

@@ -2,9 +2,10 @@
 turns, beside the operator's SKEIN_MCP_SERVERS list (agents/mcp_tools.py).
 
 A personal server carries no governance block. Its tools are classified
-from the server's own annotations, and every write it offers needs a human
-review whatever the policy engine permits — the person adding a server must
-not be the one deciding how much to trust it. The token is sealed under
+from the server's own annotations; every write it offers needs a human
+review whatever the policy engine permits, and a read runs only after one
+human approved that tool once — the person adding a server must not be the
+one deciding how much to trust it. The token is sealed under
 SKEIN_CREDENTIAL_KEY and never leaves this module unsealed except into the
 connection that uses it."""
 
@@ -44,8 +45,8 @@ def check_url(url: str) -> None:
     # reaches the cloud metadata service. Private ranges stay allowed: an
     # MCP server on the cluster network is the main use. A host that
     # resolves to nothing passes (it cannot be reached either); the
-    # deployment's egress NetworkPolicy is the stronger control when one
-    # exists (none in deploy/k8s/base today).
+    # deployment's egress NetworkPolicy is the stronger control
+    # (deploy/k8s/overlays/example-prod/backend-egress.yaml is the model).
     try:
         infos = socket.getaddrinfo(parts.hostname, parts.port or 443, proto=socket.IPPROTO_TCP)
     except socket.gaierror:
