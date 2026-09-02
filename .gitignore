@@ -3,7 +3,9 @@ __pycache__/
 *.pyc
 
 # agent worktrees (Claude Code tooling scratch, never project state)
-.claude/worktrees/
+# session tooling: settings.local.json holds permission allowlists,
+# RESUME.md holds session notes; neither belongs in a public tree
+.claude/
 
 # session scaffolding: the spec/plan/todo a working session writes. The open
 # backlog has ONE home (docs/ROADMAP.md) and a closed plan is archived to
