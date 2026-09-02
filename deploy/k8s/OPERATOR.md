@@ -18,6 +18,18 @@ a bad config value degrades the feature and reports itself — it does not
 take the service down. Check `/api/health` monthly. Upgrade when the
 maintainer publishes a release, on your own schedule.
 
+One key is yours to keep. `SKEIN_CREDENTIAL_KEY` in `skein-secrets` seals
+the tokens people store for their personal MCP servers. Generate it once:
+
+```bash
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+If the key changes, every stored token reads as empty. Those servers then
+connect without a token until their owners add them again. If the key is
+not set, people can add a server without a token only, and the settings
+card says so.
+
 ## The monthly check
 
 Open `https://<backend-route-host>/api/health` with a credential — a

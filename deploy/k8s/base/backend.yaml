@@ -103,7 +103,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: skein-config
-            # Model keys, SKEIN_FORGE_WEBHOOK_SECRET, SKEIN_ICS_TOKEN.
+            # Model keys, SKEIN_FORGE_WEBHOOK_SECRET, SKEIN_ICS_TOKEN,
+            # SKEIN_CREDENTIAL_KEY (seals personal MCP tokens).
             # Optional: a keyless (mock) deployment needs no Secret at all.
             - secretRef:
                 name: skein-secrets

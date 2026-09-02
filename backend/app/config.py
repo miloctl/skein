@@ -1248,6 +1248,11 @@ EXTRA_TOOLS = tuple(t.strip() for t in os.getenv("SKEIN_EXTRA_TOOLS", "").split(
 # (pinned in tests/test_auth_modes.py).
 AUTH_MODES = ("trusted-header", "api-key", "oidc")
 AUTH_MODE = os.getenv("SKEIN_AUTH_MODE", "api-key").strip().lower() or "api-key"
+# Fernet key that seals per-person credentials (mcp_servers.auth_token_sealed,
+# services/credentials.py). A credential, so env-only and in the Secret: the
+# sealed column travels in every backup, and this key is what keeps that
+# ciphertext. Unset, personal MCP tokens are refused with the variable name.
+CREDENTIAL_KEY = os.getenv("SKEIN_CREDENTIAL_KEY", "").strip()
 # how many trusted proxies sit in front of this process and append to
 # X-Forwarded-For (an OpenShift/k8s ingress router = 1). At 0 the header is
 # ignored: per-address rate caps key on the socket peer, which behind a

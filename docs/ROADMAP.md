@@ -516,3 +516,32 @@ is the evidence that funds the build — none of them is worth building early.
 | Offload thresholds as admin tunables | An operator has a standing reason to change `SKEIN_OFFLOAD_RESULT_TOKENS` / `_PREVIEW_TOKENS` between deploys (the settings rule's question 4). Until then they stay env-only. |
 | `wording.py` STE ring promoted to fatal | The warn count in `scripts/check_ste.py` stays at zero across a few releases (currently zero). Same staging the knots gate went through: warn until clean stays clean, then gate. |
 | Live consult-quality eval | A deployment with a few weeks of real consults. The routing eval scores DESCRIPTIONS (TF-IDF), and the 2026-08-30 merge already showed the proxy's failure mode: a description tuned to the fixtures. Tier 1 is deterministic assertions over live traces — consult fired, right slug, count within the turn budget, writes landed as proposals — with cases accruing from the feedback corpus (`kind=finding`), not cold authoring. An LLM judge is NOT the gate: it would add cost, nondeterminism, and a second Goodhart surface to cover only the fuzzy remainder ("framed, not repeated"). At most it becomes an ad-hoc triage labeler once the corpus outgrows human reading. |
+
+## Remote MCP servers (2026-09-01)
+
+The personal tier shipped 2026-09-01 (`services/mcp_servers.py`, Settings →
+Connections). The tiers differ in trust, not only in scope: the system tier
+is operator-classified, the personal tier is annotation-classified with every
+write under review. What is left:
+
+- **Team tier** — an administrator or crew steward registers a server with
+  `scope = 'team'` in the same `mcp_servers` table, scoped to one crew or to
+  everyone. The credential is a Secret key name (`auth_token_env`) or a
+  sealed token. Metadata is derived as for the personal tier, and an
+  administrator can tighten a tool's effect or risk, never loosen it. The
+  steward check is `crews.assert_steward` inside the write's transaction,
+  the route answers strong plus named admin, and the personal-write review
+  rule relaxes to the policy engine's verdict because a steward classified
+  the server on purpose. Trigger: a second person asks for the same server
+  a colleague already registered.
+- **OAuth 2.1 for remote servers** — most hosted servers (GitHub, Atlassian)
+  refuse a static bearer token. The installed `mcp` package ships
+  `mcp.client.auth.OAuthClientProvider` with a `TokenStorage` protocol; the
+  build is a `TokenStorage` over the sealed column, a callback route, and a
+  "Connect" button on the card. The server-held OIDC session on the Ops
+  list needs the same secret store, so the two land together.
+- **Standing approval for one personal write tool** — a reviewer approves
+  each personal write today. Once a tool has a run of approvals, a reviewer
+  can grant it a bounded standing approval (a count or a date), recorded
+  as an authority row keyed on `server_id:tool`, and the review rule reads
+  it. Trigger: the same personal tool reviewed and approved ten times.

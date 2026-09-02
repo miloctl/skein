@@ -199,6 +199,7 @@ production host. Authority levels can only be set by human identities
 | Slack outbound | `SLACK_WEBHOOK_URL` | Immediate pings + twice-daily notification digests |
 | Slack commands | `SLACK_SIGNING_SECRET` | `/skein …` slash command (capture, briefing, search, plan) with signature verification |
 | MCP tools | `SKEIN_MCP_SERVERS` (JSON) | GitHub/Linear/etc. tools attached to the real agent |
+| Personal MCP servers | `SKEIN_CREDENTIAL_KEY` (Fernet key) | seals the tokens people store for their own MCP servers on Settings → Connections; unset, personal servers can be added without a token only |
 | Prebuilt tools | `SKEIN_EXTRA_TOOLS` | Allowlisted [strands-agents-tools](https://github.com/strands-agents/tools) for the real agent (keyless: `calculator,current_time,think,batch,sleep,rss`; key-gated: tavily/exa research tools — full allowlist in `app/agents/extra_tools.py`). Shell/file/exec tools **and** `http_request`/`use_agent`/`workflow` are deliberately not loadable — see `app/agents/extra_tools.py` for the security rationale |
 | Semantic search | `SKEIN_EMBEDDINGS=1` + `SKEIN_EMBED_PROVIDER` | openai (key) · openai_compatible (base URL) · ollama (keyless) — vectors tagged per model |
 | OpenTelemetry | `SKEIN_OTEL_ENDPOINT` | Agent traces to Jaeger/Langfuse |

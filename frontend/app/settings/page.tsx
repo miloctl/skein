@@ -32,6 +32,7 @@ import { AttachedFilesCard } from "@/components/attached-files-card";
 import { BackupCard } from "@/components/backup-card";
 import { OperationsCard } from "@/components/operations-card";
 import { CrewsCard } from "@/components/crews-card";
+import { McpServersCard } from "@/components/mcp-servers-card";
 import {
   APPEARANCES,
   applyThemeCode,
@@ -2012,6 +2013,8 @@ export default function SettingsPage() {
                   <code>skein context --write AGENTS.md</code>.
                 </p>
               </Section>
+
+              <McpServersCard strong={strong} headingLevel={3} />
 
               <Section title="Calendar feed (optional)" headingLevel={3}>
                 <p className="mb-2 text-sm text-ink-3">

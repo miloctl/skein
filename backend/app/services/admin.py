@@ -56,6 +56,8 @@ EXCLUDED = frozenset(
         # exports. Recreate keys, and preserve bindings only in full backups.
         "api_keys",
         "oidc_identities",
+        # sealed personal tokens and private server URLs
+        "mcp_servers",
         # proposal payloads can contain private target bodies and extension
         # previews. The portable export cannot reconstruct their governing tier.
         "pending_changes",

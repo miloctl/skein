@@ -126,8 +126,11 @@ model and constraints, is archived at
   shape. The table travels in every database backup, which is why
   `SKEIN_MCP_SERVERS` stops at question 3
   and never reaches question 4 (an entry can carry a literal `auth_token`,
-  `agents/mcp_tools.py`). There is no combined settings file: openclaw's
-  `openclaw.json` was assessed as the model for one and refused, because
+  `agents/mcp_tools.py`). The one sealed exception is
+  `mcp_servers.auth_token_sealed`: a per-person token, Fernet-sealed under
+  `SKEIN_CREDENTIAL_KEY`, which lives in the Secret — a backup carries
+  ciphertext only (`services/credentials.py`). There is no combined settings
+  file: openclaw's `openclaw.json` was assessed as the model for one and refused, because
   whole-file parsing cannot hold the per-setting fault scoping that keeps a
   bad model entry from taking down the REST API, and because a fourth source
   makes "where did this value come from?" unanswerable from memory. A

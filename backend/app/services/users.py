@@ -695,6 +695,7 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "usage_log": ("requested_by",),
     "feedback": ("created_by",),  # pulse rows store '' and stay untouched
     "api_keys": ("owner",),
+    "mcp_servers": ("owner", "created_by"),
     "oidc_identities": ("created_by",),
     "memories": ("user", "created_by"),
     "agent_authority": ("agent", "updated_by"),
@@ -1204,8 +1205,10 @@ def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
         revoked = 0
         if not active:
             from .api_keys import revoke_keys_for
+            from .mcp_servers import delete_for
 
             revoked = revoke_keys_for(name, actor=actor)
+            delete_for(name, actor=actor)
         db.log_activity(
             actor,
             "set_user_active",

@@ -834,6 +834,7 @@ def build_agent(
     resolved_model: str = "",
     allowed_tools: set[str] | frozenset[str] | None = None,
     review_forced: bool = False,
+    personal_tools_for: str = "",
 ):
     """One agent per chat thread. Mock provider needs no keys and no Strands
     session; real providers persist conversations in the session tables
@@ -1479,6 +1480,16 @@ def build_agent(
         # never sees it. A flock member holding them would write to a third
         # party while its trace row reports it proposed nothing.
         tools += mcp_tools({_tool_name(item) for item in tools})
+    if personal_tools_for and not stateless:
+        # Servers this person registered in Settings. Only the turn they
+        # drive names them here (routes/chat.py): a flock member, a shared
+        # chat, the unattended runner and the MCP actor never pass this, so
+        # one person's credential cannot serve another person's prompt.
+        # Names are taken AFTER the env MCP tools joined, so a prefixed
+        # personal tool cannot shadow an env one.
+        from .mcp_tools import personal_mcp_tools
+
+        tools += personal_mcp_tools(personal_tools_for, {_tool_name(item) for item in tools})
     if contributed_specialist is not None:
         tools = list(contributed_tools)
     elif beh["tools"] is not None:

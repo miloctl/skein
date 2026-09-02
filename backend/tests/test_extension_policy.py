@@ -4,6 +4,7 @@ import asyncio
 import json
 import time
 from dataclasses import dataclass, replace
+from types import SimpleNamespace
 from typing import ClassVar
 
 import pytest
@@ -2463,7 +2464,7 @@ def test_mcp_tools_need_complete_metadata_and_pass_through_policy(fresh_db, monk
     from app.extensions.policy import reset_policy_subject, set_policy_subject
     from app.services import review, users
 
-    assert _metadata({"tools": {}}, "atlas_remote") is None
+    assert _metadata({"tools": {}}, _RemoteTool()) is None
     remote = _RemoteTool()
     governed = GovernedMCPTool(
         remote,
@@ -2914,12 +2915,12 @@ def test_mcp_metadata_rejects_empty_actions_and_string_lists():
             }
         }
     }
-    assert _metadata(complete, "remote") is not None
+    assert _metadata(complete, SimpleNamespace(tool_name="remote")) is not None
     complete["tools"]["remote"]["policy_action"] = "  "
-    assert _metadata(complete, "remote") is None
+    assert _metadata(complete, SimpleNamespace(tool_name="remote")) is None
     complete["tools"]["remote"]["policy_action"] = "atlas.remote.write"
     complete["tools"]["remote"]["allowed_agents"] = "agent"
-    assert _metadata(complete, "remote") is None
+    assert _metadata(complete, SimpleNamespace(tool_name="remote")) is None
 
 
 def test_mcp_names_cannot_shadow_local_model_tools(monkeypatch):
@@ -6188,3 +6189,64 @@ def test_capability_requests_are_bounded_by_action_count(fresh_db):
     with TestClient(create_app(), headers={"X-User": "manager"}) as client:
         response = client.get(f"/api/capabilities?actions={crowd}")
     assert response.status_code == 400
+
+
+def test_a_personal_remote_write_needs_a_human_even_under_permit(fresh_db, monkeypatch):
+    """The owner of a personal server classified nothing, so a PERMIT from the
+    engine (here: the authority default with SKEIN_AGENT_REVIEW off) still
+    opens a proposal — and the approval replays against the engine's own
+    decision, so it is not stale."""
+    from app import config
+    from app.agents import mcp_tools as mcp_module
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.agents.mcp_tools import GovernedMCPTool, execute_reviewed_mcp
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import review, users
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", False)
+    registry = ExtensionRegistry.build(())
+    metadata = _mcp_metadata(effect="write", risk="high", policy_action="mcp:write")
+    system_remote, personal_remote = _RemoteTool(), _RemoteTool()
+    system_tool = GovernedMCPTool(system_remote, metadata, "atlas-server")
+    personal_tool = GovernedMCPTool(
+        personal_remote, metadata, "personal:requester:atlas", "personal"
+    )
+    policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(registry.refresh_subject(PolicySubject("requester")))
+    agent_token = set_agent_identity("agent")
+
+    async def run(tool):
+        return [
+            event
+            async for event in tool.stream(
+                {"toolUseId": "mcp-1", "name": "atlas_remote", "input": {"k": 1}}, {}
+            )
+        ]
+
+    try:
+        assert asyncio.run(run(system_tool))[-1]["status"] == "success"
+        personal_events = asyncio.run(run(personal_tool))
+    finally:
+        reset_agent_identity(agent_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+    assert system_remote.called is True
+    assert personal_remote.called is False
+    assert personal_events[-1]["completionStatus"] == "review_required"
+    pending = fresh_db.query_one(
+        "SELECT id FROM pending_changes WHERE entity = 'extension_mcp_tool' AND status = 'pending'"
+    )
+    assert pending is not None
+    users.ensure_user("manager")
+    monkeypatch.setattr(
+        mcp_module, "personal_mcp_tools", lambda owner, reserved=None: [personal_tool]
+    )
+
+    def resume(invocation, _change_id):
+        return asyncio.run(execute_reviewed_mcp(invocation, registry))
+
+    approved = review.approve_change(
+        pending["id"], actor="manager", extension_executor=resume, policy_registry=registry
+    )
+    assert approved["result"]["status"] == "completed"
+    assert personal_remote.called is True

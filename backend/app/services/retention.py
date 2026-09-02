@@ -42,6 +42,7 @@ KEPT = {
     "users": "the roster: deactivation, never deletion, keeps provenance resolvable",
     "oidc_identities": "stable sign-in bindings; removal would let a subject claim a new user",
     "api_keys": "credential audit rows: revocation deactivates in place",
+    "mcp_servers": "owner-deleted personal servers, never age-pruned",
     "app_settings": "admin-set values: the settings form owns their lifecycle",
     "agent_authority": "the authority matrix the tool gate reads",
     "agent_wakeups": "one current operational wake state per agent, updated in place",

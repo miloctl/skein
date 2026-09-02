@@ -1487,6 +1487,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
             extensions=request.app.state.skein_registry,
             policy_subject=subject,
             resolved_model=resolved_model,
+            personal_tools_for=user,
         )
     except Exception as exc:
         # Provider exceptions can carry request IDs or credential fragments.

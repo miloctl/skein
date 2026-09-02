@@ -15,6 +15,7 @@ import logging
 import os
 import threading
 import time
+import zlib
 from dataclasses import dataclass
 from functools import partial
 from typing import Any
@@ -40,6 +41,19 @@ class _MCPConnection:
     server_id: str
     client: Any
     tools: tuple[Any, ...]
+    offered: int = 0
+    tier: str = "system"
+    # the row's updated_at for a personal server: personal_mcp_tools reopens
+    # a connection whose stamp no longer matches, which is how an edit or
+    # delete in another pod reaches this one without a broadcast
+    stamp: str = ""
+
+
+PERSONAL = "personal"
+
+
+def _is_personal(server_id: str) -> bool:
+    return server_id.startswith(PERSONAL + ":")
 
 
 _connections: dict[str, _MCPConnection] = {}
@@ -89,12 +103,7 @@ def _deadline_strike(server_id: str) -> None:
         # comment in mcp_tools() forbids).
         _retry_state[server_id] = (1, time.monotonic() + _RETRY_BASE_SECONDS)
     log.warning("MCP server '%s' dropped after consecutive timeouts", server_id)
-    # In a thread: closing a hung transport can block, and this runs on the
-    # event loop that carries every open SSE stream.
-    with contextlib.suppress(RuntimeError):
-        threading.Thread(
-            target=_close_quietly, args=(close_client,), daemon=True, name="skein-mcp-close"
-        ).start()
+    _close_in_thread([close_client])
 
 
 def _close_quietly(client) -> None:
@@ -120,11 +129,14 @@ class MCPToolMetadata:
 class GovernedMCPTool(AgentTool):
     """A remote tool that cannot execute before Skein policy decides."""
 
-    def __init__(self, delegate, metadata: MCPToolMetadata, server_id: str) -> None:
+    def __init__(
+        self, delegate, metadata: MCPToolMetadata, server_id: str, tier: str = "system"
+    ) -> None:
         super().__init__()
         self._delegate = delegate
         self.metadata = metadata
         self.server_id = server_id
+        self.tier = tier
 
     @property
     def tool_name(self) -> str:
@@ -207,7 +219,16 @@ class GovernedMCPTool(AgentTool):
                 completion_status="approval_stale",
             )
             return
-        if decision.effect == PolicyEffect.REVIEW and approved_fingerprint != fingerprint:
+        # A personal server's write needs a human even under PERMIT: its
+        # owner classified nothing, and an admin's mcp-tool authority grant
+        # was made for operator-classified servers. The engine's decision
+        # object stays as decided — services/review.py recomputes the
+        # approval fingerprint from it, and a substituted REVIEW decision
+        # would stale every approval.
+        needs_review = decision.effect == PolicyEffect.REVIEW or (
+            self.tier == PERSONAL and self.metadata.effect == "write"
+        )
+        if needs_review and approved_fingerprint != fingerprint:
             from ..services import review
 
             try:
@@ -367,16 +388,7 @@ def reviewed_policy_contract(
     """Resolve the current governed contract for one pending MCP verdict."""
     name = str(invocation.get("tool") or "")
     server = str(invocation.get("server") or "")
-    try:
-        governed = next(
-            item
-            for item in mcp_tools()
-            if isinstance(item, GovernedMCPTool)
-            and item.tool_name == name
-            and item.server_id == server
-        )
-    except StopIteration as exc:
-        raise ValueError("the reviewed remote tool is not currently composed") from exc
+    governed = _governed(name, server)
     tool_use = _json_mapping(invocation.get("tool_use"))
     actor = str(invocation.get("agent") or "")
     request = PolicyInput(
@@ -396,6 +408,27 @@ def reviewed_policy_contract(
         "input": tool_use.get("input") or {},
     }
     return request, contract, str(invocation.get("version") or "") == governed.metadata.version
+
+
+def _governed(name: str, server: str) -> GovernedMCPTool:
+    """The currently composed wrapper for one (server, tool). A personal id
+    embeds its owner, so the owner's servers are composed for the lookup —
+    at approval this runs in the REVIEWER's request (routes/api.py) and a
+    cold server costs it one foreground connect, bounded by the SDK startup
+    timeout."""
+    if _is_personal(server):
+        owner = server[len(PERSONAL) + 1 :].rsplit(":", 1)[0]
+        pool = personal_mcp_tools(owner)
+    else:
+        pool = mcp_tools()
+    for item in pool:
+        if (
+            isinstance(item, GovernedMCPTool)
+            and item.tool_name == name
+            and item.server_id == server
+        ):
+            return item
+    raise ValueError("the reviewed remote tool is not currently composed")
 
 
 def _subject_data(subject) -> dict[str, Any]:
@@ -418,16 +451,7 @@ async def execute_reviewed_mcp(invocation: dict[str, Any], registry) -> dict[str
     """Resume one exact remote call through its current governed wrapper."""
     name = str(invocation.get("tool") or "")
     server = str(invocation.get("server") or "")
-    try:
-        governed = next(
-            item
-            for item in mcp_tools()
-            if isinstance(item, GovernedMCPTool)
-            and item.tool_name == name
-            and item.server_id == server
-        )
-    except StopIteration as exc:
-        raise ValueError("the reviewed remote tool is not currently composed") from exc
+    governed = _governed(name, server)
     if str(invocation.get("version") or "") != governed.metadata.version:
         raise ValueError("the reviewed remote tool contract has changed")
     subject_data = invocation.get("subject")
@@ -516,7 +540,43 @@ def _refusal(tool_use: dict, detail: str, *, completion_status: str = "failed") 
     }
 
 
-def _metadata(server: dict, tool_name: str) -> MCPToolMetadata | None:
+def _derived_metadata(remote_tool) -> MCPToolMetadata:
+    """Classification from the server's own annotations, for a server whose
+    registrant wrote no governance block. An unannotated tool is a write
+    whose blast radius nobody declared, so it lands at the top of the risk
+    scale. The version is a digest of the input contract: a schema change
+    between proposal and approval stales the proposal instead of replaying
+    the reviewed input against a different tool."""
+    annotations = getattr(getattr(remote_tool, "mcp_tool", None), "annotations", None)
+    read_only = bool(getattr(annotations, "readOnlyHint", False))
+    destructive = getattr(annotations, "destructiveHint", None)
+    effect = "read" if read_only else "write"
+    if read_only:
+        risk = "low"
+    else:
+        risk = "high" if destructive is None or destructive else "medium"
+    spec = remote_tool.tool_spec
+    contract = json.dumps(spec.get("inputSchema", {}), sort_keys=True, default=str)
+    digest = zlib.crc32(f"{spec.get('name', '')}:{contract}".encode())
+    return MCPToolMetadata(
+        f"0.0.{digest}",
+        effect,
+        risk,
+        f"mcp:{effect}",
+        (),
+        (),
+        {"type": "object"},
+        30.0,
+        (),
+        "required",
+        "service",
+    )
+
+
+def _metadata(server: dict, remote_tool) -> MCPToolMetadata | None:
+    if server.get("derive"):
+        return _derived_metadata(remote_tool)
+    tool_name = str(remote_tool.tool_name)
     value = (server.get("tools") or {}).get(tool_name)
     required = {
         "version",
@@ -637,7 +697,13 @@ def _finish_load(server_ids: set[str], configured_ids: set[str], generation: int
     global _loading, _tools
     loaded: list[_MCPConnection] = []
     try:
-        _, loaded = _connect_servers(server_ids)
+        _, loaded = _connect_servers(
+            [
+                (server_id, server)
+                for server_id, server in _server_entries()
+                if server_id in server_ids
+            ]
+        )
     except Exception as exc:
         # A parser or import fault outside one server must leave the cache
         # retryable. Publishing an empty terminal cache makes recovery require
@@ -657,14 +723,10 @@ def _finish_load(server_ids: set[str], configured_ids: set[str], generation: int
                     close_after.append(connection.client)
                 else:
                     _connections[connection.server_id] = connection
-            retry_at = time.monotonic()
             for server_id in server_ids - loaded_ids:
-                failures = _retry_state.get(server_id, (0, 0.0))[0] + 1
-                exponent = min(failures - 1, 4)
-                delay = min(_RETRY_BASE_SECONDS * (2**exponent), _RETRY_MAX_SECONDS)
-                _retry_state[server_id] = (failures, retry_at + delay)
-            current = _composed_tools(_connections.values())
-            if configured_ids <= set(_connections):
+                _schedule_retry(server_id)
+            current = _composed_tools(_system_connections())
+            if configured_ids <= {c.server_id for c in _system_connections()}:
                 _tools = current
             result = current
         else:
@@ -676,6 +738,134 @@ def _finish_load(server_ids: set[str], configured_ids: set[str], generation: int
         with contextlib.suppress(Exception):
             client.__exit__(None, None, None)
     return result
+
+
+def _schedule_retry(server_id: str) -> None:
+    """Caller holds _lock."""
+    failures = _retry_state.get(server_id, (0, 0.0))[0] + 1
+    exponent = min(failures - 1, 4)
+    delay = min(_RETRY_BASE_SECONDS * (2**exponent), _RETRY_MAX_SECONDS)
+    _retry_state[server_id] = (failures, time.monotonic() + delay)
+
+
+def _system_connections() -> list[_MCPConnection]:
+    """Caller holds _lock. Personal connections share the cache but never
+    the process-wide tool list: they belong to one person's turns."""
+    return [connection for connection in _connections.values() if connection.tier == "system"]
+
+
+def _close_in_thread(clients: list) -> None:
+    # In a thread: closing a hung transport can block, and the caller may be
+    # the event loop that carries every open SSE stream.
+    for client in clients:
+        with contextlib.suppress(RuntimeError):
+            threading.Thread(
+                target=_close_quietly, args=(client,), daemon=True, name="skein-mcp-close"
+            ).start()
+
+
+def forget(server_id: str) -> None:
+    """Drop one cached connection (a deleted personal row)."""
+    with _lock:
+        connection = _connections.pop(server_id, None)
+        _retry_state.pop(server_id, None)
+        _timeout_strikes.pop(server_id, None)
+    if connection is not None:
+        _close_in_thread([connection.client])
+
+
+def personal_mcp_tools(person: str, reserved_names: set[str] | None = None) -> list:
+    """Tools from the servers `person` registered (services/mcp_servers.py).
+    Only the turn that person drives receives them: build_agent attaches
+    them on its personal_tools_for argument and nothing else does. A first
+    connect runs in the foreground, bounded by the SDK startup timeout; a
+    failure joins the same backoff as the env servers."""
+    if not person:
+        return []
+    from ..services.mcp_servers import entries_for
+
+    entries = entries_for(person)
+    wanted = dict(entries)
+    mine = PERSONAL + ":" + person + ":"
+    doomed: list = []
+    to_open: list[tuple[str, dict]] = []
+    now = time.monotonic()
+    with _lock:
+        for server_id in [s for s in _connections if s.startswith(mine)]:
+            connection = _connections[server_id]
+            row = wanted.get(server_id)
+            if row is None or row["stamp"] != connection.stamp:
+                doomed.append(_connections.pop(server_id).client)
+                _retry_state.pop(server_id, None)
+                _timeout_strikes.pop(server_id, None)
+        for server_id, server in entries:
+            if server_id in _connections:
+                continue
+            if _retry_state.get(server_id, (0, 0.0))[1] <= now:
+                to_open.append((server_id, server))
+        generation = _generation
+    _close_in_thread(doomed)
+    if to_open:
+        _, loaded = _connect_servers(to_open)
+        loaded_ids = {connection.server_id for connection in loaded}
+        with _lock:
+            if generation != _generation:
+                # shutdown_mcp ran meanwhile; publishing would resurrect
+                # sessions it cannot close
+                doomed = [connection.client for connection in loaded]
+                loaded = []
+            for connection in loaded:
+                _connections[connection.server_id] = connection
+                _retry_state.pop(connection.server_id, None)
+            for server_id, _ in to_open:
+                if server_id not in loaded_ids:
+                    _schedule_retry(server_id)
+        if generation != _generation:
+            _close_in_thread(doomed)
+    with _lock:
+        tools = [
+            tool
+            for server_id, connection in _connections.items()
+            if server_id in wanted
+            for tool in connection.tools
+        ]
+    return _without_reserved(tools, reserved_names or set())
+
+
+def status() -> list[dict]:
+    """Every configured env server and every cached connection, for the
+    settings surface. Never a URL or a token: the env list is the
+    deployment shape /api/health withholds, and the route filters personal
+    rows to their owner."""
+    now = time.monotonic()
+    with _lock:
+        ids = (
+            {server_id for server_id, _ in _server_entries()}
+            | set(_connections)
+            | set(_retry_state)
+        )
+        rows = []
+        for server_id in sorted(ids):
+            connection = _connections.get(server_id)
+            retry = _retry_state.get(server_id)
+            rows.append(
+                {
+                    "server_id": server_id,
+                    "tier": PERSONAL if _is_personal(server_id) else "system",
+                    "connected": connection is not None,
+                    "offered": connection.offered if connection else 0,
+                    "retry_in_seconds": max(0, int(retry[1] - now)) if retry else None,
+                    "tools": [
+                        {
+                            "name": tool.tool_name,
+                            "effect": tool.metadata.effect,
+                            "risk": tool.metadata.risk,
+                        }
+                        for tool in (connection.tools if connection else ())
+                    ],
+                }
+            )
+    return rows
 
 
 def mcp_tools(reserved_names: set[str] | None = None) -> list:
@@ -691,9 +881,11 @@ def mcp_tools(reserved_names: set[str] | None = None) -> list:
         if _tools is not None:
             return _without_reserved(_tools, reserved)
         for server_id in set(_retry_state) - configured_ids:
+            if _is_personal(server_id):
+                continue
             del _retry_state[server_id]
             _timeout_strikes.pop(server_id, None)
-        current = _composed_tools(_connections.values())
+        current = _composed_tools(_system_connections())
         if not configured_ids:
             _retry_state.clear()
             _tools = []
@@ -702,7 +894,7 @@ def mcp_tools(reserved_names: set[str] | None = None) -> list:
             # A network load must not park another agent build. Already loaded
             # servers remain usable while the missing servers recover.
             return _without_reserved(current, reserved)
-        missing = configured_ids - set(_connections)
+        missing = configured_ids - {c.server_id for c in _system_connections()}
         if not missing:
             _tools = current
             return _without_reserved(current, reserved)
@@ -741,12 +933,13 @@ def mcp_tools(reserved_names: set[str] | None = None) -> list:
     return _without_reserved(_finish_load(ready, configured_ids, generation), reserved)
 
 
-def _connect_servers(server_ids: set[str] | None = None) -> tuple[list, list[_MCPConnection]]:
-    """Open selected servers. One bad server costs only its own tools."""
+def _connect_servers(
+    entries: list[tuple[str, dict]] | None = None,
+) -> tuple[list, list[_MCPConnection]]:
+    """Open the given servers (the env list by default). One bad server
+    costs only its own tools."""
     connections: list[_MCPConnection] = []
-    for server_id, server in _server_entries():
-        if server_ids is not None and server_id not in server_ids:
-            continue
+    for server_id, server in _server_entries() if entries is None else entries:
         client = None
         entered = False
         try:
@@ -762,13 +955,20 @@ def _connect_servers(server_ids: set[str] | None = None) -> tuple[list, list[_MC
                     server_id,
                 )
             headers = {"Authorization": f"Bearer {token}"} if token else None
-            client = MCPClient(partial(streamablehttp_client, url, headers=headers))
+            tier = str(server.get("tier") or "system")
+            # A personal server's tools carry its name as a prefix, so two of
+            # one person's servers, or a personal and an env server, cannot
+            # collide. Env servers stay unprefixed: renaming their tools
+            # would stale every pending proposal keyed on the old name.
+            prefix = str(server.get("name") or "") if tier == PERSONAL else ""
+            transport = partial(streamablehttp_client, url, headers=headers)
+            client = MCPClient(transport, prefix=prefix) if prefix else MCPClient(transport)
             client.__enter__()
             entered = True
             found = client.list_tools_sync()
             accepted = []
             for remote_tool in found:
-                metadata = _metadata(server, str(remote_tool.tool_name))
+                metadata = _metadata(server, remote_tool)
                 if metadata is None:
                     log.warning(
                         "MCP tool %r from %r omitted: complete governance metadata is required",
@@ -776,8 +976,17 @@ def _connect_servers(server_ids: set[str] | None = None) -> tuple[list, list[_MC
                         server_id,
                     )
                     continue
-                accepted.append(GovernedMCPTool(remote_tool, metadata, server_id))
-            connections.append(_MCPConnection(server_id, client, tuple(accepted)))
+                accepted.append(GovernedMCPTool(remote_tool, metadata, server_id, tier))
+            connections.append(
+                _MCPConnection(
+                    server_id,
+                    client,
+                    tuple(accepted),
+                    len(found),
+                    tier,
+                    str(server.get("stamp") or ""),
+                )
+            )
             log.info(
                 "MCP server '%s': %d of %d tools governed and loaded",
                 server_id,
