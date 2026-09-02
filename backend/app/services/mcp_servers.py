@@ -18,6 +18,9 @@ from . import credentials
 
 _NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,39}")
 SCOPE = "personal"
+# each connected server holds a background thread for the life of the
+# process, and rows are otherwise unbounded per person
+LIMIT = 8
 
 
 def server_id(owner: str, name: str) -> str:
@@ -26,7 +29,9 @@ def server_id(owner: str, name: str) -> str:
     return f"{SCOPE}:{owner}:{name}"
 
 
-def _check_url(url: str) -> None:
+def check_url(url: str) -> None:
+    """Refuse a URL that reaches this host or the cloud metadata service.
+    Called at add time and again at every connect (agents/mcp_tools.py)."""
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise ValueError("The URL must start with http:// or https:// and name a host.")
@@ -37,17 +42,26 @@ def _check_url(url: str) -> None:
     # SSRF: the API pod opens this URL with a POST and hands the reply to a
     # model. Loopback reaches this process and its neighbours, link-local
     # reaches the cloud metadata service. Private ranges stay allowed: an
-    # MCP server on the cluster network is the main use. The check runs at
-    # add time only, so a host that later resolves elsewhere is not caught
-    # here — the deployment's egress NetworkPolicy is the stronger control
-    # when one exists (none in deploy/k8s/base today).
+    # MCP server on the cluster network is the main use. A host that
+    # resolves to nothing passes (it cannot be reached either); the
+    # deployment's egress NetworkPolicy is the stronger control when one
+    # exists (none in deploy/k8s/base today).
     try:
         infos = socket.getaddrinfo(parts.hostname, parts.port or 443, proto=socket.IPPROTO_TCP)
     except socket.gaierror:
         return
     for info in infos:
         address = ipaddress.ip_address(info[4][0])
-        if address.is_loopback or address.is_link_local or address.is_unspecified:
+        # ::ffff:127.0.0.1 is not loopback to the ipaddress module, and an
+        # AF_INET6 connect to it reaches IPv4 loopback
+        address = getattr(address, "ipv4_mapped", None) or address
+        if (
+            address.is_loopback
+            or address.is_link_local
+            or address.is_unspecified
+            or address.is_multicast
+            or address.is_reserved
+        ):
             raise ValueError("The URL points at this server or its host. Name a remote MCP server.")
 
 
@@ -78,22 +92,26 @@ def add(person: str, name: str, url: str, token: str = "", *, actor: str) -> dic
     if not _NAME.fullmatch(name):
         raise ValueError("The name must be 1 to 40 characters: lowercase letters, digits, - or _.")
     url = url.strip()
-    _check_url(url)
+    check_url(url)
     sealed = credentials.seal(token) if token else None
     now = db.now()
     with db.transaction():
-        try:
-            with db.savepoint():
-                sid = db.execute(
-                    "INSERT INTO mcp_servers (scope, owner, name, url, auth_token_sealed,"
-                    " origin, created_by, created_at, updated_at)"
-                    " VALUES (?, ?, ?, ?, ?, 'human', ?, ?, ?) RETURNING id",
-                    (SCOPE, person, name, url, sealed, actor, now, now),
-                )
-        except db.UniqueViolation:
+        # the count and the name check decide the insert: locked first, per
+        # owner, so two concurrent adds cannot both read "7 rows, name free"
+        db.name_lock(db.LOCK_MCP_SERVER, person)
+        rows = _rows(person)
+        if any(row["name"] == name for row in rows):
             raise db.Conflict(
                 "A server with this name already exists. Delete it, or use another name."
-            ) from None
+            )
+        if len(rows) >= LIMIT:
+            raise ValueError(f"You can register up to {LIMIT} servers. Delete one first.")
+        sid = db.execute(
+            "INSERT INTO mcp_servers (scope, owner, name, url, auth_token_sealed,"
+            " origin, created_by, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, 'human', ?, ?, ?) RETURNING id",
+            (SCOPE, person, name, url, sealed, actor, now, now),
+        )
         db.log_activity(actor, "add_mcp_server", f"#{sid} {name}")
     return _public(
         {
@@ -124,13 +142,12 @@ def delete(sid: int, person: str, *, actor: str) -> dict:
 
 def delete_for(person: str, *, actor: str = "system") -> int:
     """The offboarding half of users.set_active(False), beside revoke_keys_for."""
-    from ..agents.mcp_tools import forget
+    from ..agents.mcp_tools import forget_owner
 
     rows = db.query(
         "DELETE FROM mcp_servers WHERE scope = ? AND owner = ? RETURNING name", (SCOPE, person)
     )
-    for row in rows:
-        forget(server_id(person, row["name"]))
+    forget_owner(person)
     if rows:
         db.log_activity(actor, "delete_mcp_servers_for", f"{person}: {len(rows)} server(s)")
     return len(rows)

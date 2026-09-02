@@ -805,3 +805,96 @@ def test_personal_tools_reach_only_the_turn_their_owner_drives(fresh_db, monkeyp
     assert "notes_ping" not in names()
     assert "notes_ping" not in names(personal_tools_for="ava", stateless=True)
     assert "notes_ping" not in names(personal_tools_for="bo")
+
+
+def test_a_failed_personal_server_recovers_off_the_chat_path(fresh_db, monkeypatch, clean_mcp):
+    """A dead personal server costs its owner one bounded attempt, then a
+    backoff the env path must not erase, then a retry in a thread. The
+    reviewed path reads the cache and never connects."""
+    import time
+
+    from app.services import mcp_servers
+
+    m = clean_mcp
+    attempts: list[int] = []
+
+    class RemoteTool:
+        def __init__(self, name, prefix):
+            self.tool_name = f"{prefix}_{name}"
+            self.tool_spec = {"name": name, "inputSchema": {}}
+            self.mcp_tool = None
+
+    class FakeClient:
+        def __init__(self, factory, prefix=None, **_kwargs):
+            self.prefix = prefix
+
+        def __enter__(self):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise RuntimeError("down")
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def list_tools_sync(self):
+            return [RemoteTool("ping", self.prefix)]
+
+    monkeypatch.setattr("strands.tools.mcp.MCPClient", FakeClient)
+    monkeypatch.setattr("app.config.MCP_SERVERS", "")
+    mcp_servers.add("ava", "notes", "https://notes.example/mcp", actor="ava")
+    sid = "personal:ava:notes"
+
+    assert m.personal_mcp_tools("ava") == []
+    assert sid in m._retry_state
+    assert m.mcp_tools() == []
+    assert sid in m._retry_state, "the env path with no servers wiped a personal backoff"
+    assert m.personal_mcp_tools("ava") == [] and len(attempts) == 1
+    assert [row["server_id"] for row in m.status() if not row["connected"]] == [sid]
+
+    m._retry_state[sid] = (1, 0)
+    started = time.monotonic()
+    assert m.personal_mcp_tools("ava") == []
+    assert time.monotonic() - started < 1, "a retry ran in the foreground"
+    deadline = time.monotonic() + 2
+    while sid not in m._connections and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert [t.tool_name for t in m.personal_mcp_tools("ava")] == ["notes_ping"]
+    assert len(attempts) == 2
+
+    assert m._governed("notes_ping", sid).server_id == sid
+    m.forget(sid)
+    with pytest.raises(ValueError):
+        m._governed("notes_ping", sid)
+    assert len(attempts) == 2, "the reviewed path opened a connection"
+
+
+def test_derived_metadata_reads_annotations_and_bounds_personal_descriptions(clean_mcp):
+    from types import SimpleNamespace as NS
+
+    m = clean_mcp
+
+    def tool(read_only, destructive, description="d", schema=None):
+        return NS(
+            tool_name="t",
+            tool_spec={"name": "t", "description": description, "inputSchema": schema or {}},
+            mcp_tool=NS(annotations=NS(readOnlyHint=read_only, destructiveHint=destructive)),
+        )
+
+    def classify(remote):
+        meta = m._derived_metadata(remote)
+        return meta.effect, meta.risk
+
+    assert classify(tool(True, False)) == ("read", "low")
+    assert classify(tool(False, False)) == ("write", "medium")
+    assert classify(tool(False, True)) == ("write", "high")
+    assert classify(tool(False, None)) == ("write", "high")
+    assert classify(NS(tool_name="t", tool_spec={"name": "t"}, mcp_tool=None)) == ("write", "high")
+    same = m._derived_metadata(tool(True, False))
+    assert same.version == m._derived_metadata(tool(True, False)).version
+    assert same.version != m._derived_metadata(tool(True, False, schema={"x": 1})).version
+
+    long = tool(True, False, "x" * 5000)
+    personal = m.GovernedMCPTool(long, same, "personal:ava:s", "personal")
+    assert len(personal.tool_spec["description"]) == m._PERSONAL_DESCRIPTION_CHARS
+    assert len(m.GovernedMCPTool(long, same, "s").tool_spec["description"]) == 5000

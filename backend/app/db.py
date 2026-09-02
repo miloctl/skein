@@ -443,6 +443,7 @@ LOCK_ARTIFACT = 8
 LOCK_SCHEMA = 9
 LOCK_FIELD_GUIDE = 10
 LOCK_OIDC_IDENTITY = 11
+LOCK_MCP_SERVER = 12
 
 # EVERY advisory lock is scoped to the current database by this expression.
 # PostgreSQL advisory locks are CLUSTER-global: the key space is shared by

@@ -1038,6 +1038,11 @@ def rename_user(
         db.log_activity(actor, "repair_identity_ownership", detail)
     else:
         db.log_activity(actor, "rename_user", detail)
+    # the old owner's cached MCP connections hold unsealed tokens under ids
+    # the roster no longer names; the new name reconnects on its next turn
+    from ..agents.mcp_tools import forget_owner
+
+    forget_owner(old)
     return {
         "old": old,
         "new": new,

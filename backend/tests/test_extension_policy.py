@@ -6238,8 +6238,9 @@ def test_a_personal_remote_write_needs_a_human_even_under_permit(fresh_db, monke
     )
     assert pending is not None
     users.ensure_user("manager")
-    monkeypatch.setattr(
-        mcp_module, "personal_mcp_tools", lambda owner, reserved=None: [personal_tool]
+    # the approval path reads the connection cache and never connects
+    mcp_module._connections["personal:requester:atlas"] = mcp_module._MCPConnection(
+        "personal:requester:atlas", object(), (personal_tool,), 1, "personal"
     )
 
     def resume(invocation, _change_id):
