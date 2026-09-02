@@ -63,6 +63,18 @@ def names_someone(text: str, roster: set[str]) -> bool:
     )
 
 
+MCP_SUFFIX = "-mcp"
+
+
+def refuse_mcp_suffix(name: str) -> None:
+    """`<person>-mcp` is the agent identity a person's remote MCP calls act
+    through (mcp_server.remote_app), derived, never chosen. A human row with
+    that name locks the person out of MCP for good and lets a picker
+    squat another person's agent, so the suffix is not a human name."""
+    if name.strip().lower().endswith(MCP_SUFFIX):
+        raise ValueError("a name that ends in -mcp is reserved for MCP agent identities")
+
+
 def refuse_reserved_name(name: str) -> None:
     """One predicate for every identity entry point — ensure_user, rename, and
     the credential doors in routes/deps.py.
@@ -394,6 +406,9 @@ def ensure_human_identity(name: str) -> dict:
         if existing["kind"] != "human":
             raise ValueError(f"'{normalized}' is already owned by an agent identity")
         return existing
+    # a NEW human row only: a repaired or admin-renamed row that happens to
+    # end in -mcp (former-mcp) keeps resolving, a picker cannot mint one
+    refuse_mcp_suffix(normalized)
     with db.transaction():
         db.name_lock(db.LOCK_IDENTITY, fold(normalized))
         existing = db.query_one("SELECT kind FROM users WHERE name = ?", (normalized,))
@@ -754,6 +769,15 @@ def _rename_names(old: str, new: str) -> tuple[str, str]:
     return old, new
 
 
+def _mcp_agent_row(person: str) -> str:
+    """The name of the person's active MCP agent row, or ''."""
+    row = db.query_one(
+        "SELECT name FROM users WHERE name = ? AND kind = 'agent' AND active = 1",
+        (person + MCP_SUFFIX,),
+    )
+    return str(row["name"]) if row else ""
+
+
 def rename_user(
     old: str,
     new: str,
@@ -1043,6 +1067,15 @@ def rename_user(
     from ..agents.mcp_tools import forget_owner
 
     forget_owner(old)
+    # the person's MCP agent follows: its authority row and trust history
+    # are theirs, and a fresh `<new>-mcp` would start at default authority
+    # while `<old>-mcp` stayed active with the old grants
+    old_agent = "" if _identity_repair else _mcp_agent_row(old)
+    if (
+        old_agent
+        and db.query_one("SELECT 1 FROM users WHERE name = ?", (new + MCP_SUFFIX,)) is None
+    ):
+        rename_user(old_agent, new + MCP_SUFFIX, actor=actor)
     return {
         "old": old,
         "new": new,
@@ -1214,6 +1247,10 @@ def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
 
             revoked = revoke_keys_for(name, actor=actor)
             delete_for(name, actor=actor)
+            # and the person's MCP agent, or SKEIN_MCP_USER=<name>-mcp on a
+            # stdio process keeps acting with its authority after offboarding
+            if agent := _mcp_agent_row(name):
+                db.execute("UPDATE users SET active = 0 WHERE name = ?", (agent,))
         db.log_activity(
             actor,
             "set_user_active",

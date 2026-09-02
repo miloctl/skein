@@ -29,6 +29,7 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 import anyio
+from mcp import types as mcp_types
 from mcp.server.fastmcp import FastMCP
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import ToolAnnotations
@@ -88,6 +89,16 @@ REMOTE_PATH = "/api/mcp-server"
 # one line per tool, for the context pack's "How to plug in" section
 TOOL_LINES: list[str] = []
 
+# the same volume bound Skein applies to a remote server's results
+# (agents/mcp_tools._RESULT_MAX_BYTES): a Skein that consumes this one must
+# never see a reply it would refuse
+RESULT_MAX_BYTES = 256 * 1024
+BODY_MAX_BYTES = 1024 * 1024
+BUSY = "The database is busy. Wait 5 seconds, then send the request again."
+FAILED = "The tool failed. Read the server log for the cause."
+TOO_LARGE = "The result is larger than a client accepts. Narrow the request."
+ARGUMENTS_REFUSED = "The arguments were refused. Check the tool's input schema."
+
 READ = ToolAnnotations(readOnlyHint=True)
 WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False)
 IDEMPOTENT_WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True)
@@ -126,23 +137,83 @@ def _tool(annotations: ToolAnnotations) -> Callable:
         @functools.wraps(fn)
         async def run(**kwargs):
             def body():
-                record_use(_person(), "mcp")
+                # a read is presence, not an action (routes/deps.py does the
+                # same): a client polling list_tasks must not inflate the tally
+                record_use(_person(), "mcp", counts=not annotations.readOnlyHint)
+                ratelimit.check("mcp", _person())
                 return fn(**kwargs)
 
-            try:
-                return await anyio.to_thread.run_sync(body)
-            except ValueError as exc:
-                return json.dumps({"error": str(exc)})
-            except Exception as exc:
-                log.warning("MCP tool %s failed (%s)", fn.__name__, type(exc).__name__)
-                return json.dumps({"error": "The tool failed. Read the server log for the cause."})
+            return await anyio.to_thread.run_sync(functools.partial(_guarded, fn.__name__, body))
 
         mcp.add_tool(run, name=fn.__name__, annotations=annotations)
-        first = (fn.__doc__ or "").strip().split(".")[0]
-        TOOL_LINES.append(f"{fn.__name__} — {' '.join(first.split())}")
+        TOOL_LINES.append(f"{fn.__name__} — {_first_sentence(fn.__doc__)}")
         return fn
 
     return register
+
+
+def _first_sentence(doc: str | None) -> str:
+    text = " ".join((doc or "").split())
+    return text.split(". ")[0].rstrip(".")
+
+
+def _guarded(name: str, body: Callable[[], str]) -> str:
+    try:
+        result = body()
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)})
+    except db.BUSY_ERRORS:
+        # retryable, and a fixed "read the log" would say the opposite
+        return json.dumps({"error": BUSY})
+    except Exception as exc:
+        log.warning("MCP %s failed (%s)", name, type(exc).__name__)
+        return json.dumps({"error": FAILED})
+    if len(result) > RESULT_MAX_BYTES:
+        return json.dumps({"error": TOO_LARGE})
+    return result
+
+
+def _is_refusal(text: str) -> bool:
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return False
+    return isinstance(parsed, dict) and "error" in parsed
+
+
+def _install_call_guard() -> None:
+    """Two things the SDK's tool handler gets wrong for Skein: a refused
+    argument answers pydantic's message, rejected value included (an error
+    never echoes the value it refused); and a tool's own refusal, a JSON
+    object with "error", travels as success content, which a governance-
+    aware client (Skein's own agents/mcp_tools.py) records as a completed
+    call. Wrapping the registered handler fixes both in one place."""
+    server = mcp._mcp_server
+    inner = server.request_handlers[mcp_types.CallToolRequest]
+
+    async def handler(request):
+        result = await inner(request)
+        call = result.root
+        if not isinstance(call, mcp_types.CallToolResult):
+            return result
+        text = "".join(
+            block.text for block in call.content if isinstance(block, mcp_types.TextContent)
+        )
+        if call.isError and text.startswith("Error executing tool"):
+            return mcp_types.ServerResult(
+                mcp_types.CallToolResult(
+                    content=[mcp_types.TextContent(type="text", text=ARGUMENTS_REFUSED)],
+                    isError=True,
+                )
+            )
+        if not call.isError and _is_refusal(text):
+            call.isError = True
+        return result
+
+    server.request_handlers[mcp_types.CallToolRequest] = handler
+
+
+_install_call_guard()
 
 
 def _policy_refusal(
@@ -210,6 +281,21 @@ def _policy_refusal(
             "policy_effect": decision.effect.value,
         }
     )
+
+
+def _opaque_refusal(action: str, resource_type: str) -> str:
+    """A composite that cannot drop one denied input is refused whole, the
+    rule routes/api.py::_require_opaque_project_policy applies to /week."""
+    if refusal := _policy_refusal(action, resource_type):
+        return refusal
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(), current_policy_subject(), action, "mcp", scope.NOBODY
+    )
+    if not policy.allows_all_projects() or not policy.allows_unclassified():
+        return json.dumps(
+            {"error": wording.workplace_policy_denied(), "policy_effect": PolicyEffect.DENY.value}
+        )
+    return ""
 
 
 def _policy_permits(
@@ -725,13 +811,28 @@ def recall_memories(query: str = "") -> str:
 def week(week: str = "") -> str:
     """The week view: commitments, what moved, and what is due. week is
     YYYY-Www, empty for the current week."""
-    if refusal := _policy_refusal("skein.mcp.week.read", "week"):
+    if refusal := _opaque_refusal("skein.mcp.week.read", "week"):
         return refusal
     with db.read_transaction():
         return json.dumps(weekly.week_view(week))
 
 
-@mcp.resource("skein://context-pack")
+def _resource(uri: str) -> Callable:
+    """The tool guard for a resource: off the event loop, no exception
+    text. The original sync function is returned for direct callers."""
+
+    def register(fn):
+        @functools.wraps(fn)
+        async def run() -> str:
+            return await anyio.to_thread.run_sync(functools.partial(_guarded, fn.__name__, fn))
+
+        mcp.resource(uri)(run)
+        return fn
+
+    return register
+
+
+@_resource("skein://context-pack")
 def context_pack_resource() -> str:
     """Versioned team context pack as markdown — mountable org-brain."""
     if refusal := _policy_refusal("skein.mcp.context.read", "context-pack"):
@@ -752,21 +853,30 @@ def context_pack_resource() -> str:
         )["content"]
 
 
-# ponytail: per-process cache; a `<name>-mcp` row renamed by an admin is
-# not re-reserved until restart. Check the row's kind per call if that lands.
-_reserved: set[str] = set()
+UNAVAILABLE = (
+    "The MCP identity for this person is unavailable. Ask an administrator to check the roster."
+)
+PERSON_KEY_ONLY = "This endpoint takes a person's key. The agent identity comes from it."
 
 
 def _remote_actor(user: str) -> str:
-    """The agent identity a person's remote calls act through. Reserved
-    once per process: ensure_agent_identity takes a write transaction and
-    the identity name lock, too heavy for every JSON-RPC message."""
-    from .services.users import ensure_agent_identity
+    """The agent identity a person's remote calls act through: one indexed
+    read per message, reserved on first use. No per-process cache: a row an
+    administrator renamed or deactivated must stop acting at once, not at
+    the next restart."""
+    from .services.users import MCP_SUFFIX, ensure_agent_identity
 
-    name = f"{user}-mcp"
-    if name not in _reserved:
-        ensure_agent_identity(name, owner="mcp")
-        _reserved.add(name)
+    name = f"{user}{MCP_SUFFIX}"
+    row = db.query_one("SELECT kind, active FROM users WHERE name = ?", (name,))
+    if row is None:
+        try:
+            ensure_agent_identity(name, owner="mcp")
+        except ValueError as exc:
+            # the reason names the row; the caller gets the fixed sentence
+            log.warning("MCP identity %r unavailable: %s", name, exc)
+            raise ValueError(UNAVAILABLE) from None
+    elif row["kind"] != "agent" or not row["active"]:
+        raise ValueError(UNAVAILABLE)
     return name
 
 
@@ -789,40 +899,64 @@ def remote_app(registry: ExtensionRegistry):
     lifespan (main.py) creates the session manager and enters its run()
     before the first request."""
     from fastapi import HTTPException
+    from starlette.concurrency import run_in_threadpool
     from starlette.requests import Request
     from starlette.responses import JSONResponse
 
     from .extensions.fastapi import subject_for
     from .routes.deps import _resolve, _stash, authentication_source
+    from .services import api_keys
+    from .services.users import is_agent
+
+    # the SDK logs every JSON-RPC message, arguments included, at DEBUG; a
+    # root-level change must not start logging capture text and memories
+    logging.getLogger("mcp").setLevel(max(logging.INFO, logging.getLogger("mcp").level))
+
+    def identify(request: Request):
+        """Every door does database work (key lookup, roster walls, crews for
+        the viewer, the agent row), so this runs in the thread pool the way
+        the perimeter middleware runs the same calls."""
+        authorization = request.headers.get("authorization", "")
+        token = authorization[7:] if authorization.startswith("Bearer ") else ""
+        if token.startswith(api_keys.PREFIX):
+            owner = api_keys.verify_key(token)
+            if owner and is_agent(owner):
+                raise HTTPException(status_code=403, detail=PERSON_KEY_ONLY)
+        # "GET": the weak door mints a roster row for a POST it would then
+        # refuse here; a read-shaped resolve names the caller without one
+        user, strong, groups = _resolve(
+            request.headers.get("x-user", ""), authorization, "GET", request
+        )
+        if not strong:
+            raise HTTPException(status_code=403, detail=wording.strong_identity_required())
+        actor = _remote_actor(user)
+        _stash(request, user, strong, groups, authentication_source(request, authorization, strong))
+        return user, actor, subject_for(request, user)
 
     async def endpoint(scope, receive, send) -> None:
         request = Request(scope, receive)
-        manager: StreamableHTTPSessionManager = request.app.state.skein_mcp_manager
+        manager = getattr(request.app.state, "skein_mcp_manager", None)
         if manager is None:
             await JSONResponse({"detail": "The MCP server is starting."}, status_code=503)(
                 scope, receive, send
             )
             return
-        authorization = request.headers.get("authorization", "")
-        try:
-            # "GET": the weak door mints a roster row for a POST it would then
-            # refuse here; a read-shaped resolve names the caller without one
-            user, strong, groups = _resolve(
-                request.headers.get("x-user", ""), authorization, "GET", request
-            )
-            if not strong:
-                raise HTTPException(status_code=403, detail=wording.strong_identity_required())
-            actor = _remote_actor(user)
-        except HTTPException as exc:
-            await JSONResponse({"detail": exc.detail}, status_code=exc.status_code)(
+        # the SDK reads the whole body with no cap; nothing here needs more
+        if int(request.headers.get("content-length") or 0) > BODY_MAX_BYTES:
+            await JSONResponse({"detail": "The request body is too large."}, status_code=413)(
                 scope, receive, send
             )
+            return
+        try:
+            user, actor, subject = await run_in_threadpool(identify, request)
+        except HTTPException as exc:
+            await JSONResponse(
+                {"detail": exc.detail}, status_code=exc.status_code, headers=exc.headers
+            )(scope, receive, send)
             return
         except ValueError as exc:
             await JSONResponse({"detail": str(exc)}, status_code=403)(scope, receive, send)
             return
-        _stash(request, user, strong, groups, authentication_source(request, authorization, strong))
-        subject = subject_for(request, user)
         engine_token = set_policy_engine(registry.policy_engine)
         subject_token = set_policy_subject(subject)
         actor_token = _current_actor.set(actor)

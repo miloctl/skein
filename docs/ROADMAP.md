@@ -537,3 +537,28 @@ write under review. What is left:
   can grant it a bounded standing approval (a count or a date), recorded
   as an authority row keyed on `server_id:tool`, and the review rule reads
   it. Trigger: the same personal tool reviewed and approved ten times.
+
+## Skein as an MCP server (2026-09-02)
+
+The HTTP endpoint with per-person identity shipped 2026-09-02
+(`mcp_server.remote_app`). The architecture review that followed judged the
+shape sound and left these:
+
+- **Generate the MCP tools from the chat tool registry** — `mcp_server.py`
+  is a third hand-written surface beside `routes/api.py` and `app/tools/`,
+  and it drifted once already (the D4 batch). `remote_app` sets the same
+  context variables the chat turn sets, so most `ALL_TOOLS` bodies would run
+  unchanged behind one annotations table. The caveat that keeps this from
+  being a straight swap: several chat tools take an identity argument the
+  model controls (`asked_by`, `answered_by`, `about_user`) that the MCP
+  twins deliberately derive from the caller, and `get_my_day`/`my_inbox`
+  must keep taking no person parameter (tests/test_privacy.py). The build
+  is an allowlist with per-tool argument overrides, not a blanket export.
+  Trigger: the next parity gap.
+- **An agent-key door on `/api/mcp-server`, then deprecate stdio** — the
+  stdio process exists for a service identity with no person behind it,
+  and `SKEIN_MCP_MODULES` is a second policy composition per deployment
+  (the module calls it the fail-open shape). Once the HTTP endpoint accepts
+  an agent-owned key and acts as that agent, stdio has no remaining job.
+  Trigger: a deployment that runs the stdio process in-cluster asks for a
+  second one.

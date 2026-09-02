@@ -357,8 +357,10 @@ the deployment reaches before you apply it.
 
 Skein's own MCP server is `<backend URL>/api/mcp-server`, behind the
 perimeter like every other `/api` path. A person connects Claude Code with
-their personal API key as the bearer; the backend venv is not needed on
-their machine.
+their personal API key as the bearer, read from `SKEIN_API_KEY` by a
+`.mcp.json` entry so the key never sits in a shell history; the backend
+venv is not needed on their machine. Tool bodies share the backend's sync
+thread pool with the REST handlers, so size it for both.
 
 An OAuth sign-in for a personal MCP server registers
 `<backend URL>/api/mcp/oauth/callback` as its redirect URI, built from the

@@ -1996,12 +1996,13 @@ export default function SettingsPage() {
                   )}
                 </p>
                 <p className="mb-1 text-xs font-medium text-ink-3">
-                  Claude Code registration, over HTTP with your personal API key
-                  (writes act as {currentUser === "anonymous" ? "you" : currentUser}-mcp
-                  under review):
+                  Claude Code registration over HTTP: add this to .mcp.json and
+                  export SKEIN_API_KEY with your personal key (writes act as{" "}
+                  {currentUser === "anonymous" ? "you" : currentUser}-mcp under
+                  review):
                 </p>
                 <CopyLine
-                  text={`claude mcp add --transport http skein ${API_URL}/api/mcp-server --header "Authorization: Bearer <your key>"`}
+                  text={`{"mcpServers": {"skein": {"type": "http", "url": "${API_URL}/api/mcp-server", "headers": {"Authorization": "Bearer \${SKEIN_API_KEY}"}}}}`}
                   label="Claude Code registration over HTTP"
                 />
                 <p className="mb-1 mt-2 text-xs font-medium text-ink-3">
