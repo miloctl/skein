@@ -22,6 +22,8 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+- The npm packages publish to public npmjs.com through OIDC Trusted Publishing, with provenance, instead of GitHub Packages. `@miloctl/skein-extension-api` and `@miloctl/skein-frontend-host` install with no token, and the `.npmrc` scope routing and `read:packages` PAT are gone. The first version of each package is published by hand once, then the workflow publishes (RELEASING.md).
+
 ## 0.5.0 — 2026-09-02
 
 ### Contracts

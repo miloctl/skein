@@ -36,7 +36,7 @@ npm pack @miloctl/skein-extension-api@1.0.0 --pack-destination dist
 npm pack @miloctl/skein-frontend-host@0.5.0 --pack-destination dist
 ```
 
-A local or non-GitHub consumer needs a classic GitHub PAT with `read:packages`.
+The `@miloctl` npm packages are public on npmjs.com. No registry token is needed.
 
 The Dockerfiles require the exact `0.5.0`, `1.0.0`, and `2.0.0` artifact names. A clean `dist` directory prevents an old artifact from entering the build. The Dockerfiles pin each base image by digest. Before deployment, replace each zero application-image digest with the digest from the reviewed registry image.
 
