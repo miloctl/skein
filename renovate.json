@@ -6,6 +6,12 @@
     {
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "weekly non-major"
+    },
+    {
+      "description": "Dependabot owns .github/workflows on GitHub (.github/dependabot.yml). Renovate keeps .gitea/workflows, which Dependabot cannot reach.",
+      "matchManagers": ["github-actions"],
+      "matchFileNames": [".github/workflows/**"],
+      "enabled": false
     }
   ]
 }
