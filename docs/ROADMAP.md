@@ -545,3 +545,10 @@ write under review. What is left:
   can grant it a bounded standing approval (a count or a date), recorded
   as an authority row keyed on `server_id:tool`, and the review rule reads
   it. Trigger: the same personal tool reviewed and approved ten times.
+- **First-use approval for a personal read tool** — annotations are the
+  server's own claim, and a hostile server labels an exfiltration tool
+  read-only so it runs without review. Today the bounds are the tool cap,
+  the description cap, and the result volume cap. The build is one human
+  approval per `(server, tool, version)` before a personal read runs the
+  first time, keyed on the existing approval fingerprint. Trigger: a
+  personal server outside the cluster network is registered in production.

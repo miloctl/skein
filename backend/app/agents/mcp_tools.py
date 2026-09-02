@@ -16,6 +16,7 @@ import os
 import threading
 import time
 import zlib
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import partial
 from typing import Any
@@ -72,6 +73,19 @@ _retry_state: dict[str, tuple[int, float]] = {}
 _RESULT_MAX_BYTES = 256 * 1024
 _TIMEOUT_TRIP = 2
 _timeout_strikes: dict[str, int] = {}
+# personal server ids with a connect in flight, so two turns of one owner
+# (or a POST and a turn) open one connection, not two
+_opening: set[str] = set()
+# The SDK's list_tools_sync waits on a future with no deadline, and a server
+# that answers initialize then streams keepalives never resolves it. Every
+# connect runs bounded so a hostile or broken server cannot pin the thread
+# that carries a chat turn, a POST, or an approval.
+_LIST_TOOLS_SECONDS = 30.0
+# A hostile personal server can stuff every turn's context: the tool list
+# and each description are bounded, and the operator-classified env tier
+# stays as declared.
+_PERSONAL_TOOL_CAP = 32
+_PERSONAL_DESCRIPTION_CHARS = 2000
 
 
 class _ResultTooLarge(Exception):
@@ -95,7 +109,8 @@ def _deadline_strike(server_id: str) -> None:
         if connection is None:
             return
         close_client = connection.client
-        _tools = None
+        if connection.tier == "system":
+            _tools = None
         # Seed the backoff HERE: without a retry_at in the future, the next
         # mcp_tools() call treats this server as ready and reconnects in the
         # FOREGROUND — inside an agent build, on a chat turn, against the
@@ -144,7 +159,13 @@ class GovernedMCPTool(AgentTool):
 
     @property
     def tool_spec(self):
-        return self._delegate.tool_spec
+        spec = self._delegate.tool_spec
+        description = spec.get("description") if isinstance(spec, dict) else None
+        if self.tier != PERSONAL or not isinstance(description, str):
+            return spec
+        if len(description) <= _PERSONAL_DESCRIPTION_CHARS:
+            return spec
+        return {**spec, "description": description[:_PERSONAL_DESCRIPTION_CHARS]}
 
     @property
     def tool_type(self) -> str:
@@ -411,14 +432,17 @@ def reviewed_policy_contract(
 
 
 def _governed(name: str, server: str) -> GovernedMCPTool:
-    """The currently composed wrapper for one (server, tool). A personal id
-    embeds its owner, so the owner's servers are composed for the lookup —
-    at approval this runs in the REVIEWER's request (routes/api.py) and a
-    cold server costs it one foreground connect, bounded by the SDK startup
-    timeout."""
+    """The currently composed wrapper for one (server, tool). A personal
+    server is looked up in the cache only, never opened: this runs in the
+    REVIEWER's request, inside the approval transaction with the proposal
+    row held (services/review.py), and a connect there would pin that hold
+    for the whole startup timeout. A cold personal server fails the
+    approval as "not currently composed"; the owner's next turn reconnects
+    it and the reviewer approves again."""
     if _is_personal(server):
-        owner = server[len(PERSONAL) + 1 :].rsplit(":", 1)[0]
-        pool = personal_mcp_tools(owner)
+        with _lock:
+            connection = _connections.get(server)
+        pool = list(connection.tools) if connection else []
     else:
         pool = mcp_tools()
     for item in pool:
@@ -766,20 +790,56 @@ def _close_in_thread(clients: list) -> None:
 
 def forget(server_id: str) -> None:
     """Drop one cached connection (a deleted personal row)."""
+    forget_owner(server_id, exact=True)
+
+
+def forget_owner(person: str, *, exact: bool = False) -> None:
+    """Drop every cached connection of one owner (deactivation, rename): a
+    connection holds the unsealed token, and the row that authorised it is
+    gone. Cross-pod, the row check in personal_mcp_tools catches up."""
+    prefix = person if exact else f"{PERSONAL}:{person}:"
     with _lock:
-        connection = _connections.pop(server_id, None)
-        _retry_state.pop(server_id, None)
-        _timeout_strikes.pop(server_id, None)
-    if connection is not None:
-        _close_in_thread([connection.client])
+        ids = [s for s in _connections if (s == prefix if exact else s.startswith(prefix))]
+        doomed = [_connections.pop(s).client for s in ids]
+        for s in ids:
+            _retry_state.pop(s, None)
+            _timeout_strikes.pop(s, None)
+    _close_in_thread(doomed)
+
+
+def _publish_personal(entries: list[tuple[str, dict]], generation: int) -> None:
+    try:
+        _, loaded = _connect_servers(entries)
+    except Exception as exc:
+        log.warning("personal MCP servers failed to load (%s)", type(exc).__name__)
+        loaded = []
+    close_after: list = []
+    with _lock:
+        _opening.difference_update(server_id for server_id, _ in entries)
+        loaded_ids = {connection.server_id for connection in loaded}
+        for connection in loaded:
+            # a shutdown meanwhile, or a concurrent turn that published
+            # first: closing beats overwriting a live client without closing
+            if generation != _generation or connection.server_id in _connections:
+                close_after.append(connection.client)
+                continue
+            _connections[connection.server_id] = connection
+            _retry_state.pop(connection.server_id, None)
+        for server_id, _ in entries:
+            if server_id not in loaded_ids:
+                _schedule_retry(server_id)
+    _close_in_thread(close_after)
 
 
 def personal_mcp_tools(person: str, reserved_names: set[str] | None = None) -> list:
     """Tools from the servers `person` registered (services/mcp_servers.py).
     Only the turn that person drives receives them: build_agent attaches
-    them on its personal_tools_for argument and nothing else does. A first
-    connect runs in the foreground, bounded by the SDK startup timeout; a
-    failure joins the same backoff as the env servers."""
+    them on its personal_tools_for argument and nothing else does. A server
+    never tried before connects in the foreground, bounded by the SDK
+    startup timeout and _LIST_TOOLS_SECONDS, so the POST that registered it
+    can report what it offers. A server that failed before recovers in a
+    thread, as the env tier does: a dead server must not cost its owner
+    the timeout on every turn."""
     if not person:
         return []
     from ..services.mcp_servers import entries_for
@@ -787,41 +847,44 @@ def personal_mcp_tools(person: str, reserved_names: set[str] | None = None) -> l
     entries = entries_for(person)
     wanted = dict(entries)
     mine = PERSONAL + ":" + person + ":"
-    doomed: list = []
-    to_open: list[tuple[str, dict]] = []
+    close_after: list = []
+    first: list[tuple[str, dict]] = []
+    retry: list[tuple[str, dict]] = []
     now = time.monotonic()
     with _lock:
         for server_id in [s for s in _connections if s.startswith(mine)]:
-            connection = _connections[server_id]
             row = wanted.get(server_id)
-            if row is None or row["stamp"] != connection.stamp:
-                doomed.append(_connections.pop(server_id).client)
+            if row is None or row["stamp"] != _connections[server_id].stamp:
+                close_after.append(_connections.pop(server_id).client)
                 _retry_state.pop(server_id, None)
                 _timeout_strikes.pop(server_id, None)
         for server_id, server in entries:
-            if server_id in _connections:
+            if server_id in _connections or server_id in _opening:
                 continue
-            if _retry_state.get(server_id, (0, 0.0))[1] <= now:
-                to_open.append((server_id, server))
+            state = _retry_state.get(server_id)
+            if state is None:
+                first.append((server_id, server))
+            elif state[1] <= now:
+                retry.append((server_id, server))
+        _opening.update(server_id for server_id, _ in first + retry)
         generation = _generation
-    _close_in_thread(doomed)
-    if to_open:
-        _, loaded = _connect_servers(to_open)
-        loaded_ids = {connection.server_id for connection in loaded}
-        with _lock:
-            if generation != _generation:
-                # shutdown_mcp ran meanwhile; publishing would resurrect
-                # sessions it cannot close
-                doomed = [connection.client for connection in loaded]
-                loaded = []
-            for connection in loaded:
-                _connections[connection.server_id] = connection
-                _retry_state.pop(connection.server_id, None)
-            for server_id, _ in to_open:
-                if server_id not in loaded_ids:
-                    _schedule_retry(server_id)
-        if generation != _generation:
-            _close_in_thread(doomed)
+    _close_in_thread(close_after)
+    if retry:
+        try:
+            threading.Thread(
+                target=_publish_personal,
+                args=(retry, generation),
+                daemon=True,
+                name="skein-mcp-retry",
+            ).start()
+        except RuntimeError as exc:
+            with _lock:
+                _opening.difference_update(server_id for server_id, _ in retry)
+            log.warning(
+                "MCP retry thread failed to start — MCP will retry (%s)", type(exc).__name__
+            )
+    if first:
+        _publish_personal(first, generation)
     with _lock:
         tools = [
             tool
@@ -887,7 +950,8 @@ def mcp_tools(reserved_names: set[str] | None = None) -> list:
             _timeout_strikes.pop(server_id, None)
         current = _composed_tools(_system_connections())
         if not configured_ids:
-            _retry_state.clear()
+            for server_id in [s for s in _retry_state if not _is_personal(s)]:
+                del _retry_state[server_id]
             _tools = []
             return []
         if _loading:
@@ -947,25 +1011,48 @@ def _connect_servers(
             from strands.tools.mcp import MCPClient
 
             url = server["url"]
+            tier = str(server.get("tier") or "system")
             token_env = str(server.get("auth_token_env") or "").strip()
             token = os.getenv(token_env, "") if token_env else str(server.get("auth_token") or "")
-            if server.get("auth_token") and not token_env:
+            if server.get("auth_token") and not token_env and tier != PERSONAL:
                 log.warning(
                     "MCP server %r embeds a token in configuration; use auth_token_env",
                     server_id,
                 )
             headers = {"Authorization": f"Bearer {token}"} if token else None
-            tier = str(server.get("tier") or "system")
             # A personal server's tools carry its name as a prefix, so two of
             # one person's servers, or a personal and an env server, cannot
             # collide. Env servers stay unprefixed: renaming their tools
             # would stale every pending proposal keyed on the old name.
             prefix = str(server.get("name") or "") if tier == PERSONAL else ""
-            transport = partial(streamablehttp_client, url, headers=headers)
+            if tier == PERSONAL:
+                # re-checked at every connect, not only at add time: the
+                # host can resolve somewhere else once the row exists.
+                # Redirects are refused for the same reason — the checked
+                # host could 307 the JSON-RPC POST to loopback or metadata.
+                from ..services.mcp_servers import check_url
+
+                check_url(url)
+                transport = partial(
+                    streamablehttp_client,
+                    url,
+                    headers=headers,
+                    httpx_client_factory=_no_redirect_client,
+                )
+            else:
+                transport = partial(streamablehttp_client, url, headers=headers)
             client = MCPClient(transport, prefix=prefix) if prefix else MCPClient(transport)
             client.__enter__()
             entered = True
-            found = client.list_tools_sync()
+            found = _list_tools(client)
+            if tier == PERSONAL and len(found) > _PERSONAL_TOOL_CAP:
+                log.warning(
+                    "MCP server '%s' offers %d tools; the first %d are kept",
+                    server_id,
+                    len(found),
+                    _PERSONAL_TOOL_CAP,
+                )
+                found = found[:_PERSONAL_TOOL_CAP]
             accepted = []
             for remote_tool in found:
                 metadata = _metadata(server, remote_tool)
@@ -1001,6 +1088,29 @@ def _connect_servers(
     return _composed_tools(connections), connections
 
 
+def _list_tools(client) -> list:
+    pool = ThreadPoolExecutor(1, thread_name_prefix="skein-mcp-list")
+    try:
+        return list(pool.submit(client.list_tools_sync).result(timeout=_LIST_TOOLS_SECONDS))
+    finally:
+        # wait=False: a hung listing keeps its worker, the caller does not
+        pool.shutdown(wait=False)
+
+
+def _no_redirect_client(headers=None, timeout=None, auth=None):
+    """mcp's own factory hard-codes follow_redirects=True; the defaults
+    below are its defaults (mcp/shared/_httpx_utils.py) minus that one."""
+    import httpx
+    from mcp.shared._httpx_utils import MCP_DEFAULT_SSE_READ_TIMEOUT, MCP_DEFAULT_TIMEOUT
+
+    return httpx.AsyncClient(
+        follow_redirects=False,
+        timeout=timeout or httpx.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT),
+        headers=headers,
+        auth=auth,
+    )
+
+
 def shutdown_mcp() -> None:
     global _tools, _generation
     with _lock:
@@ -1011,6 +1121,7 @@ def shutdown_mcp() -> None:
         _connections.clear()
         _retry_state.clear()
         _timeout_strikes.clear()
+        _opening.clear()
         _tools = None
     for client in doomed:
         with contextlib.suppress(Exception):

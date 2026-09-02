@@ -140,6 +140,7 @@ def test_a_failed_connect_is_a_field_not_an_error(client, sealed):
     "url",
     [
         "http://127.0.0.1:8000/mcp",
+        "http://[::ffff:127.0.0.1]:8000/mcp",
         "http://localhost/mcp",
         "http://169.254.169.254/latest/",
         "https://user:pw@host.example/mcp",
@@ -185,14 +186,37 @@ def test_a_token_without_the_key_is_refused_and_the_form_is_told(client, sealed,
     )
 
 
+def test_a_person_registers_a_bounded_number_of_servers(client, sealed):
+    from app.services import mcp_servers
+
+    ava = _bootstrap("ava")
+    for n in range(mcp_servers.LIMIT):
+        assert (
+            client.post(
+                "/api/mcp/servers", json={"name": f"s{n}", "url": "https://h.example/"}, headers=ava
+            ).status_code
+            == 200
+        )
+    refused = client.post(
+        "/api/mcp/servers", json={"name": "one-more", "url": "https://h.example/"}, headers=ava
+    )
+    assert refused.status_code == 400
+    assert f"up to {mcp_servers.LIMIT}" in refused.json()["detail"]
+
+
 def test_offboarding_and_rename_carry_the_rows(client, sealed):
     from app import db
+    from app.agents import mcp_tools
     from app.services import mcp_servers, users
 
     ava = _bootstrap("ava")
     users.ensure_user("ava")
     client.post("/api/mcp/servers", json={"name": "jira", "url": "https://j.example/"}, headers=ava)
+    assert "personal:ava:jira" in mcp_tools._connections
     users.rename_user("ava", "avery", actor="admin")
+    assert "personal:ava:jira" not in mcp_tools._connections, (
+        "a renamed owner's token stayed cached"
+    )
     assert [r["owner"] for r in db.query("SELECT owner FROM mcp_servers")] == ["avery"]
     assert mcp_servers.list_for("avery")[0]["server_id"] == "personal:avery:jira"
     users.set_active("avery", False, actor="admin")

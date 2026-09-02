@@ -108,7 +108,9 @@ export function McpServersCard({
     done: (result: unknown) => string,
   ): Promise<boolean> => {
     if (busy) return false;
-    restoreTo.current = document.activeElement as HTMLElement | null;
+    // a delete click already recorded its own button: the autofocused
+    // confirm button unmounts with the row, and focusing it lands on body
+    restoreTo.current ??= document.activeElement as HTMLElement | null;
     setBusy(key);
     try {
       const result = await run();
@@ -122,6 +124,7 @@ export function McpServersCard({
       setBusy("");
       requestAnimationFrame(() => {
         const el = restoreTo.current;
+        restoreTo.current = null;
         if (el && document.contains(el)) el.focus();
       });
     }
