@@ -1,0 +1,20 @@
+# Keeps the SHA-pinned actions in .github/workflows current. Dependabot
+# updates the pinned digest and the trailing "# vN" comment together, so the
+# immutable-pin rule in backend/tests/test_release_contract.py holds across
+# a bump. One grouped PR a week, not one per action.
+#
+# github-actions only, on purpose. pip and npm belong to renovate.json, which
+# waits for the Gitea instance to enable Renovate (TODO.md). renovate.json in
+# turn leaves .github/workflows alone, so the two never open competing PRs.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: chore
