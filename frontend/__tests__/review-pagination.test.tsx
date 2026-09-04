@@ -187,5 +187,9 @@ describe("the pending review cursor", () => {
     // machine, and this is the slowest test in the suite. The default ceiling
     // is 15s, which a loaded CI runner crosses — measured by running the suite
     // against saturated cores, where this is the only test that times out.
-  }, 30_000);
+    // A GitHub-hosted runner is slower still and varies run to run: 22.8s on
+    // one green run, 39.8s on the next (ci run 33834416040), against a 30s
+    // ceiling. 90s is a hang ceiling, not a budget — the assertion above pins
+    // the cap, and nothing here measures speed.
+  }, 90_000);
 });
