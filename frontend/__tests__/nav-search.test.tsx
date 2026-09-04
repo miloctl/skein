@@ -61,12 +61,16 @@ describe("the nav search box", () => {
     const input = screen.getByLabelText("Search Skein");
     fireEvent.change(input, { target: { value: "dark" } });
     // no Enter yet: the command is there, no request has gone out
-    const cmd = screen.getByRole("button", { name: "Mode: dark" });
+    const cmd = screen.getByRole("button", { name: "Mode: Dark" });
     expect(calls).toEqual([]);
     fireEvent.click(cmd);
     expect(document.documentElement.dataset.appearance).toBe("dark");
     // the box stays open with the query in place, so a command can run again
-    expect(screen.getByRole("button", { name: "Mode: dark" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Mode: Dark" })).toBeTruthy();
+    // Escape returns focus to the input rather than dropping it on <body>
+    cmd.focus();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(document.activeElement).toBe(input);
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(calls).toEqual(["/api/search?q=dark"]));
     delete document.documentElement.dataset.appearance;

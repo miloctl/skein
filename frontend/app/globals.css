@@ -697,12 +697,21 @@ select option {
     animation: none;
   }
   /* the theme-change crossfade (lib/theme.ts paint): with no animation the
-     transition resolves at once, so the page still snaps to the new theme */
+     transition resolves at once, so the page still snaps to the new theme.
+     !important so a later ::view-transition-old(root) animation cannot bring
+     motion back under this preference */
   ::view-transition-group(*),
   ::view-transition-old(*),
   ::view-transition-new(*) {
-    animation: none;
+    animation: none !important;
   }
+}
+
+/* the crossfade's pseudo-tree covers the viewport for its duration and, by
+   default, swallows every click under it — a second "Colorway: next" inside
+   that window was lost with no feedback */
+::view-transition {
+  pointer-events: none;
 }
 
 /* Custom-colorway hue dials: the track is the full dye spectrum at the

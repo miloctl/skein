@@ -254,8 +254,8 @@ export function applyPrefs() {
 // back out of the DOM after applying prefs.
 // Exported because applyPrefs does NOT run on a normal page load — the
 // pre-paint script in layout.tsx sets the data attributes and applyPrefs only
-// fires on cross-tab storage events and profile adoption. ThemeSync calls this
-// on mount to cover the ordinary case.
+// fires on a setter, a cross-tab storage event, or profile adoption.
+// ThemeSync calls this on mount to cover the ordinary case.
 export function syncThemeColor() {
   const resolved = getComputedStyle(document.body).backgroundColor;
   if (!resolved) return;
@@ -275,22 +275,30 @@ const ADOPTED_KEY = "skein-adopted";
 // A theme change crossfades through the View Transitions API where the
 // browser has it (a missing API takes the direct path, and so does jsdom, so
 // a test that wants the fade stubs `document.startViewTransition`). The
-// callback runs after the browser snapshots the old page, so applyPrefs and
-// the theme-color meta read the NEW state inside it. Reduced motion is
-// honored in globals.css on the ::view-transition pseudo-elements, not here.
+// browser snapshots the OLD page at the next rendering opportunity and only
+// then runs the callback, so every DOM write of the change must happen
+// inside it: the same-tab "storage" event is dispatched there too, because
+// ThemeSync answers it with applyPrefs, and dispatched synchronously after
+// startViewTransition it restyled the page before the snapshot — old and
+// new frames identical, no visible fade, and the input block for nothing.
+// Reduced motion is honored in globals.css on the ::view-transition
+// pseudo-elements, not here.
 function paint(fade: boolean) {
-  if (fade && typeof document.startViewTransition === "function") {
-    document.startViewTransition(applyPrefs);
-  } else {
+  const update = () => {
     applyPrefs();
+    // same-tab subscribers (useSyncExternalStore, ThemeSync) listen for this
+    window.dispatchEvent(new Event("storage"));
+  };
+  if (fade && typeof document.startViewTransition === "function") {
+    document.startViewTransition(update);
+  } else {
+    update();
   }
 }
 
 function applyAndPing({ fade = true }: ApplyOpts = {}) {
   write(ADOPTED_KEY, null); // an explicit choice is no longer an adoption
   paint(fade);
-  // same-tab subscribers (useSyncExternalStore) listen for this
-  window.dispatchEvent(new Event("storage"));
   pushTheme();
 }
 
@@ -449,7 +457,6 @@ export async function adoptServerTheme(): Promise<"profile" | "team" | null> {
     // fades too: the restyle then reads as "your theme arrived" rather than
     // a flash, beside the status pill ThemeSync shows for the same moment
     paint(true);
-    window.dispatchEvent(new Event("storage"));
     return r.theme ? "profile" : "team";
   } catch {
     return null;

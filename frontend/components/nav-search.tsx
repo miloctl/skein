@@ -7,6 +7,7 @@ import { actionError, api } from "@/lib/api";
 import { matchCommands } from "@/lib/commands";
 import { PeekLink } from "@/components/task-peek";
 import { Shortcut } from "@/components/shortcut";
+import { reportStatus } from "@/lib/status";
 
 /** Search and /ask, in the nav.
  *
@@ -252,6 +253,8 @@ export function NavSearch() {
   const inputRef = useRef<HTMLInputElement>(null);
   const focusPrefill = useRef(false);
   const requestGeneration = useRef(0);
+  // read by the ⌘K handler, which is registered once with no dependencies
+  const canOpen = useRef(false);
 
   // ⌘K focuses search. It is the command-palette convention every other
   // product follows, and it used to open quick capture here — a box that
@@ -263,6 +266,9 @@ export function NavSearch() {
         e.preventDefault();
         inputRef.current?.focus();
         inputRef.current?.select();
+        // focus() on the already-focused input fires no focus event, so
+        // after Escape this is the only way back to the list without retyping
+        if (canOpen.current) setOpen(true);
       }
     };
     window.addEventListener("keydown", onShortcut);
@@ -288,9 +294,11 @@ export function NavSearch() {
 
   useEffect(() => {
     if (!focusPrefill.current) return;
-    focusPrefill.current = false;
+    // focus BEFORE clearing the flag: onFocus reads it to keep a prefill
+    // from reopening the box the prefill just closed
     inputRef.current?.focus();
     inputRef.current?.select();
+    focusPrefill.current = false;
   }, [q]);
 
   useEffect(() => {
@@ -298,7 +306,13 @@ export function NavSearch() {
     const onDown = (e: MouseEvent) => {
       if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // a command button keeps focus after it runs; closing unmounts it, and
+      // focus on a removed element falls to <body>, so Tab restarts the page
+      if (boxRef.current?.contains(document.activeElement)) inputRef.current?.focus();
+      setOpen(false);
+    };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
@@ -336,6 +350,9 @@ export function NavSearch() {
 
   const commands = matchCommands(q);
   const hasResults = busy || Boolean(error) || answer !== null || hits !== null;
+  useEffect(() => {
+    canOpen.current = hasResults || commands.length > 0;
+  });
   const reference = exactReference(q);
   const exactHit =
     hits && reference && hits[0]?.entity === reference.entity && hits[0]?.entity_id === reference.id
@@ -366,7 +383,7 @@ export function NavSearch() {
           if (matchCommands(e.target.value).length) setOpen(true);
         }}
         onKeyDown={(e) => e.key === "Enter" && run()}
-        onFocus={() => (hasResults || commands.length > 0) && setOpen(true)}
+        onFocus={() => !focusPrefill.current && canOpen.current && setOpen(true)}
         enterKeyHint="search"
         // "or ? to ask" promised a question-answerer and delivered a second
         // pass over the same keyword index. Once semantic hits blend into
@@ -401,7 +418,7 @@ export function NavSearch() {
                   <li key={c.id} className="text-sm">
                     <button
                       type="button"
-                      onClick={c.run}
+                      onClick={() => reportStatus(c.run(), "confirmation")}
                       className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-3"
                     >
                       {c.label}
