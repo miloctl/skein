@@ -75,6 +75,8 @@ Allowed actions: npm publish
 
 Select **Require two-factor authentication and disallow tokens** on the same page. The workflow filename is part of the OIDC identity here too: moving the publisher job means adding the new file as a trusted publisher BEFORE the change merges.
 
+The extension API's published `1.0.0` is frozen: the workplace consumer integrity-locks its tarball and the publish job refuses a same-version republish with different bytes, so its manifest keeps the `publishConfig` it was published with until the next API version. The publish job passes `--registry` and `--access public` explicitly, which makes that manifest field inert.
+
 The publisher runs `npm install -g npm@11.19.1` first: trusted publishing needs npm 11.5.1 or later and Node 22 ships 10.x. npm generates provenance automatically, and only from a PUBLIC repository — make the repository public before the first workflow publication, or that run fails.
 
 ## Configure workplace access
