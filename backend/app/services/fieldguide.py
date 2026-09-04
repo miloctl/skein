@@ -82,6 +82,9 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
         (u, u),
     ),
     "search": None,
+    # a theme write is not activity-logged (users.py: a slider drag would
+    # flood the ledger), so the row itself is the evidence
+    "theme": lambda u: _has("SELECT 1 FROM users WHERE name = ? AND theme <> ''", (u,)),
     "timeaway": lambda u: _act(u, "add_absence"),
     "intake": lambda u: _has(
         "SELECT 1 FROM intake_requests WHERE requester = ? OR created_by = ?", (u, u)

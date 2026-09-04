@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { actionError, api } from "@/lib/api";
+import { matchCommands } from "@/lib/commands";
 import { PeekLink } from "@/components/task-peek";
 import { Shortcut } from "@/components/shortcut";
 
@@ -20,6 +21,12 @@ import { Shortcut } from "@/components/shortcut";
  *  return the same rows for an ordinary question and the prefix only shows
  *  through on a query whose real keyword is buried in words that miss. That
  *  is why the placeholder no longer advertises it.
+ *
+ *  The box is also the command palette, for the theme only (lib/commands.ts).
+ *  A command matches while the reader types and is a button above the
+ *  results; Enter still searches, so "dark" can be looked up as a word. A
+ *  command leaves the box open and the query in place: focus stays on the
+ *  button, and "Colorway: next" is meant to be pressed again.
  */
 
 type Hit = { entity: string; entity_id: number; title: string; snippet: string };
@@ -327,6 +334,8 @@ export function NavSearch() {
     }
   };
 
+  const commands = matchCommands(q);
+  const hasResults = busy || Boolean(error) || answer !== null || hits !== null;
   const reference = exactReference(q);
   const exactHit =
     hits && reference && hits[0]?.entity === reference.entity && hits[0]?.entity_id === reference.id
@@ -349,9 +358,15 @@ export function NavSearch() {
         ref={inputRef}
         id="nav-search"
         value={q}
-        onChange={(e) => setQ(e.target.value)}
+        onChange={(e) => {
+          setQ(e.target.value);
+          // opened from the change handler, not an effect on q: a prefill
+          // (skein-search-prefill) sets q AND closes the box, and an effect
+          // would reopen it over a query the reader never typed
+          if (matchCommands(e.target.value).length) setOpen(true);
+        }}
         onKeyDown={(e) => e.key === "Enter" && run()}
-        onFocus={() => (hits || answer || error) && setOpen(true)}
+        onFocus={() => (hasResults || commands.length > 0) && setOpen(true)}
         enterKeyHint="search"
         // "or ? to ask" promised a question-answerer and delivered a second
         // pass over the same keyword index. Once semantic hits blend into
@@ -372,89 +387,114 @@ export function NavSearch() {
       >
         {q.trim() ? "Enter" : <Shortcut />}
       </span>
-      {open && (
-        <div
-          role="region"
-          aria-label="Search results"
-          // a landmark announces NOTHING when it appears, so pressing Enter
-          // was met with silence — no result count, no "nothing matches", no
-          // error. Not a combobox: activation here is Tab-then-Enter, and the
-          // role would promise arrow-key navigation that does not exist.
-          aria-live="polite"
-          aria-busy={busy}
-          className="fixed inset-x-4 top-[calc(var(--nav-h)+var(--selvage-h,2px)+0.25rem)] z-50 max-h-96 w-auto overflow-y-auto rounded-xl border border-line bg-card p-3 shadow-card sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-1 sm:w-96"
-        >
-          {busy ? (
-            <p className="text-sm text-ink-3">Searching…</p>
-          ) : error ? (
-            <p className="text-sm text-danger">{error}</p>
-          ) : answer ? (
-            <>
-              {/* every answer is snippets citing a row — the product never
-                  asserts a fact it cannot point at */}
-              {answer.citations.length === 0 ? (
+      {open && (commands.length > 0 || hasResults) && (
+        <div className="fixed inset-x-4 top-[calc(var(--nav-h)+var(--selvage-h,2px)+0.25rem)] z-50 max-h-96 w-auto overflow-y-auto rounded-xl border border-line bg-card p-3 shadow-card sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-1 sm:w-96">
+          {/* outside the live region below: the list changes on every
+              keystroke, and a polite region would read it out each time */}
+          {commands.length > 0 && (
+            <div className={hasResults ? "mb-3" : ""}>
+              <p className="mb-1 font-mono text-[10px] font-medium uppercase tracking-wide text-ink-3">
+                Commands
+              </p>
+              <ul className="space-y-1">
+                {commands.map((c) => (
+                  <li key={c.id} className="text-sm">
+                    <button
+                      type="button"
+                      onClick={c.run}
+                      className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-3"
+                    >
+                      {c.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {hasResults && (
+            <div
+              role="region"
+              aria-label="Search results"
+              // a landmark announces NOTHING when it appears, so pressing Enter
+              // was met with silence — no result count, no "nothing matches", no
+              // error. Not a combobox: activation here is Tab-then-Enter, and the
+              // role would promise arrow-key navigation that does not exist.
+              aria-live="polite"
+              aria-busy={busy}
+            >
+              {busy ? (
+                <p className="text-sm text-ink-3">Searching…</p>
+              ) : error ? (
+                <p className="text-sm text-danger">{error}</p>
+              ) : answer ? (
                 <>
-                  <p className="text-sm text-ink-3">
-                    {answer.note || "Nothing matches those words."}
-                  </p>
+                  {/* every answer is snippets citing a row — the product never
+                      asserts a fact it cannot point at */}
+                  {answer.citations.length === 0 ? (
+                    <>
+                      <p className="text-sm text-ink-3">
+                        {answer.note || "Nothing matches those words."}
+                      </p>
+                      <CaptureHint />
+                    </>
+                  ) : (
+                    <ul className="space-y-2">
+                      {answer.citations.map((c) => (
+                        <li key={c.ref} className="text-sm">
+                          {/* a citation names a row; the ones that are tasks land
+                              in the peek, like the search hits below. Answering
+                              with a reference the reader cannot open is the dead
+                              end this box was built to close. */}
+                          <CitationRef refText={c.ref} title={c.title} onDone={() => setOpen(false)} />
+                          <p className="text-xs text-ink-3">
+                            <Snippet text={c.snippet} />
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              ) : hits === null ? null : hits.length === 0 ? (
+                <>
+                  <p className="text-sm text-ink-3">Nothing matches those words.</p>
                   <CaptureHint />
                 </>
               ) : (
-                <ul className="space-y-2">
-                  {answer.citations.map((c) => (
-                    <li key={c.ref} className="text-sm">
-                      {/* a citation names a row; the ones that are tasks land
-                          in the peek, like the search hits below. Answering
-                          with a reference the reader cannot open is the dead
-                          end this box was built to close. */}
-                      <CitationRef refText={c.ref} title={c.title} onDone={() => setOpen(false)} />
-                      <p className="text-xs text-ink-3">
-                        <Snippet text={c.snippet} />
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
-          ) : hits === null ? null : hits.length === 0 ? (
-            <>
-              <p className="text-sm text-ink-3">Nothing matches those words.</p>
-              <CaptureHint />
-            </>
-          ) : (
-            <>
-              <p className="sr-only">
-                {hits.length} search {hits.length === 1 ? "result" : "results"}.
-              </p>
-              {exactHit ? (
-                <div className="mb-3">
-                  <p className="mb-1 font-mono text-[10px] font-medium uppercase tracking-wide text-ink-3">
-                    Exact match
+                <>
+                  <p className="sr-only">
+                    {hits.length} search {hits.length === 1 ? "result" : "results"}.
                   </p>
-                  <ul>
-                    <HitRow hit={exactHit} onDone={() => setOpen(false)} />
-                  </ul>
-                </div>
-              ) : null}
-              {relatedHits.length > 0 ? (
-                <div>
                   {exactHit ? (
-                    <p className="mb-1 font-mono text-[10px] font-medium uppercase tracking-wide text-ink-3">
-                      Related results
-                    </p>
+                    <div className="mb-3">
+                      <p className="mb-1 font-mono text-[10px] font-medium uppercase tracking-wide text-ink-3">
+                        Exact match
+                      </p>
+                      <ul>
+                        <HitRow hit={exactHit} onDone={() => setOpen(false)} />
+                      </ul>
+                    </div>
                   ) : null}
-                  <ul className="space-y-2">
-                    {relatedHits.map((hit) => (
-                      <HitRow
-                        key={`${hit.entity}-${hit.entity_id}`}
-                        hit={hit}
-                        onDone={() => setOpen(false)}
-                      />
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-            </>
+                  {relatedHits.length > 0 ? (
+                    <div>
+                      {exactHit ? (
+                        <p className="mb-1 font-mono text-[10px] font-medium uppercase tracking-wide text-ink-3">
+                          Related results
+                        </p>
+                      ) : null}
+                      <ul className="space-y-2">
+                        {relatedHits.map((hit) => (
+                          <HitRow
+                            key={`${hit.entity}-${hit.entity_id}`}
+                            hit={hit}
+                            onDone={() => setOpen(false)}
+                          />
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </div>
           )}
         </div>
       )}
