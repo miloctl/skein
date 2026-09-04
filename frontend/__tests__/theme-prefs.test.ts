@@ -97,6 +97,27 @@ describe("applyPrefs stamps the root element", () => {
 });
 
 describe("a theme change crossfades, a hue drag does not", () => {
+  it("writes nothing to the page before the browser snapshots it", () => {
+    // ThemeSync answers the same-tab storage event with applyPrefs; if that
+    // event fires before the transition callback, the old snapshot already
+    // wears the new theme and the fade is between two identical frames
+    window.addEventListener("storage", applyPrefs);
+    let update: (() => void) | null = null;
+    document.startViewTransition = ((cb: () => void) => {
+      update = cb;
+      return {} as ViewTransition;
+    }) as typeof document.startViewTransition;
+    try {
+      setPack("ledger");
+      expect(document.documentElement.dataset.pack).toBeUndefined();
+      update!();
+      expect(document.documentElement.dataset.pack).toBe("ledger");
+    } finally {
+      window.removeEventListener("storage", applyPrefs);
+      delete (document as { startViewTransition?: unknown }).startViewTransition;
+    }
+  });
+
   it("routes a pack change through startViewTransition and a slider tick past it", () => {
     const svt = vi.fn((cb: () => void) => {
       cb();

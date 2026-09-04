@@ -20,7 +20,11 @@ vi.mock("@/lib/api", () => ({
   API_URL: "http://backend.test",
 }));
 
-afterEach(() => {
+// every command reaches pushTheme, whose import("./api") is never awaited;
+// left pending, the last test's import raced the jsdom teardown and failed
+// the whole run with an EnvironmentTeardownError
+afterEach(async () => {
+  await vi.dynamicImportSettled();
   window.localStorage.clear();
   const root = document.documentElement;
   delete root.dataset.theme;
@@ -30,7 +34,13 @@ afterEach(() => {
 
 describe("matchCommands", () => {
   it("matches a mode by its word and nothing else", () => {
-    expect(matchCommands("dark").map((c) => c.label)).toEqual(["Mode: dark"]);
+    expect(matchCommands("dark").map((c) => c.label)).toEqual(["Mode: Dark"]);
+  });
+  it("matches every word at a word start, in any order", () => {
+    expect(matchCommands("dark mode").map((c) => c.label)).toEqual(["Mode: Dark"]);
+    expect(matchCommands("high").map((c) => c.label)).toEqual(["Theme: High contrast"]);
+    expect(matchCommands("the meeting")).toEqual([]);
+    expect(matchCommands("ark")).toEqual([]);
   });
   it("matches every pack on the word theme", () => {
     expect(matchCommands("theme")).toHaveLength(PACKS.length);
@@ -44,14 +54,20 @@ describe("matchCommands", () => {
 });
 
 describe("a command lands the same state as Settings", () => {
-  it("a theme command takes the pack and its signature accent", () => {
-    COMMANDS.find((c) => c.id === "pack-ledger")!.run();
+  it("a theme command takes the pack and its signature accent, and says so", () => {
+    expect(COMMANDS.find((c) => c.id === "pack-ledger")!.run()).toBe("Theme: Ledger.");
     expect(document.documentElement.dataset.pack).toBe("ledger");
     expect(getColorway()).toBe("madder");
   });
   it("a mode command stamps the appearance", () => {
-    COMMANDS.find((c) => c.id === "mode-dark")!.run();
+    expect(COMMANDS.find((c) => c.id === "mode-dark")!.run()).toBe("Mode: Dark.");
     expect(document.documentElement.dataset.appearance).toBe("dark");
+  });
+  it("the colorway command names the colorway it landed on", () => {
+    setColorway("bone");
+    expect(COMMANDS.find((c) => c.id === "colorway-next")!.run()).toBe(
+      "Colorway: Indigo & ochre.",
+    );
   });
 });
 
