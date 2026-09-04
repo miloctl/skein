@@ -13,6 +13,8 @@ import {
   getCustomHues,
   getPack,
   setColorway,
+  setCustomHues,
+  setPack,
 } from "@/lib/theme";
 
 /** Theme prefs are the one piece of state that must never take the page
@@ -91,6 +93,30 @@ describe("applyPrefs stamps the root element", () => {
     applyPrefs();
     expect(style.getPropertyValue("--thread")).toBe("");
     expect(style.getPropertyValue("--weld-solid")).toBe("");
+  });
+});
+
+describe("a theme change crossfades, a hue drag does not", () => {
+  it("routes a pack change through startViewTransition and a slider tick past it", () => {
+    const svt = vi.fn((cb: () => void) => {
+      cb();
+      return {} as ViewTransition;
+    });
+    document.startViewTransition = svt as unknown as typeof document.startViewTransition;
+    try {
+      setPack("ledger", { accent: true });
+      expect(svt).toHaveBeenCalledTimes(1);
+      expect(document.documentElement.dataset.pack).toBe("ledger");
+      expect(getColorway()).toBe("madder");
+      setCustomHues(10, 20);
+      expect(svt).toHaveBeenCalledTimes(1);
+      expect(document.documentElement.dataset.theme).toBe("custom");
+      setPack("loom", { fade: false });
+      expect(svt).toHaveBeenCalledTimes(1);
+      expect(document.documentElement.dataset.pack).toBeUndefined();
+    } finally {
+      delete (document as { startViewTransition?: unknown }).startViewTransition;
+    }
   });
 });
 

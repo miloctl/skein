@@ -205,11 +205,21 @@ export function getPack(): string {
   return PACKS.some((x) => x.id === p) ? (p as string) : DEFAULT_PACK;
 }
 
-export function setPack(id: string) {
+/** `fade: false` skips the crossfade (the Settings page, where a fade on the
+ *  control just clicked reads as lag). `accent: true` also takes the pack's
+ *  signature colorway, in the SAME paint — two setters back to back start two
+ *  view transitions, and the second skips the first mid-fade. */
+export type ApplyOpts = { fade?: boolean; accent?: boolean };
+
+export function setPack(id: string, opts: ApplyOpts = {}) {
   // store defaults literally: "chose loom" must be distinguishable from
   // "never chose", or the profile theme hijacks a deliberate reset on load
   write(PACK_KEY, id);
-  applyAndPing();
+  if (opts.accent) {
+    const pack = PACKS.find((p) => p.id === id);
+    if (pack) write(THEME_KEY, pack.accent);
+  }
+  applyAndPing(opts);
 }
 
 export function applyPrefs() {
@@ -262,9 +272,23 @@ export function syncThemeColor() {
 
 const ADOPTED_KEY = "skein-adopted";
 
-function applyAndPing() {
+// A theme change crossfades through the View Transitions API where the
+// browser has it (a missing API takes the direct path, and so does jsdom, so
+// a test that wants the fade stubs `document.startViewTransition`). The
+// callback runs after the browser snapshots the old page, so applyPrefs and
+// the theme-color meta read the NEW state inside it. Reduced motion is
+// honored in globals.css on the ::view-transition pseudo-elements, not here.
+function paint(fade: boolean) {
+  if (fade && typeof document.startViewTransition === "function") {
+    document.startViewTransition(applyPrefs);
+  } else {
+    applyPrefs();
+  }
+}
+
+function applyAndPing({ fade = true }: ApplyOpts = {}) {
   write(ADOPTED_KEY, null); // an explicit choice is no longer an adoption
-  applyPrefs();
+  paint(fade);
   // same-tab subscribers (useSyncExternalStore) listen for this
   window.dispatchEvent(new Event("storage"));
   pushTheme();
@@ -337,7 +361,7 @@ if (typeof window !== "undefined") {
 
 /** Shareable theme code (TP5): the whole theme is ~5 JSON fields — validate
  *  a pasted blob and apply it through the normal setters. */
-export function applyThemeCode(code: string): boolean {
+export function applyThemeCode(code: string, opts: ApplyOpts = {}): boolean {
   try {
     const t = JSON.parse(code);
     if (typeof t !== "object" || t === null) return false;
@@ -367,7 +391,7 @@ export function applyThemeCode(code: string): boolean {
     ) {
       write(APPEARANCE_KEY, t.appearance);
     }
-    applyAndPing();
+    applyAndPing(opts);
     return true;
   } catch {
     return false;
@@ -422,7 +446,9 @@ export async function adoptServerTheme(): Promise<"profile" | "team" | null> {
     } else if (t.appearance === "system") {
       write(APPEARANCE_KEY, null); // fully supersede an adopted light/dark
     }
-    applyPrefs();
+    // fades too: the restyle then reads as "your theme arrived" rather than
+    // a flash, beside the status pill ThemeSync shows for the same moment
+    paint(true);
     window.dispatchEvent(new Event("storage"));
     return r.theme ? "profile" : "team";
   } catch {
@@ -430,18 +456,20 @@ export async function adoptServerTheme(): Promise<"profile" | "team" | null> {
   }
 }
 
-export function setColorway(id: string) {
+export function setColorway(id: string, opts: ApplyOpts = {}) {
   write(THEME_KEY, id);
-  applyAndPing();
+  applyAndPing(opts);
 }
 
 export function setCustomHues(thread: number, weld: number) {
   write(CUSTOM_KEY, JSON.stringify({ thread, weld }));
   write(THEME_KEY, "custom");
-  applyAndPing();
+  // never fades: a slider drag fires this per tick, and a whole-page
+  // snapshot per tick stutters while each new transition skips the last
+  applyAndPing({ fade: false });
 }
 
-export function setAppearance(id: string) {
+export function setAppearance(id: string, opts: ApplyOpts = {}) {
   write(APPEARANCE_KEY, id);
-  applyAndPing();
+  applyAndPing(opts);
 }

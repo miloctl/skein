@@ -696,6 +696,13 @@ select option {
   .knot-escalated {
     animation: none;
   }
+  /* the theme-change crossfade (lib/theme.ts paint): with no animation the
+     transition resolves at once, so the page still snaps to the new theme */
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none;
+  }
 }
 
 /* Custom-colorway hue dials: the track is the full dye spectrum at the

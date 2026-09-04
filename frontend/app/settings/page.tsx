@@ -1603,7 +1603,7 @@ export default function SettingsPage() {
                     {APPEARANCES.map((a) => (
                       <button
                         key={a.id}
-                        onClick={() => setAppearance(a.id)}
+                        onClick={() => setAppearance(a.id, { fade: false })}
                         aria-pressed={appearance === a.id}
                         // the wrapper's overflow-hidden rounds these buttons' corners
                         // and clipped their focus ring with them — globals.css draws
@@ -1630,10 +1630,8 @@ export default function SettingsPage() {
                       return (
                         <button
                           key={p.id}
-                          onClick={() => {
-                            setPack(p.id);
-                            setColorway(p.accent);
-                          }}
+                          // no fade on this page: see ApplyOpts in lib/theme.ts
+                          onClick={() => setPack(p.id, { accent: true, fade: false })}
                           aria-pressed={selected}
                           className={
                             "rounded-lg border p-1.5 text-left transition-colors " +
@@ -1713,7 +1711,7 @@ export default function SettingsPage() {
                         {COLORWAYS.map((c) => (
                           <button
                             key={c.id}
-                            onClick={() => setColorway(c.id)}
+                            onClick={() => setColorway(c.id, { fade: false })}
                             aria-pressed={colorway === c.id}
                             aria-label={c.label}
                             title={c.label}
@@ -1825,7 +1823,7 @@ export default function SettingsPage() {
                         <button
                           disabled={!codeDraft.trim()}
                           onClick={() => {
-                            const ok = applyThemeCode(codeDraft.trim());
+                            const ok = applyThemeCode(codeDraft.trim(), { fade: false });
                             setCodeStatus(
                               ok
                                 ? "Applied."
