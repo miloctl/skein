@@ -20,6 +20,9 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- A theme change crossfades through the View Transitions API where the browser has it. The hue sliders and the Settings page apply at once, and reduced motion turns the fade off.
+- The ⌘K box offers theme commands while you type: a mode, a theme pack by name, or `Colorway: next`. Enter still searches. A Themes card joins the field guide.
+
 ### Operations
 
 - The npm packages publish to public npmjs.com through OIDC Trusted Publishing, with provenance, instead of GitHub Packages. `@miloctl/skein-extension-api` and `@miloctl/skein-frontend-host` install with no token, and the `.npmrc` scope routing and `read:packages` PAT are gone. The first version of each package is published by hand once, then the workflow publishes (RELEASING.md).

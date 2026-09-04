@@ -461,6 +461,14 @@ export function setColorway(id: string, opts: ApplyOpts = {}) {
   applyAndPing(opts);
 }
 
+/** The next named colorway in list order, wrapping. Custom re-enters at the
+ *  first: there is no "next" hue pair, and the stored hues stay put so Custom
+ *  in Settings restores them. */
+export function nextColorway(opts: ApplyOpts = {}) {
+  const i = COLORWAYS.findIndex((c) => c.id === getColorway());
+  setColorway(COLORWAYS[(i + 1) % COLORWAYS.length].id, opts);
+}
+
 export function setCustomHues(thread: number, weld: number) {
   write(CUSTOM_KEY, JSON.stringify({ thread, weld }));
   write(THEME_KEY, "custom");

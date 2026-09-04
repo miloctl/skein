@@ -55,6 +55,24 @@ vi.mock("@/lib/api", async (importOriginal) => {
 import { NavSearch } from "@/components/nav-search";
 
 describe("the nav search box", () => {
+  it("offers a matching command while typing, and Enter still searches", async () => {
+    calls.length = 0;
+    render(<NavSearch />);
+    const input = screen.getByLabelText("Search Skein");
+    fireEvent.change(input, { target: { value: "dark" } });
+    // no Enter yet: the command is there, no request has gone out
+    const cmd = screen.getByRole("button", { name: "Mode: dark" });
+    expect(calls).toEqual([]);
+    fireEvent.click(cmd);
+    expect(document.documentElement.dataset.appearance).toBe("dark");
+    // the box stays open with the query in place, so a command can run again
+    expect(screen.getByRole("button", { name: "Mode: dark" })).toBeTruthy();
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(calls).toEqual(["/api/search?q=dark"]));
+    delete document.documentElement.dataset.appearance;
+    window.localStorage.clear();
+  });
+
   it("searches on Enter", async () => {
     calls.length = 0;
     render(<NavSearch />);
