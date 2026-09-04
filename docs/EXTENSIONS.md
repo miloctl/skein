@@ -96,7 +96,12 @@ and components only from `@miloctl/skein-extension-api`.
 
 Frontend routes, task detail panels, general actions, forms, notifications,
 theme packages, and terminology packages are not version 1.0 extension slots.
-Add a core slot only when a real workplace extension needs it.
+Add a core slot only when a real workplace extension needs it. When the theme
+slot opens, a theme package is a theme code, the JSON `applyThemeCode` accepts
+in `frontend/lib/theme.ts` (pack, colorway or two hues, appearance), never a
+stylesheet or script: the custom mode exposes hue only, with lightness and
+chroma pinned to values `scripts/check_theme_contrast.py` sweeps, and a package
+that carried CSS would pass that gate without ever being measured by it.
 
 ## Compose a backend module
 

@@ -53,7 +53,11 @@ navigation, and manager dashboard cards. These additions remain deferred until
 a real extension needs them:
 
 - Frontend detail panels, forms, general actions, notification renderers,
-  theme packages, and terminology packages
+  theme packages, and terminology packages. A theme package is a theme code
+  (the JSON `applyThemeCode` accepts: pack, colorway or two hues, appearance),
+  never CSS or script — the hue-only custom mode is what keeps every shared
+  theme inside the contrast gate, and a new pack stays in the repo where
+  `scripts/check_theme_contrast.py` covers it.
 - Durable pause and resume for long-running workflow approvals (the strands
   SDK now ships an interrupt primitive — `strands.interrupt`, stop reason
   `interrupt` — which is the likely mechanism)
