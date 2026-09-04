@@ -58,10 +58,18 @@ def test_core_release_and_extension_api_versions_are_synchronized():
             "url": "git+https://github.com/miloctl/skein.git",
             "directory": directory,
         }
-        assert package["publishConfig"] == {
-            "registry": "https://registry.npmjs.org",
-            "access": "public",
-        }
+    # The frontend host packs new bytes every release, so its manifest names
+    # the registry it publishes to. The extension API's 1.0.0 is PUBLISHED and
+    # frozen: the workplace consumer integrity-locks its tarball and the
+    # publish job refuses a same-version republish with different bytes, so a
+    # manifest edit breaks the frontend contract (CI run 33667564810) and the
+    # next release. Its publishConfig moves with the next API version; until
+    # then the publish job's explicit --registry and --access make it inert.
+    assert frontend["publishConfig"] == {
+        "registry": "https://registry.npmjs.org",
+        "access": "public",
+    }
+    assert frontend_api["publishConfig"] == {"registry": "https://npm.pkg.github.com"}
     assert frontend_api["license"] == "Apache-2.0"
     assert {"LICENSE", "NOTICE"} <= set(frontend["files"])
     assert {"LICENSE", "NOTICE"} <= set(frontend_api["files"])
