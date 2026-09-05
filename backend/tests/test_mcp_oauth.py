@@ -15,6 +15,74 @@ from cryptography.fernet import Fernet
 from app import config
 
 
+@pytest.mark.parametrize("destination", ["127.0.0.1", "169.254.169.254"])
+def test_oauth_discovery_validates_every_request_destination(monkeypatch, destination):
+    import socket
+    from unittest.mock import AsyncMock
+
+    import httpx
+
+    from app.agents import mcp_oauth, mcp_tools
+
+    monkeypatch.setattr(mcp_oauth._SealedStorage, "get_tokens", AsyncMock(return_value=None))
+    monkeypatch.setattr(mcp_oauth._SealedStorage, "get_client_info", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda host, *args, **kwargs: [
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                (
+                    host if host == destination else "10.0.0.5",
+                    443,
+                ),
+            )
+        ],
+    )
+    sent = []
+
+    def respond(request):
+        sent.append(str(request.url))
+        if request.url.host == destination:
+            raise AssertionError("OAuth discovery reached a forbidden destination")
+        return httpx.Response(
+            401,
+            headers={
+                "WWW-Authenticate": f'Bearer resource_metadata="http://{destination}/metadata"',
+            },
+        )
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kwargs: real_client(
+            transport=httpx.MockTransport(respond),
+            trust_env=False,
+            **kwargs,
+        ),
+    )
+
+    async def connect():
+        auth = mcp_oauth.provider(
+            {
+                "server_id": "personal:tester:probe",
+                "id": 1,
+                "url": "https://mcp.example/mcp",
+                "oauth_redirect_uri": "https://skein.example/api/mcp/oauth/callback",
+            }
+        )
+        async with mcp_tools._no_redirect_client(auth=auth) as client:
+            with pytest.raises(ValueError, match="remote MCP server"):
+                await client.post("https://mcp.example/mcp")
+
+    asyncio.run(connect())
+    assert sent == ["https://mcp.example/mcp"]
+
+
 def _bootstrap(owner: str) -> dict:
     from app.services.api_keys import create_key
 

@@ -2,6 +2,31 @@
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
+
+def test_failed_retention_rolls_back_its_claim_and_retries(fresh_db, monkeypatch):
+    from psycopg.errors import LockNotAvailable
+
+    from app.services import jobs, retention
+
+    execute = fresh_db.execute_rowcount
+
+    def fail_delete(sql, params=()):
+        if sql.startswith("DELETE FROM forecast_snapshots"):
+            raise LockNotAvailable("transient lock")
+        return execute(sql, params)
+
+    with monkeypatch.context() as fault:
+        fault.setattr(fresh_db, "execute_rowcount", fail_delete)
+        with pytest.raises(LockNotAvailable):
+            retention.prune()
+    assert fresh_db.query_one("SELECT 1 FROM job_runs WHERE job = 'retention-prune'") is None
+    assert "forecast_snapshots" in retention.prune()
+    spec = next(job for job in jobs.JOBS if job.name == "retention-prune")
+    jobs.run_job(spec)
+    assert fresh_db.query_one("SELECT 1 FROM job_outcomes WHERE job = 'retention-prune'") is None
+
 
 def _iso_hours_ago(hours: int) -> str:
     return (datetime.now(UTC) - timedelta(hours=hours)).isoformat(timespec="seconds")
@@ -32,7 +57,7 @@ def test_retention_prune(fresh_db):
     assert removed["forecast_snapshots"] == 1
     assert removed["notifications"] == 1  # unread rows are never pruned
     assert removed["job_runs"] == 1
-    assert prune(actor="tester") == {"skipped": "already pruned this month"}
+    assert prune(actor="tester") == {"skipped": "already pruned this month", "status": "noop"}
     assert fresh_db.query_row("SELECT COUNT(*) AS n FROM notifications")["n"] == 1
 
 

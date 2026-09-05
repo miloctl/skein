@@ -371,7 +371,9 @@ def test_a_capture_survives_a_dead_server_and_files_later(monkeypatch, capsys, t
     assert (tmp_path / "outbox.jsonl").exists()
 
     sent = []
-    monkeypatch.setattr(cli, "api_quiet", lambda m, p, b=None: sent.append((p, b)) or {"ok": 1})
+    monkeypatch.setattr(
+        cli, "api_quiet", lambda m, p, b=None, **k: sent.append((p, b)) or {"ok": 1}
+    )
     assert cli.flush_outbox() == 1
     [(path, body)] = sent
     assert path == "/api/capture"
@@ -381,6 +383,103 @@ def test_a_capture_survives_a_dead_server_and_files_later(monkeypatch, capsys, t
     assert len(body["capture_key"]) == 32
     # the row leaves only after the server accepts it
     assert not (tmp_path / "outbox.jsonl").exists()
+
+
+def test_queued_capture_stays_with_its_original_connection(monkeypatch, tmp_path):
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(cli, "OUTBOX", tmp_path / "outbox.jsonl")
+    original = {"url": "https://original.invalid", "key": "original-test-key", "user": "alice"}
+    cli.save_config(original)
+    cli._queue("/api/capture", {"text": "private draft", "capture_key": "stable"})
+    stored = cli.OUTBOX.read_text()
+    assert "original-test-key" not in stored
+    sent = []
+    monkeypatch.setattr(cli, "api_quiet", lambda *a, **k: sent.append(a) or {})
+    for replacement in (
+        {**original, "url": "https://other.invalid"},
+        {**original, "key": "other-test-key"},
+        {**original, "user": "bob"},
+    ):
+        cli.save_config(replacement)
+        assert cli.flush_outbox() == 0
+        assert sent == []
+        assert cli.OUTBOX.exists()
+    cli.save_config(original)
+    assert cli.flush_outbox() == 1
+
+
+def test_an_interrupted_flush_is_recovered(monkeypatch, tmp_path):
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(cli, "OUTBOX", tmp_path / "outbox.jsonl")
+    cli._queue("/api/capture", {"text": "draft", "capture_key": "stable"})
+    monkeypatch.setattr(
+        cli, "api_quiet", lambda *a, **k: (_ for _ in ()).throw(KeyboardInterrupt())
+    )
+    with pytest.raises(KeyboardInterrupt):
+        cli.flush_outbox()
+    sent = []
+    monkeypatch.setattr(cli, "api_quiet", lambda *a, **k: sent.append(a[2]) or {})
+    assert cli.flush_outbox() == 1
+    assert sent == [{"text": "draft", "capture_key": "stable"}]
+    assert not list(tmp_path.glob("*.sending"))
+
+
+def test_a_legacy_capture_without_ownership_is_retained(monkeypatch, tmp_path, capsys):
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(cli, "OUTBOX", tmp_path / "outbox.jsonl")
+    cli.OUTBOX.write_text(json.dumps({"path": "/api/capture", "body": {"text": "legacy"}}) + "\n")
+    sent = []
+    monkeypatch.setattr(cli, "api_quiet", lambda *a, **k: sent.append(a) or {})
+    assert cli.flush_outbox() == 0
+    assert sent == []
+    assert "legacy" in cli.OUTBOX.read_text()
+    assert "original" in capsys.readouterr().err
+
+
+def test_queue_delivery_uses_the_connection_it_checked(monkeypatch, tmp_path):
+    import io
+
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(cli, "OUTBOX", tmp_path / "outbox.jsonl")
+    cli.save_config({"url": "https://original.invalid", "key": "original-test"})
+    cli._queue("/api/capture", {"text": "draft", "capture_key": "stable"})
+    quiet = cli.api_quiet
+    requests = []
+
+    def change_config_before_delivery(*args, **kwargs):
+        cli.save_config({"url": "https://other.invalid", "key": "other-test"})
+        return quiet(*args, **kwargs)
+
+    monkeypatch.setattr(cli, "api_quiet", change_config_before_delivery)
+    monkeypatch.setattr(
+        cli.urllib.request,
+        "urlopen",
+        lambda request, **kwargs: requests.append(request) or io.BytesIO(b"{}"),
+    )
+    assert cli.flush_outbox() == 1
+    assert requests[0].full_url == "https://original.invalid/api/capture"
+    assert requests[0].headers["Authorization"] == "Bearer original-test"
+
+
+def test_a_second_flusher_cannot_steal_an_active_claim(monkeypatch, tmp_path):
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(cli, "OUTBOX", tmp_path / "outbox.jsonl")
+    cli._queue("/api/capture", {"text": "draft", "capture_key": "stable"})
+    calls = []
+
+    def send(*args, **kwargs):
+        calls.append(args[2])
+        assert cli.flush_outbox() == 0
+        return {}
+
+    monkeypatch.setattr(cli, "api_quiet", send)
+    assert cli.flush_outbox() == 1
+    assert len(calls) == 1
 
 
 def test_a_failed_flush_keeps_everything_it_did_not_send(monkeypatch, tmp_path):
@@ -575,11 +674,8 @@ def test_a_corrupt_line_does_not_wedge_the_queue(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
     outbox = tmp_path / "outbox.jsonl"
     monkeypatch.setattr(cli, "OUTBOX", outbox)
-    outbox.write_text(
-        '{"path": "/api/capture", "bo\n'
-        + json.dumps({"path": "/api/capture", "body": {"text": "survivor"}})
-        + "\n"
-    )
+    cli._queue("/api/capture", {"text": "survivor"})
+    outbox.write_text('{"path": "/api/capture", "bo\n' + outbox.read_text())
 
     sent = []
     monkeypatch.setattr(cli, "api_quiet", lambda m, p, b=None, **k: sent.append(b) or {"ok": 1})

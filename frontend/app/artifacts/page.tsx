@@ -105,6 +105,7 @@ export default function ArtifactsPage() {
   // result means a late arrival is ignored at RENDER time — no clearing on the
   // way in, which is what would make this a cascading-render effect.
   const [body, setBody] = useState<{ id: number; data: Body } | null>(null);
+  const [bodyRequest, setBodyRequest] = useState(0);
   const [bodyError, setBodyError] = useState<{ id: number; message: string } | null>(
     null,
   );
@@ -140,10 +141,12 @@ export default function ArtifactsPage() {
   useEffect(() => {
     if (openId === null) return;
     const id = openId;
+    let current = true;
     api<Body>(`/api/artifacts/${id}`)
-      .then((data) => setBody({ id, data }))
-      .catch((e) => setBodyError({ id, message: loadError(e) }));
-  }, [openId]);
+      .then((data) => { if (current) setBody({ id, data }); })
+      .catch((e) => { if (current) setBodyError({ id, message: loadError(e) }); });
+    return () => { current = false; };
+  }, [openId, bodyRequest]);
 
   const loadOlder = useCallback(() => {
     if (nextBefore === null || olderBusy) return;
@@ -160,6 +163,7 @@ export default function ArtifactsPage() {
 
   const open = useCallback((id: number) => {
     setOpenId(id);
+    setBodyRequest((request) => request + 1);
     // a retry of the report that just failed must look like a retry: without
     // this the keyed error still matches and the pane shows the old failure
     // with no loading state, so the click reads as a no-op

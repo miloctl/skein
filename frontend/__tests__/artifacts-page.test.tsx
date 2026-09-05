@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /** Reports is a master/detail pair driven by `?id=`, so the two ways to change
@@ -23,7 +23,7 @@ const THREADS = [
   { entity: "unknown", id: 9 },
 ];
 
-const mode = { failList: false, hasOlder: false };
+const mode: { failList: boolean; hasOlder: boolean; body?: (id: number) => Promise<unknown> } = { failList: false, hasOlder: false };
 const effects = vi.hoisted(() => ({
   copyText: vi.fn(),
   reportStatus: vi.fn(),
@@ -47,6 +47,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
       if (path.startsWith("/api/artifacts/page?before="))
         return Promise.resolve({ items: OLDER, next_before: null });
       const id = Number(path.split("/").pop());
+      if (mode.body) return mode.body(id);
       const row = [...ROWS, ...OLDER].find((r) => r.id === id);
       return Promise.resolve({
         ...row,
@@ -64,6 +65,7 @@ import ArtifactsPage from "@/app/artifacts/page";
 beforeEach(() => {
   mode.failList = false;
   mode.hasOlder = false;
+  mode.body = undefined;
   effects.copyText.mockReset().mockResolvedValue(true);
   effects.reportStatus.mockReset();
   effects.createObjectURL.mockClear();
@@ -84,6 +86,28 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("the Reports page", () => {
+  it("retries the selected report after a temporary failure", async () => {
+    mode.body = vi.fn().mockRejectedValueOnce(new Error("temporary failure"))
+      .mockResolvedValue({ ...ROWS[0], markdown: "Recovered report", threads: [] });
+    render(<ArtifactsPage />);
+    await screen.findAllByText(/temporary failure/);
+    fireEvent.click(screen.getByRole("button", { name: /Digest 2026-08-09/ }));
+    expect(await screen.findByText("Recovered report")).toBeTruthy();
+  });
+
+  it("ignores a late response for a report the reader left", async () => {
+    let finish!: (body: unknown) => void;
+    const delayed = new Promise((resolve) => { finish = resolve; });
+    mode.body = (id) => id === 7 ? delayed : Promise.resolve({
+      ...ROWS[1], markdown: "Current report", threads: [],
+    });
+    render(<ArtifactsPage />);
+    fireEvent.click(await screen.findByRole("button", { name: /Week open 2026-08-05/ }));
+    await screen.findByText("Current report");
+    await act(async () => finish({ ...ROWS[0], markdown: "Obsolete report", threads: [] }));
+    expect(screen.getByText("Current report")).toBeTruthy();
+    expect(screen.queryByText("Loading…")).toBeNull();
+  });
   it("names the auto-opened report in the URL, so Back has somewhere to return to", async () => {
     render(<ArtifactsPage />);
     await screen.findByText("Body of 7");
@@ -229,5 +253,3 @@ describe("the Reports page", () => {
     expect(effects.revokeObjectURL).not.toHaveBeenCalled();
   });
 });
-
-

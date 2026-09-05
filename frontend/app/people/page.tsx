@@ -29,6 +29,7 @@ type Brief = {
 };
 
 type User = { name: string; kind: string };
+type Draft = { body: string; kind: "note" | "feedback" };
 
 export default function PeoplePage() {
   const [people, setPeople] = useState<User[] | null>(null);
@@ -37,8 +38,10 @@ export default function PeoplePage() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [brief, setBrief] = useState<Brief | null>(null);
   const [briefError, setBriefError] = useState("");
-  const [draft, setDraft] = useState("");
-  const [kind, setKind] = useState<"note" | "feedback">("note");
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [saving, setSaving] = useState(false);
+  const draft = drafts[person]?.body ?? "";
+  const kind = drafts[person]?.kind ?? "note";
   const [error, setError] = useState<string | null>(null);
   const [strong, setStrong] = useState<boolean | null>(null);
   // last-request-wins: clicking Alice then Bob quickly must never render
@@ -52,6 +55,8 @@ export default function PeoplePage() {
       ++generation.current;
       setStrong(null);
       setPerson("");
+      setDrafts({});
+      setSaving(false);
       setNotes([]);
       setBrief(null);
       setBriefError("");
@@ -112,23 +117,31 @@ export default function PeoplePage() {
     if (person && strong !== false) load(person);
   }, [person, strong, load]);
 
-  const [saving, setSaving] = useState(false);
   const teammates = people?.filter((user) => user.kind !== "agent") ?? [];
 
   const addNote = async () => {
-    if (saving || !draft.trim() || !person) return;
+    if (saving || !draft.trim() || !person || strong !== true) return;
+    const owner = identityGeneration.current;
+    const selected = generation.current;
+    const submitted = drafts[person];
     setSaving(true); // a held Enter must not file N private notes
     try {
       await api("/api/private/notes", {
         method: "POST",
         body: JSON.stringify({ person, body: draft, kind }),
       });
-      setDraft("");
-      load(person);
+      if (owner !== identityGeneration.current) return;
+      setDrafts((current) => current[person] === submitted
+        ? { ...current, [person]: { ...submitted, body: "" } }
+        : current);
+      // A save belongs to the selection that started it. Starting a new
+      // load here after a switch would make the old person win the read race.
+      if (selected === generation.current) load(person);
     } catch (e) {
-      setError(actionError(e));
+      if (owner === identityGeneration.current && selected === generation.current)
+        setError(actionError(e));
     } finally {
-      setSaving(false);
+      if (owner === identityGeneration.current) setSaving(false);
     }
   };
 
@@ -203,6 +216,7 @@ export default function PeoplePage() {
               key={u.name}
               onClick={() => {
                 if (u.name === person) return; // no-op switch would blank the panel
+                ++generation.current;
                 // clear before switching: stale content here would be another
                 // person's PRIVATE notes under the wrong name, and an errored
                 // fetch would leave them there indefinitely
@@ -276,11 +290,13 @@ export default function PeoplePage() {
           </Card>
 
           <Card title="Your private notes">
-            <div className="mb-3 flex gap-2">
+            <div className="mb-3 flex flex-wrap gap-2">
               <select
                 aria-label="Note type"
                 value={kind}
-                onChange={(e) => setKind(e.target.value as "note" | "feedback")}
+                onChange={(e) => setDrafts((current) => ({
+                  ...current, [person]: { body: draft, kind: e.target.value as Draft["kind"] },
+                }))}
                 className="rounded-lg border border-line-strong bg-transparent px-2 py-1.5 text-sm focus:border-thread-solid"
               >
                 <option value="note">1:1 note</option>
@@ -288,11 +304,13 @@ export default function PeoplePage() {
               </select>
               <input
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => setDrafts((current) => ({
+                  ...current, [person]: { body: e.target.value, kind },
+                }))}
                 onKeyDown={(e) => e.key === "Enter" && addNote()}
                 aria-label={kind === "feedback" ? "Feedback note" : "1:1 note"}
                 placeholder={kind === "feedback" ? "great pushback in design review…" : "agenda item, observation…"}
-                className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
+                className="min-w-0 flex-1 basis-40 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
               />
               <button
                 onClick={addNote}

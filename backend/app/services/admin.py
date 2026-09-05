@@ -424,7 +424,7 @@ def _backup(*, keep: int, actor: str | None) -> dict:
     kept = _harden_retained_backups(backups_dir, keep, current=backup_id)
     if actor:
         db.log_activity(actor, "backup", database_dest.name)
-    status = "partial" if mirror_status == "unavailable" else "ok"
+    status = "partial" if mirror_status == "unavailable" or not digest_recorded else "ok"
     return {
         "status": status,
         "backup_id": backup_id,

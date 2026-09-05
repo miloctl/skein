@@ -1158,11 +1158,19 @@ def _no_redirect_client(headers=None, timeout=None, auth=None):
     import httpx
     from mcp.shared._httpx_utils import MCP_DEFAULT_SSE_READ_TIMEOUT, MCP_DEFAULT_TIMEOUT
 
+    from ..services.mcp_servers import check_url
+
+    async def validate_destination(request: httpx.Request) -> None:
+        # OAuth emits discovery and token requests to server-supplied URLs.
+        # Disabling redirects alone does not validate those destinations.
+        await asyncio.to_thread(check_url, str(request.url))
+
     return httpx.AsyncClient(
         follow_redirects=False,
         timeout=timeout or httpx.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT),
         headers=headers,
         auth=auth,
+        event_hooks={"request": [validate_destination]},
     )
 
 

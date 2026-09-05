@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const calls: { path: string; method: string }[] = [];
 const mode: {
   backup: "written" | "not_configured" | "unavailable" | "fail";
-} = { backup: "written" };
+  digest: boolean;
+} = { backup: "written", digest: true };
 const fetchMock = vi.fn();
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -20,7 +21,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
           return Promise.reject(new Error("backup service exploded"));
         }
         return Promise.resolve({
-          status: mode.backup === "unavailable" ? "partial" : "ok",
+          status: mode.backup === "unavailable" || !mode.digest ? "partial" : "ok",
+          digest_recorded: mode.digest,
           database_path:
             "/data/backups/database-2026-08-14-120000-abcd1234.dump",
           kept: 3,
@@ -42,6 +44,7 @@ import { BackupCard } from "@/components/backup-card";
 beforeEach(() => {
   calls.length = 0;
   mode.backup = "written";
+  mode.digest = true;
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -52,6 +55,14 @@ afterEach(() => {
 });
 
 describe("BackupCard", () => {
+  it("reports missing verification separately from a mirror failure", async () => {
+    mode.digest = false;
+    render(<BackupCard canAdminister={true} accessMessage="" />);
+    fireEvent.click(screen.getByRole("button", { name: "Back up now" }));
+    expect(await screen.findByText(/verification record could not be saved/)).toBeTruthy();
+    expect(screen.queryByText(/mirror copy failed/)).toBeNull();
+    expect(screen.queryByText(/Database backup complete locally/)).toBeNull();
+  });
   it("shows the refusal line and no buttons without administrator access", () => {
     render(
       <BackupCard
