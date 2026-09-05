@@ -8,6 +8,18 @@ from pathlib import Path
 import pytest
 
 
+def test_missing_backup_digest_is_a_partial_job_outcome(fresh_db, monkeypatch):
+    from app.services import activity, admin, jobs
+
+    monkeypatch.setattr(activity, "record_backup_digest", lambda *_args: [])
+    result = admin.backup()
+    assert result["digest_recorded"] is False
+    assert result["status"] == "partial"
+    assert Path(result["database_path"]).exists()
+    jobs.run_job(jobs.JobSpec("backup-test", lambda: result))
+    assert jobs.job_health([jobs.JobSpec("backup-test", lambda: None)])[0]["last_status"] == "error"
+
+
 def _pg_restore() -> str:
     found = shutil.which("pg_restore")
     assert found, "pg_restore must be installed to drill a restore"

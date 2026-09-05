@@ -8,7 +8,7 @@ in app_settings and shared across every process (see TUNED below, and
 services/tuning.py). Do not read the process-local note as covering both.
 
 Not a security control, with one exception that decides what may be tuned:
-`signin`, `forge_addr`, `verify`, `export`, and `backup` bound an
+`signin`, `forge_addr`, `slack_addr`, `verify`, `export`, and `backup` bound an
 UNAUTHENTICATED caller or a whole-deployment cost, so they are withheld from
 the admin surface and stay
 env-only. Adding one of them to TUNED hands an administrator the dial that
@@ -106,6 +106,7 @@ LIMITS = {
     # name we only trust after verifying — so without this a caller holding no
     # credential buys an HMAC over the whole body at line rate.
     "forge_addr": 600,
+    "slack_addr": 60,
 }
 # X-User is client-supplied — bound the key space. 4096 rather than the
 # original 1024 leaves room for a team plus every agent identity that writes
@@ -125,6 +126,7 @@ PER = {
     "signin": "per address",
     "forge": "for the whole integration",
     "forge_addr": "per address",
+    "slack_addr": "per address",
     "verify": "for the whole deployment",
     "export": "for the whole deployment",
     "backup": "for the whole deployment",
@@ -136,6 +138,7 @@ PER = {
 NAMED = {
     "keys_request": "key requests",
     "forge_addr": "webhook deliveries",
+    "slack_addr": "Slack commands",
     "signin": "sign-ins",
     "verify": "chain checks",
     "export": "exports",

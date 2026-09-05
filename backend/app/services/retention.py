@@ -117,6 +117,7 @@ def _cutoff(days: int) -> str:
     return (datetime.now(UTC) - timedelta(days=days)).isoformat(timespec="seconds")
 
 
+@db.transaction()
 def prune(*, actor: str = "scheduler") -> dict:
     # the TEAM month, matching the local 1st-of-month the scheduler now fires
     # on (config.TZ_NAME). Keyed on the UTC month, a zone more than 4 hours
@@ -125,7 +126,7 @@ def prune(*, actor: str = "scheduler") -> dict:
     # does not come back for a month.
     month = db.today().isoformat()[:7]
     if not db.claim_job("retention-prune", month):
-        return {"skipped": "already pruned this month"}
+        return {"skipped": "already pruned this month", "status": "noop"}
     # tool_usage is deliberately absent: one row per (day, user, surface), so
     # a year of a ten-person team is a few thousand rows, and the adoption
     # trend is the read it exists for — pruning it deletes the trend.

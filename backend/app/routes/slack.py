@@ -5,21 +5,25 @@ Commands route through the same deterministic engine as the mock agent
 budget and independent of whether an LLM provider is configured.
 """
 
+import asyncio
 import hashlib
 import hmac
 import logging
 import time
+from urllib.parse import parse_qs
 
 from fastapi import APIRouter, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
-from .. import config
+from .. import config, ratelimit
 from ..agents import commands
 from ..agents.mock_agent import MockAgent
 from ..extensions.fastapi import enforce_decision
 from ..extensions.policy import PolicyInput, PolicyResource, PolicySubject
 
 router = APIRouter()
+MAX_SLACK_BODY = 65_536
+SLACK_READ_TIMEOUT = 3
 
 
 def _verify(raw: bytes, timestamp: str, signature: str) -> bool:
@@ -33,14 +37,31 @@ def _verify(raw: bytes, timestamp: str, signature: str) -> bool:
         "v0="
         + hmac.new(config.SLACK_SIGNING_SECRET.encode(), base.encode(), hashlib.sha256).hexdigest()
     )
-    return hmac.compare_digest(expected, signature or "")
+    # Header bytes decode as latin-1. Comparing non-ASCII strings raises
+    # TypeError, but an invalid signature must remain an authentication refusal.
+    return hmac.compare_digest(expected.encode(), (signature or "").encode("utf-8", "replace"))
 
 
 @router.post("/api/slack/command")
 async def slack_command(request: Request):
     if not config.SLACK_SIGNING_SECRET:
         raise HTTPException(status_code=404, detail="Slack integration not configured")
-    raw = await request.body()
+    # This route is outside the identity perimeter. Bound unsigned input
+    # before buffering it or spending work on signature verification.
+    ratelimit.check("slack_addr", ratelimit.client_addr(request))
+    declared = request.headers.get("content-length") or "0"
+    if not declared.isdecimal() or int(declared) > MAX_SLACK_BODY:
+        raise HTTPException(400, "The Slack command is too large.")
+    buffered = bytearray()
+    try:
+        async with asyncio.timeout(SLACK_READ_TIMEOUT):
+            async for chunk in request.stream():
+                if len(buffered) + len(chunk) > MAX_SLACK_BODY:
+                    raise HTTPException(400, "The Slack command is too large.")
+                buffered.extend(chunk)
+    except TimeoutError as exc:
+        raise HTTPException(400, "The Slack command did not arrive in time.") from exc
+    raw = bytes(buffered)
     if not _verify(
         raw,
         request.headers.get("X-Slack-Request-Timestamp", ""),
@@ -48,9 +69,9 @@ async def slack_command(request: Request):
     ):
         raise HTTPException(status_code=401, detail="bad Slack signature")
 
-    form = await request.form()
-    text = str(form.get("text", "")).strip()
-    user = str(form.get("user_name", "slack-user"))
+    form = parse_qs(raw.decode(), keep_blank_values=True, max_num_fields=100)
+    text = form.get("text", [""])[-1].strip()
+    user = form.get("user_name", ["slack-user"])[-1]
 
     from ..services import users as users_svc
     from ..services.adoption import record_use

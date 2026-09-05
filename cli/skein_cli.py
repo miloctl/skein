@@ -34,6 +34,7 @@ Examples:
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -74,8 +75,8 @@ def save_config(cfg: dict) -> None:
         f.write(json.dumps(cfg, indent=1))
 
 
-def base_url() -> str:
-    cfg = load_config()
+def base_url(cfg: dict | None = None) -> str:
+    cfg = load_config() if cfg is None else cfg
     return (
         cfg.get("url")
         or os.getenv("SKEIN_URL")
@@ -84,12 +85,34 @@ def base_url() -> str:
     ).rstrip("/")
 
 
-def _request(method: str, path: str, body: dict | None = None, timeout: float = 15) -> dict | list:
-    """The bare call. `api` adds the human-facing exit; `api_quiet` does not."""
+def _connection() -> dict:
     cfg = load_config()
-    url = base_url()
+    return {
+        "url": base_url(cfg),
+        "key": cfg.get("key") or os.getenv("SKEIN_API_KEY", ""),
+        "user": cfg.get("user", ""),
+    }
+
+
+def _queue_owner(connection: dict) -> str:
+    # A key can be the deployment's shared bearer token. X-User still names
+    # the actor in that mode, so both credential and user belong to the binding.
+    return hashlib.sha256(json.dumps(connection, sort_keys=True).encode()).hexdigest()
+
+
+def _request(
+    method: str,
+    path: str,
+    body: dict | None = None,
+    timeout: float = 15,
+    *,
+    connection: dict | None = None,
+) -> dict | list:
+    """The bare call. `api` adds the human-facing exit; `api_quiet` does not."""
+    cfg = _connection() if connection is None else connection
+    url = cfg["url"]
     headers = {"Content-Type": "application/json", "X-Client": "cli"}
-    key = cfg.get("key") or os.getenv("SKEIN_API_KEY")
+    key = cfg["key"]
     if key:
         headers["Authorization"] = f"Bearer {key}"
     if cfg.get("user"):
@@ -104,9 +127,11 @@ def _request(method: str, path: str, body: dict | None = None, timeout: float = 
         return json.loads(resp.read())
 
 
-def api(method: str, path: str, body: dict | None = None) -> dict | list:
+def api(
+    method: str, path: str, body: dict | None = None, *, connection: dict | None = None
+) -> dict | list:
     try:
-        return _request(method, path, body)
+        return _request(method, path, body, connection=connection)
     except urllib.error.HTTPError as exc:
         try:
             detail = json.loads(exc.read()).get("detail", str(exc))
@@ -123,7 +148,14 @@ def api(method: str, path: str, body: dict | None = None) -> dict | list:
         sys.exit(f"error: cannot reach {base_url()} ({exc.reason}) — run `skein config --url ...`")
 
 
-def api_quiet(method: str, path: str, body: dict | None = None, timeout: float = 15):
+def api_quiet(
+    method: str,
+    path: str,
+    body: dict | None = None,
+    timeout: float = 15,
+    *,
+    connection: dict | None = None,
+):
     """`api` without the sys.exit, for the two callers where a failure must be
     silent: the prompt segment and the outbox flush.
 
@@ -134,7 +166,7 @@ def api_quiet(method: str, path: str, body: dict | None = None, timeout: float =
     to file it, then retry that row in front of every later capture for good.
     """
     try:
-        return _request(method, path, body, timeout=timeout)
+        return _request(method, path, body, timeout=timeout, connection=connection)
     except urllib.error.HTTPError as exc:
         return exc
     except (urllib.error.URLError, TimeoutError, ConnectionError):
@@ -166,13 +198,13 @@ OUTBOX = CONFIG_PATH.parent / "outbox.jsonl"
 
 
 @contextmanager
-def _outbox_lock():
+def _outbox_lock(*, flush: bool = False):
     """One cross-process owner for append, claim, and merge mutations."""
-    lock_path = OUTBOX.with_suffix(".lock")
+    lock_path = OUTBOX.with_suffix(".flush.lock" if flush else ".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     with os.fdopen(descriptor, "r+") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | (fcntl.LOCK_NB if flush else 0))
         try:
             yield
         finally:
@@ -183,22 +215,33 @@ def _retryable_http(error: urllib.error.HTTPError) -> bool:
     return error.code == 429 or 500 <= error.code <= 599
 
 
-def _queue(path: str, body: dict) -> None:
+def _queue(path: str, body: dict, *, connection: dict | None = None) -> None:
     """Park a write for the next successful command.
 
     A row leaves the file only after the server accepts it, so a crash
     between the accept and the rewrite re-sends it. The capture body carries
     the `capture_key` minted at cmd_capture, and the server files a repeated
     key as nothing — the re-send answers "duplicate" and the row retires.
-    A body with no key (an outbox written by an older CLI) still re-sends
-    at-least-once, which stays the safe direction: the duplicate is visible
-    and deletable, a dropped row is a capture the person believed they made.
+    The connection fingerprint binds delivery to the original destination
+    and identity. Legacy entries without that ownership stay saved for manual
+    resubmission, because their destination cannot be reconstructed safely.
     """
     try:
         with _outbox_lock():
             fd = os.open(OUTBOX, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
             with os.fdopen(fd, "a") as f:
-                f.write(json.dumps({"path": path, "body": body}) + "\n")
+                f.write(
+                    json.dumps(
+                        {
+                            "path": path,
+                            "body": body,
+                            "owner": _queue_owner(connection or _connection()),
+                        }
+                    )
+                    + "\n"
+                )
+                f.flush()
+                os.fsync(f.fileno())
     except OSError as exc:
         # the one write this feature exists to protect. If it cannot be parked
         # either, the text has to reach the person, not a traceback.
@@ -210,44 +253,79 @@ def _queue(path: str, body: dict) -> None:
 def flush_outbox() -> int:
     """Send what the outbox holds, oldest first.
 
-    CLAIMS the file by renaming it first. os.rename is atomic on POSIX, so a
-    capture made by another shell mid-flush lands in a fresh outbox.jsonl this
-    call never touches — reading and then truncating in place destroyed it.
-    Two shells flushing at once each claim a different file rather than both
-    sending the same rows.
+    The process-held flush lock makes a leftover .sending file recoverable
+    after a crash. The separate mutation lock still admits concurrent captures.
     """
     if _UNREACHABLE:
         return 0
-    claim = OUTBOX.with_suffix(f".{os.getpid()}.sending")
+    try:
+        with _outbox_lock(flush=True):
+            return _flush_outbox()
+    except BlockingIOError:
+        return 0
+
+
+def _outbox_rows(path: Path) -> list:
+    rows = []
+    for line in path.read_text().splitlines():
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict) and "path" in row and "body" in row:
+            rows.append(row)
+    return rows
+
+
+def _flush_outbox() -> int:
+    claim = OUTBOX.with_suffix(".sending")
+    # Older CLIs hold no flush lock. Do not reclaim a live legacy process's
+    # claim; unknown owners are retained by the same rule as old queue rows.
+    for old in sorted(OUTBOX.parent.glob(f"{OUTBOX.stem}.*.sending")):
+        pid = old.name.removeprefix(f"{OUTBOX.stem}.").removesuffix(".sending")
+        if not pid.isdecimal():
+            continue
+        if int(pid) != os.getpid():
+            try:
+                os.kill(int(pid), 0)
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                continue
+            else:
+                continue
+        if not _merge_back(old, _outbox_rows(old)):
+            return 0
+    if claim.exists() and not _merge_back(claim, _outbox_rows(claim)):
+        return 0
+    connection = _connection()
+    owner = _queue_owner(connection)
     try:
         with _outbox_lock():
             if not OUTBOX.exists():
                 return 0
             os.rename(OUTBOX, claim)
-            lines = claim.read_text().splitlines()
+            rows = _outbox_rows(claim)
     except OSError:
         return 0  # another shell claimed it, or the file went away
-    rows = []
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            # a crash mid-append can truncate one line. Dropping it costs one
-            # capture; raising wedged every capture behind it, for the life of
-            # the file, and said nothing.
-            continue
-        if isinstance(row, dict) and "path" in row and "body" in row:
-            rows.append(row)
     sent, left = 0, []
     for i, row in enumerate(rows):
-        got = api_quiet("POST", row["path"], row["body"])
+        if row.get("owner") != owner:
+            left.append(row)
+            print(
+                "A saved capture has a different or unknown original connection. "
+                f"It remains in {OUTBOX}. Restore its original configuration or "
+                "resubmit its text to the original workspace.",
+                file=sys.stderr,
+            )
+            continue
+        # Use the checked snapshot even if another shell changes config now.
+        got = api_quiet("POST", row["path"], row["body"], connection=connection)
         if isinstance(got, urllib.error.HTTPError):
             if _retryable_http(got):
                 # Load or unknown server completion, not a permanent verdict.
                 # The capture key makes replay safe, so keep this row and tail.
-                left = rows[i:]
+                left.extend(rows[i:])
                 break
             # The SERVER's verdict, and it will be the same verdict forever.
             # Retrying it parked every later capture behind a row that could
@@ -256,14 +334,14 @@ def flush_outbox() -> int:
             print(f"a saved capture was refused and dropped: {text}", file=sys.stderr)
             continue
         if got is None:
-            left = rows[i:]  # transport failure: keep this row and the rest
+            left.extend(rows[i:])  # transport failure: keep this row and the rest
             break
         sent += 1
     _merge_back(claim, left)
     return sent
 
 
-def _merge_back(claim: Path, left: list) -> None:
+def _merge_back(claim: Path, left: list) -> bool:
     """Put unsent rows at the front without erasing concurrent appends."""
     try:
         with _outbox_lock():
@@ -283,8 +361,9 @@ def _merge_back(claim: Path, left: list) -> None:
             else:
                 OUTBOX.unlink(missing_ok=True)
             claim.unlink(missing_ok=True)
+            return True
     except OSError:
-        pass  # the claim file remains and the next flush can recover it
+        return False  # the claim file remains and the next flush can recover it
 
 
 def cmd_model(_args):
@@ -321,24 +400,25 @@ def cmd_capture(args):
     # which closes D5: a crash between the server's accept and the outbox
     # rewrite re-sends the row and files nothing twice.
     body = {"text": " ".join(args.text), "capture_key": uuid.uuid4().hex}
-    got = api_quiet("POST", "/api/capture", body)
+    connection = _connection()
+    got = api_quiet("POST", "/api/capture", body, connection=connection)
     if isinstance(got, urllib.error.HTTPError):
         if _retryable_http(got):
             # main() flushes after the command. Suppress that immediate retry;
             # the next CLI process gets a fresh flag and can try the outbox.
             _mark_unreachable()
-            _queue("/api/capture", body)
+            _queue("/api/capture", body, connection=connection)
             print("saved locally — it files on your next command that reaches the server")
             return
         # The server refused it permanently. Re-run through api() so the
         # command exits with the normal error and never promises a future file.
-        api("POST", "/api/capture", body)
+        api("POST", "/api/capture", body, connection=connection)
         return
     if got is None:
         # A capture is the one write a person makes mid-thought. Losing it to
         # a dead server or a train tunnel is the failure this whole command
         # exists to prevent, so it is parked rather than refused.
-        _queue("/api/capture", body)
+        _queue("/api/capture", body, connection=connection)
         print("saved locally — it files on your next command that reaches the server")
         return
     print(f"captured as {got['kind']} #{got['id']}")

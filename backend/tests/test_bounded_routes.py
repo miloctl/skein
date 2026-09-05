@@ -118,7 +118,6 @@ EXEMPT: dict[str, str] = {
     "POST /api/keys": "needs an existing key to mint another",
     # --- signature-verified integrations, metered as one caller each ---
     "POST /api/webhooks/ci": "HMAC-verified; files one deduped blocker per run",
-    "POST /api/slack/command": "HMAC-verified, and Slack rate-limits its own slash commands",
     # --- capped elsewhere, deliberately ---
     "POST /api/decisions/{decision_id}/supersede": "the write path is capped in the create route",
     # --- known cost, no cap yet: these are the census's own open rows and the

@@ -18,6 +18,7 @@ type BackupResult = {
   mirror_status: "not_configured" | "written" | "unavailable";
   mirrored_platform_path: string | null;
   artifacts_included: false;
+  digest_recorded: boolean;
 };
 
 /** Manual database backup and portable work export for administrators.
@@ -58,9 +59,17 @@ export function BackupCard({
         method: "POST",
       });
       const name = out.database_path.split("/").pop() ?? out.database_path;
-      if (out.status === "partial" || out.mirror_status === "unavailable") {
+      const warnings = [
+        out.mirror_status === "unavailable"
+          ? "The configured mirror copy failed. Check the mirror mount and file permissions."
+          : "",
+        out.digest_recorded === false
+          ? "The backup verification record could not be saved. Check the server log and backup directory permissions."
+          : "",
+      ].filter(Boolean).join(" ");
+      if (out.status === "partial" || warnings) {
         throw new Error(
-          `The local database backup completed: ${name}. The configured mirror copy failed. Check the mirror mount and file permissions. Artifact files are not included.`,
+          `The local database backup completed: ${name}. ${warnings || "A backup check failed. Check the server log."} Artifact files are not included.`,
         );
       }
       if (out.mirror_status === "written") {

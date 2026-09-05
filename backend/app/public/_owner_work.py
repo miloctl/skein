@@ -10,9 +10,24 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
+from .. import db
 from ..extensions.policy import PolicyEngine
 from .errors import PublicError
-from .work import CommandContext, CreateTaskCommand, TaskView, UpdateTaskCommand, WorkItems
+from .work import (
+    BlockerView,
+    CommandContext,
+    CreateBlockerCommand,
+    CreatePromiseCommand,
+    CreateTaskCommand,
+    PromiseView,
+    TaskView,
+    UpdateBlockerCommand,
+    UpdatePromiseCommand,
+    UpdateTaskCommand,
+    WorkItems,
+    _close_execution,
+    _HeldForReview,
+)
 
 _ResultT = TypeVar("_ResultT")
 
@@ -90,14 +105,7 @@ class _OwnerDispatcher:
                         self._condition.wait(deadline - now)
                         continue
                 try:
-                    from .. import db
-
-                    # A top-level WorkItems method normally owns a transaction.
-                    # Here it joins the review transaction, so give the queued
-                    # command the equivalent rollback boundary before its
-                    # exception is transferred back to the handler thread.
-                    with db.savepoint():
-                        request.result = request.operation()
+                    request.result = request.operation()
                 except BaseException as exc:
                     request.error = exc
                 finally:
@@ -134,6 +142,18 @@ class _OwnerWorkItems(WorkItems):
         super().__init__(policy)
         self._dispatcher = dispatcher
 
+    def _call(self, operation: Callable[[], _ResultT]) -> _ResultT:
+        def invoke() -> _ResultT:
+            try:
+                with db.savepoint():
+                    return operation()
+            except _HeldForReview as held:
+                # Store the proposal after the refused command rolls back.
+                # Queuing it inside that savepoint returns a deleted review ID.
+                raise self._held_error(held) from None
+
+        return self._dispatcher.call(invoke)
+
     def _issue_context(
         self,
         execution_context: object,
@@ -151,13 +171,33 @@ class _OwnerWorkItems(WorkItems):
         )
 
     def get_task(self, task_id: int, context: CommandContext) -> TaskView:
-        return self._dispatcher.call(lambda: WorkItems.get_task(self, task_id, context))
+        return self._call(lambda: WorkItems.get_task(self, task_id, context))
 
     def create_task(self, command: CreateTaskCommand, context: CommandContext) -> TaskView:
-        return self._dispatcher.call(lambda: WorkItems.create_task(self, command, context))
+        return self._call(lambda: WorkItems._create_task_locked(self, command, context))
 
     def update_task(self, command: UpdateTaskCommand, context: CommandContext) -> TaskView:
-        return self._dispatcher.call(lambda: WorkItems.update_task(self, command, context))
+        return self._call(lambda: WorkItems._update_task_locked(self, command, context))
+
+    # Every public operation must cross the dispatcher: inherited methods run
+    # on the worker, outside both the owner transaction and its deadline.
+    def get_blocker(self, blocker_id: int, context: CommandContext) -> BlockerView:
+        return self._call(lambda: WorkItems.get_blocker(self, blocker_id, context))
+
+    def create_blocker(self, command: CreateBlockerCommand, context: CommandContext) -> BlockerView:
+        return self._call(lambda: WorkItems._create_blocker_locked(self, command, context))
+
+    def update_blocker(self, command: UpdateBlockerCommand, context: CommandContext) -> BlockerView:
+        return self._call(lambda: WorkItems._update_blocker_locked(self, command, context))
+
+    def get_promise(self, promise_id: int, context: CommandContext) -> PromiseView:
+        return self._call(lambda: WorkItems.get_promise(self, promise_id, context))
+
+    def create_promise(self, command: CreatePromiseCommand, context: CommandContext) -> PromiseView:
+        return self._call(lambda: WorkItems._create_promise_locked(self, command, context))
+
+    def update_promise(self, command: UpdatePromiseCommand, context: CommandContext) -> PromiseView:
+        return self._call(lambda: WorkItems._update_promise_locked(self, command, context))
 
 
 @dataclass(frozen=True)
@@ -185,14 +225,16 @@ def run_bounded_work_handler[ContextT](
     """
     dispatcher = _OwnerDispatcher()
     work_items = _OwnerWorkItems(policy, dispatcher)
-    services = bind(work_items)
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=thread_name)
-    future = executor.submit(handler, services, request)
     try:
+        services = bind(work_items)
+        future = executor.submit(handler, services, request)
         try:
             return BoundedHandlerResult(dispatcher.run_until(future, timeout))
         except _DeadlineExpired:
             future.cancel()
             return BoundedHandlerResult(timed_out=True)
     finally:
+        dispatcher.close()
+        _close_execution(work_items)
         executor.shutdown(wait=False, cancel_futures=True)
