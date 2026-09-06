@@ -9,7 +9,7 @@ import {
 } from "next/font/google";
 import "./globals.css";
 
-import { AuthGate } from "@/components/auth-gate";
+import { AuthGate, SessionBoundary } from "@/components/auth-gate";
 import { CapturePalette } from "@/components/capture-palette";
 import { FirstWatch } from "@/components/first-watch";
 import { Nav } from "@/components/nav";
@@ -113,7 +113,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeBootScript() }} />
       </head>
       <body className="min-h-full flex flex-col">
-        <ExtensionProvider>
+        <SessionBoundary><ExtensionProvider>
           <ThemeSync />
           {/* one live region for the whole app — every surface reports through
               lib/status.ts rather than calling window.alert() */}
@@ -138,7 +138,7 @@ export default function RootLayout({
               link to ?task=<id>, and the panel opens over whatever page the
               reader was already on instead of navigating them away from it */}
           <TaskPeek />
-        </ExtensionProvider>
+        </ExtensionProvider></SessionBoundary>
       </body>
     </html>
   );

@@ -146,15 +146,19 @@ def apply_plan(
 
 
 def propose_weekly_plan(*, actor: str = "scheduler") -> dict:
-    """Monday job: draft next promises and queue them for human approval.
-    Once per week via claim_job — claimed only when there is actually a plan,
-    so an empty Monday doesn't lock the week out."""
+    """Commit the weekly claim and proposal together so a failed draft can retry."""
+    with db.transaction():
+        return _propose_weekly_plan_locked(actor=actor)
+
+
+def _propose_weekly_plan_locked(*, actor: str) -> dict:
+    """An empty Monday must not consume the week's claim."""
     week = current_week()
     draft = draft_plan(week)
     if not draft["items"]:
         return {"skipped": "nothing to commit"}
     if not db.claim_job("weekly-plan", week):
-        return {"skipped": f"plan for {week} already drafted"}
+        return {"status": "noop", "skipped": f"plan for {week} already drafted"}
     from .review import propose_change
 
     names = ", ".join(f"#{i['task_id']}" for i in draft["items"][:10])

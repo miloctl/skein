@@ -8,7 +8,8 @@ import { describe, expect, it, vi } from "vitest";
  *  blank through all of it, which reads as a hung app. */
 
 const mocks = vi.hoisted(() => ({
-  messages: [] as { role: string; attachments?: unknown[] }[],
+  messages: [] as { role: string; attachments?: unknown[]; status?: { type: string } }[],
+  isRunning: false,
 }));
 
 vi.mock("@assistant-ui/react", () => ({
@@ -18,8 +19,8 @@ vi.mock("@assistant-ui/react", () => ({
   ComposerPrimitive: { Root: () => null, Input: () => null, Send: () => null },
   useComposer: () => ({}),
   useComposerRuntime: () => ({}),
-  useThread: (selector: (t: { messages: unknown[] }) => unknown) =>
-    selector({ messages: mocks.messages }),
+  useThread: (selector: (t: { messages: unknown[]; isRunning: boolean }) => unknown) =>
+    selector({ messages: mocks.messages, isRunning: mocks.isRunning }),
   unstable_useComposerInputHistory: () => ({}),
 }));
 vi.mock("@assistant-ui/react-markdown", () => ({ MarkdownTextPrimitive: () => null }));
@@ -35,7 +36,8 @@ vi.mock("@/lib/persona", () => ({
   subscribePersona: () => () => {},
 }));
 
-import { WorkingIndicator } from "@/components/thread";
+import { reportStatus } from "@/lib/status";
+import { Thread, WorkingIndicator } from "@/components/thread";
 
 describe("the working indicator", () => {
   it("says the turn is thinking when nothing was attached", () => {
@@ -87,4 +89,23 @@ describe("the working indicator", () => {
     expect(container.querySelectorAll(".working-dot")).toHaveLength(3);
     expect(container.querySelector("[aria-hidden]")).not.toBeNull();
   });
+});
+
+it("announces only a newly completed reply, not tokens or loaded history", () => {
+  vi.mocked(reportStatus).mockClear();
+  mocks.isRunning = false;
+  mocks.messages = [{ role: "assistant", status: { type: "complete" } }];
+  const { rerender } = render(<Thread />);
+  expect(reportStatus).not.toHaveBeenCalled();
+  mocks.isRunning = true;
+  mocks.messages = [{ role: "assistant", status: { type: "running" } }];
+  rerender(<Thread />);
+  rerender(<Thread />);
+  expect(reportStatus).not.toHaveBeenCalled();
+  mocks.isRunning = false;
+  mocks.messages = [{ role: "assistant", status: { type: "complete" } }];
+  rerender(<Thread />);
+  expect(reportStatus).toHaveBeenCalledExactlyOnceWith("Reply complete.", "confirmation");
+  rerender(<Thread />);
+  expect(reportStatus).toHaveBeenCalledTimes(1);
 });

@@ -10,6 +10,7 @@ import {
   errorFromResponse,
 } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
+import { checkSessionRevision, sessionRevision } from "@/lib/auth";
 
 type BackupResult = {
   status: "ok" | "partial";
@@ -80,13 +81,16 @@ export function BackupCard({
 
   const downloadExport = () =>
     run("export", async () => {
+      const owner = sessionRevision();
       const response = await authenticatedFetch("/api/admin/export/download");
       if (!response.ok) throw await errorFromResponse(response);
       const servedName = response.headers.get("X-Skein-Filename") ?? "";
       const name = /^skein-export-\d{4}-\d{2}-\d{2}\.json$/.test(servedName)
         ? servedName
         : `skein-export-${new Date().toISOString().slice(0, 10)}.json`;
-      const url = URL.createObjectURL(await response.blob());
+      const blob = await response.blob();
+      checkSessionRevision(owner);
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
       link.download = name;

@@ -157,3 +157,12 @@ describe("the assumed percent stays inside what the service accepts", () => {
     });
   });
 });
+
+it("keeps visible labels on the new request fields", async () => {
+  render(<IntakePage />);
+  for (const name of ["What are you asking the team to do?", "Context, goals, constraints", "Type of work"]) {
+    const field = await screen.findByLabelText(name) as HTMLInputElement;
+    expect(field.labels?.length).toBe(1);
+    expect(field.labels?.[0].classList.contains("sr-only")).toBe(false);
+  }
+});

@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { StatusRegion } from "@/components/status-region";
-import { dismissStatus, reportStatus } from "@/lib/status";
+import { dismissStatus, getStatus, reportStatus } from "@/lib/status";
 
 /** The replacement for window.alert keeps both live regions mounted before
  *  text arrives. A keyed child makes equal consecutive messages change the DOM
@@ -51,6 +51,27 @@ describe("StatusRegion", () => {
     report("same words");
     expect(screen.getByRole("alert")).toBe(region);
     expect(region.firstChild).not.toBe(first);
+  });
+
+  it("clears the store while its renderer is unmounted for a cross-tab identity change", () => {
+    const first = render(<StatusRegion />);
+    report("private-review.md is deleted.", "confirmation");
+    first.unmount();
+    localStorage.setItem("skein-user", "marcus");
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key: "skein-user" })));
+    expect(getStatus()).toBeNull();
+    render(<StatusRegion />);
+    expect(screen.queryByText("private-review.md is deleted.")).toBeNull();
+  });
+
+  it("keeps a status during same-identity theme and layout changes", () => {
+    render(<StatusRegion />);
+    report("The request failed. Try again.");
+    act(() => {
+      window.dispatchEvent(new Event("storage"));
+      window.dispatchEvent(new StorageEvent("storage", { key: "skein-theme" }));
+    });
+    expect(getStatus()?.message).toBe("The request failed. Try again.");
   });
 
   it("announces one message at a time, the newest", () => {

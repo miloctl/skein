@@ -102,8 +102,8 @@ def hold_resource(entity: str, entity_id: int) -> None:
     write lands under a rule chosen for the old type.
 
     THE HOLD IS NOT UNIVERSAL, and the early return below is why. Only the
-    routes in fastapi.py::_ATOMIC_POLICY run inside a transaction — 26 of 87
-    mutation routes at the time of writing. On the rest this function does
+    routes in fastapi.py::_ATOMIC_POLICY get a transaction around the generic
+    REST policy dependency. Without an ambient transaction this function does
     nothing at all, and the TOCTOU above stays open. That is deliberate:
     chat streams an SSE response, the webhooks and the backup route shell
     out, and a row lock cannot be held across either. Do NOT read this
@@ -113,7 +113,7 @@ def hold_resource(entity: str, entity_id: int) -> None:
     """
     # A silent return, not a raise: every caller above is an enforcement entry
     # point that runs on both kinds of route, so raising would take down the
-    # 61 non-atomic ones for a lock they were never designed to hold.
+    # non-atomic ones for a lock they were never designed to hold.
     if entity_id <= 0 or not db.in_transaction():
         return
     selected = _TABLES.get(entity)

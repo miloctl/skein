@@ -6,6 +6,64 @@ import pytest
 from conftest import _unread_for
 
 
+def test_digest_flush_failure_rolls_back_claim_and_delivery_stamp(fresh_db, monkeypatch):
+    from app.services import notifications
+
+    notice = notifications.notify("mira", "read the current task", tier="digest")
+    posts = []
+    monkeypatch.setattr(notifications, "_post_slack", posts.append)
+    original = fresh_db.execute_rowcount
+
+    def fail_after_stamp(sql, *args, **kwargs):
+        result = original(sql, *args, **kwargs)
+        if sql.startswith("UPDATE notifications SET sent_at"):
+            raise RuntimeError("flush interrupted")
+        return result
+
+    with monkeypatch.context() as failing:
+        failing.setattr(fresh_db, "execute_rowcount", fail_after_stamp)
+        with pytest.raises(RuntimeError, match="flush interrupted"):
+            notifications.flush_digest_tier(claim=True)
+    assert fresh_db.query("SELECT * FROM job_runs WHERE job = 'notification-flush'") == []
+    assert fresh_db.query_row(
+        "SELECT sent_at FROM notifications WHERE id = ?", (notice["id"],)
+    ) == {"sent_at": None}
+    assert posts == []
+    assert notifications.flush_digest_tier(claim=True) == {"flushed": 1}
+    assert len(posts) == 1
+
+
+def test_digest_flush_posts_only_after_the_outer_transaction_commits(fresh_db, monkeypatch):
+    from app.services import notifications
+
+    notifications.notify("mira", "read the current task", tier="digest")
+    posts = []
+
+    def post(message):
+        assert not fresh_db.in_transaction()
+        assert fresh_db.query_row("SELECT sent_at FROM notifications")["sent_at"]
+        posts.append(message)
+
+    monkeypatch.setattr(notifications, "_post_slack", post)
+    with fresh_db.transaction():
+        assert notifications.flush_digest_tier(claim=True) == {"flushed": 1}
+        assert posts == []
+    assert len(posts) == 1
+
+
+def test_digest_flush_skip_does_not_record_another_success(fresh_db, monkeypatch):
+    from app.services import jobs, notifications
+
+    monkeypatch.setattr(notifications, "_post_slack", lambda _message: None)
+    notifications.notify("mira", "read the current task", tier="digest")
+    spec = next(job for job in jobs.JOBS if job.name == "notification-flush")
+    jobs.run_job(spec)
+    first = fresh_db.query("SELECT * FROM job_outcomes WHERE job = 'notification-flush'")
+    assert len(first) == 1 and first[0]["status"] == "ok"
+    jobs.run_job(spec)
+    assert fresh_db.query("SELECT * FROM job_outcomes WHERE job = 'notification-flush'") == first
+
+
 def test_team_notifications_dismissable(client, fresh_db, monkeypatch):
     from app.services import notifications
 

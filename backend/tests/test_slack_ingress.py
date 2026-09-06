@@ -1,6 +1,8 @@
 """Unsigned Slack requests are bounded before signature verification."""
 
 import asyncio
+import hashlib
+import hmac
 import time
 
 import pytest
@@ -47,6 +49,16 @@ def test_slack_limits_unsigned_calls_by_address(monkeypatch):
     assert unsigned.value.status_code == 401
     with pytest.raises(ratelimit.RateLimited):
         asyncio.run(slack.slack_command(_request()))
+
+
+@pytest.mark.parametrize("timestamp", ["nan", "NaN", "inf", "-inf", "1e9999"])
+def test_slack_replay_window_refuses_nonfinite_signed_timestamp(monkeypatch, timestamp):
+    monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "test")
+    raw = b"text=hello"
+    signature = (
+        "v0=" + hmac.new(b"test", f"v0:{timestamp}:".encode() + raw, hashlib.sha256).hexdigest()
+    )
+    assert not slack._verify(raw, timestamp, signature)
 
 
 def test_slack_refuses_non_ascii_signature_without_a_server_error(monkeypatch):

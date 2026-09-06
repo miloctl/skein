@@ -66,10 +66,8 @@ describe("one condition, one wording across surfaces", () => {
   });
 
   it("says the api-key remedy the way routes/deps.py says it", () => {
-    // The auth gate states the same condition the server states in NEED_KEY
-    // (api-key mode, no key). It cannot import a Python constant, so the
-    // sentences are pinned here instead: deps.py is the source, and a reword
-    // there fails this rather than leaving the browser saying the old thing.
+    // NEED_KEY accepts browser sessions and automation keys. The gate must
+    // share its Settings remedy, not claim that browser requests send keys.
     // The gate drops the env-var prefix and the Authorization clause on
     // purpose — a browser reader sets no headers.
     const deps = readFileSync(
@@ -78,12 +76,7 @@ describe("one condition, one wording across surfaces", () => {
     );
     const gate = readFileSync(join(ROOT, "components", "auth-gate.tsx"), "utf8");
     // as written in Python, which wraps the sentences across string literals
-    const shared = [
-      "every request needs a personal API key",
-      "Get your first one from whoever runs the server",
-      "app.bootstrap_key",
-      "paste it in Settings, step 2",
-    ];
+    const shared = ["sign in through Settings", "personal API key"];
     // Python wraps NEED_KEY across adjacent string literals and JSX wraps it
     // across lines, so both sides are read with the quotes dropped and the
     // whitespace collapsed — otherwise the seam falls inside a sentence.
@@ -98,6 +91,10 @@ describe("one condition, one wording across surfaces", () => {
         `auth-gate.tsx has drifted from NEED_KEY: ${s}`,
       ).toContain(s.toLowerCase());
     }
+    expect(gate).toContain("app.bootstrap_key");
+    expect(flat(gate)).toContain("Sign in with key");
+    expect(flat(gate).toLowerCase()).not.toContain("every request needs a personal api key");
+    expect(flat(gate).toLowerCase()).not.toContain("paste it in settings, step 2");
   });
 });
 

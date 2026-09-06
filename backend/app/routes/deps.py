@@ -12,25 +12,19 @@ from ..services.users import ensure_human_identity, is_agent, is_content_identit
 # One condition, one wording: main.py's perimeter middleware refuses the same
 # conditions before a route dependency ever runs, so it imports these strings
 # instead of drafting near-duplicates.
-# States the fix, like NEED_KEY below. Without it this reads as a dead end:
-# it is the page-level error on EVERY surface once a stored key goes bad, and
-# the one screen that can clear the key shows the same sentence. A reader with
-# a revoked key asked "how am I supposed to log in" — which is the question a
-# refusal with no remedy always produces.
+# These refusals also serve automation clients. Browser code holds a session,
+# not the key, so recovery instructions must not ask it to delete a saved key.
 INVALID_KEY = (
-    "invalid or revoked API key. Open Settings, step 2, and delete the stored"
-    " key or paste a new one. Get a new key from whoever runs the server"
-    " (python -m app.bootstrap_key <you>)."
+    "The API key is invalid or revoked. Sign in again in Settings, or get"
+    " a new key from whoever runs the server."
 )
 NEED_KEY = (
-    "SKEIN_AUTH_MODE=api-key: every request needs a personal API key. Get"
-    " your first one from whoever runs the server (python -m"
-    " app.bootstrap_key <you>). Then paste it in Settings, step 2, or send"
-    " Authorization: Bearer sk-skein-..."
+    "SKEIN_AUTH_MODE=api-key: sign in through Settings, or send a personal"
+    " API key with Authorization: Bearer sk-skein-... from an automation client."
 )
 NEED_LOGIN = (
-    "SKEIN_AUTH_MODE=oidc: every request needs a sign-in token or a personal"
-    " API key. Sign in, or send Authorization: Bearer sk-skein-..."
+    "SKEIN_AUTH_MODE=oidc: sign in through the browser, or send a sign-in"
+    " token or personal API key with Authorization: Bearer."
 )
 # names no name on purpose: this refuses caller-supplied identity in
 # trusted-header mode, and an error never echoes the rejected value back
@@ -129,6 +123,44 @@ def _cached(request: Request | None, attr: str):
     return getattr(request.state, attr, None) if request is not None else None
 
 
+def browser_identity(request: Request | None, authorization: str = ""):
+    """Resolve cookie transport once, before a name-picker or bearer fallback."""
+    if request is None:
+        return None
+    from ..services import browser_sessions
+    from .auth import CSRF_HEADER, require_browser_origin
+
+    cookie = request.cookies.get(browser_sessions.COOKIE_NAME, "")
+    binding = request.headers.get(CSRF_HEADER, "")
+    if browser_sessions.COOKIE_NAME not in request.cookies and CSRF_HEADER not in request.headers:
+        return None
+    if authorization:
+        if not is_shared_token(authorization, request):
+            return None
+        # A real personal key can also be configured as the shared token. It
+        # still wins over a cookie, just as it wins over a name-picker header.
+        if authorization.startswith(f"Bearer {PREFIX}") and verify_key(authorization[7:]):
+            return None
+    cached = _cached(request, "auth_browser_identity")
+    if cached is not None:
+        return cached
+    require_browser_origin(request, required=request.method not in ("GET", "HEAD", "OPTIONS"))
+    # Bind reads too: otherwise an old tab can fetch a newly signed-in user's
+    # private rows while its UI still names the previous person.
+    if not cookie:
+        raise browser_sessions.SessionInvalid()
+    if not browser_sessions.validate_binding(cookie, binding):
+        raise browser_sessions.SessionChanged()
+    mode = _app_setting(request, "auth_mode", config.AUTH_MODE)
+    identity = browser_sessions.authenticate(cookie, mode=mode)
+    request.state.auth_browser_identity = identity
+    request.state.auth_via_session = True
+    request.state.strong_auth = True
+    request.state.auth_groups = list(identity.groups)
+    request.state.auth_source = identity.source
+    return identity
+
+
 def _resolve(
     x_user: str,
     authorization: str,
@@ -162,6 +194,12 @@ def _resolve(
     auth_mode = _app_setting(request, "auth_mode", config.AUTH_MODE)
     if auth_error:
         raise HTTPException(status_code=503, detail=auth_error)
+    identity = browser_identity(request, authorization)
+    if identity is not None:
+        _refuse_reserved(identity.user)
+        _refuse_ambiguous(identity.user)
+        _refuse_inactive(identity.user)
+        return identity.user, True, list(identity.groups)
     if authorization.startswith("Bearer ") and authorization[7:].startswith(PREFIX):
         owner = _cached(request, "auth_key_owner") or verify_key(authorization[7:])
         # A SKEIN_API_TOKEN that begins with sk-skein- reaches this door and is
@@ -381,6 +419,9 @@ def current_user(
 
 def authentication_source(request: Request, authorization: str, strong: bool) -> str:
     """Return the stable source that proved one request identity."""
+    browser = _cached(request, "auth_browser_identity")
+    if browser is not None and strong:
+        return browser.source
     if strong and authorization.startswith("Bearer "):
         if authorization[7:].startswith(PREFIX):
             return "api-key"

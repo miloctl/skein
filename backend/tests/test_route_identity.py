@@ -23,6 +23,10 @@ OPEN_READS = {
         "the public OIDC client parameters. Read BEFORE a sign-in exists, so"
         " requiring identity here would make signing in impossible"
     ),
+    "/api/auth/session": (
+        "cookie metadata bootstrap: missing sessions are anonymous, valid cookies"
+        " resolve their own identity locally without refreshing at the IdP"
+    ),
     "/api/calendar.ics": (
         "its own door: a shared feed token compared with hmac. Calendar"
         " clients cannot send X-User or a bearer, so identity is the URL"
@@ -118,6 +122,8 @@ def test_every_mutating_route_resolves_a_caller():
     # routes/slack.py), and the token exchange that runs before a sign-in
     assert open_writes == {
         ("POST", "/api/auth/token"),
+        ("POST", "/api/auth/session/key"),  # the submitted key proves the new identity
+        ("DELETE", "/api/auth/session"),  # cookie/CSRF revocation also works after expiry
         ("POST", "/api/slack/command"),
         ("POST", "/api/webhooks/forge"),
     }

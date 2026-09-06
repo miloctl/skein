@@ -125,7 +125,7 @@ describe("capability-aware contributions", () => {
         <NavigationProbe />
       </ExtensionProvider>,
     );
-    window.localStorage.setItem("skein-oidc", "signed-in");
+    window.localStorage.setItem("skein-session-change", "signed-in");
     act(() => window.dispatchEvent(new Event("skein-identity-change")));
     expect(await screen.findByText("Atlas")).toBeTruthy();
   });

@@ -8,18 +8,20 @@ _prepare). Keep writing `?`: the style only has to be consistent, and the
 translation is the one place that knows the driver.
 """
 
+import asyncio
 import contextlib
 import hashlib
 import logging
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
-from contextvars import ContextVar
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import ExitStack, asynccontextmanager, contextmanager
+from contextvars import Context, ContextVar, Token, copy_context
 from datetime import UTC, date, datetime, time, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import anyio
 import psycopg
 from psycopg import IsolationLevel
 from psycopg import sql as pgsql
@@ -342,6 +344,8 @@ def _prepare(sql: str, params: tuple) -> tuple[str, tuple | None]:
     because psycopg only unescapes `%%` when parameters are present — doubling
     it here would leave `LIKE 'x%%'` matching a literal percent sign in the
     data."""
+    if any(isinstance(value, str) and "\x00" in value for value in params):
+        raise ValueError("Text contains a NUL character. Remove it and send the request again.")
     if not params:
         return sql, None
     return _translate(sql), params
@@ -359,14 +363,34 @@ def _conn() -> Iterator[DictConnection]:
         yield conn
 
 
+TRANSACTION_LOCK_TIMEOUT = "5s"
+
+
+def _bound_lock_wait(conn: DictConnection, budget: str) -> None:
+    # pg_settings reports milliseconds regardless of the configured unit. Zero
+    # is unlimited, but a positive operator limit must never be made longer.
+    conn.execute(
+        "SELECT set_config('lock_timeout',"
+        " LEAST(NULLIF(setting::bigint, 0),"
+        " (EXTRACT(EPOCH FROM %s::interval) * 1000)::bigint)::text, true)"
+        " FROM pg_settings WHERE name = 'lock_timeout'",
+        (budget,),
+    )
+
+
 @contextmanager
-def _txn(isolation: IsolationLevel | None = None) -> Iterator[list[Callable[[], None]]]:
+def _txn(
+    isolation: IsolationLevel | None = None,
+    *,
+    pool_timeout: float | None = None,
+    bound_lock_wait: bool = True,
+) -> Iterator[list[Callable[[], None]]]:
     """Publish one real transaction and run rollback cleanup after it unwinds."""
     callbacks: list[Callable[[], None]] = []
     rollbacks: list[Callable[[], None]] = []
     queued: list[tuple[str, str, str, str]] = []
     try:
-        with pool().connection() as conn:
+        with pool().connection(timeout=pool_timeout) as conn:
             previous = conn.isolation_level
             if isolation is not None:
                 conn.isolation_level = isolation
@@ -376,7 +400,22 @@ def _txn(isolation: IsolationLevel | None = None) -> Iterator[list[Callable[[], 
             act_token = _pending_activity.set(queued)
             try:
                 with conn.transaction():
-                    yield callbacks
+                    # Sync auth dependencies can wait on an async request's
+                    # identity or telemetry lock. Bound every runtime transaction,
+                    # not only policy rows, or those waiters exhaust its workers.
+                    if bound_lock_wait:
+                        _bound_lock_wait(conn, TRANSACTION_LOCK_TIMEOUT)
+                    try:
+                        yield callbacks
+                    except asyncio.CancelledError:
+                        # FastAPI can abandon a sync worker on Task.cancel().
+                        # Close before pool return so its copied context never
+                        # writes through a recycled connection. The driver lock
+                        # lets an in-flight statement finish before disconnect
+                        # rolls back the transaction and rejects later queries.
+                        with conn.lock:
+                            conn.close()
+                        raise
                     # INSIDE the transaction, and LAST. A rollback still drops
                     # these rows with the write they describe.
                     _flush_activity(conn, queued)
@@ -387,7 +426,8 @@ def _txn(isolation: IsolationLevel | None = None) -> Iterator[list[Callable[[], 
                 _ambient.reset(token)
                 # The pool resets the transaction on return, never this
                 # attribute, so a leftover isolation level must not escape.
-                conn.isolation_level = previous
+                if not conn.closed:
+                    conn.isolation_level = previous
     except BaseException:
         _run_callbacks(list(reversed(rollbacks)), "on_rollback")
         raise
@@ -402,7 +442,9 @@ def _run_callbacks(callbacks: list[Callable[[], None]], label: str = "on_commit"
 
 
 @contextmanager
-def transaction() -> Iterator[None]:
+def transaction(
+    *, pool_timeout: float | None = None, bound_lock_wait: bool = True
+) -> Iterator[None]:
     """Every db.* call inside the block shares one connection and commits
     atomically at exit; any exception rolls the whole block back. Nested
     blocks join the outer transaction. Context-local, so concurrent requests
@@ -410,9 +452,74 @@ def transaction() -> Iterator[None]:
     if _ambient.get() is not None:
         yield
         return
-    with _txn() as callbacks:
+    with _txn(pool_timeout=pool_timeout, bound_lock_wait=bound_lock_wait) as callbacks:
         yield
     _run_callbacks(callbacks)
+
+
+async def _transaction_io(
+    context: Context,
+    function: Callable,
+    *args: Any,
+    limiter: anyio.CapacityLimiter | None = None,
+) -> Any:
+    # Task.cancel() bypasses AnyIO's worker shield. Join the worker before
+    # rollback or connection reuse, or it can keep writing after cancellation.
+    with anyio.CancelScope(shield=True):
+        pending = asyncio.create_task(
+            anyio.to_thread.run_sync(context.run, function, *args, limiter=limiter)
+        )
+        cancelled = None
+        while True:
+            try:
+                result = await asyncio.shield(pending)
+                break
+            except asyncio.CancelledError as exc:
+                if pending.cancelled():
+                    raise
+                cancelled = exc
+            except BaseException as exc:
+                if cancelled is not None:
+                    raise cancelled from exc
+                raise
+        if cancelled is not None:
+            raise cancelled
+        return result
+
+
+@asynccontextmanager
+async def async_transaction() -> AsyncIterator[None]:
+    """Keep one transaction on the ASGI task, with database lifecycle I/O off-loop."""
+    if in_transaction():
+        yield
+        return
+    context = copy_context()
+    stack = ExitStack()
+    variables: tuple[ContextVar[Any], ...] = (_ambient, _on_commit, _on_rollback, _pending_activity)
+    tokens: list[tuple[ContextVar[Any], Token[Any]]] = []
+    # Cleanup must not queue behind workers waiting for a connection or a row
+    # this transaction holds (FastAPI uses a separate exit limiter too).
+    exit_limiter = anyio.CapacityLimiter(1)
+    try:
+        # Bound pool waiters too: active transactions need these same workers
+        # for dependencies. Psycopg rejects timeout=0 even for a ready connection.
+        await _transaction_io(context, stack.enter_context, transaction(pool_timeout=1))
+        # Worker context changes do not flow back through run_sync. Publish the
+        # same connection and mutable queues, and reset tokens in their owner
+        # contexts rather than using FastAPI's sync-generator dependency helper.
+        for variable in variables:
+            tokens.append((variable, variable.set(context[variable])))
+        yield
+    except BaseException as exc:
+        await _transaction_io(
+            context, stack.__exit__, type(exc), exc, exc.__traceback__, limiter=exit_limiter
+        )
+        raise
+    else:
+        await _transaction_io(context, stack.__exit__, None, None, None, limiter=exit_limiter)
+    finally:
+        for variable, token in reversed(tokens):
+            variable.reset(token)
 
 
 @contextmanager
@@ -444,6 +551,8 @@ LOCK_SCHEMA = 9
 LOCK_FIELD_GUIDE = 10
 LOCK_OIDC_IDENTITY = 11
 LOCK_MCP_SERVER = 12
+LOCK_ENGAGEMENT = 13
+LOCK_KEY_REQUEST = 14
 
 # EVERY advisory lock is scoped to the current database by this expression.
 # PostgreSQL advisory locks are CLUSTER-global: the key space is shared by
@@ -814,12 +923,12 @@ def _activity_lock(conn: DictConnection) -> None:
     # transaction. PostgreSQL raises LockNotAvailable at this limit, which the
     # API classifies as retryable load and the standalone logger records outside
     # the chain.
-    conn.execute(f"SET LOCAL lock_timeout = '{ACTIVITY_LOCK_TIMEOUT}'")
+    _bound_lock_wait(conn, ACTIVITY_LOCK_TIMEOUT)
     _advisory(conn, _ACTIVITY_LOCK)
 
 
 def _activity_fallback_lock(conn: DictConnection) -> None:
-    conn.execute(f"SET LOCAL lock_timeout = '{ACTIVITY_LOCK_TIMEOUT}'")
+    _bound_lock_wait(conn, ACTIVITY_LOCK_TIMEOUT)
     _advisory(conn, _ACTIVITY_FALLBACK_LOCK)
 
 

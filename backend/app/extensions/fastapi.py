@@ -175,7 +175,7 @@ ExtensionRouteServicesDep = Annotated[
 def contributed_route_policy(contribution: RouteContribution):
     """Create the domain-policy dependency for one trusted router."""
 
-    async def enforce(request: Request, subject: PolicySubjectDep) -> None:
+    def enforce(request: Request, subject: PolicySubjectDep) -> None:
         route = request.scope.get("route")
         path = str(getattr(route, "path", request.url.path))
         operation = next(
@@ -285,8 +285,22 @@ def _route_policy_action(request: Request) -> tuple[str, str, str]:
     return action, resource_type, resource_id
 
 
-async def enforce_mutation_policy(
+async def _policy_payload(request: Request) -> dict[str, Any]:
+    if request.headers.get("content-type", "").split(";", 1)[0] == "application/json":
+        try:
+            candidate = await request.json()
+            if isinstance(candidate, dict):
+                return candidate
+        except ValueError:
+            # FastAPI owns malformed-body errors. Policy still applies to the
+            # current resource without trusting an invalid body.
+            pass
+    return {}
+
+
+def enforce_mutation_policy(
     request: Request,
+    payload: Annotated[dict[str, Any], Depends(_policy_payload)],
     x_user: Annotated[str, Header()] = "",
     authorization: Annotated[str, Header()] = "",
 ) -> None:
@@ -322,17 +336,6 @@ async def enforce_mutation_policy(
         refresh_required=source == "oidc",
     )
     action, resource_type, resource_id = _route_policy_action(request)
-    payload: dict[str, Any] = {}
-    if request.headers.get("content-type", "").split(";", 1)[0] == "application/json":
-        try:
-            candidate = await request.json()
-            if isinstance(candidate, dict):
-                payload = candidate
-        except ValueError:
-            # FastAPI owns the public request-validation error. Policy still
-            # applies to the route and current resource without trusting a
-            # malformed body.
-            pass
     from ..services import scope
     from ..services.policy_context import for_route_scoped
 
@@ -427,7 +430,7 @@ class PolicyAPIRoute(APIRoute):
             return original
 
         async def atomic_handler(request: Request):
-            with db.transaction():
+            async with db.async_transaction():
                 return await original(request)
 
         return atomic_handler

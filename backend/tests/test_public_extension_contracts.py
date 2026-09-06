@@ -1698,6 +1698,75 @@ def test_extension_store_owns_its_schema_and_migrations(fresh_db, tmp_path):
         store.migrate(changed)
 
 
+@pytest.mark.parametrize(("configured", "expected_ms"), [("0", 0), ("1s", 1000)])
+def test_extension_migration_keeps_operator_lock_wait(
+    fresh_db, monkeypatch, configured, expected_ms
+):
+    from threading import Event, Thread
+
+    from app import db
+
+    store = ExtensionStore("migration_wait")
+    database = db.query_row("SELECT current_database() AS name")["name"]
+    db.execute(f"ALTER DATABASE \"{database}\" SET lock_timeout = '{configured}'")
+    db.close_pool()
+    monkeypatch.setattr(db, "TRANSACTION_LOCK_TIMEOUT", "50ms")
+    held, attempted, release, done = Event(), Event(), Event(), Event()
+    errors = []
+    original_lock = db.name_lock
+
+    def name_lock(namespace, name):
+        if held.is_set() and namespace == db.LOCK_SCHEMA and name == store.schema:
+            attempted.set()
+        return original_lock(namespace, name)
+
+    monkeypatch.setattr(db, "name_lock", name_lock)
+
+    def hold():
+        with db.transaction():
+            db.ensure_owned_schema(store.schema)
+            held.set()
+            assert release.wait(5)
+
+    def migrate():
+        try:
+            store.migrate(
+                (
+                    ExtensionMigration(
+                        1,
+                        "capture-limit",
+                        (
+                            "CREATE TABLE migration_limit (ms integer)",
+                            "INSERT INTO migration_limit SELECT setting::int"
+                            " FROM pg_settings WHERE name = 'lock_timeout'",
+                        ),
+                    ),
+                )
+            )
+        except Exception as exc:
+            errors.append(exc)
+        finally:
+            done.set()
+
+    holder, migrator = Thread(target=hold), Thread(target=migrate)
+    try:
+        holder.start()
+        assert held.wait(3)
+        migrator.start()
+        assert attempted.wait(3)
+        assert not done.wait(0.2), "the runtime lock budget aborted a migration"
+    finally:
+        release.set()
+        holder.join(5)
+        if migrator.ident is not None:
+            migrator.join(5)
+        db.execute(f'ALTER DATABASE "{database}" RESET lock_timeout')
+        db.close_pool()
+    assert not errors
+    assert not holder.is_alive() and not migrator.is_alive()
+    assert store.query_one("SELECT ms FROM migration_limit") == {"ms": expected_ms}
+
+
 def test_an_extension_store_can_never_name_a_core_schema(fresh_db):
     """The `ext_` prefix is the whole protection: an extension is free to call
     itself `public` or `private`, and neither can reach the core schema or the

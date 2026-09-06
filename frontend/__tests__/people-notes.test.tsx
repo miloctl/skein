@@ -54,3 +54,13 @@ it("does not replace another teammate's notes or draft when an earlier save fini
   expect(screen.queryByText("Saved for alice")).toBeNull();
   expect((screen.getByLabelText("1:1 note") as HTMLInputElement).value).toBe("Bob draft");
 });
+
+it("keeps visible labels for private note type and body", async () => {
+  render(<PeoplePage />);
+  fireEvent.click(await screen.findByRole("button", { name: "alice" }));
+  for (const name of ["Note type", "1:1 note"]) {
+    const field = screen.getByLabelText(name) as HTMLInputElement;
+    expect(field.labels?.length).toBe(1);
+    expect(field.labels?.[0].classList.contains("sr-only")).toBe(false);
+  }
+});

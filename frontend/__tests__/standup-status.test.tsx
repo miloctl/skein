@@ -28,3 +28,13 @@ describe("standup receipt", () => {
     expect(screen.getByRole("alert").textContent).toBe("");
   });
 });
+
+it("keeps visible standup labels after typing", () => {
+  render(<StandupComposer />);
+  for (const name of ["Standup: yesterday (optional)", "Standup: what are you on today?", "Standup: blockers"]) {
+    const field = screen.getByLabelText(name) as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "Draft" } });
+    expect(field.labels?.length).toBe(1);
+    expect(field.labels?.[0].classList.contains("sr-only")).toBe(false);
+  }
+});

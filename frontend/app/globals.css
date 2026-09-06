@@ -475,6 +475,9 @@ html {
   /* short pages (no scrollbar) must not sit a gutter-width right of long
      ones — reserve the space so page-to-page nav never shifts content */
   scrollbar-gutter: stable;
+  /* Wrapped inline links can extend above the line box scrolled into view.
+     Leave a line of clearance so their text and focus outline clear the header. */
+  scroll-padding-top: calc(var(--nav-h) + var(--selvage-h, 2px) + 1lh);
 }
 
 /* iOS Safari zooms the page on focus of any input under 16px and stays
@@ -538,19 +541,6 @@ select option {
    loses to it. */
 [data-ring="inset"]:focus-visible {
   outline-offset: -2px;
-}
-
-/* The header is sticky, so anything scrolled to the TOP of the viewport lands
-   underneath it. The skip link was the worst case: it exists to put a keyboard
-   user on the content, and it put #content at y=0 under 110px of header, so the
-   first thing they asked for was the one thing they could not see. WCAG 2.2
-   SC 2.4.11 (Focus Not Obscured) — inside the wcag22aa tag e2e already scans,
-   but invisible to axe because it is a scroll position, not markup.
-   [tabindex="-1"] covers every <main id="content"> and the charter entry that
-   takes focus after a supersede; :target covers in-page anchors. */
-:target,
-[tabindex="-1"] {
-  scroll-margin-top: calc(var(--nav-h) + 0.5rem);
 }
 
 /* The selvage: the fabric's finished edge, along the bottom of the nav.

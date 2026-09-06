@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Card as Section, EmptyState } from "@/components/card";
-import { API_URL, actionError, api, bearer, userHeader } from "@/lib/api";
+import { actionError, api, authenticatedFetch } from "@/lib/api";
+import { checkSessionRevision, sessionRevision } from "@/lib/auth";
 import { reportStatus } from "@/lib/status";
 // moved to lib/size.ts so the activity feed can humanize the byte counts
 // its ledger rows carry without importing this card's tree
@@ -64,23 +65,17 @@ export function AttachedFilesCard({
   }, []);
   useEffect(load, [load]);
 
-  /** A plain <a href> cannot do this: the API is its own origin and the
-   *  download carries identity (X-User, or a bearer token), which a link
-   *  never sends. So the bytes are fetched with the same credentials every
-   *  other request uses and handed to the browser as a blob — the same shape
-   *  the export button in components/backup-card.tsx uses. */
+  // A link sends no session-binding CSRF header or trusted-header name. Keep
+  // downloads on the same authenticated path as ordinary API reads.
   const download = async (file: StoredFile) => {
     try {
-      const auth = await bearer();
-      const res = await fetch(`${API_URL}/api/files/${file.id}/download`, {
-        headers: {
-          ...userHeader(),
-          ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
-        },
-      });
+      const owner = sessionRevision();
+      const res = await authenticatedFetch(`/api/files/${file.id}/download`);
       if (!res.ok)
         throw new Error(`The file did not download (${res.status}).`);
-      const url = URL.createObjectURL(await res.blob());
+      const blob = await res.blob();
+      checkSessionRevision(owner);
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
       link.download = file.title;

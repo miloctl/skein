@@ -11,6 +11,8 @@
 // (lib/theme-boot.ts) and the contrast checker PARSES them out of this file,
 // so there is nothing left to keep in sync by hand.
 
+import { sessionRevision } from "./auth";
+
 export const THEME_KEY = "skein-theme";
 export const APPEARANCE_KEY = "skein-appearance";
 export const CUSTOM_KEY = "skein-custom";
@@ -318,12 +320,27 @@ function serialize(): string {
   });
 }
 
+let saveOnPagehide: (() => void) | null = null;
 function pushTheme() {
-  import("./api").then(({ api, getUser }) => {
-    if (getUser() === "anonymous") return;
+  const owner = sessionRevision();
+  import("./api").then(({ api, getUser, API_URL, sessionHeaders }) => {
+    if (owner !== sessionRevision() || getUser() === "anonymous") return;
     if (pushTimer) clearTimeout(pushTimer);
+    const headers = sessionHeaders();
+    // Capture identity before teardown. Reading a newer tab's cookie with old
+    // preferences must fail the server's CSRF binding, not update its profile.
+    saveOnPagehide = () => {
+      if (owner !== sessionRevision()) return;
+      void fetch(`${API_URL}/api/users/theme`, {
+        method: "POST", credentials: "include", keepalive: true,
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify({ theme: serialize() }),
+      }).catch(() => {});
+    };
     pushTimer = setTimeout(() => {
       pushTimer = null;
+      saveOnPagehide = null;
+      if (owner !== sessionRevision()) return;
       api("/api/users/theme", {
         method: "POST",
         body: JSON.stringify({ theme: serialize() }),
@@ -332,38 +349,13 @@ function pushTheme() {
   });
 }
 
-// a change made <800ms before tab close must still reach the profile
 if (typeof window !== "undefined") {
   window.addEventListener("pagehide", () => {
     if (!pushTimer) return;
     clearTimeout(pushTimer);
     pushTimer = null;
-    Promise.all([import("./api"), import("./auth")]).then(
-      ([apiMod, authMod]) => {
-        const { API_URL, getUser, getApiKey } = apiMod;
-        const user = getUser();
-        if (user === "anonymous") return;
-        // carries the credential api() sends: outside trusted-header mode an
-        // unauthenticated POST is a 401, and this catch swallows it — the
-        // last theme change before a tab closes would vanish without a trace.
-        // The sync token read is deliberate: the tab is closing, so a refresh
-        // round trip would never land.
-        const auth =
-          authMod.accessTokenSync() ||
-          getApiKey() ||
-          process.env.NEXT_PUBLIC_API_TOKEN;
-        fetch(`${API_URL}/api/users/theme`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-User": user,
-            ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
-          },
-          body: JSON.stringify({ theme: serialize() }),
-          keepalive: true,
-        }).catch(() => {});
-      },
-    );
+    saveOnPagehide?.();
+    saveOnPagehide = null;
   });
 }
 

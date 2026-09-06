@@ -35,8 +35,11 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: "Content-Security-Policy",
-            value: "img-src 'self' data:; object-src 'none'; base-uri 'self'",
+            // A hostile parent frame can disguise authenticated controls.
+            value: "img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
           },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "same-origin" },
           { key: "X-Robots-Tag", value: "noindex, nofollow" },
         ],
       },

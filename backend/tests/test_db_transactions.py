@@ -411,3 +411,31 @@ def test_nested_savepoints_unwind_their_own_level(fresh_db):
         for row in db.query("SELECT action FROM activity WHERE actor = 'probe' ORDER BY seq")
     ]
     assert actions == ["mid_kept"]
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected_ms"), [("0", 5000), ("100ms", 100), ("2min", 5000)]
+)
+def test_transaction_and_ledger_preserve_shorter_lock_limits(fresh_db, configured, expected_ms):
+    from app import db
+
+    # A single connection pins the server setting across checkout without
+    # changing database-wide defaults for unrelated connections.
+    db.close_pool()
+    pool = db.pool()
+    pool.resize(1, 1)
+    setting = "SELECT setting::int AS ms FROM pg_settings WHERE name = 'lock_timeout'"
+    try:
+        with pool.connection() as conn:
+            conn.execute("SELECT set_config('lock_timeout', %s, false)", (configured,))
+            original = conn.execute(setting).fetchone()["ms"]
+        with db.transaction():
+            assert db.query_row(setting)["ms"] == expected_ms
+            db.execute("SET LOCAL lock_timeout = '25ms'")
+            db.hold_activity_chain()
+            assert db.query_row(setting)["ms"] == 25
+            db.hold_activity_fallbacks()
+            assert db.query_row(setting)["ms"] == 25
+        assert db.query_row(setting)["ms"] == original
+    finally:
+        db.close_pool()

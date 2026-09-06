@@ -49,6 +49,7 @@ def request_key(user: str) -> dict:
         f" — mint: python -m app.bootstrap_key {shlex.quote(user)}"
     )
     with db.transaction():
+        db.name_lock(db.LOCK_KEY_REQUEST, user)
         # "Unread by ANYONE", not notifications.UNREAD_FOR. This nudge asks a
         # question about the world — has whoever runs the server minted the key
         # — so one operator dismissing it means the ask was seen and the

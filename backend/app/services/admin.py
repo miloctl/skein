@@ -56,6 +56,9 @@ EXCLUDED = frozenset(
         # exports. Recreate keys, and preserve bindings only in full backups.
         "api_keys",
         "oidc_identities",
+        # Restoring a logged-out browser session would restore its authority.
+        # Session rows are also omitted from both pg_dump recovery archives.
+        "browser_sessions",
         # sealed personal tokens and private server URLs
         "mcp_servers",
         # proposal payloads can contain private target bodies and extension
@@ -323,6 +326,9 @@ def _backup_one(args: list[str], dest: Path, prefix: str = "") -> None:
                     "--dbname",
                     _pg_conninfo(),
                     "--format=custom",
+                    # Keep schema, never live browser authority: a restored
+                    # archive must not undo a logout completed after its snapshot.
+                    "--exclude-table-data=public.browser_sessions",
                     "--file",
                     str(tmp),
                     *args,
@@ -344,8 +350,9 @@ def _backup_one(args: list[str], dest: Path, prefix: str = "") -> None:
     log.info("backup written: %s", dest)
 
 
-def backup(*, keep: int = 14, actor: str | None = None) -> dict:
-    """Serialize the complete dated backup workflow across threads and workers."""
+@contextmanager
+def _held_backup_lock():
+    """Serialize workers that share the backup directory, including manual runs."""
     if not _BACKUP_LOCK.acquire(timeout=_BACKUP_LOCK_WAIT_SECONDS):
         raise LockNotAvailable("Another database backup is still running.")
     try:
@@ -361,11 +368,17 @@ def backup(*, keep: int = 14, actor: str | None = None) -> dict:
                         raise LockNotAvailable("Another database backup is still running.") from exc
                     time.sleep(0.1)
             try:
-                return _backup(keep=keep, actor=actor)
+                yield
             finally:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
     finally:
         _BACKUP_LOCK.release()
+
+
+def backup(*, keep: int = 14, actor: str | None = None) -> dict:
+    """Serialize the complete dated backup workflow across threads and workers."""
+    with _held_backup_lock():
+        return _backup(keep=keep, actor=actor)
 
 
 def _backup(*, keep: int, actor: str | None) -> dict:
@@ -519,23 +532,26 @@ def _mirror(dest: Path, mdir: Path) -> str | None:
 
 
 def backup_if_stale() -> dict:
-    """Daily hook, multi-process safe via the job_runs claim."""
-    backups_dir = _backups_dir()
-    database_done = any(backups_dir.glob(f"database-{_today()}*.dump"))
-    mirror_status, mirror = _mirror_target()
-    mirror_done = mirror_status == "not_configured" or bool(
-        mirror and any(mirror.glob(f"platform-{_today()}*.dump"))
-    )
-    if database_done and mirror_done:
-        return {"status": "noop"}
-    if not db.claim_job("backup", _today()):
-        reason = (
-            "The daily backup claim is taken, but the database or configured"
-            " mirror copy is incomplete. Run POST /api/admin/backup."
+    """Daily/startup hook. An incomplete backup can retry on the same day."""
+    from . import activity
+
+    # Completion lives in the recovery files, not a committed job claim: a
+    # dump or mirror failure must not consume the day's retry. Recheck under
+    # the same lock as manual backups, or two stale callers both write a dump.
+    # Historical claims stay untouched because they do not identify an owner.
+    with _held_backup_lock():
+        today = _today()
+        database_done = any(
+            activity.recorded_backup_digests(path.name) == {_sha256_file(path)}
+            for path in _backups_dir().glob(f"database-{today}*.dump")
         )
-        log.error(reason)
-        return {"status": "error", "reason": reason}
-    return backup()
+        mirror_status, mirror = _mirror_target()
+        mirror_done = mirror_status == "not_configured" or bool(
+            mirror and any(mirror.glob(f"platform-{today}*.dump"))
+        )
+        if database_done and mirror_done:
+            return {"status": "noop"}
+        return _backup(keep=14, actor=None)
 
 
 def _make_export(*, keep: int, actor: str, open_file: bool, max_bytes: int = 0):

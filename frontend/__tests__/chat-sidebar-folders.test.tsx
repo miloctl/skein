@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 /** A failed /api/chats/folders fetch used to be swallowed whole: groups came
@@ -68,4 +68,15 @@ describe("the mobile drawer's aria-modal promise", () => {
     fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
     expect(document.activeElement).toBe(last);
   });
+});
+
+it("names the folder draft and returns focus on Escape", async () => {
+  render(<ChatSidebar threadId="" onOpen={() => {}} onNew={() => {}} />);
+  await screen.findByText("Filed chat");
+  fireEvent.click(screen.getByRole("button", { name: "Chat list options" }));
+  fireEvent.click(screen.getByRole("button", { name: "New folder" }));
+  const field = screen.getByRole("textbox", { name: "Folder name" }) as HTMLInputElement;
+  expect(field.labels?.length).toBe(1);
+  fireEvent.keyDown(field, { key: "Escape" });
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Chat list options" })));
 });

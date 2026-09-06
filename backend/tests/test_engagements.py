@@ -149,17 +149,13 @@ def test_close_with_open_tasks_is_loud(fresh_db):
 
 
 def test_case_variant_engagement_name_is_refused_by_the_schema(fresh_db):
-    """The service's duplicate guard reads COLLATE NOCASE in one statement
-    and inserts in another, so two concurrent creates of 'Alpha' and 'alpha'
-    both pass the read. ux_engagements_name_nocase is what actually stops
-    the second one — without it the pair forks usage rollups across two
-    near-identical engagements."""
+    """The unique index must also stop writers that bypass the service's name lock."""
     from app import db
     from app.services import engagements
 
     engagements.create_engagement("Alpha", actor="tester")
     with pytest.raises(db.IntegrityError):
-        # straight past the service pre-check, the way the losing racer does
+        # Direct SQL has no service lock, so the schema remains the backstop.
         db.execute(
             "INSERT INTO engagements (name, created_at, updated_at) VALUES (?, ?, ?)",
             ("alpha", db.now(), db.now()),

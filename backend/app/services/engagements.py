@@ -14,6 +14,13 @@ KINDS = ("delivery", "experiment")
 CONCLUSIONS = ("achieved", "partial", "missed", "invalidated", "unmeasured", "stopped")
 
 
+def _hold_name(name: str) -> None:
+    # PostgreSQL lower() defines ux_engagements_name_nocase. Python folding
+    # differs for names such as İris, which otherwise take different locks.
+    folded = db.query_row("SELECT lower(?) AS name", (name,))["name"]
+    db.name_lock(db.LOCK_ENGAGEMENT, folded)
+
+
 def create_engagement(
     name: str,
     project_class: str = "general",
@@ -37,16 +44,15 @@ def create_engagement(
     if kind == "experiment" and not timebox_end:
         raise ValueError("experiments need a timebox_end date (YYYY-MM-DD)")
     db.validate_date("timebox_end", timebox_end, allow_clear=False)
-    # NOCASE, and across ALL statuses including closed: the chat panel snaps
-    # case-insensitively against the OPEN list, so a case-variant of a closed
-    # engagement's name would otherwise slip past both checks and fork usage
-    # rollups across two near-identical engagements
-    if db.query_one("SELECT id FROM engagements WHERE lower(name) = lower(?)", (name,)):
-        raise ValueError(f"engagement '{name}' already exists")
     ts = db.now()
     # one transaction: scope.resolve_write's membership check must not be able
     # to pass and then have the author leave the crew before the INSERT lands
     with db.transaction():
+        _hold_name(name)
+        # Closed names stay reserved too, or usage rollups split across
+        # near-identical engagements that the open-list picker cannot see.
+        if db.query_one("SELECT id FROM engagements WHERE lower(name) = lower(?)", (name,)):
+            raise ValueError(f"engagement '{name}' already exists")
         tier, crew = scope.resolve_write(visibility, crew_id, actor=actor)
         eid = db.execute(
             "INSERT INTO engagements (name, project_class, summary, lead, started_at,"
@@ -173,12 +179,16 @@ def _update_engagement_locked(
     if conclusion and conclusion not in CONCLUSIONS:
         raise ValueError(f"conclusion must be one of {CONCLUSIONS}")
     db.validate_date("timebox_end", timebox_end)
-    current = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
+    # REST/review policy already holds this row. A name-first service call
+    # deadlocks against that row-first path when both rename the same row.
+    current = db.query_one("SELECT * FROM engagements WHERE id = ? FOR UPDATE", (engagement_id,))
     if not current:
         raise scope.missing("engagements", engagement_id)
     scope.assert_editable("engagements", current, actor, verb="update")
     name = name.strip()
     renaming = bool(name and name != current["name"])
+    if renaming:
+        _hold_name(name)
     # NOCASE and id-excluded, matching create: the case-variant fork the
     # create check closes must not reopen through rename. The id exclusion
     # keeps re-casing an engagement's OWN name ("alpha" -> "Alpha") legal.

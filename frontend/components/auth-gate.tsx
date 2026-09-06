@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { CSSProperties } from "react";
 
-import { getApiKey, subscribeUser } from "@/lib/api";
-import { authConfig, isSignedIn, sessionEnd, signIn } from "@/lib/auth";
+import { getUser, subscribeUser } from "@/lib/api";
+import { authConfig, bootstrapSession, isSignedIn, sessionEnd, sessionSnapshot, signIn, signOut, subscribeSession } from "@/lib/auth";
 import { setGated } from "@/lib/gated";
 import { signedOutLine } from "@/lib/whimsy";
 
@@ -66,32 +66,34 @@ function Formation({ animate }: { animate: boolean }) {
   );
 }
 
-/** The identity gate for locked deployments. In oidc mode every request needs
- *  a credential — reads included — so a signed-out visitor otherwise lands on
- *  a page of dead panels, each printing the backend's 401 detail, with the
- *  remedy buried in the nav menu. This renders the one remedy instead.
- *
- *  It renders in PLACE of the page rather than over it, so the page cannot
- *  keep fanning out fetches that can only 401. The one exception is the first
- *  paint: the deployment's mode is not known until GET /api/auth/config
- *  answers, and holding every load hostage to that fetch would tax the
- *  default trusted-header deployment for a mode it is not in. A signed-out
- *  oidc visitor therefore sees one skeleton paint, then the gate.
- */
+// Bootstrap the entire shell, not only AuthGate's page children. Nav,
+// capability providers and overlays also carry identity-scoped state.
+export function SessionBoundary({ children }: { children: React.ReactNode }) {
+  const state = useSyncExternalStore(subscribeSession, sessionSnapshot, sessionSnapshot);
+  const user = useSyncExternalStore(subscribeUser, getUser, () => "anonymous");
+  const pathname = usePathname();
+  useEffect(() => { void bootstrapSession().catch(() => {}); }, []);
+  if (!pathname.startsWith("/auth/") && !state.authenticated && state.status !== "ready")
+    return <main id="content" className="mx-auto w-full max-w-md px-6 py-24">
+      <h1 className="font-display text-2xl">Skein</h1>
+      <p role={state.error ? "alert" : "status"} className="my-4">{state.error || "Checking your browser session…"}</p>
+      {state.error && <button onClick={() => { void bootstrapSession(true).catch(() => {}); }}>Try again</button>}
+      {(state.csrf_token || sessionEnd() === "expired") && <button className="ml-4" onClick={() => { void signOut().catch(() => {}); }}>Sign out</button>}
+    </main>;
+  // The key unmounts private panels and pending drafts, including Settings and
+  // overlays outside AuthGate. Clearing only the fetch cache leaves them painted.
+  return <Fragment key={`${state.authenticated}:${state.csrf_token}:${user}`}>{children}</Fragment>;
+}
+
 export function AuthGate({ children }: { children: React.ReactNode }) {
-  // "" until the config answers. "unknown" (an unreadable config) renders the
-  // page too — a network fault proves nothing about the deployment, which is
-  // the same verdict lib/auth.ts::signIn makes for the same reason.
+  // SessionBoundary handles an unreadable config before mounting this shell.
+  // This gate keeps the pre-credential Settings and callback routes reachable.
   const [mode, setMode] = useState("");
   useEffect(() => {
     authConfig().then((c) => setMode(c.mode));
   }, []);
   const signedIn = useSyncExternalStore(subscribeUser, isSignedIn, () => false);
-  const hasKey = useSyncExternalStore(
-    subscribeUser,
-    () => Boolean(getApiKey()),
-    () => false,
-  );
+  const session = useSyncExternalStore(subscribeSession, sessionSnapshot, sessionSnapshot);
   const ended = useSyncExternalStore(subscribeUser, sessionEnd, () => "");
   const pathname = usePathname();
   const [fault, setFault] = useState("");
@@ -101,10 +103,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   // where a personal key gets pasted — gating either locks the door shut.
   // The trailing slash keeps a future /authority page out of the exemption.
   const exempt = pathname.startsWith("/auth/") || pathname.startsWith("/settings");
-  // A personal key satisfies every mode (routes/deps.py resolves it first),
-  // so a key holder is never gated.
-  const locked =
-    (mode === "oidc" && !signedIn && !hasKey) || (mode === "api-key" && !hasKey);
+  const locked = (mode === "oidc" || mode === "api-key" || Boolean(session.csrf_token) || ended === "expired") && !signedIn;
   const gating = locked && !exempt;
 
   // The nav and the two overlays are siblings of this component, not children,
@@ -158,23 +157,24 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           margins keep the top edge reachable once the content overflows,
           which is what centering alone loses. */}
       <div className="m-auto flex flex-col items-center text-center">
-        {mode === "api-key" ? (
+        {mode !== "oidc" ? (
           <>
             <Formation animate={false} />
             <h1 className="mt-5 font-display text-3xl font-semibold tracking-tight text-ink">
               Skein
             </h1>
-            {/* the sentences are routes/deps.py::NEED_KEY, less the env-var
-                prefix and the Authorization clause a browser cannot use.
-                __tests__/one-wording.test.ts reads that constant and fails
-                here if the two drift. */}
+            {/* routes/deps.py::NEED_KEY names the same Settings remedy. A
+                browser exchanges a key for a session instead of storing it.
+                __tests__/one-wording.test.ts pins this shared wording. */}
             <p className="mt-4 max-w-sm text-sm text-ink-2">
-              Every request needs a personal API key. Get your first one from
-              whoever runs the server (
+              {mode === "trusted-header" ? "Your browser session ended. Sign in with a personal key, or sign out to use the name picker." : <>
+              Sign in through Settings. If you do not have a personal API key,
+              get one from whoever runs the server (
               <code className="font-mono text-[0.85em]">
                 python -m app.bootstrap_key &lt;you&gt;
               </code>
-              ). Then paste it in Settings, step 2.
+              ). Then select Sign in with key in Settings.
+              </>}
             </p>
             <Link
               href="/settings"
@@ -221,6 +221,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
             </p>
           </>
         )}
+        {(session.csrf_token || ended === "expired") && <button className="mt-4" onClick={() => { signOut().catch((e) => setFault(e.message)); }}>Sign out</button>}
         {fault && (
           <p role="alert" className="mt-6 max-w-sm text-sm text-danger">
             {fault}

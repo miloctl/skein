@@ -410,12 +410,16 @@ def mark_read(
 
 
 def flush_digest_tier(*, claim: bool = False) -> dict:
-    """Twice-daily job: batch unsent digest-tier notifications to Slack.
-    claim=True makes the run once-only per hour bucket (scheduler path)."""
+    """Commit the hour claim and delivery stamps before the best-effort Slack post."""
+    with db.transaction():
+        return _flush_digest_tier_locked(claim=claim)
+
+
+def _flush_digest_tier_locked(*, claim: bool) -> dict:
     if claim:
         bucket = datetime.now(UTC).strftime("%Y-%m-%dT%H")
         if not db.claim_job("notification-flush", bucket):
-            return {"flushed": 0, "skipped": "already flushed this run"}
+            return {"status": "noop", "flushed": 0, "skipped": "already flushed this run"}
     pending = db.query(
         "SELECT * FROM notifications WHERE tier = 'digest' AND sent_at IS NULL ORDER BY id"
     )
@@ -442,9 +446,10 @@ def flush_digest_tier(*, claim: bool = False) -> dict:
             f"{n} notification{'' if n == 1 else 's'} for {u}" for u, n in sorted(by_user.items())
         )
         closer = "Open Skein to read it." if len(pending) == 1 else "Open Skein to read them."
-        _post_slack(f"Skein digest — {counts}. {closer}")
-        # Stamp exactly the rows we posted — a notification inserted between
-        # the SELECT and this UPDATE must stay pending for the next flush.
+        db.on_commit(lambda: _post_slack(f"Skein digest — {counts}. {closer}"))
+        # sent_at records a best-effort attempt, not confirmed delivery. A
+        # rollback must discard the callback too, or a retry sends twice.
+        # Stamp only the selected rows: a newly inserted notice stays pending.
         ids = [n["id"] for n in pending]
         db.execute_rowcount(
             f"UPDATE notifications SET sent_at = ? WHERE id IN ({','.join('?' * len(ids))})",  # noqa: S608 — keys hardcoded, id is a bound mark

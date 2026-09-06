@@ -7,12 +7,29 @@ import http.server
 import io
 import json
 import threading
+import time
 import urllib.error
 import urllib.request
 
 import pytest
+from cryptography.fernet import Fernet
 
 from app import config, oidc
+
+ORIGIN = "https://ui.test"
+CODE_REQUEST = {
+    "code": "c",
+    "code_verifier": "v" * 43,
+    "redirect_uri": ORIGIN + "/auth/callback",
+}
+
+
+@pytest.fixture
+def client(client, monkeypatch):
+    monkeypatch.setattr(config, "CORS_ORIGINS", [ORIGIN])
+    monkeypatch.setattr(config, "CREDENTIAL_KEY", Fernet.generate_key().decode())
+    client.headers["Origin"] = ORIGIN
+    return client
 
 
 def _start_server(handler):
@@ -38,10 +55,12 @@ def _as_oidc(monkeypatch, **over):
     monkeypatch.setattr(config, "OIDC_TOKEN_URL", over.get("token", ""))
 
 
-def _claims(name: str) -> dict[str, str]:
+def _claims(name: str) -> dict:
     return {
         "iss": config.OIDC_ISSUER,
         "sub": f"subject:{name}",
+        "aud": config.OIDC_AUDIENCE,
+        "exp": time.time() + 300,
         "preferred_username": name,
     }
 
@@ -268,29 +287,54 @@ def test_discovery_is_fetched_once_for_both_the_jwks_and_the_endpoints(monkeypat
     assert len(calls) == 1  # one document serves both
 
 
-def test_token_exchange_returns_a_validated_token(client, monkeypatch, fresh_db):
+def test_token_exchange_returns_only_identity_and_csrf_metadata(
+    client, monkeypatch, fresh_db, caplog
+):
     _as_oidc(monkeypatch)
     _discovery(monkeypatch)
     sent = {}
 
+    provider_tokens = {
+        "access_token": "provider-access-secret",
+        "refresh_token": "provider-refresh-secret",
+        "id_token": "provider-id-secret",
+    }
+    validated = []
+
     def fake_exchange(form):
         sent.update(form)
-        return {"access_token": "opaque", "refresh_token": "r1", "expires_in": 300}
+        return {**provider_tokens, "expires_in": 300}
+
+    def validate(token):
+        validated.append(token)
+        return _claims("casey")
 
     monkeypatch.setattr(oidc, "exchange", fake_exchange)
-    monkeypatch.setattr(oidc, "validate", lambda t: _claims("casey"))
-    out = client.post(
-        "/api/auth/token",
-        json={"code": "c", "code_verifier": "v", "redirect_uri": "http://app/cb"},
-    )
-    assert out.status_code == 200
-    assert out.json()["user"] == "casey"
-    assert out.json()["refresh_token"] == "r1"
-    # PKCE is carried across, and no client secret is ever sent
-    assert sent["grant_type"] == "authorization_code"
-    assert sent["code_verifier"] == "v"
-    assert sent["client_id"] == "skein-web"
-    assert "client_secret" not in sent
+    monkeypatch.setattr(oidc, "validate", validate)
+    out = client.post("/api/auth/token", json=CODE_REQUEST)
+    assert out.status_code == 200, out.text
+    assert validated == [provider_tokens["access_token"]]
+    metadata = out.json()
+    assert set(metadata) == {"authenticated", "user", "strong", "auth_method", "csrf_token"}
+    assert metadata == {
+        "authenticated": True,
+        "user": "casey",
+        "strong": True,
+        "auth_method": "oidc",
+        "csrf_token": metadata["csrf_token"],
+    }
+    assert len(metadata["csrf_token"]) == 64
+    cookie = out.headers["set-cookie"]
+    assert cookie.startswith("__Host-skein-session=")
+    assert "HttpOnly" in cookie and "Secure" in cookie and "SameSite=lax" in cookie
+    assert "Path=/" in cookie and "Domain=" not in cookie
+    assert out.headers["cache-control"] == "no-store"
+    for secret in provider_tokens.values():
+        assert secret not in out.text
+        assert secret not in cookie
+        assert secret not in caplog.text
+    # PKCE is carried across, and no client secret is ever sent.
+    assert sent == {**CODE_REQUEST, "grant_type": "authorization_code", "client_id": "skein-web"}
     assert fresh_db.query_one("SELECT kind FROM users WHERE name = 'casey'") == {"kind": "human"}
 
 
@@ -303,7 +347,7 @@ def test_token_exchange_refuses_synthetic_and_core_identities(
     monkeypatch.setattr(oidc, "exchange", lambda form: {"access_token": "reserved"})
     monkeypatch.setattr(oidc, "validate", lambda token: _claims(name))
 
-    response = client.post("/api/auth/token", json={"refresh_token": "r1"})
+    response = client.post("/api/auth/token", json=CODE_REQUEST)
 
     assert response.status_code == 403
     assert response.json()["detail"] == oidc.SIGNIN_UNUSABLE
@@ -328,7 +372,7 @@ def test_token_exchange_refuses_an_inactive_principal(client, monkeypatch, fresh
     monkeypatch.setattr(oidc, "exchange", lambda form: {"access_token": "inactive"})
     monkeypatch.setattr(oidc, "validate", lambda token: _claims("departed"))
 
-    response = client.post("/api/auth/token", json={"refresh_token": "r1"})
+    response = client.post("/api/auth/token", json=CODE_REQUEST)
 
     assert response.status_code == 403
     assert response.json()["detail"] == INACTIVE
@@ -348,7 +392,7 @@ def test_token_exchange_cannot_claim_pending_content_identity(
     monkeypatch.setattr(oidc, "exchange", lambda form: {"access_token": "pending"})
     monkeypatch.setattr(oidc, "validate", lambda token: _claims("FUTURE-OIDC"))
 
-    response = client.post("/api/auth/token", json={"refresh_token": "r1"})
+    response = client.post("/api/auth/token", json=CODE_REQUEST)
 
     assert response.status_code == 403
     assert response.json()["detail"] == oidc.SIGNIN_UNUSABLE
@@ -367,7 +411,7 @@ def test_token_refuses_a_token_it_cannot_validate(client, monkeypatch, fresh_db)
     )
     r = client.post(
         "/api/auth/token",
-        json={"code": "c", "code_verifier": "v", "redirect_uri": "http://app/cb"},
+        json=CODE_REQUEST,
     )
     assert r.status_code == 502
     assert r.json()["detail"] == (
@@ -390,7 +434,7 @@ def test_token_validation_log_uses_only_the_fault_class(client, monkeypatch, fre
             raise oidc.OIDCError("safe") from exc
 
     monkeypatch.setattr(oidc, "validate", refused)
-    response = client.post("/api/auth/token", json={"refresh_token": "r1"})
+    response = client.post("/api/auth/token", json=CODE_REQUEST)
     assert response.status_code == 502
     assert canary not in caplog.text
     assert "operator signed in" not in caplog.text
@@ -404,7 +448,7 @@ def test_missing_access_token_writes_a_safe_server_diagnostic(
     _discovery(monkeypatch)
     monkeypatch.setattr(oidc, "exchange", lambda form: {"refresh_token": "provider-value"})
 
-    response = client.post("/api/auth/token", json={"refresh_token": "r1"})
+    response = client.post("/api/auth/token", json=CODE_REQUEST)
 
     assert response.status_code == 502
     assert response.json()["detail"] == oidc.SIGNIN_UNUSABLE
@@ -412,24 +456,45 @@ def test_missing_access_token_writes_a_safe_server_diagnostic(
     assert "provider-value" not in caplog.text
 
 
-def test_token_accepts_a_refresh_token(client, monkeypatch, fresh_db):
+@pytest.mark.parametrize("code_fields", [{}, CODE_REQUEST])
+def test_token_refuses_browser_refresh_before_the_provider(client, monkeypatch, code_fields):
     _as_oidc(monkeypatch)
-    _discovery(monkeypatch)
-    sent = {}
-    monkeypatch.setattr(
-        oidc, "exchange", lambda form: (sent.update(form), {"access_token": "a"})[1]
+    monkeypatch.setattr(oidc, "exchange", lambda _: pytest.fail("browser refresh reached the IdP"))
+    response = client.post(
+        "/api/auth/token", json={**code_fields, "refresh_token": "browser-refresh-secret"}
     )
-    monkeypatch.setattr(oidc, "validate", lambda t: _claims("casey"))
-    assert client.post("/api/auth/token", json={"refresh_token": "r1"}).status_code == 200
-    assert sent["grant_type"] == "refresh_token"
+    assert response.status_code == 400
+    assert "browser-refresh-secret" not in response.text
+    assert "set-cookie" not in response.headers
 
 
-def test_token_needs_a_complete_request(client, monkeypatch, fresh_db):
+@pytest.mark.parametrize("missing", ["code", "code_verifier", "redirect_uri"])
+def test_token_needs_a_complete_request(client, monkeypatch, missing):
     _as_oidc(monkeypatch)
-    _discovery(monkeypatch)
-    # a code without its verifier is exactly the interception PKCE prevents
-    r = client.post("/api/auth/token", json={"code": "c"})
+    monkeypatch.setattr(
+        oidc, "exchange", lambda _: pytest.fail("incomplete sign-in reached the IdP")
+    )
+    r = client.post(
+        "/api/auth/token",
+        json={field: value for field, value in CODE_REQUEST.items() if field != missing},
+    )
     assert r.status_code == 400
+    assert "set-cookie" not in r.headers
+
+
+@pytest.mark.parametrize(
+    "field,limit", [("code", 4096), ("code_verifier", 128), ("redirect_uri", 2048)]
+)
+def test_token_body_fields_are_bounded(client, monkeypatch, field, limit):
+    _as_oidc(monkeypatch)
+    monkeypatch.setattr(
+        oidc, "exchange", lambda _: pytest.fail("oversized sign-in reached the IdP")
+    )
+    value = "submitted-secret-" + "x" * limit
+    response = client.post("/api/auth/token", json={**CODE_REQUEST, field: value})
+    assert response.status_code == 422
+    assert value not in response.text
+    assert "set-cookie" not in response.headers
 
 
 def test_a_stale_code_is_the_callers_fault_not_a_server_fault(client, monkeypatch, fresh_db):
@@ -445,7 +510,7 @@ def test_a_stale_code_is_the_callers_fault_not_a_server_fault(client, monkeypatc
     monkeypatch.setattr(oidc, "exchange", refused)
     r = client.post(
         "/api/auth/token",
-        json={"code": "stale", "code_verifier": "v", "redirect_uri": "http://app/cb"},
+        json={**CODE_REQUEST, "code": "stale"},
     )
     assert r.status_code == 400
     assert r.json()["detail"] == (
@@ -462,7 +527,7 @@ def test_an_unreachable_provider_is_a_503_not_a_refusal(client, monkeypatch, fre
         raise oidc.OIDCUnavailable("the identity provider cannot be reached.")
 
     monkeypatch.setattr(oidc, "exchange", down)
-    r = client.post("/api/auth/token", json={"refresh_token": "r1"})
+    r = client.post("/api/auth/token", json=CODE_REQUEST)
     assert r.status_code == 503
     assert r.json()["detail"] == (
         "Skein cannot reach the identity provider. Wait one minute, then start the sign-in again."
@@ -470,23 +535,28 @@ def test_an_unreachable_provider_is_a_503_not_a_refusal(client, monkeypatch, fre
     assert r.headers["Retry-After"] == "60"
 
 
-def test_a_non_numeric_lifetime_does_not_become_a_400_quoting_it(client, monkeypatch, fresh_db):
-    """expires_in is the IdP's own field. A junk value must not reach the
-    error path, which would echo the provider's string back to the browser."""
+@pytest.mark.parametrize("lifetime", ["soon-ish", None, True, {}, -1, float("inf")])
+def test_provider_lifetime_neither_reaches_the_browser_nor_overrides_verified_expiry(
+    client, monkeypatch, fresh_db, lifetime
+):
     _as_oidc(monkeypatch)
     _discovery(monkeypatch)
     monkeypatch.setattr(
-        oidc, "exchange", lambda form: {"access_token": "a", "expires_in": "soon-ish"}
+        oidc, "exchange", lambda form: {"access_token": "a", "expires_in": lifetime}
     )
-    monkeypatch.setattr(oidc, "validate", lambda t: _claims("casey"))
-    r = client.post("/api/auth/token", json={"refresh_token": "r1"})
-    assert r.status_code == 200
-    assert r.json()["expires_in"] == 0
+    claims = _claims("casey")
+    monkeypatch.setattr(oidc, "validate", lambda t: claims)
+    r = client.post("/api/auth/token", json=CODE_REQUEST)
+    assert r.status_code == 200, r.text
+    assert "expires_in" not in r.json()
     assert "soon-ish" not in r.text
+    assert fresh_db.query_one("SELECT access_expires_at FROM browser_sessions") == {
+        "access_expires_at": claims["exp"]
+    }
 
 
 def test_token_is_off_outside_oidc_mode(client):
-    r = client.post("/api/auth/token", json={"refresh_token": "r"})
+    r = client.post("/api/auth/token", json=CODE_REQUEST)
     assert r.status_code == 404
 
 
@@ -497,9 +567,7 @@ def test_token_is_rate_capped_for_anonymous_callers(client, monkeypatch, fresh_d
     _discovery(monkeypatch)
     monkeypatch.setattr(oidc, "exchange", lambda form: {"access_token": "a"})
     monkeypatch.setattr(oidc, "validate", lambda t: _claims("casey"))
-    codes = {
-        client.post("/api/auth/token", json={"refresh_token": "r"}).status_code for _ in range(15)
-    }
+    codes = {client.post("/api/auth/token", json=CODE_REQUEST).status_code for _ in range(15)}
     assert 429 in codes  # the cap answers before the IdP is called again
 
 
@@ -844,7 +912,7 @@ def test_malformed_successful_token_response_is_a_502(client, monkeypatch, fresh
         "_open",
         lambda _request, timeout=None: io.BytesIO(b"not-json"),
     )
-    response = client.post("/api/auth/token", json={"refresh_token": "r1"})
+    response = client.post("/api/auth/token", json=CODE_REQUEST)
     assert response.status_code == 502
     assert response.json()["detail"] == oidc.SIGNIN_UNUSABLE
 

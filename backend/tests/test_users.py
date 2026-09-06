@@ -195,6 +195,9 @@ _NOT_RENAMED = {
     ("oidc_identities", "subject"): (
         "an opaque identity-provider identifier, not a Skein roster name"
     ),
+    ("browser_sessions", "subject"): (
+        "an opaque identity-provider identifier, not a Skein roster name"
+    ),
 }
 
 
@@ -258,6 +261,33 @@ def test_users_listing_excludes_anonymous(client):
     assert "anonymous" not in names
     names_all = [u["name"] for u in client.get("/api/users", params={"all": 1}).json()]
     assert "anonymous" not in names_all
+
+
+def test_roster_exposes_shared_profile_but_not_other_peoples_theme(client, fresh_db):
+    from app.services import users
+
+    users.set_theme("tester", '{"pack":"atelier"}')
+    users.set_theme("ava", '{"pack":"ledger"}')
+    users.set_growth_interests("ava", "incident command", actor="ava")
+    for path in ("/api/users", "/api/users?all=1"):
+        response = client.get(path)
+        assert response.status_code == 200
+        rows = {row["name"]: row for row in response.json()}
+        assert rows["tester"]["theme"] == '{"pack":"atelier"}'
+        assert "theme" not in rows["ava"]
+        assert rows["ava"]["growth_interests"] == "incident command"
+        assert set(rows["ava"]) == {
+            "id",
+            "name",
+            "kind",
+            "active",
+            "created_at",
+            "growth_interests",
+        }
+        assert "identity_owner" not in rows["tester"]
+    assert client.get("/api/users/theme", headers={"X-User": "ava"}).json()["theme"] == (
+        '{"pack":"ledger"}'
+    )
 
 
 def test_growth_interests_self_declared_and_in_what_if(client, fresh_db):

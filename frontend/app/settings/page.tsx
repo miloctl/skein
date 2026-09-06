@@ -14,15 +14,12 @@ import {
   actionError,
   api,
   backendUnreachable,
-  errorFromResponse,
-  getApiKey,
   getUser,
   isUnreachable,
   loadError,
-  setApiKey,
   setUser,
 } from "@/lib/api";
-import { signedInUser } from "@/lib/auth";
+import { authConfig, sessionEnd, sessionSnapshot, signInWithKey, signOut, subscribeSession, trustedHeaderIdentity } from "@/lib/auth";
 import { startFirstWatch } from "@/lib/first-watch";
 import { reportStatus } from "@/lib/status";
 import { timeAgo } from "@/lib/time";
@@ -375,11 +372,9 @@ export default function SettingsPage() {
   const [whoError, setWhoError] = useState("");
   const [keyStatus, setKeyStatus] = useState<string>("");
   const [keyError, setKeyError] = useState(false);
-  const [createdKey, setCreatedKey] = useState("");
-  const [creatingKey, setCreatingKey] = useState(false);
-  const [deletingKey, setDeletingKey] = useState(false);
-  const keyDeleteRef = useRef<HTMLButtonElement>(null);
-  const keyDeleteSnapshot = useRef("");
+  const browserSession = useSyncExternalStore(subscribeSession, sessionSnapshot, sessionSnapshot);
+  const [authMode, setAuthMode] = useState("");
+  useEffect(() => { authConfig().then((config) => setAuthMode(config.mode)); }, []);
   const [interests, setInterests] = useState("");
   const [interestsSaved, setInterestsSaved] = useState("");
   const [interestsLoaded, setInterestsLoaded] = useState(false);
@@ -857,99 +852,16 @@ export default function SettingsPage() {
     setKeyError(false);
     setKeyStatus("Checking the key…");
     try {
-      const res = await fetch(`${API_URL}/api/whoami`, {
-        headers: { Authorization: `Bearer ${candidate}`, "X-Client": "web" },
-      });
-      if (!res.ok) {
-        if (res.status === 401 || res.status === 403) {
-          setKeyError(true);
-          setKeyStatus(
-            "This key did not establish strong identity. Check the key, then try again.",
-          );
-          return;
-        }
-        throw await errorFromResponse(res);
-      }
-      const w = (await res.json()) as WhoAmI;
-      // strong === true is EXACTLY the property being tested — a malformed
-      // key falls through to weak identity and would otherwise "succeed"
-      if (!w.strong) {
-        setKeyError(true);
-        setKeyStatus(
-          "This key did not establish strong identity. Check it, then try again.",
-        );
-        return;
-      }
-      const signedInAs = signedInUser();
-      setApiKey(candidate);
       setKeyDraft("");
+      await signInWithKey(candidate);
       setKeyError(false);
-      setKeyStatus(
-        signedInAs
-          ? `Key works and is stored for ${w.user}. Deployment sign-in remains active as ${signedInAs}. The stored key takes effect after you sign out.`
-          : `Key works. This browser now uses it as ${w.user}.` +
-              (w.user !== getUser() && getUser() !== "anonymous"
-                ? ` Your display name remains ${getUser()}.`
-                : ""),
-      );
+      setKeyStatus("Signed in. This browser does not store your personal key.");
     } catch (e) {
       setKeyError(true);
       setKeyStatus(actionError(e));
     }
   };
 
-  const clearKey = () => {
-    if (
-      !keyDeleteSnapshot.current ||
-      getApiKey() !== keyDeleteSnapshot.current
-    ) {
-      keyDeleteSnapshot.current = "";
-      setDeletingKey(false);
-      setKeyError(true);
-      setKeyStatus(
-        "The stored key changed after this confirmation. Confirm the deletion again.",
-      );
-      return;
-    }
-    keyDeleteSnapshot.current = "";
-    setApiKey("");
-    setDeletingKey(false);
-    setKeyError(false);
-    setKeyStatus(
-      "The browser no longer stores this key. No server key was revoked.",
-    );
-  };
-
-  const createPersonalKey = async () => {
-    if (creatingKey) return;
-    setCreatingKey(true);
-    try {
-      const result = await api<{ key: string }>("/api/keys", {
-        method: "POST",
-        body: JSON.stringify({ label: "CLI and git hooks" }),
-      });
-      setCreatedKey(result.key);
-      setWho((current) =>
-        current
-          ? { ...current, keys_minted: current.keys_minted + 1 }
-          : current,
-      );
-      setKeyError(false);
-      setKeyStatus("");
-    } catch (e) {
-      setKeyError(true);
-      setKeyStatus(actionError(e));
-    } finally {
-      setCreatingKey(false);
-    }
-  };
-
-  // hydration-safe: server snapshot says "no key", client corrects post-hydration
-  const hasBrowserKey = useSyncExternalStore(
-    subscribeStorage,
-    () => Boolean(getApiKey()),
-    () => false,
-  );
   const strong = who?.strong ?? false;
   const canAdminister = who?.can_administer ?? false;
   const adminRequirement = strong
@@ -1037,6 +949,8 @@ export default function SettingsPage() {
               </span>
             ) : renaming === u.name ? (
               <span className="flex items-center gap-1">
+                <label className="flex flex-col text-xs text-ink-3">
+                  Rename {u.name} to
                 <input
                   autoFocus
                   name="rename-user"
@@ -1061,6 +975,7 @@ export default function SettingsPage() {
                   }}
                   className="w-44 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 text-xs outline-none focus:border-thread-solid"
                 />
+                </label>
                 <button
                   onClick={(e) => {
                     const input = e.currentTarget.parentElement?.querySelector(
@@ -1270,7 +1185,7 @@ export default function SettingsPage() {
               You
             </h2>
             <div className="space-y-4">
-              <Section title="Identity" headingLevel={3}>
+              {authMode === "trusted-header" && trustedHeaderIdentity() && <Section title="Identity" headingLevel={3}>
                 <p className="mb-2 text-sm text-ink-3">
                   Your name attributes everything you create (tasks, standups,
                   captures). It works on the honor system inside the team
@@ -1284,8 +1199,10 @@ export default function SettingsPage() {
                     {currentUser === "anonymous" ? "not set" : currentUser}
                   </span>
                 </p>
+                <label htmlFor="display-name" className="mb-1 block text-xs text-ink-3">Your name</label>
                 <div className="flex gap-2">
                   <input
+                    id="display-name"
                     name="display-name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
@@ -1305,7 +1222,7 @@ export default function SettingsPage() {
                     Save
                   </button>
                 </div>
-              </Section>
+              </Section>}
 
               <Section
                 title="Strong identity and personal API key"
@@ -1329,11 +1246,6 @@ export default function SettingsPage() {
                   ) : strong ? (
                     <span className="font-medium text-ok">
                       ● strong identity active as {who.user}
-                    </span>
-                  ) : hasBrowserKey ? (
-                    <span className="font-medium text-danger">
-                      The stored value did not establish strong identity. Delete
-                      it from this browser, then save a valid personal API key.
                     </span>
                   ) : (
                     <span className="font-medium text-weld">
@@ -1409,42 +1321,15 @@ export default function SettingsPage() {
                     )}
                   </div>
                 )}
-                {who !== null &&
-                  strong &&
-                  who.keys_minted === 0 &&
-                  !createdKey && (
-                    <div className="mb-3 rounded-lg bg-raised p-3 text-sm">
-                      <p className="mb-2">
-                        No personal API key exists for {who.user}. Create one
-                        for the CLI and git hooks.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={createPersonalKey}
-                        disabled={creatingKey}
-                        className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
-                      >
-                        {creatingKey
-                          ? "Creating…"
-                          : "Create a personal API key"}
-                      </button>
-                    </div>
-                  )}
-                {createdKey && (
-                  <div
-                    role="status"
-                    className="mb-3 rounded-lg border border-weld/40 bg-weld/10 p-3"
-                  >
-                    <p className="mb-2 text-sm">
-                      Copy this key now. Skein will not show it again.
-                    </p>
-                    <CopyLine text={createdKey} label="personal API key" />
-                  </div>
-                )}
-                {/* keyed on createdKey too, so the list re-reads after a mint */}
-                {strong ? <MyKeys key={createdKey || "keys"} /> : null}
+                {strong ? <MyKeys /> : null}
+                <p className="mb-3 text-sm text-ink-3">Use the CLI or ask whoever runs the server to create a personal key for automation.</p>
+                {(browserSession.csrf_token || sessionEnd() === "expired") && <button type="button" className="mb-3 rounded border border-line px-3 py-1.5 text-sm" onClick={() => {
+                  signOut().catch((error) => { setKeyError(true); setKeyStatus(actionError(error)); });
+                }}>Sign out of this browser</button>}
+                <label htmlFor="personal-api-key" className="mb-1 block text-xs text-ink-3">Personal API key</label>
                 <div className="flex gap-2">
                   <input
+                    id="personal-api-key"
                     name="personal-api-key"
                     autoComplete="off"
                     value={keyDraft}
@@ -1460,66 +1345,8 @@ export default function SettingsPage() {
                     disabled={!keyDraft.trim()}
                     className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
                   >
-                    Test & save
+                    Sign in with key
                   </button>
-                  {hasBrowserKey && (
-                    <span
-                      onKeyDown={(e) => {
-                        if (e.key !== "Escape" || !deletingKey) return;
-                        keyDeleteSnapshot.current = "";
-                        setDeletingKey(false);
-                        requestAnimationFrame(() =>
-                          keyDeleteRef.current?.focus(),
-                        );
-                      }}
-                      className="flex flex-wrap items-center gap-2"
-                    >
-                      {deletingKey && (
-                        <span
-                          id="delete-browser-key-consequence"
-                          className="max-w-sm text-xs text-danger"
-                        >
-                          Delete this key from this browser? This does not
-                          revoke a server key.
-                        </span>
-                      )}
-                      <button
-                        ref={keyDeleteRef}
-                        aria-describedby={
-                          deletingKey
-                            ? "delete-browser-key-consequence"
-                            : undefined
-                        }
-                        onClick={() => {
-                          if (deletingKey) {
-                            clearKey();
-                            return;
-                          }
-                          keyDeleteSnapshot.current = getApiKey();
-                          setDeletingKey(true);
-                        }}
-                        className="rounded-lg bg-raised px-3 py-1.5 text-sm text-ink-2 hover:bg-line"
-                      >
-                        {deletingKey
-                          ? "Delete from browser"
-                          : "Delete from browser…"}
-                      </button>
-                      {deletingKey && (
-                        <button
-                          onClick={() => {
-                            keyDeleteSnapshot.current = "";
-                            setDeletingKey(false);
-                            requestAnimationFrame(() =>
-                              keyDeleteRef.current?.focus(),
-                            );
-                          }}
-                          className="rounded px-2 py-1.5 text-sm text-ink-3 hover:text-ink"
-                        >
-                          Cancel deletion
-                        </button>
-                      )}
-                    </span>
-                  )}
                 </div>
                 {keyStatus && (
                   <p
@@ -1533,9 +1360,7 @@ export default function SettingsPage() {
                   </p>
                 )}
                 <p className="mt-2 text-xs text-ink-3">
-                  This browser stores the key in local storage. Deployment
-                  sign-in opens private web surfaces, but the CLI and git hooks
-                  still use a personal API key.
+                  The key is used once to start a browser session. This browser does not store it. The CLI and git hooks still use a personal API key.
                 </p>
               </Section>
 
@@ -1545,8 +1370,10 @@ export default function SettingsPage() {
                   so interesting work finds you. Display-only — never scored,
                   never matched automatically.
                 </p>
+                <label htmlFor="growth-interests" className="mb-1 block text-xs text-ink-3">Growth interests</label>
                 <div className="flex gap-2">
                   <input
+                    id="growth-interests"
                     name="growth-interests"
                     value={interests}
                     onChange={(e) => setInterests(e.target.value)}
@@ -1812,8 +1639,10 @@ export default function SettingsPage() {
                         apply one
                       </p>
                       <CopyLine text={themeCode()} label="theme code" />
+                      <label htmlFor="theme-code" className="mt-2 block text-xs text-ink-3">Paste a theme code</label>
                       <div className="mt-1.5 flex gap-2">
                         <input
+                          id="theme-code"
                           value={codeDraft}
                           onChange={(e) => setCodeDraft(e.target.value)}
                           aria-label="Paste a theme code"

@@ -31,7 +31,7 @@ vi.mock("@/lib/api", () => ({
   // "anonymous" keeps pushTheme inert, so tests exercise storage and DOM
   // without a debounced network write firing 800ms later
   getUser: () => "anonymous",
-  getApiKey: () => "",
+  sessionHeaders: () => ({}),
   API_URL: "http://backend.test",
 }));
 

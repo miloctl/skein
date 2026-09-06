@@ -122,24 +122,25 @@ def test_signin_buckets_follow_the_forwarded_client(client, monkeypatch):
     from app import config
 
     monkeypatch.setattr(config, "TRUST_PROXY_HOPS", 1)
+    monkeypatch.setattr(config, "CORS_ORIGINS", ["https://ui.test"])
     monkeypatch.setattr(config, "AUTH_MODE", "oidc")
     monkeypatch.setattr(config, "OIDC_CLIENT_ID", "skein-web")
     for _ in range(10):  # exhaust one client's bucket
         client.post(
             "/api/auth/token",
             json={"code": "x", "code_verifier": "v", "redirect_uri": "u"},
-            headers={"X-Forwarded-For": "203.0.113.7"},
+            headers={"Origin": "https://ui.test", "X-Forwarded-For": "203.0.113.7"},
         )
     r = client.post(
         "/api/auth/token",
         json={"code": "x", "code_verifier": "v", "redirect_uri": "u"},
-        headers={"X-Forwarded-For": "203.0.113.7"},
+        headers={"Origin": "https://ui.test", "X-Forwarded-For": "203.0.113.7"},
     )
     assert r.status_code == 429 and "per address" in r.json()["detail"]
     r = client.post(
         "/api/auth/token",
         json={"code": "x", "code_verifier": "v", "redirect_uri": "u"},
-        headers={"X-Forwarded-For": "203.0.113.8"},
+        headers={"Origin": "https://ui.test", "X-Forwarded-For": "203.0.113.8"},
     )
     assert r.status_code != 429
 

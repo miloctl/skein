@@ -3,6 +3,9 @@ owner-scoped, the URL check refuses this host, and the offboarding and rename
 paths carry the rows along."""
 
 import json
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
 import pytest
@@ -72,7 +75,157 @@ def sealed(monkeypatch):
     SEEN.clear()
     mcp_tools.shutdown_mcp()
     yield
+    for server_id in list(mcp_tools._opening):
+        _settled(server_id)
     mcp_tools.shutdown_mcp()
+
+
+def _settled(server_id: str) -> dict:
+    from app.agents import mcp_tools
+
+    deadline = time.monotonic() + 3
+    while server_id in mcp_tools._opening and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert server_id not in mcp_tools._opening
+    return next((row for row in mcp_tools.status() if row["server_id"] == server_id), {})
+
+
+def test_initial_personal_discovery_does_not_hold_the_registration_request(
+    client, sealed, monkeypatch
+):
+    from app.agents import mcp_tools
+
+    entered, release = threading.Event(), threading.Event()
+
+    class SlowClient(FakeClient):
+        def list_tools_sync(self):
+            entered.set()
+            assert release.wait(5)
+            return super().list_tools_sync()
+
+    monkeypatch.setattr("strands.tools.mcp.MCPClient", SlowClient)
+    ava = _bootstrap("ava")
+    with ThreadPoolExecutor(1) as callers:
+        call = callers.submit(
+            client.post,
+            "/api/mcp/servers",
+            json={"name": "notes", "url": "https://notes.example/mcp"},
+            headers=ava,
+        )
+        try:
+            assert entered.wait(2)
+            response = call.result(timeout=1)
+            assert response.status_code == 200, response.text
+            state = response.json()["status"]
+            assert state["connecting"] is True and state["connected"] is False
+            assert state["server_id"] == "personal:ava:notes"
+            assert mcp_tools.personal_mcp_tools("ava") == []
+            assert len(SEEN) == 1
+        finally:
+            release.set()
+            call.result(timeout=3)
+            _settled("personal:ava:notes")
+    state = client.get("/api/mcp/servers", headers=ava).json()["personal"][0]["status"]
+    assert state["connected"] is True and state["connecting"] is False
+
+
+def test_personal_discovery_has_a_process_wide_bound(fresh_db, sealed, monkeypatch):
+    from app.agents import mcp_tools
+    from app.services import mcp_servers
+
+    release = threading.Event()
+    entered: list[str] = []
+
+    class SlowClient(FakeClient):
+        def __enter__(self):
+            entered.append(self.url)
+            assert release.wait(5)
+            return self
+
+    monkeypatch.setattr("strands.tools.mcp.MCPClient", SlowClient)
+    ids = []
+    try:
+        for n in range(mcp_servers.LIMIT + 2):
+            owner = f"owner{n}"
+            row = mcp_servers.add(owner, "notes", f"https://notes{n}.example/mcp", actor=owner)
+            ids.append(row["server_id"])
+            mcp_tools._retry_state[row["server_id"]] = (1, 0)
+            assert mcp_tools.personal_mcp_tools(owner) == []
+        deadline = time.monotonic() + 2
+        while len(entered) < mcp_servers.LIMIT and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert len(entered) == mcp_servers.LIMIT
+        assert len(mcp_tools._opening) == mcp_servers.LIMIT
+        for sid in ids[: mcp_servers.LIMIT]:
+            mcp_tools.forget(sid)
+        assert mcp_tools.personal_mcp_tools(f"owner{mcp_servers.LIMIT}") == []
+        assert not mcp_tools._opening, "invalidating a worker must not free its slot"
+    finally:
+        release.set()
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if mcp_tools._personal_slots._value == mcp_servers.LIMIT:
+                break
+            time.sleep(0.01)
+        assert mcp_tools._personal_slots._value == mcp_servers.LIMIT
+    mcp_tools.personal_mcp_tools(f"owner{mcp_servers.LIMIT}")
+    assert _settled(ids[mcp_servers.LIMIT])["connected"] is True
+
+
+@pytest.mark.parametrize(
+    "invalidation", ["delete", "replace", "rename", "shutdown", "other_pod_delete"]
+)
+def test_personal_discovery_cannot_publish_after_invalidation(
+    fresh_db, sealed, monkeypatch, invalidation
+):
+    from app import db
+    from app.agents import mcp_tools
+    from app.services import mcp_servers, users
+
+    entered, release, closed = threading.Event(), threading.Event(), threading.Event()
+
+    class SlowClient(FakeClient):
+        def __enter__(self):
+            entered.set()
+            assert release.wait(5)
+            return self
+
+        def __exit__(self, *_args):
+            closed.set()
+
+    monkeypatch.setattr("strands.tools.mcp.MCPClient", SlowClient)
+    users.ensure_user("ava")
+    row = mcp_servers.add("ava", "notes", "https://notes.example/mcp", "secret", actor="ava")
+    with ThreadPoolExecutor(1) as callers:
+        call = callers.submit(mcp_tools.personal_mcp_tools, "ava")
+        try:
+            assert entered.wait(2)
+            if invalidation in {"delete", "replace"}:
+                mcp_servers.delete(row["id"], "ava", actor="ava")
+                if invalidation == "replace":
+                    mcp_servers.add(
+                        "ava", "notes", "https://notes.example/mcp", "fresh", actor="ava"
+                    )
+                    mcp_tools.personal_mcp_tools("ava")
+            elif invalidation == "rename":
+                users.rename_user("ava", "avery", actor="admin")
+            elif invalidation == "shutdown":
+                mcp_tools.shutdown_mcp()
+            else:
+                db.execute("DELETE FROM mcp_servers WHERE id = ?", (row["id"],))
+        finally:
+            release.set()
+            call.result(timeout=3)
+        assert closed.wait(3), "an invalidated connection was published instead of closed"
+    if invalidation == "replace":
+        assert _settled(row["server_id"])["connected"] is True
+        assert mcp_tools._connections[row["server_id"]].client.headers == {
+            "Authorization": "Bearer fresh"
+        }
+    else:
+        assert row["server_id"] not in mcp_tools._connections
+    assert row["server_id"] not in mcp_tools._opening
+    assert row["server_id"] not in mcp_tools._retry_state
 
 
 def test_a_personal_server_is_owner_scoped_and_its_token_never_leaves_sealed(client, sealed):
@@ -91,6 +244,8 @@ def test_a_personal_server_is_owner_scoped_and_its_token_never_leaves_sealed(cli
     row = added.json()
     assert "tok-secret" not in added.text
     assert row["has_token"] is True and row["server_id"] == "personal:ava:jira"
+    _settled(row["server_id"])
+    row["status"] = client.get("/api/mcp/servers", headers=ava).json()["personal"][0]["status"]
     # the connection got the unsealed token, and the personal prefix
     assert SEEN[-1] == {
         "url": "https://jira.example/mcp",
@@ -132,8 +287,10 @@ def test_a_failed_connect_is_a_field_not_an_error(client, sealed):
         "/api/mcp/servers", json={"name": "dead", "url": "https://down.example/mcp"}, headers=ava
     )
     assert added.status_code == 200
-    assert added.json()["status"]["connected"] is False
-    assert added.json()["status"]["retry_in_seconds"] is not None
+    _settled(added.json()["server_id"])
+    state = client.get("/api/mcp/servers", headers=ava).json()["personal"][0]["status"]
+    assert state["connected"] is False
+    assert state["retry_in_seconds"] is not None
 
 
 @pytest.mark.parametrize(
@@ -212,6 +369,7 @@ def test_offboarding_and_rename_carry_the_rows(client, sealed):
     ava = _bootstrap("ava")
     users.ensure_user("ava")
     client.post("/api/mcp/servers", json={"name": "jira", "url": "https://j.example/"}, headers=ava)
+    _settled("personal:ava:jira")
     assert "personal:ava:jira" in mcp_tools._connections
     users.rename_user("ava", "avery", actor="admin")
     assert "personal:ava:jira" not in mcp_tools._connections, (

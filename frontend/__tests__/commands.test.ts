@@ -16,7 +16,7 @@ import {
 vi.mock("@/lib/api", () => ({
   api: vi.fn(),
   getUser: () => "anonymous", // keeps the debounced profile push inert
-  getApiKey: () => "",
+  sessionHeaders: () => ({}),
   API_URL: "http://backend.test",
 }));
 

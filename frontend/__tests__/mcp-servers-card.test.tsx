@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /** The card lists the operator's servers by name only, the reader's own with
  *  their URL, adds through POST with the typed fields, and deletes only after
@@ -30,7 +30,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
               has_token: true,
               signed_in: false,
               server_id: "personal:ava:jira",
-              status: { connected: false, offered: 0, retry_in_seconds: 30, tools: [] },
+              status: { connecting: true, connected: false, offered: 0, retry_in_seconds: null, tools: [] },
             })
           : Promise.reject(
               new Error("A credential cannot be stored: SKEIN_CREDENTIAL_KEY is not set."),
@@ -45,6 +45,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
   };
 });
 
+import { getStatus } from "@/lib/status";
 import { McpServersCard } from "@/components/mcp-servers-card";
 
 const PAYLOAD = {
@@ -79,6 +80,8 @@ const PAYLOAD = {
     },
   ],
 };
+
+afterEach(() => vi.useRealTimers());
 
 beforeEach(() => {
   mode.answer = "pending";
@@ -126,6 +129,7 @@ describe("McpServersCard", () => {
     await waitFor(() =>
       expect((screen.getByLabelText("Server name") as HTMLInputElement).value).toBe(""),
     );
+    expect(getStatus()?.message).toBe('Server "jira" added: connecting.');
   });
 
   it("keeps the typed fields when the write is refused", async () => {
@@ -221,4 +225,35 @@ describe("McpServersCard", () => {
       "Cannot load remote MCP servers.",
     );
   });
+});
+
+it.each([true, false])("polls a connecting server until discovery ends (connected=%s)", async (connected) => {
+  vi.useFakeTimers();
+  const pending = { ...PAYLOAD, personal: [{ ...PAYLOAD.personal[0], status: {
+    ...PAYLOAD.personal[0].status, connected: false, connecting: true, offered: 0, tools: [],
+  } }] };
+  const settled = { ...PAYLOAD, personal: [{ ...PAYLOAD.personal[0], status: {
+    ...PAYLOAD.personal[0].status, connected, connecting: false, retry_in_seconds: connected ? null : 30,
+  } }] };
+  const read = vi.fn().mockReturnValueOnce(pending).mockReturnValue(settled);
+  mode.answer = read;
+  await act(async () => { render(<McpServersCard strong />); });
+  expect(screen.getByText("connecting")).toBeTruthy();
+  await act(async () => { vi.advanceTimersByTime(3000); });
+  expect(screen.getByText(connected ? "connected, 1 of 2 tools governed" : "not connected. After 30 s, send a chat message to try again")).toBeTruthy();
+  expect(screen.queryByText("connecting")).toBeNull();
+  await act(async () => { vi.advanceTimersByTime(9000); });
+  expect(read).toHaveBeenCalledTimes(2);
+});
+
+it("does not promise automatic discovery for a capacity-deferred server", async () => {
+  const read = vi.fn().mockReturnValue({ ...PAYLOAD, personal: [{ ...PAYLOAD.personal[0], status: {
+    ...PAYLOAD.personal[0].status, connected: false, connecting: false, offered: 0, tools: [], retry_in_seconds: 0,
+  } }] });
+  mode.answer = read;
+  render(<McpServersCard strong />);
+  await screen.findByText("not connected. Send a chat message to try again");
+  vi.useFakeTimers();
+  await act(async () => { vi.advanceTimersByTime(9000); });
+  expect(read).toHaveBeenCalledTimes(1);
 });

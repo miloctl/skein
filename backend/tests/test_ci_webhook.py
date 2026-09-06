@@ -1,5 +1,16 @@
 """The CI webhook: deduped blocker on red, auto-resolve on green."""
 
+from conftest import _strong
+
+
+def test_ci_webhook_refuses_self_asserted_identity(client, fresh_db):
+    response = client.post(
+        "/api/webhooks/ci",
+        json={"repo": "team/app", "branch": "main", "status": "failure"},
+    )
+    assert response.status_code == 403
+    assert fresh_db.query_one("SELECT id FROM blockers") is None
+
 
 def test_ci_webhook_dedupe_and_resolve(client):
     fail = {
@@ -8,18 +19,22 @@ def test_ci_webhook_dedupe_and_resolve(client):
         "status": "failure",
         "run_url": "https://ci/run/1",
     }
-    first = client.post("/api/webhooks/ci", json=fail).json()
+    first = client.post("/api/webhooks/ci", headers=_strong(client), json=fail).json()
     assert first["raised"]
-    assert client.post("/api/webhooks/ci", json=fail).json()["deduped"]
+    assert client.post("/api/webhooks/ci", headers=_strong(client), json=fail).json()["deduped"]
 
     blockers = client.get("/api/blockers").json()
     assert any("CI red" in b["title"] for b in blockers)
 
-    ok = client.post("/api/webhooks/ci", json={**fail, "status": "success"}).json()
+    ok = client.post(
+        "/api/webhooks/ci", headers=_strong(client), json={**fail, "status": "success"}
+    ).json()
     assert len(ok["resolved"]) == 1
     assert client.get("/api/blockers").json() == []
 
-    ignored = client.post("/api/webhooks/ci", json={**fail, "branch": "feature/x"}).json()
+    ignored = client.post(
+        "/api/webhooks/ci", headers=_strong(client), json={**fail, "branch": "feature/x"}
+    ).json()
     assert "ignored" in ignored
 
 
@@ -33,11 +48,13 @@ def test_ci_webhook_github_actions_shape(client):
         },
         "repository": {"full_name": "team/repo"},
     }
-    out = client.post("/api/webhooks/ci", json=payload).json()
+    out = client.post("/api/webhooks/ci", headers=_strong(client), json=payload).json()
     assert out["raised"]
 
     cancelled = {**payload, "workflow_run": {**payload["workflow_run"], "conclusion": "cancelled"}}
-    assert "ignored" in client.post("/api/webhooks/ci", json=cancelled).json()
+    assert (
+        "ignored" in client.post("/api/webhooks/ci", headers=_strong(client), json=cancelled).json()
+    )
 
 
 def test_workplace_policy_can_deny_ci_side_effects(fresh_db):
@@ -67,7 +84,7 @@ def test_workplace_policy_can_deny_ci_side_effects(fresh_db):
     with TestClient(create_app(modules=(module,))) as client:
         response = client.post(
             "/api/webhooks/ci",
-            headers={"X-User": "mira"},
+            headers=_strong(client, "mira"),
             json={"repo": "team/app", "branch": "main", "status": "failure"},
         )
     assert response.status_code == 403
@@ -107,7 +124,7 @@ def test_ci_policy_sees_the_repository_the_write_targets(fresh_db):
     with TestClient(create_app(modules=(module,))) as client:
         response = client.post(
             "/api/webhooks/ci",
-            headers={"X-User": "mira"},
+            headers=_strong(client, "mira"),
             json={
                 "repo": "team/allowed",
                 "workflow_run": {
@@ -136,7 +153,7 @@ def test_ci_webhook_rejects_an_unvalidated_repository_shape(client, fresh_db):
         },
         "repository": {"full_name": {"nested": "dict"}},
     }
-    response = client.post("/api/webhooks/ci", json=payload)
+    response = client.post("/api/webhooks/ci", headers=_strong(client), json=payload)
     assert response.status_code == 400
     assert fresh_db.query_one("SELECT id FROM blockers") is None
 
@@ -144,4 +161,6 @@ def test_ci_webhook_rejects_an_unvalidated_repository_shape(client, fresh_db):
         **payload,
         "repository": {"full_name": "A" * 100_000},
     }
-    assert client.post("/api/webhooks/ci", json=oversized).status_code == 400
+    assert (
+        client.post("/api/webhooks/ci", headers=_strong(client), json=oversized).status_code == 400
+    )

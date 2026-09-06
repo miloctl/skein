@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import hmac
 import logging
+import math
 import time
 from urllib.parse import parse_qs
 
@@ -28,7 +29,9 @@ SLACK_READ_TIMEOUT = 3
 
 def _verify(raw: bytes, timestamp: str, signature: str) -> bool:
     try:
-        if abs(time.time() - float(timestamp or 0)) > 60 * 5:
+        sent_at = float(timestamp or 0)
+        # NaN makes every age comparison false and bypasses the replay window.
+        if not math.isfinite(sent_at) or abs(time.time() - sent_at) > 60 * 5:
             return False
         base = f"v0:{timestamp}:{raw.decode()}"
     except (ValueError, UnicodeDecodeError):

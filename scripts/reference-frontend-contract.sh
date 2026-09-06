@@ -39,6 +39,7 @@ PY
 )
 role_name="skein_atlas_role_${run_id}"
 role_password="$($db_python -c 'import secrets; print(secrets.token_hex(24))')"
+credential_key="$($db_python -c 'import base64, secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())')"
 runtime_db="skein_contract_frontend_${run_id}"
 node_image="node:22-bookworm@sha256:8a34c4ab3ea2c5cd194f07e317b2a8f09461d3c8b05c4e34c8ccd56d56024c4d"
 role_created=""
@@ -437,6 +438,7 @@ db_helper run-clean "$runtime_db" env -C "$tmp/run" \
     SKEIN_SCHEDULER=0 \
     SKEIN_EMBEDDINGS=0 \
     SKEIN_AUTH_MODE=oidc \
+    SKEIN_CREDENTIAL_KEY="$credential_key" \
     SKEIN_OIDC_ISSUER="http://127.0.0.1:$idp_port" \
     SKEIN_OIDC_AUDIENCE=skein \
     SKEIN_OIDC_CLIENT_ID=skein-web \

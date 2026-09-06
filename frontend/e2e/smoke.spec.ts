@@ -45,18 +45,17 @@ async function pickName(page: Page, key = "") {
   // trusted-header mode: the X-User name picker is identity. Walks run as a
   // seeded teammate so pages render data, not the anonymous empty states.
   await page.goto("/");
-  await page.evaluate(
-    ([name, apiKey]) => {
-      window.localStorage.setItem("skein-user", name);
-      // a key is STRONG identity, and several surfaces render nothing without
-      // one — the Crews card's whole interactive half, and the deployment
-      // limits. A walk with no key scans an empty read-only page and reports
-      // it clean.
-      if (apiKey) window.localStorage.setItem("skein-key", apiKey);
-      else window.localStorage.removeItem("skein-key");
-    },
-    ["ava", key],
-  );
+  // Hydration and prefetch continue after load. A second hard navigation can
+  // make WebKit report the old document's aborted fetches as page errors.
+  await page.waitForLoadState("networkidle");
+  await page.evaluate(() => window.localStorage.setItem("skein-user", "ava"));
+  if (key) {
+    await page.goto("/settings");
+    await page.getByLabel("Personal API key", { exact: true }).fill(key);
+    await page.getByRole("button", { name: "Sign in with key", exact: true }).click();
+    await expect(page.getByText(/strong identity active as ava/)).toBeVisible();
+    await page.waitForLoadState("networkidle");
+  }
 }
 
 test("an anonymous visitor reaches the name gate", async ({ page }) => {
@@ -185,18 +184,63 @@ test("the crews card is operable with a keyboard and announces what it did", asy
   await expect(confirm).toBeHidden();
   await expect(platform).toBeFocused();
 
-  // and the write announces itself through the shared live region
-  await page.getByLabel("Add someone to Platform").fill("mario");
-  await page.getByRole("button", { name: "Add to Platform" }).click();
-  await expect(
-    page.getByRole("status").filter({ hasText: "added to Platform" }),
-  ).toBeVisible();
+  const addedMember = page.getByRole("button", { name: "Remove mario from Platform", exact: true });
+  const clearTestMember = async () => {
+    if (!await addedMember.isVisible()) return;
+    await addedMember.click();
+    await page.getByRole("button", { name: "Confirm: remove mario from Platform", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "mario removed from Platform." })).toBeVisible();
+    await expect(addedMember).toBeHidden();
+  };
+  // Browser walks can reuse the same disposable database. An existing member
+  // produces a no-change receipt, so restore the seeded membership on both sides.
+  await clearTestMember();
+  try {
+    await page.getByLabel("Add someone to Platform").fill("mario");
+    await page.getByRole("button", { name: "Add to Platform" }).click();
+    await expect(
+      page.getByRole("status").filter({ hasText: "mario added to Platform." }),
+    ).toBeVisible();
+    await expect(addedMember).toBeVisible();
 
+    const scan = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+      .analyze();
+    expect(
+      scan.violations.map((v) => ({ rule: v.id, impact: v.impact })),
+    ).toEqual([]);
+  } finally {
+    await clearTestMember();
+  }
   expect(faults, JSON.stringify(faults, null, 2)).toEqual([]);
-  const scan = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
-    .analyze();
-  expect(
-    scan.violations.map((v) => ({ rule: v.id, impact: v.impact })),
-  ).toEqual([]);
+});
+
+test("backward keyboard focus stays below the sticky header", async ({ page }) => {
+  await pickName(page);
+  for (const width of [1280, 360]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto("/dashboard");
+    await page.waitForLoadState("networkidle");
+    const controls = page.locator("main a[href], main button:not([disabled]), main input, main select, main textarea");
+    await controls.last().focus();
+    const obscured: string[] = [];
+    for (let i = 0; i < await controls.count(); i++) {
+      const focus = await page.evaluate(() => {
+        const active = document.activeElement as HTMLElement | null;
+        if (!active?.closest("main")) return null;
+        const rect = active.getBoundingClientRect();
+        const style = getComputedStyle(active);
+        const outline = style.outlineStyle === "none" ? 0 : Math.max(0,
+          (parseFloat(style.outlineWidth) || 0) + (parseFloat(style.outlineOffset) || 0),
+        );
+        const header = document.querySelector("header")!.getBoundingClientRect();
+        return { name: active.getAttribute("aria-label") || active.textContent || active.tagName, top: rect.top - outline, bottom: rect.bottom + outline, edge: header.bottom };
+      });
+      if (!focus) break;
+      if (focus.bottom > 0 && focus.top < focus.edge - 1)
+        obscured.push(`${width}px: ${focus.name.trim()} at ${focus.top}, header ends at ${focus.edge}`);
+      await page.keyboard.press("Shift+Tab");
+    }
+    expect(obscured).toEqual([]);
+  }
 });

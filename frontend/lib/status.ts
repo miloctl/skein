@@ -12,6 +12,8 @@
  *  the whole tree.
  */
 
+import { isIdentityEvent } from "./shared-chats";
+
 export type StatusTone = "failure" | "confirmation";
 export type Status = { message: string; tone: StatusTone; id: number };
 
@@ -69,4 +71,14 @@ export function reportStatus(message: string, tone: StatusTone = "failure") {
 
 export function dismissStatus() {
   reportStatus("");
+}
+
+if (typeof window !== "undefined") {
+  // components/auth-gate.tsx remounts the renderer, not this store. A receipt
+  // can name a private file, so both its text and timer must leave with its owner.
+  const changed = (event: Event) => {
+    if (isIdentityEvent(event)) dismissStatus();
+  };
+  window.addEventListener("skein-identity-change", changed);
+  window.addEventListener("storage", changed);
 }

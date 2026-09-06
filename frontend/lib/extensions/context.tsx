@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import { api } from "@/lib/api";
+import { sessionRevision } from "@/lib/auth";
 import { compiledExtensions } from "@/extensions/generated";
 import type { FrontendExtension, FrontendExtensionRegistry } from "./contracts";
 import { registerFrontendExtensions } from "./registry";
@@ -22,15 +23,7 @@ const ExtensionContext = createContext<FrontendExtensionRegistry>(EMPTY);
 let identityEventRevision = 0;
 const identitySnapshot = () => {
   if (typeof window === "undefined") return "0:[]";
-  try {
-    return `${identityEventRevision}:${JSON.stringify(
-      ["skein-oidc", "skein-user", "skein-key"].map((key) =>
-        window.localStorage.getItem(key),
-      ),
-    )}`;
-  } catch {
-    return `${identityEventRevision}:[]`;
-  }
+  return `${identityEventRevision}:${sessionRevision()}`;
 };
 const subscribeIdentity = (listener: () => void) => {
   const changed = () => {

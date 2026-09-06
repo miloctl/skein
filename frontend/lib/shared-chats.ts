@@ -95,5 +95,5 @@ export function announceSharedChatActivity() {
 export function isIdentityEvent(event: Event): boolean {
   if (event.type !== "storage") return true;
   if (!(event instanceof StorageEvent)) return false;
-  return !event.key || ["skein-user", "skein-key", "skein-oidc"].includes(event.key);
+  return !event.key || ["skein-user", "skein-session-change", "skein-oidc-generation"].includes(event.key);
 }

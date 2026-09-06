@@ -561,6 +561,15 @@ async def lifespan(app: FastAPI):
 
 
 async def perimeter_auth(request: Request, call_next):
+    response = await _perimeter_auth(request, call_next)
+    if request.url.path.startswith("/api"):
+        current = response.headers.get("Cache-Control", "")
+        if "no-store" not in {part.strip().lower() for part in current.split(",")}:
+            response.headers["Cache-Control"] = f"{current}, no-store" if current else "no-store"
+    return response
+
+
+async def _perimeter_auth(request: Request, call_next):
     """Perimeter gate, by SKEIN_AUTH_MODE. Route dependencies (routes/deps.py)
     resolve WHO the caller is; this layer only refuses requests that carry no
     valid credential at all — so a future route that forgets a user dependency
@@ -603,7 +612,23 @@ async def perimeter_auth(request: Request, call_next):
     if settings.auth_error:
         # fail CLOSED: a typo'd mode must not silently open the deployment
         return JSONResponse(status_code=503, content={"detail": settings.auth_error})
-    if settings.auth_mode == "trusted-header" and not settings.api_token:
+    from .routes.auth import CSRF_HEADER
+    from .routes.deps import browser_identity
+    from .services.browser_sessions import COOKIE_NAME
+
+    auth = request.headers.get("Authorization", "")
+    # Cookie identity must be checked before the open development-mode door.
+    # A stale binding with no cookie is not permission to become X-User.
+    if COOKIE_NAME in request.cookies or CSRF_HEADER in request.headers:
+        try:
+            identity = await run_in_threadpool(browser_identity, request, auth)
+        except PublicError as exc:
+            return await public_error_handler(request, exc)
+        except db.BUSY_ERRORS as exc:
+            return await database_busy_handler(request, exc)
+        if identity is not None:
+            return await call_next(request)
+    if settings.auth_mode == "trusted-header" and not settings.api_token and not auth:
         return await call_next(request)
     from .routes.deps import (
         INACTIVE,
@@ -645,7 +670,14 @@ async def perimeter_auth(request: Request, call_next):
         # the catalog reads which resolve no caller and never reach deps
         # (tests/test_route_identity.py::OPEN_READS).
         if await run_in_threadpool(is_agent, owner):
-            return JSONResponse(status_code=403, content={"detail": agent_on_rest(owner)})
+            from . import mcp_server
+
+            detail = (
+                mcp_server.PERSON_KEY_ONLY
+                if request.url.path.rstrip("/") == mcp_server.REMOTE_PATH
+                else agent_on_rest(owner)
+            )
+            return JSONResponse(status_code=403, content={"detail": detail})
         collision = await run_in_threadpool(identity_collision_refusal, owner)
         if collision:
             return JSONResponse(status_code=403, content={"detail": collision})
@@ -772,7 +804,9 @@ async def public_error_handler(request: Request, exc: PublicError):
             "obligations": list(exc.obligations),
             **({"review_id": exc.review_id} if exc.review_id else {}),
         },
-        headers={"Retry-After": "60"} if exc.retryable and exc.status_code in (429, 503) else None,
+        headers={"Retry-After": str(getattr(exc, "retry_after", 60))}
+        if exc.retryable and exc.status_code in (429, 503)
+        else None,
     )
 
 
@@ -1044,6 +1078,7 @@ def create_app(
     application.add_middleware(
         CORSMiddleware,
         allow_origins=list(selected_settings.cors_origins),
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=["X-Skein-Filename"],

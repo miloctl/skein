@@ -73,18 +73,20 @@ def remember(
     return {"id": mid, "topic": topic}
 
 
-def get_memory(memory_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict | None:
-    # Filtered, defaulting to NOBODY: tools/memory.py puts the topic and the
-    # first 80 characters of the body into a pending_changes summary, and the
-    # reviewer who reads that card is not necessarily the memory's owner.
+def get_memory(
+    memory_id: int, viewer: scope.Viewer = scope.NOBODY, *, user: str = ""
+) -> dict | None:
+    # Both recall axes apply: tools/memory.py puts this body into a proposal
+    # summary before the gate, so a tier-only check discloses another person's
+    # targeted workspace memory to the requesting agent.
     frag, vp = scope.visible_filter(viewer, "memories")
     return db.query_one(
-        f"SELECT * FROM memories WHERE id = ? AND {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
-        (memory_id, *vp),
+        f"SELECT * FROM memories WHERE id = ? AND \"user\" IN (?, '') AND {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (memory_id, user, *vp),
     )
 
 
-def forget(memory_id: int, *, actor: str, origin: str = "human") -> dict:
+def forget(memory_id: int, *, actor: str, origin: str = "human", requester: str = "") -> dict:
     """Memories steer every future conversation — a wrong or injected one
     must be removable, and the removal itself is on the record."""
     from .search import deindex_record
@@ -92,19 +94,17 @@ def forget(memory_id: int, *, actor: str, origin: str = "human") -> dict:
     # one transaction: a row delete that commits without its index delete
     # leaves the memory's full content queryable through search
     with db.transaction():
-        row = db.query_one("SELECT * FROM memories WHERE id = ?", (memory_id,))
-        if not row:
+        row = db.query_one("SELECT * FROM memories WHERE id = ? FOR UPDATE", (memory_id,))
+        # The agent remains the ledger actor on approval. Ownership comes from
+        # the authenticated requester's name, never the reviewer or the payload
+        # (services/review.py supplies its stored requested_by).
+        if not row or (row["user"] and row["user"] != (requester or actor)):
             raise scope.missing("memories", memory_id)
         scope.assert_editable("memories", row, actor, verb="forget")
         db.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
         deindex_record("memory", memory_id)
-        db.log_activity(
-            actor,
-            "forget",
-            scope.detail(
-                row["visibility"], f"#{memory_id}", f"[{row['topic']}] {row['content'][:200]}"
-            ),
-        )
+        # Recording the body here copies the forgotten content into the immutable ledger.
+        db.log_activity(actor, "forget", f"#{memory_id}")
     return {"id": memory_id, "deleted": True}
 
 

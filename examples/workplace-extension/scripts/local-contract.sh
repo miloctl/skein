@@ -48,6 +48,7 @@ done
 run_id="${run_label}_$$"
 role_name="skein_atlas_role_${run_id}"
 role_password="$(python3.12 -c 'import secrets; print(secrets.token_hex(24))')"
+credential_key="$(python3.12 -c 'import base64, secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())')"
 role_created=""
 tmp="$(mktemp -d "/tmp/atlas-contract.${run_id}.XXXXXX")"
 artifacts="$tmp/artifacts"
@@ -371,6 +372,7 @@ db_helper run-docker "$runtime_db" \
     --security-opt no-new-privileges --cap-drop ALL \
     -e SKEIN_DATABASE_URL -e SKEIN_MODEL_PROVIDER=mock -e SKEIN_SCHEDULER=0 \
     -e SKEIN_AUTH_MODE=oidc \
+    -e "SKEIN_CREDENTIAL_KEY=$credential_key" \
     -e "SKEIN_OIDC_ISSUER=http://127.0.0.1:$idp_port" \
     -e SKEIN_OIDC_AUDIENCE=skein -e SKEIN_OIDC_CLIENT_ID=skein-web \
     -e SKEIN_OIDC_ADMIN_GROUP=skein-admins \

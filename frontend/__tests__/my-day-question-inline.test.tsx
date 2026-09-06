@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /** Answer where the ask is read. The question row said "someone is waiting
@@ -57,6 +57,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 vi.mock("next/navigation", () => ({ usePathname: () => "/" }));
 
 import MyDay from "@/app/page";
+import { getStatus } from "@/lib/status";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -82,7 +83,7 @@ const posts = () => mocks.api.mock.calls.filter(([, o]) => o?.method);
 describe("the question row on My Day", () => {
   it("takes the answer in place", async () => {
     render(<MyDay />);
-    fireEvent.click(await screen.findByRole("button", { name: "answer…" }));
+    fireEvent.click(await screen.findByRole("button", { name: /answer…/ }));
     const input = screen.getByLabelText("Answer question #1");
     fireEvent.keyDown(input, { key: "Enter", target: { value: "Yes — 2 days" } });
     await waitFor(() => expect(posts()).toHaveLength(1));
@@ -114,4 +115,85 @@ describe("the My Day header count", () => {
     render(<MyDay />);
     expect(await screen.findByText(/1 thing needs you · 2 notices/)).toBeTruthy();
   });
+});
+
+describe("My Day action focus", () => {
+  it("returns to the answer control after Escape", async () => {
+    render(<MyDay />);
+    fireEvent.click(await screen.findByRole("button", { name: /answer…/ }));
+    fireEvent.keyDown(screen.getByLabelText("Answer question #1"), { key: "Escape" });
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: /answer…/ })));
+  });
+
+  it("announces dismissal and focuses the next notice after the row leaves", async () => {
+    const original = mocks.api.getMockImplementation()!;
+    let dismissed = false;
+    mocks.api.mockImplementation((path: string, opts?: { method?: string }) => {
+      if (path === "/api/notifications/read") dismissed = true;
+      if (path === "/api/briefing" && dismissed)
+        return Promise.resolve({ ...briefing, attention: briefing.attention.filter((a) => a.ref_id !== 9) });
+      return original(path, opts);
+    });
+    render(<MyDay />);
+    const dismiss = (await screen.findAllByRole("button", { name: /dismiss/i }))[0];
+    dismiss.focus();
+    fireEvent.click(dismiss);
+    await waitFor(() => expect(screen.queryByText("agent started on task #32")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("link", { name: "you sponsor task #32" })));
+    expect(getStatus()?.message).toBe("Notification dismissed.");
+  });
+});
+
+it.each(["start", "done"])("restores task focus and announces %s", async (action) => {
+  const original = mocks.api.getMockImplementation()!;
+  let changed = false;
+  let finish!: () => void;
+  mocks.api.mockImplementation((path: string, opts?: { method?: string }) => {
+    if (path === "/api/tasks/1" && opts?.method === "PATCH")
+      return new Promise((resolve) => {
+        finish = () => { changed = true; resolve({}); };
+      });
+    if (path === "/api/briefing") return Promise.resolve({
+      ...briefing,
+      your_work: { ...briefing.your_work, tasks: [
+        ...(changed && action === "done" ? [] : [{ id: 1, title: "Plan launch", priority: "high", status: changed ? "in_progress" : "todo" }]),
+        { id: 2, title: "Check evidence", priority: "high", status: "in_progress" },
+      ] },
+    });
+    return original(path, opts);
+  });
+  render(<MyDay />);
+  const control = (await screen.findAllByRole("button", { name: new RegExp(`^${action}`) }))[0];
+  control.focus();
+  fireEvent.click(control);
+  expect(control.isConnected).toBe(true);
+  await act(async () => { finish(); });
+  expect(control.isConnected).toBe(false);
+  expect(document.activeElement).toBe(screen.getByRole("button", {
+    name: action === "done" ? /^Open.*Check evidence$/ : /^Open.*Plan launch$/,
+  }));
+  expect(getStatus()?.message).toBe(`Task #1 ${action === "done" ? "done" : "started"}.`);
+});
+
+it("does not take focus from a later action when a task write finishes", async () => {
+  const original = mocks.api.getMockImplementation()!;
+  let finish!: (value: object) => void;
+  let changed = false;
+  mocks.api.mockImplementation((path: string, opts?: { method?: string }) => {
+    if (path === "/api/tasks/1" && opts?.method === "PATCH")
+      return new Promise((resolve) => { finish = (value) => { changed = true; resolve(value); }; });
+    if (path === "/api/briefing") return Promise.resolve({
+      ...briefing, your_work: { ...briefing.your_work, tasks: changed ? [] : [{ id: 1, title: "Plan launch", priority: "high", status: "todo" }] },
+    });
+    return original(path, opts);
+  });
+  render(<MyDay />);
+  const done = await screen.findByRole("button", { name: /^done/ });
+  done.focus();
+  fireEvent.click(done);
+  const field = screen.getByLabelText("Standup: what are you on today?");
+  field.focus();
+  finish({});
+  await waitFor(() => expect(screen.queryByText("Plan launch")).toBeNull());
+  expect(document.activeElement).toBe(field);
 });

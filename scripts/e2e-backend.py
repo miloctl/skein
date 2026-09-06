@@ -61,6 +61,16 @@ def main() -> None:
                 create_key("ava", "Playwright")
             with patch("app.services.api_keys.secrets.token_hex", return_value="1" * 40):
                 create_key("marcus", "Playwright shared chat")
+        bindings = os.getenv("SKEIN_E2E_OIDC_BINDINGS", "").split()
+        if bindings:
+            from app import oidc
+            from app.services.oidc_identities import bind_existing
+
+            for binding in bindings:
+                subject, separator, person = binding.partition("=")
+                if not separator or not subject or not person:
+                    raise SystemExit("Each test binding must use subject=user.")
+                bind_existing(oidc.issuer(), subject, person, actor="oidc-bootstrap")
         uvicorn.run(APP, host="127.0.0.1", port=PORT)
     finally:
         signal.signal(signal.SIGTERM, previous_sigterm)

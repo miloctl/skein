@@ -9,7 +9,7 @@ from .. import config, ratelimit
 from ..extensions.fastapi import PolicySubjectDep, enforce_decision
 from ..extensions.policy import PolicyInput, PolicyResource
 from ..services import ci, forge
-from .deps import CurrentUser, forge_webhook_off, verify_forge_signature
+from .deps import StrongUser, forge_webhook_off, verify_forge_signature
 
 router = APIRouter()
 
@@ -37,7 +37,7 @@ class CIEventIn(BaseModel):
 @router.post("/api/webhooks/ci")
 def ci_webhook(
     body: CIEventIn,
-    user: CurrentUser,
+    user: StrongUser,
     request: Request,
     subject: PolicySubjectDep,
 ):

@@ -152,6 +152,75 @@ def test_agent_recorded_promises_surface_in_week_open(fresh_db):
     assert "send the SOW" in opened["markdown"]
 
 
+@pytest.mark.parametrize("job_name", ["weekly-plan", "stale-wip-nudge"])
+def test_weekly_job_failure_rolls_back_claim_and_notifications(fresh_db, monkeypatch, job_name):
+    from app.services import jobs, notifications, users, work
+
+    for person in ("ava", "mira"):
+        users.ensure_user(person)
+        task = work.create_task(f"work for {person}", assignee=person, actor=person)
+        work.update_task(task["id"], status="in_progress", actor=person)
+        fresh_db.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", (_ago(10), task["id"]))
+    before = fresh_db.query("SELECT id FROM notifications ORDER BY id")
+    spec = next(job for job in jobs.JOBS if job.name == job_name)
+    original = notifications.notify
+    calls = 0
+
+    def failed_notice(*args, **kwargs):
+        nonlocal calls
+        result = original(*args, **kwargs)
+        calls += 1
+        if calls == (2 if job_name == "stale-wip-nudge" else 1):
+            raise RuntimeError("notification interrupted")
+        return result
+
+    with monkeypatch.context() as failing:
+        failing.setattr(notifications, "notify", failed_notice)
+        jobs.run_job(spec)
+    assert fresh_db.query_row("SELECT status FROM job_outcomes WHERE job = ?", (job_name,)) == {
+        "status": "error"
+    }
+    assert fresh_db.query("SELECT * FROM job_runs WHERE job = ?", (job_name,)) == []
+    assert fresh_db.query("SELECT id FROM notifications ORDER BY id") == before
+    assert fresh_db.query("SELECT * FROM pending_changes") == []
+
+    jobs.run_job(spec)
+    assert (
+        fresh_db.query_row(
+            "SELECT status FROM job_outcomes WHERE job = ? ORDER BY id DESC LIMIT 1", (job_name,)
+        )["status"]
+        == "ok"
+    )
+    assert (
+        fresh_db.query_row("SELECT COUNT(*) AS n FROM job_runs WHERE job = ?", (job_name,))["n"]
+        == 1
+    )
+    if job_name == "weekly-plan":
+        assert fresh_db.query_row("SELECT COUNT(*) AS n FROM pending_changes")["n"] == 1
+    else:
+        notices = fresh_db.query(
+            "SELECT * FROM notifications WHERE message LIKE '%in progress more than%'"
+        )
+        assert len(notices) == 2
+        assert {notice["user"] for notice in notices} == {"ava", "mira"}
+
+
+@pytest.mark.parametrize("job_name", ["weekly-plan", "stale-wip-nudge"])
+def test_weekly_job_skip_does_not_record_another_success(fresh_db, job_name):
+    from app.services import jobs, users, work
+
+    users.ensure_user("ava")
+    task = work.create_task("ongoing work", assignee="ava", actor="ava")
+    work.update_task(task["id"], status="in_progress", actor="ava")
+    fresh_db.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", (_ago(10), task["id"]))
+    spec = next(job for job in jobs.JOBS if job.name == job_name)
+    jobs.run_job(spec)
+    first = fresh_db.query("SELECT * FROM job_outcomes WHERE job = ?", (job_name,))
+    assert len(first) == 1 and first[0]["status"] == "ok"
+    jobs.run_job(spec)
+    assert fresh_db.query("SELECT * FROM job_outcomes WHERE job = ?", (job_name,)) == first
+
+
 def test_weekly_summary_agrees_with_its_own_count(fresh_db):
     """This summary reaches a reader on My Day, on Approvals, and in a
     notification. It shipped "1 tasks" — CLAUDE.md requires sentence-form

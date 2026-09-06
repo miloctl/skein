@@ -127,7 +127,7 @@ def _update_promise_locked(
     """The settlement, its receipt, and its event are one unit."""
     if status not in STATUSES:
         raise ValueError(f"status must be one of {STATUSES}")
-    row = db.query_one("SELECT * FROM promises WHERE id = ?", (promise_id,))
+    row = db.query_one("SELECT * FROM promises WHERE id = ? FOR UPDATE", (promise_id,))
     if not row:
         raise scope.missing("promises", promise_id)
     scope.assert_editable("promises", row, actor, verb="settle")
@@ -178,7 +178,7 @@ def _edit_promise_locked(
     """Correct the wording/date of an OPEN promise — old→new logged; settled
     promises stay as history."""
     db.validate_date("due_date", due_date)
-    row = db.query_one("SELECT * FROM promises WHERE id = ?", (promise_id,))
+    row = db.query_one("SELECT * FROM promises WHERE id = ? FOR UPDATE", (promise_id,))
     if not row:
         raise scope.missing("promises", promise_id)
     scope.assert_editable("promises", row, actor, verb="edit")

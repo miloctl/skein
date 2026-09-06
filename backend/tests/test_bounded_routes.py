@@ -115,9 +115,12 @@ EXEMPT: dict[str, str] = {
     "POST /api/users/{name}/rename": "AdminUser roster edit",
     "POST /api/agents/authority": "humans only, one row per (agent, entity)",
     "DELETE /api/keys/{key_id}": "revokes one key the caller can already see",
-    "POST /api/keys": "needs an existing key to mint another",
+    "POST /api/keys": "needs an existing bearer credential to mint another",
+    # A spent sign-in budget must not prevent logout. This origin/CSRF-bound
+    # endpoint only revokes its cookie, has no body or remote work, and is idempotent.
+    "DELETE /api/auth/session": "origin/CSRF-bound local session revocation",
     # --- signature-verified integrations, metered as one caller each ---
-    "POST /api/webhooks/ci": "HMAC-verified; files one deduped blocker per run",
+    "POST /api/webhooks/ci": "strong identity; files one deduped blocker per run",
     # --- capped elsewhere, deliberately ---
     "POST /api/decisions/{decision_id}/supersede": "the write path is capped in the create route",
     # --- known cost, no cap yet: these are the census's own open rows and the

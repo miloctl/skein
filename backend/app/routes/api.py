@@ -1041,7 +1041,7 @@ def download_file(artifact_id: int, user: CurrentUser):
 def get_users(user: CurrentUser, all: bool = False):
     # all=1 includes deactivated rows — the Settings roster needs them so
     # deactivation stays reversible from the UI
-    return users.list_users(active_only=not all)
+    return users.public_users(user, active_only=not all)
 
 
 class UserRenameIn(BaseModel):
@@ -1479,7 +1479,14 @@ class KeyIn(BaseModel):
 
 
 @router.post("/keys")
-def post_key(body: KeyIn, user: StrongUser):
+def post_key(body: KeyIn, user: StrongUser, request: Request):
+    # Otherwise injected browser code could turn an HttpOnly session into a
+    # permanent credential it can read and export.
+    if getattr(request.state, "auth_via_session", False):
+        raise HTTPException(
+            403,
+            "Browser sessions cannot create API keys. Use an automation client or ask whoever runs the server.",
+        )
     return api_keys.create_key(user, body.label)
 
 
@@ -1534,8 +1541,8 @@ def post_mcp_server(body: McpServerIn, user: StrongUser):
 
     ratelimit.check("write", user)
     row = mcp_servers.add(user, body.name, body.url, body.auth_token, auth=body.auth, actor=user)
-    # connect once now so the reply says what the server offers; a failed
-    # connect is a field, the row stays and retries on the owner's next turn
+    # A remote startup timeout must not occupy a REST worker. Discovery runs
+    # in the background; GET /mcp/servers reports its eventual result.
     personal_mcp_tools(user)
     row["status"] = next((s for s in status() if s["server_id"] == row["server_id"]), None)
     return row

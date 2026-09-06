@@ -70,7 +70,9 @@ class ExtensionStore:
         two different schemas in the field under one version number, and
         nothing would say which one a database has.
         """
-        with db.transaction(), self._scope():
+        # A migration waits for another boot, not a request worker. Keep the
+        # operator's timeout instead of imposing the runtime contention budget.
+        with db.transaction(bound_lock_wait=False), self._scope():
             # The schema name lock from ensure_owned_schema stays held until
             # every migration statement and its version receipt commit.
             db.execute(
