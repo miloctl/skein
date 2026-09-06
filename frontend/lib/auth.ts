@@ -53,9 +53,12 @@ function publish(next: SessionState) {
   const identityChanged = session.csrf_token !== next.csrf_token ||
     session.user !== next.user || session.authenticated !== next.authenticated ||
     session.strong !== next.strong;
+  const changed = identityChanged || session.status !== next.status || session.error !== next.error;
   session = next;
   if (identityChanged) revision++;
-  window.dispatchEvent(new Event("storage"));
+  // Every focus re-reads the session. An unchanged result must not fire the
+  // listeners that empty lib/api.ts's GET cache and refetch capabilities.
+  if (changed) window.dispatchEvent(new Event("storage"));
   if (identityChanged) window.dispatchEvent(new Event("skein-identity-change"));
 }
 

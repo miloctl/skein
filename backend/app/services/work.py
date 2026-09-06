@@ -20,6 +20,10 @@ WEEK_RE = re.compile(r"^\d{4}-W(0[1-9]|[1-4]\d|5[0-3])$")
 TITLE_LEN = 200
 DESCRIPTION_LEN = 4000
 TASK_LIST_LIMIT = 500
+# Rows one policy-filtered page may read. Offset and limit count PERMITTED
+# rows, so without this budget a large offset or a filter that denies nearly
+# everything scans the whole table, with a policy decision per row, per call.
+TASK_SCAN_LIMIT = 10_000
 
 
 def _event_actor_kind(origin: str) -> str:
@@ -1536,9 +1540,16 @@ def list_tasks(
     offset = max(0, int(offset))
     visible: list[dict] = []
     scan_offset = offset if resource_filter is None else 0
+    scan_end = scan_offset + TASK_SCAN_LIMIT
     with db.read_transaction():
         while len(visible) < limit:
             batch_limit = TASK_LIST_LIMIT if resource_filter is not None else limit
+            if scan_offset >= scan_end:
+                raise ValueError(
+                    f"The task page needs more than {TASK_SCAN_LIMIT} rows. Use a smaller"
+                    " offset, or filter by status or assignee."
+                )
+            batch_limit = min(batch_limit, scan_end - scan_offset)
             rows = _task_rows(
                 viewer,
                 milestone_id=milestone_id,

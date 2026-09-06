@@ -344,7 +344,14 @@ def _prepare(sql: str, params: tuple) -> tuple[str, tuple | None]:
     because psycopg only unescapes `%%` when parameters are present — doubling
     it here would leave `LIKE 'x%%'` matching a literal percent sign in the
     data."""
-    if any(isinstance(value, str) and "\x00" in value for value in params):
+    # Lists reach psycopg as arrays (`= ANY(?)`), so a NUL inside one is the
+    # same input error as a NUL in a scalar and must not become a 500.
+    if any(
+        "\x00" in item
+        for value in params
+        for item in (value if isinstance(value, (list, tuple)) else (value,))
+        if isinstance(item, str)
+    ):
         raise ValueError("Text contains a NUL character. Remove it and send the request again.")
     if not params:
         return sql, None
