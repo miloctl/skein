@@ -64,6 +64,7 @@ vi.mock("@/lib/auth", async (importOriginal) => {
   return {
     ...real,
     authConfig: () => Promise.resolve({ mode: "trusted-header" }),
+    trustedHeaderIdentity: () => true,
   };
 });
 

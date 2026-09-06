@@ -671,6 +671,19 @@ def list_users(active_only: bool = True) -> list[dict]:
     return db.query("SELECT * FROM users WHERE name != 'anonymous' ORDER BY kind, name")
 
 
+def public_users(requester: str, active_only: bool = True) -> list[dict]:
+    # Growth interests are shared staffing context. Theme preferences are
+    # self-visible, and identity_owner belongs to machine identity claims.
+    fields = ("id", "name", "kind", "active", "created_at", "growth_interests")
+    result = []
+    for row in list_users(active_only=active_only):
+        profile = {field: row[field] for field in fields}
+        if row["name"] == requester:
+            profile["theme"] = row["theme"]
+        result.append(profile)
+    return result
+
+
 # every column that attributes a row to a person, per table — explicit so a
 # new table with an attribution column fails the parity test until added here
 _ATTRIBUTION: dict[str, tuple[str, ...]] = {
@@ -712,6 +725,7 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "api_keys": ("owner",),
     "mcp_servers": ("owner", "created_by"),
     "oidc_identities": ("created_by",),
+    "browser_sessions": ("created_by",),
     "memories": ("user", "created_by"),
     "agent_authority": ("agent", "updated_by"),
     "artifacts": ("created_by",),
@@ -852,6 +866,9 @@ def rename_user(
                 "Remove this agent from every private shared chat before you rename it."
             )
         if target:
+            # A merge transfers content, not browser authority. Keeping source
+            # sessions would let that browser act as the destination account.
+            db.execute("DELETE FROM browser_sessions WHERE user_id = ?", (current["id"],))
             if db.query_one(
                 "SELECT 1 FROM oidc_identities source"
                 " JOIN oidc_identities destination ON destination.issuer = source.issuer"
@@ -1246,6 +1263,9 @@ def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
             from .mcp_servers import delete_for
 
             revoked = revoke_keys_for(name, actor=actor)
+            # Delete in this transaction so reactivation cannot restore an OIDC
+            # browser session whose upstream tokens have not expired.
+            db.execute("DELETE FROM browser_sessions WHERE user_id = ?", (row["id"],))
             delete_for(name, actor=actor)
             # and the person's MCP agent, or SKEIN_MCP_USER=<name>-mcp on a
             # stdio process keeps acting with its authority after offboarding

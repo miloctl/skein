@@ -1,27 +1,90 @@
-"""Browser sign-in for SKEIN_AUTH_MODE=oidc: authorization code + PKCE.
-
-Both endpoints answer BEFORE the caller has any credential, so both are on the
-perimeter's open-path list and neither reveals anything a signed-out visitor
-must not see. /config carries public client parameters only. /token relays a
-code the browser already holds to the IdP that issued it.
-
-The exchange is relayed rather than run in the browser for two reasons: the
-identity provider then needs no CORS grant for the web app's origin (the usual
-way this deployment fails), and the token is validated here before the browser
-is told the sign-in worked. PKCE is untouched by the relay — the verifier is
-generated in the browser, never stored here, and the server holds no client
-secret, so the web app remains a public client.
-"""
+"""Browser sign-in establishes an opaque server session, never browser-held tokens."""
 
 import logging
+from urllib.parse import urlsplit
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
-from .. import config, db, oidc, ratelimit
+from .. import config, oidc, ratelimit
+from ..extensions.contracts import AppSettings
+from ..public.errors import PublicError
+from ..services import browser_sessions, credentials
 
 router = APIRouter(prefix="/api/auth")
 log = logging.getLogger("skein")
+CSRF_HEADER = "X-Skein-CSRF"
+
+
+def auth_settings(request: Request) -> AppSettings:
+    if request.app.state.skein_explicit_settings:
+        return request.app.state.skein_settings
+    return AppSettings.from_config()
+
+
+def _origin(value: str) -> str:
+    try:
+        # urlsplit removes tabs/newlines and empty query fragments. An Origin
+        # header must not acquire an approved meaning through that cleanup.
+        if (
+            any(ord(char) <= 32 or ord(char) == 127 for char in value)
+            or "?" in value
+            or "#" in value
+        ):
+            return ""
+        parts = urlsplit(value)
+        if (
+            value != value.strip()
+            or parts.scheme not in ("http", "https")
+            or not parts.hostname
+            or parts.username is not None
+            or parts.password is not None
+            or parts.path
+            or parts.query
+            or parts.fragment
+        ):
+            return ""
+        host = parts.hostname.lower()
+        if ":" in host:
+            host = f"[{host}]"
+        port = parts.port
+        if port == 0:
+            return ""
+        suffix = (
+            f":{port}"
+            if port is not None and port != (443 if parts.scheme == "https" else 80)
+            else ""
+        )
+        return f"{parts.scheme}://{host}{suffix}"
+    except ValueError:
+        return ""
+
+
+def browser_session_error(settings: AppSettings) -> str:
+    if "*" in settings.cors_origins:
+        return "Browser sign-in needs explicit origins. Set SKEIN_CORS_ORIGINS without a wildcard."
+    return ""
+
+
+def require_browser_origin(request: Request, *, required: bool = True) -> str:
+    settings = auth_settings(request)
+    if error := browser_session_error(settings):
+        raise PublicError("BROWSER_SESSION_UNAVAILABLE", error, status_code=503)
+    raw = request.headers.get("origin", "")
+    if not raw and not required:
+        return ""
+    origin = _origin(raw)
+    allowed = {_origin(value) for value in settings.cors_origins}
+    # A same-origin API needs no CORS grant. Forwarded host/protocol headers
+    # are not used: an arbitrary caller must not create an approved origin.
+    allowed.add(_origin(f"{request.url.scheme}://{request.url.netloc}"))
+    if not origin or origin not in allowed:
+        raise PublicError(
+            "BROWSER_ORIGIN_DENIED",
+            "This browser origin is not allowed. Open Skein at its configured address.",
+            status_code=403,
+        )
+    return origin
 
 
 def _fault_class(exc: BaseException) -> str:
@@ -31,23 +94,22 @@ def _fault_class(exc: BaseException) -> str:
 
 @router.get("/config")
 def get_auth_config(request: Request):
-    """What the web app needs to render the right sign-in affordance.
-
-    Always answers, in every mode: the frontend has no other way to learn that
-    the self-asserted name picker is not the identity model here."""
-    settings = request.app.state.skein_settings
-    if not request.app.state.skein_explicit_settings:
-        from ..extensions import AppSettings
-
-        settings = AppSettings.from_config()
+    settings = auth_settings(request)
     mode = settings.auth_mode if settings.auth_mode in config.AUTH_MODES else "invalid"
     out: dict = {"mode": mode, "error": settings.auth_error}
-    if settings.auth_error or settings.auth_mode != "oidc":
+    if settings.auth_error:
+        return out
+    out["browser_session_error"] = browser_session_error(settings)
+    if settings.auth_mode != "oidc":
         return out
     out["client_id"] = config.OIDC_CLIENT_ID
     out["scopes"] = config.OIDC_SCOPES
+    if not credentials.available():
+        out["browser_session_error"] = (
+            "Browser sign-in cannot seal credentials. Whoever runs the server must set"
+            " a valid SKEIN_CREDENTIAL_KEY."
+        )
     if not config.OIDC_CLIENT_ID:
-        # the API still accepts IdP tokens; only the browser flow is off
         out["error"] = "SKEIN_OIDC_CLIENT_ID is not set, so browser sign-in is off."
         return out
     try:
@@ -58,137 +120,145 @@ def get_auth_config(request: Request):
 
 
 class TokenIn(BaseModel):
-    """Either an authorization code with its PKCE verifier, or a refresh
-    token. Both are the browser's own credentials, carried across."""
-
     code: str = Field("", max_length=4096)
     code_verifier: str = Field("", max_length=128)
     redirect_uri: str = Field("", max_length=2048)
+    # Retain the field only to return a clear refusal to an old browser bundle.
     refresh_token: str = Field("", max_length=4096)
 
 
-@router.post("/token")
-def post_token(body: TokenIn, request: Request):
-    settings = request.app.state.skein_settings
-    if not request.app.state.skein_explicit_settings:
-        from ..extensions import AppSettings
+def _issue(request: Request, response: Response, issued: browser_sessions.IssuedSession) -> dict:
+    old = request.cookies.get(browser_sessions.COOKIE_NAME, "")
+    if old:
+        browser_sessions.revoke(old)
+    response.set_cookie(
+        browser_sessions.COOKIE_NAME,
+        issued.cookie,
+        max_age=browser_sessions.SESSION_SECONDS,
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="lax",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return issued.metadata
 
-        settings = AppSettings.from_config()
+
+@router.post("/token")
+def post_token(body: TokenIn, request: Request, response: Response):
+    origin = require_browser_origin(request)
+    settings = auth_settings(request)
     if settings.auth_error:
         raise HTTPException(status_code=503, detail=settings.auth_error)
     if settings.auth_mode != "oidc":
-        raise HTTPException(
-            status_code=404,
-            detail="If SKEIN_AUTH_MODE is not oidc, browser sign-in is off.",
-        )
+        raise HTTPException(404, "If SKEIN_AUTH_MODE is not oidc, browser sign-in is off.")
     if not config.OIDC_CLIENT_ID:
-        raise HTTPException(
-            status_code=503,
-            detail="SKEIN_OIDC_CLIENT_ID is not set, so browser sign-in is off.",
-        )
-    # this endpoint makes an OUTBOUND request for an unauthenticated caller.
-    # The cap is what stops it being used to hammer the identity provider.
-    # Keyed by client address because a signed-out caller has no name yet.
+        raise HTTPException(503, "SKEIN_OIDC_CLIENT_ID is not set, so browser sign-in is off.")
     ratelimit.check("signin", ratelimit.client_addr(request))
-
     if body.refresh_token:
-        form = {
-            "grant_type": "refresh_token",
-            "refresh_token": body.refresh_token,
-            "client_id": config.OIDC_CLIENT_ID,
-        }
-    elif body.code and body.code_verifier and body.redirect_uri:
-        form = {
-            "grant_type": "authorization_code",
-            "code": body.code,
-            "code_verifier": body.code_verifier,
-            "redirect_uri": body.redirect_uri,
-            "client_id": config.OIDC_CLIENT_ID,
-        }
-    else:
         raise HTTPException(
-            status_code=400,
-            detail="send code, code_verifier and redirect_uri, or send refresh_token",
+            400, "Browser token refresh is no longer supported. Reload and sign in again."
         )
-
-    # Three outcomes, three answers. A refusal is the caller's own stale or
-    # replayed code (4xx — retrying cannot help); an unreachable provider is
-    # 503 (retrying later can); anything else is a genuine relay fault (502).
-    try:
-        payload = oidc.exchange(form)
-    except oidc.OIDCRefused as exc:
-        raise HTTPException(status_code=400, detail=oidc.SIGNIN_REFUSED) from exc
-    except oidc.OIDCUnavailable as exc:
-        log.warning("identity provider token exchange unavailable: %s", exc)
-        raise HTTPException(
+    if not body.code or not body.code_verifier:
+        raise HTTPException(400, "The sign-in request is incomplete. Start sign-in again.")
+    if body.redirect_uri != origin + "/auth/callback":
+        raise HTTPException(400, "The sign-in callback is not allowed. Start sign-in from Skein.")
+    if not credentials.available():
+        raise PublicError(
+            "BROWSER_SESSION_UNAVAILABLE",
+            "Browser sign-in cannot seal credentials. Whoever runs the server must set"
+            " a valid SKEIN_CREDENTIAL_KEY.",
             status_code=503,
-            detail=oidc.SIGNIN_UNAVAILABLE,
-            headers={"Retry-After": "60"},
-        ) from exc
+        )
+    try:
+        payload = oidc.exchange(
+            {
+                "grant_type": "authorization_code",
+                "code": body.code,
+                "code_verifier": body.code_verifier,
+                "redirect_uri": body.redirect_uri,
+                "client_id": config.OIDC_CLIENT_ID,
+            }
+        )
+    except oidc.OIDCRefused as exc:
+        raise HTTPException(400, oidc.SIGNIN_REFUSED) from exc
+    except oidc.OIDCUnavailable as exc:
+        log.warning("identity provider token exchange unavailable (%s)", _fault_class(exc))
+        raise HTTPException(503, oidc.SIGNIN_UNAVAILABLE, headers={"Retry-After": "60"}) from exc
     except oidc.OIDCError as exc:
         log.error("identity provider token exchange failed (%s)", _fault_class(exc))
-        raise HTTPException(status_code=502, detail=oidc.SIGNIN_UNUSABLE) from exc
-
-    token = str(payload.get("access_token") or "")
-    if not token:
+        raise HTTPException(502, oidc.SIGNIN_UNUSABLE) from exc
+    token = payload.get("access_token") if isinstance(payload, dict) else None
+    if not isinstance(token, str) or not token:
         log.error("identity provider token response omitted access_token")
-        raise HTTPException(status_code=502, detail=oidc.SIGNIN_UNUSABLE)
-    # Validate before answering. Otherwise the browser stores a token that
-    # every later request rejects, and the person sees a signed-in UI that
-    # 401s on everything.
+        raise HTTPException(502, oidc.SIGNIN_UNUSABLE)
     try:
         claims = oidc.validate(token)
-        issuer, subject = oidc.identity(claims)
-        display_name, _ = oidc.principal(claims)
     except oidc.OIDCUnavailable as exc:
-        log.warning("identity provider token validation unavailable: %s", exc)
-        raise HTTPException(
-            status_code=503,
-            detail=oidc.SIGNIN_UNAVAILABLE,
-            headers={"Retry-After": "60"},
-        ) from exc
+        raise HTTPException(503, oidc.SIGNIN_UNAVAILABLE, headers={"Retry-After": "60"}) from exc
     except oidc.OIDCError as exc:
         log.error("identity provider returned an unusable token (%s)", _fault_class(exc))
-        raise HTTPException(status_code=502, detail=oidc.SIGNIN_UNUSABLE) from exc
-    from ..services import oidc_identities
-    from ..services.users import is_active
-    from .deps import INACTIVE
+        raise HTTPException(502, oidc.SIGNIN_UNUSABLE) from exc
+    # The same reserved, ambiguous, inactive and machine-identity walls as a
+    # direct bearer request must hold before a browser receives a session.
+    from .deps import INACTIVE, _resolve
 
+    request.state.auth_claims = claims
     try:
-        human = oidc_identities.resolve(issuer, subject, display_name)
-    except db.BUSY_ERRORS as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="The database is busy. Wait 5 seconds, then send the request again.",
-            headers={"Retry-After": "5"},
-        ) from exc
-    except ValueError as exc:
-        # The rejected claim can contain provider-controlled text. Logging or
-        # returning it lets a claim forge a log line or reflect into the browser.
+        _resolve("", f"Bearer {token}", "GET", request)
+    except HTTPException as exc:
+        if exc.status_code != 403 or exc.detail == INACTIVE:
+            raise
+        # A claim can contain provider-controlled text. Do not reflect that
+        # name through an identity-collision or machine-identity refusal.
         log.error("identity provider claim conflicts with an existing identity")
-        raise HTTPException(status_code=403, detail=oidc.SIGNIN_UNUSABLE) from exc
-    name = human["name"]
-    if not is_active(name):
-        raise HTTPException(status_code=403, detail=INACTIVE)
-    return {
-        "access_token": token,
-        "refresh_token": str(payload.get("refresh_token") or ""),
-        # the IdP's own field: a non-numeric value must not become a 400 that
-        # quotes it back. 0 means "no lifetime given", which the browser reads
-        # as a token it cannot refresh ahead of time.
-        "expires_in": _seconds(payload.get("expires_in")),
-        "user": name,
-    }
+        raise HTTPException(403, oidc.SIGNIN_UNUSABLE) from exc
+    issued = browser_sessions.create_oidc_session(payload, claims, mode=settings.auth_mode)
+    return _issue(request, response, issued)
 
 
-def _seconds(raw: object) -> int:
-    if isinstance(raw, bool):
-        return 0
-    if isinstance(raw, (int, float)):
-        return max(0, int(raw))
-    if isinstance(raw, str):
-        try:
-            return max(0, int(raw.strip()))
-        except ValueError:
-            return 0
-    return 0
+class KeySessionIn(BaseModel):
+    key: str = Field(min_length=1, max_length=256)
+
+
+@router.post("/session/key")
+def post_key_session(body: KeySessionIn, request: Request, response: Response):
+    require_browser_origin(request)
+    settings = auth_settings(request)
+    if settings.auth_error:
+        raise HTTPException(503, settings.auth_error)
+    ratelimit.check("signin", ratelimit.client_addr(request))
+    from .deps import _resolve
+
+    _resolve("", f"Bearer {body.key}", "GET", request)
+    issued = browser_sessions.create_key_session(body.key, mode=settings.auth_mode)
+    return _issue(request, response, issued)
+
+
+@router.get("/session")
+def get_session(request: Request, response: Response):
+    require_browser_origin(request, required=False)
+    settings = auth_settings(request)
+    if settings.auth_error:
+        raise HTTPException(503, settings.auth_error)
+    response.headers["Cache-Control"] = "no-store"
+    # Never clear cookies here: a late anonymous response could erase a newer
+    # login's cookie. Only serialized login/logout requests change cookies.
+    return browser_sessions.metadata(
+        request.cookies.get(browser_sessions.COOKIE_NAME, ""), mode=settings.auth_mode
+    )
+
+
+@router.delete("/session", status_code=204)
+def delete_session(request: Request, response: Response):
+    require_browser_origin(request)
+    cookie = request.cookies.get(browser_sessions.COOKIE_NAME, "")
+    if browser_sessions.csrf_token(cookie) and not browser_sessions.validate_binding(
+        cookie, request.headers.get(CSRF_HEADER, "")
+    ):
+        raise browser_sessions.SessionChanged()
+    browser_sessions.revoke(cookie)
+    response.delete_cookie(
+        browser_sessions.COOKIE_NAME, path="/", secure=True, httponly=True, samesite="lax"
+    )
+    response.headers["Cache-Control"] = "no-store"

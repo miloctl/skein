@@ -61,6 +61,8 @@ export function StandupComposer({
 
   return (
     <div className="space-y-1.5">
+      <label className="block text-xs text-ink-3">
+        Yesterday (optional)
       <input
         name="standup-yesterday"
         aria-label="Standup: yesterday (optional)"
@@ -72,6 +74,9 @@ export function StandupComposer({
         }
         className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
       />
+      </label>
+      <label className="block text-xs text-ink-3">
+        What are you on today?
       <input
         id="standup-today"
         name="standup-today"
@@ -83,7 +88,10 @@ export function StandupComposer({
         placeholder="today — what are you on?"
         className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
       />
-      <div className="flex flex-wrap items-center gap-1.5">
+      </label>
+      <div className="flex flex-wrap items-end gap-1.5">
+        <label className="min-w-0 flex-1 basis-40 text-xs text-ink-3">
+          Blockers
         <input
           name="standup-blockers"
           aria-label="Standup: blockers"
@@ -92,8 +100,9 @@ export function StandupComposer({
           onChange={(e) => setBlockers(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && post()}
           placeholder="blockers — auto-filed with an escalation clock"
-          className="min-w-0 flex-1 rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
+          className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
         />
+        </label>
         <VisibilityPicker value={tier} onChange={setTier} label="standup" />
         <button
           onClick={post}

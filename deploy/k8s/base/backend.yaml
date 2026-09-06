@@ -104,8 +104,9 @@ spec:
             - configMapRef:
                 name: skein-config
             # Model keys, SKEIN_FORGE_WEBHOOK_SECRET, SKEIN_ICS_TOKEN,
-            # SKEIN_CREDENTIAL_KEY (seals personal MCP tokens).
-            # Optional: a keyless (mock) deployment needs no Secret at all.
+            # SKEIN_CREDENTIAL_KEY (seals OIDC browser and personal MCP tokens).
+            # Optional for trusted-header development. OIDC browser sign-in
+            # needs the sealing key even when the model provider is mock.
             - secretRef:
                 name: skein-secrets
                 optional: true

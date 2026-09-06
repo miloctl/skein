@@ -122,6 +122,8 @@ export function ChatSidebar({
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const [confirmingBulk, setConfirmingBulk] = useState(false);
   const bulkDeleteTrigger = useRef<HTMLButtonElement>(null);
+  const optionsTrigger = useRef<HTMLButtonElement>(null);
+  const folderPending = useRef(false);
 
   const load = useCallback(() => {
     // shared single-flight list (lib/chat-threads.ts) — ThreadTitle reads
@@ -209,13 +211,23 @@ export function ChatSidebar({
   };
 
   const createFolder = async (name: string) => {
-    if (!name.trim()) return;
-    setCreatingFolder(false);
-    await api("/api/chats/folders", {
-      method: "POST",
-      body: JSON.stringify({ name: name.trim() }),
-    }).catch((e) => reportStatus(actionError(e)));
-    announce();
+    if (!name.trim() || folderPending.current) return;
+    folderPending.current = true;
+    try {
+      await api("/api/chats/folders", {
+        method: "POST",
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      setCreatingFolder(false);
+      if (document.activeElement?.getAttribute("name") === "new-folder")
+        optionsTrigger.current?.focus();
+      reportStatus("Folder created.", "confirmation");
+      announce();
+    } catch (e) {
+      reportStatus(actionError(e));
+    } finally {
+      folderPending.current = false;
+    }
   };
 
   const setEngagement = async (id: string, engagementId: number) => {
@@ -488,6 +500,7 @@ export function ChatSidebar({
               + New chat
             </button>
             <button
+              ref={optionsTrigger}
               onClick={() =>
                 setMenu(menu?.kind === "sidebar" ? null : { kind: "sidebar" })
               }
@@ -521,17 +534,24 @@ export function ChatSidebar({
         />
       ) : null}
       {creatingFolder && !selectMode && (
+        <label className="mb-2 flex flex-col gap-1 text-xs text-ink-3">
+          Folder name
         <input
           autoFocus
           name="new-folder"
           placeholder="Folder name — ↵ to create, esc to cancel"
           onKeyDown={(e) => {
             if (e.key === "Enter") createFolder(e.currentTarget.value);
-            if (e.key === "Escape") setCreatingFolder(false);
+            if (e.key === "Escape") {
+              e.stopPropagation();
+              setCreatingFolder(false);
+              optionsTrigger.current?.focus();
+            }
           }}
           onBlur={() => setCreatingFolder(false)}
-          className="mb-2 rounded-lg border border-thread-solid bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-ink-3"
+          className="rounded-lg border border-thread-solid bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-ink-3"
         />
+        </label>
       )}
       {loadError && <p className="px-1 text-xs text-danger">{loadError}</p>}
       {/* suppressed while loadError shows: a dead backend fails both

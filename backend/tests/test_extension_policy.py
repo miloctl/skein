@@ -2452,7 +2452,10 @@ def test_governed_tools_require_a_policy_action():
         ExtensionRegistry.build((replace(module, tools=(invalid,), specialists=(specialist,)),))
 
 
-def test_mcp_tools_need_complete_metadata_and_pass_through_policy(fresh_db, monkeypatch):
+@pytest.mark.parametrize("remote_status", ["success", "error"])
+def test_mcp_tools_need_complete_metadata_and_pass_through_policy(
+    fresh_db, monkeypatch, remote_status
+):
     from app.agents import mcp_tools as mcp_module
     from app.agents.identity import reset_agent_identity, set_agent_identity
     from app.agents.mcp_tools import (
@@ -2465,7 +2468,21 @@ def test_mcp_tools_need_complete_metadata_and_pass_through_policy(fresh_db, monk
     from app.services import review, users
 
     assert _metadata({"tools": {}}, _RemoteTool()) is None
-    remote = _RemoteTool()
+
+    class SDKRemote(_RemoteTool):
+        async def stream(self, tool_use, invocation_state, **kwargs):
+            self.called = True
+            yield {
+                "type": "tool_result",
+                "tool_result": {
+                    "status": remote_status,
+                    "toolUseId": tool_use["toolUseId"],
+                    "content": [{"text": "public documentation result"}],
+                    "isError": remote_status == "error",
+                },
+            }
+
+    remote = SDKRemote()
     governed = GovernedMCPTool(
         remote,
         MCPToolMetadata(
@@ -2524,7 +2541,11 @@ def test_mcp_tools_need_complete_metadata_and_pass_through_policy(fresh_db, monk
         extension_executor=resume,
         policy_registry=registry,
     )
-    assert approved["result"]["status"] == "completed"
+    assert approved["result"]["status"] == ("completed" if remote_status == "success" else "failed")
+    result = approved["result"]["events"][-1]["tool_result"]
+    assert result["status"] == remote_status
+    assert result["content"] == [{"text": "public documentation result"}]
+    assert result["isError"] is (remote_status == "error")
     assert remote.called is True
 
 

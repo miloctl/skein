@@ -163,7 +163,7 @@ export default function PeoplePage() {
             <a href="/settings" className="font-medium underline">
               Settings
             </a>{" "}
-            to request or save a key.
+            to request a key or sign in.
           </p>
           <button
             onClick={async () => {
@@ -290,7 +290,9 @@ export default function PeoplePage() {
           </Card>
 
           <Card title="Your private notes">
-            <div className="mb-3 flex flex-wrap gap-2">
+            <div className="mb-3 flex flex-wrap items-end gap-2">
+              <label className="flex flex-col gap-1 text-xs text-ink-3">
+                Note type
               <select
                 aria-label="Note type"
                 value={kind}
@@ -302,6 +304,9 @@ export default function PeoplePage() {
                 <option value="note">1:1 note</option>
                 <option value="feedback">feedback</option>
               </select>
+              </label>
+              <label className="min-w-0 flex-1 basis-40 text-xs text-ink-3">
+                {kind === "feedback" ? "Feedback note" : "1:1 note"}
               <input
                 value={draft}
                 onChange={(e) => setDrafts((current) => ({
@@ -310,8 +315,9 @@ export default function PeoplePage() {
                 onKeyDown={(e) => e.key === "Enter" && addNote()}
                 aria-label={kind === "feedback" ? "Feedback note" : "1:1 note"}
                 placeholder={kind === "feedback" ? "great pushback in design review…" : "agenda item, observation…"}
-                className="min-w-0 flex-1 basis-40 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
+                className="mt-1 w-full rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
               />
+              </label>
               <button
                 onClick={addNote}
                 className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"

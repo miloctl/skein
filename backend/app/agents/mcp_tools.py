@@ -33,6 +33,7 @@ from ..extensions.policy import (
     current_policy_engine,
     current_policy_subject,
 )
+from ..services.mcp_servers import LIMIT as _PERSONAL_CONNECT_LIMIT
 
 log = logging.getLogger(__name__)
 
@@ -73,9 +74,12 @@ _retry_state: dict[str, tuple[int, float]] = {}
 _RESULT_MAX_BYTES = 256 * 1024
 _TIMEOUT_TRIP = 2
 _timeout_strikes: dict[str, int] = {}
-# personal server ids with a connect in flight, so two turns of one owner
-# (or a POST and a turn) open one connection, not two
-_opening: set[str] = set()
+# The entry object identifies one attempt. Deleting and re-adding the same
+# server name must not let the old worker clear or publish over the new one.
+_opening: dict[str, dict] = {}
+# Hold a slot until the worker exits, even after forget/shutdown invalidates
+# its publication. Otherwise repeated add/delete calls bypass the process cap.
+_personal_slots = threading.BoundedSemaphore(_PERSONAL_CONNECT_LIMIT)
 # The SDK's list_tools_sync waits on a future with no deadline, and a server
 # that answers initialize then streams keepalives never resolves it. Every
 # connect runs bounded so a hostile or broken server cannot pin the thread
@@ -537,6 +541,8 @@ async def execute_reviewed_mcp(invocation: dict[str, Any], registry) -> dict[str
     finally:
         reset_policy_engine(policy_token)
     last = events[-1] if events else {}
+    # The SDK envelope has no status. Reading it reports successful calls as failed.
+    last = last.get("tool_result", last)
     return {
         "status": (
             "completed"
@@ -822,58 +828,103 @@ def forget_owner(person: str, *, exact: bool = False) -> None:
     gone. Cross-pod, the row check in personal_mcp_tools catches up."""
     prefix = person if exact else f"{PERSONAL}:{person}:"
     with _lock:
-        ids = [s for s in _connections if (s == prefix if exact else s.startswith(prefix))]
-        doomed = [_connections.pop(s).client for s in ids]
+        ids = [
+            s
+            for s in set(_connections) | set(_opening) | set(_retry_state)
+            if (s == prefix if exact else s.startswith(prefix))
+        ]
+        doomed = [_connections.pop(s).client for s in ids if s in _connections]
         for s in ids:
+            _opening.pop(s, None)
             _retry_state.pop(s, None)
             _timeout_strikes.pop(s, None)
     _close_in_thread(doomed)
 
 
 def _publish_personal(entries: list[tuple[str, dict]], generation: int) -> None:
+    from ..services.mcp_servers import entries_for
+
     try:
-        _, loaded = _connect_servers(entries)
-    except Exception as exc:
-        log.warning("personal MCP servers failed to load (%s)", type(exc).__name__)
-        loaded = []
-    close_after: list = []
-    with _lock:
-        _opening.difference_update(server_id for server_id, _ in entries)
-        loaded_ids = {connection.server_id for connection in loaded}
-        for connection in loaded:
-            # a shutdown meanwhile, or a concurrent turn that published
-            # first: closing beats overwriting a live client without closing
-            if generation != _generation or connection.server_id in _connections:
-                close_after.append(connection.client)
-                continue
-            _connections[connection.server_id] = connection
-            _retry_state.pop(connection.server_id, None)
-        for server_id, _ in entries:
-            if server_id not in loaded_ids:
+        try:
+            _, loaded = _connect_servers(entries)
+        except Exception as exc:
+            log.warning("personal MCP servers failed to load (%s)", type(exc).__name__)
+            loaded = []
+        current: dict[str, dict] = {}
+        try:
+            # Another pod can delete or rename a row without calling forget
+            # here. Recheck its id and stamp after the network wait.
+            owners = {sid[len(PERSONAL) + 1 :].rsplit(":", 1)[0] for sid, _ in entries}
+            for owner in owners:
+                current.update(entries_for(owner))
+        except Exception as exc:
+            log.warning("personal MCP rows could not be checked (%s)", type(exc).__name__)
+        close_after: list = []
+        with _lock:
+            active = set()
+            for server_id, server in entries:
+                if _opening.get(server_id) is not server:
+                    continue
+                del _opening[server_id]
+                row = current.get(server_id)
+                if (
+                    generation == _generation
+                    and row
+                    and (row["id"], row["stamp"]) == (server["id"], server["stamp"])
+                ):
+                    active.add(server_id)
+                else:
+                    _retry_state.pop(server_id, None)
+            loaded_ids = {connection.server_id for connection in loaded}
+            for connection in loaded:
+                if connection.server_id not in active or connection.server_id in _connections:
+                    close_after.append(connection.client)
+                    continue
+                _connections[connection.server_id] = connection
+                _retry_state.pop(connection.server_id, None)
+            for server_id in active - loaded_ids:
                 _schedule_retry(server_id)
-    _close_in_thread(close_after)
+        _close_in_thread(close_after)
+    finally:
+        _personal_slots.release()
 
 
-def open_personal(server_id: str, server: dict) -> None:
-    """One connect for one personal server, from the sign-in thread. The
-    in-flight marker keeps a chat turn from opening the same server."""
+def open_personal(server_id: str, server: dict, *, background: bool = False) -> None:
+    """The OAuth sign-in thread waits for its grant. Discovery never holds a
+    REST worker or an agent build, including the first connection attempt."""
     with _lock:
-        if server_id in _opening:
+        if server_id in _opening or server_id in _connections:
             return
-        _opening.add(server_id)
+        if not _personal_slots.acquire(blocking=False):
+            _retry_state.setdefault(server_id, (0, 0.0))
+            return
+        _opening[server_id] = server
         generation = _generation
-    _publish_personal([(server_id, server)], generation)
+    if not background:
+        _publish_personal([(server_id, server)], generation)
+        return
+    try:
+        threading.Thread(
+            target=_publish_personal,
+            args=([(server_id, server)], generation),
+            daemon=True,
+            name="skein-mcp-retry",
+        ).start()
+    except RuntimeError as exc:
+        with _lock:
+            if _opening.get(server_id) is server:
+                del _opening[server_id]
+                _schedule_retry(server_id)
+        _personal_slots.release()
+        log.warning("MCP retry thread failed to start — MCP will retry (%s)", type(exc).__name__)
 
 
 def personal_mcp_tools(person: str, reserved_names: set[str] | None = None) -> list:
     """Tools from the servers `person` registered (services/mcp_servers.py).
     Only the turn that person drives receives them: build_agent attaches
-    them on its personal_tools_for argument and nothing else does. A server
-    never tried before connects in the foreground, bounded by the SDK
-    startup timeout and _LIST_TOOLS_SECONDS, so the POST that registered it
-    can report what it offers. A server that failed before recovers in a
-    thread, as the env tier does: a dead server must not cost its owner
-    the timeout on every turn."""
+    them on its personal_tools_for argument and nothing else does. Discovery
+    runs in a bounded background worker, so a dead server cannot occupy a
+    REST worker or delay the owner's next turn."""
     if not person:
         return []
     from ..services.mcp_servers import entries_for
@@ -882,8 +933,7 @@ def personal_mcp_tools(person: str, reserved_names: set[str] | None = None) -> l
     wanted = dict(entries)
     mine = PERSONAL + ":" + person + ":"
     close_after: list = []
-    first: list[tuple[str, dict]] = []
-    retry: list[tuple[str, dict]] = []
+    ready: list[tuple[str, dict]] = []
     now = time.monotonic()
     with _lock:
         for server_id in [s for s in _connections if s.startswith(mine)]:
@@ -892,6 +942,10 @@ def personal_mcp_tools(person: str, reserved_names: set[str] | None = None) -> l
                 close_after.append(_connections.pop(server_id).client)
                 _retry_state.pop(server_id, None)
                 _timeout_strikes.pop(server_id, None)
+        for server_id in [s for s in _opening if s.startswith(mine)]:
+            row = wanted.get(server_id)
+            if row is None or row["stamp"] != _opening[server_id]["stamp"]:
+                del _opening[server_id]
         for server_id, server in entries:
             if server_id in _connections or server_id in _opening:
                 continue
@@ -901,29 +955,11 @@ def personal_mcp_tools(person: str, reserved_names: set[str] | None = None) -> l
                 # meet the authorization demand and refuse it
                 continue
             state = _retry_state.get(server_id)
-            if state is None:
-                first.append((server_id, server))
-            elif state[1] <= now:
-                retry.append((server_id, server))
-        _opening.update(server_id for server_id, _ in first + retry)
-        generation = _generation
+            if state is None or state[1] <= now:
+                ready.append((server_id, server))
     _close_in_thread(close_after)
-    if retry:
-        try:
-            threading.Thread(
-                target=_publish_personal,
-                args=(retry, generation),
-                daemon=True,
-                name="skein-mcp-retry",
-            ).start()
-        except RuntimeError as exc:
-            with _lock:
-                _opening.difference_update(server_id for server_id, _ in retry)
-            log.warning(
-                "MCP retry thread failed to start — MCP will retry (%s)", type(exc).__name__
-            )
-    if first:
-        _publish_personal(first, generation)
+    for server_id, server in ready:
+        open_personal(server_id, server, background=True)
     with _lock:
         tools = [
             tool
@@ -945,6 +981,7 @@ def status() -> list[dict]:
             {server_id for server_id, _ in _server_entries()}
             | set(_connections)
             | set(_retry_state)
+            | set(_opening)
         )
         rows = []
         for server_id in sorted(ids):
@@ -955,6 +992,7 @@ def status() -> list[dict]:
                     "server_id": server_id,
                     "tier": PERSONAL if _is_personal(server_id) else "system",
                     "connected": connection is not None,
+                    "connecting": server_id in _opening,
                     "offered": connection.offered if connection else 0,
                     "retry_in_seconds": max(0, int(retry[1] - now)) if retry else None,
                     "tools": [

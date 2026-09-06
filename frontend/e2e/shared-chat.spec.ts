@@ -5,14 +5,10 @@ const AVA_KEY = "sk-skein-" + "0".repeat(40);
 const MARCUS_KEY = "sk-skein-" + "1".repeat(40);
 
 async function openAs(page: Page, name: string, key: string) {
-  await page.goto("/");
-  await page.evaluate(
-    ([person, apiKey]) => {
-      window.localStorage.setItem("skein-user", person);
-      window.localStorage.setItem("skein-key", apiKey);
-    },
-    [name, key],
-  );
+  await page.goto("/settings");
+  await page.getByLabel("Personal API key", { exact: true }).fill(key);
+  await page.getByRole("button", { name: "Sign in with key", exact: true }).click();
+  await expect(page.getByText(`● strong identity active as ${name}`)).toBeVisible();
   await page.goto("/chat");
 }
 

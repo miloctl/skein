@@ -117,6 +117,29 @@ def test_existing_mirror_works_with_a_custom_data_dir(fresh_db, tmp_path, monkey
     assert len(list(admin._backups_dir().glob("platform-*.dump"))) == 1
 
 
+def test_recovery_archives_keep_browser_session_schema_but_never_authority(
+    fresh_db, tmp_path, monkeypatch
+):
+    from app.services import admin, api_keys, browser_sessions, users
+
+    users.ensure_human_identity("browser-owner")
+    issued = browser_sessions.create_key_session(
+        api_keys.create_key("browser-owner")["key"], mode="trusted-header"
+    )
+    mirror = tmp_path / "mirror"
+    mirror.mkdir()
+    monkeypatch.setenv("SKEIN_BACKUP_MIRROR", str(mirror))
+    monkeypatch.setattr(admin, "_separate_mirror_filesystem", lambda _target: True)
+    result = admin.backup()
+    browser_sessions.revoke(issued.cookie)
+
+    for path in (result["database_path"], result["mirrored_platform_path"]):
+        listing = _dump_list(path, admin)
+        assert " TABLE public browser_sessions " in listing
+        assert " TABLE DATA public browser_sessions " not in listing
+        assert " TABLE DATA public api_keys " in listing
+
+
 def test_backup_hardens_and_bounds_legacy_files(fresh_db):
     from app.services import admin
 
@@ -671,7 +694,7 @@ def test_same_day_manual_backups_are_immutable(fresh_db):
     assert Path(second["database_path"]).exists()
 
 
-def test_backup_if_stale_reports_noop_and_interrupted_claim(fresh_db):
+def test_backup_if_stale_recovers_without_deleting_an_existing_claim(fresh_db):
     from app import db
     from app.services import admin
 
@@ -681,9 +704,96 @@ def test_backup_if_stale_reports_noop_and_interrupted_claim(fresh_db):
     for path in admin._backups_dir().glob(f"database-{admin._today()}*.dump"):
         path.unlink()
     assert db.claim_job("backup", admin._today())
+    claim = db.query_row("SELECT * FROM job_runs WHERE job = 'backup'")
     result = admin.backup_if_stale()
-    assert result["status"] == "error"
-    assert "incomplete" in result["reason"]
+    assert result["status"] == "ok"
+    assert db.query_row("SELECT * FROM job_runs WHERE job = 'backup'") == claim
+
+
+def test_backup_if_stale_retries_after_a_failed_dump(fresh_db, monkeypatch):
+    from app.services import admin
+
+    original = admin._backup_one
+    attempts = 0
+
+    def fail_once(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("dump failed")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(admin, "_backup_one", fail_once)
+    with pytest.raises(RuntimeError, match="dump failed"):
+        admin.backup_if_stale()
+    assert admin.backup_if_stale()["status"] == "ok"
+    assert attempts == 2
+    assert admin.backup_if_stale() == {"status": "noop"}
+
+
+@pytest.mark.parametrize("failure", ["digest", "mirror"])
+def test_backup_if_stale_retries_partial_without_erasing_the_dump(
+    fresh_db, tmp_path, monkeypatch, failure
+):
+    from app.services import activity, admin
+
+    if failure == "mirror":
+        mirror = tmp_path / "mirror"
+        mirror.mkdir()
+        monkeypatch.setenv("SKEIN_BACKUP_MIRROR", str(mirror))
+        monkeypatch.setattr(admin, "_separate_mirror_filesystem", lambda _path: True)
+    with monkeypatch.context() as failing:
+        if failure == "digest":
+            failing.setattr(activity, "record_backup_digest", lambda *_args: [])
+        else:
+            failing.setattr(admin, "_mirror", lambda *_args: None)
+        first = admin.backup_if_stale()
+    assert first["status"] == "partial"
+    previous = Path(first["database_path"])
+    before = previous.read_bytes()
+    retry = admin.backup_if_stale()
+    assert retry["status"] == "ok"
+    assert retry["database_path"] != str(previous)
+    assert previous.read_bytes() == before
+    assert admin.backup_if_stale() == {"status": "noop"}
+
+
+def test_concurrent_stale_backups_recheck_after_the_workflow_lock(fresh_db, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.services import admin
+
+    original = admin._backup_one
+    entered, release, attempted = threading.Event(), threading.Event(), threading.Event()
+    finished = threading.Event()
+    dumps = []
+
+    def paused_dump(*args, **kwargs):
+        dumps.append(args[1])
+        entered.set()
+        assert release.wait(5)
+        return original(*args, **kwargs)
+
+    def competing_backup():
+        attempted.set()
+        try:
+            return admin.backup_if_stale()
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(admin, "_backup_one", paused_dump)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(admin.backup_if_stale)
+        try:
+            assert entered.wait(5)
+            second = pool.submit(competing_backup)
+            assert attempted.wait(5)
+            finished.wait(0.2)
+        finally:
+            release.set()
+        assert first.result(10)["status"] == "ok"
+        assert second.result(10) == {"status": "noop"}
+    assert len(dumps) == 1
 
 
 def test_configured_mirror_failure_is_a_failed_job_outcome(fresh_db, tmp_path, monkeypatch):

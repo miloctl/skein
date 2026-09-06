@@ -11,6 +11,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...real,
+    getUser: () => localStorage.getItem("skein-user") || "anonymous",
     // both surfaces are exercised for their EMPTY / idle state
     api: async (path: string) =>
       path.startsWith("/api/ask")

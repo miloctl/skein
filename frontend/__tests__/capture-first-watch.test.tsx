@@ -48,6 +48,8 @@ describe("First Watch capture contract", () => {
 
     const input = screen.getByLabelText("What to capture") as HTMLTextAreaElement;
     expect(input.value).toBe("todo: ");
+    expect(input.labels?.length).toBe(1);
+    expect(input.labels?.[0].classList.contains("sr-only")).toBe(false);
     expect(input.selectionStart).toBe("todo: ".length);
     expect(input.selectionEnd).toBe("todo: ".length);
     expect((screen.getByRole("button", { name: "Capture" }) as HTMLButtonElement).disabled).toBe(

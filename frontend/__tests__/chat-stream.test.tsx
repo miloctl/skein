@@ -114,6 +114,17 @@ describe("the chat SSE reader", () => {
     expect(await drain()).toEqual(["Hel", "Hello"]);
   });
 
+  it("discards already-buffered frames after an identity change", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ok([
+      'data: {"type":"text","text":"first"}\n\ndata: {"type":"text","text":"private tail"}\n\n',
+    ])));
+    await mountAndCapture();
+    const stream = mocks.captured!.run({ messages: [{ content: [{ type: "text", text: "hello" }] }] });
+    expect((await stream.next()).value?.content[0].text).toBe("first");
+    localStorage.setItem("skein-oidc-generation", "another-session");
+    await expect(stream.next()).rejects.toThrow(/identity changed/);
+  });
+
   it("does not care where a network chunk boundary falls", async () => {
     // one event split mid-JSON across two reads: the buffer must hold the
     // partial line instead of parsing and discarding it
@@ -201,6 +212,46 @@ describe("chat request errors", () => {
     );
     await mountAndCapture();
     await expect(drain()).rejects.toThrow("502 Bad Gateway");
+  });
+
+  it.each(["resolve", "abort"])("does not close another identity's chat when an old 404 body can %s", async (outcome) => {
+    let session = { authenticated: true, user: "ava", strong: true, auth_method: "api-key", csrf_token: "csrf-ava" };
+    let startBody!: () => void;
+    const reading = new Promise<void>((resolve) => { startBody = resolve; });
+    let finishBody!: () => void;
+    const body = new Promise<unknown>((resolve, reject) => {
+      finishBody = () => outcome === "resolve"
+        ? resolve({ detail: "That chat is not available." })
+        : reject(new DOMException("The request was aborted.", "AbortError"));
+    });
+    const missing = new Response(null, { status: 404 });
+    vi.spyOn(missing, "json").mockImplementation(() => { startBody(); return body; });
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+      if (input.endsWith("/api/chat")) return missing;
+      if (input.endsWith("/auth/config"))
+        return new Response(JSON.stringify({ mode: "api-key", error: "" }));
+      if (input.endsWith("/auth/session/key"))
+        session = { ...session, user: "marcus", csrf_token: "csrf-marcus" };
+      return new Response(JSON.stringify(session));
+    }));
+    const auth = await import("@/lib/auth");
+    await auth.bootstrapSession(true);
+    await mountAndCapture();
+    const seen = vi.fn();
+    window.addEventListener("skein-chat-missing", seen);
+    try {
+      const stream = mocks.captured!.run({ messages: [{ content: [{ type: "text", text: "hello" }] }] });
+      const pending = stream.next();
+      const rejected = expect(pending).rejects.toThrow(/identity changed/);
+      await reading;
+      await auth.signInWithKey("sk-skein-marcus");
+      expect(auth.signedInUser()).toBe("marcus");
+      finishBody();
+      await rejected;
+      expect(seen).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("skein-chat-missing", seen);
+    }
   });
 
   it("announces a missing chat before it reports that the message was not sent", async () => {

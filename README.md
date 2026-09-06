@@ -42,7 +42,7 @@ URL is directly linkable.
 | | `/intake` | Engagement front door — submit → RICE-lite score → accept/defer/decline → what-if staffing |
 | | `/ingest` | Paste meeting notes. A deterministic pass turns them into proposals you batch-approve |
 | **Team** | `/agents` | Agents as teammates — mission control, authority matrix, trust scores, agent inboxes |
-| | `/people` | Manager layer — 1:1 briefs and the private feedback journal. Needs a personal key, and the records never leave the `private` schema |
+| | `/people` | Manager layer — 1:1 briefs and the private feedback journal. Needs strong sign-in, and the records never leave the `private` schema |
 | | `/charter` | Decisions filtered to the charter category, each with a `review_by` date |
 | | `/activity` | The provenance ledger as one sentence per row, hash-chained and tamper-evident |
 | — | `/guide` | [Field guide](docs/FIELD-GUIDE.md) — every shipped feature as a card you tie by using it. The "what's new" surface |
@@ -115,8 +115,8 @@ Key mechanics:
 docker compose up --build -d     # backend :8000 + frontend :3000, data in a named volume
 docker compose exec backend python seed.py   # optional demo data
 docker compose logs -f backend               # watch migrations + scheduler start
-# private surfaces (People page, admin export) need a personal API key —
-# mint each person's FIRST key out-of-band, then paste via the 🔑 button:
+# For key-based browser sign-in, mint the FIRST key out of band.
+# Enter it once in Settings; the browser keeps an HttpOnly session, not the key:
 docker compose exec backend python -m app.bootstrap_key <name>
 ```
 
@@ -169,8 +169,8 @@ the dev entry points (`scripts/skein.sh`, docker-compose, the e2e runner)
 opt into it for you. `SKEIN_API_TOKEN` adds a shared bearer token there, but it is
 baked into the frontend's public JS bundle, so anyone who can load the UI can
 read it — it keeps out network scanners, not people who can reach port 3000.
-`api-key` mode demands a personal `sk-skein-` key on every request. `oidc`
-mode validates IdP-issued JWTs in-process, and the web app signs in against
+`api-key` mode accepts a personal `sk-skein-` bearer key or a browser session
+established from one. `oidc` mode validates IdP-issued JWTs in-process, and the web app signs in against
 the same provider with authorization code + PKCE — register it as a public
 client with `<origin>/auth/callback` as the redirect URI, then set
 `SKEIN_OIDC_CLIENT_ID`. Admin surfaces
@@ -185,12 +185,20 @@ volume independently.
 Known-and-accepted within that model (documented so nobody rediscovers them
 as surprises): the REST write path does not pass through the agent review
 gate or authority matrix — only the tool/MCP paths do — so issue `sk-` keys
-to humans, not to agent processes you want gated; the CI webhook
-(`/api/webhooks/ci`) inherits only whatever the shared token provides; and
-if you register a CI runner with docker access on the host that runs Skein,
+to humans, not to agent processes you want gated. The CI webhook
+(`/api/webhooks/ci`) requires a personal API key or deployment sign-in. A
+shared token with a self-asserted name is not sufficient. If you register a
+CI runner with docker access on the host that runs Skein,
 keep it push-only — untrusted `pull_request` code must never execute on a
 production host. Authority levels can only be set by human identities
 (self-service by an agent is refused).
+
+Browser sign-in uses server-held sessions. OIDC browser sign-in requires a
+valid `SKEIN_CREDENTIAL_KEY` in the deployment Secret. Use HTTPS and same-site
+frontend/API origins, with exact `SKEIN_CORS_ORIGINS`. Browser JavaScript does
+not retain provider tokens or personal keys. Existing browser credentials are
+cleared on upgrade, so users must sign in again. CLI and automation bearer
+keys remain supported. See [Browser sessions](docs/BROWSER-SESSIONS.md).
 
 ## Optional integrations — built in, off until configured
 

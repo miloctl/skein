@@ -9,8 +9,10 @@ import { defineConfig } from "@playwright/test";
 // explicit IPv4, never `localhost`: Node resolves localhost to ::1 first,
 // and a host that DROPS connects to unbound ports instead of refusing them
 // (WSL2 networking does this) hangs the health poll until webServer times out
-const API = "http://127.0.0.1:8600";
-const APP = "http://127.0.0.1:3600";
+const API = process.env.SKEIN_E2E_API_URL ?? "http://127.0.0.1:8600";
+const APP = process.env.SKEIN_E2E_APP_URL ?? "http://127.0.0.1:3600";
+const API_PORT = new URL(API).port;
+const APP_PORT = new URL(APP).port;
 
 // Only the backend receives the database administrator URL. Build tools and
 // browser processes must not inherit a credential that can create databases.
@@ -30,6 +32,7 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     baseURL: APP,
+    ignoreHTTPSErrors: process.env.SKEIN_E2E_HTTPS === "1",
     trace: "retain-on-failure",
   },
   webServer: [
@@ -41,7 +44,7 @@ export default defineConfig({
         // trusted-header explicitly: the smoke drives the X-User name picker,
         // and the shipped default is api-key (fail closed)
         `exec env SKEIN_DATA_DIR=/tmp/skein-e2e SKEIN_AUTH_MODE=trusted-header ` +
-        `SKEIN_MODEL_PROVIDER=mock SKEIN_SCHEDULER=0 ` +
+        `SKEIN_MODEL_PROVIDER=mock SKEIN_SCHEDULER=0 SKEIN_E2E_PORT=${API_PORT} ` +
         // EMBEDDINGS off like the provider is mock, and for the same reason: a
         // developer's .env turns them on against a live ollama, and one slow
         // embed call during seeding blows the 60s health budget below — the
@@ -50,6 +53,7 @@ export default defineConfig({
         `SKEIN_CORS_ORIGINS=${APP} .venv/bin/python ../scripts/e2e-backend.py'`,
       env: BACKEND_ENV,
       url: `${API}/health`,
+      ignoreHTTPSErrors: process.env.SKEIN_E2E_HTTPS === "1",
       // PW_REUSE: on a host that drops connects to unbound ports (the
       // IPv4 note above), playwright's port preflight hangs too. Pre-start
       // the servers by hand and set PW_REUSE=1 to skip the preflight. CI
@@ -70,9 +74,10 @@ export default defineConfig({
       // reads as still broken. Drop PW_REUSE to rebuild.
       command:
         `bash -c 'NEXT_DIST_DIR=.next-e2e NEXT_PUBLIC_API_URL=${API} NEXT_PUBLIC_API_TOKEN= npx next build && ` +
-        `exec env NEXT_DIST_DIR=.next-e2e NEXT_PUBLIC_API_TOKEN= node node_modules/next/dist/bin/next start --port 3600'`,
+        `exec env NEXT_DIST_DIR=.next-e2e NEXT_PUBLIC_API_TOKEN= node node_modules/next/dist/bin/next start --port ${APP_PORT}'`,
       env: CLEAN_ENV,
       url: APP,
+      ignoreHTTPSErrors: process.env.SKEIN_E2E_HTTPS === "1",
       reuseExistingServer: !!process.env.PW_REUSE,
       timeout: 180_000,
     },

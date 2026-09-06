@@ -1,9 +1,8 @@
-"""Seal a per-person credential for storage in mcp_servers.
+"""Seal personal MCP credentials and server-held OIDC browser tokens.
 
-The key is SKEIN_CREDENTIAL_KEY, read from the deployment Secret and never
-written to the database, so every backup and export of a sealed column
-carries ciphertext only. Unset, seal() refuses and the caller reports which
-variable whoever runs the server must set."""
+SKEIN_CREDENTIAL_KEY stays in the deployment Secret, never in the database.
+Backups carry MCP ciphertext. Browser-session rows are omitted entirely so
+restoring a database cannot restore a logged-out browser's authority."""
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -25,8 +24,8 @@ def seal(text: str) -> bytes:
     fernet = _fernet()
     if fernet is None:
         raise ValueError(
-            "A credential cannot be stored: SKEIN_CREDENTIAL_KEY is not set."
-            " Whoever runs the server must set it, then add the server again."
+            "Skein cannot store the credential. Ask whoever runs the server to"
+            " set a valid SKEIN_CREDENTIAL_KEY. Then try the operation again."
         )
     return fernet.encrypt(text.encode())
 

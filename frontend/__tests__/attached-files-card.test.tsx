@@ -10,8 +10,7 @@ const mocks = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock("@/lib/api", () => ({
   API_URL: "http://backend.test",
   api: mocks.api,
-  bearer: vi.fn(async () => ""),
-  userHeader: () => ({ "X-User": "tester" }),
+  authenticatedFetch: vi.fn(),
   actionError: (e: unknown) => (e as Error).message,
 }));
 vi.mock("@/lib/status", () => ({ reportStatus: vi.fn() }));

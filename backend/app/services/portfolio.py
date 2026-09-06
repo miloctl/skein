@@ -526,9 +526,13 @@ def flow_metrics(weeks: int = 8, *, name_people: bool = True) -> dict:
 
 
 def nudge_stale_wip() -> dict:
-    """Weekly soft nudge to owners of stale in-progress tasks. Once per ISO
-    week via claim_job — a restart can't re-ping anyone. The claim is only
-    taken when there is someone to nudge, so a quiet Monday doesn't burn it."""
+    """Commit the weekly claim with every notice, or let the whole run retry."""
+    with db.transaction():
+        return _nudge_stale_wip_locked()
+
+
+def _nudge_stale_wip_locked() -> dict:
+    """A quiet Monday must not consume the week's claim."""
     stale = flow_metrics()["stale_wip"]
     by_person: dict[str, list[dict]] = {}
     for t in stale:
@@ -538,7 +542,7 @@ def nudge_stale_wip() -> dict:
         return {"nudged": 0}
     iso = _today().isocalendar()
     if not db.claim_job("stale-wip-nudge", f"{iso.year}-W{iso.week:02d}"):
-        return {"nudged": 0, "skipped": "already nudged this week"}
+        return {"status": "noop", "nudged": 0, "skipped": "already nudged this week"}
     from .notifications import notify
 
     for person, ts in by_person.items():

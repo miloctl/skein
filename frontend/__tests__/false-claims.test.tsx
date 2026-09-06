@@ -42,7 +42,6 @@ import SettingsPage from "@/app/settings/page";
 
 describe("Settings when /api/whoami fails", () => {
   it("shows the failure's own diagnosis, not a guess about the key", async () => {
-    window.localStorage.setItem("skein-key", "sk-skein-stored");
     render(<SettingsPage />);
     expect(
       (await screen.findAllByText(/key revoked by an administrator/)).length,

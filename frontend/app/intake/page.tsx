@@ -336,7 +336,9 @@ export default function IntakePage() {
           New request
         </h2>
         <div className="flex flex-col gap-2">
+          <label htmlFor="request-title" className="text-xs text-ink-3">What are you asking the team to do?</label>
           <input
+            id="request-title"
             name="request-title"
             value={form.title}
             maxLength={200}
@@ -345,7 +347,9 @@ export default function IntakePage() {
             placeholder="What are you asking the team to do?"
             className="rounded-lg border border-line-strong bg-transparent px-3 py-2 text-sm outline-none focus:border-thread-solid"
           />
+          <label htmlFor="request-detail" className="text-xs text-ink-3">Context, goals, constraints</label>
           <textarea
+            id="request-detail"
             name="request-detail"
             value={form.detail}
             maxLength={4000}
@@ -355,7 +359,9 @@ export default function IntakePage() {
             rows={2}
             className="rounded-lg border border-line-strong bg-transparent px-3 py-2 text-sm outline-none focus:border-thread-solid"
           />
-          <div className="flex items-center gap-2">
+          <div className="flex items-end gap-2">
+            <label className="flex flex-col gap-1 text-xs text-ink-3">
+              Type of work (optional)
             <select
               name="request-project-class"
               // the first option reads as a placeholder but names nothing: a
@@ -374,6 +380,7 @@ export default function IntakePage() {
               <option value="migration">migration</option>
               <option value="diligence">diligence</option>
             </select>
+            </label>
             <button
               onClick={submit}
               disabled={!form.title.trim()}

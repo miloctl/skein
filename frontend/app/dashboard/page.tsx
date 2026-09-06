@@ -324,10 +324,11 @@ function EditRow({
       className="flex flex-wrap items-center gap-1.5 text-sm"
       onKeyDown={(e) => e.key === "Escape" && onCancel()}
     >
-      {Object.keys(fields).map((k, i) =>
-        k === "content" ? (
+      {Object.keys(fields).map((k, i) => (
+        <label key={k} className={"flex flex-col gap-0.5 text-xs text-ink-3 " + (k === "content" ? "w-full" : k === "title" ? "min-w-40 flex-1" : "")}>
+          <span>{k === "content" ? "Note content (markdown)" : k.replaceAll("_", " ")}</span>
+        {k === "content" ? (
           <textarea
-            key={k}
             aria-label="Note content (markdown)"
             rows={4}
             value={draft[k]}
@@ -336,7 +337,6 @@ function EditRow({
           />
         ) : k === "assignee" ? (
           <PersonInput
-            key={k}
             aria-label="Assignee"
             value={draft[k]}
             onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
@@ -345,7 +345,6 @@ function EditRow({
           />
         ) : (
           <input
-            key={k}
             autoFocus={i === 0}
             aria-label={k.replace("_", " ")}
             type={k === "due_date" ? "date" : "text"}
@@ -357,8 +356,9 @@ function EditRow({
               " rounded-lg border border-line-strong bg-transparent px-2 py-0.5 text-xs outline-none focus:border-thread-solid"
             }
           />
-        ),
-      )}
+        )}
+        </label>
+      ))}
       <button
         disabled={!draft.title?.trim()}
         onClick={() => {
@@ -370,11 +370,11 @@ function EditRow({
           }
           onSave(out);
         }}
-        className="rounded bg-thread-solid px-2 py-0.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40"
+        className="min-h-6 min-w-6 rounded bg-thread-solid px-2 py-0.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40"
       >
         save
       </button>
-      <button onClick={onCancel} className="text-xs text-ink-3 hover:text-ink">
+      <button onClick={onCancel} className="min-h-6 min-w-6 text-xs text-ink-3 hover:text-ink">
         cancel
       </button>
     </li>
@@ -404,7 +404,9 @@ function AbsenceForm({
   };
   return (
     <div className="mb-3 flex flex-wrap items-end gap-1.5 text-xs">
-      <PersonInput
+      <label className="flex min-w-0 flex-col gap-0.5 text-xs text-ink-3">
+<span>Who is away</span>
+<PersonInput
         aria-label="Who is away"
         name="person"
         value={draft.person}
@@ -412,6 +414,7 @@ function AbsenceForm({
         placeholder="who"
         className="w-28 rounded-lg border border-line-strong bg-transparent px-2 py-1 outline-none focus:border-thread-solid"
       />
+</label>
       {/* visible captions: once the row wraps, two bare date inputs are
           indistinguishable — aria-labels don't help a sighted phone user */}
       <label className="flex flex-col gap-0.5">
@@ -441,7 +444,9 @@ function AbsenceForm({
           className="rounded-lg border border-line-strong bg-transparent px-2 py-1 outline-none focus:border-thread-solid"
         />
       </label>
-      <select
+      <label className="flex min-w-0 flex-col gap-0.5 text-xs text-ink-3">
+<span>Kind of absence</span>
+<select
         aria-label="Kind of absence"
         name="kind"
         value={draft.kind}
@@ -452,6 +457,7 @@ function AbsenceForm({
         <option value="oncall">on-call</option>
         <option value="focus">focus</option>
       </select>
+</label>
       <button
         disabled={
           adding ||
@@ -787,6 +793,21 @@ export default function Dashboard() {
     }
   };
 
+  const filteredTasks = (data.tasks ?? []).filter((t) => {
+            if (t.status === "done") return false;
+            const needle = taskFilter.trim().toLowerCase();
+            if (!needle) return true;
+            return [
+              String(t.title),
+              `#${t.id}`,
+              `@${t.assignee ?? ""}`,
+              String(t.status),
+              String(t.priority),
+            ]
+              .join(" ")
+              .toLowerCase()
+              .includes(needle);
+          });
   const recentlyShipped = shippedRecently(data.tasks);
 
   // full-page error only before the first successful load — after that a
@@ -801,7 +822,7 @@ export default function Dashboard() {
         <SectionTabs set="work" />
         <p className="text-sm text-danger">
           {error}
-          <button onClick={load} className="ml-2 underline">
+          <button onClick={load} className="min-h-6 min-w-6 ml-2 underline">
             retry
           </button>
         </p>
@@ -843,7 +864,7 @@ export default function Dashboard() {
           className="mb-4 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
         >
           Refresh failed ({error}) — showing the previous state.
-          <button onClick={load} className="ml-2 underline">
+          <button onClick={load} className="min-h-6 min-w-6 ml-2 underline">
             retry
           </button>
         </p>
@@ -968,7 +989,7 @@ export default function Dashboard() {
             the playbook file for a human to edit, and edits nothing itself.{" "}
             <button
               onClick={() => setDraftedLesson(null)}
-              className="text-ink-3 underline hover:text-ink"
+              className="min-h-6 min-w-6 text-ink-3 underline hover:text-ink"
             >
               dismiss
             </button>
@@ -1041,7 +1062,7 @@ export default function Dashboard() {
                           if (closingRef.current === want) setPlanDiff(null);
                         });
                     }}
-                    className="whitespace-nowrap rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                    className="min-h-6 min-w-6 whitespace-nowrap rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
                   >
                     close out…
                   </button>
@@ -1174,13 +1195,18 @@ export default function Dashboard() {
                 <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-ink-3">
                   {assigningBlocker === b.id ? (
                     <span className="flex items-center gap-1.5">
-                      <PersonInput
+                      <label className="flex flex-col gap-0.5">
+<span>Owner</span>
+<PersonInput
                         autoFocus
                         name="assign-blocker"
                         aria-label={`Give blocker #${b.id} an owner`}
                         placeholder="teammate's name — Enter to assign"
                         onKeyDown={(ev) => {
-                          if (ev.key === "Escape") setAssigningBlocker(null);
+                          if (ev.key === "Escape") {
+                            setAssigningBlocker(null);
+                            refocusEdit("blocker-owner", Number(b.id));
+                          }
                           const who = (
                             ev.target as HTMLInputElement
                           ).value.trim();
@@ -1198,18 +1224,23 @@ export default function Dashboard() {
                         }}
                         className="rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
                       />
+</label>
                       <button
-                        onClick={() => setAssigningBlocker(null)}
-                        className="hover:text-ink"
+                        onClick={() => {
+                          setAssigningBlocker(null);
+                          refocusEdit("blocker-owner", Number(b.id));
+                        }}
+                        className="min-h-6 min-w-6 hover:text-ink"
                       >
                         cancel
                       </button>
                     </span>
                   ) : (
                     <button
+                      id={`edit-blocker-owner-${b.id}`}
                       aria-label={`${b.owner ? "Reassign" : "Assign"} blocker #${b.id}: ${b.title}`}
                       onClick={() => setAssigningBlocker(Number(b.id))}
-                      className="underline hover:text-ink-2"
+                      className="min-h-6 min-w-6 underline hover:text-ink-2"
                     >
                       {b.owner ? "reassign…" : "assign…"}
                     </button>
@@ -1291,7 +1322,7 @@ export default function Dashboard() {
                     // 24px spacing exception, so both rows failed the axe scan
                     // in e2e/responsive.spec.ts. Two allocations on one
                     // engagement is what reproduces it.
-                    className="py-1 underline hover:text-ink-2"
+                    className="min-h-6 min-w-6 py-1 underline hover:text-ink-2"
                   >
                     delete
                   </button>
@@ -1321,7 +1352,9 @@ export default function Dashboard() {
                   }
                 }}
               >
-                <PersonInput
+                <label className="flex min-w-0 flex-col gap-0.5 text-xs text-ink-3">
+<span>Person</span>
+<PersonInput
                   aria-label="Person to allocate"
                   name="allocate-person"
                   placeholder="teammate"
@@ -1331,7 +1364,10 @@ export default function Dashboard() {
                   }
                   className="w-32 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
                 />
-                <select
+</label>
+                <label className="flex min-w-0 flex-col gap-0.5 text-xs text-ink-3">
+<span>Engagement</span>
+<select
                   aria-label="Engagement to allocate to"
                   name="allocate-engagement"
                   value={allocDraft.engagement}
@@ -1347,7 +1383,10 @@ export default function Dashboard() {
                     </option>
                   ))}
                 </select>
-                <input
+</label>
+                <label className="flex min-w-0 flex-col gap-0.5 text-xs text-ink-3">
+<span>Percent</span>
+<input
                   type="number"
                   min={1}
                   max={100}
@@ -1360,6 +1399,7 @@ export default function Dashboard() {
                   }
                   className="w-16 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
                 />
+</label>
                 <span aria-hidden>%</span>
                 <button
                   disabled={!allocDraft.person.trim() || !allocDraft.engagement}
@@ -1481,7 +1521,7 @@ export default function Dashboard() {
                       id={`delete-absence-${a.id}`}
                       aria-label={`Delete ${a.person}'s ${a.kind} ${a.starts_on}`}
                       onClick={() => setDeletingAbsence(Number(a.id))}
-                      className="shrink-0 rounded bg-raised px-2 py-0.5 text-xs text-danger hover:bg-line"
+                      className="min-h-6 min-w-6 shrink-0 rounded bg-raised px-2 py-0.5 text-xs text-danger hover:bg-line"
                     >
                       delete…
                     </button>
@@ -1516,7 +1556,9 @@ export default function Dashboard() {
                 }
               }}
             >
-              <input
+              <label className="flex min-w-0 flex-col gap-0.5 text-xs text-ink-3">
+<span>New milestone title</span>
+<input
                 aria-label="New milestone title"
                 name="milestone-title"
                 placeholder="new milestone"
@@ -1524,7 +1566,10 @@ export default function Dashboard() {
                 onChange={(e) => setMsDraft({ ...msDraft, title: e.target.value })}
                 className="min-w-40 flex-1 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
               />
-              <input
+</label>
+              <label className="flex min-w-0 flex-col gap-0.5 text-xs text-ink-3">
+<span>Milestone due date</span>
+<input
                 type="date"
                 aria-label="Milestone due date"
                 name="milestone-due-date"
@@ -1532,6 +1577,7 @@ export default function Dashboard() {
                 onChange={(e) => setMsDraft({ ...msDraft, due: e.target.value })}
                 className="rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
               />
+</label>
               <button
                 aria-label="Add the milestone"
                 disabled={!msDraft.title.trim()}
@@ -1581,7 +1627,7 @@ export default function Dashboard() {
                     onClick={() =>
                       setEditing({ kind: "milestone", id: Number(m.id) })
                     }
-                    className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                    className="min-h-6 min-w-6 rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
                   >
                     edit…
                   </button>
@@ -1593,21 +1639,7 @@ export default function Dashboard() {
         />
         <Section
           title="Tasks"
-          rows={(data.tasks ?? []).filter((t) => {
-            if (t.status === "done") return false;
-            const needle = taskFilter.trim().toLowerCase();
-            if (!needle) return true;
-            return [
-              String(t.title),
-              `#${t.id}`,
-              `@${t.assignee ?? ""}`,
-              String(t.status),
-              String(t.priority),
-            ]
-              .join(" ")
-              .toLowerCase()
-              .includes(needle);
-          })}
+          rows={filteredTasks}
           empty={
             taskFilter.trim()
               ? "No open task matches the filter."
@@ -1615,7 +1647,7 @@ export default function Dashboard() {
           }
           controls={
             <div className="mb-3">
-              <label className="sr-only" htmlFor="task-filter">
+              <label className="mb-1 block text-xs text-ink-3" htmlFor="task-filter">
                 Filter tasks
               </label>
               <input
@@ -1625,6 +1657,9 @@ export default function Dashboard() {
                 placeholder="filter — title, #id, @name, status, priority"
                 className="w-full max-w-xs rounded-lg border border-line-strong bg-transparent px-2 py-1 text-xs outline-none focus:border-thread-solid"
               />
+              <p role="status" className="mt-1 text-xs text-ink-3">
+                {filteredTasks.length} open {filteredTasks.length === 1 ? "task" : "tasks"} shown.
+              </p>
             </div>
           }
           render={(t) =>
@@ -1760,13 +1795,18 @@ export default function Dashboard() {
                 <p className="mt-0.5 text-xs text-ink-3">
                   {assigning === q.id ? (
                     <span className="flex items-center gap-1.5">
-                      <PersonInput
+                      <label className="flex flex-col gap-0.5">
+<span>Assign this question to</span>
+<PersonInput
                         autoFocus
                         name="assign-question"
                         aria-label="Assign this question to"
                         placeholder="teammate's name — Enter to assign"
                         onKeyDown={(ev) => {
-                          if (ev.key === "Escape") setAssigning(null);
+                          if (ev.key === "Escape") {
+                            setAssigning(null);
+                            refocusEdit("question-assign", Number(q.id));
+                          }
                           const who = (
                             ev.target as HTMLInputElement
                           ).value.trim();
@@ -1784,22 +1824,31 @@ export default function Dashboard() {
                         }}
                         className="rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
                       />
+</label>
                       <button
-                        onClick={() => setAssigning(null)}
-                        className="hover:text-ink"
+                        onClick={() => {
+                          setAssigning(null);
+                          refocusEdit("question-assign", Number(q.id));
+                        }}
+                        className="min-h-6 min-w-6 hover:text-ink"
                       >
                         cancel
                       </button>
                     </span>
                   ) : answering === q.id ? (
                     <span className="flex items-center gap-1.5">
-                      <input
+                      <label className="flex flex-col gap-0.5">
+<span>Answer this question</span>
+<input
                         autoFocus
                         name="answer-question"
                         aria-label="Answer this question"
                         placeholder="the answer — Enter to record it"
                         onKeyDown={async (ev) => {
-                          if (ev.key === "Escape") setAnswering(null);
+                          if (ev.key === "Escape") {
+                            setAnswering(null);
+                            refocusEdit("question-answer", Number(q.id));
+                          }
                           const answer = (
                             ev.target as HTMLInputElement
                           ).value.trim();
@@ -1817,9 +1866,13 @@ export default function Dashboard() {
                         }}
                         className="w-64 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
                       />
+</label>
                       <button
-                        onClick={() => setAnswering(null)}
-                        className="hover:text-ink"
+                        onClick={() => {
+                          setAnswering(null);
+                          refocusEdit("question-answer", Number(q.id));
+                        }}
+                        className="min-h-6 min-w-6 hover:text-ink"
                       >
                         cancel
                       </button>
@@ -1830,15 +1883,19 @@ export default function Dashboard() {
                         <span>→ @{q.assigned_to}</span>
                       ) : (
                         <button
+                          id={`edit-question-assign-${q.id}`}
+                          aria-label={`unassigned — assign… question #${q.id}: ${q.question}`}
                           onClick={() => setAssigning(Number(q.id))}
-                          className="underline hover:text-ink-2"
+                          className="min-h-6 min-w-6 underline hover:text-ink-2"
                         >
                           unassigned — assign…
                         </button>
                       )}
                       <button
+                        id={`edit-question-answer-${q.id}`}
+                        aria-label={`answer… question #${q.id}: ${q.question}`}
                         onClick={() => setAnswering(Number(q.id))}
-                        className="underline hover:text-ink-2"
+                        className="min-h-6 min-w-6 underline hover:text-ink-2"
                       >
                         answer…
                       </button>
@@ -1896,7 +1953,9 @@ export default function Dashboard() {
                 }
               }}
             >
-              <input
+              <label className="flex min-w-0 flex-col gap-0.5 text-xs text-ink-3">
+<span>New event title</span>
+<input
                 aria-label="New event title"
                 name="event-title"
                 placeholder="new event"
@@ -1904,7 +1963,10 @@ export default function Dashboard() {
                 onChange={(e) => setEvDraft({ ...evDraft, title: e.target.value })}
                 className="min-w-40 flex-1 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
               />
-              <input
+</label>
+              <label className="flex min-w-0 flex-col gap-0.5 text-xs text-ink-3">
+<span>Event start</span>
+<input
                 type="datetime-local"
                 aria-label="Event start"
                 name="event-start"
@@ -1912,6 +1974,7 @@ export default function Dashboard() {
                 onChange={(e) => setEvDraft({ ...evDraft, starts: e.target.value })}
                 className="rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
               />
+</label>
               <button
                 aria-label="Add the event"
                 disabled={!evDraft.title.trim() || !evDraft.starts}
@@ -1971,7 +2034,7 @@ export default function Dashboard() {
                           0,
                         );
                       }}
-                      className="hover:text-ink"
+                      className="min-h-6 min-w-6 hover:text-ink"
                     >
                       Cancel deletion
                     </button>
@@ -1981,7 +2044,7 @@ export default function Dashboard() {
                     id={`delete-event-${e.id}`}
                     aria-label={`Delete event: ${e.title}`}
                     onClick={() => setDeletingEvent(Number(e.id))}
-                    className="underline hover:text-ink-2"
+                    className="min-h-6 min-w-6 underline hover:text-ink-2"
                   >
                     delete…
                   </button>
@@ -2023,7 +2086,7 @@ export default function Dashboard() {
                         setDeletingNote(null);
                         setEditingNote(Number(n.id));
                       }}
-                      className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                      className="min-h-6 min-w-6 rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
                     >
                       edit…
                     </button>
@@ -2078,7 +2141,7 @@ export default function Dashboard() {
                         id={`delete-note-${n.id}`}
                         aria-label={`Delete note: ${n.topic}`}
                         onClick={() => setDeletingNote(Number(n.id))}
-                        className="rounded bg-raised px-2 py-0.5 text-xs text-danger hover:bg-line"
+                        className="min-h-6 min-w-6 rounded bg-raised px-2 py-0.5 text-xs text-danger hover:bg-line"
                       >
                         delete…
                       </button>

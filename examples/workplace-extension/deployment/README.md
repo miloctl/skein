@@ -138,7 +138,7 @@ Atlas policy needs signed OIDC groups. Add these values to the existing `skein-c
 - `SKEIN_CORS_ORIGINS=https://<frontend-route>`
 - `SKEIN_TRUST_PROXY_HOPS=1` when one OpenShift router is in front of Skein.
 
-Use HTTPS for the production issuer and its endpoints. The ConfigMap must not contain credentials.
+Use HTTPS for the production issuer and its endpoints. The ConfigMap must not contain credentials. Browser sign-in also requires `SKEIN_CREDENTIAL_KEY` in `skein-secrets`. Keep it stable across restarts. Use HTTPS and same-site frontend/API Routes so the Secure session cookie is accepted. Browser sessions are excluded from recovery archives and require a new sign-in after restore.
 
 The example directory resolver in `backend/src/atlas_skein/policy.py` returns no record and fails closed. Before production approval revalidation, replace it with an authoritative server-side directory adapter. The adapter must return no record during an outage.
 

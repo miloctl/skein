@@ -8,7 +8,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   reportStatus: vi.fn(),
-  bearer: vi.fn(),
   chatThreads: vi.fn(),
   api: vi.fn(),
   authenticatedFetch: vi.fn(),
@@ -49,13 +48,7 @@ vi.mock("@/lib/api", () => ({
   API_URL: "http://backend.test",
   api: mocks.api,
   authenticatedFetch: mocks.authenticatedFetch,
-  bearer: mocks.bearer,
-  userHeader: () => ({ "X-User": "tester" }),
   actionError: (e: unknown) => (e as Error).message,
-}));
-vi.mock("@/lib/auth", () => ({
-  accessTokenSync: () => "",
-  sessionRejected: vi.fn(),
 }));
 vi.mock("@/lib/status", () => ({ reportStatus: mocks.reportStatus }));
 vi.mock("@/lib/chat-threads", () => ({ chatThreads: mocks.chatThreads }));
@@ -71,13 +64,13 @@ function adapters() {
 }
 
 beforeEach(() => {
-  mocks.bearer.mockResolvedValue("");
   mocks.authenticatedFetch.mockReset();
   mocks.captured = null;
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("attaching a file", () => {
@@ -94,7 +87,7 @@ describe("attaching a file", () => {
   });
 
   it("uploads on send and keeps the id the server gave it", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    mocks.authenticatedFetch.mockResolvedValue(
       new Response(JSON.stringify({ id: 42, title: "notes.md" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -108,7 +101,7 @@ describe("attaching a file", () => {
   });
 
   it("keeps the draft when the upload is refused", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    mocks.authenticatedFetch.mockResolvedValue(
       new Response(JSON.stringify({ detail: "that file type cannot be attached." }), {
         status: 400,
         headers: { "Content-Type": "application/json" },
@@ -127,7 +120,7 @@ describe("attaching a file", () => {
     // throwing keeps the draft, but the rejection then dies unhandled inside
     // aui's fire-and-forget send — so the backend's usable sentence reached
     // the console and nowhere a person looks
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    mocks.authenticatedFetch.mockResolvedValue(
       new Response(JSON.stringify({ detail: "the file is larger than 8 MB." }), {
         status: 400,
         headers: { "Content-Type": "application/json" },
@@ -137,6 +130,39 @@ describe("attaching a file", () => {
     const file = new File(["x"], "big.pdf", { type: "application/pdf" });
     await expect(attachments.send({ file, name: "big.pdf" })).rejects.toThrow();
     expect(mocks.reportStatus).toHaveBeenCalledWith("the file is larger than 8 MB.");
+  });
+
+  it.each(["resolve", "abort"])("does not report another identity's refused upload when its body can %s", async (outcome) => {
+    let session = { authenticated: true, user: "ava", strong: true, auth_method: "api-key", csrf_token: "csrf-ava" };
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+      if (input.endsWith("/auth/config"))
+        return new Response(JSON.stringify({ mode: "api-key", error: "" }));
+      if (input.endsWith("/auth/session/key"))
+        session = { ...session, user: "marcus", csrf_token: "csrf-marcus" };
+      return new Response(JSON.stringify(session));
+    }));
+    const auth = await import("@/lib/auth");
+    await auth.bootstrapSession(true);
+    let startBody!: () => void;
+    const reading = new Promise<void>((resolve) => { startBody = resolve; });
+    let finishBody!: () => void;
+    const body = new Promise<unknown>((resolve, reject) => {
+      finishBody = () => outcome === "resolve"
+        ? resolve({ detail: "That file type cannot be attached." })
+        : reject(new DOMException("The request was aborted.", "AbortError"));
+    });
+    const refused = new Response(null, { status: 400 });
+    vi.spyOn(refused, "json").mockImplementation(() => { startBody(); return body; });
+    mocks.authenticatedFetch.mockResolvedValueOnce(refused);
+    mocks.reportStatus.mockClear();
+    const { attachments } = adapters();
+    const pending = attachments.send({ file: new File(["x"], "private.svg"), name: "private.svg" });
+    const rejected = expect(pending).rejects.toThrow(/identity changed/);
+    await reading;
+    await auth.signInWithKey("sk-skein-marcus");
+    finishBody();
+    await rejected;
+    expect(mocks.reportStatus).not.toHaveBeenCalled();
   });
 
   it("gives every staged file its own id", async () => {

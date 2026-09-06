@@ -23,7 +23,10 @@ const state = vi.hoisted(() => ({
   automationEnabled: true,
   automationWritePromise: null as Promise<unknown> | null,
   automationReadFailsAfterWrite: false,
-  createdKey: "sk-skein-created-once",
+  authMode: "trusted-header",
+  session: { authenticated: false, user: "anonymous", strong: false, auth_method: "", csrf_token: "", status: "ready", error: "" },
+  keyExchange: vi.fn(),
+  logout: vi.fn(),
   tunables: [] as unknown[],
 }));
 
@@ -113,14 +116,21 @@ vi.mock("@/lib/api", async (importOriginal) => {
         });
       if (path === "/api/settings/tuning")
         return Promise.resolve(state.tunables);
-      if (path === "/api/keys")
-        return Promise.resolve({
-          id: 1,
-          key: state.createdKey,
-          prefix: "created",
-        });
+      if (path === "/api/keys") return Promise.resolve([]);
       return Promise.resolve([]);
     },
+  };
+});
+
+vi.mock("@/lib/auth", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/auth")>();
+  return {
+    ...real,
+    authConfig: () => Promise.resolve({ mode: state.authMode, error: "" }),
+    sessionSnapshot: () => state.session,
+    trustedHeaderIdentity: () => state.authMode === "trusted-header" && !state.session.authenticated,
+    signInWithKey: state.keyExchange,
+    signOut: state.logout,
   };
 });
 
@@ -148,6 +158,12 @@ beforeEach(() => {
   state.automationWritePromise = null;
   state.automationReadFailsAfterWrite = false;
   state.tunables = [];
+  state.authMode = "trusted-header";
+  state.session = { authenticated: false, user: "anonymous", strong: false, auth_method: "", csrf_token: "", status: "ready", error: "" };
+  state.keyExchange.mockReset();
+  state.keyExchange.mockResolvedValue(undefined);
+  state.logout.mockReset();
+  state.logout.mockResolvedValue(undefined);
   window.localStorage.clear();
   window.history.replaceState({}, "", "/settings");
   vi.unstubAllGlobals();
@@ -449,144 +465,63 @@ describe("Settings identity states", () => {
     expect(screen.queryByText("Checking identity…")).toBeNull();
   });
 
-  it("confirms the browser-only scope before deleting a stored key", async () => {
-    window.localStorage.setItem("skein-key", "sk-skein-stored");
+  it("ends a browser session without revoking its automation key", async () => {
+    state.session = { ...state.session, authenticated: true, user: "operator", strong: true, auth_method: "api-key", csrf_token: "csrf-operator" };
     render(<SettingsPage />);
-
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Delete from browser…" }),
-    );
-    const consequence = screen.getByText(
-      "Delete this key from this browser? This does not revoke a server key.",
-    );
-    const confirm = screen.getByRole("button", { name: "Delete from browser" });
-    expect(confirm.getAttribute("aria-describedby")).toBe(consequence.id);
-    expect(window.localStorage.getItem("skein-key")).toBe("sk-skein-stored");
-
-    fireEvent.click(confirm);
-    await waitFor(() =>
-      expect(window.localStorage.getItem("skein-key")).toBeNull(),
-    );
-    expect(
-      await screen.findByText(
-        "The browser no longer stores this key. No server key was revoked.",
-      ),
-    ).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Sign out of this browser" }));
+    await waitFor(() => expect(state.logout).toHaveBeenCalledOnce());
+    expect(state.requests.some(({ path, init }) => path.includes("/keys") && init?.method === "DELETE")).toBe(false);
+    expect(screen.queryByRole("button", { name: /Delete from browser/ })).toBeNull();
   });
 
-  it("does not delete a key that replaced the confirmed browser value", async () => {
-    window.localStorage.setItem("skein-key", "sk-skein-first");
+  it("reports a refused key exchange without changing the current session", async () => {
+    state.session = { ...state.session, authenticated: true, user: "operator", strong: true, auth_method: "oidc", csrf_token: "csrf-operator" };
+    state.keyExchange.mockRejectedValue(new Error("This key did not establish strong identity. Check the key, then try again."));
     render(<SettingsPage />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Delete from browser…" }),
-    );
-
-    window.localStorage.setItem("skein-key", "sk-skein-second");
-    window.dispatchEvent(new Event("storage"));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Delete from browser" }),
-    );
-
-    expect(window.localStorage.getItem("skein-key")).toBe("sk-skein-second");
-    expect(
-      await screen.findByText(
-        "The stored key changed after this confirmation. Confirm the deletion again.",
-      ),
-    ).toBeTruthy();
+    const input = await screen.findByLabelText("Personal API key") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "sk-skein-invalid-draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with key" }));
+    expect(await screen.findByText("This key did not establish strong identity. Check the key, then try again.")).toBeTruthy();
+    expect(state.session.user).toBe("operator");
+    expect(input.value).toBe("");
+    expect(localStorage.getItem("skein-key")).toBeNull();
   });
 
-  it("uses draft-specific guidance when a replacement key is refused", async () => {
-    window.localStorage.setItem("skein-key", "sk-skein-valid-stored");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-        json: () =>
-          Promise.resolve({
-            detail:
-              "This personal API key is invalid or revoked. Delete it from this browser, then save a valid key.",
-          }),
-      }),
-    );
+  it("uses an entered key once instead of keeping a fallback identity", async () => {
     render(<SettingsPage />);
-
-    fireEvent.change(await screen.findByLabelText("Personal API key"), {
-      target: { value: "sk-skein-invalid-draft" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Test & save" }));
-
-    expect(
-      await screen.findByText(
-        "This key did not establish strong identity. Check the key, then try again.",
-      ),
-    ).toBeTruthy();
-    expect(screen.queryByText(/Delete it from this browser/)).toBeNull();
-    expect(window.localStorage.getItem("skein-key")).toBe(
-      "sk-skein-valid-stored",
-    );
+    const input = await screen.findByLabelText("Personal API key") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "sk-skein-other-owner" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with key" }));
+    await waitFor(() => expect(state.keyExchange).toHaveBeenCalledWith("sk-skein-other-owner"));
+    expect(input.value).toBe("");
+    expect(await screen.findByText("Signed in. This browser does not store your personal key.")).toBeTruthy();
+    expect(localStorage.getItem("skein-key")).toBeNull();
+    expect(screen.queryByText(/takes effect after you sign out/)).toBeNull();
   });
 
-  it("keeps deployment sign-in as the current identity after saving a key", async () => {
-    window.localStorage.setItem(
-      "skein-oidc",
-      JSON.stringify({
-        access_token: "deployment-token",
-        refresh_token: "refresh",
-        expires_at: Date.now() + 3_600_000,
-        user: "operator",
-      }),
-    );
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            user: "other-owner",
-            strong: true,
-            admin: false,
-            can_administer: false,
-            keys_minted: 1,
-          }),
-      }),
-    );
-    render(<SettingsPage />);
-
-    fireEvent.change(await screen.findByLabelText("Personal API key"), {
-      target: { value: "sk-skein-other-owner" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Test & save" }));
-
-    expect(
-      await screen.findByText(
-        "Key works and is stored for other-owner. Deployment sign-in remains active as operator. The stored key takes effect after you sign out.",
-      ),
-    ).toBeTruthy();
-    expect(
-      screen.queryByText(/key owner controls private surfaces/i),
-    ).toBeNull();
-  });
-
-  it("lets a keyless deployment sign-in create its first personal key", async () => {
+  it("does not offer browser key minting to a strong identity without keys", async () => {
     state.identity = { ...state.identity, keys_minted: 0 };
     render(<SettingsPage />);
-
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Create a personal API key" }),
-    );
-
-    expect(
-      state.requests.some(
-        ({ path, init }) =>
-          path === "/api/keys" &&
-          init?.method === "POST" &&
-          init.body === JSON.stringify({ label: "CLI and git hooks" }),
-      ),
-    ).toBe(true);
-    expect(await screen.findByText(state.createdKey)).toBeTruthy();
-    expect(
-      screen.getByText("Copy this key now. Skein will not show it again."),
-    ).toBeTruthy();
+    await screen.findByText(/strong identity active as operator/);
+    expect(screen.queryByRole("button", { name: "Create a personal API key" })).toBeNull();
+    expect(state.requests.some(({ path, init }) => path === "/api/keys" && init?.method === "POST")).toBe(false);
+    expect(screen.getByText(/Use the CLI or ask whoever runs the server to create/)).toBeTruthy();
   });
+
+  it.each(["oidc", "api-key"])("does not offer a self-asserted name in %s mode", async (mode) => {
+    state.authMode = mode;
+    render(<SettingsPage />);
+    await screen.findByLabelText("Personal API key");
+    expect(screen.queryByLabelText("Your name")).toBeNull();
+  });
+
+});
+
+it("keeps visible labels on personal settings fields", async () => {
+  render(<SettingsPage />);
+  for (const name of ["Your name", "Personal API key", "Growth interests"]) {
+    const field = await screen.findByLabelText(name) as HTMLInputElement;
+    expect(field.labels?.length).toBe(1);
+    expect(field.labels?.[0].classList.contains("sr-only")).toBe(false);
+  }
 });

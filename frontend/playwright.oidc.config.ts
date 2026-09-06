@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { defineConfig } from "@playwright/test";
 
 /** The oidc sign-in walk, in its own config and its own stack.
@@ -29,6 +30,7 @@ for (const [key, value] of Object.entries(process.env))
   if (value !== undefined && key !== "SKEIN_DATABASE_URL") CLEAN_ENV[key] = value;
 const BACKEND_ENV = {
   ...CLEAN_ENV,
+  SKEIN_CREDENTIAL_KEY: randomBytes(32).toString("base64url") + "=",
   SKEIN_DATABASE_URL:
     process.env.SKEIN_DATABASE_URL ?? "postgresql://skein:skein@127.0.0.1:5432/skein",
 };
@@ -41,7 +43,7 @@ export default defineConfig({
   fullyParallel: false, // one backend, one stub IdP, one sign-in at a time
   retries: 0,
   reporter: [["list"]],
-  use: { baseURL: APP, trace: "retain-on-failure" },
+  use: { baseURL: APP, trace: "retain-on-failure", ignoreHTTPSErrors: process.env.SKEIN_E2E_HTTPS === "1" },
   webServer: [
     {
       // scripts/stub-idp.py signs with a real RS256 key the backend verifies
@@ -50,24 +52,22 @@ export default defineConfig({
       command: `../backend/.venv/bin/python ../scripts/stub-idp.py ${IDP_PORT} ${AUDIENCE}`,
       env: CLEAN_ENV,
       url: `${IDP}/jwks`,
+      ignoreHTTPSErrors: process.env.SKEIN_E2E_HTTPS === "1",
       reuseExistingServer: !!process.env.PW_REUSE,
       gracefulShutdown: { signal: "SIGTERM", timeout: 5_000 },
       timeout: 30_000,
     },
     {
       command:
-        `bash -c 'rm -rf /tmp/skein-oidc && mkdir -p /tmp/skein-oidc && ` +
-        `cd ../backend && ` +
-        `SKEIN_DATA_DIR=/tmp/skein-oidc SKEIN_MODEL_PROVIDER=mock SKEIN_SCHEDULER=0 SKEIN_EMBEDDINGS=0 ` +
-        `.venv/bin/python seed.py && ` +
-        `SKEIN_DATA_DIR=/tmp/skein-oidc SKEIN_AUTH_MODE=oidc SKEIN_OIDC_ISSUER=${IDP} ` +
-        `.venv/bin/python -m app.bind_oidc ava=ava && ` +
-        `SKEIN_DATA_DIR=/tmp/skein-oidc SKEIN_MODEL_PROVIDER=mock SKEIN_SCHEDULER=0 SKEIN_EMBEDDINGS=0 ` +
+        `bash -c 'cd ../backend && ` +
+        `exec env SKEIN_DATA_DIR=$(mktemp -d /tmp/skein-oidc.XXXXXX) SKEIN_MODEL_PROVIDER=mock SKEIN_SCHEDULER=0 SKEIN_EMBEDDINGS=0 ` +
         `SKEIN_AUTH_MODE=oidc SKEIN_OIDC_ISSUER=${IDP} SKEIN_OIDC_AUDIENCE=${AUDIENCE} ` +
         `SKEIN_OIDC_CLIENT_ID=skein-web SKEIN_OIDC_ADMIN_GROUP=skein-admins ` +
-        `SKEIN_CORS_ORIGINS=${APP} exec .venv/bin/uvicorn app.main:app --port ${API_PORT}'`,
+        `SKEIN_E2E_PORT=${API_PORT} SKEIN_E2E_OIDC_BINDINGS=ava=ava ` +
+        `SKEIN_CORS_ORIGINS=${APP} .venv/bin/python ../scripts/e2e-backend.py'`,
       env: BACKEND_ENV,
       url: `${API}/health`,
+      ignoreHTTPSErrors: process.env.SKEIN_E2E_HTTPS === "1",
       reuseExistingServer: !!process.env.PW_REUSE,
       gracefulShutdown: { signal: "SIGTERM", timeout: 10_000 },
       timeout: 60_000,
@@ -80,6 +80,7 @@ export default defineConfig({
         `exec env NEXT_DIST_DIR=.next-oidc NEXT_PUBLIC_API_TOKEN= node node_modules/next/dist/bin/next start --port ${APP_PORT}'`,
       env: CLEAN_ENV,
       url: APP,
+      ignoreHTTPSErrors: process.env.SKEIN_E2E_HTTPS === "1",
       reuseExistingServer: !!process.env.PW_REUSE,
       gracefulShutdown: { signal: "SIGTERM", timeout: 10_000 },
       timeout: 180_000,

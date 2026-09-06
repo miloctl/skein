@@ -1,5 +1,7 @@
 """Cross-thread agent memory: forget removes it everywhere, and the agent path is gated, capped, and carries provenance."""
 
+import json
+
 import pytest
 from conftest import _strong
 
@@ -22,8 +24,9 @@ def test_forget_removes_memory_everywhere(client):
     assert any(h["entity"] == "memory" for h in search.search("rotates"))
     assert "rotates" in memory.memory_prompt("ava")
 
-    out = client.delete(f"/api/memories/{m['id']}").json()
-    assert out["deleted"] is True
+    response = client.delete(f"/api/memories/{m['id']}", headers={"X-User": "ava"})
+    assert response.status_code == 200, response.text
+    assert response.json()["deleted"] is True
     assert memory.recall(user="ava") == []
     assert memory.memory_prompt("ava") == ""
     assert [h for h in search.search("rotates") if h["entity"] == "memory"] == []
@@ -33,7 +36,8 @@ def test_forget_missing_memory_404_and_removal_is_logged(client):
     from app import db
     from app.services import memory
 
-    assert client.delete("/api/memories/9999").status_code == 404
+    response = client.delete("/api/memories/9999")
+    assert response.status_code == 404, response.text
     m = memory.remember("wrong fact", topic="bad")
     client.delete(f"/api/memories/{m['id']}")
     logged = db.query("SELECT * FROM activity WHERE action = 'forget'")
@@ -53,6 +57,127 @@ def test_agent_forget_memory_gated_and_applies(client, fresh_db, monkeypatch):
     assert fresh_db.query_one("SELECT id FROM memories WHERE id = ?", (m["id"],))
     _approve_latest(client)
     assert not fresh_db.query_one("SELECT id FROM memories WHERE id = ?", (m["id"],))
+
+
+@pytest.mark.parametrize("surface", ["service", "rest"])
+def test_forget_refuses_another_persons_targeted_memory(client, fresh_db, surface):
+    from app import db
+    from app.services import memory, search
+
+    m = memory.remember("ZZTARGETBODYZZ", topic="ZZTARGETTOPICZZ", user="ava", actor="ava")
+    before = fresh_db.query("SELECT * FROM activity ORDER BY id")
+    if surface == "service":
+        with pytest.raises(db.NotFound) as denied:
+            memory.forget(m["id"], actor="tester")
+        with pytest.raises(db.NotFound) as absent:
+            memory.forget(9999, actor="tester")
+        assert str(denied.value) == str(absent.value).replace("#9999", f"#{m['id']}")
+    else:
+        denied = client.delete(f"/api/memories/{m['id']}")
+        absent = client.delete("/api/memories/9999")
+        assert denied.status_code == absent.status_code == 404
+        assert denied.json() == {"detail": absent.json()["detail"].replace("#9999", f"#{m['id']}")}
+    assert fresh_db.query_one("SELECT id FROM memories WHERE id = ?", (m["id"],))
+    assert fresh_db.query("SELECT * FROM activity ORDER BY id") == before
+    assert fresh_db.query("SELECT * FROM pending_changes") == []
+    # Addressing a workspace memory to someone is not a private visibility tier.
+    assert any(h["entity"] == "memory" for h in search.search("ZZTARGETBODYZZ"))
+    assert memory.recall(user="tester") == []
+
+
+@pytest.mark.parametrize("requester", ["", "bo"])
+def test_forget_tool_refuses_targeted_content_before_proposal(fresh_db, requester):
+    from app.agents import identity
+    from app.services import memory
+    from app.tools.memory import forget_memory
+
+    m = memory.remember("ZZTARGETBODYZZ", topic="ZZTARGETTOPICZZ", user="ava", actor="ava")
+    before = fresh_db.query("SELECT * FROM activity ORDER BY id")
+    token = identity.set_requester_identity(requester)
+    try:
+        denied = json.loads(forget_memory(memory_id=m["id"]))
+        absent = json.loads(forget_memory(memory_id=9999))
+    finally:
+        identity.reset_requester_identity(token)
+    assert denied == {"error": absent["error"].replace("#9999", f"#{m['id']}")}
+    assert fresh_db.query_one("SELECT id FROM memories WHERE id = ?", (m["id"],))
+    assert fresh_db.query("SELECT * FROM activity ORDER BY id") == before
+    assert fresh_db.query("SELECT * FROM pending_changes") == []
+    assert fresh_db.query("SELECT * FROM notifications") == []
+    assert memory.get_memory(m["id"]) is None
+
+
+def test_targeted_forget_approval_uses_requester_and_preserves_agent_provenance(client, fresh_db):
+    from app.agents import identity
+    from app.services import memory, users
+    from app.tools.memory import forget_memory
+
+    users.ensure_user("scribe", kind="agent")
+    m = memory.remember("ZZREMOVEDBODYZZ", topic="ZZREMOVEDTOPICZZ", user="ava", actor="ava")
+    before = fresh_db.query_one("SELECT MAX(id) AS id FROM activity")["id"]
+    agent_token = identity.set_agent_identity("scribe")
+    requester_token = identity.set_requester_identity("ava")
+    try:
+        proposal = json.loads(forget_memory(memory_id=m["id"]))
+    finally:
+        identity.reset_requester_identity(requester_token)
+        identity.reset_agent_identity(agent_token)
+    assert proposal["status"] == "pending"
+    response = client.post(
+        f"/api/review/{proposal['id']}/approve", json={}, headers=_strong(client)
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "approved"
+    assert not fresh_db.query_one("SELECT id FROM memories WHERE id = ?", (m["id"],))
+    row = fresh_db.query_one("SELECT * FROM pending_changes WHERE id = ?", (proposal["id"],))
+    assert (row["proposed_by"], row["requested_by"], row["reviewed_by"]) == (
+        "scribe",
+        "ava",
+        "tester",
+    )
+    assert row["reviewed_strong"] == 1
+    egress = json.dumps(
+        [
+            row,
+            fresh_db.query("SELECT * FROM activity WHERE id > ?", (before,)),
+            fresh_db.query("SELECT * FROM notifications"),
+        ]
+    )
+    assert "ZZREMOVEDBODYZZ" not in egress and "ZZREMOVEDTOPICZZ" not in egress
+    assert (
+        fresh_db.query_one("SELECT actor FROM activity WHERE action = 'forget'")["actor"]
+        == "scribe"
+    )
+
+
+def test_review_cannot_use_reviewer_as_targeted_memory_requester(fresh_db):
+    from app.services import memory, review, scope, users
+
+    users.ensure_user("scribe", kind="agent")
+    users.ensure_user("ava")
+    users.ensure_user("bo")
+    m = memory.remember("ZZTARGETBODYZZ", user="ava", actor="ava")
+    proposal = review.propose_change(
+        "memory_forget", "update", {}, entity_id=m["id"], actor="scribe", requested_by="bo"
+    )
+    with pytest.raises(ValueError, match="auto-rejected"):
+        review.approve_change(
+            proposal["id"], actor="ava", strong=True, viewer=scope.Viewer("ava", True)
+        )
+    assert fresh_db.query_one("SELECT id FROM memories WHERE id = ?", (m["id"],))
+    assert not fresh_db.query("SELECT * FROM activity WHERE action = 'forget'")
+    assert "ZZTARGETBODYZZ" not in json.dumps(review.list_changes(status="rejected"))
+
+
+def test_forget_proposal_cannot_supply_requester_in_payload(fresh_db):
+    from app.services import memory, review
+
+    m = memory.remember("ZZTARGETBODYZZ", user="ava", actor="ava")
+    with pytest.raises(ValueError, match="requester"):
+        review.propose_change(
+            "memory_forget", "update", {"requester": "ava"}, entity_id=m["id"], actor="agent"
+        )
+    assert fresh_db.query("SELECT * FROM pending_changes") == []
 
 
 def test_agent_remember_is_gated_and_carries_provenance(client, fresh_db, monkeypatch):

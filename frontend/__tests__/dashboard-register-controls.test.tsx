@@ -138,3 +138,21 @@ describe("the milestone and calendar create forms", () => {
     expect(screen.queryByText(/ask the Chief of Staff/)).toBeNull();
   });
 });
+
+it("returns focus to blocker assignment on Escape", async () => {
+  render(<Dashboard />);
+  fireEvent.click(await screen.findByRole("button", { name: "Assign blocker #3: vendor contract unsigned" }));
+  fireEvent.keyDown(screen.getByLabelText("Give blocker #3 an owner"), { key: "Escape" });
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Assign blocker #3: vendor contract unsigned" })));
+});
+
+it.each(["assign", "answer"])("returns to question %s after Escape", async (mode) => {
+  const original = mocks.api.getMockImplementation()!;
+  mocks.api.mockImplementation((path: string, opts?: { method?: string }) =>
+    path === "/api/questions" ? Promise.resolve([{ id: 1, question: "Do we have budget for a usability test round?", assigned_to: "", status: "open", answer: "", visibility: "workspace", crew_id: 0 }]) : original(path, opts),
+  );
+  render(<Dashboard />);
+  fireEvent.click(await screen.findByRole("button", { name: new RegExp(mode === "assign" ? "unassigned — assign" : "answer…") }));
+  fireEvent.keyDown(screen.getByLabelText(mode === "assign" ? "Assign this question to" : "Answer this question"), { key: "Escape" });
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: new RegExp(mode === "assign" ? "unassigned — assign" : "answer…") })));
+});

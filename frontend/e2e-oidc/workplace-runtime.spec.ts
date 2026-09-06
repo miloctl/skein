@@ -2,6 +2,7 @@ import { expect, test, type Browser, type Page } from "@playwright/test";
 
 const IDP = process.env.SKEIN_OIDC_IDP_URL ?? "http://127.0.0.1:8610";
 const API = process.env.SKEIN_OIDC_API_URL ?? "http://127.0.0.1:8601";
+const APP = process.env.SKEIN_OIDC_APP_URL ?? "http://127.0.0.1:3601";
 
 async function signedInPage(browser: Browser, user: string) {
   const context = await browser.newContext();
@@ -20,15 +21,19 @@ async function signedInPage(browser: Browser, user: string) {
     timeout: 15_000,
   });
   await page.unroute(`${IDP}/authorize**`);
-  const session = await page.evaluate(() =>
-    JSON.parse(window.localStorage.getItem("skein-oidc") || "null"),
-  );
+  const sessionResponse = await context.request.get(`${API}/api/auth/session`);
+  expect(sessionResponse.ok()).toBe(true);
+  const session = await sessionResponse.json();
+  expect(await page.evaluate(() => localStorage.getItem("skein-oidc"))).toBeNull();
   expect(session?.user).toBe(user);
-  expect(session?.access_token).toBeTruthy();
+  expect(session?.authenticated).toBe(true);
+  expect(session?.csrf_token).toBeTruthy();
+  expect(session).not.toHaveProperty("access_token");
+  expect(session).not.toHaveProperty("refresh_token");
   await expect(page.getByRole("button", { name: new RegExp(user, "i") })).toBeVisible({
     timeout: 15_000,
   });
-  return { context, page, token: String(session.access_token) };
+  return { context, page, csrf: String(session.csrf_token) };
 }
 
 function watchSignedInPage(page: Page, ignoredFailures: string[] = []) {
@@ -50,13 +55,13 @@ function watchSignedInPage(page: Page, ignoredFailures: string[] = []) {
   return failures;
 }
 
-const authorization = (token: string) => ({
-  Authorization: `Bearer ${token}`,
+const authorization = (csrf: string) => ({
+  "X-Skein-CSRF": csrf,
+  Origin: APP,
 });
 
 test("the package-built workplace keeps core writes and extension policy together", async ({
   browser,
-  request,
 }) => {
   const denied = await signedInPage(browser, "ava");
   await denied.page.goto("/dashboard");
@@ -64,31 +69,31 @@ test("the package-built workplace keeps core writes and extension policy togethe
   await expect(
     denied.page.getByRole("heading", { name: "Atlas delivery indicators" }),
   ).toHaveCount(0);
-  const deniedMetrics = await request.get(
+  const deniedMetrics = await denied.context.request.get(
     `${API}/api/extensions/atlas.workplace/metrics`,
-    { headers: authorization(denied.token) },
+    { headers: authorization(denied.csrf) },
   );
   expect(deniedMetrics.status()).toBe(403);
   await denied.context.close();
 
   const integration = await signedInPage(browser, "nina");
   await expect(integration.page.getByRole("link", { name: "Atlas" })).toBeHidden();
-  const integrationMetrics = await request.get(
+  const integrationMetrics = await integration.context.request.get(
     `${API}/api/extensions/atlas.workplace/metrics`,
-    { headers: authorization(integration.token) },
+    { headers: authorization(integration.csrf) },
   );
   expect(integrationMetrics.status()).toBe(403);
-  const sync = await request.post(`${API}/api/extensions/atlas.workplace/sync`, {
-    headers: authorization(integration.token),
+  const sync = await integration.context.request.post(`${API}/api/extensions/atlas.workplace/sync`, {
+    headers: authorization(integration.csrf),
   });
   expect(sync.status()).toBe(200);
   expect(await sync.json()).toEqual({ created: 0, updated: 0 });
   await integration.context.close();
 
   const manager = await signedInPage(browser, "mira");
-  const capability = await request.get(
+  const capability = await manager.context.request.get(
     `${API}/api/capabilities?actions=atlas.dashboard.view`,
-    { headers: authorization(manager.token) },
+    { headers: authorization(manager.csrf) },
   );
   expect(capability.status()).toBe(200);
   expect((await capability.json()).actions["atlas.dashboard.view"].effect).toBe("permit");
@@ -125,8 +130,8 @@ test("the package-built workplace keeps core writes and extension policy togethe
   await expect(recovered).toBeVisible();
   await expect(recovered).toHaveAttribute("role", "status");
   await expect(recovered).toHaveAttribute("aria-live", "polite");
-  const managerSync = await request.post(`${API}/api/extensions/atlas.workplace/sync`, {
-    headers: authorization(manager.token),
+  const managerSync = await manager.context.request.post(`${API}/api/extensions/atlas.workplace/sync`, {
+    headers: authorization(manager.csrf),
   });
   expect(managerSync.status()).toBe(403);
 
@@ -137,8 +142,8 @@ test("the package-built workplace keeps core writes and extension policy togethe
   await manager.page.getByRole("button", { name: "Capture", exact: true }).click();
   await expect(manager.page.getByText(/Captured as task #\d+/)).toBeVisible();
 
-  const tasks = await request.get(`${API}/api/tasks`, {
-    headers: authorization(manager.token),
+  const tasks = await manager.context.request.get(`${API}/api/tasks`, {
+    headers: authorization(manager.csrf),
   });
   expect(tasks.status()).toBe(200);
   expect(await tasks.json()).toContainEqual(
@@ -154,9 +159,9 @@ test("the package-built workplace keeps core writes and extension policy togethe
   const deniedAgain = await signedInPage(browser, "ava");
   await deniedAgain.page.goto("/dashboard");
   await expect(deniedAgain.page.getByRole("link", { name: "Atlas" })).toBeHidden();
-  const deniedMetricsAgain = await request.get(
+  const deniedMetricsAgain = await deniedAgain.context.request.get(
     `${API}/api/extensions/atlas.workplace/metrics`,
-    { headers: authorization(deniedAgain.token) },
+    { headers: authorization(deniedAgain.csrf) },
   );
   expect(deniedMetricsAgain.status()).toBe(403);
   await deniedAgain.context.close();

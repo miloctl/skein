@@ -11,6 +11,7 @@ type ServerStatus = {
   server_id: string;
   tier: string;
   connected: boolean;
+  connecting?: boolean;
   offered: number;
   retry_in_seconds: number | null;
   tools: ToolRow[];
@@ -36,10 +37,13 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 function describe(status: ServerStatus | null | undefined): string {
   if (!status) return "not connected yet";
+  if (status.connecting) return "connecting";
   if (status.connected)
     return `connected, ${status.tools.length} of ${plural(status.offered, "tool")} governed`;
+  if (status.retry_in_seconds === 0)
+    return "not connected. Send a chat message to try again";
   if (status.retry_in_seconds !== null)
-    return `not connected, next attempt in ${status.retry_in_seconds} s`;
+    return `not connected. After ${status.retry_in_seconds} s, send a chat message to try again`;
   return "not connected";
 }
 
@@ -116,18 +120,20 @@ export function McpServersCard({
   useEffect(() => {
     if (strong) load();
   }, [load, strong]);
+  const connecting = data?.personal.some((s) => s.status?.connecting) ?? false;
+  useEffect(() => {
+    if (!strong || (awaiting === null && !connecting)) return;
+    const timer = setInterval(load, 3000);
+    return () => clearInterval(timer);
+  }, [awaiting, connecting, load, strong]);
   useEffect(() => {
     if (awaiting === null) return;
-    const timer = setInterval(load, 3000);
     const stop = setTimeout(() => {
       awaitingRef.current = null;
       setAwaiting(null);
     }, 5 * 60 * 1000);
-    return () => {
-      clearInterval(timer);
-      clearTimeout(stop);
-    };
-  }, [awaiting, load]);
+    return () => clearTimeout(stop);
+  }, [awaiting]);
 
   const act = async (
     key: string,

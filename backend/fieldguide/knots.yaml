@@ -47,6 +47,15 @@ knots:
     link: /
     since: 2026-07-31
 
+  - id: browser_signin
+    feature: Browser sign-in
+    knot: Mooring Hitch
+    set: loops
+    pitch: A mooring for your browser, with the keys kept ashore.
+    how: "Open Settings. Select Sign in or enter your API key once. Use Sign out in the account menu to end the browser session. Skein does not save the entered key in browser storage."
+    link: /settings
+    since: 2026-09-05
+
   - id: theme
     feature: Themes
     knot: Weaver's Knot

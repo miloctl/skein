@@ -356,12 +356,20 @@ def _mcp_server(name: str, url: str, tool_name: str) -> dict:
     }
 
 
+def _settle_personal(module):
+    deadline = time.monotonic() + 3
+    while module._opening and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not module._opening
+
+
 @pytest.fixture
 def clean_mcp():
     from app.agents import mcp_tools as module
 
     module.shutdown_mcp()
     yield module
+    _settle_personal(module)
     module.shutdown_mcp()
 
 
@@ -745,6 +753,8 @@ def test_personal_servers_never_join_the_process_wide_list_and_follow_their_row(
     monkeypatch.setattr("app.config.MCP_SERVERS", "")
     mcp_servers.add("ava", "notes", "https://notes.example/mcp", actor="ava")
 
+    m.personal_mcp_tools("ava")
+    _settle_personal(m)
     mine = m.personal_mcp_tools("ava")
     assert [t.tool_name for t in mine] == ["notes_ping"]
     assert mine[0].tier == "personal" and mine[0].server_id == "personal:ava:notes"
@@ -759,6 +769,7 @@ def test_personal_servers_never_join_the_process_wide_list_and_follow_their_row(
 
     db.execute("UPDATE mcp_servers SET updated_at = ? WHERE name = 'notes'", ("2099-01-01",))
     m.personal_mcp_tools("ava")
+    _settle_personal(m)
     assert len(seen) == 2, "a changed row reopens the connection"
 
     db.execute("DELETE FROM mcp_servers")
@@ -801,6 +812,8 @@ def test_personal_tools_reach_only_the_turn_their_owner_drives(fresh_db, monkeyp
         agent = build_agent("t-personal", "ava", **kwargs)
         return {getattr(t, "tool_name", "") for t in agent.tool_registry.registry.values()}
 
+    names(personal_tools_for="ava")
+    _settle_personal(m)
     assert "notes_ping" in names(personal_tools_for="ava")
     assert "notes_ping" not in names()
     assert "notes_ping" not in names(personal_tools_for="ava", stateless=True)
@@ -808,9 +821,8 @@ def test_personal_tools_reach_only_the_turn_their_owner_drives(fresh_db, monkeyp
 
 
 def test_a_failed_personal_server_recovers_off_the_chat_path(fresh_db, monkeypatch, clean_mcp):
-    """A dead personal server costs its owner one bounded attempt, then a
-    backoff the env path must not erase, then a retry in a thread. The
-    reviewed path reads the cache and never connects."""
+    """Initial discovery and retry both run outside the chat path. Backoff
+    survives the env path, and review reads the cache without connecting."""
     import time
 
     from app.services import mcp_servers
@@ -846,6 +858,7 @@ def test_a_failed_personal_server_recovers_off_the_chat_path(fresh_db, monkeypat
     sid = "personal:ava:notes"
 
     assert m.personal_mcp_tools("ava") == []
+    _settle_personal(m)
     assert sid in m._retry_state
     assert m.mcp_tools() == []
     assert sid in m._retry_state, "the env path with no servers wiped a personal backoff"

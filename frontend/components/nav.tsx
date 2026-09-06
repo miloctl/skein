@@ -9,10 +9,10 @@ import { NavSearch } from "@/components/nav-search";
 import { PageHelp } from "@/components/page-help";
 // identity/key changes notify via the storage event (cross-tab natively,
 // same-tab dispatched by the lib/api writers)
-import { api, getApiKey, getUser, subscribeUser } from "@/lib/api";
+import { actionError, api, getUser, subscribeUser } from "@/lib/api";
 import { bridgeAttentionChange } from "@/lib/attention";
 import { reportStatus } from "@/lib/status";
-import { authConfig, isSignedIn, signIn, signOut } from "@/lib/auth";
+import { authConfig, isSignedIn, sessionSnapshot, signIn, signOut } from "@/lib/auth";
 import { isGated, subscribeGated } from "@/lib/gated";
 import { useFrontendExtensions } from "@/lib/extensions/context";
 
@@ -138,10 +138,9 @@ export function Nav() {
     if (menuOpen)
       menuRef.current?.querySelector<HTMLElement>("[role=menuitem]")?.focus();
   }, [menuOpen]);
-  // localStorage is client-only; same-tab changes reload the page (setApiKey callers)
-  const hasKey = useSyncExternalStore(
+  const strongSession = useSyncExternalStore(
     subscribeUser,
-    () => Boolean(getApiKey()),
+    () => sessionSnapshot().authenticated && sessionSnapshot().strong,
     () => false,
   );
   const signedIn = useSyncExternalStore(subscribeUser, isSignedIn, () => false);
@@ -333,6 +332,7 @@ export function Nav() {
                 className="relative flex min-h-11 min-w-0 items-center gap-1.5 rounded-full py-0.5 pl-0.5 pr-2 text-[13px] text-ink-2 hover:bg-raised hover:text-ink md:min-h-0"
               >
                 <span
+                  aria-hidden
                   className={
                     "flex size-5 items-center justify-center rounded-full font-mono text-[10px] uppercase " +
                     (anonymous
@@ -360,7 +360,7 @@ export function Nav() {
                     {user}
                   </span>
                 )}
-                {hasKey && (
+                {strongSession && (
                   <span
                     aria-hidden
                     title="Strong identity active"
@@ -416,23 +416,18 @@ export function Nav() {
                       ? "Pick your name…"
                       : "Settings & access"}
                   </Link>
-                  {mode === "oidc" && (
+                  {(mode === "oidc" || signedIn) && (
                     <button
                       role="menuitem"
                       onClick={async () => {
                         setMenuOpen(false);
                         if (signedIn) {
-                          await signOut();
-                          // A full navigation, and no setUser("anonymous").
-                          // signOut clears the GET cache, but nothing
-                          // re-fetches a card that already rendered — signing
-                          // out on /people left the private 1:1 notes painted
-                          // on screen. The load lands on the auth gate, which
-                          // shows the signed-out state (auth-gate.tsx reads
-                          // the reason signOut just recorded). The display
-                          // name stays: oidc mode ignores X-User, so
-                          // overwriting it only destroys what the person typed.
-                          window.location.assign("/");
+                          try {
+                            await signOut();
+                            window.location.assign("/");
+                          } catch (error) {
+                            reportStatus(actionError(error));
+                          }
                         } else {
                           // signIn resolves to a message only when it could not
                           // start: an unconfigured deployment, or a config it
@@ -465,23 +460,12 @@ export function Nav() {
                     id="account-access-summary"
                     className="mt-1 border-t border-line px-2.5 pb-1 pt-1.5 text-[11px] text-ink-3"
                   >
-                    {!mode
-                      ? "Checking access…"
-                      : signedIn
-                        ? "Signed in"
-                        : mode === "oidc"
-                          ? hasKey
-                            ? "Personal API key stored"
-                            : "Signed out — sign in to open the workspace"
-                          : mode === "api-key"
-                            ? hasKey
-                              ? "Personal API key stored"
-                              : "No key stored — this deployment needs one"
-                            : anonymous
-                              ? "No name picked — writes will not be yours"
-                              : hasKey
-                                ? "Personal API key stored"
-                                : "Name-only access — team-visible work is available"}
+                    {!mode ? "Checking access…" : signedIn
+                      ? "Signed in with a browser session"
+                      : mode === "oidc" || mode === "api-key"
+                        ? "Signed out — sign in to open the workspace"
+                        : anonymous ? "No name picked — writes will not be yours"
+                          : "Name-only access — team-visible work is available"}
                   </p>
                 </div>
               )}

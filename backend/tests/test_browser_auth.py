@@ -1,0 +1,329 @@
+"""Cookie authentication must not expose credentials or fall back to another identity."""
+
+import time
+
+import pytest
+from cryptography.fernet import Fernet
+from fastapi.testclient import TestClient
+
+from app import config, oidc
+from app.services import api_keys, browser_sessions, users
+
+ORIGIN = "https://ui.test"
+
+
+@pytest.fixture
+def browser(client, monkeypatch):
+    monkeypatch.setattr(config, "CORS_ORIGINS", [ORIGIN])
+    monkeypatch.setattr(config, "CREDENTIAL_KEY", Fernet.generate_key().decode())
+    with TestClient(client.app, base_url="https://api.test", headers={"Origin": ORIGIN}) as other:
+        yield other
+
+
+def _key(owner="ava"):
+    users.ensure_human_identity(owner)
+    return api_keys.create_key(owner, "browser test")["key"]
+
+
+def _login(browser, owner="ava"):
+    key = _key(owner)
+    response = browser.post("/api/auth/session/key", json={"key": key})
+    assert response.status_code == 200, response.text
+    assert key not in response.text
+    return response.json(), key
+
+
+def test_key_exchange_sets_secure_opaque_cookie_and_metadata_only(browser):
+    response = browser.post("/api/auth/session/key", json={"key": _key()})
+    assert response.status_code == 200, response.text
+    cookie = response.headers["set-cookie"]
+    assert "HttpOnly" in cookie and "Secure" in cookie and "SameSite=lax" in cookie
+    assert "Path=/" in cookie and "Domain=" not in cookie
+    assert response.json()["user"] == "ava"
+    assert not ({"access_token", "refresh_token", "key", "cookie"} & response.json().keys())
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "",
+        "null",
+        "https://evil.test",
+        "https://ui.test/path",
+        "https://ui.test:0",
+        "https://ui.test?",
+        "https://ui.test#",
+        "https://ui.\ttest",
+    ],
+)
+def test_key_exchange_refuses_unapproved_origins_before_authentication(browser, origin):
+    response = browser.post(
+        "/api/auth/session/key", json={"key": _key()}, headers={"Origin": origin}
+    )
+    assert response.status_code == 403
+    assert "set-cookie" not in response.headers
+
+
+def test_cookie_binding_covers_reads_writes_and_never_falls_back_to_name(browser, fresh_db):
+    info, _ = _login(browser)
+    assert browser.get("/api/tasks", headers={"X-User": "bo"}).status_code == 403
+    headers = {"X-Skein-CSRF": info["csrf_token"], "X-User": "bo"}
+    response = browser.post("/api/tasks", json={"title": "bound identity"}, headers=headers)
+    assert response.status_code == 200, response.text
+    assert (
+        fresh_db.query_one("SELECT created_by FROM tasks WHERE id = ?", (response.json()["id"],))[
+            "created_by"
+        ]
+        == "ava"
+    )
+    browser.cookies.clear()
+    response = browser.post("/api/tasks", json={"title": "must not downgrade"}, headers=headers)
+    assert response.status_code == 401
+
+
+def test_cookie_cannot_mint_a_durable_key_but_automation_bearer_can(browser):
+    info, key = _login(browser)
+    response = browser.post(
+        "/api/keys", json={"label": "must not escape"}, headers={"X-Skein-CSRF": info["csrf_token"]}
+    )
+    assert response.status_code == 403
+    assert "sk-skein-" not in response.text
+    response = browser.post(
+        "/api/keys", json={"label": "automation"}, headers={"Authorization": f"Bearer {key}"}
+    )
+    assert response.status_code == 200 and response.json()["key"].startswith("sk-skein-")
+
+
+def test_invalid_explicit_bearer_never_uses_valid_cookie(browser):
+    info, _ = _login(browser)
+    response = browser.get(
+        "/api/whoami",
+        headers={"X-Skein-CSRF": info["csrf_token"], "Authorization": "Bearer sk-skein-invalid"},
+    )
+    assert response.status_code == 401
+
+
+def test_logout_revokes_and_clears_without_provider_access(browser, monkeypatch):
+    info, _ = _login(browser)
+    cookie = browser.cookies.get(browser_sessions.COOKIE_NAME)
+    monkeypatch.setattr(oidc, "exchange", lambda *_: pytest.fail("logout must be local"))
+    assert browser.delete("/api/auth/session").status_code == 403
+    response = browser.delete("/api/auth/session", headers={"X-Skein-CSRF": info["csrf_token"]})
+    assert response.status_code == 204
+    assert "Max-Age=0" in response.headers["set-cookie"]
+    assert browser_sessions.metadata(cookie, mode="trusted-header")["authenticated"] is False
+
+
+def test_bootstrap_does_not_clear_a_newer_cookie(browser):
+    browser.cookies.set(browser_sessions.COOKIE_NAME, "expired-cookie", domain="api.test", path="/")
+    response = browser.get("/api/auth/session")
+    assert response.status_code == 200 and not response.json()["authenticated"]
+    assert "set-cookie" not in response.headers
+
+
+def test_oidc_exchange_returns_no_provider_credentials(browser, monkeypatch):
+    monkeypatch.setattr(config, "AUTH_MODE", "oidc")
+    monkeypatch.setattr(config, "OIDC_ISSUER", "https://idp.test")
+    monkeypatch.setattr(config, "OIDC_AUDIENCE", "skein")
+    monkeypatch.setattr(config, "OIDC_CLIENT_ID", "skein-web")
+    claims = {
+        "iss": "https://idp.test",
+        "sub": "subject:ava",
+        "aud": "skein",
+        "exp": time.time() + 600,
+        "preferred_username": "ava",
+    }
+    monkeypatch.setattr(oidc, "validate", lambda _: claims)
+    monkeypatch.setattr(
+        oidc,
+        "exchange",
+        lambda _: {
+            "access_token": "provider-access-secret",
+            "refresh_token": "provider-refresh-secret",
+            "expires_in": 600,
+        },
+    )
+    response = browser.post(
+        "/api/auth/token",
+        json={"code": "code", "code_verifier": "v" * 43, "redirect_uri": ORIGIN + "/auth/callback"},
+    )
+    assert response.status_code == 200, response.text
+    assert "provider-" not in response.text
+    assert "access_token" not in response.json() and "refresh_token" not in response.json()
+    assert response.json()["authenticated"] is True
+    assert "HttpOnly" in response.headers["set-cookie"]
+
+
+def test_oidc_exchange_rejects_foreign_redirect_before_contacting_provider(browser, monkeypatch):
+    monkeypatch.setattr(config, "AUTH_MODE", "oidc")
+    monkeypatch.setattr(config, "OIDC_CLIENT_ID", "skein-web")
+    monkeypatch.setattr(oidc, "exchange", lambda _: pytest.fail("unapproved redirect reached IdP"))
+    response = browser.post(
+        "/api/auth/token",
+        json={
+            "code": "code",
+            "code_verifier": "v" * 43,
+            "redirect_uri": "https://evil.test/auth/callback",
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_browser_refresh_token_input_is_refused(browser, monkeypatch):
+    monkeypatch.setattr(config, "AUTH_MODE", "oidc")
+    monkeypatch.setattr(config, "OIDC_CLIENT_ID", "skein-web")
+    monkeypatch.setattr(
+        oidc, "exchange", lambda _: pytest.fail("browser-owned refresh token accepted")
+    )
+    response = browser.post("/api/auth/token", json={"refresh_token": "must stay server-side"})
+    assert response.status_code == 400
+
+
+def test_composed_oidc_session_uses_its_app_mode_not_another_apps_global(fresh_db, monkeypatch):
+    from dataclasses import replace
+
+    from app.extensions.contracts import AppSettings
+    from app.main import create_app
+
+    monkeypatch.setattr(config, "CREDENTIAL_KEY", Fernet.generate_key().decode())
+    monkeypatch.setattr(config, "OIDC_ISSUER", "https://idp.test")
+    monkeypatch.setattr(config, "OIDC_AUDIENCE", "skein")
+    monkeypatch.setattr(config, "OIDC_CLIENT_ID", "skein-web")
+    monkeypatch.setattr(config, "AUTH_MODE", "trusted-header")
+    claims = {
+        "iss": "https://idp.test",
+        "sub": "subject:ava",
+        "aud": "skein",
+        "exp": time.time() + 600,
+        "preferred_username": "ava",
+    }
+    monkeypatch.setattr(oidc, "validate", lambda _: claims)
+    monkeypatch.setattr(
+        oidc, "exchange", lambda _: {"access_token": "test-access", "refresh_token": "test-refresh"}
+    )
+    settings = replace(AppSettings.from_config(), auth_mode="oidc", cors_origins=(ORIGIN,))
+    with TestClient(
+        create_app(settings=settings), base_url="https://api.test", headers={"Origin": ORIGIN}
+    ) as browser:
+        response = browser.post(
+            "/api/auth/token",
+            json={
+                "code": "code",
+                "code_verifier": "v" * 43,
+                "redirect_uri": ORIGIN + "/auth/callback",
+            },
+        )
+        assert response.status_code == 200, response.text
+        monkeypatch.setattr(config, "AUTH_MODE", "api-key")
+        assert browser.get("/api/auth/session").json()["authenticated"] is True
+
+
+def test_cookie_authentication_precedes_atomic_transaction_and_runs_once(
+    browser, monkeypatch, fresh_db
+):
+    from app import db
+
+    info, _ = _login(browser)
+    original = browser_sessions.authenticate
+    calls = []
+
+    def authenticate(*args, **kwargs):
+        assert not db.in_transaction()
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(browser_sessions, "authenticate", authenticate)
+    response = browser.post(
+        "/api/promises",
+        json={"promise": "session-bound"},
+        headers={"X-Skein-CSRF": info["csrf_token"], "X-User": "bo"},
+    )
+    assert response.status_code == 200, response.text
+    assert calls == [1]
+    assert (
+        fresh_db.query_one(
+            "SELECT created_by FROM promises WHERE id = ?", (response.json()["id"],)
+        )["created_by"]
+        == "ava"
+    )
+
+
+def test_session_outage_is_retryable_and_never_clears_cookie(browser, monkeypatch):
+    info, _ = _login(browser)
+
+    def unavailable(*args, **kwargs):
+        raise browser_sessions.SessionUnavailable(retry_after=1)
+
+    monkeypatch.setattr(browser_sessions, "authenticate", unavailable)
+    response = browser.get("/api/tasks", headers={"X-Skein-CSRF": info["csrf_token"]})
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "1"
+    assert "set-cookie" not in response.headers
+    assert browser.get("/api/auth/session").json()["authenticated"] is True
+
+
+def test_real_key_that_is_also_shared_token_wins_over_cookie(browser, monkeypatch, fresh_db):
+    key = _key("bo")
+    info, _ = _login(browser, "ava")
+    monkeypatch.setattr(config, "API_TOKEN", key)
+    response = browser.post(
+        "/api/tasks",
+        json={"title": "explicit credential"},
+        headers={"Authorization": f"Bearer {key}", "X-Skein-CSRF": info["csrf_token"]},
+    )
+    assert response.status_code == 200, response.text
+    assert (
+        fresh_db.query_one("SELECT created_by FROM tasks WHERE id = ?", (response.json()["id"],))[
+            "created_by"
+        ]
+        == "bo"
+    )
+
+
+def test_unapproved_origin_cannot_read_session_metadata_or_logout(browser):
+    info, _ = _login(browser)
+    assert (
+        browser.get("/api/auth/session", headers={"Origin": "https://evil.test"}).status_code == 403
+    )
+    response = browser.delete(
+        "/api/auth/session",
+        headers={"Origin": "https://evil.test", "X-Skein-CSRF": info["csrf_token"]},
+    )
+    assert response.status_code == 403 and "set-cookie" not in response.headers
+    assert browser.get("/api/auth/session").json()["authenticated"] is True
+
+
+def test_cookie_mcp_post_checks_the_actual_method(browser):
+    info, _ = _login(browser)
+    response = browser.post(
+        "/api/mcp-server",
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        headers={
+            "Origin": "",
+            "X-Skein-CSRF": info["csrf_token"],
+            "Accept": "application/json, text/event-stream",
+        },
+    )
+    assert response.status_code == 403
+
+
+def test_explicit_cors_origin_allows_credentialed_requests(fresh_db):
+    from dataclasses import replace
+
+    from app.extensions.contracts import AppSettings
+    from app.main import create_app
+
+    settings = replace(AppSettings.from_config(), cors_origins=(ORIGIN,))
+    with TestClient(create_app(settings=settings)) as client:
+        response = client.options(
+            "/api/auth/session/key",
+            headers={
+                "Origin": ORIGIN,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type,x-skein-csrf",
+            },
+        )
+        assert response.status_code == 200
+        assert response.headers["access-control-allow-origin"] == ORIGIN
+        assert response.headers["access-control-allow-credentials"] == "true"

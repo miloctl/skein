@@ -140,7 +140,7 @@ export function FirstWatch() {
     const onStart = () => resolve(true);
     const onStorage = (event: Event) => {
       if (!(event instanceof StorageEvent)) return;
-      if (event.key && !["skein-user", "skein-key", "skein-oidc"].includes(event.key))
+      if (event.key && event.key !== "skein-user")
         return;
       resolve(false);
     };

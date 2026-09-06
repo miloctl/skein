@@ -29,7 +29,7 @@ def test_registry_is_valid_and_complete(fresh_db):
     from app.services import fieldguide
 
     cards = fieldguide.registry()
-    assert len(cards) == 56
+    assert len(cards) == 57
     ids = {k["id"] for k in cards}
     assert ids == set(fieldguide.PREDICATES)
     for k in cards:
@@ -167,7 +167,7 @@ def test_hint_and_guide_use_the_same_tieable_total(fresh_db):
     from app.services import fieldguide
 
     _mint(fresh_db, "ava")
-    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 55
+    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 56
 
 
 def test_first_detection_seeds_silently(fresh_db):
@@ -729,3 +729,13 @@ def test_theme_ties_on_the_profile_row_not_the_ledger(fresh_db):
     assert not fieldguide.PREDICATES["theme"]("ava")
     users.set_theme("ava", '{"pack": "ledger"}')
     assert fieldguide.PREDICATES["theme"]("ava")
+
+
+def test_browser_signin_knot_uses_real_session_provenance(fresh_db):
+    from app.services import api_keys, browser_sessions, fieldguide, users
+
+    users.ensure_human_identity("ava")
+    key = api_keys.create_key("ava", "test")["key"]
+    assert not fieldguide.PREDICATES["browser_signin"]("ava")
+    browser_sessions.create_key_session(key, mode="trusted-header")
+    assert fieldguide.PREDICATES["browser_signin"]("ava")

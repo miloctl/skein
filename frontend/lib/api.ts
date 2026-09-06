@@ -1,14 +1,10 @@
-import { accessTokenResult, accessTokenSync, sessionRejected } from "./auth";
-import { API_URL } from "./config";
+import {
+  bootstrapSession, checkSessionRevision, sessionGeneration, sessionRejected, sessionRevision, sessionSnapshot,
+  signedInUser, trustedHeaderIdentity,
+} from "./auth";
+import { API_URL, backendUnreachable } from "./config";
 
-export { API_URL };
-
-/** One condition, one wording (CLAUDE.md). Every surface that cannot reach the
- *  backend says this — the URL included, because in a self-hosted deployment
- *  it is usually the thing that is wrong. */
-export const backendUnreachable = (error?: unknown) =>
-  `Cannot reach the backend at ${API_URL}. Check that the server is running, then try again.` +
-  (error ? ` (${detail(error)})` : "");
+export { API_URL, backendUnreachable };
 
 /** True only for a transport failure. `api()` throws a plain Error carrying the
  *  server's own detail for anything the backend actually answered, and calling
@@ -48,22 +44,18 @@ export async function errorFromResponse(res: Response): Promise<Error> {
 }
 
 const USER_KEY = "skein-user";
-const API_KEY_KEY = "skein-key";
 
 export function getUser(): string {
   if (typeof window === "undefined") return "anonymous";
-  return window.localStorage.getItem(USER_KEY) ?? "anonymous";
-}
-
-export function userHeader(): Record<string, string> {
-  const user = getUser();
-  return user === "anonymous" ? {} : { "X-User": user };
+  if (signedInUser()) return signedInUser();
+  if (!trustedHeaderIdentity()) return "anonymous";
+  try { return window.localStorage.getItem(USER_KEY) ?? "anonymous"; } catch { return "anonymous"; }
 }
 
 export function setUser(name: string) {
   window.localStorage.setItem(USER_KEY, name.trim() || "anonymous");
   // storage events don't fire in the writing tab — nudge same-tab
-  // subscribers (nav chip, guide page) like setApiKey does
+  // subscribers (nav chip, guide page) read the new identity immediately
   window.dispatchEvent(new Event("storage"));
   window.dispatchEvent(new Event("skein-identity-change"));
 }
@@ -75,34 +67,18 @@ export function subscribeUser(cb: () => void) {
   return () => window.removeEventListener("storage", cb);
 }
 
-// Personal API key (sk-skein-…): the strong identity for private surfaces
-// (People page, fb: capture). Interim until OIDC+PKCE lands at deployment.
-export function getApiKey(): string {
-  if (typeof window === "undefined") return "";
-  return window.localStorage.getItem(API_KEY_KEY) ?? "";
-}
-
-export function setApiKey(key: string) {
-  const k = key.trim();
-  if (k) window.localStorage.setItem(API_KEY_KEY, k);
-  else window.localStorage.removeItem(API_KEY_KEY);
-  // storage events don't fire in the writing tab — nudge same-tab
-  // subscribers (nav dot, Settings key status) like every other writer
-  window.dispatchEvent(new Event("storage"));
-  window.dispatchEvent(new Event("skein-identity-change"));
-}
-
-/** The credential this request carries, strongest first.
- *
- *  A signed-in OIDC session wins: it is the deployment's own identity model
- *  wherever it is on, and it is the most recent deliberate act. A personal
- *  key comes next — it is per-person and proves identity. The shared token is
- *  last and proves only that the caller reached the app, since it ships inside
- *  the public JS bundle. */
-export async function bearer(): Promise<string> {
-  const oidc = await accessTokenResult();
-  if (!oidc.canFallback) return oidc.token;
-  return getApiKey() || process.env.NEXT_PUBLIC_API_TOKEN || "";
+/** Synchronous for pagehide: a closing page cannot await bootstrap or refresh. */
+export function sessionHeaders(): Record<string, string> {
+  const csrf = sessionSnapshot().csrf_token;
+  if (csrf) return { "X-Skein-CSRF": csrf, "X-Client": "web" };
+  if (!trustedHeaderIdentity()) return { "X-Client": "web" };
+  const user = getUser();
+  const shared = process.env.NEXT_PUBLIC_API_TOKEN;
+  return {
+    "X-Client": "web",
+    ...(user === "anonymous" ? {} : { "X-User": user }),
+    ...(shared ? { Authorization: `Bearer ${shared}` } : {}),
+  };
 }
 
 /** Short-lived GET cache. Pages fan out to the same handful of list
@@ -110,13 +86,11 @@ export async function bearer(): Promise<string> {
  *  within this window the previous body is the answer. */
 const GET_CACHE_TTL_MS = 15_000;
 const getCache = new Map<string, { at: number; entry: Promise<unknown> }>();
+const responseRevisions = new WeakMap<Response, string>();
 
 if (typeof window !== "undefined") {
-  // Identity rides on every request (X-User, bearer), so a cached body
-  // belongs to ONE identity. Every identity writer — setUser and setApiKey
-  // here, writeStored in lib/auth.ts — dispatches "storage"; without this
-  // clear, someone who switches identity reads the previous identity's
-  // data for up to GET_CACHE_TTL_MS.
+  // Cookie metadata changes in lib/auth.ts and name changes here dispatch
+  // storage. Without this clear a switched identity receives the old cache.
   window.addEventListener("storage", () => getCache.clear());
   // The chat stream (app/runtime-provider.tsx) posts through raw fetch,
   // not api(), so the non-GET clear below never sees it — this event is
@@ -128,21 +102,20 @@ export async function authenticatedFetch(
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
-  const auth = await bearer();
-  // Build this once. init.headers can replace Authorization, and a 401 belongs
-  // to the credential that the request actually sent.
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...userHeader(),
-    "X-Client": "web",
-    ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
-    ...(init?.headers as Record<string, string> | undefined),
-  };
-  const response = await fetch(`${API_URL}${path}`, { ...init, headers });
-  const sent = headers.Authorization?.slice(7) ?? "";
-  if (response.status === 401 && sent && sent === accessTokenSync()) {
-    await sessionRejected(sent);
-  }
+  const startedGeneration = sessionGeneration();
+  const started = sessionRevision();
+  const loading = sessionSnapshot().status === "loading";
+  await bootstrapSession();
+  if (startedGeneration !== sessionGeneration() || (!loading && started !== sessionRevision())) throw new Error("Your browser identity changed. Check your identity, then try again.");
+  const sent = sessionRevision();
+  const headers = new Headers(init?.headers);
+  if (!(init?.body instanceof FormData) && !headers.has("Content-Type"))
+    headers.set("Content-Type", "application/json");
+  for (const [name, value] of Object.entries(sessionHeaders())) headers.set(name, value);
+  const response = await fetch(`${API_URL}${path}`, { ...init, credentials: "include", headers });
+  checkSessionRevision(sent);
+  responseRevisions.set(response, sent);
+  if (response.status === 401 || response.status === 403) await sessionRejected(response, sent);
   return response;
 }
 
@@ -180,5 +153,10 @@ export async function api<T = unknown>(
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await authenticatedFetch(path, init);
   if (!response.ok) throw await errorFromResponse(response);
-  return response.json();
+  // Identity can change between authenticatedFetch resolving and this
+  // continuation. The request's revision, not the current one, owns its body.
+  const sent = responseRevisions.get(response)!;
+  const body = await response.json();
+  checkSessionRevision(sent);
+  return body;
 }

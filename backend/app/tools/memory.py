@@ -108,20 +108,28 @@ def forget_memory(memory_id: int) -> str:
     Args:
         memory_id: ID of the memory (recall_memories shows ids).
     """
-    row = memory.get_memory(memory_id)
+    requester = requester_identity() or agent_identity()
+    row = memory.get_memory(memory_id, user=requester)
     if not row:
         return json.dumps({"error": f"no memory #{memory_id}"})
     return gated_write(
         "memory_forget",
         "update",
         {},
-        lambda: memory.forget(memory_id, actor=agent_identity(), origin="agent"),
+        lambda: memory.forget(
+            memory_id, actor=agent_identity(), origin="agent", requester=requester
+        ),
         entity_id=memory_id,
         # scope.detail: same egress as tools/collab.py::delete_note — the review queue
-        # and the team notification both carry this line
-        summary=scope.detail(
-            row["visibility"],
-            f"forget memory #{memory_id}",
-            f"[{row['topic']}]: {row['content'][:80]}",
+        # and the team notification both carry this line. A targeted memory's
+        # deletion must not republish its body to those shared surfaces.
+        summary=(
+            f"forget memory #{memory_id}"
+            if row["user"]
+            else scope.detail(
+                row["visibility"],
+                f"forget memory #{memory_id}",
+                f"[{row['topic']}]: {row['content'][:80]}",
+            )
         ),
     )

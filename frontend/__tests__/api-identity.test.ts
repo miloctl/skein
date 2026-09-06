@@ -1,100 +1,59 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { api, authenticatedFetch, userHeader } from "@/lib/api";
-
+let current = { authenticated: false, user: "anonymous", strong: false, auth_method: "", csrf_token: "" };
+let calls: { url: string; init?: RequestInit }[];
 beforeEach(() => {
-  window.localStorage.clear();
+  vi.resetModules(); calls = [];
+  current = { authenticated: false, user: "anonymous", strong: false, auth_method: "", csrf_token: "" };
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+    calls.push({ url, init });
+    if (url.endsWith("/auth/config")) return new Response(JSON.stringify({ mode: "trusted-header", error: "" }));
+    if (url.endsWith("/auth/session")) return new Response(JSON.stringify(current));
+    return new Response(JSON.stringify({ ok: true }));
+  }));
 });
-
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
+afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("the trusted-header identity", () => {
   it("omits the synthetic anonymous name from requests", async () => {
-    const fetch = vi
-      .fn<
-        (
-          _url: string,
-          _init?: RequestInit,
-        ) => Promise<{ ok: boolean; json: () => Promise<object> }>
-      >()
-      .mockResolvedValue({ ok: true, json: async () => ({}) });
-    vi.stubGlobal("fetch", fetch);
-
+    const { api } = await import("@/lib/api");
     await api("/api/anonymous-probe", { method: "POST" });
-
-    const headers = fetch.mock.calls[0]?.[1]?.headers as Record<string, string>;
-    expect(headers).not.toHaveProperty("X-User");
+    expect(new Headers(calls.at(-1)?.init?.headers).has("X-User")).toBe(false);
   });
-
-  it("uses the same anonymous omission for raw request paths", () => {
-    expect(userHeader()).toEqual({});
+  it("uses the same anonymous omission for synchronous pagehide headers", async () => {
+    const { bootstrapSession } = await import("@/lib/auth"); await bootstrapSession();
+    const { sessionHeaders } = await import("@/lib/api");
+    expect(sessionHeaders()).toEqual({ "X-Client": "web" });
   });
-
   it("sends a name after the person picks one", async () => {
-    window.localStorage.setItem("skein-user", "mario");
-    expect(userHeader()).toEqual({ "X-User": "mario" });
-    const fetch = vi
-      .fn<
-        (
-          _url: string,
-          _init?: RequestInit,
-        ) => Promise<{ ok: boolean; json: () => Promise<object> }>
-      >()
-      .mockResolvedValue({ ok: true, json: async () => ({}) });
-    vi.stubGlobal("fetch", fetch);
-
-    await api("/api/named-probe", { method: "POST" });
-
-    const headers = fetch.mock.calls[0]?.[1]?.headers as Record<string, string>;
-    expect(headers["X-User"]).toBe("mario");
+    localStorage.setItem("skein-user", "mario");
+    const { api } = await import("@/lib/api"); await api("/api/named-probe", { method: "POST" });
+    expect(new Headers(calls.at(-1)?.init?.headers).get("X-User")).toBe("mario");
   });
-
-  it("authenticates raw file responses through the shared request path", async () => {
-    window.localStorage.setItem("skein-user", "mario");
-    window.localStorage.setItem("skein-key", "personal-key");
-    const fetch = vi
-      .fn()
-      .mockResolvedValue(new Response("file", { status: 200 }));
-    vi.stubGlobal("fetch", fetch);
-
-    await authenticatedFetch("/api/file");
-
-    const headers = fetch.mock.calls[0]?.[1]?.headers as Record<string, string>;
-    expect(headers).toMatchObject({
-      "X-User": "mario",
-      "X-Client": "web",
-      Authorization: "Bearer personal-key",
+  it("authenticates raw file responses through the shared session path", async () => {
+    current = { authenticated: true, user: "mario", strong: true, auth_method: "api-key", csrf_token: "csrf-mario" };
+    const { authenticatedFetch } = await import("@/lib/api"); await authenticatedFetch("/api/file");
+    const call = calls.at(-1)!; const headers = new Headers(call.init?.headers);
+    expect(headers.get("X-Skein-CSRF")).toBe("csrf-mario");
+    expect(headers.get("X-Client")).toBe("web");
+    expect(headers.has("Authorization")).toBe(false);
+    expect(call.init?.credentials).toBe("include");
+  });
+  it("rechecks metadata for a rejected raw response without clearing the cookie", async () => {
+    current = { authenticated: true, user: "mario", strong: true, auth_method: "oidc", csrf_token: "csrf-mario" };
+    const auth = await import("@/lib/auth"); await auth.bootstrapSession();
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      if (String(input).endsWith("/api/file")) {
+        current = { ...current, authenticated: false, strong: false };
+        return Promise.resolve(new Response(JSON.stringify({ code: "SESSION_INVALID" }), { status: 401 }));
+      }
+      return original(input, init);
     });
-  });
-
-  it("demotes a stored OIDC token when a raw response rejects it", async () => {
-    const future = Date.now() + 10 * 60_000;
-    window.localStorage.setItem(
-      "skein-oidc",
-      JSON.stringify({
-        access_token: "oidc-token",
-        refresh_token: "refresh-token",
-        expires_at: future,
-      }),
-    );
-    const fetch = vi
-      .fn()
-      .mockResolvedValue(new Response("", { status: 401 }));
-    vi.stubGlobal("fetch", fetch);
-
-    await authenticatedFetch("/api/file");
-
-    const headers = new Headers(fetch.mock.calls[0]?.[1]?.headers);
-    expect(headers.get("Authorization")).toBe("Bearer oidc-token");
-    const stored = JSON.parse(
-      window.localStorage.getItem("skein-oidc") ?? "{}",
-    );
-    expect(stored.access_token).toBe("oidc-token");
-    expect(stored.refresh_token).toBe("refresh-token");
-    expect(stored.expires_at).not.toBe(future);
-    expect(stored.expires_at).toBeGreaterThan(0);
-    expect(stored.expires_at).toBeLessThan(Date.now());
+    const { authenticatedFetch } = await import("@/lib/api");
+    expect((await authenticatedFetch("/api/file")).status).toBe(401);
+    expect(auth.isSignedIn()).toBe(false);
+    expect(auth.sessionSnapshot().csrf_token).toBe("csrf-mario");
+    expect(calls.some((c) => c.init?.method === "DELETE")).toBe(false);
   });
 });

@@ -317,7 +317,11 @@ export function CapturePalette() {
             </button>
           ))}
         </div>
+        <label htmlFor="capture-text" className="mb-1 block text-xs text-ink-3">
+          What to capture
+        </label>
         <textarea
+          id="capture-text"
           autoFocus
           ref={inputRef}
           name="capture-text"

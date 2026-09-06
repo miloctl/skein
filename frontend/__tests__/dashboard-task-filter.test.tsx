@@ -46,6 +46,7 @@ describe("the Browse task filter", () => {
     expect(screen.getByText(/Map the drop-off points/)).toBeTruthy();
     expect(screen.getByText(/Draft the comparison/)).toBeTruthy();
     expect(screen.queryByText(/Rotate the credentials/)).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe("2 open tasks shown.");
 
     fireEvent.change(box, { target: { value: "in_progress" } });
     expect(screen.getByText(/Map the drop-off points/)).toBeTruthy();
@@ -53,5 +54,16 @@ describe("the Browse task filter", () => {
 
     fireEvent.change(box, { target: { value: "zz-nothing" } });
     expect(screen.getByText("No open task matches the filter.")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("0 open tasks shown.");
   });
+});
+
+it("keeps visible labels on task editors", async () => {
+  render(<Dashboard />);
+  fireEvent.click(await screen.findByRole("button", { name: "Edit task #1: Map the drop-off points" }));
+  for (const name of ["title", "Assignee", "due date"]) {
+    const field = screen.getByLabelText(name) as HTMLInputElement;
+    expect(field.labels?.length).toBe(1);
+    expect(field.labels?.[0].classList.contains("sr-only")).toBe(false);
+  }
 });

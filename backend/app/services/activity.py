@@ -1048,6 +1048,8 @@ VERBS: dict[str, tuple[str, str]] = {
     "set_authority": ("changed an agent's authority", "loud"),
     "oidc_identity_bound": ("bound an OIDC identity", "loud"),
     "oidc_profile_updated": ("updated an OIDC profile", "quiet"),
+    "create_browser_session": ("signed in to a browser", "normal"),
+    "revoke_browser_session": ("signed out of a browser", "normal"),
     "create_api_key": ("minted an API key", "loud"),
     "revoke_api_key": ("revoked an API key", "loud"),
     "revoke_all_api_keys": ("revoked every API key", "loud"),

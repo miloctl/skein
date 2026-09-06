@@ -808,6 +808,19 @@ const Composer = () => {
 };
 
 export function Thread() {
+  const isRunning = useThread((t) => t.isRunning);
+  const replyStatus = useThread((t) => {
+    const last = t.messages.at(-1);
+    return last?.role === "assistant" ? last.status.type : undefined;
+  });
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    // A loaded transcript is not a new reply. Announcing message text here
+    // would also read every streaming token over the user's composer input.
+    if (wasRunning.current && !isRunning && replyStatus === "complete")
+      reportStatus("Reply complete.", "confirmation");
+    wasRunning.current = isRunning;
+  }, [isRunning, replyStatus]);
   // the same store the Composer reads: a sticky persona (set by /agents'
   // bench cards via ?as=, and restored from sessionStorage for every new
   // thread) prefixes freeform messages with `/as <slug>`, so the empty

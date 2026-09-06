@@ -225,21 +225,28 @@ function WhoAreYou() {
  *  /api/notifications/read` has no other caller in the product — not the CLI,
  *  not chat — so a card that omits this button makes its rows permanent.
  */
-function Dismiss({ id, onDone }: { id: number; onDone: () => void }) {
+function Dismiss({ id, label, onDone }: {
+  id: number;
+  label: string;
+  onDone: (control: HTMLElement | null) => void;
+}) {
   return (
     <button
+      aria-label={`dismiss ${label.replaceAll("**", "")}`}
       onClick={async () => {
+        const control = document.activeElement as HTMLElement | null;
         try {
           await api("/api/notifications/read", {
             method: "POST",
             body: JSON.stringify({ notification_id: id }),
           });
+          reportStatus("Notification dismissed.", "confirmation");
+          onDone(control);
         } catch (e) {
           reportStatus(actionError(e));
         }
-        onDone();
       }}
-      className="shrink-0 rounded bg-raised px-2 py-1.5 md:py-0.5 text-xs text-ink-2 hover:bg-line"
+      className="min-h-6 min-w-6 shrink-0 rounded bg-raised px-2 py-1.5 md:py-0.5 text-xs text-ink-2 hover:bg-line"
     >
       dismiss
     </button>
@@ -293,7 +300,7 @@ function StakeholderBrief({ eventId }: { eventId: number }) {
       <button
         onClick={() => (open ? setOpen(false) : show())}
         aria-expanded={open}
-        className="rounded bg-raised px-1.5 py-px text-[10px] text-ink-3 hover:bg-line"
+        className="min-h-6 min-w-6 rounded bg-raised px-1.5 py-px text-[10px] text-ink-3 hover:bg-line"
       >
         {open ? "hide" : "what is open?"}
       </button>
@@ -584,6 +591,40 @@ export default function MyDay() {
     return () => window.removeEventListener("skein-attention-change", refresh);
   }, [load]);
 
+  const focusAfterAction = useRef<{
+    control: HTMLElement;
+    rows: Element[];
+  } | null>(null);
+  const reloadAfterAction = (control: HTMLElement | null) => {
+    const row = control?.closest("[data-action-row]");
+    if (control && row && document.activeElement === control) {
+      const siblings = Array.from(row.parentElement?.children ?? []);
+      const at = siblings.indexOf(row);
+      focusAfterAction.current = {
+        control,
+        rows: [row, ...siblings.slice(at + 1), ...siblings.slice(0, at).reverse()],
+      };
+    }
+    load();
+  };
+  useEffect(() => {
+    const pending = focusAfterAction.current;
+    focusAfterAction.current = null;
+    // A delayed refresh must not take focus from someone who moved on while
+    // the write was in flight. Only a removed control needs a replacement.
+    if (!pending || pending.control.isConnected || document.activeElement !== document.body) return;
+    const row = pending.rows.find((candidate) => candidate.isConnected);
+    const next = row?.querySelector<HTMLElement>("a[href], button:not([disabled]), input");
+    (next ?? mainRef.current)?.focus();
+  }, [b]);
+
+  const cancelQuestion = () => {
+    if (!questionAction) return;
+    const { id, mode } = questionAction;
+    setQuestionAction(null);
+    setTimeout(() => document.getElementById(`${mode}-question-${id}`)?.focus(), 0);
+  };
+
   // The Ship It moment: confetti once per shipped engagement, per browser.
   useEffect(() => {
     const shipped = b?.team.recently_shipped ?? [];
@@ -619,15 +660,18 @@ export default function MyDay() {
   }, [b]);
 
   const patchTask = async (id: number, status: string) => {
+    const control = document.activeElement as HTMLElement | null;
     try {
       await api(`/api/tasks/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ status }),
       });
+      reportStatus(`Task #${id} ${status === "done" ? "done" : "started"}.`, "confirmation");
+      reloadAfterAction(control);
     } catch (e) {
       reportStatus(actionError(e));
     }
-    load();
+
   };
 
   const toggleTodaysThree = (id: number) => {
@@ -668,15 +712,18 @@ export default function MyDay() {
   };
 
   const resolveBlocker = async (id: number) => {
+    const control = document.activeElement as HTMLElement | null;
     try {
       await api(`/api/blockers/${id}/resolve`, {
         method: "POST",
         body: JSON.stringify({ resolution: "resolved from My Day" }),
       });
+      reportStatus(`Blocker #${id} resolved.`, "confirmation");
+      reloadAfterAction(control);
     } catch (e) {
       reportStatus(actionError(e));
     }
-    load();
+
   };
 
   // Answer where the ask is read. The question row said "someone is waiting
@@ -689,45 +736,52 @@ export default function MyDay() {
     mode: "answer" | "reassign";
   } | null>(null);
   const answerQuestion = async (id: number, answer: string) => {
+    const control = document.activeElement as HTMLElement | null;
     try {
       await api(`/api/questions/${id}/answer`, {
         method: "POST",
         body: JSON.stringify({ answer }),
       });
+      reloadAfterAction(control);
       setQuestionAction(null);
       reportStatus(`Question #${id} answered.`, "confirmation");
     } catch (e) {
       reportStatus(actionError(e));
     }
-    load();
+
   };
   const reassignQuestion = async (id: number, who: string) => {
+    const control = document.activeElement as HTMLElement | null;
     try {
       await api(`/api/questions/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ assigned_to: who }),
       });
+      reloadAfterAction(control);
       setQuestionAction(null);
       reportStatus(`Question #${id} assigned to ${who}.`, "confirmation");
     } catch (e) {
       reportStatus(actionError(e));
     }
-    load();
+
   };
 
   // The daily ask has to be answerable where it is asked. Without these the
   // only way to clear a meeting notice was a POST by hand, so the same
   // meeting came back every morning forever.
   const recordOutcome = async (id: number, outcome: "recorded" | "none") => {
+    const control = document.activeElement as HTMLElement | null;
     try {
       await api(`/api/events/${id}/outcome`, {
         method: "POST",
         body: JSON.stringify({ outcome }),
       });
+      reportStatus(`Meeting #${id} outcome saved.`, "confirmation");
+      reloadAfterAction(control);
     } catch (e) {
       reportStatus(actionError(e));
     }
-    load();
+
   };
 
   if (error && !b)
@@ -813,9 +867,10 @@ export default function MyDay() {
           Open to anyone on the team. Nobody assigned these to you.
         </p>
         <ul className="space-y-1.5 text-sm">
-          {teamQueue.map((a, i) => (
+          {teamQueue.map((a) => (
             <li
-              key={`${a.kind}${a.ref_id}${i}`}
+              key={`${a.kind}${a.ref_id}`}
+                            data-action-row
               className="flex items-start justify-between gap-2"
             >
               <span>
@@ -827,7 +882,7 @@ export default function MyDay() {
                 </span>
               </span>
               {a.kind === "notification" && (
-                <Dismiss id={a.ref_id} onDone={load} />
+                <Dismiss id={a.ref_id} label={a.label} onDone={reloadAfterAction} />
               )}
             </li>
           ))}
@@ -986,7 +1041,7 @@ export default function MyDay() {
                       requestAnimationFrame(() => mainRef.current?.focus());
                     }}
                     aria-label="Dismiss first-week setup"
-                    className="text-xs text-ink-3 underline"
+                    className="min-h-6 min-w-6 text-xs text-ink-3 underline"
                     title="Bring it back anytime from Settings"
                   >
                     dismiss
@@ -1043,7 +1098,7 @@ export default function MyDay() {
                           {s.link.startsWith("#") ? (
                             <button
                               onClick={() => runStep(s.link)}
-                              className="font-medium text-ink underline decoration-dotted decoration-line-strong underline-offset-2 hover:text-thread"
+                              className="min-h-6 min-w-6 font-medium text-ink underline decoration-dotted decoration-line-strong underline-offset-2 hover:text-thread"
                             >
                               ○ {s.label}
                             </button>
@@ -1121,9 +1176,10 @@ export default function MyDay() {
                     <ul className="space-y-1.5 text-sm">
                       {yours
                         .filter((a) => a.group === g)
-                        .map((a, i) => (
+                        .map((a) => (
                           <li
-                            key={`${a.kind}${a.ref_id}${i}`}
+                            key={`${a.kind}${a.ref_id}`}
+                            data-action-row
                             className="flex items-start justify-between gap-2"
                           >
                             <span>
@@ -1142,14 +1198,15 @@ export default function MyDay() {
                                   {questionAction?.id === a.ref_id ? (
                                     <span className="flex flex-wrap items-center gap-1.5">
                                       {questionAction.mode === "answer" ? (
-                                        <input
+                                        <label className="flex flex-col gap-0.5">
+<span>Answer</span>
+<input
                                           autoFocus
                                           name="answer-question"
                                           aria-label={`Answer question #${a.ref_id}`}
                                           placeholder="the answer — Enter to record it"
                                           onKeyDown={(ev) => {
-                                            if (ev.key === "Escape")
-                                              setQuestionAction(null);
+                                            if (ev.key === "Escape") cancelQuestion();
                                             const answer = (
                                               ev.target as HTMLInputElement
                                             ).value.trim();
@@ -1158,15 +1215,17 @@ export default function MyDay() {
                                           }}
                                           className="w-64 max-w-full rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
                                         />
+</label>
                                       ) : (
-                                        <PersonInput
+                                        <label className="flex flex-col gap-0.5">
+<span>Assign</span>
+<PersonInput
                                           autoFocus
                                           name="reassign-question"
                                           aria-label={`Assign question #${a.ref_id} to`}
                                           placeholder="teammate's name — Enter to assign"
                                           onKeyDown={(ev) => {
-                                            if (ev.key === "Escape")
-                                              setQuestionAction(null);
+                                            if (ev.key === "Escape") cancelQuestion();
                                             const who = (
                                               ev.target as HTMLInputElement
                                             ).value.trim();
@@ -1190,10 +1249,11 @@ export default function MyDay() {
                                           }}
                                           className="rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
                                         />
+</label>
                                       )}
                                       <button
-                                        onClick={() => setQuestionAction(null)}
-                                        className="hover:text-ink"
+                                        onClick={cancelQuestion}
+                                        className="min-h-6 min-w-6 hover:text-ink"
                                       >
                                         cancel
                                       </button>
@@ -1201,17 +1261,20 @@ export default function MyDay() {
                                   ) : (
                                     <span className="flex gap-2">
                                       <button
+                                        id={`answer-question-${a.ref_id}`}
+                                        aria-label={`answer… ${a.label.replaceAll("**", "")}`}
                                         onClick={() =>
                                           setQuestionAction({
                                             id: a.ref_id,
                                             mode: "answer",
                                           })
                                         }
-                                        className="underline hover:text-ink-2"
+                                        className="min-h-6 min-w-6 underline hover:text-ink-2"
                                       >
                                         answer…
                                       </button>
                                       <button
+                                        id={`reassign-question-${a.ref_id}`}
                                         aria-label={`Reassign ${a.label}`}
                                         onClick={() =>
                                           setQuestionAction({
@@ -1219,7 +1282,7 @@ export default function MyDay() {
                                             mode: "reassign",
                                           })
                                         }
-                                        className="underline hover:text-ink-2"
+                                        className="min-h-6 min-w-6 underline hover:text-ink-2"
                                       >
                                         reassign…
                                       </button>
@@ -1232,7 +1295,7 @@ export default function MyDay() {
                               <button
                                 aria-label={`Resolve ${a.label}`}
                                 onClick={() => resolveBlocker(a.ref_id)}
-                                className="shrink-0 rounded bg-ok/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ok hover:bg-ok/20"
+                                className="min-h-6 min-w-6 shrink-0 rounded bg-ok/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ok hover:bg-ok/20"
                               >
                                 resolve
                               </button>
@@ -1243,7 +1306,7 @@ export default function MyDay() {
                                   onClick={() =>
                                     recordOutcome(a.ref_id, "recorded")
                                   }
-                                  className="rounded bg-ok/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ok hover:bg-ok/20"
+                                  className="min-h-6 min-w-6 rounded bg-ok/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ok hover:bg-ok/20"
                                   title="something came out of it — write it up on Capture"
                                 >
                                   wrote it up
@@ -1252,7 +1315,7 @@ export default function MyDay() {
                                   onClick={() =>
                                     recordOutcome(a.ref_id, "none")
                                   }
-                                  className="rounded bg-ink-3/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ink-2 hover:bg-ink-3/20"
+                                  className="min-h-6 min-w-6 rounded bg-ink-3/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ink-2 hover:bg-ink-3/20"
                                   title="nothing came out of it — this is what the weekly finding counts"
                                 >
                                   nothing
@@ -1260,7 +1323,7 @@ export default function MyDay() {
                               </span>
                             )}
                             {a.kind === "notification" && (
-                              <Dismiss id={a.ref_id} onDone={load} />
+                              <Dismiss id={a.ref_id} label={a.label} onDone={reloadAfterAction} />
                             )}
                           </li>
                         ))}
@@ -1316,6 +1379,7 @@ export default function MyDay() {
             {b.your_work.tasks.map((t) => (
               <li
                 key={t.id}
+                data-action-row
                 className="flex items-center justify-between gap-2"
               >
                 <span>
@@ -1353,7 +1417,7 @@ export default function MyDay() {
                         : "to"
                     } Today's Three`}
                     onClick={() => toggleTodaysThree(Number(t.id))}
-                    className="rounded bg-thread/10 px-2 py-1.5 text-xs text-thread hover:bg-thread/15 md:py-0.5"
+                    className="min-h-6 min-w-6 rounded bg-thread/10 px-2 py-1.5 text-xs text-thread hover:bg-thread/15 md:py-0.5"
                   >
                     {todaysThree.task_ids.includes(Number(t.id))
                       ? "remove"
@@ -1361,16 +1425,18 @@ export default function MyDay() {
                   </button>
                   {t.status === "todo" && (
                     <button
+                      aria-label={`start task #${t.id}: ${t.title}`}
                       onClick={() => patchTask(Number(t.id), "in_progress")}
-                      className="rounded bg-raised px-2 py-1.5 md:py-0.5 text-xs text-ink-2 hover:bg-line"
+                      className="min-h-6 min-w-6 rounded bg-raised px-2 py-1.5 md:py-0.5 text-xs text-ink-2 hover:bg-line"
                     >
                       start
                     </button>
                   )}
                   {t.status !== "done" && (
                     <button
+                      aria-label={`done task #${t.id}: ${t.title}`}
                       onClick={() => patchTask(Number(t.id), "done")}
-                      className="rounded bg-ok/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ok hover:bg-ok/20"
+                      className="min-h-6 min-w-6 rounded bg-ok/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ok hover:bg-ok/20"
                     >
                       done
                     </button>

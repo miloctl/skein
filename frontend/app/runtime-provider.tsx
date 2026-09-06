@@ -11,16 +11,14 @@ import {
 } from "@assistant-ui/react";
 
 import {
-  API_URL,
   actionError,
   api,
   authenticatedFetch,
-  bearer,
-  userHeader,
 } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import { chatThreads } from "@/lib/chat-threads";
 import { outgoing } from "@/lib/persona";
+import { checkSessionRevision, sessionRevision } from "@/lib/auth";
 
 /** What POST /api/files accepts (backend services/uploads.py). Kept as
  *  extensions rather than MIME types because that is what the backend keys
@@ -73,17 +71,10 @@ function makeAttachmentAdapter(): AttachmentAdapter {
       };
     },
     async send(attachment) {
+      const owner = sessionRevision();
       const body = new FormData();
       body.append("file", attachment.file);
-      const auth = await bearer();
-      const res = await fetch(`${API_URL}/api/files`, {
-        method: "POST",
-        headers: {
-          ...userHeader(),
-          ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
-        },
-        body,
-      });
+      const res = await authenticatedFetch("/api/files", { method: "POST", body });
       if (!res.ok) {
         let detail = "";
         try {
@@ -98,11 +89,14 @@ function makeAttachmentAdapter(): AttachmentAdapter {
         // call and dies unhandled — so the backend's usable sentence ("the
         // file is larger than 8 MB") reached the console and nowhere a person
         // looks.
+        // A late upload refusal must not become the next identity's status.
+        checkSessionRevision(owner);
         const said = detail || `The file was not attached (${res.status}).`;
         reportStatus(said);
         throw new Error(said);
       }
       const stored = await res.json();
+      checkSessionRevision(owner);
       // this attachment is leaving the composer, so it frees its slot. Only on
       // success: a refused upload stays in the restored draft.
       // ponytail: a partial failure (one of three refused) under-counts and
@@ -135,6 +129,7 @@ function makeAttachmentAdapter(): AttachmentAdapter {
 function makeAdapter(threadId: string): ChatModelAdapter {
   return {
     async *run({ messages, abortSignal }) {
+      const owner = sessionRevision();
       const last = messages[messages.length - 1];
       // sticky persona: freeform text is invisibly prefixed with /as <slug>
       const text = outgoing(
@@ -171,6 +166,8 @@ function makeAdapter(threadId: string): ChatModelAdapter {
         } catch {
           /* non-JSON body: fall through to the status line */
         }
+        // A late or aborted 404 body must not close the new identity's thread.
+        checkSessionRevision(owner);
         if (res.status === 404) {
           window.dispatchEvent(
             new CustomEvent("skein-chat-missing", { detail: { threadId } }),
@@ -206,11 +203,13 @@ function makeAdapter(threadId: string): ChatModelAdapter {
       try {
         while (true) {
           const { done, value } = await reader.read();
+          checkSessionRevision(owner);
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
           const chunks = buffer.split("\n\n");
           buffer = chunks.pop() ?? "";
           for (const chunk of chunks) {
+            checkSessionRevision(owner);
             // `acc` and not just "a frame arrived": a thinking model streams
             // empty text deltas for seconds before its first word (measured
             // at 4.4s on glm-5.2, 70 empty frames), and yielding those makes
@@ -222,6 +221,7 @@ function makeAdapter(threadId: string): ChatModelAdapter {
             }
           }
         }
+        checkSessionRevision(owner);
         buffer += decoder.decode(); // flush a truncated tail on abrupt close
         if (buffer && handle(buffer) !== null && acc) {
           yield { content: [{ type: "text", text: acc }] };

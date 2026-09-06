@@ -18,12 +18,32 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- Browser sign-in now establishes an opaque server session. The browser token endpoint returns identity and CSRF metadata, not provider credentials, and refuses browser refresh tokens. Existing browser credentials are cleared on upgrade.
+- Cookie-authenticated browser requests cannot mint permanent API keys. Explicit key entry exchanges the key once; direct bearer clients retain key creation.
+- OIDC browser sign-in requires `SKEIN_CREDENTIAL_KEY` in the deployment Secret, HTTPS, and same-site frontend/API origins with explicit CORS. Browser-session rows are excluded from recovery archives.
+
+- CI webhook writes require a personal API key or deployment sign-in. A shared token with a self-asserted name is refused.
+- The roster omits other people's saved themes and internal identity ownership fields. Growth interests remain shared staffing context.
+
 ### Behavior
+
+- Browser sessions have an eight-hour absolute lifetime, server-side refresh, explicit logout, and identity-bound request handling across tabs. Private mounted state and stale responses do not cross account changes. A Browser sign-in card joins the field guide.
+- Reviewed remote MCP execution reads the SDK result envelope correctly. Successful Context7 documentation calls now report completion instead of failure.
+
+- Forgetting a person-addressed memory requires that person's authority, including agent proposals applied through review. Deletion records do not copy memory content into shared activity.
+- Concurrent engagement creation and renaming cannot bypass the duplicate-name check. Promise edits and settlement share a service-level row lock, and concurrent key requests produce one pending notification.
+- NUL characters in database-bound text produce an input error rather than a server fault.
+- Keyboard actions restore focus after rows or editors close. Chat completion and successful actions use status announcements. Forms keep visible labels, and the sticky header leaves room for focused controls.
 
 - A theme change crossfades through the View Transitions API where the browser has it. The hue sliders and the Settings page apply at once, and reduced motion turns the fade off.
 - The ⌘K box offers theme commands while you type: a mode, a theme pack by name, or `Colorway: next`. Enter still searches. A Themes card joins the field guide.
 
 ### Operations
+
+- Atomic REST policy checks and transaction lifecycle work run off the event loop. Contended database locks have a bounded wait and return a retryable response instead of blocking the API.
+- Failed scheduled backups can retry on the same day. Weekly-plan, stale-work, and notification-flush claims commit with their database effects. Slack delivery remains best-effort after commit.
+- Personal MCP discovery starts in a bounded background pool. Registration and chat do not wait for remote startup, and deleted or renamed connections cannot return through a late discovery result.
+- Web pages refuse framing and MIME-type guessing. Cross-origin requests omit the referrer, and Slack rejects non-finite signature timestamps.
 
 - The npm packages publish to public npmjs.com through OIDC Trusted Publishing, with provenance, instead of GitHub Packages. `@miloctl/skein-extension-api` and `@miloctl/skein-frontend-host` install with no token, and the `.npmrc` scope routing and `read:packages` PAT are gone. The first version of each package is published by hand once, then the workflow publishes (RELEASING.md).
 

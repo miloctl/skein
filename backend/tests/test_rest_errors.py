@@ -35,6 +35,31 @@ def test_overflow_ints_are_refused_not_crashed(client):
     assert client.get("/api/findings?weeks=99999999999999999999").status_code in (200, 400, 422)
 
 
+@pytest.mark.parametrize(
+    ("path", "field"),
+    [
+        ("tasks", "title"),
+        ("notes", "content"),
+        ("engagements", "name"),
+        ("promises", "promise"),
+        ("questions", "question"),
+    ],
+)
+def test_nul_text_is_refused_without_echo_or_partial_write(client, fresh_db, path, field):
+    payload = {"topic": "ops"} if path == "notes" else {}
+    payload[field] = "secret-prefix\x00suffix"
+    response = client.post(f"/api/{path}", json=payload)
+    assert response.status_code == 400, response.text
+    assert "secret-prefix" not in response.text
+    assert fresh_db.query_one(f"SELECT COUNT(*) AS n FROM {path}")["n"] == 0  # noqa: S608 -- closed parametrized table list
+
+
+def test_nul_search_is_an_input_error(client):
+    response = client.get("/api/search", params={"q": "secret-prefix\x00suffix"})
+    assert response.status_code == 400, response.text
+    assert "secret-prefix" not in response.text
+
+
 def test_blank_required_strings_rejected(client):
     assert client.post("/api/engagements", json={"name": "  "}).status_code == 400
     assert client.post("/api/milestones", json={"title": ""}).status_code == 400

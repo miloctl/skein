@@ -223,3 +223,24 @@ describe("deleting several chats at once", () => {
     );
   });
 });
+
+it.each([true, false])("keeps folder focus through creation (success=%s)", async (success) => {
+  const original = mocks.api.getMockImplementation()!;
+  mocks.api.mockImplementation((path: string, init?: RequestInit) => {
+    if (path === "/api/chats/folders" && init?.method === "POST")
+      return success ? Promise.resolve({ name: "Plans" }) : Promise.reject(new Error("Folder unavailable"));
+    return original(path, init);
+  });
+  render(<ChatSidebar threadId="" onOpen={() => {}} onNew={() => {}} />);
+  await screen.findByText("Alpha");
+  const options = screen.getByRole("button", { name: "Chat list options" });
+  fireEvent.click(options);
+  fireEvent.click(screen.getByRole("button", { name: "New folder" }));
+  const field = screen.getByRole("textbox", { name: "Folder name" }) as HTMLInputElement;
+  fireEvent.change(field, { target: { value: "Plans" } });
+  fireEvent.keyDown(field, { key: "Enter" });
+  await waitFor(() => expect(mocks.reportStatus).toHaveBeenCalled());
+  expect(document.activeElement).toBe(success ? options : field);
+  if (success) expect(mocks.reportStatus).toHaveBeenCalledWith("Folder created.", "confirmation");
+  else expect(field.value).toBe("Plans");
+});
