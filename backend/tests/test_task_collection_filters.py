@@ -1,5 +1,85 @@
 """Task collection state filters apply before the Browse collection limit."""
 
+import json
+
+
+def test_mcp_pages_past_the_cap_and_denials_without_skipping_visible_tasks(fresh_db, monkeypatch):
+    from app import mcp_server
+    from app.extensions import ExtensionRegistry, PolicyContribution, SkeinModule
+    from app.extensions.policy import PolicyDecision, PolicyEffect
+    from app.services import engagements, users, work
+
+    users.ensure_user("owner")
+    regulated = engagements.create_engagement("Restricted", project_class="regulated")["id"]
+    standard = engagements.create_engagement("Shared", project_class="standard")["id"]
+    with fresh_db.transaction():
+        for n in range(520):
+            work.create_task(f"Private {n}", actor="owner", visibility="private", priority="urgent")
+            work.create_task(f"Denied {n}", engagement_id=regulated, priority="urgent")
+        expected = [
+            work.create_task(f"Visible {n}", engagement_id=standard, assignee="owner")["id"]
+            for n in range(511)
+        ]
+
+    def deny_regulated(request):
+        if request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY)
+        return None
+
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="test.task-pages",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.6.0",
+                policies=(PolicyContribution("test.task-pages.read", deny_regulated),),
+            ),
+        )
+    )
+    monkeypatch.setattr(mcp_server, "current_policy_engine", lambda: registry.policy_engine)
+    query = fresh_db.query
+    query_one = fresh_db.query_one
+    queries = []
+    row_counts = []
+
+    def counted_query(sql, params=()):
+        rows = query(sql, params)
+        queries.append(sql)
+        row_counts.append(len(rows))
+        return rows
+
+    def counted_query_one(sql, params=()):
+        queries.append(sql)
+        return query_one(sql, params)
+
+    monkeypatch.setattr(fresh_db, "query", counted_query)
+    monkeypatch.setattr(fresh_db, "query_one", counted_query_one)
+    seen = []
+    for offset in (0, 200, 400, 511):
+        queries.clear()
+        row_counts.clear()
+        page = json.loads(mcp_server.list_tasks(limit=200, offset=offset))
+        assert [row["id"] for row in page] == expected[offset : offset + 200]
+        assert all("milestone_title" not in row for row in page)
+        seen.extend(row["id"] for row in page)
+        assert len(queries) <= 24, queries
+        assert max(row_counts, default=0) <= work.TASK_LIST_LIMIT
+    assert seen == expected
+    assert len(set(seen)) == len(seen)
+    assert len(work.list_tasks()) == work.TASK_LIST_LIMIT
+    assert json.loads(mcp_server.list_tasks(status="unknown")) == []
+    assert json.loads(mcp_server.list_tasks(status="open")) == []
+    assert json.loads(mcp_server.list_tasks(assignee="unknown")) == []
+    filtered = json.loads(mcp_server.list_tasks(status="todo", assignee="owner", offset=500))
+    assert [row["id"] for row in filtered] == expected[500:]
+    from app.tools import work as work_tools
+
+    monkeypatch.setattr(work_tools, "current_policy_engine", lambda: registry.policy_engine)
+    tool_rows = json.loads(work_tools.list_tasks())
+    assert [row["id"] for row in tool_rows] == expected[: work.TASK_LIST_LIMIT]
+
 
 def test_task_state_filters_run_before_the_collection_limit(client, monkeypatch):
     from app.services import work

@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -18,11 +19,13 @@ import {
   useComposerRuntime,
   useThread,
   unstable_useComposerInputHistory,
+  unstable_useThreadMessageIds,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { MermaidDiagram } from "@/components/mermaid-diagram";
+import { useTranscriptHistory } from "@/app/runtime-provider";
 import { api } from "@/lib/api";
 import { argQuery, mentionQuery, type ArgItem } from "@/lib/slash";
 import { reportStatus } from "@/lib/status";
@@ -807,13 +810,48 @@ const Composer = () => {
   );
 };
 
+const MESSAGE_COMPONENTS = { UserMessage, AssistantMessage };
+
 export function Thread() {
+  const history = useTranscriptHistory();
+  const messageIds = unstable_useThreadMessageIds();
+  const viewport = useRef<HTMLDivElement>(null);
+  const anchor = useRef<{ element: HTMLElement; top: number; firstId: string | undefined } | null>(null);
+  const initializedScroll = useRef(false);
+  const previousRun = useRef(false);
   const isRunning = useThread((t) => t.isRunning);
   const replyStatus = useThread((t) => {
     const last = t.messages.at(-1);
     return last?.role === "assistant" ? last.status.type : undefined;
   });
   const wasRunning = useRef(false);
+  useLayoutEffect(() => {
+    const scroller = viewport.current;
+    if (!scroller) return;
+    const held = anchor.current;
+    // The fetch state can commit before assistant-ui publishes its new IDs.
+    // Consuming the anchor then measures the old DOM and loses the offset.
+    if (held && messageIds[0] === held.firstId) return;
+    if (held) {
+      scroller.scrollTop += held.element.getBoundingClientRect().top - scroller.getBoundingClientRect().top - held.top;
+      anchor.current = null;
+    } else if (!initializedScroll.current || (isRunning && !previousRun.current && !history?.loading)) {
+      scroller.scrollTop = scroller.scrollHeight;
+    }
+    initializedScroll.current = true;
+    previousRun.current = isRunning;
+    // Without this update assistant-ui's resize observer can scroll the
+    // restored history to the bottom instead of keeping the reader's anchor.
+    scroller.dispatchEvent(new Event("scroll"));
+  }, [messageIds, isRunning, history?.loading]);
+  function captureAnchor() {
+    const scroller = viewport.current;
+    if (!scroller) return;
+    const top = scroller.getBoundingClientRect().top;
+    const element = Array.from(scroller.querySelectorAll<HTMLElement>("[data-message-id]"))
+      .find((row) => row.getBoundingClientRect().bottom > top);
+    if (element) anchor.current = { element, top: element.getBoundingClientRect().top - top, firstId: messageIds[0] };
+  }
   useEffect(() => {
     // A loaded transcript is not a new reply. Announcing message text here
     // would also read every streaming token over the user's composer input.
@@ -833,7 +871,18 @@ export function Thread() {
   );
   return (
     <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col">
-      <ThreadPrimitive.Viewport className="flex flex-1 flex-col overflow-y-auto px-4 pt-4 lg:px-8">
+      {history?.saved && <div className="border-b border-line px-4 py-2 text-sm lg:px-8">
+        <button type="button" aria-disabled={history.loading || history.before === null}
+          className="min-h-9 underline underline-offset-2 aria-disabled:text-ink-3"
+          onClick={() => { void history.loadOlder(captureAnchor); }}>
+          Load older messages
+        </button>
+        <p role="status" className="text-xs text-ink-3">{history.loading ? "Loading older messages…" : history.before === null ? "Oldest message reached." : ""}</p>
+        {history.error && <p role="alert" className="text-sm text-danger">{history.error}</p>}
+      </div>}
+      <ThreadPrimitive.Viewport ref={viewport} autoScroll={!history?.loading}
+        scrollToBottomOnInitialize={false} scrollToBottomOnRunStart={false} scrollToBottomOnThreadSwitch={false}
+        style={{ overflowAnchor: "none" }} className="flex flex-1 flex-col overflow-y-auto px-4 pt-4 lg:px-8">
         <ThreadPrimitive.Empty>
           <div className="mx-auto flex max-w-lg flex-1 flex-col items-center justify-center pb-24 text-center">
             <div className="loom-idle mb-6 w-40" aria-hidden />
@@ -875,9 +924,11 @@ export function Thread() {
             composer gradient stay at the pane edge, and toggling the sidebar
             can't slide the conversation sideways */}
         <div className="mx-auto w-full max-w-3xl">
-          <ThreadPrimitive.Messages
-            components={{ UserMessage, AssistantMessage }}
-          />
+          {/* Messages uses index keys in assistant-ui. Prepending there moves
+              existing markdown and focus onto different messages. */}
+          {messageIds.map((messageId) => (
+            <ThreadPrimitive.Unstable_MessageById key={messageId} messageId={messageId} components={MESSAGE_COMPONENTS} />
+          ))}
         </div>
         <ThreadPrimitive.ViewportFooter className="sticky bottom-0 mt-auto bg-gradient-to-t from-page via-page to-transparent pb-4 pt-2">
           <div className="mx-auto w-full max-w-3xl">

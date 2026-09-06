@@ -29,7 +29,7 @@ def test_registry_is_valid_and_complete(fresh_db):
     from app.services import fieldguide
 
     cards = fieldguide.registry()
-    assert len(cards) == 57
+    assert len(cards) == 58
     ids = {k["id"] for k in cards}
     assert ids == set(fieldguide.PREDICATES)
     for k in cards:
@@ -167,7 +167,7 @@ def test_hint_and_guide_use_the_same_tieable_total(fresh_db):
     from app.services import fieldguide
 
     _mint(fresh_db, "ava")
-    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 56
+    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 57
 
 
 def test_first_detection_seeds_silently(fresh_db):
@@ -333,6 +333,51 @@ def test_task_peek_ties_only_after_a_readable_task_projection(client, fresh_db):
         "SELECT COUNT(*) AS n FROM feature_unlocks WHERE person = ? AND knot = ?",
         ("tester", "task_peek"),
     ) == {"n": 1}
+
+
+def test_chat_history_ties_only_after_a_successful_nonempty_older_page(client, fresh_db):
+    from app.services import chat_threads, fieldguide, users
+
+    users.ensure_human_identity("tester")
+    users.ensure_human_identity("other")
+    for content in ("First message", "Second message", "Third message"):
+        chat_threads.log_message("guide-history", "tester", "user", content)
+    chat_threads.log_message("other-history", "other", "user", "Other person's message")
+    path = "/api/chats/guide-history/messages"
+    initial = client.get(f"{path}/page", params={"limit": 2})
+    assert initial.status_code == 200
+    before = initial.json()["next_before"]
+    oldest = chat_threads.get_message_page("guide-history", "tester")["messages"][0]["id"]
+    assert client.get(path).status_code == 200
+    assert client.get(f"{path}/page", params={"before": oldest}).json()["messages"] == []
+    assert client.get(f"{path}/page", params={"before": 0}).status_code == 422
+    assert (
+        client.get("/api/chats/other-history/messages/page", params={"before": before}).status_code
+        == 404
+    )
+    assert (
+        client.get(
+            "/api/chats/missing-history/messages/page", params={"before": before}
+        ).status_code
+        == 404
+    )
+    assert not any(
+        row["id"] == "chat_history" and row["tied"] for row in fieldguide.guide("tester")["cards"]
+    )
+    activity_before = fresh_db.query("SELECT * FROM activity ORDER BY id")
+
+    older = client.get(f"{path}/page", params={"before": before})
+
+    assert older.status_code == 200
+    assert [row["content"] for row in older.json()["messages"]] == ["First message"]
+    guide = fieldguide.guide("tester")
+    assert any(row["id"] == "chat_history" and row["tied"] for row in guide["cards"])
+    assert [row["id"] for row in guide["newly_tied"]] == ["chat_history"]
+    assert client.get(f"{path}/page", params={"before": before}).status_code == 200
+    assert fresh_db.query(
+        "SELECT person, knot FROM feature_unlocks WHERE knot = 'chat_history'"
+    ) == [{"person": "tester", "knot": "chat_history"}]
+    assert fresh_db.query("SELECT * FROM activity ORDER BY id") == activity_before
 
 
 def test_mark_ties_readonly_features_via_route(client, fresh_db):

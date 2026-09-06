@@ -14,12 +14,18 @@ export type ChatThread = {
  *  read is not cached, so the next call retries. */
 let cache: Promise<ChatThread[]> | null = null;
 
-export function chatThreads(): Promise<ChatThread[]> {
+export function chatThreads(refresh = false): Promise<ChatThread[]> {
+  if (refresh) cache = null;
   if (!cache) {
-    const attempt = api<ChatThread[]>("/api/chats").catch((e) => {
+    // The shared cache owns cancellation, never an individual consumer. A
+    // hydration retry must also bypass api()'s unresolved GET-cache promise.
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
+    const attempt = api<ChatThread[]>("/api/chats", { cache: "no-store", signal: controller.signal }).catch((e) => {
       if (cache === attempt) cache = null;
+      if (controller.signal.aborted) throw new Error("The saved chats did not load in time. Try again.");
       throw e;
-    });
+    }).finally(() => window.clearTimeout(timeout));
     cache = attempt;
   }
   return cache;

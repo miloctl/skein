@@ -22,6 +22,7 @@ vi.mock("@assistant-ui/react", () => ({
   useThread: (selector: (t: { messages: unknown[]; isRunning: boolean }) => unknown) =>
     selector({ messages: mocks.messages, isRunning: mocks.isRunning }),
   unstable_useComposerInputHistory: () => ({}),
+  unstable_useThreadMessageIds: () => [],
 }));
 vi.mock("@assistant-ui/react-markdown", () => ({ MarkdownTextPrimitive: () => null }));
 vi.mock("@/components/mermaid-diagram", () => ({ MermaidDiagram: () => null }));

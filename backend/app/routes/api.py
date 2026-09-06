@@ -310,6 +310,22 @@ def get_tasks(
         return _task_collection(policy, viewer, status=status, order=order)
 
 
+# dashboard/page.tsx lists and edits only these fields. Full descriptions,
+# delegation metadata and provenance belong to the separately loaded Task Peek.
+_TASK_BROWSE_FIELDS = (
+    "id",
+    "title",
+    "status",
+    "priority",
+    "assignee",
+    "due_date",
+    "completed_at",
+    "forge_url",
+    "visibility",
+    "crew_id",
+)
+
+
 @router.get("/tasks/browse")
 def get_task_browse(
     user: CurrentUser,
@@ -326,9 +342,14 @@ def get_task_browse(
             "rest",
             viewer,
         )
+        # Policy and relationship redaction require the full service rows.
+        # Project only after those decisions, never before their input is read.
         return {
-            "open": _task_collection(policy, viewer, status="open", order="priority"),
-            "done": _task_collection(policy, viewer, status="done", order="completed"),
+            state: [
+                {field: row[field] for field in _TASK_BROWSE_FIELDS}
+                for row in _task_collection(policy, viewer, status=state, order=order)
+            ]
+            for state, order in (("open", "priority"), ("done", "completed"))
         }
 
 
