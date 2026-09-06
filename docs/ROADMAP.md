@@ -113,7 +113,8 @@ cannot already do, and each carries a risk that wants its own release.
 ## Bounded-input census (from the 2026-08-03 holistic review)
 
 The rate-cap ratchet and the unbounded list reads shipped 2026-08-09
-(`tests/test_bounded_routes.py`). What is left:
+(`tests/test_bounded_routes.py`). Task proposals now share service validation for fixed fields, but the broader census remains open.
+What is left:
 
 - **Uncapped-on-both-sides fields.** The parity test compares a PATCH to its
   create model, so a field left uncapped on BOTH passes. Four were found and
@@ -441,7 +442,8 @@ history center, so each surface keeps its own bound.
   `acked_at` item under "Agent layer" for the rest.
 - **Divergent bounds across surfaces** [M, decision first] — reports, chats,
   findings, notifications, decisions, requests and agent notes each have a
-  different reachability limit. Name one rule before building seven cursors.
+  different reachability limit. Define a shared rule for the remaining surfaces.
+  Reports and solo-chat history now have cursors, but the broader bounds decision remains open.
 
 **Named, blocked on a decision rather than on effort.**
 
@@ -464,9 +466,9 @@ history center, so each surface keeps its own bound.
   priority, assignee, due date and `waiting_on`. Description, commitment
   week and visibility still have no path there, and visibility needs a
   transition rule before it gets one.
-- **Browse task pagination** [M] — the whole open list still renders at
-  once (~600 accessibility nodes on the seeded instance). The filter half
-  shipped: one needle over title, #id, @assignee, status and priority.
+- **Browse task pagination** [M] — each loaded task list still renders at
+  once, with no cursor to reach rows beyond its bound.
+  The local filter and compact task projection shipped, but neither adds pagination.
 - **Planning action placement** [S] — evidence and the control that
   resolves it sit on different pages for the health draft. The capacity form
   and the intervention queue's inline moves (assign, promise verdicts,

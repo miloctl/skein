@@ -17,6 +17,87 @@ def test_transcript_logged_and_titled(client):
     assert "sprint review deck" in msgs[0]["content"]
 
 
+def test_solo_message_pages_reach_the_full_transcript_and_keep_legacy_shape(client):
+    from app import db
+    from app.services import chat_threads
+
+    with db.transaction():
+        for n in range(1204):
+            chat_threads.log_message(
+                "long-chat", "tester", "user" if n % 2 == 0 else "assistant", str(n)
+            )
+    path = "/api/chats/long-chat/messages"
+    legacy = client.get(path).json()
+    assert len(legacy) == 1000
+    assert set(legacy[0]) == {"role", "content", "created_at"}
+    assert legacy[0]["content"] == "204"
+
+    response = client.get(f"{path}/page")
+    assert response.status_code == 200
+    page = response.json()
+    assert len(page["messages"]) == 50
+    assert [m["content"] for m in page["messages"]] == [str(n) for n in range(1154, 1204)]
+    newest = page["messages"]
+    cursor = page["next_before"]
+    assert cursor == newest[0]["id"]
+    # A new turn between pages cannot shift an ID cursor's older boundary.
+    chat_threads.log_message("long-chat", "tester", "user", "new turn")
+    while cursor is not None:
+        response = client.get(f"{path}/page", params={"before": cursor, "limit": 200})
+        assert response.status_code == 200
+        page = response.json()
+        assert 1 <= len(page["messages"]) <= 200
+        assert all(m["id"] < cursor for m in page["messages"])
+        assert [m["id"] for m in page["messages"]] == sorted(m["id"] for m in page["messages"])
+        newest = page["messages"] + newest
+        cursor = page["next_before"]
+    assert [m["content"] for m in newest] == [str(n) for n in range(1204)]
+    assert len({m["id"] for m in newest}) == 1204
+    assert client.get(f"{path}/page", params={"before": newest[0]["id"]}).json() == {
+        "messages": [],
+        "next_before": None,
+    }
+
+
+def test_solo_page_ownership_cursors_and_bounds(client):
+    from app.services import chat_threads
+
+    chat_threads.log_message("mine", "tester", "user", "mine")
+    chat_threads.log_message("foreign", "other", "user", "foreign")
+    mine = client.get("/api/chats/mine/messages/page")
+    assert mine.status_code == 200
+    foreign = client.get("/api/chats/foreign/messages/page", headers={"X-User": "other"}).json()
+    foreign_id = foreign["messages"][0]["id"]
+    for cursor in (None, foreign_id, 9223372036854775807):
+        params = {} if cursor is None else {"before": cursor}
+        hidden = client.get("/api/chats/foreign/messages/page", params=params)
+        absent = client.get("/api/chats/absent/messages/page", params=params)
+        assert hidden.status_code == absent.status_code == 404
+        assert hidden.json() == absent.json()
+    invalid_cursor = client.get("/api/chats/mine/messages/page", params={"before": foreign_id})
+    missing_cursor = client.get(
+        "/api/chats/mine/messages/page", params={"before": 9223372036854775807}
+    )
+    assert invalid_cursor.status_code == missing_cursor.status_code == 404
+    assert invalid_cursor.json() == missing_cursor.json()
+    for params in (
+        {"limit": 0},
+        {"limit": 201},
+        {"before": 0},
+        {"before": -1},
+        {"before": 2**63},
+        {"before": "secret-invalid"},
+    ):
+        refused = client.get("/api/chats/mine/messages/page", params=params)
+        assert 400 <= refused.status_code < 500
+        assert "secret-invalid" not in refused.text
+    chat_threads.claim_thread("empty", "tester")
+    assert client.get("/api/chats/empty/messages/page").json() == {
+        "messages": [],
+        "next_before": None,
+    }
+
+
 def test_persona_chat_titles_without_plumbing(client):
     _read_chat(client, "/as growth-mentor help me plan a learning goal", thread="th-2")
     chats = {c["id"]: c for c in client.get("/api/chats").json()}

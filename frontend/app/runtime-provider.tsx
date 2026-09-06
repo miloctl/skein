@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
   AssistantRuntimeProvider,
+  ExportedMessageRepository,
   useLocalRuntime,
   useThreadRuntime,
   type AttachmentAdapter,
@@ -18,7 +19,7 @@ import {
 import { reportStatus } from "@/lib/status";
 import { chatThreads } from "@/lib/chat-threads";
 import { outgoing } from "@/lib/persona";
-import { checkSessionRevision, sessionRevision } from "@/lib/auth";
+import { checkSessionRevision, sessionRevision, subscribeSession } from "@/lib/auth";
 
 /** What POST /api/files accepts (backend services/uploads.py). Kept as
  *  extensions rather than MIME types because that is what the backend keys
@@ -235,58 +236,121 @@ function makeAdapter(threadId: string): ChatModelAdapter {
   };
 }
 
-type StoredMessage = { role: "user" | "assistant"; content: string };
+type StoredMessage = { id: number; role: "user" | "assistant"; content: string; created_at: string };
+type MessagePage = { messages: StoredMessage[]; next_before: number | null };
+const restoredMessage = (m: StoredMessage): ThreadMessageLike => ({
+  id: `saved-${m.id}`,
+  role: m.role,
+  content: [{ type: "text", text: m.content }],
+  createdAt: new Date(m.created_at),
+});
+const HistoryContext = createContext<{
+  saved: boolean;
+  before: number | null;
+  loading: boolean;
+  error: string;
+  loadOlder: (beforePrepend: () => void) => Promise<void>;
+} | null>(null);
+export const useTranscriptHistory = () => useContext(HistoryContext);
 
-/** Loads the stored transcript into the (fresh) runtime, then reveals the
- *  thread UI — gating children prevents both the empty-state flash and the
- *  send-before-hydration race (reset() would clobber an in-flight run). */
-function ThreadHydrator({
-  threadId,
-  children,
-}: {
-  threadId: string;
-  children: ReactNode;
-}) {
+/** The keyed runtime owns both its messages and its cursor. No history request
+ *  can reset a different thread or identity, including a late cached list. */
+function ThreadHydrator({ threadId, children }: { threadId: string; children: ReactNode }) {
   const thread = useThreadRuntime();
   const [ready, setReady] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [before, setBefore] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
+  const request = useRef<AbortController | null>(null);
+  const [owner] = useState(sessionRevision);
   useEffect(() => {
-    let cancelled = false;
-    // the shared list answers "is this thread saved?" from cache — probing
-    // /messages for a brand-new thread logs a console 404 on every new chat
-    chatThreads()
-      .then((rows) =>
-        rows.some((t) => t.id === threadId)
-          ? api<StoredMessage[]>(`/api/chats/${threadId}/messages`)
-          : ([] as StoredMessage[]),
-      )
-      .then((msgs) => {
-        if (cancelled) return;
-        // never clobber messages that already exist (e.g. a fast send)
-        if (msgs.length > 0 && thread.getState().messages.length === 0) {
-          const initial: ThreadMessageLike[] = msgs.map((m) => ({
-            role: m.role,
-            content: [{ type: "text", text: m.content }],
-          }));
-          thread.reset(initial);
-        }
-      })
-      .catch((e) => {
-        // the brand-new-thread case RESOLVES [] above, so a rejection here is
-        // a real failure — the saved list or this thread's messages did not
-        // load. Swallowed, it rendered saved history as an empty conversation
-        // the user types over believing the thread is new.
-        if (!cancelled) reportStatus(`This chat's saved messages did not load. ${actionError(e)}`);
-      })
-      .finally(() => {
-        if (!cancelled) setReady(true);
-      });
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      controller.abort();
+      if (owner === sessionRevision())
+        setError("Saved messages did not load in time. Select Retry saved messages.");
+    }, 15_000);
+    chatThreads(retry > 0).then(async (rows) => {
+      checkSessionRevision(owner);
+      if (controller.signal.aborted) return;
+      const exists = rows.some((t) => t.id === threadId);
+      const page = exists
+        ? await api<MessagePage>(`/api/chats/${threadId}/messages/page`, { cache: "no-store", signal: controller.signal })
+        : { messages: [], next_before: null };
+      // api() checks its own response binding too. The list can outlive this
+      // component or its identity before a request even starts.
+      checkSessionRevision(owner);
+      if (controller.signal.aborted) return;
+      if (page.messages.length > 0 && thread.getState().messages.length === 0)
+        thread.reset(page.messages.map(restoredMessage));
+      setSaved(exists);
+      setBefore(page.next_before);
+      setError("");
+      setReady(true);
+    }).catch((e) => {
+      if (controller.signal.aborted || owner !== sessionRevision()) return;
+      const message = `This chat's saved messages did not load. ${actionError(e)}`;
+      setError(message);
+      reportStatus(message);
+    }).finally(() => window.clearTimeout(timeout));
     return () => {
-      cancelled = true;
+      window.clearTimeout(timeout);
+      controller.abort();
+      request.current?.abort();
+      request.current = null;
     };
-  }, [thread, threadId]);
-  if (!ready)
-    return <p className="p-8 text-sm text-ink-3">Unrolling the transcript…</p>;
-  return <>{children}</>;
+  }, [thread, threadId, owner, retry]);
+
+  async function loadOlder(beforePrepend: () => void) {
+    if (before === null || request.current || owner !== sessionRevision()) return;
+    const controller = new AbortController();
+    request.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
+    setLoading(true);
+    setError("");
+    try {
+      const page = await api<MessagePage>(`/api/chats/${threadId}/messages/page?before=${before}`, {
+        cache: "no-store", signal: controller.signal,
+      });
+      checkSessionRevision(owner);
+      if (controller.signal.aborted) return;
+      // Read AFTER the fetch: a new turn can stream while this page loads.
+      // Import retains the live head, IDs, status, objects and draft. Appending
+      // saved user messages instead would start fresh model turns.
+      const current = thread.export();
+      const ids = new Set(current.messages.map(({ message }) => message.id));
+      const older = ExportedMessageRepository.fromArray(page.messages.map(restoredMessage).filter((m) => !ids.has(m.id!)));
+      if (older.messages.length) {
+        beforePrepend();
+        const parent = older.messages.at(-1)!.message.id;
+        thread.import({
+          ...current,
+          messages: [...older.messages, ...current.messages.map((item) => item.parentId === null ? { ...item, parentId: parent } : item)],
+        });
+      }
+      setBefore(page.next_before);
+    } catch (e) {
+      if (owner === sessionRevision() && request.current === controller)
+        setError(controller.signal.aborted
+          ? "Older messages did not load in time. Select Load older messages to try again."
+          : `Older messages did not load. ${actionError(e)} Select Load older messages to try again.`);
+    } finally {
+      window.clearTimeout(timeout);
+      if (request.current === controller) {
+        request.current = null;
+        setLoading(false);
+      }
+    }
+  }
+  if (!ready) return (
+    <div className="p-8 text-sm text-ink-3">
+      {error ? <><p role="alert">{error}</p><button type="button" className="mt-3 underline" onClick={() => { setError(""); setRetry((n) => n + 1); }}>Retry saved messages</button></>
+        : <p>Unrolling the transcript…</p>}
+    </div>
+  );
+  return <HistoryContext.Provider value={{ saved, before, loading, error, loadOlder }}>{children}</HistoryContext.Provider>;
 }
 
 /** A write receipt states what actually happened to your data — the gate
@@ -323,13 +387,12 @@ export function receiptLine(e: {
   return `\n\n> ${head}${tail}${link}\n\n`;
 }
 
-export function RuntimeProvider({
-  threadId,
-  children,
-}: {
-  threadId: string;
-  children: ReactNode;
-}) {
+export function RuntimeProvider({ threadId, children }: { threadId: string; children: ReactNode }) {
+  const identity = useSyncExternalStore(subscribeSession, sessionRevision, () => "");
+  return <BoundRuntime key={JSON.stringify([threadId, identity])} threadId={threadId}>{children}</BoundRuntime>;
+}
+
+function BoundRuntime({ threadId, children }: { threadId: string; children: ReactNode }) {
   const adapter = useMemo(() => makeAdapter(threadId), [threadId]);
   const attachments = useMemo(() => makeAttachmentAdapter(), []);
   const runtime = useLocalRuntime(adapter, { adapters: { attachments } });

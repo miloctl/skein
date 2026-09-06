@@ -18,6 +18,9 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- Solo-chat history adds `GET /api/chats/{thread_id}/messages/page` with `before=<message id>` and `limit` from 1 to 200, default 50. It returns `{messages, next_before}`. The existing messages endpoint retains its newest-1000 bare array.
+- `GET /api/tasks/browse` returns a compact task projection after scope and workplace-policy checks. Its fields are `id`, `title`, `status`, `priority`, `assignee`, `due_date`, `completed_at`, `forge_url`, `visibility`, and `crew_id`. Read `/api/tasks/{id}` for full task details. Extension API 1.0 does not change.
+
 - Browser sign-in now establishes an opaque server session. The browser token endpoint returns identity and CSRF metadata, not provider credentials, and refuses browser refresh tokens. Existing browser credentials are cleared on upgrade.
 - Cookie-authenticated browser requests cannot mint permanent API keys. Explicit key entry exchanges the key once; direct bearer clients retain key creation.
 - OIDC browser sign-in requires `SKEIN_CREDENTIAL_KEY` in the deployment Secret, HTTPS, and same-site frontend/API origins with explicit CORS. Browser-session rows are excluded from recovery archives.
@@ -26,6 +29,11 @@ keeps its existing `minimum_core` and needs no change.
 - The roster omits other people's saved themes and internal identity ownership fields. Growth interests remain shared staffing context.
 
 ### Behavior
+
+- Saved solo chats load recent messages first. Load older messages adds earlier pages to the current transcript without replacing existing message nodes. Thread and identity changes discard loaded pages and obsolete responses. A field-guide card ties only after a successful, nonempty older-page read.
+- Browse task editing changes title, assignee, and due date only. Task Peek separately loads and displays the full description without adding description editing.
+- MCP task pages scan past the former 500-row window. Offsets and limits count readable tasks after policy checks, and linked records retain their access checks.
+- Task proposals reuse service validation for fixed fields before storage. Invalid legacy task proposals become rejected at approval instead of returning to the queue. Relationships and permissions remain apply-time checks.
 
 - Browser sessions have an eight-hour absolute lifetime, server-side refresh, explicit logout, and identity-bound request handling across tabs. Private mounted state and stale responses do not cross account changes. A Browser sign-in card joins the field guide.
 - Reviewed remote MCP execution reads the SDK result envelope correctly. Successful Context7 documentation calls now report completion instead of failure.
@@ -39,6 +47,9 @@ keeps its existing `minimum_core` and needs no change.
 - The ⌘K box offers theme commands while you type: a mode, a theme pack by name, or `Colorway: next`. Enter still searches. A Themes card joins the field guide.
 
 ### Operations
+
+- Coordinated manual dumps exclude `public.browser_sessions` data. Before any application process starts after recovery, the runbook SQL clears restored sessions and invalidates API keys. It marks pending or running shared-chat agent requests and delegation wakes as `completion_unknown`, clears execution flags and follow-up wake requests, and preserves history. Run the guarded SQL for external full copies too. Keep ingress closed until reconciliation finishes. `SKEIN_SCHEDULER=0` alone does not stop shared-chat recovery.
+- Upgrade instructions require each image tag and its matching reviewed digest. Render the private overlay and check both backend and environment-specific frontend references before sync. A tag-only edit retains the old image bytes.
 
 - Atomic REST policy checks and transaction lifecycle work run off the event loop. Contended database locks have a bounded wait and return a retryable response instead of blocking the API.
 - Failed scheduled backups can retry on the same day. Weekly-plan, stale-work, and notification-flush claims commit with their database effects. Slack delivery remains best-effort after commit.

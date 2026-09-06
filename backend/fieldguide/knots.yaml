@@ -222,6 +222,16 @@ knots:
     link: /chat
     since: 2026-07-31
 
+  - id: chat_history
+    feature: Read older chat messages
+    knot: Portuguese Bowline
+    set: loops
+    ties: mark
+    pitch: The beginning stays on the line, even after the conversation runs long.
+    how: "Open a saved solo chat. Select Load older messages above the transcript. Repeat to read earlier messages. Loaded pages stay in this chat until you switch chats or identities."
+    link: /chat
+    since: 2026-09-06
+
   - id: shared_chat
     feature: Private shared chats
     knot: Triple Bowline

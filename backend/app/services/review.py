@@ -88,7 +88,7 @@ def _registry() -> dict:
     }
 
 
-def unappliable(entity: str, payload: dict) -> str:
+def unappliable(entity: str, payload: dict, action: str = "create", *, entity_id: int = 0) -> str:
     """Why the service would refuse this payload at apply time, or "".
 
     A proposal is stored now and applied LATER, through the same service the
@@ -97,11 +97,9 @@ def unappliable(entity: str, payload: dict) -> str:
     after whoever wrote it could fix it. Worse, the row is already in the queue
     when the bound ships, so a deploy strands it.
 
-    Only the free-text bounds are checked, which are the ones a pasted line or
-    a model can exceed. Every other refusal a service makes (a missing
-    milestone, a bad date) is about state that can change between the proposal
-    and the verdict, and guessing at it here would drop proposals that WOULD
-    have applied.
+    Task fields use the service's static validator. Relationships and
+    permissions remain apply-time checks: they can change before the verdict.
+    The ingester calls this for creates without an explicit action.
     """
     from .intake import DETAIL_LEN
     from .work import DESCRIPTION_LEN, TITLE_LEN
@@ -114,8 +112,14 @@ def unappliable(entity: str, payload: dict) -> str:
     for reserved in ("actor", "origin") + (("requester",) if entity == "memory_forget" else ()):
         if reserved in payload:
             return f"the payload cannot carry '{reserved}' — the review records it"
+    if entity == "task":
+        from .work import validate_task_fields
+
+        try:
+            validate_task_fields(payload, action, task_id=entity_id)
+        except ValueError as exc:
+            return str(exc)
     caps = {
-        "task": (("title", TITLE_LEN), ("description", DESCRIPTION_LEN)),
         "milestone": (("title", TITLE_LEN), ("description", DESCRIPTION_LEN)),
         "intake": (("detail", DETAIL_LEN),),
     }
@@ -208,7 +212,7 @@ def _propose_change_locked(
     # HERE, not in one producer: the agent gate (tools/_gate.py) and the notes
     # ingester both file proposals, and a guard in either one leaves the other
     # storing rows that can never be approved.
-    refusal = unappliable(entity, payload)
+    refusal = unappliable(entity, payload, action, entity_id=entity_id)
     if refusal:
         raise ValueError(refusal)
     pid = db.execute(
@@ -624,6 +628,14 @@ def _approve_change_locked(
                 # not at all. A failed apply returns safely to the review queue.
                 if fn is None:
                     raise ValueError("the core review handler is missing")
+                # Legacy task proposals can predate static validation. Repeating
+                # approval cannot fix their fields, so they must leave the queue.
+                if change["entity"] == "task":
+                    refusal = unappliable(
+                        "task", payload, change["action"], entity_id=int(change["entity_id"] or 0)
+                    )
+                    if refusal:
+                        raise db.TerminalReject(refusal)
                 # authorship stays with the proposer: created_by must say who
                 # wrote it, not who clicked approve (the verdict is recorded on
                 # the pending_changes row + activity)

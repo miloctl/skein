@@ -314,6 +314,42 @@ def milestone_collection_policy_contexts(
     return result
 
 
+def validate_task_fields(
+    payload: dict, action: str, *, task_id: int = 0
+) -> tuple[str | None, int | None]:
+    """Check fixed task fields without reading relationships or permissions."""
+    title = payload.get("title", "")
+    description = payload.get("description", "")
+    if action == "create" and not title.strip():
+        raise ValueError("task title is required")
+    _bounded("task", title, description)
+    db.validate_date("due_date", payload.get("due_date", ""), allow_clear=action == "update")
+    priority = payload.get("priority", "medium" if action == "create" else "")
+    if (action == "create" or priority) and priority not in PRIORITIES:
+        raise ValueError(f"priority must be one of {PRIORITIES}")
+    if action == "update":
+        status = payload.get("status", "")
+        if status and status not in TASK_STATUSES:
+            raise ValueError(f"status must be one of {TASK_STATUSES}")
+        committed_week = payload.get("committed_week", "")
+        if committed_week and committed_week != "-" and not WEEK_RE.match(committed_week):
+            raise ValueError("committed_week must look like 2026-W31 (or '-' to clear)")
+        waiting_on = payload.get("waiting_on", "")
+        if waiting_on and waiting_on != "-":
+            kind, _, ref = waiting_on.partition(":")
+            # isdecimal, not isdigit: '²' passes isdigit but blows up int().
+            if kind not in WAITING_ON_TYPES or not ref.strip().lstrip("#").isdecimal():
+                raise ValueError(
+                    f"waiting_on must look like 'task:12', 'blocker:3', 'promise:7',"
+                    f" or 'question:5' (one of {WAITING_ON_TYPES}), or '-' to clear"
+                )
+            waiting_id = int(ref.strip().lstrip("#"))
+            if kind == "task" and waiting_id == task_id:
+                raise ValueError("a task cannot wait on itself")
+            return kind, waiting_id
+    return None, None
+
+
 def create_task(
     title: str,
     description: str = "",
@@ -365,12 +401,10 @@ def _create_task_locked(
     correlation_id: str = "",
     event_actor_kind: str = "",
 ) -> dict:
-    if not title.strip():
-        raise ValueError("task title is required")
-    _bounded("task", title, description)
-    db.validate_date("due_date", due_date, allow_clear=False)
-    if priority not in PRIORITIES:
-        raise ValueError(f"priority must be one of {PRIORITIES}")
+    validate_task_fields(
+        {"title": title, "description": description, "due_date": due_date, "priority": priority},
+        "create",
+    )
     ts = db.now()
     tier, cid = scope.resolve_write(visibility, crew_id, actor=actor)
     _assert_task_relationships(
@@ -738,29 +772,19 @@ def _update_task_locked(
     correlation_id: str = "",
     event_actor_kind: str = "",
 ) -> dict:
-    if status and status not in TASK_STATUSES:
-        raise ValueError(f"status must be one of {TASK_STATUSES}")
-    _bounded("task", title, description)
-    db.validate_date("due_date", due_date)
-    if priority and priority not in PRIORITIES:
-        raise ValueError(f"priority must be one of {PRIORITIES}")
-    if committed_week and committed_week != "-" and not WEEK_RE.match(committed_week):
-        raise ValueError("committed_week must look like 2026-W31 (or '-' to clear)")
-    # waiting_on: "blocker:12" (what is this stuck behind — deliberately NOT
-    # Gantt), or "-" to clear
-    waiting_type: str | None = None
-    waiting_id: int | None = None
-    if waiting_on and waiting_on != "-":
-        kind, _, ref = waiting_on.partition(":")
-        # isdecimal, not isdigit: '²' passes isdigit but blows up int()
-        if kind not in WAITING_ON_TYPES or not ref.strip().lstrip("#").isdecimal():
-            raise ValueError(
-                f"waiting_on must look like 'task:12', 'blocker:3', 'promise:7',"
-                f" or 'question:5' (one of {WAITING_ON_TYPES}), or '-' to clear"
-            )
-        waiting_type, waiting_id = kind, int(ref.strip().lstrip("#"))
-        if kind == "task" and waiting_id == task_id:
-            raise ValueError("a task cannot wait on itself")
+    waiting_type, waiting_id = validate_task_fields(
+        {
+            "title": title,
+            "description": description,
+            "due_date": due_date,
+            "priority": priority,
+            "status": status,
+            "committed_week": committed_week,
+            "waiting_on": waiting_on,
+        },
+        "update",
+        task_id=task_id,
+    )
     current = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not current:
         raise scope.missing("tasks", task_id)
@@ -1423,6 +1447,27 @@ def list_tasks_joined(
         raise ValueError("status must be open or done")
     if order not in ("priority", "completed"):
         raise ValueError("order must be priority or completed")
+    return _task_rows(
+        viewer,
+        status="" if status == "open" else status,
+        open_only=status == "open",
+        order=order,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def _task_rows(
+    viewer: scope.Viewer,
+    *,
+    status: str = "",
+    open_only: bool = False,
+    order: str = "priority",
+    milestone_id: int = 0,
+    assignee: str = "",
+    limit: int = TASK_LIST_LIMIT,
+    offset: int = 0,
+) -> list[dict]:
     # Two filters, two placements. `t` is the LEFT JOIN's driving side, so it
     # belongs in WHERE. `m` is the nullable side and belongs in the ON clause —
     # in WHERE it would drop every task with no milestone and turn the join
@@ -1453,10 +1498,17 @@ def list_tasks_joined(
         f" WHERE {frag}"
     )
     params: list[str | int] = [*mp, *ep, *wtp, *wbp, *wpp, *wqp, *vp]
-    if status == "open":
+    if open_only:
         sql += " AND t.status NOT IN ('done', 'void')"
-    elif status == "done":
-        sql += " AND t.status = 'done'"
+    if status:
+        sql += " AND t.status = ?"
+        params.append(status)
+    if milestone_id:
+        sql += " AND m.id = ?"
+        params.append(milestone_id)
+    if assignee:
+        sql += " AND t.assignee = ?"
+        params.append(assignee)
     if order == "completed":
         sql += " ORDER BY t.completed_at DESC NULLS LAST, t.id DESC"
     else:
@@ -1474,44 +1526,46 @@ def list_tasks(
     status: str = "",
     assignee: str = "",
     viewer: scope.Viewer = scope.NOBODY,
+    *,
+    limit: int = TASK_LIST_LIMIT,
+    offset: int = 0,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
 ) -> list[dict]:
-    frag, vp = scope.visible_filter(viewer, "tasks", alias="t")
-    mfrag, mp = scope.visible_filter(viewer, "milestones", alias="m")
-    efrag, ep = scope.visible_filter(viewer, "engagements", alias="e")
-    wtfrag, wtp = scope.visible_filter(viewer, "tasks", alias="waiting_task")
-    wbfrag, wbp = scope.visible_filter(viewer, "blockers", alias="waiting_blocker")
-    wpfrag, wpp = scope.visible_filter(viewer, "promises", alias="waiting_promise")
-    wqfrag, wqp = scope.visible_filter(viewer, "questions", alias="waiting_question")
-    sql = (
-        "SELECT t.*, m.id AS visible_milestone_id,"  # noqa: S608 — scope emits bound marks
-        " e.id AS visible_engagement_id,"
-        " COALESCE(waiting_task.id, waiting_blocker.id, waiting_promise.id,"
-        " waiting_question.id) AS visible_waiting_id FROM tasks t"
-        f" LEFT JOIN milestones m ON m.id = t.milestone_id AND {mfrag}"
-        f" LEFT JOIN engagements e ON e.id = t.engagement_id AND {efrag}"
-        " LEFT JOIN tasks waiting_task ON t.waiting_on_type = 'task'"
-        f" AND waiting_task.id = t.waiting_on_id AND {wtfrag}"
-        " LEFT JOIN blockers waiting_blocker ON t.waiting_on_type = 'blocker'"
-        f" AND waiting_blocker.id = t.waiting_on_id AND {wbfrag}"
-        " LEFT JOIN promises waiting_promise ON t.waiting_on_type = 'promise'"
-        f" AND waiting_promise.id = t.waiting_on_id AND {wpfrag}"
-        " LEFT JOIN questions waiting_question ON t.waiting_on_type = 'question'"
-        f" AND waiting_question.id = t.waiting_on_id AND {wqfrag}"
-        f" WHERE {frag}"
-    )
-    params: list[str | int] = [*mp, *ep, *wtp, *wbp, *wpp, *wqp, *vp]
-    if milestone_id:
-        sql += " AND m.id = ?"
-        params.append(milestone_id)
-    if status:
-        sql += " AND t.status = ?"
-        params.append(status)
-    if assignee:
-        sql += " AND t.assignee = ?"
-        params.append(assignee)
-    sql += (
-        " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
-        " WHEN 'medium' THEN 2 ELSE 3 END, t.id LIMIT ?"
-    )
-    params.append(TASK_LIST_LIMIT)  # Browse renders these unpaginated — bound the dump
-    return [_redact_hidden_task_links(row) for row in db.query(sql, tuple(params))]
+    """A bounded page, with offset and limit counting policy-permitted tasks."""
+    limit = max(1, min(int(limit), TASK_LIST_LIMIT))
+    offset = max(0, int(offset))
+    visible: list[dict] = []
+    scan_offset = offset if resource_filter is None else 0
+    with db.read_transaction():
+        while len(visible) < limit:
+            batch_limit = TASK_LIST_LIMIT if resource_filter is not None else limit
+            rows = _task_rows(
+                viewer,
+                milestone_id=milestone_id,
+                status=status,
+                assignee=assignee,
+                limit=batch_limit,
+                offset=scan_offset,
+            )
+            if not rows:
+                break
+            scan_offset += len(rows)
+            contexts = task_collection_policy_contexts(rows, viewer) if resource_filter else {}
+            for row in rows:
+                if resource_filter is not None:
+                    if not resource_filter("task", int(row["id"]), contexts[int(row["id"])]):
+                        continue
+                    if offset:
+                        offset -= 1
+                        continue
+                row.pop("milestone_title", None)
+                visible.append(row)
+                if len(visible) == limit:
+                    break
+            if len(rows) < batch_limit:
+                break
+        return (
+            redact_task_relationships(visible, viewer, resource_filter)
+            if resource_filter is not None
+            else visible
+        )

@@ -240,6 +240,104 @@ def test_approve_claim_is_single_shot(fresh_db):
     assert len(work.list_tasks()) == 1  # applied exactly once
 
 
+@pytest.mark.parametrize(
+    ("action", "payload"),
+    [
+        ("create", {"title": "Task", "priority": "critical"}),
+        ("create", {"title": "Task", "due_date": "-"}),
+        ("create", {"title": "   "}),
+        ("update", {"priority": "critical"}),
+        ("update", {"status": "finished"}),
+        ("update", {"committed_week": "2026-W99"}),
+        ("update", {"waiting_on": "unknown:1"}),
+    ],
+)
+def test_invalid_task_fields_are_refused_by_services_and_proposals(fresh_db, action, payload):
+    from app.services import review, work
+
+    task = work.create_task("Existing")
+    with pytest.raises(ValueError) as direct:
+        if action == "create":
+            work.create_task(**payload)
+        else:
+            work.update_task(task["id"], **payload)
+    with pytest.raises(ValueError) as proposal:
+        review.propose_change(
+            "task", action, payload, entity_id=task["id"] if action == "update" else 0
+        )
+    assert str(proposal.value) == str(direct.value)
+    assert fresh_db.query("SELECT id FROM pending_changes") == []
+
+
+@pytest.mark.parametrize(
+    ("action", "self_wait"), [("create", False), ("update", False), ("update", True)]
+)
+def test_legacy_invalid_task_proposals_are_terminally_rejected(
+    fresh_db, monkeypatch, action, self_wait
+):
+    from app.services import review, work
+
+    task = work.create_task("Existing")
+    payload = {"waiting_on": f"task:#{task['id']}"} if self_wait else {"priority": "critical"}
+    if action == "create":
+        payload["title"] = "Legacy task"
+    # The old proposal service accepted this payload. Keep its real notice and ledger rows.
+    with monkeypatch.context() as legacy:
+        legacy.setattr(review, "unappliable", lambda *_args, **_kwargs: "")
+        proposal = review.propose_change(
+            "task",
+            action,
+            payload,
+            entity_id=task["id"] if action == "update" else 0,
+            actor="agent",
+        )
+    with pytest.raises(ValueError, match="auto-rejected"):
+        review.approve_change(proposal["id"], actor="alice", strong=True)
+    row = fresh_db.query_one("SELECT * FROM pending_changes WHERE id = ?", (proposal["id"],))
+    assert row["status"] == "rejected"
+    assert row["reviewed_strong"] == 0
+    assert (
+        fresh_db.query_one("SELECT priority FROM tasks WHERE id = ?", (task["id"],))["priority"]
+        == "medium"
+    )
+    assert (
+        fresh_db.query_one(
+            "SELECT 1 FROM notifications WHERE pending_change_id = ? AND read_at IS NULL",
+            (proposal["id"],),
+        )
+        is None
+    )
+
+
+def test_task_validation_preserves_following_valid_proposals_and_clear_sentinels(fresh_db):
+    from app.services import review, work
+
+    with pytest.raises(ValueError, match="priority"):
+        review.propose_change(
+            "task", "create", {"title": "Invalid task", "priority": "critical"}, actor="agent"
+        )
+    proposal = review.propose_change("task", "create", {"title": "Proposed task"}, actor="agent")
+    task_id = review.approve_change(proposal["id"], actor="alice")["result"]["id"]
+    task = fresh_db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
+    assert (task["priority"], task["origin"], task["created_by"]) == (
+        "medium",
+        "agent_verified",
+        "agent",
+    )
+    work.update_task(task_id, due_date="2026-09-07", committed_week="2026-W37", actor="alice")
+    for payload in (
+        {"priority": "high"},
+        {"due_date": "-", "committed_week": "-", "waiting_on": "-"},
+    ):
+        proposal = review.propose_change(
+            "task", "update", payload, entity_id=task_id, actor="agent"
+        )
+        review.approve_change(proposal["id"], actor="alice")
+    task = fresh_db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
+    assert task["priority"] == "high"
+    assert task["due_date"] is None and task["committed_week"] is None
+
+
 def test_approve_bad_payload_returns_to_pending(fresh_db):
     from app.services import review
 
@@ -505,13 +603,20 @@ def test_reject_clears_notification_too(client, fresh_db):
 
 
 def test_failed_apply_keeps_notification_unread(client, fresh_db):
-    from app.services import review
+    from app.services import engagements, review, work
 
-    # empty title makes create_task raise -> apply fails -> reset to pending
-    p = review.propose_change("task", "create", {"title": ""}, actor="scout", origin="agent")
-    import contextlib
-
-    with contextlib.suppress(ValueError):
+    original = engagements.create_engagement("Original")["id"]
+    other = engagements.create_engagement("Other")["id"]
+    milestone = work.create_milestone("Movable milestone", project="Original")["id"]
+    p = review.propose_change(
+        "task",
+        "create",
+        {"title": "Proposed task", "milestone_id": milestone, "engagement_id": original},
+        actor="scout",
+        origin="agent",
+    )
+    work.update_milestone(milestone, engagement_id=other)
+    with pytest.raises(ValueError, match="same engagement"):
         review.approve_change(p["id"], actor="tester")
     row = fresh_db.query_one("SELECT status FROM pending_changes WHERE id = ?", (p["id"],))
     assert row["status"] == "pending"
@@ -520,6 +625,8 @@ def test_failed_apply_keeps_notification_unread(client, fresh_db):
         (f"Review needed: #{p['id']}%",),
     )
     assert unread
+    work.update_milestone(milestone, engagement_id=original)
+    assert review.approve_change(p["id"], actor="tester")["status"] == "approved"
 
 
 def test_batch_approve_skips_sponsor_bound_rows_with_a_clear_error(client, fresh_db):

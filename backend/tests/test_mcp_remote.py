@@ -168,6 +168,62 @@ def test_a_read_and_a_bounded_list_answer_over_http(fresh_db):
     assert "error" not in week
 
 
+@pytest.mark.parametrize(
+    ("tool", "fields"),
+    [
+        ("create_task", {"priority": "critical"}),
+        ("create_task", {"priority": ""}),
+        ("update_task", {"priority": "critical"}),
+        ("update_task", {"status": "finished"}),
+        ("update_task", {"due_date": "tomorrow"}),
+        ("update_task", {"waiting_on": "unknown:12"}),
+    ],
+)
+def test_invalid_task_fields_are_tool_errors_without_pending_proposals(
+    fresh_db, monkeypatch, tool, fields
+):
+    from app import config
+    from app.services import users, work
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    users.ensure_user("ava")
+    task = work.create_task("Existing task", actor="ava")
+    arguments = {"title": "Proposed task"} if tool == "create_task" else {"task_id": task["id"]}
+
+    async def scenario(session):
+        return await session.call_tool(tool, {**arguments, **fields})
+
+    result = _session(_key("ava"), scenario)
+    assert result.isError, _text(result)
+    assert "error" in json.loads(_text(result))
+    assert fresh_db.query("SELECT id FROM pending_changes") == []
+    assert fresh_db.query("SELECT id FROM activity WHERE action = 'propose_change'") == []
+
+
+@pytest.mark.parametrize("reference", ["task:{id}", "task:#{id}", "task:00{id}", "task: #{id} "])
+def test_task_self_wait_is_refused_before_mcp_or_proposal_storage(fresh_db, monkeypatch, reference):
+    from app import config
+    from app.services import review, users, work
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    users.ensure_user("ava")
+    task_id = work.create_task("Existing task", actor="ava")["id"]
+    payload = {"waiting_on": reference.format(id=task_id)}
+    with pytest.raises(ValueError, match="cannot wait on itself"):
+        work.update_task(task_id, **payload, actor="ava")
+
+    async def scenario(session):
+        return await session.call_tool("update_task", {"task_id": task_id, **payload})
+
+    result = _session(_key("ava"), scenario)
+    assert result.isError, _text(result)
+    assert "cannot wait on itself" in json.loads(_text(result))["error"]
+    with pytest.raises(ValueError, match="cannot wait on itself"):
+        review.propose_change("task", "update", payload, entity_id=task_id, actor="agent")
+    assert fresh_db.query("SELECT id FROM pending_changes") == []
+    assert fresh_db.query("SELECT id FROM activity WHERE action = 'propose_change'") == []
+
+
 def test_agent_key_wording_and_the_mcp_name_space(fresh_db):
     from app import mcp_server
     from app.services import users

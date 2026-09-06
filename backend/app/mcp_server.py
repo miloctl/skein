@@ -502,30 +502,24 @@ def list_tasks(status: str = "", assignee: str = "", limit: int = 50, offset: in
     offset = max(0, int(offset))
     if refusal := _policy_refusal("skein.mcp.tasks.read", "task"):
         return refusal
-    with db.read_transaction():
-        rows = work.list_tasks(status=status, assignee=assignee)
-        contexts = work.task_collection_policy_contexts(rows, scope.NOBODY)
-        permitted = [
-            row
-            for row in rows
-            if _policy_permits(
-                "skein.mcp.tasks.read",
-                "task",
-                int(row["id"]),
-                contexts[int(row["id"])],
-            )
-        ]
-        policy = projection_policy.ProjectionPolicy(
-            current_policy_engine(),
-            current_policy_subject(),
-            "skein.mcp.tasks.read",
-            "mcp",
-            scope.NOBODY,
-            agent=_actor(),
-            tool="skein.mcp.tasks.read",
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(),
+        current_policy_subject(),
+        "skein.mcp.tasks.read",
+        "mcp",
+        scope.NOBODY,
+        agent=_actor(),
+        tool="skein.mcp.tasks.read",
+    )
+    return json.dumps(
+        work.list_tasks(
+            status=status,
+            assignee=assignee,
+            limit=limit,
+            offset=offset,
+            resource_filter=policy.permits,
         )
-        page = permitted[offset : offset + limit]
-        return json.dumps(work.redact_task_relationships(page, scope.NOBODY, policy.permits))
+    )
 
 
 @_tool(WRITE)

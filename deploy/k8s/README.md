@@ -90,6 +90,18 @@ digests in the overlay. Replace every zero digest with the digest of the
 reviewed registry image. The sync recreates the backend pod, and the new pod applies
 migrations at startup as the sole writer.
 
+For each backend and environment-specific frontend tag, set its matching reviewed digest.
+A tag-only change keeps the old digest and therefore the old image bytes.
+Before a commit or sync, render the private overlay:
+
+```sh
+kubectl kustomize <private-overlay-directory> > rendered.yaml
+grep 'image:' rendered.yaml
+```
+
+Check both application image references against the reviewed registry digests.
+Stop if either reference contains an old or zero digest.
+
 - **Upgrades take the service down** for the length of one pod restart.
   That is the cost of Recreate, and it is correct here. Do not move
   migrations to a pre-sync Job: the Job can overlap the old pod, and old code
@@ -187,6 +199,8 @@ put the IdP host in `NO_PROXY`.
 The daily local recovery unit is `database-<date>-<backup-id>.dump`. It contains the
 `public` and `private` schemas, plus each extension schema that opted into
 backup. One `pg_dump` process gives the file one PostgreSQL snapshot.
+Browser-session tables remain in the archive, but their rows do not.
+Recovery requires a new browser sign-in.
 
 The same data PVC also holds artifact bytes under `/data/artifacts`. The dump
 contains artifact metadata only. Full recovery needs a matching storage backup
@@ -204,8 +218,9 @@ The base mounts a second PVC at `/backup-mirror` and sets
 `SKEIN_BACKUP_MIRROR`. The directory must exist. Skein never creates it because
 an absent mount must not become a local false mirror. The mirror receives:
 
-- A `public`-schema `platform-<date>-<backup-id>.dump`. It contains all tables and rows in the core `public` schema, not
-  only workspace-visible rows. It excludes `private`, extension schemas, and
+- A `public`-schema `platform-<date>-<backup-id>.dump`. It contains all core
+  `public` tables and their rows except browser-session rows, not only
+  workspace-visible rows. It excludes `private`, extension schemas, and
   artifact bytes. Protect it like the full database dump.
 - Its own append of `activity-anchors.log`.
 
@@ -225,18 +240,34 @@ recovery point. For a coordinated manual point, stop every process with Skein
 database credentials, including standalone MCP and extension workers. Scale
 the backend to zero. From a one-shot pod labeled `app=skein-maintenance`, with
 PostgreSQL credentials and the `skein-data` mount, run a full-database `pg_dump`
-with no schema filter. Keep all writers stopped until the storage snapshot
-completes. This full manual dump needs the same access controls as the database.
+with no schema filter. Set the PostgreSQL connection variables for the intended
+source database first. Exclude browser-session rows so a restore cannot reactivate
+sessions revoked after the backup:
+
+```sh
+set -euo pipefail
+umask 077
+mkdir -p /data/backups
+backup_file="/data/backups/database-$(date -u +%Y%m%dT%H%M%SZ)-manual.dump"
+pg_dump --format=custom --exclude-table-data=public.browser_sessions --file "$backup_file"
+sha256sum "$backup_file"
+```
+
+Record the digest with the storage snapshot identifier in the recovery record.
+This manual command does not append a digest to `activity-anchors.log`.
+Keep all writers stopped until the storage snapshot completes.
+This full manual dump needs the same access controls as the database.
 
 **Restore.** `tests/test_admin_backup.py` drills atomic archive load,
 schema data, and artifact recovery. The test database uses its bootstrap
 superuser. The deployment render contract pins the restricted application-role
 shape. Rehearse that role handoff against the target PostgreSQL service.
 
-1. Pause ArgoCD auto-sync. Remove or disable the backend Route, and check that
-   its host is inaccessible. Stop standalone MCP and extension workers, then
-   scale the backend to zero. Query `pg_stat_activity` and stop if a
-   non-maintenance Skein session remains.
+1. Pause ArgoCD auto-sync. Close all ingress, including the frontend proxy,
+   backend Route, and MCP access. Check that those paths are inaccessible.
+   Stop standalone MCP and extension workers, then scale the backend to zero.
+   Query `pg_stat_activity` and stop if a non-maintenance Skein session remains.
+   Keep every application process stopped until the pre-boot steps below finish.
 2. Restore the matching `skein-data` storage copy at `/data`. If only artifact
    files were copied, restore them at `/data/artifacts`.
 3. As the platform database administrator, create a clean database that stays
@@ -244,12 +275,13 @@ shape. Rehearse that role handoff against the target PostgreSQL service.
    `USAGE` and `CREATE` on `public`. Pre-create `private` and each declared
    `ext_*` schema with the Skein role as owner. Do not grant database-wide
    `CREATE` to the Skein role.
-4. Before the load, compare the dump against its recorded digest. Each backup
-   appends `backup=<file> sha256=<hex>` to `activity-anchors.log` beside the
-   dumps and on the mirror. If the values differ, or the local and mirror
-   logs disagree, stop: the dump changed where it rested. Without a mirror
-   the local log shares the backup volume, so this check detects an
-   accident, not an attacker who can write both files.
+4. Before the load, compare the dump against its recorded digest.
+   For a manual dump, use the digest recorded with the storage snapshot identifier.
+   Each Skein-generated backup appends `backup=<file> sha256=<hex>` to
+   `activity-anchors.log` beside the dumps and on the mirror.
+   If the values differ, or the local and mirror logs disagree, stop.
+   The dump changed where it rested. Without a mirror, the local log shares the backup volume.
+   This check detects an accident, not an attacker who can write both files.
 
    ```
    grep "backup=database-<date>-<backup-id>.dump" activity-anchors.log
@@ -285,38 +317,88 @@ shape. Rehearse that role handoff against the target PostgreSQL service.
        WHERE s.key = 'activity_chain_seq'"
    ```
 
-7. Invalidate restored personal keys before traffic can reach the backend:
+7. Before application startup, invalidate restored credentials and stop restored
+   agent requests. Run this against the restored database from the maintenance pod:
 
-   ```
-   psql -c "UPDATE api_keys SET active = 0"
+   ```sh
+   psql -X --set ON_ERROR_STOP=on --single-transaction <<'SQL'
+   UPDATE public.api_keys SET active = 0;
+   DO $restore$
+   DECLARE
+       recovered_at text := to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC',
+                                    'YYYY-MM-DD"T"HH24:MI:SS"+00:00"');
+   BEGIN
+       IF to_regclass('public.browser_sessions') IS NOT NULL THEN
+           DELETE FROM public.browser_sessions;
+       END IF;
+       IF to_regclass('public.chat_agent_runs') IS NOT NULL THEN
+           UPDATE public.chat_agent_runs
+           SET status = 'completion_unknown', finished_at = recovered_at,
+               execution_active = FALSE, error_code = 'restore_reconciliation'
+           WHERE status IN ('pending', 'running');
+           UPDATE public.chat_agent_runs SET execution_active = FALSE
+           WHERE execution_active = TRUE;
+       END IF;
+       IF to_regclass('public.agent_wakeups') IS NOT NULL THEN
+           UPDATE public.agent_wakeups
+           SET status = 'completion_unknown', finished_at = recovered_at,
+               rerun_requested = 0, reason = 'restore_reconciliation'
+           WHERE status IN ('pending', 'running');
+       END IF;
+   END;
+   $restore$;
+   SQL
    ```
 
+   If this command fails, stop. Do not start any application process.
+   It skips tables absent from older backups, but an unexpected schema error stops recovery.
+   Run it for every recovery source, including external full copies and mirror-only dumps.
+   External copies can contain sessions revoked after the backup. Deleting those rows
+   requires a new sign-in without changing the credential-sealing key.
+
+   `completion_unknown` means the outcome needs operator reconciliation.
+   Even a restored `pending` request can have executed after the backup point.
+   Keep the source archive unchanged. Record this operation in the recovery record.
+   The command keeps chat messages, request identifiers, job claims, and activity history.
    Reconcile `users.active` with the identity provider before you reopen ingress.
 8. If the restored anchor is nonempty, require its exact `seq` and `hash` in at
    least one retained anchor log. If neither log contains it, stop. Do not write
    a new baseline over lost history. Then remove lines with a greater sequence.
    Keep the matching line and all earlier lines. Never trim these logs for
    another reason.
-9. Set `SKEIN_SCHEDULER=0`, keep the Route absent, and scale the backend to one.
-   Boot applies newer migrations without running catch-up jobs. Check health and
-   record the restore in a note.
+9. Set `SKEIN_SCHEDULER=0`, keep ingress closed, and scale the backend to one.
+   Boot applies newer migrations without scheduled jobs or catch-up jobs.
+   The scheduler flag does not stop shared-chat startup recovery or explicit chat requests.
+   Delegation startup recovery can also return an interrupted follow-up request to `pending`.
+   Step 7 prevents both queues from replaying restored work.
+   Check health through maintenance access and record the restore in a note.
 10. Reconcile `job_runs` one job at a time. `job_outcomes` does not store the
    claim `run_key`, so no generic join proves that a claim has its effect. Check
    each catch-up job's activity and domain receipt. Remove a claim only when its
-   effect is absent and replay is safe. Keep the scheduler off until this is
-   complete.
-11. Reconcile the roster and mint replacement API keys. Then restore the scheduler
-    setting, recreate the Route, restart stopped workers, and resume ArgoCD sync.
+   effect is absent and replay is safe. Never delete claims as a group.
+   Check external systems too. A missing restored receipt does not prove that
+   an action never occurred after the backup point.
+
+   Reconcile requests marked `restore_reconciliation` in `chat_agent_runs` and
+   `agent_wakeups` against chat replies, proposals, worklog entries, and external effects.
+   Keep unknown requests terminal. Do not reset them to `pending` for automatic replay.
+   After reconciliation, request any remaining work through a new explicit chat message
+   or human delegation. Keep the scheduler off and ingress closed until reconciliation finishes.
+   Reconcile extension event deliveries and extension-owned queues before restarting their workers.
+   Their scheduled drains stop with `SKEIN_SCHEDULER=0`, but their replay rules belong to each extension.
+11. Reconcile the roster and mint replacement API keys. Require a new browser sign-in.
+    Then restore the scheduler setting, reopen ingress, restart stopped workers,
+    and resume ArgoCD sync.
 
 ### Mirror-only partial recovery
 
 Use `platform-<date>-<backup-id>.dump` only when the local recovery unit is
 lost. This archive contains the complete core `public` schema, including chats,
-key hashes, and private-visibility rows. It does not contain the `private`
-schema, extension schemas, or artifact bytes.
+key hashes, and private-visibility rows. Browser-session rows are excluded.
+It does not contain the `private` schema, extension schemas, or artifact bytes.
 
-Restore it with the same Route, scheduler, key, claim, and anchor controls. Then
-initialize empty `private` and current extension schemas. Clear `artifacts`
+Restore it with the same ingress, scheduler, credential, request, claim, and anchor controls.
+Then initialize empty `private` and current extension schemas. Clear `artifacts`
 metadata before ingress opens because no matching files survived. Record the
 irreversible private-note, extension-data, and artifact losses. Protect this
 archive like the database. `tests/test_admin_backup.py` drills this degraded

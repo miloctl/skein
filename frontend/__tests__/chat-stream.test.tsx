@@ -290,11 +290,11 @@ describe("hydrating a thread's saved transcript", () => {
   it("loads a saved thread's messages into the runtime", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ok([])));
     mocks.chatThreads.mockResolvedValue([{ id: "t1" }]);
-    mocks.api.mockResolvedValue([{ role: "user", content: "earlier" }]);
+    mocks.api.mockResolvedValue({ messages: [{ id: 7, role: "user", content: "earlier", created_at: "2026-09-01T12:00:00Z" }], next_before: null });
     await mountAndCapture();
     await waitFor(() => expect(mocks.thread.reset).toHaveBeenCalled());
     expect(mocks.thread.reset.mock.calls[0][0]).toEqual([
-      { role: "user", content: [{ type: "text", text: "earlier" }] },
+      { id: "saved-7", role: "user", content: [{ type: "text", text: "earlier" }], createdAt: new Date("2026-09-01T12:00:00Z") },
     ]);
   });
 
@@ -311,7 +311,7 @@ describe("hydrating a thread's saved transcript", () => {
   it("does not clobber messages that arrived before hydration finished", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ok([])));
     mocks.chatThreads.mockResolvedValue([{ id: "t1" }]);
-    mocks.api.mockResolvedValue([{ role: "user", content: "stale" }]);
+    mocks.api.mockResolvedValue({ messages: [{ id: 8, role: "user", content: "stale", created_at: "2026-09-01T12:00:00Z" }], next_before: null });
     mocks.thread.getState.mockReturnValue({ messages: [{ id: "already typed" }] });
     await mountAndCapture();
     await waitFor(() => expect(screen.getByText("thread ui")).toBeDefined());
@@ -326,7 +326,8 @@ describe("hydrating a thread's saved transcript", () => {
     await mountAndCapture();
     await waitFor(() => expect(mocks.reportStatus).toHaveBeenCalled());
     expect(mocks.reportStatus.mock.calls[0][0]).toContain("saved messages did not load");
-    // and the UI still opens, rather than hanging on the loading line
-    expect(screen.getByText("thread ui")).toBeDefined();
+    // A retry must not reset a new turn typed over unread saved history.
+    expect(screen.queryByText("thread ui")).toBeNull();
+    expect(screen.getByRole("button", { name: "Retry saved messages" })).toBeDefined();
   });
 });

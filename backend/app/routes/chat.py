@@ -531,6 +531,19 @@ def get_chat_messages(thread_id: str, user: CurrentUser):
     return chat_threads.get_messages(thread_id, user)
 
 
+@router.get("/api/chats/{thread_id}/messages/page")
+def get_chat_message_page(
+    thread_id: str,
+    user: CurrentUser,
+    before: int | None = Query(default=None, ge=1, le=9223372036854775807),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    page = chat_threads.get_message_page(thread_id, user, before=before, limit=limit)
+    if before is not None and page["messages"]:
+        fieldguide.mark(user, "chat_history")
+    return page
+
+
 @router.patch("/api/chats/{thread_id}")
 def patch_chat(thread_id: str, body: ChatPatch, user: CurrentUser):
     ratelimit.check("write", user)

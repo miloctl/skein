@@ -97,6 +97,9 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # that dies after the claim ties this too. Still the right probe:
     # tool_usage's 'chat' surface would tie on merely opening the page.
     "chat": lambda u: _has("SELECT 1 FROM chat_threads WHERE owner = ?", (u,)),
+    # A saved thread proves no older-page use. routes/chat.py marks only a
+    # successful nonempty page with a before cursor, never an initial read.
+    "chat_history": None,
     "shared_chat": lambda u: _has(
         "SELECT 1 FROM chat_members member JOIN chat_threads thread"
         " ON thread.id = member.thread_id"

@@ -266,7 +266,7 @@ def _own(thread_id: str, owner: str) -> dict:
         # hits on every new chat (it reads messages before the first send
         # stores the thread) and which reads as "your request was malformed"
         # when the request was fine and the row simply is not there yet.
-        raise db.NotFound(f"no chat '{thread_id}' for {owner}")
+        raise db.NotFound("No chat was found.")
     return row
 
 
@@ -295,6 +295,29 @@ def get_messages(thread_id: str, owner: str) -> list[dict]:
         (thread_id, MESSAGE_LIMIT),
     )
     return rows[::-1]
+
+
+def get_message_page(
+    thread_id: str, owner: str, *, before: int | None = None, limit: int = 50
+) -> dict:
+    _own(thread_id, owner)
+    limit = max(1, min(limit, 200))
+    if before is not None and not db.query_one(
+        "SELECT 1 FROM chat_messages WHERE thread_id = ? AND id = ?", (thread_id, before)
+    ):
+        # A global ID probe distinguishes another owner's cursor from an absent one.
+        raise db.NotFound("No chat message was found.")
+    rows = db.query(
+        "SELECT id, role, content, created_at FROM chat_messages WHERE thread_id = ?"  # noqa: S608 — fixed fragments, bound cursor
+        + (" AND id < ?" if before is not None else "")
+        + " ORDER BY id DESC LIMIT ?",
+        (thread_id, *([before] if before is not None else []), limit + 1),
+    )
+    messages = rows[:limit][::-1]
+    return {
+        "messages": messages,
+        "next_before": messages[0]["id"] if len(rows) > limit else None,
+    }
 
 
 FOLDER_LEN = 40
