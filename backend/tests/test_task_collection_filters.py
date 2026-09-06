@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 
 def test_mcp_pages_past_the_cap_and_denials_without_skipping_visible_tasks(fresh_db, monkeypatch):
     from app import mcp_server
@@ -156,3 +158,21 @@ def test_browse_task_slices_share_one_snapshot(client, monkeypatch):
 
     seen = [row["id"] for row in [*browse["open"], *browse["done"]]]
     assert seen.count(task_id) == 1
+
+
+def test_policy_filtered_task_pages_stop_at_the_scan_budget(fresh_db, monkeypatch):
+    from app.services import work
+
+    with fresh_db.transaction():
+        for n in range(work.TASK_LIST_LIMIT + 60):
+            work.create_task(f"Denied {n}", actor="owner", assignee="owner")
+    monkeypatch.setattr(work, "TASK_SCAN_LIMIT", work.TASK_LIST_LIMIT + 40)
+
+    def deny_all(_kind, _task_id, _context):
+        return False
+
+    with pytest.raises(ValueError, match="smaller offset"):
+        work.list_tasks(resource_filter=deny_all)
+    with pytest.raises(ValueError, match="smaller offset"):
+        work.list_tasks(offset=10**9, resource_filter=lambda *_args: True)
+    assert len(work.list_tasks(limit=20, resource_filter=lambda *_args: True)) == 20

@@ -199,6 +199,20 @@ describe("server-held browser identity", () => {
     expect(status.getStatus()).toBeNull();
   });
 
+  it("does not announce a re-read session that did not change", async () => {
+    served = person();
+    const auth = await import("@/lib/auth");
+    await auth.bootstrapSession();
+    const heard = vi.fn();
+    window.addEventListener("storage", heard);
+    await auth.bootstrapSession(true);
+    expect(heard).not.toHaveBeenCalled();
+    served = person("marcus", "csrf-marcus");
+    await auth.bootstrapSession(true);
+    expect(heard).toHaveBeenCalledTimes(1);
+    window.removeEventListener("storage", heard);
+  });
+
   it("blocks shared-token fallback for an invalid cookie", async () => {
     served = { ...anonymous, csrf_token: "expired-cookie-csrf" };
     vi.stubEnv("NEXT_PUBLIC_API_TOKEN", "shared-token");

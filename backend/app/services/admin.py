@@ -541,14 +541,31 @@ def backup_if_stale() -> dict:
     # Historical claims stay untouched because they do not identify an owner.
     with _held_backup_lock():
         today = _today()
+        dumps = sorted(_backups_dir().glob(f"database-{today}*.dump"))
         database_done = any(
-            activity.recorded_backup_digests(path.name) == {_sha256_file(path)}
-            for path in _backups_dir().glob(f"database-{today}*.dump")
+            activity.recorded_backup_digests(path.name) == {_sha256_file(path)} for path in dumps
         )
         mirror_status, mirror = _mirror_target()
         mirror_done = mirror_status == "not_configured" or bool(
             mirror and any(mirror.glob(f"platform-{today}*.dump"))
         )
+        if not database_done and dumps and not activity.recorded_backup_digests(dumps[-1].name):
+            # A dump with no digest line retries the APPEND, not the dump: an
+            # anchor log that stays unwritable would otherwise cost one pg_dump
+            # per boot and per daily tick. A disagreeing digest still re-dumps.
+            newest = dumps[-1]
+            digest = _sha256_file(newest)
+            database_done = bool(activity.record_backup_digest(newest.name, digest))
+            if not database_done:
+                log.error("no anchor log recorded the backup digest for %s", newest.name)
+            if not database_done or mirror_done:
+                return {
+                    "status": "ok" if database_done else "partial",
+                    "database_path": str(newest),
+                    "database_sha256": digest,
+                    "digest_recorded": database_done,
+                    "mirror_status": mirror_status,
+                }
         if database_done and mirror_done:
             return {"status": "noop"}
         return _backup(keep=14, actor=None)

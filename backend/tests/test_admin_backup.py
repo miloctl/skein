@@ -753,9 +753,31 @@ def test_backup_if_stale_retries_partial_without_erasing_the_dump(
     before = previous.read_bytes()
     retry = admin.backup_if_stale()
     assert retry["status"] == "ok"
-    assert retry["database_path"] != str(previous)
+    if failure == "digest":
+        # The dump was sound. Only its digest line was missing, so the retry
+        # appends that line instead of paying for a second pg_dump.
+        assert retry["database_path"] == str(previous)
+        assert activity.recorded_backup_digests(previous.name) == {admin._sha256_file(previous)}
+    else:
+        assert retry["database_path"] != str(previous)
     assert previous.read_bytes() == before
     assert admin.backup_if_stale() == {"status": "noop"}
+
+
+def test_backup_if_stale_does_not_redump_while_the_anchor_log_stays_unwritable(
+    fresh_db, monkeypatch
+):
+    from app.services import activity, admin
+
+    monkeypatch.setattr(activity, "record_backup_digest", lambda *_args: [])
+    first = admin.backup_if_stale()
+    assert first["status"] == "partial"
+    dumps = sorted(Path(first["database_path"]).parent.glob("database-*.dump"))
+    again = admin.backup_if_stale()
+    assert again["status"] == "partial"
+    assert again["digest_recorded"] is False
+    assert again["database_path"] == first["database_path"]
+    assert sorted(Path(first["database_path"]).parent.glob("database-*.dump")) == dumps
 
 
 def test_concurrent_stale_backups_recheck_after_the_workflow_lock(fresh_db, monkeypatch):

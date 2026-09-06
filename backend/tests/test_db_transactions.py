@@ -439,3 +439,9 @@ def test_transaction_and_ledger_preserve_shorter_lock_limits(fresh_db, configure
         assert db.query_row(setting)["ms"] == original
     finally:
         db.close_pool()
+
+
+def test_nul_inside_a_list_parameter_is_an_input_error(fresh_db):
+    with pytest.raises(ValueError, match="NUL"):
+        fresh_db.query("SELECT 1 WHERE 'a' = ANY(?)", (["a", "secret\x00suffix"],))
+    assert fresh_db.query("SELECT 1 AS n WHERE 'a' = ANY(?)", (["a", "b"],)) == [{"n": 1}]

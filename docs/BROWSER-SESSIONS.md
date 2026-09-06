@@ -9,6 +9,7 @@ Skein keeps browser authentication on the server. The browser receives an opaque
 - If the frontend and API are on different sites, provide same-origin routing at the deployment boundary. Skein does not add a second authentication service in Next.
 - For OIDC browser sign-in, put a valid Fernet key in `SKEIN_CREDENTIAL_KEY` in the deployment Secret. Keep the key across ordinary restarts. Changing it invalidates existing OIDC browser sessions and makes personal MCP credentials sealed with the old key unreadable.
 - A missing or invalid sealing key disables OIDC browser exchange only. Direct bearer authentication and API-key-backed browser sessions remain available.
+- For local development on `http://localhost`, Chromium and Firefox accept the `Secure` session cookie. Safari does not, so sign-in there needs HTTPS.
 - The supported backend deployment remains one replica with Recreate upgrades. This feature does not provide multi-replica chat, scheduler, artifact, or rate-limit coordination.
 
 Do not put credentials in a ConfigMap, frontend build variable, or `app_settings`.

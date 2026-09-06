@@ -137,7 +137,15 @@ that records this digest.
 
 ## PingFederate (oidc mode)
 
-CAUTION: Do not deploy the current browser sign-in to production. The browser stores provider tokens and personal API keys in `localStorage`. Complete the roadmap BFF session first.
+Browser sign-in keeps provider tokens on the server behind an opaque
+`__Host-` cookie (`docs/BROWSER-SESSIONS.md`). It has three prerequisites
+beyond the IdP list below. `SKEIN_CORS_ORIGINS` must name the exact
+frontend origin: the backend does not trust forwarded-protocol headers, so
+behind the edge-terminated Route the same-origin fallback never matches and
+every sign-in answers `BROWSER_ORIGIN_DENIED` until the origin is listed.
+The base kustomization sets no origin; each overlay must. `SKEIN_CREDENTIAL_KEY`
+must be in `skein-secrets`. Both Routes must serve HTTPS on one schemeful
+site.
 
 The backend validates the access token in-process as a JWT. Hand the IdP
 team this list. Item 1 is the one that blocks everything.
