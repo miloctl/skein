@@ -17,7 +17,7 @@ def signed(client, monkeypatch):
     monkeypatch.setattr(config, "FORGE_WEBHOOK_SECRET", SECRET)
     monkeypatch.setattr(deps.config, "FORGE_WEBHOOK_SECRET", SECRET)
 
-    def post(event: str, payload: dict, secret: str = SECRET):
+    def post(event: str, payload: dict, secret: str = SECRET, **headers: str):
         body = json.dumps(payload).encode()
         return client.post(
             "/api/webhooks/forge",
@@ -26,6 +26,7 @@ def signed(client, monkeypatch):
                 "X-Gitea-Event": event,
                 "X-Gitea-Signature": hmac.new(secret.encode(), body, sha256).hexdigest(),
                 "Content-Type": "application/json",
+                **headers,
             },
         )
 
@@ -689,3 +690,29 @@ def test_workplace_policy_denies_a_forge_transition_in_the_write_transaction(fre
         fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (task["id"],))["status"]
         == "todo"
     )
+
+
+def test_a_delivery_applies_once_and_a_failed_apply_keeps_no_receipt(signed, fresh_db, monkeypatch):
+    from app import db
+    from app.services import forge, work
+
+    tid = work.create_task("Fix login")["id"]
+    first = signed("push", _push(f"task/{tid}-x"), **{"X-Gitea-Delivery": "d-1"})
+    assert first.status_code == 200 and "ignored" not in first.json()
+    again = signed("push", _push(f"task/{tid}-x"), **{"X-Gitea-Delivery": "d-1"})
+    assert again.json() == {"ignored": "this delivery was already applied"}
+    assert db.query_one("SELECT 1 FROM job_runs WHERE job = 'forge-delivery' AND run_key = 'd-1'")
+
+    # an apply that fails rolls its receipt back, so the forge's redelivery runs
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("database gone")
+
+    with monkeypatch.context() as failing, pytest.raises(RuntimeError, match="database gone"):
+        failing.setattr(forge, "forge_event", broken)
+        signed("push", _push(f"task/{tid}-y"), **{"X-Gitea-Delivery": "d-2"})
+    assert (
+        db.query_one("SELECT 1 FROM job_runs WHERE job = 'forge-delivery' AND run_key = 'd-2'")
+        is None
+    )
+    retried = signed("push", _push(f"task/{tid}-y"), **{"X-Gitea-Delivery": "d-2"}).json()
+    assert retried != {"ignored": "this delivery was already applied"}

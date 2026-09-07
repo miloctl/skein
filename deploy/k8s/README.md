@@ -29,6 +29,12 @@ The data PVC holds artifacts, exports and the local backup copies. It uses
 block storage with `ReadWriteOnce`. The database has its own volume, claimed
 by the `skein-db` StatefulSet.
 
+If the deployment can ever run more than one backend replica, create the
+data PVC as `ReadWriteMany` on shared storage from the start. An access mode
+cannot change on an existing claim, so a later move means a new claim and a
+copy. The anchor-log append already serializes across processes through a
+database lock, so a shared volume keeps one anchor history.
+
 ## The database
 
 `base/postgres.yaml` runs one PostgreSQL StatefulSet with its own PVC. The

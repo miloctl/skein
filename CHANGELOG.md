@@ -30,6 +30,12 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- Agent wakes, shared-chat turns, and scheduled firings are fenced by a process lease that a heartbeat renews. Recovery reclaims only lapsed leases, at boot and every thirty seconds, so a second process booting no longer resets another live process's turns. A reclaimed row reads `lease_expired`. A finish from a process that lost its lease writes nothing.
+- One process runs each scheduled firing. A failed or partial firing releases its claim, and the next catch-up retries it. The backup and portable export hold a database session lock across processes.
+- MCP OAuth sign-in codes land in a `mcp_oauth_flows` row, so the callback can reach any process. The sign-in-required mark lives on the server row. Per-agent turn locks and the chat in-flight registry are leased claims. A running agent turn polls the pause row, so a pause served elsewhere still cancels it.
+- The six caps that bound an unauthenticated caller or a whole-deployment cost count in a `rate_hits` table as fixed windows across processes. Per-person caps stay process-local.
+- The anchor-log append holds a database lock across processes. A forge delivery id is a permanent receipt, so a redelivery applies once.
+
 - Saved solo chats load recent messages first. Load older messages adds earlier pages to the current transcript without replacing existing message nodes. Thread and identity changes discard loaded pages and obsolete responses. A field-guide card ties only after a successful, nonempty older-page read.
 - Browse task editing changes title, assignee, and due date only. Task Peek separately loads and displays the full description without adding description editing.
 - MCP task pages scan past the former 500-row window. Offsets and limits count readable tasks after policy checks, and linked records retain their access checks.
@@ -47,6 +53,9 @@ keeps its existing `minimum_core` and needs no change.
 - The ⌘K box offers theme commands while you type: a mode, a theme pack by name, or `Colorway: next`. Enter still searches. A Themes card joins the field guide.
 
 ### Operations
+
+- Migrations 022 to 025 add lease columns to `agent_wakeups`, `chat_agent_runs`, and `job_runs`, the `mcp_oauth_flows` and `rate_hits` tables, and `mcp_servers.oauth_signin_required`. After a restart, a turn the old process held stays `running` for up to two minutes before the sweep marks it `lease_expired`.
+- The supported deployment stays one replica with Recreate. If more than one replica is ever intended, create the data PVC as `ReadWriteMany` from the start. `backend/tests/test_two_processes.py` runs the fences against a second real process.
 
 - Coordinated manual dumps exclude `public.browser_sessions` data. Before any application process starts after recovery, the runbook SQL clears restored sessions and invalidates API keys. It marks pending or running shared-chat agent requests and delegation wakes as `completion_unknown`, clears execution flags and follow-up wake requests, and preserves history. Run the guarded SQL for external full copies too. Keep ingress closed until reconciliation finishes. `SKEIN_SCHEDULER=0` alone does not stop shared-chat recovery.
 - Upgrade instructions require each image tag and its matching reviewed digest. Render the private overlay and check both backend and environment-specific frontend references before sync. A tag-only edit retains the old image bytes.
