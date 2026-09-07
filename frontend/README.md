@@ -13,6 +13,23 @@ npm run build
 
 The development server uses port 3000. The backend uses port 8000 by default.
 
+## Browser validation
+
+Run the complete default and OIDC Playwright suites against fresh test stacks.
+Keep production builds, browser profiles, and test databases separate from a
+running development instance. `playwright.config.ts` documents the server setup.
+
+The locked axe-core 4.12.1 has a known sticky-position issue in the Guided First
+Week phone scan. After scrolling, it can report `target-size` for a control
+whose full hit area is 24 CSS pixels high but is obscured by the sticky header.
+See [upstream issue #3720](https://github.com/dequelabs/axe-core/issues/3720).
+The checked 4.13.0 release does not resolve this case.
+
+Keep the original scan and assertion active. Report the known failure rather
+than patch the scanner, filter violations, or change application layout only to
+silence it. Check the same interaction when an upstream fix is released before
+removing this note or claiming a fully green browser gate.
+
 ## Build a workplace frontend
 
 Use Node 22 for a workplace build. The `@miloctl` packages are public on npmjs.com and install with no token.

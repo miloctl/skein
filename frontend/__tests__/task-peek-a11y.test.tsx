@@ -111,6 +111,99 @@ describe("the open panel", () => {
 });
 
 describe("focus on close", () => {
+  it.each(["Close", "Escape", "scrim"])("keeps the panel open until URL sync after %s", async (method) => {
+    const returnUrl = "/dashboard?view=open#content";
+    window.history.replaceState({}, "", returnUrl);
+    const background = render(
+      <main id="content" tabIndex={-1}>
+        <PeekLink taskId={4}>#4 Build the happy path</PeekLink>
+      </main>,
+    );
+    render(<TaskPeek />);
+    const trigger = screen.getByRole("button", { name: /Build the happy path/ });
+    trigger.focus();
+    fireEvent.click(trigger);
+    await screen.findByRole("dialog");
+    const close = screen.getByRole("button", { name: /Close/ });
+    const dispatch = vi.spyOn(window, "dispatchEvent");
+    // Hold traversal at the History API boundary. jsdom cannot reproduce the
+    // browser's fragment focus after history.back() returns.
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => frames.push(callback));
+    const receipts = () => dispatch.mock.calls
+      .filter(([event]) => event.type === "skein-peek-close")
+      .map(([event]) => (event as CustomEvent).detail);
+
+    if (method === "Close") fireEvent.click(close);
+    else if (method === "Escape") fireEvent.keyDown(document, { key: "Escape" });
+    else fireEvent.mouseDown(screen.getByRole("dialog").parentElement!);
+
+    expect(back).toHaveBeenCalledOnce();
+    expect(window.location.search).toBe("?view=open&task=4");
+    expect(window.location.hash).toBe("#content");
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(document.activeElement).toBe(close);
+    expect(background.container.hasAttribute("inert")).toBe(true);
+    expect(receipts()).toEqual([]);
+
+    if (method === "Close") fireEvent.click(close);
+    else if (method === "Escape") fireEvent.keyDown(document, { key: "Escape", repeat: true });
+    else fireEvent.mouseDown(screen.getByRole("dialog").parentElement!);
+    expect(back).toHaveBeenCalledOnce();
+
+    act(() => {
+      window.history.replaceState({}, "", returnUrl);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(receipts()).toEqual([]);
+    // Native fragment focus follows popstate and the React close commit.
+    screen.getByRole("main").focus();
+    act(() => frames[0]?.(0));
+    expect(document.activeElement).toBe(trigger);
+    expect(background.container.hasAttribute("inert")).toBe(false);
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe(returnUrl);
+    expect(receipts()).toEqual([{ taskId: 4 }]);
+    act(() => window.dispatchEvent(new PopStateEvent("popstate")));
+    expect(receipts()).toEqual([{ taskId: 4 }]);
+  });
+
+  it.each(["reopen", "unmount"])("cancels stale close focus on %s", async (next) => {
+    const frames = new Map<number, FrameRequestCallback>();
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.set(1, callback);
+      return 1;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => { frames.delete(id); });
+    render(<><PeekLink taskId={4}>#4 Build the happy path</PeekLink><button>Page control</button></>);
+    const panel = render(<TaskPeek />);
+    const trigger = screen.getByRole("button", { name: /Build the happy path/ });
+    trigger.focus();
+    fireEvent.click(trigger);
+    await screen.findByRole("dialog");
+    const dispatch = vi.spyOn(window, "dispatchEvent");
+    act(() => {
+      window.history.replaceState({}, "", "/");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(frames.size).toBe(1);
+
+    if (next === "reopen") {
+      trigger.focus();
+      fireEvent.click(trigger);
+      await screen.findByRole("dialog");
+    } else {
+      panel.unmount();
+      screen.getByRole("button", { name: "Page control" }).focus();
+    }
+    act(() => frames.forEach((callback) => callback(0)));
+    expect(document.activeElement).toBe(screen.getByRole("button", {
+      name: next === "reopen" ? "Close the task panel" : "Page control",
+    }));
+    expect(dispatch.mock.calls.filter(([event]) => event.type === "skein-peek-close")).toEqual([]);
+  });
+
   it.each(["Close", "Escape", "Back", "scrim"])("returns focus to the trigger after %s and Forward", async (method) => {
     const dispatch = vi.spyOn(window, "dispatchEvent");
     render(
@@ -132,7 +225,7 @@ describe("focus on close", () => {
 
     await waitFor(() => expect(window.location.search).toBe(""));
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(document.activeElement).toBe(trigger);
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
     expect(dispatch.mock.calls.filter(([event]) => event.type === "skein-peek-close").map(([event]) => (event as CustomEvent).detail)).toEqual([{ taskId: 4 }]);
 
     act(() => window.history.forward());
@@ -140,8 +233,28 @@ describe("focus on close", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: /Close/ }));
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(window.location.search).toBe(""));
-    expect(document.activeElement).toBe(trigger);
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
     expect(dispatch.mock.calls.filter(([event]) => event.type === "skein-peek-close").map(([event]) => (event as CustomEvent).detail)).toEqual([{ taskId: 4 }, { taskId: 4 }]);
+  });
+
+  it.each(["Close", "Escape", "scrim"])("closes an unmarked direct link in place with %s", async (method) => {
+    window.history.replaceState({}, "", "/dashboard?view=open&task=4#content");
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    const dispatch = vi.spyOn(window, "dispatchEvent");
+    render(<><NavSearch /><TaskPeek /></>);
+    await screen.findByRole("dialog");
+
+    if (method === "Close") fireEvent.click(screen.getByRole("button", { name: /Close/ }));
+    else if (method === "Escape") fireEvent.keyDown(document, { key: "Escape" });
+    else fireEvent.mouseDown(screen.getByRole("dialog").parentElement!);
+
+    expect(back).not.toHaveBeenCalled();
+    expect(window.location.pathname + window.location.search + window.location.hash)
+      .toBe("/dashboard?view=open#content");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Search Skein")));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(dispatch.mock.calls.filter(([event]) => event.type === "skein-peek-close")
+      .map(([event]) => (event as CustomEvent).detail)).toEqual([{ taskId: 4 }]);
   });
 
   it.each(["body", "opener"])("opens a deep link and restores focus from %s", async (target) => {
@@ -161,7 +274,7 @@ describe("focus on close", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: /Close/ }));
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(window.location.search).toBe(""));
-    expect(document.activeElement).toBe(target === "opener" ? control : screen.getByLabelText("Search Skein"));
+    await waitFor(() => expect(document.activeElement).toBe(target === "opener" ? control : screen.getByLabelText("Search Skein")));
   });
 
   it("falls back to the search box when the trigger has unmounted", async () => {
