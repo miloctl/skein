@@ -32,6 +32,32 @@ def _iso_hours_ago(hours: int) -> str:
     return (datetime.now(UTC) - timedelta(hours=hours)).isoformat(timespec="seconds")
 
 
+def test_retention_keeps_an_unsafe_annual_firing_receipt(fresh_db):
+    from app.services import jobs, retention
+
+    calls = []
+    half_year_ago = (datetime.now(UTC).month + 5) % 12 + 1
+    spec = jobs.JobSpec(
+        "annual-effect",
+        lambda: calls.append("effect"),
+        {"trigger": "cron", "month": half_year_ago, "day": 1, "hour": 0},
+        period_hours=24 * 366,
+    )
+    jobs.run_job(spec)
+    assert calls == ["effect"]
+    receipt = fresh_db.query_row("SELECT * FROM job_runs WHERE job = 'fire:annual-effect'")
+    fired_at = (
+        datetime.fromisoformat(receipt["run_key"]).astimezone(UTC).isoformat(timespec="seconds")
+    )
+    fresh_db.execute(
+        "UPDATE job_runs SET created_at = ? WHERE job = 'fire:annual-effect'", (fired_at,)
+    )
+    assert fired_at < retention._cutoff(retention.JOB_ROW_DAYS)
+    retention.prune()
+    jobs.run_job(spec)
+    assert calls == ["effect"]
+
+
 def test_retention_prune(fresh_db):
     from app.services.retention import prune
 

@@ -1,5 +1,81 @@
 """Rate caps and body caps on the write paths."""
 
+import asyncio
+import threading
+
+import pytest
+
+
+@pytest.mark.parametrize("surface", ["slack_addr", "forge_addr"])
+def test_unsigned_shared_cap_runs_off_the_event_loop(fresh_db, monkeypatch, surface):
+    from fastapi import HTTPException
+    from starlette.requests import Request
+
+    from app import config, ratelimit
+    from app.routes.slack import slack_command
+    from app.routes.webhooks import forge_webhook
+
+    monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "test-secret")
+    monkeypatch.setattr(config, "FORGE_WEBHOOK_SECRET", "test-secret")
+    loop_thread = threading.get_ident()
+    workers = []
+    check = ratelimit.check
+
+    def checked(*args, **kwargs):
+        workers.append(threading.get_ident())
+        return check(*args, **kwargs)
+
+    monkeypatch.setattr(ratelimit, "check", checked)
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/",
+            "headers": [(b"content-length", b"999999999")],
+            "client": ("198.51.100.12", 1234),
+        }
+    )
+    handler = slack_command if surface == "slack_addr" else forge_webhook
+    with pytest.raises(HTTPException) as refused:
+        asyncio.run(handler(request))
+    assert refused.value.status_code == 400
+    assert workers and all(worker != loop_thread for worker in workers)
+    assert fresh_db.query_row("SELECT surface, count FROM rate_hits") == {
+        "surface": surface,
+        "count": 1,
+    }
+
+
+def test_shared_counter_lock_wait_is_bounded(fresh_db, monkeypatch):
+    from psycopg.errors import LockNotAvailable
+
+    from app import db, ratelimit
+
+    monkeypatch.setattr(db, "TRANSACTION_LOCK_TIMEOUT", "50ms")
+    monkeypatch.setattr(ratelimit, "_window", lambda: 1)
+    ratelimit.check("signin", "198.51.100.13")
+    holding, release = threading.Event(), threading.Event()
+
+    def hold_counter():
+        with db.transaction():
+            db.execute("UPDATE rate_hits SET count = count WHERE surface = 'signin'")
+            holding.set()
+            release.wait(5)
+
+    holder = threading.Thread(target=hold_counter)
+    holder.start()
+    assert holding.wait(5)
+    timer = threading.Timer(0.5, release.set)
+    timer.start()
+    try:
+        with pytest.raises(LockNotAvailable):
+            ratelimit.check("signin", "198.51.100.13")
+    finally:
+        release.set()
+        holder.join(5)
+        timer.cancel()
+    assert fresh_db.query_row("SELECT count FROM rate_hits")["count"] == 1
+
 
 def test_create_bodies_are_capped(client, fresh_db):
     r = client.post("/api/notes", json={"topic": "big", "content": "x" * 50_000})

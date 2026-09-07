@@ -10,7 +10,7 @@ READ THROUGH, never cache. effective() hits the database on every call — a
 sub-millisecond indexed lookup by primary key. A module-level cache would be
 faster and wrong: the moment this app runs more than one worker, each process
 would hold its own copy and admins would see a change that only some requests
-obey. routes/chat.py::turn_in_flight is the existing example of state that is
+obey. services/chat_threads.py::model_turn_active is the existing example of state that is
 correct only in one process, and it is the thing blocking a second worker.
 
 WHAT IS DELIBERATELY ABSENT, so a later reader does not read it as an

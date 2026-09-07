@@ -28,61 +28,73 @@ def log_exchange(thread_id: str, user_text: str, assistant_text: str) -> None:
     if any(FB_GUARD.match(ln) for ln in user_text.splitlines()):
         return
     try:
-        from strands.types.content import Message
-        from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
-
-        from .session_store import DatabaseSessionRepository
-        from .team_agent import _conversation_manager
-
-        repo = DatabaseSessionRepository()
-        # everything below reads the session, derives next_id from it, and
-        # writes back. The LOCK is what makes that atomic across threads and
-        # processes — the transaction alone is not, because the read that
-        # derives next_id takes no lock of its own. Unserialized, concurrent
-        # commands read the same last id and write over each other: measured
-        # at 36 of 60 messages surviving without this lock.
-        # Keyed on the THREAD, so two different chats never wait on each other.
-        with db.transaction():
-            db.name_lock(db.LOCK_SESSION, thread_id)
-            messages: list = []
-            if repo.read_agent(thread_id, _AGENT_ID) is None:
-                # a command-first thread must not lose its opening exchange
-                repo.create_session(Session(session_id=thread_id, session_type=SessionType.AGENT))
-                repo.create_agent(
-                    thread_id,
-                    SessionAgent(
-                        agent_id=_AGENT_ID,
-                        state={},
-                        # the CONFIGURED manager's own state, not a hand-rolled
-                        # dict and not a hardcoded class: restore_from_session
-                        # validates the class name on the next turn, so seeding
-                        # sliding state on a summarize deployment would kill a
-                        # command-first thread the moment the agent first replies
-                        conversation_manager_state=_conversation_manager().get_state(),
-                    ),
-                )
-            else:
-                messages = repo.list_messages(thread_id, _AGENT_ID)
-            next_id = messages[-1].message_id + 1 if messages else 0
-            if messages and messages[-1].to_message()["role"] == "user":
-                # a failed model call strands its user turn, and bedrock's
-                # Converse rejects non-alternating roles — fold into the
-                # stranded turn instead of stacking a second user message
-                last = messages[-1]
-                target = last.redact_message if last.redact_message is not None else last.message
-                target["content"].append({"text": user_text})
-                repo.update_message(thread_id, _AGENT_ID, last)
-            else:
-                user_msg: Message = {"role": "user", "content": [{"text": user_text}]}
-                repo.create_message(
-                    thread_id, _AGENT_ID, SessionMessage.from_message(user_msg, next_id)
-                )
-                next_id += 1
-            assistant_msg: Message = {"role": "assistant", "content": [{"text": assistant_text}]}
-            repo.create_message(
-                thread_id, _AGENT_ID, SessionMessage.from_message(assistant_msg, next_id)
-            )
+        _append_exchange(thread_id, user_text, assistant_text)
     except Exception:
         logging.getLogger("skein.chat").exception(
             "session bridge write failed (thread=%s)", thread_id
+        )
+
+
+def _append_exchange(thread_id: str, user_text: str, assistant_text: str) -> None:
+    from strands.types.content import Message
+    from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
+
+    from .session_store import DatabaseSessionRepository
+    from .team_agent import _conversation_manager
+
+    repo = DatabaseSessionRepository()
+    # everything below reads the session, derives next_id from it, and
+    # writes back. The LOCK is what makes that atomic across threads and
+    # processes — the transaction alone is not, because the read that
+    # derives next_id takes no lock of its own. Unserialized, concurrent
+    # commands read the same last id and write over each other: measured
+    # at 36 of 60 messages surviving without this lock.
+    # Keyed on the THREAD, so two different chats never wait on each other.
+    with db.transaction():
+        db.name_lock(db.LOCK_SESSION, thread_id)
+        # chat_threads.start_model_turn takes this lock before publishing its acquisition.
+        # A bridge already inside it finishes before that model restores history.
+        if db.query_one(
+            "SELECT 1 FROM job_runs WHERE job = ?"
+            " AND NULLIF(lease_until, '')::timestamptz > clock_timestamp() LIMIT 1",
+            (f"chat-turn:{thread_id}",),
+        ):
+            return
+        messages: list = []
+        if repo.read_agent(thread_id, _AGENT_ID) is None:
+            # a command-first thread must not lose its opening exchange
+            repo.create_session(Session(session_id=thread_id, session_type=SessionType.AGENT))
+            repo.create_agent(
+                thread_id,
+                SessionAgent(
+                    agent_id=_AGENT_ID,
+                    state={},
+                    # the CONFIGURED manager's own state, not a hand-rolled
+                    # dict and not a hardcoded class: restore_from_session
+                    # validates the class name on the next turn, so seeding
+                    # sliding state on a summarize deployment would kill a
+                    # command-first thread the moment the agent first replies
+                    conversation_manager_state=_conversation_manager().get_state(),
+                ),
+            )
+        else:
+            messages = repo.list_messages(thread_id, _AGENT_ID)
+        next_id = messages[-1].message_id + 1 if messages else 0
+        if messages and messages[-1].to_message()["role"] == "user":
+            # a failed model call strands its user turn, and bedrock's
+            # Converse rejects non-alternating roles — fold into the
+            # stranded turn instead of stacking a second user message
+            last = messages[-1]
+            target = last.redact_message if last.redact_message is not None else last.message
+            target["content"].append({"text": user_text})
+            repo.update_message(thread_id, _AGENT_ID, last)
+        else:
+            user_msg: Message = {"role": "user", "content": [{"text": user_text}]}
+            repo.create_message(
+                thread_id, _AGENT_ID, SessionMessage.from_message(user_msg, next_id)
+            )
+            next_id += 1
+        assistant_msg: Message = {"role": "assistant", "content": [{"text": assistant_text}]}
+        repo.create_message(
+            thread_id, _AGENT_ID, SessionMessage.from_message(assistant_msg, next_id)
         )

@@ -13,14 +13,13 @@ import re
 import time
 from pathlib import Path
 from typing import Any, Literal
-from uuid import uuid4
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
-from .. import config, db, ratelimit
+from .. import config, ratelimit
 from ..agents import commands, receipts, session_log, turn_guard
 from ..agents.identity import (
     reset_agent_identity,
@@ -68,33 +67,6 @@ from ..services.usage import row_from_agent as _usage_row
 from .deps import CurrentUser, StrongUser, ViewerDep
 
 router = APIRouter(route_class=PolicyAPIRoute)
-
-# Agent streams in flight, one leased claim per turn keyed by session id
-# (services/leases.py renews it). The command bridge (session_log) computes
-# message indices from disk while a live agent caches its own — interleaved
-# writes on the same session silently clobber files, so the bridge stands
-# down while an agent turn owns the session, on this process or another.
-
-
-def _turn_started(thread_id: str) -> str:
-    key = f"{leases.PROCESS_ID}:{uuid4().hex}"
-    db.claim_job(f"chat-turn:{thread_id}", key, lease_seconds=leases.LEASE_SECONDS)
-    return key
-
-
-def _turn_ended(thread_id: str, key: str) -> None:
-    db.release_job(f"chat-turn:{thread_id}", key)
-
-
-def turn_in_flight(thread_id: str) -> bool:
-    return (
-        db.query_one(
-            "SELECT 1 FROM job_runs WHERE job = ? AND lease_until > ? LIMIT 1",
-            (f"chat-turn:{thread_id}", db.now()),
-        )
-        is not None
-    )
-
 
 # The DEFAULT deadline for one flock member, and for the merge step after
 # them — _member_deadline() below is what a turn actually uses. Generous: a
@@ -992,7 +964,7 @@ async def _flock_stream(
         # and holds every write tool. Unlabelled, an instruction inside a
         # member's answer reads to the Chief of Staff as its own prior
         # reasoning. SUMMARIZER_PROMPT defends the same shape for pasted text.
-        if not turn_in_flight(ui_thread):
+        if not chat_threads.model_turn_active(ui_thread):
             with contextlib.suppress(Exception):
                 bridged = (
                     f'<flock-answers flock="{fdef["slug"]}">\n'
@@ -1373,7 +1345,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                 # for a whole streaming turn. The bridge itself commits
                 # atomically (session_log); the residue is one overwritten
                 # exchange when a user message races a command turn's close.
-                if turn_in_flight(ui_thread):
+                if chat_threads.model_turn_active(ui_thread):
                     logging.getLogger("skein.chat").info(
                         "session bridge skipped, agent turn in flight (thread=%s)", ui_thread
                     )
@@ -1510,21 +1482,25 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
     prompt, attached = await run_in_threadpool(
         _attachment_prompt, message, req.attachments, user, resolved_model
     )
+    turn_key = await run_in_threadpool(chat_threads.start_model_turn, thread_id)
     try:
-        # threadpool, not inline: build_agent restores the whole session
-        # transcript from disk before it returns
-        agent = await run_in_threadpool(
-            build_agent,
-            thread_id,
-            user,
-            persona=persona,
-            viewer=viewer,
-            extensions=request.app.state.skein_registry,
-            policy_subject=subject,
-            resolved_model=resolved_model,
-            personal_tools_for=user,
-        )
+        with leases.held(turn_key):
+            # threadpool, not inline: build_agent restores the whole session
+            # transcript from disk before it returns
+            agent = await run_in_threadpool(
+                build_agent,
+                thread_id,
+                user,
+                persona=persona,
+                viewer=viewer,
+                extensions=request.app.state.skein_registry,
+                policy_subject=subject,
+                resolved_model=resolved_model,
+                personal_tools_for=user,
+            )
     except Exception as exc:
+        with contextlib.suppress(Exception):
+            await run_in_threadpool(chat_threads.finish_model_turn, thread_id, turn_key)
         # Provider exceptions can carry request IDs or credential fragments.
         # The log gets the class only, and the transcript gets the public fault.
         logging.getLogger("skein.chat").warning(
@@ -1546,233 +1522,237 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
         return StreamingResponse(error_stream(), media_type="text/event-stream")
 
     async def stream():
-        seen_tools: set[str] = set()
-        # slugs whose answer already carries a heading this turn, and the
-        # record of which specialists actually spoke — the turn guard reads it
-        # so a consulted name is not then reported as unreached
-        consulted: set[str] = set()
-        headed: set[str] = set()
-        # a specialist's heading owns every line under it until something ends
-        # the block. The orchestrator is told to add framing AFTER a consult,
-        # so without this its words render as the specialist's.
-        open_section = False
-        transcript: list[str] = [masthead] if masthead else []
-        wrote = False  # ANY receipt — silences the guard (it told the truth)
-        filed = False  # wrote/queued only — a failed write must not tie a knot
-        # user turn first, assistant turn in finally: a cancelled stream
-        # (stop button, tab close, thread switch) keeps the partial exchange
-        # the transcript records the NAMES, never the bytes: a reloaded
-        # thread has to show that a file was part of the question, and
-        # chat_messages is a text store read back into the composer
-        await run_in_threadpool(
-            _log_turn, ui_thread, user, "user", _with_attachments(message, attached)
-        )
-        # identity is set INSIDE the generator: tool calls run during this
-        # iteration, in this context — proposals sign the persona's name
-        token = set_agent_identity(persona or "agent")
-        # the head every receipt's actor is compared against (_attributed):
-        # the same name the identity above signs the turn's own writes with
-        turn_head = persona or "agent"
-        # the requester is set on BOTH paths, not only for personas: proposals
-        # carry the human who asked (requested_by, tools/_gate.py), and the
-        # gate's write bucket keys on the (agent, requester) pair — left empty
-        # here, the default identity "agent" was ONE team-wide 30/min bucket,
-        # and person B's write refused because person A was mid-turn
-        req_token = set_requester_identity(user)
-        policy_token = set_policy_engine(request.app.state.skein_registry.policy_engine)
-        subject_token = set_policy_subject(subject)
-        rv_token = set_requester_viewer(viewer)
-        if masthead:
-            yield _sse({"type": "text", "text": masthead})
-        # Seeded from the specialists the USER named, not from the constant
-        # alone: the cap exists to bound consults the MODEL chose on its own,
-        # and a message naming three specialists must not have the third
-        # silently dropped. Only the Chief of Staff holds the tool, so a
-        # persona turn opens no budget (agents/team_agent.py::build_agent).
-        if not persona:
-            start_consults(await run_in_threadpool(_consult_budget, message))
-        receipts.start()
-        turn_key = await run_in_threadpool(_turn_started, thread_id)
-        closed = False
+        with leases.held(turn_key):
+            seen_tools: set[str] = set()
+            # slugs whose answer already carries a heading this turn, and the
+            # record of which specialists actually spoke — the turn guard reads it
+            # so a consulted name is not then reported as unreached
+            consulted: set[str] = set()
+            headed: set[str] = set()
+            # a specialist's heading owns every line under it until something ends
+            # the block. The orchestrator is told to add framing AFTER a consult,
+            # so without this its words render as the specialist's.
+            open_section = False
+            transcript: list[str] = [masthead] if masthead else []
+            wrote = False  # ANY receipt — silences the guard (it told the truth)
+            filed = False  # wrote/queued only — a failed write must not tie a knot
+            # user turn first, assistant turn in finally: a cancelled stream
+            # (stop button, tab close, thread switch) keeps the partial exchange
+            # the transcript records the NAMES, never the bytes: a reloaded
+            # thread has to show that a file was part of the question, and
+            # chat_messages is a text store read back into the composer
+            await run_in_threadpool(
+                _log_turn, ui_thread, user, "user", _with_attachments(message, attached)
+            )
+            # identity is set INSIDE the generator: tool calls run during this
+            # iteration, in this context — proposals sign the persona's name
+            token = set_agent_identity(persona or "agent")
+            # the head every receipt's actor is compared against (_attributed):
+            # the same name the identity above signs the turn's own writes with
+            turn_head = persona or "agent"
+            # the requester is set on BOTH paths, not only for personas: proposals
+            # carry the human who asked (requested_by, tools/_gate.py), and the
+            # gate's write bucket keys on the (agent, requester) pair — left empty
+            # here, the default identity "agent" was ONE team-wide 30/min bucket,
+            # and person B's write refused because person A was mid-turn
+            req_token = set_requester_identity(user)
+            policy_token = set_policy_engine(request.app.state.skein_registry.policy_engine)
+            subject_token = set_policy_subject(subject)
+            rv_token = set_requester_viewer(viewer)
+            if masthead:
+                yield _sse({"type": "text", "text": masthead})
+            # Seeded from the specialists the USER named, not from the constant
+            # alone: the cap exists to bound consults the MODEL chose on its own,
+            # and a message naming three specialists must not have the third
+            # silently dropped. Only the Chief of Staff holds the tool, so a
+            # persona turn opens no budget (agents/team_agent.py::build_agent).
+            if not persona:
+                start_consults(await run_in_threadpool(_consult_budget, message))
+            receipts.start()
+            closed = False
 
-        def _close_turn() -> None:
-            # idempotent: the threadpool call below can be cancelled at
-            # anyio's checkpoint or limiter wait BEFORE its thread starts
-            # (then the finally's sync call writes), and once the thread HAS
-            # started it runs to completion — the flag set here is what
-            # stops the finally from writing the turn a second time
-            nonlocal closed
-            if closed:
-                return
-            closed = True
-            # ui_thread, not the session id: persona sessions append --<slug>,
-            # which would break the join that lands spend on an engagement.
-            # agent_name already records which head spent it.
-            _log_usage(agent, ui_thread, agent_name=persona or "chief-of-staff")
-            _log_turn(ui_thread, user, "assistant", "".join(transcript))
+            def _close_turn() -> None:
+                # idempotent: the threadpool call below can be cancelled at
+                # anyio's checkpoint or limiter wait BEFORE its thread starts
+                # (then the finally's sync call writes), and once the thread HAS
+                # started it runs to completion — the flag set here is what
+                # stops the finally from writing the turn a second time
+                nonlocal closed
+                if closed:
+                    return
+                closed = True
+                # ui_thread, not the session id: persona sessions append --<slug>,
+                # which would break the join that lands spend on an engagement.
+                # agent_name already records which head spent it.
+                _log_usage(agent, ui_thread, agent_name=persona or "chief-of-staff")
+                _log_turn(ui_thread, user, "assistant", "".join(transcript))
 
-        async def pump(prompt: str):
-            """One model exchange, rendered. Factored out so the turn guard can
-            run a second one without duplicating the event handling."""
-            nonlocal wrote, filed, open_section
-            async for event in agent.stream_async(prompt):
-                if "data" in event:
-                    if open_section:
-                        open_section = False
-                        close = _SECTION_RULE + "\n\n"
-                        transcript.append(close)
-                        yield _sse({"type": "text", "text": close})
-                    transcript.append(event["data"])
-                    yield _sse({"type": "text", "text": event["data"]})
-                elif "current_tool_use" in event:
-                    tool_use = event["current_tool_use"]
-                    tool_id = tool_use.get("toolUseId", "")
-                    if tool_id and tool_id not in seen_tools:
-                        seen_tools.add(tool_id)
-                        name = tool_use.get("name", "")
-                        transcript.append(f"\n\n*🔧 {name}…*\n\n")
-                        yield _sse({"type": "tool", "name": name})
-                elif "tool_stream_event" in event:
-                    # A consulted specialist, streaming its own answer while
-                    # the tool that built it is still running. Without this
-                    # branch the reader watches a frozen `*🔧 …*` line for a
-                    # whole agent loop: strands surfaces an async-generator
-                    # tool's yields as ToolStreamEvent and nothing else does.
-                    payload = event["tool_stream_event"].get("data")
-                    slug = payload.get("skein_consult", "") if isinstance(payload, dict) else ""
-                    text = payload.get("text", "") if slug else ""
-                    channel_receipt = payload.get("receipt") if slug else None
-                    if slug and channel_receipt:
-                        # a receipt that rode the consult's own channel
-                        # (team_agent.py::_run_consult drains its isolated box
-                        # beside the text) — placement by data. The section
-                        # heading names the author, so _attributed with the
-                        # SLUG as head strips the redundant suffix, exactly as
-                        # the flock's per-member drain does.
+            async def pump(prompt: str):
+                """One model exchange, rendered. Factored out so the turn guard can
+                run a second one without duplicating the event handling."""
+                nonlocal wrote, filed, open_section
+                async for event in agent.stream_async(prompt):
+                    if "data" in event:
+                        if open_section:
+                            open_section = False
+                            close = _SECTION_RULE + "\n\n"
+                            transcript.append(close)
+                            yield _sse({"type": "text", "text": close})
+                        transcript.append(event["data"])
+                        yield _sse({"type": "text", "text": event["data"]})
+                    elif "current_tool_use" in event:
+                        tool_use = event["current_tool_use"]
+                        tool_id = tool_use.get("toolUseId", "")
+                        if tool_id and tool_id not in seen_tools:
+                            seen_tools.add(tool_id)
+                            name = tool_use.get("name", "")
+                            transcript.append(f"\n\n*🔧 {name}…*\n\n")
+                            yield _sse({"type": "tool", "name": name})
+                    elif "tool_stream_event" in event:
+                        # A consulted specialist, streaming its own answer while
+                        # the tool that built it is still running. Without this
+                        # branch the reader watches a frozen `*🔧 …*` line for a
+                        # whole agent loop: strands surfaces an async-generator
+                        # tool's yields as ToolStreamEvent and nothing else does.
+                        payload = event["tool_stream_event"].get("data")
+                        slug = payload.get("skein_consult", "") if isinstance(payload, dict) else ""
+                        text = payload.get("text", "") if slug else ""
+                        channel_receipt = payload.get("receipt") if slug else None
+                        if slug and channel_receipt:
+                            # a receipt that rode the consult's own channel
+                            # (team_agent.py::_run_consult drains its isolated box
+                            # beside the text) — placement by data. The section
+                            # heading names the author, so _attributed with the
+                            # SLUG as head strips the redundant suffix, exactly as
+                            # the flock's per-member drain does.
+                            wrote = True
+                            filed = filed or channel_receipt["kind"] in ("wrote", "queued")
+                            r = _attributed(channel_receipt, slug)
+                            transcript.append(_receipt_line(r))
+                            yield _sse({"type": "receipt", **r})
+                        if slug and text:
+                            # keyed on the tool CALL, not the slug: the budget
+                            # allows consulting one specialist twice, and keying on
+                            # the slug would drop the second heading and merge two
+                            # answers into one block (_masthead says why)
+                            call = (
+                                event["tool_stream_event"]
+                                .get("tool_use", {})
+                                .get("toolUseId", slug)
+                            )
+                            if call not in headed:
+                                # the heading is rendered HERE, not by the model
+                                # and not by the tool: who answered must never
+                                # depend on whether the model signs its work
+                                # (the same rule the /as masthead above follows)
+                                headed.add(call)
+                                consulted.add(slug)
+                                open_section = True
+                                card = (await run_in_threadpool(flocks.member_cards, [slug]))[0]
+                                # the rule separates two sections; above the FIRST
+                                # thing in the bubble it reads as a torn-off
+                                # fragment, which is why _flock_stream skips it too
+                                head = (_SECTION_RULE if transcript else "") + _masthead(card)
+                                transcript.append(head)
+                                yield _sse({"type": "text", "text": head})
+                            transcript.append(text)
+                            yield _sse({"type": "text", "text": text})
+                    # a write's outcome is a FACT the UI states, not a claim the
+                    # model makes — drained as it happens, so it lands with the
+                    # tool call that caused it
+                    for r in receipts.drain():
                         wrote = True
-                        filed = filed or channel_receipt["kind"] in ("wrote", "queued")
-                        r = _attributed(channel_receipt, slug)
+                        filed = filed or r["kind"] in ("wrote", "queued")
+                        r = _attributed(r, turn_head)
                         transcript.append(_receipt_line(r))
                         yield _sse({"type": "receipt", **r})
-                    if slug and text:
-                        # keyed on the tool CALL, not the slug: the budget
-                        # allows consulting one specialist twice, and keying on
-                        # the slug would drop the second heading and merge two
-                        # answers into one block (_masthead says why)
-                        call = event["tool_stream_event"].get("tool_use", {}).get("toolUseId", slug)
-                        if call not in headed:
-                            # the heading is rendered HERE, not by the model
-                            # and not by the tool: who answered must never
-                            # depend on whether the model signs its work
-                            # (the same rule the /as masthead above follows)
-                            headed.add(call)
-                            consulted.add(slug)
-                            open_section = True
-                            card = (await run_in_threadpool(flocks.member_cards, [slug]))[0]
-                            # the rule separates two sections; above the FIRST
-                            # thing in the bubble it reads as a torn-off
-                            # fragment, which is why _flock_stream skips it too
-                            head = (_SECTION_RULE if transcript else "") + _masthead(card)
-                            transcript.append(head)
-                            yield _sse({"type": "text", "text": head})
-                        transcript.append(text)
-                        yield _sse({"type": "text", "text": text})
-                # a write's outcome is a FACT the UI states, not a claim the
-                # model makes — drained as it happens, so it lands with the
-                # tool call that caused it
                 for r in receipts.drain():
                     wrote = True
                     filed = filed or r["kind"] in ("wrote", "queued")
                     r = _attributed(r, turn_head)
                     transcript.append(_receipt_line(r))
                     yield _sse({"type": "receipt", **r})
-            for r in receipts.drain():
-                wrote = True
-                filed = filed or r["kind"] in ("wrote", "queued")
-                r = _attributed(r, turn_head)
-                transcript.append(_receipt_line(r))
-                yield _sse({"type": "receipt", **r})
 
-        model_token = set_team_model_snapshot(team_model)
-        try:
-            async for chunk in pump(prompt):
-                yield chunk
-            # the turn is closing: a filing request that wrote nothing must say
-            # so, because silence reads as success
-            note = turn_guard.unfiled(message, wrote)
-            if note and turn_guard.reprompt_enabled():
-                async for chunk in pump(turn_guard.OBJECTION):
-                    yield chunk
-                note = turn_guard.unfiled(message, wrote)  # budget: one, always
-            if note:
-                transcript.append(_receipt_line(note))
-                yield _sse({"type": "receipt", **note})
-            else:
-                # only when `note` did not fire: on "todo: ask @mira ..." that
-                # filed nothing both fire, and this one's detail tells the
-                # author to use the capture prefix they already typed
-                miss = await run_in_threadpool(
-                    turn_guard.unnotified, message, wrote, user, persona, tuple(consulted)
-                )
-                if miss:
-                    transcript.append(_receipt_line(miss))
-                    yield _sse({"type": "receipt", **miss})
-            if not note and filed and capture.PREFIX.match(message):
-                await run_in_threadpool(fieldguide.mark, user, "chat_capture")
-            if consulted:
-                await run_in_threadpool(fieldguide.mark, user, "consult")
-            # one more drain before the turn closes: a specialist write that
-            # finishes in a threadpool AFTER pump's last drain lands in a box
-            # nothing reads again — the proposal sits in the inbox while the
-            # chat says nothing filed it. A receipt later than this drain is
-            # genuinely unreachable here; the durable inbox row is the
-            # backstop, and this comment is the record of that decision.
-            for r in receipts.drain():
-                r = _attributed(r, turn_head)
-                transcript.append(_receipt_line(r))
-                yield _sse({"type": "receipt", **r})
-            await run_in_threadpool(_close_turn)
-            # before the done frame, never after: the client refreshes the
-            # sidebar and header when its reader loop ends, so a title written
-            # past that point is correct and unread until the next navigation
-            await _summarize_title(ui_thread, user)
-        except Exception as exc:  # surface model/config errors to the UI
-            # Provider SDK errors can carry request IDs or credential fragments.
-            # The log gets the class only, and the transcript gets the public fault.
-            logging.getLogger("skein.chat").warning(
-                "chat stream failed (thread=%s user=%s error=%s)",
-                thread_id,
-                user,
-                type(exc).__name__,
-            )
-            fault = _agent_fault(exc)
-            transcript.append(f"\n\n> {fault}\n")
-            yield _sse({"type": "error", "message": fault})
-            await run_in_threadpool(_close_turn)
-        finally:
-            # Sync on purpose: this finally can run while the generator is
-            # being closed, where an await raises. One DELETE.
-            with contextlib.suppress(Exception):
-                _turn_ended(thread_id, turn_key)
-            # an abandoned stream may be finalized in a foreign context,
-            # where reset raises — identity is per-task, so it can't leak
+            model_token = set_team_model_snapshot(team_model)
             try:
-                reset_agent_identity(token)
-                reset_requester_identity(req_token)
-                reset_requester_viewer(rv_token)
-                reset_policy_engine(policy_token)
-                reset_policy_subject(subject_token)
-                reset_team_model_snapshot(model_token)
-            except ValueError:
-                pass
-            # sync fallback for the CANCELLED stream (stop button, tab
-            # close): inside the cancelled scope an await in finally raises
-            # instead of running — threadpooling this branch would drop usage
-            # accounting and the partial transcript exactly then. Runs
-            # unconditionally; _close_turn's own flag makes a turn the
-            # threadpool already closed a no-op.
-            _close_turn()
-        yield _sse({"type": "done"})
+                async for chunk in pump(prompt):
+                    yield chunk
+                # the turn is closing: a filing request that wrote nothing must say
+                # so, because silence reads as success
+                note = turn_guard.unfiled(message, wrote)
+                if note and turn_guard.reprompt_enabled():
+                    async for chunk in pump(turn_guard.OBJECTION):
+                        yield chunk
+                    note = turn_guard.unfiled(message, wrote)  # budget: one, always
+                if note:
+                    transcript.append(_receipt_line(note))
+                    yield _sse({"type": "receipt", **note})
+                else:
+                    # only when `note` did not fire: on "todo: ask @mira ..." that
+                    # filed nothing both fire, and this one's detail tells the
+                    # author to use the capture prefix they already typed
+                    miss = await run_in_threadpool(
+                        turn_guard.unnotified, message, wrote, user, persona, tuple(consulted)
+                    )
+                    if miss:
+                        transcript.append(_receipt_line(miss))
+                        yield _sse({"type": "receipt", **miss})
+                if not note and filed and capture.PREFIX.match(message):
+                    await run_in_threadpool(fieldguide.mark, user, "chat_capture")
+                if consulted:
+                    await run_in_threadpool(fieldguide.mark, user, "consult")
+                # one more drain before the turn closes: a specialist write that
+                # finishes in a threadpool AFTER pump's last drain lands in a box
+                # nothing reads again — the proposal sits in the inbox while the
+                # chat says nothing filed it. A receipt later than this drain is
+                # genuinely unreachable here; the durable inbox row is the
+                # backstop, and this comment is the record of that decision.
+                for r in receipts.drain():
+                    r = _attributed(r, turn_head)
+                    transcript.append(_receipt_line(r))
+                    yield _sse({"type": "receipt", **r})
+                await run_in_threadpool(_close_turn)
+                # before the done frame, never after: the client refreshes the
+                # sidebar and header when its reader loop ends, so a title written
+                # past that point is correct and unread until the next navigation
+                await _summarize_title(ui_thread, user)
+            except Exception as exc:  # surface model/config errors to the UI
+                # Provider SDK errors can carry request IDs or credential fragments.
+                # The log gets the class only, and the transcript gets the public fault.
+                logging.getLogger("skein.chat").warning(
+                    "chat stream failed (thread=%s user=%s error=%s)",
+                    thread_id,
+                    user,
+                    type(exc).__name__,
+                )
+                fault = _agent_fault(exc)
+                transcript.append(f"\n\n> {fault}\n")
+                yield _sse({"type": "error", "message": fault})
+                await run_in_threadpool(_close_turn)
+            finally:
+                # an abandoned stream may be finalized in a foreign context,
+                # where reset raises — identity is per-task, so it can't leak
+                try:
+                    reset_agent_identity(token)
+                    reset_requester_identity(req_token)
+                    reset_requester_viewer(rv_token)
+                    reset_policy_engine(policy_token)
+                    reset_policy_subject(subject_token)
+                    reset_team_model_snapshot(model_token)
+                except ValueError:
+                    pass
+                # sync fallback for the CANCELLED stream (stop button, tab
+                # close): inside the cancelled scope an await in finally raises
+                # instead of running — threadpooling this branch would drop usage
+                # accounting and the partial transcript exactly then. Runs
+                # unconditionally; _close_turn's own flag makes a turn the
+                # threadpool already closed a no-op.
+                try:
+                    _close_turn()
+                finally:
+                    with contextlib.suppress(Exception):
+                        chat_threads.finish_model_turn(thread_id, turn_key)
+            yield _sse({"type": "done"})
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 

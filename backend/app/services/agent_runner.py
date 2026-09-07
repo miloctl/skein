@@ -41,7 +41,7 @@ import logging
 import threading
 import time
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from .. import config, db
 from . import delegation, leases, usage
@@ -57,12 +57,12 @@ log = logging.getLogger("skein")
 _TURN = "agent-turn"
 
 
-def _hold_turn(agent: str) -> bool:
+def _hold_turn(agent: str) -> str | Literal[False]:
     return db.claim_job(f"{_TURN}:{agent}", "turn", lease_seconds=leases.LEASE_SECONDS)
 
 
-def _drop_turn(agent: str) -> None:
-    db.release_job(f"{_TURN}:{agent}", "turn")
+def _drop_turn(agent: str, token: str) -> None:
+    db.release_job(f"{_TURN}:{agent}", "turn", token)
 
 
 # Days without a worklog note before the sponsor hears about it. The sweep
@@ -407,223 +407,220 @@ def run_one(
     # The wake worker and the daily 05:30 job use disjoint claim namespaces,
     # so without this an agent runs two concurrent turns over the same
     # inbox: double spend, duplicate proposals and notes.
-    if not _hold_turn(agent):
+    turn_token = _hold_turn(agent)
+    if not turn_token:
         # the claim goes back: this entrant spent nothing, and the turn that
         # holds the lock owns the day's (or this wake's) allowance
         _release(agent, explicit_key=explicit_key)
         return _refused(agent, "a turn for this agent is already running")
 
-    from ..agents.identity import reset_agent_identity, set_agent_identity
-    from ..agents.team_agent import (
-        build_agent,
-        model_in_force,
-        reset_team_model_snapshot,
-        set_team_model_snapshot,
-    )
-    from ..extensions.policy import (
-        PolicySubject,
-        current_policy_engine,
-        reset_policy_engine,
-        reset_policy_subject,
-        set_policy_engine,
-        set_policy_subject,
-    )
+    with leases.held(turn_token):
+        from ..agents.identity import reset_agent_identity, set_agent_identity
+        from ..agents.team_agent import (
+            build_agent,
+            model_in_force,
+            reset_team_model_snapshot,
+            set_team_model_snapshot,
+        )
+        from ..extensions.policy import (
+            PolicySubject,
+            current_policy_engine,
+            reset_policy_engine,
+            reset_policy_subject,
+            set_policy_engine,
+            set_policy_subject,
+        )
 
-    # The ":" separator is outside chat_threads._THREAD_ID's charset, the same
-    # guarantee persona_session_id relies on: a runner session id cannot be
-    # typed, so no chat caller can claim it, restore the agent's unattended
-    # conversation, or mint usage rows that count against the wake cap.
-    thread = (
-        f"wake:{agent}:{explicit_key}" if explicit_key else f"run:{agent}:{db.today().isoformat()}"
-    )
-    agent_subject = PolicySubject(
-        agent,
-        kind="agent",
-        strong=True,
-        source="agent-runner",
-    )
-    policy_token = set_policy_engine(policy or current_policy_engine())
-    subject_token = set_policy_subject(agent_subject)
-    token = set_agent_identity(agent)
-    # A planner or specialist can be built after the outer agent starts. Freeze
-    # the team pick so an admin change cannot split one unattended turn.
-    model_token = set_team_model_snapshot(model_in_force())
-    invoked = False
-    try:
+        # The ":" separator is outside chat_threads._THREAD_ID's charset, the same
+        # guarantee persona_session_id relies on: a runner session id cannot be
+        # typed, so no chat caller can claim it, restore the agent's unattended
+        # conversation, or mint usage rows that count against the wake cap.
+        thread = (
+            f"wake:{agent}:{explicit_key}"
+            if explicit_key
+            else f"run:{agent}:{db.today().isoformat()}"
+        )
+        agent_subject = PolicySubject(
+            agent,
+            kind="agent",
+            strong=True,
+            source="agent-runner",
+        )
+        policy_token = set_policy_engine(policy or current_policy_engine())
+        subject_token = set_policy_subject(agent_subject)
+        token = set_agent_identity(agent)
+        # A planner or specialist can be built after the outer agent starts. Freeze
+        # the team pick so an admin change cannot split one unattended turn.
+        model_token = set_team_model_snapshot(model_in_force())
+        invoked = False
         try:
-            build_kwargs: dict[str, Any] = {}
-            from .personas import bench_slugs
-
-            if agent in bench_slugs():
-                build_kwargs["persona"] = agent
-            if allowed_tools is not None:
-                build_kwargs["allowed_tools"] = set(allowed_tools)
-            if extensions is not None:
-                built = build_agent(
-                    thread,
-                    user=agent,
-                    extensions=extensions,
-                    policy_subject=agent_subject,
-                    **build_kwargs,
-                )
-            else:
-                built = build_agent(thread, user=agent, **build_kwargs)
-        except Exception as exc:
-            # the claim is RELEASED here: nothing reached the provider, so
-            # nothing was spent, and a 30-second blip at 05:30 must not cost
-            # the whole day on a job that runs once and does not catch up
-            _release(agent, explicit_key=explicit_key)
-            log.warning("agent build failed for %s (%s)", agent, type(exc).__name__)
-            return _failed(agent, f"could not build: {type(exc).__name__}")
-        if built is None:
-            _release(agent, explicit_key=explicit_key)
-            return _failed(agent, "no agent could be built")
-        # A DAEMON thread, not a ThreadPoolExecutor: the executor joins its
-        # workers both on context exit AND through an atexit hook, so either
-        # one waits out the full hang this bound exists to escape. A daemon
-        # thread lets the job return and lets the process exit.
-        #
-        # The thread is left running on timeout. Nothing in Python can kill
-        # it, and the provider call it is blocked on is the orphan
-        # agents/team_agent.py::READ_TIMEOUT_S already names. What is bought
-        # is that the SCHEDULED JOB returns, so the rest of the fleet still
-        # runs tonight.
-        box: dict = {}
-        wake = _WAKE
-        if config.AGENT_DAILY_TOKENS:
-            # The ceiling refuses the NEXT run, never this one mid-turn — so
-            # the model is told what remains and told to converge near the
-            # limit, instead of exploring into a refusal it cannot see coming.
-            remaining = max(0, config.AGENT_DAILY_TOKENS - usage.spent_today(agent)["tokens"])
-            wake += (
-                f"\n\nToken budget for today: {remaining:,} of"
-                f" {config.AGENT_DAILY_TOKENS:,}. If less than a quarter"
-                " remains, do not explore: finish or record the one most"
-                " important step, then stop."
-            )
-
-        from . import tuning
-
-        # read before the thread starts: effective() hits the database, and
-        # the worker thread must not open a connection just to read two knobs
-        limits = {
-            "turns": tuning.effective("agent_run_turns"),
-            "total_tokens": tuning.effective("agent_run_tokens"),
-        }
-
-        def _turn() -> None:
             try:
-                # automation_paused calls Agent.cancel() from the setting's
-                # request thread. Strands stops at its next cancellation-safe
-                # point and returns the literal stop reason `cancelled`.
-                box["reply"] = built(wake, limits=limits)
-            except Exception as exc:  # carried out, not raised in this thread
-                box["error"] = exc
-            finally:
-                # IN the thread, and in a finally: the abandoned-timeout path
-                # is the EXPENSIVE one, and nothing else records this turn.
-                # build_agent returns a bare Strands Agent, and every existing
-                # record_chat_usage caller is in routes/chat.py — so without
-                # this the runner's own spend never reaches usage_log, and
-                # both bounds written for it read zero forever: the daily
-                # ceiling (usage.assert_within_budget) and the runaway rule
-                # (insights.py::_r_turn_runaway).
+                build_kwargs: dict[str, Any] = {}
+                from .personas import bench_slugs
+
+                if agent in bench_slugs():
+                    build_kwargs["persona"] = agent
+                if allowed_tools is not None:
+                    build_kwargs["allowed_tools"] = set(allowed_tools)
+                if extensions is not None:
+                    built = build_agent(
+                        thread,
+                        user=agent,
+                        extensions=extensions,
+                        policy_subject=agent_subject,
+                        **build_kwargs,
+                    )
+                else:
+                    built = build_agent(thread, user=agent, **build_kwargs)
+            except Exception as exc:
+                # the claim is RELEASED here: nothing reached the provider, so
+                # nothing was spent, and a 30-second blip at 05:30 must not cost
+                # the whole day on a job that runs once and does not catch up
+                _release(agent, explicit_key=explicit_key)
+                log.warning("agent build failed for %s (%s)", agent, type(exc).__name__)
+                return _failed(agent, f"could not build: {type(exc).__name__}")
+            if built is None:
+                _release(agent, explicit_key=explicit_key)
+                return _failed(agent, "no agent could be built")
+            # A DAEMON thread, not a ThreadPoolExecutor: the executor joins its
+            # workers both on context exit AND through an atexit hook, so either
+            # one waits out the full hang this bound exists to escape. A daemon
+            # thread lets the job return and lets the process exit.
+            #
+            # The thread is left running on timeout. Nothing in Python can kill
+            # it, and the provider call it is blocked on is the orphan
+            # agents/team_agent.py::READ_TIMEOUT_S already names. What is bought
+            # is that the SCHEDULED JOB returns, so the rest of the fleet still
+            # runs tonight.
+            box: dict = {}
+            wake = _WAKE
+            if config.AGENT_DAILY_TOKENS:
+                # The ceiling refuses the NEXT run, never this one mid-turn — so
+                # the model is told what remains and told to converge near the
+                # limit, instead of exploring into a refusal it cannot see coming.
+                remaining = max(0, config.AGENT_DAILY_TOKENS - usage.spent_today(agent)["tokens"])
+                wake += (
+                    f"\n\nToken budget for today: {remaining:,} of"
+                    f" {config.AGENT_DAILY_TOKENS:,}. If less than a quarter"
+                    " remains, do not explore: finish or record the one most"
+                    " important step, then stop."
+                )
+
+            from . import tuning
+
+            # read before the thread starts: effective() hits the database, and
+            # the worker thread must not open a connection just to read two knobs
+            limits = {
+                "turns": tuning.effective("agent_run_turns"),
+                "total_tokens": tuning.effective("agent_run_tokens"),
+            }
+
+            turn_complete = threading.Event()
+            parent_finished = threading.Event()
+
+            def _turn() -> None:
                 try:
-                    row = usage.row_from_agent(built, thread, agent_name=agent)
-                    if row:
-                        with contextlib.suppress(Exception):
-                            # a wake turn has no linkable chat thread, so its
-                            # spend sat under '(unlinked)' however clearly it
-                            # was one engagement's work — attributed only when
-                            # every open delegated task resolves to the same
-                            # engagement (usage.sole_delegation_engagement),
-                            # never guessed
-                            usage.record_chat_usage(
-                                **row,
-                                engagement_id=usage.sole_delegation_engagement(agent),
-                            )
+                    with leases.held(turn_token):
+                        try:
+                            box["reply"] = built(wake, limits=limits)
+                        except Exception as exc:
+                            box["error"] = exc
+                        finally:
+                            # The abandoned child is the only owner that can
+                            # record its eventual spend before releasing the fence.
+                            row = usage.row_from_agent(built, thread, agent_name=agent)
+                            if row:
+                                with contextlib.suppress(Exception):
+                                    usage.record_chat_usage(
+                                        **row,
+                                        engagement_id=usage.sole_delegation_engagement(agent),
+                                    )
+                except Exception as exc:
+                    box["error"] = exc
                 finally:
                     _untrack_active(built)
-                    # An invoked turn owns the claim: run_one's finally released
-                    # it at the wall-clock timeout while this thread kept
-                    # calling tools, and the next wake ran a second concurrent
-                    # turn over the same inbox — the exact double spend the
-                    # claim exists to prevent.
+                    turn_complete.set()
+                    # The parent still has a final ledger write. A timed-out
+                    # parent signals immediately, a completed one settles first.
+                    parent_finished.wait()
                     with contextlib.suppress(Exception):
-                        _drop_turn(agent)
+                        _drop_turn(agent, turn_token)
 
-        # copy_context(), because a ContextVar does NOT cross a bare
-        # threading.Thread — the worker starts at the var's default. Without
-        # this the turn ran as "agent" (the chat identity) rather than the
-        # agent we woke: its my_agent_inbox read an empty inbox, every
-        # report_progress was refused as "written by its delegate or sponsor
-        # only", and the gate evaluated authority against the WRONG row — the
-        # one most likely to have been promoted to autonomous. The chat path
-        # is safe only because Starlette's run_in_threadpool copies context;
-        # this spawn does not get that for free.
-        ctx = contextvars.copy_context()
-        worker = threading.Thread(
-            target=lambda: ctx.run(_turn), daemon=True, name=f"agent-run-{agent}"
-        )
-        try:
-            started = _start_active(built, worker)
-        except Exception:
-            _release(agent, explicit_key=explicit_key)
-            raise
-        if not started:
-            # The pause landed after the initial guard but before the worker.
-            # No provider call started, so return the job claim and leave a
-            # delegation wake pending for resume.
-            _release(agent, explicit_key=explicit_key)
-            return _paused(agent)
-        invoked = True
-        deadline = time.monotonic() + config.AGENT_RUN_SECONDS
-        while worker.is_alive() and time.monotonic() < deadline:
-            worker.join(timeout=min(2.0, max(0.0, deadline - time.monotonic())))
-            # The pause is a row (services/settings.py). automation_paused
-            # cancels only the agents of the process that served the request,
-            # so a turn on another process learns of the pause here.
-            if worker.is_alive() and not agent_automation_enabled():
-                _cancel_agent(built)
-        if worker.is_alive():
-            # the claim key stays taken on purpose: a turn that ran long
-            # enough to time out has already spent tokens, and retrying it
-            # today would spend them again
-            log.warning("agent run for %s exceeded %ss", agent, config.AGENT_RUN_SECONDS)
-            return _unknown(agent, f"run exceeded {config.AGENT_RUN_SECONDS}s and was abandoned")
-        if "error" in box:
-            raise box["error"]
-        reply = box.get("reply", "")
-        text = str(reply)[:2000]
-        db.log_activity(actor, "agent_run", f"{agent}: unattended run")
-        out = {"agent": agent, "ran": True, "fault": False, "thread": thread, "reply": text}
-        stop = str(getattr(reply, "stop_reason", ""))
-        if stop.startswith("limit_") or stop == "cancelled":
-            # an SDK literal, never model text — safe for job_outcomes.detail
-            out["stopped"] = stop
-            log.warning("agent run for %s stopped at %s", agent, stop)
-        return out
-    except Exception as exc:
-        # Logged and reported, never raised: run() below is a scheduled job,
-        # and a raise there marks the whole sweep failed on /health when the
-        # other agents ran fine.
-        log.warning("agent run failed for %s (%s)", agent, type(exc).__name__)
-        if invoked:
-            return _unknown(agent, f"run failed: {type(exc).__name__}")
-        return _failed(agent, f"run failed: {type(exc).__name__}")
-    finally:
-        # in a finally, not after the call: an exception mid-turn would
-        # otherwise leave this thread's identity set to the agent, and the
-        # next write on it would carry the wrong actor
-        reset_team_model_snapshot(model_token)
-        reset_agent_identity(token)
-        reset_policy_subject(subject_token)
-        reset_policy_engine(policy_token)
-        # only when no turn thread started: once invoked, _turn's finally is
-        # the sole releaser, so an abandoned turn keeps the agent claimed until
-        # its thread actually ends
-        if not invoked:
-            _drop_turn(agent)
+            # copy_context(), because a ContextVar does NOT cross a bare
+            # threading.Thread — the worker starts at the var's default. Without
+            # this the turn ran as "agent" (the chat identity) rather than the
+            # agent we woke: its my_agent_inbox read an empty inbox, every
+            # report_progress was refused as "written by its delegate or sponsor
+            # only", and the gate evaluated authority against the WRONG row — the
+            # one most likely to have been promoted to autonomous. The chat path
+            # is safe only because Starlette's run_in_threadpool copies context;
+            # this spawn does not get that for free.
+            ctx = contextvars.copy_context()
+            worker = threading.Thread(
+                target=lambda: ctx.run(_turn), daemon=True, name=f"agent-run-{agent}"
+            )
+            try:
+                started = _start_active(built, worker)
+            except Exception:
+                _release(agent, explicit_key=explicit_key)
+                raise
+            if not started:
+                # The pause landed after the initial guard but before the worker.
+                # No provider call started, so return the job claim and leave a
+                # delegation wake pending for resume.
+                _release(agent, explicit_key=explicit_key)
+                return _paused(agent)
+            invoked = True
+            deadline = time.monotonic() + config.AGENT_RUN_SECONDS
+            while not turn_complete.is_set() and time.monotonic() < deadline:
+                turn_complete.wait(timeout=min(2.0, max(0.0, deadline - time.monotonic())))
+                # The pause is a row (services/settings.py). automation_paused
+                # cancels only the agents of the process that served the request,
+                # so a turn on another process learns of the pause here.
+                if not turn_complete.is_set() and not agent_automation_enabled():
+                    _cancel_agent(built)
+            if not turn_complete.is_set():
+                # the claim key stays taken on purpose: a turn that ran long
+                # enough to time out has already spent tokens, and retrying it
+                # today would spend them again
+                log.warning("agent run for %s exceeded %ss", agent, config.AGENT_RUN_SECONDS)
+                return _unknown(
+                    agent, f"run exceeded {config.AGENT_RUN_SECONDS}s and was abandoned"
+                )
+            if "error" in box:
+                raise box["error"]
+            reply = box.get("reply", "")
+            text = str(reply)[:2000]
+            db.log_activity(actor, "agent_run", f"{agent}: unattended run")
+            out = {"agent": agent, "ran": True, "fault": False, "thread": thread, "reply": text}
+            stop = str(getattr(reply, "stop_reason", ""))
+            if stop.startswith("limit_") or stop == "cancelled":
+                # an SDK literal, never model text — safe for job_outcomes.detail
+                out["stopped"] = stop
+                log.warning("agent run for %s stopped at %s", agent, stop)
+            return out
+        except Exception as exc:
+            # Logged and reported, never raised: run() below is a scheduled job,
+            # and a raise there marks the whole sweep failed on /health when the
+            # other agents ran fine.
+            log.warning("agent run failed for %s (%s)", agent, type(exc).__name__)
+            if invoked:
+                return _unknown(agent, f"run failed: {type(exc).__name__}")
+            return _failed(agent, f"run failed: {type(exc).__name__}")
+        finally:
+            # in a finally, not after the call: an exception mid-turn would
+            # otherwise leave this thread's identity set to the agent, and the
+            # next write on it would carry the wrong actor
+            reset_team_model_snapshot(model_token)
+            reset_agent_identity(token)
+            reset_policy_subject(subject_token)
+            reset_policy_engine(policy_token)
+            if invoked:
+                parent_finished.set()
+                if turn_complete.is_set():
+                    worker.join()
+            else:
+                _drop_turn(agent, turn_token)
 
 
 def run(

@@ -121,17 +121,36 @@ def test_a_deployment_wide_cap_spent_elsewhere_refuses_here(fresh_db):
     ratelimit.check("signin", "198.51.100.5")
 
 
-def test_a_sign_in_callback_on_another_process_completes_the_waiting_connect(fresh_db):
+def test_a_sign_in_callback_on_another_process_completes_the_waiting_connect(fresh_db, monkeypatch):
     import asyncio
 
-    from app.agents import mcp_oauth
+    from cryptography.fernet import Fernet
 
-    flow = mcp_oauth._Flow("personal:ava:jira")
+    from app import config
+    from app.agents import mcp_oauth
+    from app.services import mcp_servers, users
+
+    key = Fernet.generate_key().decode()
+    monkeypatch.setattr(config, "CREDENTIAL_KEY", key)
+    monkeypatch.setenv("SKEIN_CREDENTIAL_KEY", key)
+    users.ensure_user("ava")
+    row = mcp_servers.add("ava", "jira", "https://jira.example/mcp", auth="oauth", actor="ava")
+    sid, server = mcp_servers.entry_for(row["id"], "ava")
+    claim = mcp_servers.claim_oauth(row["id"], "ava", mcp_oauth.FLOW_SECONDS)
+    assert (
+        other_process(
+            "from app.services import mcp_servers\n"
+            "try:\n"
+            f"    mcp_servers.claim_oauth({row['id']}, 'ava', 300)\n"
+            "except ValueError:\n"
+            "    print(json.dumps('already claimed'))\n"
+        )
+        == "already claimed"
+    )
+    flow = mcp_oauth._Flow(sid, claim)
     provider = mcp_oauth.provider(
         {
-            "id": 1,
-            "server_id": "personal:ava:jira",
-            "url": "https://jira.example/mcp",
+            **server,
             "oauth_redirect_uri": "https://skein.example/cb",
             "flow": flow,
         }
@@ -148,3 +167,10 @@ def test_a_sign_in_callback_on_another_process_completes_the_waiting_connect(fre
     assert landed is True
     waiter.join(10)
     assert box["got"] == ("code-r", "remote")
+    assert (
+        other_process(
+            "from app.agents import mcp_oauth\nprint(json.dumps(mcp_oauth.complete('remote', 'again')))"
+        )
+        is False
+    )
+    mcp_servers.release_oauth(claim)

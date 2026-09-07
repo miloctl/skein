@@ -19,7 +19,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from functools import lru_cache
 from pathlib import Path
 from time import monotonic, sleep
-from typing import Any
+from typing import Any, Literal, overload
 from uuid import uuid4
 
 import anyio
@@ -42,6 +42,7 @@ log = logging.getLogger("skein")
 IntegrityError = psycopg.errors.IntegrityError
 UniqueViolation = psycopg.errors.UniqueViolation
 
+
 # LOAD, not fault: every one of these means the identical request succeeds on a
 # retry with nothing changed, which is the 503 + Retry-After contract in
 # CLAUDE.md. main.py maps each to that; a 500 would tell the client "bug, do
@@ -52,7 +53,12 @@ UniqueViolation = psycopg.errors.UniqueViolation
 # detected); PoolTimeout is the same condition seen from the pool — every
 # connection in use. Ordinary faults (bad SQL, a missing column) are
 # ProgrammingError and stay 500s.
+class ResourceBusy(RuntimeError):
+    """A live execution owns the resource. The unchanged request can retry."""
+
+
 BUSY_ERRORS: tuple[type[Exception], ...] = (
+    ResourceBusy,
     psycopg.errors.TransactionRollback,
     psycopg.errors.LockNotAvailable,
     PoolTimeout,
@@ -367,6 +373,17 @@ def _conn() -> Iterator[DictConnection]:
     if ambient is not None:
         yield ambient
         return
+    from .services import leases
+
+    if leases.active():
+        # Session repositories and several services use single-statement writes.
+        # They need the same acquisition lock as explicit domain transactions.
+        with transaction():
+            conn = _ambient.get()
+            if conn is None:
+                raise RuntimeError("transaction connection is missing")
+            yield conn
+        return
     with pool().connection() as conn:
         yield conn
 
@@ -413,6 +430,9 @@ def _txn(
                     # not only policy rows, or those waiters exhaust its workers.
                     if bound_lock_wait:
                         _bound_lock_wait(conn, TRANSACTION_LOCK_TIMEOUT)
+                    from .services import leases
+
+                    deadlines = leases.lock_fences(conn)
                     try:
                         yield callbacks
                     except asyncio.CancelledError:
@@ -427,6 +447,9 @@ def _txn(
                     # INSIDE the transaction, and LAST. A rollback still drops
                     # these rows with the write they describe.
                     _flush_activity(conn, queued)
+                    # clock_timestamp(), not transaction NOW(): a tool can spend
+                    # its remaining lease inside this transaction. Roll it back.
+                    leases.check_deadlines(conn, deadlines)
             finally:
                 _pending_activity.reset(act_token)
                 _on_rollback.reset(rb_token)
@@ -853,58 +876,68 @@ def execute_rowcount(sql: str, params: tuple = ()) -> int:
         return conn.execute(*_prepare(sql, params)).rowcount
 
 
-def claim_job(job: str, run_key: str, *, lease_seconds: int = 0) -> bool:
-    """CAS-style claim: scheduled jobs (digest, flush, backup) so a second
-    process cannot double-run them, and the capture route's idempotency
-    receipt (`capture:<user>` rows).
+@overload
+def claim_job(job: str, run_key: str) -> bool: ...
 
-    With no lease the claim is permanent. With one, a claim whose holder
-    stopped renewing (services/leases.py) can be retaken after it lapses,
-    and settle_job makes it permanent once the work is done. A leased claim
-    that the caller never settles is retaken every lapse."""
+
+@overload
+def claim_job(job: str, run_key: str, *, lease_seconds: int) -> str | Literal[False]: ...
+
+
+def claim_job(job: str, run_key: str, *, lease_seconds: int = 0) -> str | bool:
+    """A permanent receipt, or a unique token for one leased acquisition."""
     from .services import leases
 
-    stamp = now()
     lease = leases.until(lease_seconds) if lease_seconds else ""
     owner = leases.PROCESS_ID if lease_seconds else ""
-    return (
+    token = leases.new_token() if lease_seconds else ""
+    claimed = (
         execute_rowcount(
-            "INSERT INTO job_runs (job, run_key, created_at, lease_owner, lease_until)"
-            " VALUES (?, ?, ?, ?, ?)"
+            "INSERT INTO job_runs (job, run_key, created_at, lease_owner, lease_until, lease_token)"
+            " VALUES (?, ?, ?, ?, ?, ?)"
             " ON CONFLICT (job, run_key) DO UPDATE"
-            " SET lease_owner = EXCLUDED.lease_owner, lease_until = EXCLUDED.lease_until"
-            " WHERE job_runs.lease_until != '' AND job_runs.lease_until <= ?",
-            (job, run_key, stamp, owner, lease, stamp),
+            " SET lease_owner = EXCLUDED.lease_owner, lease_until = EXCLUDED.lease_until,"
+            " lease_token = EXCLUDED.lease_token"
+            " WHERE NULLIF(job_runs.lease_until, '')::timestamptz <= clock_timestamp()",
+            (job, run_key, now(), owner, lease, token),
         )
         == 1
     )
+    return (token or True) if claimed else False
 
 
-def settle_job(job: str, run_key: str) -> bool:
-    """Make this process's leased claim permanent."""
+def settle_job(job: str, run_key: str, token: str) -> bool:
+    """Make only this still-valid acquisition permanent."""
     from .services import leases
 
     return (
         execute_rowcount(
-            "UPDATE job_runs SET lease_owner = '', lease_until = ''"
-            " WHERE job = ? AND run_key = ? AND lease_owner = ?",
-            (job, run_key, leases.PROCESS_ID),
+            "UPDATE job_runs SET lease_owner = '', lease_until = '', lease_token = ''"
+            " WHERE job = ? AND run_key = ? AND lease_owner = ? AND lease_token = ?"
+            " AND NULLIF(lease_until, '')::timestamptz > clock_timestamp()",
+            (job, run_key, leases.PROCESS_ID, token),
         )
         == 1
     )
 
 
-def release_job(job: str, run_key: str) -> bool:
-    """Give this process's leased claim back so the next caller retakes it."""
+def release_job(job: str, run_key: str, token: str) -> bool:
+    """An old worker cannot delete a successor, even inside the same process."""
     from .services import leases
 
-    return (
-        execute_rowcount(
-            "DELETE FROM job_runs WHERE job = ? AND run_key = ? AND lease_owner = ?",
-            (job, run_key, leases.PROCESS_ID),
-        )
-        == 1
-    )
+    def release() -> bool:
+        with transaction():
+            return (
+                execute_rowcount(
+                    "DELETE FROM job_runs WHERE job = ? AND run_key = ? AND lease_owner = ? AND lease_token = ?",
+                    (job, run_key, leases.PROCESS_ID, token),
+                )
+                == 1
+            )
+
+    # A timed-out worker can inherit a now-settled parent fence. Token CAS is
+    # sufficient for cleanup and must not leave its own resource wedged.
+    return Context().run(release)
 
 
 @contextmanager
@@ -919,9 +952,15 @@ def session_lock(namespace: int, name: str, *, wait_seconds: float) -> Iterator[
         key = f"{namespace}:{name}"
         deadline = monotonic() + wait_seconds
         while True:
-            held = conn.execute(
-                f"SELECT pg_try_advisory_lock({_DB_KEY}, hashtext(%s)) AS held", (key,)
-            ).fetchone()
+            try:
+                held = conn.execute(
+                    f"SELECT pg_try_advisory_lock({_DB_KEY}, hashtext(%s)) AS held", (key,)
+                ).fetchone()
+            except BaseException:
+                # A lost reply can hide a successful acquisition. Pool reuse
+                # would keep its session lock alive with no owner to release it.
+                conn.close()
+                raise
             if held and held["held"]:
                 break
             if monotonic() >= deadline:
@@ -932,7 +971,17 @@ def session_lock(namespace: int, name: str, *, wait_seconds: float) -> Iterator[
         try:
             yield
         finally:
-            conn.execute(f"SELECT pg_advisory_unlock({_DB_KEY}, hashtext(%s))", (key,))
+            try:
+                released = conn.execute(
+                    f"SELECT pg_advisory_unlock({_DB_KEY}, hashtext(%s)) AS released", (key,)
+                ).fetchone()
+                if not released or not released["released"]:
+                    raise RuntimeError("Database session lock ownership was lost.")
+            except BaseException:
+                # Cancellation leaves an IDLE connection in the pool, but a
+                # session lock survives both cancellation and rollback.
+                conn.close()
+                raise
 
 
 # ---- provenance ledger -----------------------------------------------------
@@ -1223,6 +1272,14 @@ def log_activity(actor: str, action: str, detail: str = "") -> None:
     ambient = _ambient.get()
     if ambient is not None:  # pragma: no cover — a transaction always queues
         _append_activity(ambient, actor, action, detail, created_at)
+        return
+    from .services import leases
+
+    if leases.active():
+        # The raw-pool fallback below belongs to completed human writes. A
+        # revoked execution must not use it to append an unfenced ledger row.
+        with transaction():
+            log_activity(actor, action, detail)
         return
     try:
         with pool().connection() as conn, conn.transaction():

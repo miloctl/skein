@@ -1016,6 +1016,15 @@ def rename_user(
             " AND target.client_key = source.client_key)",
             (old, new),
         )
+        # OAuth providers retain their original owner. Cancel their claims
+        # before moving servers, or the new owner cannot start a usable grant.
+        # Hold servers before flows, matching deletion's foreign-key cascade.
+        db.query("SELECT id FROM mcp_servers WHERE owner = ? ORDER BY id FOR UPDATE", (old,))
+        db.execute(
+            "DELETE FROM mcp_oauth_flows WHERE server_id IN"
+            " (SELECT id FROM mcp_servers WHERE owner = ?)",
+            (old,),
+        )
         for table, cols in _ATTRIBUTION.items():
             for col in cols:
                 # The column name is QUOTED because `user` is one of them and

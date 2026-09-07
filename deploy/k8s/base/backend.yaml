@@ -1,15 +1,10 @@
-# Single-replica by design, not by accident. The DATABASE does not require
-# it — PostgreSQL takes concurrent writers, the check-then-write paths hold
-# real locks (db.py::name_lock, policy_context.hold_resource), execution
-# rows and scheduled firings are fenced by process lease
-# (services/leases.py, services/jobs.py::run_job), sign-in codes, turn
-# claims, and the pause reach every process through rows, and the
-# deployment-wide rate caps count in the database (app/ratelimit.py::SHARED).
-# What still assumes one process: artifacts, exports, backups, and anchor
-# logs on a ReadWriteOnce volume (a second replica serves 404s for half of
-# them and keeps a second anchor history). Per-person rate caps stay
-# process-local and multiply by the process count, which is accepted. Do
-# not raise replicas until the volume is shared.
+# Keep one replica until cross-process execution and rolling-upgrade drills
+# pass on the deployment. Database-backed claims and shared counters alone
+# do not prove safe overlapping workers. Every local write must retain its
+# acquisition fence, and uncertain external effects require reconciliation.
+# The data and backup-mirror volumes must also be shared across nodes before
+# a second replica serves artifacts or appends the same anchor history.
+# Per-person rate caps remain process-local and scale with process count.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,10 +13,9 @@ metadata:
     app: skein-backend
 spec:
   replicas: 1
-  # Recreate, never RollingUpdate: two pods on one node can both mount an RWO
-  # volume, so RWO is not the safety boundary. Recreate prevents overlapping
-  # file readers, schedulers, and per-process rate caps during an upgrade. The
-  # cost is seconds of downtime, accepted in deploy/k8s/README.md.
+  # RWO does not prevent two pods on one node from sharing the volume.
+  # Recreate is the supported no-overlap upgrade boundary until the execution
+  # and shared-storage deployment contracts pass rolling-upgrade drills.
   strategy:
     type: Recreate
   selector:

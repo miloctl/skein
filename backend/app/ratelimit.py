@@ -269,13 +269,16 @@ def _check_shared(surface: str, user: str, cost: int, limit: int) -> None:
     window = _window()
     # One statement decides and counts: a read-then-write from two processes
     # would both read room and both take it.
-    taken = db.query_one(
-        "INSERT INTO rate_hits (surface, key, window_start, count) VALUES (?, ?, ?, ?)"
-        " ON CONFLICT (surface, key, window_start) DO UPDATE"
-        " SET count = rate_hits.count + EXCLUDED.count"
-        " WHERE rate_hits.count + EXCLUDED.count <= ? RETURNING count",
-        (surface, user, window, cost, limit),
-    )
+    # Unsigned requests must not occupy a worker indefinitely behind a held
+    # counter row. transaction() bounds the lock wait as well as pool access.
+    with db.transaction(pool_timeout=1):
+        taken = db.query_one(
+            "INSERT INTO rate_hits (surface, key, window_start, count) VALUES (?, ?, ?, ?)"
+            " ON CONFLICT (surface, key, window_start) DO UPDATE"
+            " SET count = rate_hits.count + EXCLUDED.count"
+            " WHERE rate_hits.count + EXCLUDED.count <= ? RETURNING count",
+            (surface, user, window, cost, limit),
+        )
     if taken is None:
         wait = max(1, math.ceil((window + 1) * WINDOW_SECONDS - time.time()))
         raise _refusal(surface, limit, cost, wait)

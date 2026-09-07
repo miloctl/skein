@@ -2012,15 +2012,105 @@ def test_drain_retries_a_transient_coordinator_failure(client, monkeypatch):
     assert calls >= 2
 
 
+def test_reclaimed_worker_cannot_write_tools_or_model_session(client, monkeypatch):
+    from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
+    from test_two_processes import other_process
+
+    from app import config
+    from app.agents import team_agent
+    from app.agents.session_store import DatabaseSessionRepository
+    from app.services import chat_threads, leases, shared_chat_agents
+
+    leases.stop()
+    monkeypatch.setattr(shared_chat_agents, "kick", lambda: False)
+    room, headers = create_room(client)
+    agent = sorted(personas.bench_slugs())[0]
+    add_agent(client, room["id"], headers, agent)
+    first = post_message(
+        client, room["id"], headers, f"@{agent} first", "fence-first", invoke_agent=agent
+    )
+    second = post_message(
+        client, room["id"], headers, f"@{agent} second", "fence-second", invoke_agent=agent
+    )
+    run = shared_chat_agents.claim_next()
+    assert run and run["turn_id"] == first["turn_id"]
+    session = chat_threads.persona_session_id(room["id"], agent)
+    started, release = threading.Event(), threading.Event()
+    failures = []
+
+    class Agent:
+        def __call__(self, _prompt):
+            repo = DatabaseSessionRepository()
+            repo.create_session(Session(session_id=session, session_type=SessionType.AGENT))
+            repo.create_agent(
+                session, SessionAgent(agent_id="default", state={}, conversation_manager_state={})
+            )
+            repo.create_message(
+                session,
+                "default",
+                SessionMessage.from_message({"role": "user", "content": [{"text": "first"}]}, 0),
+            )
+            started.set()
+            assert release.wait(10)
+            from app.tools._gate import gated_write
+
+            for write in (
+                lambda: gated_write(
+                    "task", "create", {"title": "stale proposal"}, direct=lambda: {"id": 999}
+                ),
+                lambda: repo.create_message(
+                    session,
+                    "default",
+                    SessionMessage.from_message(
+                        {"role": "assistant", "content": [{"text": "stale response"}]}, 1
+                    ),
+                ),
+            ):
+                try:
+                    write()
+                except Exception as exc:
+                    failures.append(type(exc).__name__)
+            return "late"
+
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "AGENT_RUN_SECONDS", 5)
+    monkeypatch.setattr(team_agent, "build_agent", lambda *a, **kw: Agent())
+    lock = shared_chat_agents._session_lock(room["id"], agent)
+    assert lock.acquire(False)
+    worker = threading.Thread(target=shared_chat_agents._process_run, args=(run, lock))
+    worker.start()
+    try:
+        assert started.wait(2)
+        db.execute(
+            "UPDATE chat_agent_runs SET lease_until = '2000-01-01T00:00:00+00:00' WHERE turn_id = ?",
+            (first["turn_id"],),
+        )
+        child = other_process(
+            "from app.services import shared_chat_agents as shared\n"
+            "shared.reclaim_expired()\n"
+            "print(json.dumps(shared.claim_next()['turn_id']))"
+        )
+        assert child == second["turn_id"]
+        release.set()
+        worker.join(5)
+        assert not worker.is_alive()
+        assert failures == ["LeaseLost", "LeaseLost"]
+        assert DatabaseSessionRepository().read_message(session, "default", 1) is None
+    finally:
+        release.set()
+        worker.join(10)
+        assert not worker.is_alive()
+
+
 def _held_run(room: dict, agent: str, message: dict, owner: str, lease_until: str) -> None:
     with db.transaction():
         db.execute(
             "INSERT INTO chat_agent_runs"
             " (turn_id, batch_id, thread_id, trigger_message_id, agent, requested_by,"
             " requester_subject, status, execution_active, requested_at, started_at,"
-            " lease_owner, lease_until)"
+            " lease_owner, lease_until, lease_token)"
             " VALUES ('held-lease', 'held-lease', ?, ?, ?, 'mira', '{}', 'running', TRUE,"
-            " ?, ?, ?, ?)",
+            " ?, ?, ?, ?, 'held-token')",
             (room["id"], message["id"], agent, db.now(), db.now(), owner, lease_until),
         )
 
@@ -2042,8 +2132,8 @@ def test_another_process_lease_is_neither_reclaimed_nor_settled(client):
     _held_run(room, agent, message, "other-process", leases.until())
 
     assert shared_chat_agents.reclaim_expired() == 0
-    shared_chat_agents._settle("held-lease", "completed")
-    shared_chat_agents._release_execution("held-lease")
+    shared_chat_agents._settle("held-lease", "completed", lease_token="held-token")
+    shared_chat_agents._release_execution("held-lease", "held-token")
     assert _held_state() == {
         "status": "running",
         "execution_active": True,
@@ -2072,7 +2162,11 @@ def test_a_kept_execution_keeps_its_lease_until_released(client):
     _held_run(room, agent, message, leases.PROCESS_ID, leases.until())
 
     shared_chat_agents._settle(
-        "held-lease", "completion_unknown", "turn_timeout", keep_execution=True
+        "held-lease",
+        "completion_unknown",
+        "turn_timeout",
+        keep_execution=True,
+        lease_token="held-token",
     )
     assert _held_state() == {
         "status": "completion_unknown",
@@ -2081,6 +2175,6 @@ def test_a_kept_execution_keeps_its_lease_until_released(client):
         "error_code": "turn_timeout",
     }
     assert shared_chat_agents.reclaim_expired() == 0
-    shared_chat_agents._release_execution("held-lease")
+    shared_chat_agents._release_execution("held-lease", "held-token")
     assert _held_state()["execution_active"] is False
     assert _held_state()["lease_owner"] == ""

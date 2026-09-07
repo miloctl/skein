@@ -646,6 +646,16 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
 
 # file::function -> why this read needs no tier filter.
 _UNFILTERED_READS = {
+    "leases.py::lock_fences": (
+        "dynamic table names are limited to LEASED_TABLES, all operational"
+        " execution rows. Reads only an acquisition deadline, filtered by"
+        " the exact token and process owner, to reject stale worker writes"
+    ),
+    "leases.py::renew": (
+        "dynamic table names are limited to LEASED_TABLES, all operational"
+        " execution rows. Selects tokens of registered live workers owned by"
+        " this process, never user content; a viewer filter has no meaning"
+    ),
     "usage.py::sole_delegation_engagement": (
         "reads only which ENGAGEMENT an agent's open delegations resolve to,"
         " for cost attribution — no row content reaches any caller, the"

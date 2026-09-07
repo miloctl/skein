@@ -51,7 +51,7 @@ async def slack_command(request: Request):
         raise HTTPException(status_code=404, detail="Slack integration not configured")
     # This route is outside the identity perimeter. Bound unsigned input
     # before buffering it or spending work on signature verification.
-    ratelimit.check("slack_addr", ratelimit.client_addr(request))
+    await run_in_threadpool(ratelimit.check, "slack_addr", ratelimit.client_addr(request))
     declared = request.headers.get("content-length") or "0"
     if not declared.isdecimal() or int(declared) > MAX_SLACK_BODY:
         raise HTTPException(400, "The Slack command is too large.")

@@ -198,6 +198,11 @@ _NOT_RENAMED = {
     ("browser_sessions", "subject"): (
         "an opaque identity-provider identifier, not a Skein roster name"
     ),
+    ("mcp_oauth_flows", "owner"): (
+        "the identity snapshot of an unfinished grant. rename_user cancels these"
+        " flows before moving their servers: transferring the snapshot would"
+        " retain a claim whose provider still holds the old owner and cannot finish."
+    ),
 }
 
 

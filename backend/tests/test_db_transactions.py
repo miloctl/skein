@@ -6,6 +6,48 @@ from decimal import Decimal
 import pytest
 
 
+@pytest.mark.parametrize("phase", ["acquire", "unlock"])
+def test_session_lock_discards_an_uncertain_connection(fresh_db, monkeypatch, phase):
+    import psycopg
+
+    from app import config, db
+
+    execute = psycopg.Connection.execute
+    uncertain = []
+
+    def interrupted(conn, sql, *args, **kwargs):
+        marker = "pg_try_advisory_lock(" if phase == "acquire" else "pg_advisory_unlock("
+        if isinstance(sql, str) and marker in sql:
+            uncertain.append(conn)
+            if phase == "acquire":
+                execute(conn, sql, *args, **kwargs).fetchone()
+            execute(conn, "SET statement_timeout = '1ms'")
+            try:
+                return execute(conn, "SELECT pg_sleep(0.1)")
+            finally:
+                execute(conn, "SET statement_timeout = 0")
+        return execute(conn, sql, *args, **kwargs)
+
+    monkeypatch.setattr(psycopg.Connection, "execute", interrupted)
+    try:
+        with (
+            pytest.raises(psycopg.errors.QueryCanceled),
+            db.session_lock(db.LOCK_JOB, "interrupted-lock", wait_seconds=0),
+        ):
+            pass
+        with psycopg.connect(config.DATABASE_URL, autocommit=True) as other:
+            key = f"{db.LOCK_JOB}:interrupted-lock"
+            held = execute(
+                other, f"SELECT pg_try_advisory_lock({db._DB_KEY}, hashtext(%s))", (key,)
+            ).fetchone()[0]
+            assert held, "a pooled connection still holds the interrupted session lock"
+            execute(other, f"SELECT pg_advisory_unlock({db._DB_KEY}, hashtext(%s))", (key,))
+        assert uncertain[0].closed
+    finally:
+        for conn in uncertain:
+            conn.close()
+
+
 def test_a_lock_timeout_surfaces_as_load_not_as_a_rollback_failure(fresh_db):
     """A statement that gives up waiting for a row lock must raise the LOCK
     error, classified as load.

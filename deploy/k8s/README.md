@@ -15,15 +15,16 @@ pins the decisions below. If you change the base, keep that script true.
 
 ## Topology: one replica, Recreate, block storage
 
-The backend runs as exactly one process. The DATABASE no longer requires
-that — PostgreSQL takes concurrent writers, and the check-then-write paths
-hold real locks. Three things still do: the scheduler runs in-process,
-rate caps and the chat turn registry live in process memory, and artifacts
-and exports use one shared file tree. The manifest pins `replicas: 1` and
-`strategy: Recreate` so two backend pods never overlap. `ReadWriteOnce`
-prevents cross-node attachment on common block storage. It does not prevent
-two pods on one node from mounting the volume. Do not raise the replica count
-until all three single-process mechanisms move.
+The supported deployment keeps `replicas: 1` and `strategy: Recreate`.
+Database-backed execution claims, shared deployment-wide rate counters, and
+cross-process file locks are necessary controls, not proof of replica safety.
+Do not raise the replica count until delayed-worker, process-loss, and
+rolling-upgrade drills pass and every pod can read the same artifact and
+recovery files. Per-person rate caps remain process-local.
+
+`ReadWriteOnce` prevents cross-node attachment on common block storage. It
+does not prevent pods on the same node from mounting the volume. Recreate
+remains the upgrade boundary that prevents overlapping backend pods.
 
 The data PVC holds artifacts, exports and the local backup copies. It uses
 block storage with `ReadWriteOnce`. The database has its own volume, claimed
@@ -255,15 +256,15 @@ database credentials, including standalone MCP and extension workers. Scale
 the backend to zero. From a one-shot pod labeled `app=skein-maintenance`, with
 PostgreSQL credentials and the `skein-data` mount, run a full-database `pg_dump`
 with no schema filter. Set the PostgreSQL connection variables for the intended
-source database first. Exclude browser-session rows so a restore cannot reactivate
-sessions revoked after the backup:
+source database first. Exclude browser sessions and MCP sign-in flows so a restore
+cannot reactivate revoked sessions or unfinished grants:
 
 ```sh
 set -euo pipefail
 umask 077
 mkdir -p /data/backups
 backup_file="/data/backups/database-$(date -u +%Y%m%dT%H%M%SZ)-manual.dump"
-pg_dump --format=custom --exclude-table-data=public.browser_sessions --file "$backup_file"
+pg_dump --format=custom --exclude-table-data=public.browser_sessions --exclude-table-data=public.mcp_oauth_flows --file "$backup_file"
 sha256sum "$backup_file"
 ```
 
@@ -345,6 +346,9 @@ shape. Rehearse that role handoff against the target PostgreSQL service.
        IF to_regclass('public.browser_sessions') IS NOT NULL THEN
            DELETE FROM public.browser_sessions;
        END IF;
+       IF to_regclass('public.mcp_oauth_flows') IS NOT NULL THEN
+           DELETE FROM public.mcp_oauth_flows;
+       END IF;
        IF to_regclass('public.chat_agent_runs') IS NOT NULL THEN
            UPDATE public.chat_agent_runs
            SET status = 'completion_unknown', finished_at = recovered_at,
@@ -367,8 +371,10 @@ shape. Rehearse that role handoff against the target PostgreSQL service.
    If this command fails, stop. Do not start any application process.
    It skips tables absent from older backups, but an unexpected schema error stops recovery.
    Run it for every recovery source, including external full copies and mirror-only dumps.
-   External copies can contain sessions revoked after the backup. Deleting those rows
-   requires a new sign-in without changing the credential-sealing key.
+   External copies can contain sessions revoked after the backup and unfinished MCP
+   sign-in flows. Older copies can hold unsealed authorization codes. Delete all flow
+   rows before startup, including rows that have not expired. These deletions require
+   new sign-ins without changing the credential-sealing key.
 
    `completion_unknown` means the outcome needs operator reconciliation.
    Even a restored `pending` request can have executed after the backup point.

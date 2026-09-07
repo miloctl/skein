@@ -11,7 +11,9 @@ connection that uses it."""
 
 import ipaddress
 import re
+import secrets
 import socket
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
 
 from .. import db
@@ -69,6 +71,10 @@ def check_url(url: str) -> None:
 AUTH_MODES = ("token", "oauth")
 
 
+class OAuthGrantChanged(ValueError):
+    pass
+
+
 def _public(row: dict) -> dict:
     return {
         "id": row["id"],
@@ -115,8 +121,12 @@ def add(
     sealed = credentials.seal(token) if token else None
     now = db.now()
     with db.transaction():
-        # the count and the name check decide the insert: locked first, per
-        # owner, so two concurrent adds cannot both read "7 rows, name free"
+        # Deactivation holds this identity lock through credential deletion
+        # (users.set_active). A registration that waited on DNS must recheck it.
+        from .users import fold
+
+        db.name_lock(db.LOCK_IDENTITY, fold(person))
+        _active_owner(person)
         db.name_lock(db.LOCK_MCP_SERVER, person)
         rows = _rows(person)
         if any(row["name"] == name for row in rows):
@@ -181,6 +191,7 @@ def _entry(row: dict) -> tuple[str, dict]:
         sid,
         {
             "id": row["id"],
+            "owner": row["owner"],
             "server_id": sid,
             "name": row["name"],
             "url": row["url"],
@@ -211,10 +222,8 @@ def entry_for(sid: int, person: str) -> tuple[str, dict]:
     return _entry(row)
 
 
-def set_redirect_uri(sid: int, redirect_uri: str) -> None:
-    """The URI registered with the authorization server. Not a stamp change:
-    updated_at stays, so a live connection is not reopened for it."""
-    db.execute("UPDATE mcp_servers SET oauth_redirect_uri = ? WHERE id = ?", (redirect_uri, sid))
+def mark_oauth_sign_in(sid: int, required: bool) -> None:
+    db.execute("UPDATE mcp_servers SET oauth_signin_required = ? WHERE id = ?", (required, sid))
 
 
 def load_oauth(sid: int) -> tuple[str, str]:
@@ -231,17 +240,126 @@ def load_oauth(sid: int) -> tuple[str, str]:
     )
 
 
-def store_oauth(sid: int, *, tokens: str = "", client: str = "") -> None:
-    """Sealed writes from the provider's storage. Never touches updated_at:
-    a refreshed token is not an edit, and reopening the connection for it
-    would drop the session that just refreshed."""
-    if tokens:
+def _active_owner(owner: str) -> None:
+    from .users import is_active, is_agent
+
+    if not is_active(owner) or is_agent(owner):
+        raise ValueError("The server owner is not active. Sign in with an active account.")
+
+
+def _owned_oauth(sid: int, owner: str) -> None:
+    from .users import fold
+
+    db.name_lock(db.LOCK_IDENTITY, fold(owner))
+    _active_owner(owner)
+    if not db.query_one(
+        "SELECT 1 FROM mcp_servers WHERE id = ? AND owner = ? AND auth = 'oauth' FOR UPDATE",
+        (sid, owner),
+    ):
+        raise ValueError("The OAuth server is not available. Start sign-in again from Settings.")
+
+
+def claim_oauth(sid: int, owner: str, seconds: float, *, redirect_uri: str = "") -> str:
+    """Own discovery, registration and token storage, not only the callback wait."""
+    claim = secrets.token_urlsafe(32)
+    with db.transaction():
+        _owned_oauth(sid, owner)
         db.execute(
-            "UPDATE mcp_servers SET oauth_tokens_sealed = ? WHERE id = ?",
-            (credentials.seal(tokens), sid),
+            "DELETE FROM mcp_oauth_flows WHERE server_id = ? AND expires_at <= ?", (sid, db.now())
         )
-    if client:
-        db.execute(
-            "UPDATE mcp_servers SET oauth_client_sealed = ? WHERE id = ?",
-            (credentials.seal(client), sid),
+        expires = (datetime.now(UTC) + timedelta(seconds=seconds)).isoformat(
+            timespec="microseconds"
         )
+        if not db.execute_rowcount(
+            "INSERT INTO mcp_oauth_flows (claim_id, server_id, owner, created_at, expires_at)"
+            " VALUES (?, ?, ?, ?, ?) ON CONFLICT (server_id) DO NOTHING",
+            (claim, sid, owner, db.now(), expires),
+        ):
+            raise ValueError("A sign-in for this server is already in progress. Finish it first.")
+        if redirect_uri:
+            db.execute(
+                "UPDATE mcp_servers SET oauth_redirect_uri = ? WHERE id = ?", (redirect_uri, sid)
+            )
+    return claim
+
+
+def release_oauth(claim: str) -> None:
+    db.execute("DELETE FROM mcp_oauth_flows WHERE claim_id = ?", (claim,))
+
+
+def prune_oauth_flows() -> int:
+    return db.execute_rowcount("DELETE FROM mcp_oauth_flows WHERE expires_at <= ?", (db.now(),))
+
+
+def register_oauth_state(claim: str, state: str) -> None:
+    if not state or not db.execute_rowcount(
+        "UPDATE mcp_oauth_flows SET state = ?"
+        " WHERE claim_id = ? AND state IS NULL AND expires_at > ?",
+        (state, claim, db.now()),
+    ):
+        raise ValueError("The sign-in expired. Start it again from Settings.")
+
+
+def complete_oauth(state: str, code: str, refused: bool) -> bool:
+    if not credentials.available():
+        return False
+    return bool(
+        db.execute_rowcount(
+            "UPDATE mcp_oauth_flows f SET code_sealed = ?, refused = ?, done = TRUE"
+            " WHERE state = ? AND NOT done AND expires_at > ?"
+            " AND EXISTS (SELECT 1 FROM mcp_servers s"
+            " WHERE s.id = f.server_id AND s.owner = f.owner)",
+            (credentials.seal(code) if code and not refused else None, refused, state, db.now()),
+        )
+    )
+
+
+def oauth_result(claim: str) -> dict | None:
+    row = db.query_one(
+        "SELECT f.code_sealed, f.refused, f.done FROM mcp_oauth_flows f"
+        " JOIN mcp_servers s ON s.id = f.server_id AND s.owner = f.owner"
+        " WHERE f.claim_id = ? AND f.expires_at > ?",
+        (claim, db.now()),
+    )
+    if row:
+        sealed = row.pop("code_sealed")
+        row["code"] = credentials.unseal(sealed) if sealed else ""
+    return row
+
+
+def store_oauth(
+    sid: int,
+    owner: str,
+    expected: tuple[str, str],
+    *,
+    claim: str = "",
+    tokens: str = "",
+    client: str = "",
+) -> None:
+    """A refresh must not overwrite a newer grant from another process."""
+    with db.transaction():
+        _owned_oauth(sid, owner)
+        active = db.query_one(
+            "SELECT claim_id, owner FROM mcp_oauth_flows WHERE server_id = ? AND expires_at > ?",
+            (sid, db.now()),
+        )
+        if (
+            (claim and (not active or active != {"claim_id": claim, "owner": owner}))
+            or (not claim and active)
+            or load_oauth(sid) != expected
+        ):
+            raise OAuthGrantChanged("The sign-in changed. Start it again from Settings.")
+        # Only an interactive, claimed grant can replace registration. A live
+        # connection in another process can still try to refresh the old client.
+        if client and not claim:
+            raise ValueError("A sign-in is required. Start it from Settings.")
+        if tokens:
+            db.execute(
+                "UPDATE mcp_servers SET oauth_tokens_sealed = ?, oauth_signin_required = FALSE WHERE id = ?",
+                (credentials.seal(tokens), sid),
+            )
+        if client:
+            db.execute(
+                "UPDATE mcp_servers SET oauth_client_sealed = ? WHERE id = ?",
+                (credentials.seal(client), sid),
+            )

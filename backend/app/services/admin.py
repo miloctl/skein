@@ -333,6 +333,7 @@ def _backup_one(args: list[str], dest: Path, prefix: str = "") -> None:
                     # Keep schema, never live browser authority: a restored
                     # archive must not undo a logout completed after its snapshot.
                     "--exclude-table-data=public.browser_sessions",
+                    "--exclude-table-data=public.mcp_oauth_flows",
                     "--file",
                     str(tmp),
                     *args,
