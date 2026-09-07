@@ -95,7 +95,7 @@ TUNABLES: tuple[Tunable, ...] = (
         1000,
         "per person per minute",
         True,
-        "Quick capture from the palette, chat, Slack and MCP.",
+        "Quick capture from the palette, chat and MCP.",
     ),
     Tunable(
         "member_timeout_s",

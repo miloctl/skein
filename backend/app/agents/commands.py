@@ -517,7 +517,7 @@ def help_text() -> str:
     else:
         head = "**Commands** run instantly — no model call, same answer every time:"
         rows.append("| *anything else* | Goes to the Chief of Staff agent |")
-        tail = "Commands work in chat, Slack, and the CLI alike."
+        tail = "Commands work in chat and the CLI."
     return f"{head}\n\n| Command | Effect |\n|---|---|\n" + "\n".join(rows) + f"\n\n{tail}"
 
 

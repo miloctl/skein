@@ -128,10 +128,9 @@ def test_committed_week_validation(client):
     assert ok.status_code == 200
 
 
-def test_stale_wip_nudge_claims_week(client, fresh_db, monkeypatch):
+def test_stale_wip_nudge_claims_week(client, fresh_db):
     from app.services import notifications, portfolio
 
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     t = client.post("/api/tasks", json={"title": "old", "assignee": "ava"}).json()
     client.patch(f"/api/tasks/{t['id']}", json={"status": "in_progress"})
     fresh_db.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", (_ago(10), t["id"]))

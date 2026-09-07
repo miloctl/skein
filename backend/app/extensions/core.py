@@ -6,7 +6,7 @@ from collections.abc import Callable
 from functools import partial
 from typing import Any
 
-from ..routes import api, auth, chat, private, slack, webhooks
+from ..routes import api, auth, chat, private, webhooks
 from ..services.jobs import JOBS
 from .contracts import (
     EXTENSION_API_VERSION,
@@ -52,7 +52,6 @@ def core_module() -> SkeinModule:
             RouteContribution("skein.core.auth", auth.router),
             RouteContribution("skein.core.chat", chat.router),
             RouteContribution("skein.core.private", private.router),
-            RouteContribution("skein.core.slack", slack.router),
             RouteContribution("skein.core.webhooks", webhooks.router),
         ),
         jobs=tuple(

@@ -6,16 +6,13 @@ import threading
 import pytest
 
 
-@pytest.mark.parametrize("surface", ["slack_addr", "forge_addr"])
-def test_unsigned_shared_cap_runs_off_the_event_loop(fresh_db, monkeypatch, surface):
+def test_unsigned_shared_cap_runs_off_the_event_loop(fresh_db, monkeypatch):
     from fastapi import HTTPException
     from starlette.requests import Request
 
     from app import config, ratelimit
-    from app.routes.slack import slack_command
     from app.routes.webhooks import forge_webhook
 
-    monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "test-secret")
     monkeypatch.setattr(config, "FORGE_WEBHOOK_SECRET", "test-secret")
     loop_thread = threading.get_ident()
     workers = []
@@ -35,13 +32,12 @@ def test_unsigned_shared_cap_runs_off_the_event_loop(fresh_db, monkeypatch, surf
             "client": ("198.51.100.12", 1234),
         }
     )
-    handler = slack_command if surface == "slack_addr" else forge_webhook
     with pytest.raises(HTTPException) as refused:
-        asyncio.run(handler(request))
+        asyncio.run(forge_webhook(request))
     assert refused.value.status_code == 400
     assert workers and all(worker != loop_thread for worker in workers)
     assert fresh_db.query_row("SELECT surface, count FROM rate_hits") == {
-        "surface": surface,
+        "surface": "forge_addr",
         "count": 1,
     }
 

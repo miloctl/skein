@@ -269,6 +269,21 @@ def test_mock_chat_help_and_capture(client):
     assert any("credentials" in b["title"] for b in blockers)
 
 
+def test_mock_chat_capture_stays_in_agent_review(client, fresh_db, monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    response = _read_chat(client, "todo: governed keyless capture")
+    assert "Queued task" in response
+    assert fresh_db.query("SELECT id FROM tasks") == []
+    proposal = fresh_db.query_row(
+        "SELECT proposed_by, requested_by, payload FROM pending_changes WHERE entity = 'task'"
+    )
+    assert proposal["proposed_by"] == "agent"
+    assert proposal["requested_by"] == "tester"
+    assert "governed keyless capture" in proposal["payload"]
+
+
 def test_mock_chat_plan_and_search(client):
     out = _read_chat(client, "/plan incident Payments outage")
     assert "Payments outage" in out

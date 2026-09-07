@@ -147,11 +147,7 @@ Everything above works with `SKEIN_MODEL_PROVIDER=mock` and no keys.
   `commands.COMMANDS` with `handler: None`: `dispatch` answers any
   unregistered `/word` with a did-you-mean generator before the route sees
   it, so an unregistered `/flock` would be intercepted (and offered
-  `/flocks`). It does not run in Slack or the CLI. Slack refuses it by
-  name: `routes/slack.py` matches EVERY handler-None command, because
-  `dispatch` returns None for one and Slack's MockAgent would then
-  smart-capture the raw slash command as a note against the person who
-  typed it. The CLI has no chat command at all.
+  `/flocks`). It does not run in the CLI, which has no chat command.
 - Unknown slug streams an SSE error. When the argument matches the slug
   charset: `Flock '<slug>' is not defined. Run /flocks to list them.`
   When it does not, the rejected value is never echoed: `That is not a

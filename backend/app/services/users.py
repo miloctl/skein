@@ -645,8 +645,8 @@ def resolve_teammate(
     name: str, actor: str = "", label: str = "name", allow_team: bool = True
 ) -> str:
     """Case-insensitive roster match; empty and 'team' (the broadcast
-    target) pass through, as does self-attribution (name == actor — Slack
-    and capture route foreign usernames through as themselves).
+    target) pass through, as does self-attribution (name == actor — capture
+    uses the caller's own name before roster matching).
     Notifications match `"user" = ?` exactly, so a typo'd THIRD-PARTY owner
     looks handled but notifies nobody — refuse that here, once.
     allow_team=False for person-shaped data (allocations, absences) where

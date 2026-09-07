@@ -117,13 +117,12 @@ def test_every_mutating_route_resolves_a_caller():
         for route in _api_routes()
         if route.methods - {"GET", "HEAD", "OPTIONS"} and not _resolves_identity(route.dependant)
     }
-    # the two signed doors: identity is a shared secret over the raw body,
-    # verified in the handler (routes/deps.py::verify_forge_signature and
-    # routes/slack.py), and the token exchange that runs before a sign-in
+    # The forge proves identity with a raw-body signature in the handler
+    # (routes/deps.py::verify_forge_signature). Sign-in exchanges and session
+    # revocation use their own credential checks.
     assert open_writes == {
         ("POST", "/api/auth/token"),
         ("POST", "/api/auth/session/key"),  # the submitted key proves the new identity
         ("DELETE", "/api/auth/session"),  # cookie/CSRF revocation also works after expiry
-        ("POST", "/api/slack/command"),
         ("POST", "/api/webhooks/forge"),
     }

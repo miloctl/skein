@@ -6,78 +6,50 @@ import pytest
 from conftest import _unread_for
 
 
-def test_digest_flush_failure_rolls_back_claim_and_delivery_stamp(fresh_db, monkeypatch):
+def test_schedule_has_no_notification_delivery_job():
+    from app.extensions.core import core_module
+    from app.services import jobs
+
+    assert "notification-flush" not in {job.name for job in jobs.JOBS}
+    assert "skein.core.notification-flush" not in {job.name for job in core_module().jobs}
+    assert "daily-digest" in {job.name for job in jobs.JOBS}
+
+
+@pytest.mark.parametrize("tier", ["immediate", "digest"])
+def test_notifications_roll_back_with_their_source_without_delivery_state(fresh_db, tier):
+    from app.services import notifications, work
+
+    with pytest.raises(RuntimeError, match="source interrupted"), fresh_db.transaction():
+        task = work.create_task("Transactional notice", actor="mira")
+        notice = notifications.notify(
+            "mira",
+            lambda source: source["title"],
+            tier=tier,
+            source_entity="task",
+            source_id=task["id"],
+        )
+        assert notifications.list_notifications("mira")[0]["id"] == notice["id"]
+        assert fresh_db.query_row(
+            "SELECT sent_at FROM notifications WHERE id = ?", (notice["id"],)
+        ) == {"sent_at": None}
+        raise RuntimeError("source interrupted")
+
+    assert fresh_db.query("SELECT id FROM tasks") == []
+    assert notifications.list_notifications("mira") == []
+
+
+def test_team_notifications_dismissable(client, fresh_db):
     from app.services import notifications
 
-    notice = notifications.notify("mira", "read the current task", tier="digest")
-    posts = []
-    monkeypatch.setattr(notifications, "_post_slack", posts.append)
-    original = fresh_db.execute_rowcount
-
-    def fail_after_stamp(sql, *args, **kwargs):
-        result = original(sql, *args, **kwargs)
-        if sql.startswith("UPDATE notifications SET sent_at"):
-            raise RuntimeError("flush interrupted")
-        return result
-
-    with monkeypatch.context() as failing:
-        failing.setattr(fresh_db, "execute_rowcount", fail_after_stamp)
-        with pytest.raises(RuntimeError, match="flush interrupted"):
-            notifications.flush_digest_tier(claim=True)
-    assert fresh_db.query("SELECT * FROM job_runs WHERE job = 'notification-flush'") == []
-    assert fresh_db.query_row(
-        "SELECT sent_at FROM notifications WHERE id = ?", (notice["id"],)
-    ) == {"sent_at": None}
-    assert posts == []
-    assert notifications.flush_digest_tier(claim=True) == {"flushed": 1}
-    assert len(posts) == 1
-
-
-def test_digest_flush_posts_only_after_the_outer_transaction_commits(fresh_db, monkeypatch):
-    from app.services import notifications
-
-    notifications.notify("mira", "read the current task", tier="digest")
-    posts = []
-
-    def post(message):
-        assert not fresh_db.in_transaction()
-        assert fresh_db.query_row("SELECT sent_at FROM notifications")["sent_at"]
-        posts.append(message)
-
-    monkeypatch.setattr(notifications, "_post_slack", post)
-    with fresh_db.transaction():
-        assert notifications.flush_digest_tier(claim=True) == {"flushed": 1}
-        assert posts == []
-    assert len(posts) == 1
-
-
-def test_digest_flush_skip_does_not_record_another_success(fresh_db, monkeypatch):
-    from app.services import jobs, notifications
-
-    monkeypatch.setattr(notifications, "_post_slack", lambda _message: None)
-    notifications.notify("mira", "read the current task", tier="digest")
-    spec = next(job for job in jobs.JOBS if job.name == "notification-flush")
-    jobs.run_job(spec)
-    first = fresh_db.query("SELECT * FROM job_outcomes WHERE job = 'notification-flush'")
-    assert len(first) == 1 and first[0]["status"] == "ok"
-    jobs.run_job(spec)
-    assert fresh_db.query("SELECT * FROM job_outcomes WHERE job = 'notification-flush'") == first
-
-
-def test_team_notifications_dismissable(client, fresh_db, monkeypatch):
-    from app.services import notifications
-
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     n = notifications.notify("team", "shared thing", tier="immediate")
     out = client.post("/api/notifications/read", json={"notification_id": n["id"]}).json()
     assert out["marked"] == 1
     assert client.get("/api/notifications").json() == []
 
 
-def test_team_notifications_visible_in_inbox(client, monkeypatch):
+def test_team_notifications_visible_in_inbox(client):
     from app.services import notifications
 
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     notifications.notify("team", "ship recap here", tier="immediate")
     inbox = client.get("/api/notifications").json()
     assert any("ship recap" in n["message"] for n in inbox)
@@ -256,7 +228,6 @@ def test_task_notification_text_and_policy_snapshot_share_one_write(
         return original_row(entity, entity_id)
 
     monkeypatch.setattr(policy_context, "resource_row", coordinated_row)
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_args: None)
 
     def relink() -> None:
         assert entered.wait(5)
@@ -340,7 +311,6 @@ def test_blocker_sweep_and_notification_share_one_write(fresh_db, monkeypatch):
         return original_row(entity, entity_id)
 
     monkeypatch.setattr(policy_context, "resource_row", coordinated_row)
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_args: None)
 
     def relink() -> None:
         assert entered.wait(5)
@@ -391,7 +361,7 @@ def test_engagement_close_and_notification_share_one_write(fresh_db, monkeypatch
     from threading import Event, Thread
     from time import sleep
 
-    from app.services import engagements, notifications, users
+    from app.services import engagements, users
 
     users.ensure_user("mira")
     engagement = engagements.create_engagement("CLOSE NAME BEFORE", actor="mira")["id"]
@@ -408,7 +378,6 @@ def test_engagement_close_and_notification_share_one_write(fresh_db, monkeypatch
         return original_ship(engagement_id, actor=actor, origin=origin)
 
     monkeypatch.setattr(engagements, "_ship_it", coordinated_ship)
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_args: None)
 
     def rename() -> None:
         assert entered.wait(5)
@@ -446,10 +415,9 @@ def test_blocker_resolution_notifies_waiting_task_owner(fresh_db):
     assert _unread_for(fresh_db, "mira", "%can move again%")
 
 
-def test_blocker_resolution_notification_has_one_task_source(fresh_db, monkeypatch):
+def test_blocker_resolution_notification_has_one_task_source(fresh_db):
     from app.services import blockers, notifications, work
 
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_args: None)
     blocker = blockers.raise_blocker("vendor key missing", actor="tomas", owner="tomas")
     task = work.create_task("integrate private vendor", assignee="mira", actor="mira")
     work.update_task(task["id"], waiting_on=f"blocker:{blocker['id']}", actor="mira")

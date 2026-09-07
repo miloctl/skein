@@ -610,9 +610,9 @@ UNSCOPED: dict[str, str] = {
         "solo rows are owner-scoped; shared rows require active strong-identity membership"
     ),
     "notifications": (
-        "addressed per person already (user IN (?, 'team')), and every egress"
-        " from it carries counts rather than bodies — the two Slack posts and"
-        " the REST agent_inbox"
+        "addressed per person already (user IN (?, 'team')); source-policy and"
+        " shared-chat membership checks protect notification bodies, and the"
+        " REST agent_inbox carries counts rather than bodies"
     ),
     "sessions": "the model's own conversation, keyed by a thread id its owner claimed",
     "session_agents": "cascades off sessions",

@@ -25,7 +25,6 @@ ENV PYTHONPATH=/fixtures:/app \
     SKEIN_MODEL_API_KEY=fixture-only-key \
     SKEIN_MODEL_BASE_URL=https://unused.invalid \
     SKEIN_MCP_SERVERS='[{"url":"https://unused.invalid"}]' \
-    SLACK_WEBHOOK_URL=https://unused.invalid \
     OTEL_EXPORTER_OTLP_ENDPOINT=https://unused.invalid \
     OTEL_SDK_DISABLED=false \
     HTTPS_PROXY=http://unused.invalid:1

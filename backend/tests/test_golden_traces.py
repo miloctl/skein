@@ -132,11 +132,9 @@ def _tool_fn(module: str, name: str):
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=lambda s: s["name"])
 def test_golden_trace(scenario, fresh_db, monkeypatch):
     from app import config
-    from app.services import notifications
     from app.services.delegation import set_authority
     from app.services.users import _reserve_core_agent_identity
 
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     monkeypatch.setattr(config, "AGENT_REVIEW", scenario["review"])
     _reserve_core_agent_identity("agent")
     for agent, entity, level in scenario.get("authority", []):
@@ -176,10 +174,9 @@ def test_golden_review_roundtrip(fresh_db, monkeypatch):
     """The full trajectory: agent proposes under review mode, human approves,
     the write lands with origin=agent_verified — the trust flywheel's one loop."""
     from app import config
-    from app.services import notifications, review
+    from app.services import review
     from app.tools import work as tw
 
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
     out = json.loads(tw.create_task(title="proposed by agent"))
     # pin the actual tool-output contract (gated_write review path)

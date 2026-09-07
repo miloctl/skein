@@ -13,7 +13,7 @@ import pytest
 from annotated_types import MaxLen
 from pydantic import BaseModel
 
-ROUTE_MODULES = ("api", "chat", "private", "slack", "webhooks")
+ROUTE_MODULES = ("api", "chat", "private", "webhooks")
 
 
 def _models() -> dict[str, type[BaseModel]]:

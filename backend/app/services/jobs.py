@@ -46,12 +46,6 @@ def _daily_digest():
     return publish_digest(actor="scheduler")
 
 
-def _notification_flush():
-    from .notifications import flush_digest_tier
-
-    return flush_digest_tier(claim=True)
-
-
 def _daily_backup():
     from .admin import backup_if_stale
 
@@ -271,12 +265,6 @@ JOBS: tuple[JobSpec, ...] = (
     ),
     JobSpec("findings", _findings, {"trigger": "cron", "hour": 6, "minute": 50}, 24, True),
     JobSpec("daily-digest", _daily_digest, {"trigger": "cron", "hour": 7, "minute": 0}, 24),
-    JobSpec(
-        "notification-flush",
-        _notification_flush,
-        {"trigger": "cron", "hour": "7,15", "minute": 5},
-        12,
-    ),
     JobSpec(
         "retention-prune",
         _retention_prune,

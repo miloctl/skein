@@ -35,11 +35,9 @@ def test_close_requires_conclusion(fresh_db):
     assert row["conclusion"] == "invalidated" and row["status"] == "closed"
 
 
-def test_experiment_close_drafts_lesson_and_honest_recap(fresh_db, monkeypatch):
-    from app.services import notifications
+def test_experiment_close_drafts_lesson_and_honest_recap(fresh_db):
     from app.services.engagements import update_engagement
 
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     e = _experiment()
     update_engagement(e["id"], status="closed", conclusion="invalidated", actor="tester")
     lessons = fresh_db.query("SELECT * FROM lessons")

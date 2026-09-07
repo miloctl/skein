@@ -168,9 +168,7 @@ def _unwrap(tool):
 
 
 def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
-    from app.services import notifications
 
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     _seed(fresh_db)
 
     writes: list[str] = []
@@ -358,15 +356,13 @@ UNGATED_WRITERS = {
 
 
 @pytest.mark.parametrize(("tool_name", "expected_kind"), sorted(UNGATED_WRITERS.items()))
-def test_the_ungated_writers_report_themselves(fresh_db, monkeypatch, tool_name, expected_kind):
+def test_the_ungated_writers_report_themselves(fresh_db, tool_name, expected_kind):
     """The delegation loop and the handoff generator bypass the generic gate
     on purpose — sponsor-bound verdicts and artifact projection have their own
     rules — so they record their own receipts. Before this, submitting a task
     for acceptance filed a proposal and the chat UI stated nothing."""
     from app import tools as tools_pkg
-    from app.services import notifications
 
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     _seed(fresh_db)
     args = {
         "claim_delegated_task": {"task_id": 2},
@@ -388,11 +384,9 @@ def test_the_ungated_writers_report_themselves(fresh_db, monkeypatch, tool_name,
         assert got[0]["ref"] == out["proposal_id"] > 0
 
 
-def test_a_failing_ungated_writer_reports_the_failure(fresh_db, monkeypatch):
-    from app.services import notifications
+def test_a_failing_ungated_writer_reports_the_failure(fresh_db):
     from app.tools import claim_delegated_task
 
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     receipts.start()
     out = json.loads(_unwrap(claim_delegated_task)(task_id=999))
     got = receipts.drain()

@@ -9,7 +9,7 @@ from threading import Lock
 
 from .. import db
 
-SURFACES = ("web", "cli", "chat", "slack", "mcp", "webhook", "api")
+SURFACES = ("web", "cli", "chat", "mcp", "webhook", "api")
 
 # Buffered, not written per call: every authenticated request lands here, and
 # a per-call upsert costs a round trip on the hot path. The buffer
