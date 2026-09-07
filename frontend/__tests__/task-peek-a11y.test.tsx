@@ -1,5 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /** The peek's accessibility contract, pinned because none of it is caught by
  *  axe — the panel passed an automated sweep clean while a screen reader user
@@ -26,7 +27,50 @@ vi.mock("@/lib/api", async (importOriginal) => {
   };
 });
 
+import { NavSearch } from "@/components/nav-search";
 import { PeekLink, TaskPeek } from "@/components/task-peek";
+
+beforeEach(() => window.history.replaceState({}, "", "/"));
+afterEach(() => vi.restoreAllMocks());
+
+describe("the panel before its first open", () => {
+  it.each([false, true])("does not move existing focus (Strict Mode: %s)", (strict) => {
+    render(
+      <>
+        <a href="#content">Skip to content</a>
+        <NavSearch />
+        <button>Page control</button>
+      </>,
+    );
+    const control = screen.getByRole("button", { name: "Page control" });
+    control.focus();
+    const dispatch = vi.spyOn(window, "dispatchEvent");
+
+    render(
+      strict ? <StrictMode><TaskPeek /></StrictMode> : <TaskPeek />,
+    );
+    act(() => window.dispatchEvent(new PopStateEvent("popstate")));
+
+    expect(document.activeElement).toBe(control);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(dispatch.mock.calls.filter(([event]) => event.type === "skein-peek-close")).toEqual([]);
+  });
+
+  it("leaves focus at the document start before the skip link", () => {
+    render(
+      <>
+        <a href="#content">Skip to content</a>
+        <NavSearch />
+        <TaskPeek />
+      </>,
+    );
+
+    // jsdom has no native Tab navigation. Keeping body focused leaves the
+    // skip link first in the browser's tab order (app/layout.tsx).
+    expect(document.activeElement).toBe(document.body);
+    expect(screen.getByRole("link", { name: "Skip to content" }).tabIndex).toBe(0);
+  });
+});
 
 describe("a task link", () => {
   it("keeps the task title in its accessible name", () => {
@@ -67,10 +111,11 @@ describe("the open panel", () => {
 });
 
 describe("focus on close", () => {
-  it("returns focus to the trigger", async () => {
-    window.history.pushState({}, "", "/");
-    const { container } = render(
+  it.each(["Close", "Escape", "Back", "scrim"])("returns focus to the trigger after %s and Forward", async (method) => {
+    const dispatch = vi.spyOn(window, "dispatchEvent");
+    render(
       <>
+        <NavSearch />
         <PeekLink taskId={4}>#4 Build the happy path</PeekLink>
         <TaskPeek />
       </>,
@@ -78,10 +123,45 @@ describe("focus on close", () => {
     const trigger = screen.getByRole("button", { name: /Build the happy path/ });
     trigger.focus();
     fireEvent.click(trigger);
-    await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: /Close/ }));
-    await waitFor(() => expect(document.activeElement).toBe(trigger));
-    expect(container).toBeTruthy();
+    await screen.findByRole("dialog");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /Close/ }));
+    if (method === "Close") fireEvent.click(screen.getByRole("button", { name: /Close/ }));
+    else if (method === "Escape") fireEvent.keyDown(document, { key: "Escape" });
+    else if (method === "scrim") fireEvent.mouseDown(screen.getByRole("dialog").parentElement!);
+    else act(() => window.history.back());
+
+    await waitFor(() => expect(window.location.search).toBe(""));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect(dispatch.mock.calls.filter(([event]) => event.type === "skein-peek-close").map(([event]) => (event as CustomEvent).detail)).toEqual([{ taskId: 4 }]);
+
+    act(() => window.history.forward());
+    await screen.findByRole("dialog");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /Close/ }));
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(window.location.search).toBe(""));
+    expect(document.activeElement).toBe(trigger);
+    expect(dispatch.mock.calls.filter(([event]) => event.type === "skein-peek-close").map(([event]) => (event as CustomEvent).detail)).toEqual([{ taskId: 4 }, { taskId: 4 }]);
+  });
+
+  it.each(["body", "opener"])("opens a deep link and restores focus from %s", async (target) => {
+    render(
+      <>
+        <NavSearch />
+        <button>Page control</button>
+      </>,
+    );
+    const control = screen.getByRole("button", { name: "Page control" });
+    if (target === "opener") control.focus();
+    else expect(document.activeElement).toBe(document.body);
+    window.history.pushState({}, "", "?task=4");
+
+    render(<TaskPeek />);
+    await screen.findByRole("dialog");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /Close/ }));
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(window.location.search).toBe(""));
+    expect(document.activeElement).toBe(target === "opener" ? control : screen.getByLabelText("Search Skein"));
   });
 
   it("falls back to the search box when the trigger has unmounted", async () => {

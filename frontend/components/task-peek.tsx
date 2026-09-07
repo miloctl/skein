@@ -209,6 +209,7 @@ export function TaskPeek() {
   // keyboard reader continuing where they were and being dropped at the top
   // of the document.
   useEffect(() => {
+    if (!taskId && !openedTask.current) return;
     if (!taskId) {
       const el = restoreFocus.current;
       const closedTask = openedTask.current;
