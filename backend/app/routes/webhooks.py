@@ -10,7 +10,7 @@ from .. import config, ratelimit
 from ..extensions.fastapi import PolicySubjectDep, enforce_decision
 from ..extensions.policy import PolicyInput, PolicyResource
 from ..services import ci, forge
-from .deps import AdminUser, StrongUser, forge_webhook_off, verify_forge_signature
+from .deps import StrongUser, forge_webhook_off, verify_forge_signature
 
 router = APIRouter()
 
@@ -21,40 +21,6 @@ MAX_FORGE_BODY = 262_144
 # connection slot open forever by dribbling bytes — uvicorn applies no body
 # timeout, and this route sits outside the perimeter.
 FORGE_READ_TIMEOUT = 10
-
-
-class GitHubReconciliationIn(BaseModel):
-    namespace: str = Field(pattern=r"^[0-9a-f]{64}$")
-    gap_until: str = Field(min_length=1, max_length=40)
-    note: str = Field(min_length=1, max_length=1000)
-
-
-@router.get("/api/webhooks/github/recovery")
-def github_recovery_status(user: AdminUser, request: Request, subject: PolicySubjectDep) -> dict:
-    from ..services import github_recovery
-
-    return github_recovery.status(
-        policy=request.app.state.skein_registry.policy_engine, subject=subject
-    )
-
-
-@router.post("/api/webhooks/github/recovery/reconcile")
-def github_recovery_reconcile(
-    body: GitHubReconciliationIn,
-    user: AdminUser,
-    request: Request,
-    subject: PolicySubjectDep,
-) -> dict:
-    from ..services import github_recovery
-
-    ratelimit.check("write", user)
-    return github_recovery.acknowledge_gap(
-        body.namespace,
-        body.gap_until,
-        body.note,
-        policy=request.app.state.skein_registry.policy_engine,
-        subject=subject,
-    )
 
 
 class CIEventIn(BaseModel):
@@ -128,9 +94,8 @@ async def forge_webhook(
     x_gitea_delivery: str = Header("", max_length=200),
     x_github_delivery: str = Header("", max_length=200),
     x_github_event: str = Header(""),
-    x_github_hook_id: str = Header(""),
 ) -> dict:
-    """GitHub and Gitea authenticate with the raw-body HMAC, not a user key."""
+    """Gitea authenticates with the raw-body HMAC, not a user key."""
     # BEFORE the read, because this path sits outside the perimeter: a
     # deployment that never turned the webhook on must not buffer a byte for
     # an unsigned caller. routes/slack.py refuses the same way, first thing.
@@ -168,22 +133,17 @@ async def forge_webhook(
         raise HTTPException(
             400, "The webhook headers are ambiguous. Send one set of provider headers."
         )
-    github = not bool(x_gitea_event)
-    # Gitea sends matching GitHub aliases alongside its native headers. Only
-    # the native family chooses Gitea, and forge.apply_delivery still binds
-    # the signed repository host so relabeled GitHub bytes cannot bypass it.
-    if (github and (x_gitea_signature or x_gitea_delivery)) or (
-        not github
-        and (
-            (x_github_event and x_github_event != x_gitea_event)
-            or (x_github_delivery and x_github_delivery != x_gitea_delivery)
-            or x_github_hook_id
-        )
+    # Matching GitHub aliases are emitted by Gitea too. Only its native event
+    # header selects processing, so native GitHub deliveries remain unsupported.
+    if (
+        (x_github_event and x_github_event != x_gitea_event)
+        or (x_github_delivery and x_github_delivery != x_gitea_delivery)
+        or request.headers.get("x-github-hook-id")
     ):
         raise HTTPException(
             400, "The webhook headers conflict. Send the original provider headers."
         )
-    event = x_github_event if github else x_gitea_event
+    event = x_gitea_event
     if (
         not event
         or len(event) > 100
@@ -192,8 +152,6 @@ async def forge_webhook(
         raise HTTPException(
             400, "The webhook event header is not valid. Send the original event header."
         )
-    if github and not x_hub_signature_256.startswith("sha256="):
-        raise HTTPException(401, "The webhook signature does not match. Check the webhook secret.")
     # Every supplied SHA-256 signature must verify. Taking the first one
     # would accept a contradictory alias and hide a broken secret rollout.
     signatures = tuple(value for value in (x_gitea_signature, x_hub_signature_256) if value)
@@ -217,10 +175,8 @@ async def forge_webhook(
     return await run_in_threadpool(
         forge.apply_delivery,
         request.app.state.skein_registry,
-        "github" if github else "gitea",
         event,
         payload,
-        x_github_delivery if github else x_gitea_delivery,
+        x_gitea_delivery,
         sha256(body).hexdigest(),
-        x_github_hook_id,
     )

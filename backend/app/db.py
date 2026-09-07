@@ -18,6 +18,7 @@ from contextvars import Context, ContextVar, Token, copy_context
 from datetime import UTC, date, datetime, time, timedelta
 from functools import lru_cache
 from pathlib import Path
+from threading import Lock
 from time import monotonic, sleep
 from typing import Any, Literal, overload
 from uuid import uuid4
@@ -271,6 +272,10 @@ def validate_date(label: str, value: str, allow_clear: bool = True) -> None:
 psycopg.adapters.register_loader("numeric", FloatLoader)
 
 _pool: ConnectionPool[DictConnection] | None = None
+# An overwritten open pool can be finalized by its own worker, which then
+# tries to join itself. Pool callbacks must not call db helpers: close_pool
+# holds this lock while it waits for those workers.
+_pool_lock = Lock()
 
 
 def pool() -> ConnectionPool[DictConnection]:
@@ -281,21 +286,22 @@ def pool() -> ConnectionPool[DictConnection]:
     block on top of it, which is the only place a multi-statement unit exists.
     """
     global _pool
-    if _pool is None:
-        if config.DATABASE_ERROR:
-            raise RuntimeError(config.DATABASE_ERROR)
-        _pool = ConnectionPool[DictConnection](
-            config.DATABASE_URL,
-            min_size=1,
-            # Every request thread and every sync @tool can hold one
-            # connection at once. Sized from the two knobs that already bound
-            # that number, so it cannot drift below them: a pool smaller than
-            # the thread pool turns a burst into a queue nobody configured.
-            max_size=config.THREAD_POOL + config.TOOL_THREADS + 4,
-            kwargs={"autocommit": True, "row_factory": dict_row},
-            open=True,
-        )
-    return _pool
+    with _pool_lock:
+        if _pool is None:
+            if config.DATABASE_ERROR:
+                raise RuntimeError(config.DATABASE_ERROR)
+            _pool = ConnectionPool[DictConnection](
+                config.DATABASE_URL,
+                min_size=1,
+                # Every request thread and every sync @tool can hold one
+                # connection at once. Sized from the two knobs that already bound
+                # that number, so it cannot drift below them: a pool smaller than
+                # the thread pool turns a burst into a queue nobody configured.
+                max_size=config.THREAD_POOL + config.TOOL_THREADS + 4,
+                kwargs={"autocommit": True, "row_factory": dict_row},
+                open=True,
+            )
+        return _pool
 
 
 def privilege_warnings() -> list[str]:
@@ -328,9 +334,10 @@ def privilege_warnings() -> list[str]:
 def close_pool() -> None:
     """Drop the pool. Shutdown, and the test suite between databases."""
     global _pool
-    if _pool is not None:
-        _pool.close()
-        _pool = None
+    with _pool_lock:
+        if _pool is not None:
+            _pool.close()
+            _pool = None
 
 
 @lru_cache(maxsize=4096)

@@ -4,9 +4,8 @@ import hashlib
 import json
 import re
 from urllib.parse import quote, urlsplit
-from uuid import UUID
 
-from .. import config, db
+from .. import db
 from . import work
 
 TRANSITIONS = {
@@ -203,150 +202,25 @@ def parse_gitea(event: str, payload: dict) -> dict | None:
     return None
 
 
-def github_namespace(repository: str, hook_id: int) -> str:
-    return _namespace("github", config.GITHUB_API_URL, repository.lower(), str(hook_id))
-
-
 def _namespace(*parts: str) -> str:
     return hashlib.sha256(json.dumps(parts, separators=(",", ":")).encode()).hexdigest()
 
 
-def github_guid(value: str) -> str:
-    try:
-        parsed = str(UUID(value))
-        if value.lower() != parsed:
-            raise ValueError
-        return parsed
-    except (ValueError, AttributeError):
-        raise ValueError(
-            "The GitHub delivery ID is not valid. Send the original delivery headers."
-        ) from None
-
-
-def github_web_base() -> str:
-    api = urlsplit(config.GITHUB_API_URL)
-    return "https://github.com" if api.netloc == "api.github.com" else f"https://{api.netloc}"
-
-
-def github_hook(payload: dict, hook_id: str) -> dict:
-    if config.GITHUB_CONFIG_ERROR:
-        raise PermissionError(
-            "GitHub webhooks are not configured. Check the deployment configuration."
-        )
-    repository = _dict(payload.get("repository")).get("full_name")
-    if (
-        not isinstance(repository, str)
-        or not hook_id.isascii()
-        or not hook_id.isdecimal()
-        or len(hook_id) > 19
-    ):
-        raise ValueError(
-            "The GitHub repository or hook ID is not valid. Send the original payload and headers."
-        )
-    for item in config.GITHUB_HOOKS:
-        if repository.lower() == item["repository"] and int(hook_id) == item["hook_id"]:
-            html_url = _str(_dict(payload.get("repository")).get("html_url"))
-            if html_url.lower().rstrip("/") != f"{github_web_base()}/{repository}".lower():
-                raise ValueError(
-                    "The repository URL does not match GitHub configuration. Send the original payload."
-                )
-            return item
-    raise PermissionError(
-        "The GitHub repository and hook are not allowed. Check the deployment allowlist."
-    )
-
-
-def parse_github(event: str, payload: dict, repository: str) -> dict | None:
-    if event not in ("push", "pull_request"):
-        return None
-    bad = "The GitHub payload has invalid fields. Send the original event payload."
-    sender = _dict(payload.get("sender")).get("login")
-    if not isinstance(sender, str) or not sender or len(sender) > 100:
-        raise ValueError(bad)
-    repo_url = f"{github_web_base()}/{repository}"
-    if event == "push":
-        ref = payload.get("ref")
-        if (
-            not isinstance(ref, str)
-            or type(payload.get("deleted")) is not bool
-            or "pull_request" in payload
-            or "action" in payload
-        ):
-            raise ValueError(bad)
-        if payload["deleted"] or not ref.startswith("refs/heads/"):
-            return None
-        branch = ref.removeprefix("refs/heads/")
-        return {
-            "kind": "branch_push",
-            "branch": branch,
-            "url": f"{repo_url}/tree/{quote(branch, safe='/')}",
-            "login": sender,
-        }
-    pr = _dict(payload.get("pull_request"))
-    action = payload.get("action")
-    if not isinstance(action, str) or "ref" in payload or not pr:
-        raise ValueError(bad)
-    if action not in ("opened", "reopened", "closed"):
-        return None
-    pr_branch = _dict(pr.get("head")).get("ref")
-    if (
-        type(pr.get("merged")) is not bool
-        or type(pr.get("draft")) is not bool
-        or not isinstance(pr_branch, str)
-        or not isinstance(pr.get("title"), str)
-        or (pr.get("body") is not None and not isinstance(pr["body"], str))
-        or not isinstance(pr.get("html_url"), str)
-    ):
-        raise ValueError(bad)
-    if pr["draft"] or (action == "closed" and not pr["merged"]):
-        return None
-    return {
-        "kind": "pr_merged" if action == "closed" else "pr_opened",
-        "branch": pr_branch,
-        "title": pr["title"],
-        "body": pr.get("body") or "",
-        "url": pr["html_url"],
-        "login": sender,
-    }
-
-
 def apply_delivery(
     registry,
-    provider: str,
     event: str,
     payload: dict,
     delivery: str,
     body_digest: str,
-    hook_id: str = "",
 ) -> dict:
     """Redelivery comes back through this same signed webhook, never a replay writer."""
     from ..extensions.fastapi import enforce_decision
     from ..extensions.policy import PolicyInput, PolicyResource
     from .policy_context import existing, hold_resource
 
-    if provider == "github":
-        hook = github_hook(payload, hook_id)
-        delivery = github_guid(delivery)
-        namespace = github_namespace(hook["repository"], hook["hook_id"])
-        mapped = parse_github(event, payload, hook["repository"])
-        repository = hook["repository"]
-    else:
-        repository = _str(_dict(payload.get("repository")).get("html_url"))
-        # Provider headers are outside the HMAC. Relabeling authenticated
-        # GitHub bytes as Gitea must not walk around the GitHub allowlist.
-        try:
-            github_source = urlsplit(repository).hostname in {
-                "github.com",
-                urlsplit(github_web_base()).hostname,
-            }
-        except ValueError:
-            github_source = False
-        if repository and github_source:
-            raise ValueError(
-                "The webhook headers do not match the repository provider. Send the original headers."
-            )
-        namespace = _namespace("gitea", repository.lower())
-        mapped = parse_gitea(event, payload)
+    repository = _str(_dict(payload.get("repository")).get("html_url"))
+    namespace = _namespace("gitea", repository.lower())
+    mapped = parse_gitea(event, payload)
     if mapped is None:
         return {"ignored": "only push and pull_request events move work"}
     with db.transaction():
@@ -366,7 +240,7 @@ def apply_delivery(
                 return {"ignored": "this delivery was already applied"}
             # Pre-028 Gitea receipts have no repository namespace. Keep their
             # conservative suppression, but never mint another unscoped key.
-            if provider == "gitea" and db.query_one(
+            if db.query_one(
                 "SELECT 1 FROM job_runs WHERE job = 'forge-delivery' AND run_key = ?", (delivery,)
             ):
                 return {"ignored": "this delivery was already applied"}
@@ -375,7 +249,7 @@ def apply_delivery(
         )
         if task_id:
             hold_resource("task", task_id)
-            domain = {**existing("task", task_id), "repository": repository, "provider": provider}
+            domain = {**existing("task", task_id), "repository": repository, "provider": "gitea"}
             enforce_decision(
                 registry.policy_engine.decide(
                     PolicyInput(
@@ -402,7 +276,7 @@ def apply_delivery(
                 (
                     namespace,
                     delivery,
-                    provider,
+                    "gitea",
                     event,
                     body_digest,
                     result.get("task_id") if "status" in result else None,

@@ -383,6 +383,58 @@ def test_the_helpers_return_their_connections_to_the_pool(fresh_db):
     assert stats.get("pool_available", 0) >= 1
 
 
+@pytest.mark.parametrize("operation", ["pool", "close_pool"])
+def test_pool_creation_serializes_with_other_lifecycle_calls(fresh_db, monkeypatch, operation):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app import db
+
+    db.close_pool()
+    entered, release, attempted, finished = (threading.Event() for _ in range(4))
+    original_init = db.ConnectionPool.__init__
+    constructed = []
+
+    def slow_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        constructed.append(self)
+        if len(constructed) == 1:
+            entered.set()
+            assert release.wait(5)
+
+    def concurrent_call():
+        attempted.set()
+        result = getattr(db, operation)()
+        finished.set()
+        return result
+
+    monkeypatch.setattr(db.ConnectionPool, "__init__", slow_init)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            first = workers.submit(db.pool)
+            try:
+                assert entered.wait(5)
+                other = workers.submit(concurrent_call)
+                assert attempted.wait(5)
+                assert not finished.wait(0.1), "lifecycle call bypassed an unpublished pool"
+            finally:
+                release.set()
+            opened = first.result(timeout=5)
+            result = other.result(timeout=5)
+        assert constructed == [opened]
+        if operation == "pool":
+            assert result is opened is db.pool()
+            assert not opened.closed
+        else:
+            assert opened.closed
+            assert db._pool is None
+    finally:
+        db.close_pool()
+        # Keep ownership of every real pool so the failing implementation cannot
+        # leave its overwritten pool's destructor to a psycopg worker thread.
+        for pool in constructed:
+            pool.close()
+
+
 def test_numeric_aggregates_load_as_float_not_decimal(fresh_db):
     """SUM, ROUND(::numeric) and EXTRACT(epoch) must not reach a caller as
     Decimal.

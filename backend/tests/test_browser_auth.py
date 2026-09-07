@@ -1,6 +1,7 @@
 """Cookie authentication must not expose credentials or fall back to another identity."""
 
 import time
+from contextlib import closing
 
 import pytest
 from cryptography.fernet import Fernet
@@ -16,8 +17,34 @@ ORIGIN = "https://ui.test"
 def browser(client, monkeypatch):
     monkeypatch.setattr(config, "CORS_ORIGINS", [ORIGIN])
     monkeypatch.setattr(config, "CREDENTIAL_KEY", Fernet.generate_key().decode())
-    with TestClient(client.app, base_url="https://api.test", headers={"Origin": ORIGIN}) as other:
+    # client already owns the lifespan. Entering another replaces the lease
+    # maintenance stop handles and leaves the first pair running after DB teardown.
+    with closing(
+        TestClient(client.app, base_url="https://api.test", headers={"Origin": ORIGIN})
+    ) as other:
         yield other
+
+
+def test_browser_reuses_the_client_owned_lifespan(client, monkeypatch):
+    from app.services import leases
+
+    original_stop = leases._stop
+    original_threads = (leases._thread, leases._sweeper)
+    browser_fixture = browser.__wrapped__(client, monkeypatch)
+    try:
+        other = next(browser_fixture)
+        assert other.get("/health").status_code == 200
+        assert (leases._thread, leases._sweeper) == original_threads
+        browser_fixture.close()
+        assert all(thread.is_alive() for thread in original_threads)
+    finally:
+        browser_fixture.close()
+        # A nested lifespan overwrites the only stop handle. Retain it here so
+        # a regression cannot leave maintenance running against the next database.
+        original_stop.set()
+        for thread in original_threads:
+            thread.join(5)
+            assert not thread.is_alive()
 
 
 def _key(owner="ava"):

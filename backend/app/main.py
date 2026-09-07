@@ -94,10 +94,6 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
             from .services.agent_runner import run as run_agents
 
             return run_agents(actor=subject.name, extensions=registry, policy=policy)
-        if contribution.name == "skein.core.github-recovery":
-            from .services.github_recovery import run as recover_github
-
-            return recover_github(registry=registry)
         if contribution.name.startswith("skein.core."):
             return contribution.handler(
                 _bind_execution_context(
@@ -269,12 +265,7 @@ def _start_scheduler(
 
     scheduler = BackgroundScheduler(daemon=True, timezone=timezone or config.TZ_NAME)
     for spec in specs:
-        trigger = dict(spec.trigger)
-        if spec.name == "github-recovery":
-            # Recovery can wait on GitHub. Schedule its first bounded pass in
-            # the worker pool instead of blocking the lifespan catch-up loop.
-            trigger["next_run_time"] = datetime.now(UTC)
-        scheduler.add_job(lambda spec=spec: run_job(spec), id=spec.name, **trigger)
+        scheduler.add_job(lambda spec=spec: run_job(spec), id=spec.name, **spec.trigger)
     scheduler.start()
     return scheduler
 

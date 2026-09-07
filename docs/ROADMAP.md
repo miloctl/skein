@@ -252,14 +252,9 @@ ReadWriteMany storage are the infrastructure choices. Do not add a browser
 write queue or automatically replay an external action with an unknown
 outcome. Local test success does not authorize a production replica increase.
 
-- **GitHub production activation and recovery rehearsal.** Native ingestion,
-  bounded recovery, and local failure fixtures are implemented. Configure the
-  actual GitHub.com or Enterprise endpoint, repository and hook inventory,
-  and narrowly scoped API credentials in the deployment Secret. Use a canary
-  repository to check genuine delivery, failed-delivery redelivery, shared
-  throttling and restart progress. Rehearse the manual current-state comparison
-  for a retained-history gap before acknowledging it. No live GitHub inventory
-  or recovery credential has been supplied for this validation.
+The first deployment targets an environment that cannot reach GitHub.
+Internal GitLab and Teams integrations are deferred until the team identifies
+a concrete workflow need. They are not launch prerequisites.
 
 - **OpenShift multi-replica rollout gate.** After the container drills pass,
   validate the actual ReadWriteMany storage class, shared data and backup-mirror

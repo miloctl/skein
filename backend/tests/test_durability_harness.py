@@ -1,5 +1,7 @@
 """The Docker driver's cleanup cannot cross its run's ownership label."""
 
+import hashlib
+import hmac
 import importlib.util
 import json
 import subprocess
@@ -41,9 +43,8 @@ def test_inherited_image_settings_cannot_select_external_services(tmp_path):
     inherited = [
         "PATH=/foreign/bin",
         "SKEIN_DATABASE_URL=postgresql://unused.invalid:1/not-owned",
-        "SKEIN_GITHUB_RECOVERY=1",
-        "SKEIN_GITHUB_TOKEN=fixture-only-token",
-        "SKEIN_GITHUB_API_URL=https://unused.invalid",
+        "SKEIN_MODEL_API_KEY=fixture-only-key",
+        "SKEIN_MODEL_BASE_URL=https://unused.invalid",
         'SKEIN_MCP_SERVERS=[{"url":"https://unused.invalid"}]',
         "SLACK_WEBHOOK_URL=https://unused.invalid",
         "OTEL_EXPORTER_OTLP_ENDPOINT=https://unused.invalid",
@@ -63,11 +64,11 @@ def test_inherited_image_settings_cannot_select_external_services(tmp_path):
         },
     )
     assert env["SKEIN_DATABASE_URL"] == ""
-    assert env["SKEIN_GITHUB_RECOVERY"] == "0"
     assert all(
         env[key] == ""
         for key in (
-            "SKEIN_GITHUB_TOKEN",
+            "SKEIN_MODEL_API_KEY",
+            "SKEIN_MODEL_BASE_URL",
             "SKEIN_MCP_SERVERS",
             "SLACK_WEBHOOK_URL",
             "AWS_SECRET_ACCESS_KEY",
@@ -93,6 +94,64 @@ def test_inherited_image_settings_cannot_select_external_services(tmp_path):
         "user": "owned-role",
         "dbname": "owned-database",
     }
+
+
+def test_fixture_image_replaces_runtime_and_stock():
+    dockerfile = (SCRIPT.parent / "fixtures/Durability.Dockerfile").read_text()
+    assert dockerfile.index("RUN rm -rf /app/app /app/skein_stock") < dockerfile.index(
+        "COPY backend/app /app/app"
+    )
+    for directory in ("playbooks", "personas", "flocks", "fieldguide", "schemas"):
+        assert f"COPY backend/{directory} /app/skein_stock/{directory}" in dockerfile
+
+
+@pytest.mark.parametrize("compatibility_aliases", [False, True])
+def test_gitea_drill_packet_commits_one_generic_receipt(
+    client, fresh_db, monkeypatch, compatibility_aliases
+):
+    from app import config
+
+    driver = harness.Harness.__new__(harness.Harness)
+    driver.secret = "isolated-gitea-signature"
+    monkeypatch.setattr(config, "FORGE_WEBHOOK_SECRET", driver.secret)
+    created = client.post("/api/tasks", json={"title": "Signed Gitea durability"})
+    assert created.status_code == 200
+    task = created.json()["id"]
+    body, headers = driver.delivery(task)
+    payload = json.loads(body)
+    assert payload["repository"]["html_url"] == "https://gitea.example/durability/proof"
+    assert payload["pusher"]["login"] == "durability-admin"
+    assert "X-GitHub-Hook-ID" not in headers
+    assert (
+        headers["X-Gitea-Signature"]
+        == hmac.new(driver.secret.encode(), body, hashlib.sha256).hexdigest()
+    )
+    if not compatibility_aliases:
+        headers = {
+            key: value
+            for key, value in headers.items()
+            if not key.startswith(("X-GitHub-", "X-Hub-"))
+        }
+    for _ in range(2):
+        response = client.post("/api/webhooks/forge", content=body, headers=headers)
+        assert response.status_code == 200, response.text
+    assert fresh_db.query_row("SELECT status, forge_url FROM tasks WHERE id = ?", (task,)) == {
+        "status": "in_progress",
+        "forge_url": f"https://gitea.example/durability/proof/src/branch/task/{task}-proof",
+    }
+    assert fresh_db.query("SELECT provider, delivery_id, payload_sha256 FROM forge_receipts") == [
+        {
+            "provider": "gitea",
+            "delivery_id": headers["X-Gitea-Delivery"],
+            "payload_sha256": hashlib.sha256(body).hexdigest(),
+        }
+    ]
+    assert (
+        fresh_db.query_row(
+            "SELECT COUNT(*) AS n FROM activity WHERE actor = 'forge' AND action = 'update_task'"
+        )["n"]
+        == 1
+    )
 
 
 def test_storage_oracle_requires_actual_filesystem_failure(monkeypatch):

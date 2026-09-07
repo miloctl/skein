@@ -628,13 +628,3 @@ knots:
     how: "Open the task's panel and select void…. The task leaves every list, metric and search result. It stays readable at its own address, and a live status restores it."
     link: /dashboard
     since: 2026-08-20
-
-  - id: github_updates
-    feature: Let GitHub update a task
-    knot: Anchor Bend
-    set: hitches
-    role: any
-    pitch: Code lands. The task keeps pace.
-    how: "Ask whoever runs the server to configure GitHub webhooks. Run `skein task start <id>` to get a task branch. Open the task panel to check its status and code link."
-    link: /dashboard
-    since: 2026-09-07
