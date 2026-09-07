@@ -438,18 +438,28 @@ def _sync_anchor(path) -> None:
         os.close(directory)
 
 
-def _append_anchor_line(path, line: str) -> None:
-    prefix = ""
-    if path.exists() and path.stat().st_size:
-        with path.open("rb") as fh:
-            fh.seek(-1, 2)
-            if fh.read(1) != b"\n":
-                # a crash mid-append left a torn line with no newline;
-                # gluing the next line onto it would lose BOTH
-                prefix = "\n"
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(prefix + line)
-    _sync_anchor(path)
+def _append_anchor_line(path, line: str, *, unless_tail: tuple | None = None) -> bool:
+    """Append one line, or skip it when the tail already IS unless_tail.
+
+    The tail check and the append share one lock that reaches every process
+    (db.session_lock): on a shared volume two processes that each read "not
+    current" would otherwise both append, and a torn-line repair from one
+    could land inside the other's line."""
+    with db.session_lock(db.LOCK_JOB, "anchor-log", wait_seconds=5):
+        if unless_tail is not None and _tail_anchor_line(path) == unless_tail:
+            return False
+        prefix = ""
+        if path.exists() and path.stat().st_size:
+            with path.open("rb") as fh:
+                fh.seek(-1, 2)
+                if fh.read(1) != b"\n":
+                    # a crash mid-append left a torn line with no newline;
+                    # gluing the next line onto it would lose BOTH
+                    prefix = "\n"
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(prefix + line)
+        _sync_anchor(path)
+        return True
 
 
 _BACKUP_ANCHOR_LINE = re.compile(r"^\S+ backup=(\S+) sha256=([0-9a-f]{64})$")
@@ -560,18 +570,17 @@ def record_anchor() -> dict:
     current = []
     for path in _anchor_log_paths():
         try:
-            if _tail_anchor_line(path) == (seq, digest):
-                _sync_anchor(path)
-                current.append(str(path))
-                continue
             # no mkdir here, deliberately. _backups_dir() already creates the
             # local dir, and manufacturing the MIRROR directory would build the
             # mount point on the local disk when the NAS is unmounted — the
             # append would then succeed onto the wrong disk and be shadowed
             # when the real mount returns, a silent hole in the history whose
             # continuity is the whole point. Let a missing mount raise.
-            _append_anchor_line(path, line)
-            written.append(str(path))
+            if _append_anchor_line(path, line, unless_tail=(seq, digest)):
+                written.append(str(path))
+            else:
+                _sync_anchor(path)
+                current.append(str(path))
         except OSError:
             log.warning("could not append the chain anchor to %s", path, exc_info=True)
     # anchored reports what actually landed or was already on record — a night

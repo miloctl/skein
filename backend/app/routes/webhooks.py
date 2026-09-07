@@ -90,6 +90,8 @@ async def forge_webhook(
     x_gitea_event: str = Header(""),
     x_gitea_signature: str = Header(""),
     x_hub_signature_256: str = Header(""),
+    x_gitea_delivery: str = Header("", max_length=200),
+    x_github_delivery: str = Header("", max_length=200),
 ) -> dict:
     """Gitea moves tasks through here. No CurrentUser: the signature IS the
     identity, and a forge cannot send a personal key or sign in. Gitea-shaped
@@ -150,6 +152,12 @@ async def forge_webhook(
         # moves the task into a denied project between the decision and
         # forge_event's write.
         with db.transaction():
+            # A redelivery, a retry, or the same delivery reaching two
+            # processes applies once. Inside the transaction, so a refused
+            # or failed apply gives the receipt back and the retry runs.
+            delivery = x_gitea_delivery or x_github_delivery
+            if delivery and not db.claim_job("forge-delivery", delivery):
+                return {"ignored": "this delivery was already applied"}
             task_id = forge.match_task(
                 str(mapped.get("branch") or ""),
                 str(mapped.get("title") or ""),
