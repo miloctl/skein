@@ -1,6 +1,10 @@
 ARG BACKEND_IMAGE
 FROM ${BACKEND_IMAGE}
 USER root
+WORKDIR /app
+# COPY merges directories. Remove the old trees first so deleted runtime modules
+# and stock cards cannot survive a reused backend image.
+RUN rm -rf /app/app /app/skein_stock
 COPY backend/app /app/app
 COPY backend/playbooks /app/skein_stock/playbooks
 COPY backend/personas /app/skein_stock/personas
@@ -18,9 +22,8 @@ RUN mkdir -p /mirror && chgrp 0 /mirror && chmod g+w /mirror \
 # durability_app.py refuses the foreign URL before any database connection.
 ENV PYTHONPATH=/fixtures:/app \
     SKEIN_DATABASE_URL=postgresql://unused.invalid:1/not-owned \
-    SKEIN_GITHUB_RECOVERY=1 \
-    SKEIN_GITHUB_TOKEN=fixture-only-token \
-    SKEIN_GITHUB_API_URL=https://unused.invalid \
+    SKEIN_MODEL_API_KEY=fixture-only-key \
+    SKEIN_MODEL_BASE_URL=https://unused.invalid \
     SKEIN_MCP_SERVERS='[{"url":"https://unused.invalid"}]' \
     SLACK_WEBHOOK_URL=https://unused.invalid \
     OTEL_EXPORTER_OTLP_ENDPOINT=https://unused.invalid \

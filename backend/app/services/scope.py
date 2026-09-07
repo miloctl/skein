@@ -690,10 +690,6 @@ UNSCOPED: dict[str, str] = {
         " forge-delivery and fire:* receipts hold IDs and are kept permanently"
     ),
     "forge_receipts": "provider-namespaced delivery IDs and body digests; task joins must apply the task viewer filter",
-    "github_recovery_api": "API-destination digest and shared throttle deadline, never URLs or credentials; admin-only operations",
-    "github_recovery_hooks": "deployment-only hook inventory, scan checkpoints and administrator reconciliation notes; admin-only status",
-    "github_recovery_deliveries": "GitHub attempt metadata and GUID dedupe, never payloads or credentials; admin-only operations",
-    "github_recovery_attempts": "redelivery POST outcome records, never payloads or credentials; admin-only operations",
     "rate_hits": "a count per surface, key and minute — a name or an address, no content",
     "mcp_oauth_flows": (
         "server-bound OAuth ownership and callback nonces, with sealed one-time codes;"

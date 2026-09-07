@@ -72,9 +72,6 @@ def clean_environment(inherited, overrides):
             "PYTHONUNBUFFERED": "1",
             "PYTHON_DOTENV_DISABLED": "1",
             "SKEIN_DATABASE_URL": "",
-            "SKEIN_GITHUB_RECOVERY": "0",
-            "SKEIN_GITHUB_TOKEN": "",
-            "SKEIN_GITHUB_API_URL": "https://api.github.com",
             "SKEIN_MCP_SERVERS": "",
             "SKEIN_MCP_SERVERS_FILE": "",
             "SKEIN_OTEL_ENDPOINT": "",
@@ -278,7 +275,6 @@ class Harness:
             "SKEIN_AGENT_RUN_SECONDS": "300",
             "SKEIN_CREDENTIAL_KEY": self.credential_key,
             "SKEIN_FORGE_WEBHOOK_SECRET": self.secret,
-            "SKEIN_GITHUB_HOOKS": '[{"repository":"durability/proof","hook_id":123}]',
             "SKEIN_CORS_ORIGINS": "http://localhost:4311",
             "SKEIN_EMBEDDINGS": "0",
             "DURABILITY_UPSTREAM": "http://fixture:8080",
@@ -469,7 +465,7 @@ class Harness:
         for name in ("a", "b"):
             assert docker("exec", self.pods[name]["name"], "id", "-u") == "1000710000"
             selected = self.code(
-                "import json,os\nfrom app import config\nfrom psycopg.conninfo import conninfo_to_dict\np=conninfo_to_dict(config.DATABASE_URL)\nprint(json.dumps({'host':p['host'],'port':p['port'],'dbname':p['dbname'],'user':p['user'],'clean':os.getenv('SKEIN_DATABASE_URL') == '' and os.getenv('SKEIN_GITHUB_RECOVERY') == '0' and not any(os.getenv(k) for k in ('SKEIN_GITHUB_TOKEN','SKEIN_MCP_SERVERS','SLACK_WEBHOOK_URL','OTEL_EXPORTER_OTLP_ENDPOINT','HTTP_PROXY','HTTPS_PROXY','ALL_PROXY')),'otel_disabled':os.getenv('OTEL_SDK_DISABLED')}))",
+                "import json,os\nfrom app import config\nfrom psycopg.conninfo import conninfo_to_dict\np=conninfo_to_dict(config.DATABASE_URL)\nprint(json.dumps({'host':p['host'],'port':p['port'],'dbname':p['dbname'],'user':p['user'],'clean':os.getenv('SKEIN_DATABASE_URL') == '' and not any(os.getenv(k) for k in ('SKEIN_MODEL_API_KEY','SKEIN_MODEL_BASE_URL','SKEIN_MCP_SERVERS','SLACK_WEBHOOK_URL','OTEL_EXPORTER_OTLP_ENDPOINT','HTTP_PROXY','HTTPS_PROXY','ALL_PROXY')),'otel_disabled':os.getenv('OTEL_SDK_DISABLED')}))",
                 name,
             )
             assert selected == {
@@ -531,18 +527,22 @@ class Harness:
                 "deleted": False,
                 "repository": {
                     "full_name": "durability/proof",
-                    "html_url": "https://github.com/durability/proof",
+                    "html_url": "https://gitea.example/durability/proof",
                 },
                 "sender": {"login": "durability-admin"},
-                "pusher": {"name": "durability-admin"},
+                "pusher": {"login": "durability-admin"},
             }
         ).encode()
+        delivery = delivery or str(uuid4())
+        signature = hmac.new(self.secret.encode(), body, hashlib.sha256).hexdigest()
         headers = {
+            "X-Gitea-Event": "push",
+            "X-Gitea-Delivery": delivery,
+            "X-Gitea-Signature": signature,
+            # Gitea also emits these matching compatibility aliases.
             "X-GitHub-Event": "push",
-            "X-GitHub-Hook-ID": "123",
-            "X-GitHub-Delivery": delivery or str(uuid4()),
-            "X-Hub-Signature-256": "sha256="
-            + hmac.new(self.secret.encode(), body, hashlib.sha256).hexdigest(),
+            "X-GitHub-Delivery": delivery,
+            "X-Hub-Signature-256": "sha256=" + signature,
             "Content-Type": "application/json",
         }
         return body, headers
@@ -569,8 +569,8 @@ class Harness:
         )
         assert receipts == [
             {
-                "provider": "github",
-                "delivery_id": packet[1]["X-GitHub-Delivery"],
+                "provider": "gitea",
+                "delivery_id": packet[1]["X-Gitea-Delivery"],
                 "payload_sha256": hashlib.sha256(packet[0]).hexdigest(),
             }
         ], receipts

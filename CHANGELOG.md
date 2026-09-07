@@ -30,8 +30,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
-- Native GitHub push and pull-request events use the existing task/policy service with an explicit repository and webhook allowlist. Provider-specific routing and namespaced payload-bound receipts prevent ambiguous or conflicting deliveries. Existing Gitea support remains.
-- Optional GitHub recovery starts in the background and continues periodically. Delivery cursors, retries, accepted or uncertain redelivery requests, and retained-history gaps survive restarts. Administrators can inspect status and record a manual current-state reconciliation. A GitHub updates field-guide card requires actual task-update evidence.
+- Signed Gitea deliveries use namespaced, payload-bound receipts committed with policy-checked task updates. Matching compatibility headers are accepted, conflicting aliases or payloads are refused, and exact redeliveries do not apply twice.
 - Readiness includes bounded database and application-pool checks. Liveness remains available during database loss or request-worker saturation. Transient database disconnects return safe JSON 503 responses with Retry-After at authentication and route boundaries. Callers must check a write's outcome before retrying it. Filesystem permission failures return safe server errors without exposing internal paths; policy refusals remain 403.
 
 - Agent wakes, shared-chat turns, and scheduled firings use a unique token per execution claim. The heartbeat renews only registered live acquisitions before expiry. Execution-bound transactions fence local tool and session writes as well as completion. A stale worker cannot release a successor's claim. Unknown external outcomes still require reconciliation.
@@ -58,7 +57,8 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
-- Migration 028 adds namespaced forge receipts and durable GitHub recovery progress, delivery and attempt records. Configure SKEIN_GITHUB_HOOKS or its _FILE companion, SKEIN_GITHUB_API_URL, SKEIN_GITHUB_RECOVERY, and SKEIN_GITHUB_TOKEN through deployment settings. Keep the token and existing inbound webhook secret in the Secret. GitHub recovery requires direct HTTPS egress and repository webhook write permission; real activation still requires the deployment's inventory and credentials.
+- Database pool creation and shutdown are serialized, so concurrent first requests cannot leave an orphan pool. Browser-authentication tests reuse the existing application lifespan and stop maintenance before database teardown.
+- Migration 028 adds generic namespaced forge delivery receipts. Receipt creation and the corresponding policy-checked task mutation commit together. Existing execution fencing, scheduling, and backup/restore behavior remain independent of optional integrations.
 - Local Docker fault and PostgreSQL recovery contract scripts use isolated resources and generated test credentials. The guarded OpenShift validation procedure requires an explicit disposable namespace. No production replica default changes. See deploy/k8s/README.md for required cluster and recovery checks.
 
 - Migrations 022 to 025 add lease columns to `agent_wakeups`, `chat_agent_runs`, and `job_runs`, the `mcp_oauth_flows` and `rate_hits` tables, and `mcp_servers.oauth_signin_required`. After a restart, a turn the old process held stays `running` for up to two minutes before the sweep marks it `lease_expired`.

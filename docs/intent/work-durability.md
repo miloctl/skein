@@ -17,7 +17,8 @@ Confirmed 2026-09-06 with the repository owner.
   passing. No Redis, no object storage. PostgreSQL and RWX only. The
   application never reads its own replica count.
 - **Out of scope:** Browser-side write queues, scheduler leader election,
-  and multi-replica as the day-one deployment.
+  multi-replica as the day-one deployment, and new Git hosting or Teams
+  integrations. The first deployment must work through Skein's own UI.
 
 ## Why not zero downtime first
 
@@ -34,23 +35,19 @@ system can accept an action before the worker loses its connection, leaving
 its result unknown. Do not automatically repeat such an action without an
 idempotency contract or reconciliation. Keep uncertain work visible.
 
-## Why catch-up at boot for webhooks
+## Runtime independence
 
-GitHub is the selected forge. Catch-up is separate work: a GitHub event
-adapter, repository and webhook allowlists, API credentials held in the
-deployment Secret, and durable recovery progress are still required.
+The planned deployment cannot reach GitHub. An internal GitLab service is
+reachable, but integration with it is not a first-deployment requirement.
+Teams is also an option to assess later, not another feature to build now.
+Core work durability must remain independent of those integrations.
 
-GitHub does not automatically redeliver failed webhooks. Its delivery
-history supports bounded recovery, not an unlimited record of events.
-Run catch-up after startup and periodically. If the history no longer covers
-the gap, report it and reconcile current repository state instead of
-claiming that every event was recovered. Repository webhook redelivery
-requires Webhooks write permission, separate from the incoming signature
-secret.
+GitHub can remain the source and release system outside the isolated runtime.
+Approved images and packages enter through the organization's deployment
+process. Running Skein needs no GitHub token, webhook, or recovery polling.
 
-Slack slash commands are interactive requests, not a recoverable event log.
-A person retries a command that the server did not receive. Do not promise
-slash-command recovery from channel history.
-
-See [GitHub failed-delivery handling](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries)
-and [redelivery limits](https://docs.github.com/en/webhooks/testing-and-troubleshooting-webhooks/redelivering-webhooks).
+Existing Gitea and authenticated CI behavior remain available without adding
+a new integration. Generic delivery receipts prevent repeated application of
+an accepted delivery. They cannot recover a request that never reached Skein.
+Any future source-specific catch-up needs a demonstrated workflow need and an
+approved network path. Do not promise recovery where neither exists.

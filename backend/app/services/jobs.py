@@ -71,12 +71,6 @@ def _embed_reconcile():
     return {"embedded": done, "failed": failed, "status": status}
 
 
-def _github_recovery():
-    from .github_recovery import run
-
-    return run()
-
-
 def _activity_verify():
     from .activity import nightly_verify
 
@@ -190,16 +184,6 @@ JOBS: tuple[JobSpec, ...] = (
     # 200 external calls at the five-second timeout can delay readiness by
     # roughly 1000 seconds, and semantic repair is not a pre-serve dependency.
     JobSpec("embed-reconcile", _embed_reconcile, {"trigger": "interval", "hours": 1}, 1),
-    # Redelivery requests are GUID-idempotent at the signed webhook door.
-    # Unknown POST attempts persist before I/O and recheck history on retry.
-    # main.py schedules after-start work without delaying readiness.
-    JobSpec(
-        "github-recovery",
-        _github_recovery,
-        {"trigger": "interval", "minutes": 5},
-        1 / 12,
-        retry_safe=True,
-    ),
     JobSpec(
         "activity-verify",
         _activity_verify,

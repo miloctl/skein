@@ -140,15 +140,6 @@ It never uses local development database shims, and it cleans only resources it 
 Save the image digests, database versions, test counts, and `exit=` result.
 Do not treat a skipped or blocked cluster gate as a pass.
 
-## GitHub recovery activation
-
-Leave `SKEIN_GITHUB_RECOVERY=0` until the deployment inventory and credentials are approved.
-`README.md` lists the exact Secret and ConfigMap variables under `GitHub delivery recovery`.
-Check the repository and hook IDs, token permissions, webhook signature, HTTPS destination, and namespace egress.
-Test a real redelivery on a disposable repository before activation.
-Keep recovery disabled during a database restore and reconcile any retained-history gap before resuming it.
-Never delete receipt tables to force a replay.
-
 ## Backups
 
 Daily at 03:00 team time (the `timezone` field on `/api/health`). The last

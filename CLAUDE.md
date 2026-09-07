@@ -16,6 +16,12 @@ model and constraints, is archived at
 
 ## Hard constraints
 
+- **Runtime isolation.** The planned deployment cannot reach GitHub. GitHub
+  is a development and release system, not a runtime dependency. Do not add
+  a runtime GitHub connector, recovery polling, or token configuration unless
+  the deployment requirement explicitly changes. Internal GitLab is reachable,
+  but GitLab and Teams integrations also need a concrete user workflow before
+  implementation. Core work durability must not depend on those integrations.
 - **Provider-agnostic.** `backend/app/config.py::PROVIDERS` is the list of
   model providers; `agents/team_agent.py::_model()` is the ONLY place that
   may branch on a provider name. Everywhere else reads

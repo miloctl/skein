@@ -40,11 +40,6 @@ os.environ["SKEIN_MODEL_PARAMS"] = ""
 os.environ["SKEIN_MODEL_PARAMS_FILE"] = ""
 os.environ["SKEIN_MCP_SERVERS"] = ""
 os.environ["SKEIN_MCP_SERVERS_FILE"] = ""
-os.environ["SKEIN_GITHUB_HOOKS"] = ""
-os.environ["SKEIN_GITHUB_HOOKS_FILE"] = ""
-os.environ["SKEIN_GITHUB_TOKEN"] = ""
-os.environ["SKEIN_GITHUB_RECOVERY"] = "0"
-os.environ["SKEIN_GITHUB_API_URL"] = "https://api.github.com"
 # Same reason again, and this one bites only in the evening: with the
 # deployment's zone in force, db.today() and db.now()[:10] are the same string
 # west of UTC only until 20:00 local. A suite that reads the developer's zone

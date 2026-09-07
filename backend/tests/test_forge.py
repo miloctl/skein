@@ -806,3 +806,76 @@ def test_a_delivery_applies_once_and_a_failed_apply_keeps_no_receipt(signed, fre
     )
     retried = signed("push", _push(f"task/{tid}-y"), **{"X-Gitea-Delivery": "d-2"}).json()
     assert retried != {"ignored": "this delivery was already applied"}
+
+
+def test_delivery_ids_are_namespaced_by_gitea_repository(signed, fresh_db):
+    from app.services import work
+
+    first = work.create_task("First repository")
+    second = work.create_task("Second repository")
+    for task, repository in ((first, "first"), (second, "second")):
+        payload = _push(f"task/{task['id']}-fixture")
+        payload["repository"]["html_url"] = f"https://git.example/{repository}"
+        response = signed("push", payload, **{"X-Gitea-Delivery": "shared-delivery"})
+        assert response.json()["status"] == "in_progress"
+    receipts = fresh_db.query("SELECT namespace, provider FROM forge_receipts")
+    assert len({row["namespace"] for row in receipts}) == 2
+    assert {row["provider"] for row in receipts} == {"gitea"}
+
+
+@pytest.mark.parametrize("event", ["push", "pull_request"])
+def test_delivery_id_reuse_with_changed_payload_or_event_is_refused(signed, fresh_db, event):
+    from app.services import work
+
+    task = work.create_task("Payload-bound receipt")
+    branch = f"task/{task['id']}-fixture"
+    original = _push(branch)
+    assert signed("push", original, **{"X-Gitea-Delivery": "bound-delivery"}).status_code == 200
+    work.update_task(task["id"], status="todo", actor="mira")
+    payload = _push(branch + "-changed") if event == "push" else _pr(branch)
+    payload["repository"] = original["repository"]
+    response = signed(event, payload, **{"X-Gitea-Delivery": "bound-delivery"})
+    assert response.status_code == 400
+    assert (
+        fresh_db.query_row("SELECT status FROM tasks WHERE id = ?", (task["id"],))["status"]
+        == "todo"
+    )
+    assert fresh_db.query_row("SELECT COUNT(*) AS n FROM forge_receipts")["n"] == 1
+
+
+def test_gitea_aliases_without_native_event_header_are_refused(client, signed, fresh_db):
+    from app.services import work
+
+    task = work.create_task("Require the native event header")
+    body = json.dumps(_push(f"task/{task['id']}-fixture")).encode()
+    response = client.post(
+        "/api/webhooks/forge",
+        content=body,
+        headers={
+            "X-GitHub-Event": "push",
+            "X-GitHub-Delivery": "alias-only",
+            "X-Hub-Signature-256": "sha256=" + hmac.new(SECRET.encode(), body, sha256).hexdigest(),
+        },
+    )
+    assert response.status_code == 400
+    assert (
+        fresh_db.query_row("SELECT status FROM tasks WHERE id = ?", (task["id"],))["status"]
+        == "todo"
+    )
+    assert not fresh_db.query("SELECT * FROM forge_receipts")
+
+
+def test_legacy_job_receipt_still_suppresses_delivery(signed, fresh_db):
+    from app.services import work
+
+    task = work.create_task("Keep the legacy delivery receipt")
+    assert fresh_db.claim_job("forge-delivery", "legacy-delivery")
+    response = signed(
+        "push", _push(f"task/{task['id']}-fixture"), **{"X-Gitea-Delivery": "legacy-delivery"}
+    )
+    assert response.json() == {"ignored": "this delivery was already applied"}
+    assert (
+        fresh_db.query_row("SELECT status FROM tasks WHERE id = ?", (task["id"],))["status"]
+        == "todo"
+    )
+    assert not fresh_db.query("SELECT * FROM forge_receipts")
