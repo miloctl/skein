@@ -729,7 +729,60 @@ class Harness:
         responses = [future.result(timeout=25) for future in attempts]
         assert all(response[0] == 200 for response in responses), responses
         self.assert_delivery(task, packet)
-        return {"responses": [response[1] for response in responses], "task_id": task}
+        self.api(
+            "b",
+            f"/api/tasks/{task}",
+            method="PATCH",
+            payload={"status": "todo", "title": "Human reset after signed delivery"},
+        )
+        reset = self.api("a", f"/api/tasks/{task}")[1]
+        assert reset["status"] == "todo" and reset["title"] == "Human reset after signed delivery"
+        replay = self.delivery(task)
+        assert (
+            replay[0] == packet[0]
+            and replay[1]["X-Gitea-Delivery"] != packet[1]["X-Gitea-Delivery"]
+        )
+        response = self.send_delivery("a", replay)
+        assert response[0] == 200 and response[1] == {
+            "ignored": "this delivery was already applied"
+        }, response
+        assert self.api("b", f"/api/tasks/{task}")[1] == reset
+        updates = self.sql(
+            f"SELECT COUNT(*) AS n FROM activity WHERE detail LIKE '#{task} %' AND action='update_task' AND actor='forge'"
+        )[0]["n"]
+        assert updates == 1
+        digest = hashlib.sha256(packet[0]).hexdigest()
+        receipts = self.sql(
+            f"SELECT delivery_id, task_id FROM forge_receipts WHERE provider='gitea' AND event='push' AND payload_sha256='{digest}' ORDER BY delivery_id"
+        )
+        assert receipts == sorted(
+            [
+                {"delivery_id": packet[1]["X-Gitea-Delivery"], "task_id": task},
+                {"delivery_id": replay[1]["X-Gitea-Delivery"], "task_id": None},
+            ],
+            key=lambda row: row["delivery_id"],
+        ), receipts
+        changed = self.delivery(task, "next-push")
+        assert changed[0] != packet[0]
+        response = self.send_delivery("b", changed)
+        assert response[0] == 200 and response[1]["status"] == "in_progress", response
+        updated = self.api("a", f"/api/tasks/{task}")[1]
+        assert updated["status"] == "in_progress"
+        assert updated["forge_url"] == (
+            f"https://gitea.example/durability/proof/src/branch/task/{task}-next-push"
+        )
+        changed_updates = self.sql(
+            f"SELECT COUNT(*) AS n FROM activity WHERE detail LIKE '#{task} %' AND action='update_task' AND actor='forge'"
+        )[0]["n"]
+        assert changed_updates == 2
+        return {
+            "responses": [response[1] for response in responses],
+            "task_id": task,
+            "replay_receipts": len(receipts),
+            "forge_updates_after_replay": updates,
+            "forge_updates_after_changed_push": changed_updates,
+            "human_edit_preserved": True,
+        }
 
     def commit_before_ack(self):
         task = self.task("committed before lost acknowledgement")

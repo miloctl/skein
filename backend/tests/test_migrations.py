@@ -49,6 +49,50 @@ def test_extension_review_status_accepts_unknown_completion(fresh_db):
     )
 
 
+def test_forge_fingerprint_index_upgrade_keeps_duplicate_receipts_and_activity(scratch_db):
+    import hashlib
+    import json
+
+    from app.main import create_app
+    from app.services import activity, forge, work
+
+    registry = create_app().state.skein_registry
+    task = work.create_task("Existing forge fingerprint")
+    payload = {"ref": f"refs/heads/task/{task['id']}-upgrade"}
+    digest = hashlib.sha256(json.dumps(payload).encode()).hexdigest()
+    forge.apply_delivery(registry, "push", payload, "original", digest)
+    fresh_index = scratch_db.query_row(
+        "SELECT indexdef FROM pg_indexes WHERE indexname = 'forge_receipts_fingerprint'"
+    )
+    scratch_db.execute("DROP INDEX forge_receipts_fingerprint")
+    scratch_db.execute(
+        "DELETE FROM schema_version WHERE version = '029_forge_payload_fingerprint.sql'"
+    )
+    # Before fingerprint suppression, another UUID at the target status wrote
+    # this NULL-task receipt. Derive its stored values from a real delivery.
+    scratch_db.execute(
+        "INSERT INTO forge_receipts (namespace, delivery_id, provider, event, payload_sha256, created_at)"
+        " SELECT namespace, 'older-redelivery', provider, event, payload_sha256, created_at"
+        " FROM forge_receipts WHERE delivery_id = 'original'"
+    )
+    receipts = scratch_db.query("SELECT * FROM forge_receipts ORDER BY delivery_id")
+    ledger = scratch_db.query("SELECT * FROM activity ORDER BY seq")
+    scratch_db.init_db()
+    assert scratch_db.query("SELECT * FROM forge_receipts ORDER BY delivery_id") == receipts
+    assert scratch_db.query("SELECT * FROM activity ORDER BY seq") == ledger
+    assert activity.verify_chain()["ok"]
+    assert (
+        scratch_db.query_row(
+            "SELECT indexdef FROM pg_indexes WHERE indexname = 'forge_receipts_fingerprint'"
+        )
+        == fresh_index
+    )
+    assert forge.apply_delivery(registry, "push", payload, "new-alias", digest) == {
+        "ignored": "this delivery was already applied"
+    }
+    assert len(scratch_db.query("SELECT * FROM forge_receipts")) == 3
+
+
 def test_pending_migrations_empty_after_init(scratch_db):
     assert scratch_db.pending_migrations() == []
     scratch_db.execute("DELETE FROM schema_version WHERE version = ?", (BASELINE,))

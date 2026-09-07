@@ -6,6 +6,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -150,6 +151,38 @@ def test_gitea_drill_packet_commits_one_generic_receipt(
         )["n"]
         == 1
     )
+
+
+def test_signed_delivery_drill_preserves_human_edit_on_native_redelivery(
+    client, fresh_db, monkeypatch
+):
+    from app import config
+
+    driver = harness.Harness.__new__(harness.Harness)
+    driver.secret = "isolated-gitea-signature"
+    monkeypatch.setattr(config, "FORGE_WEBHOOK_SECRET", driver.secret)
+
+    def api(pod, path, *, method="GET", payload=None):
+        response = client.request(method, path, json=payload)
+        assert response.status_code == 200, response.text
+        return response.status_code, response.json(), response.headers
+
+    def send_delivery(pod, packet):
+        response = client.post("/api/webhooks/forge", content=packet[0], headers=packet[1])
+        return response.status_code, response.json(), response.headers
+
+    monkeypatch.setattr(driver, "api", api)
+    monkeypatch.setattr(driver, "send_delivery", send_delivery)
+    monkeypatch.setattr(driver, "sql", fresh_db.query)
+    with ThreadPoolExecutor(max_workers=2) as driver.pool:
+        result = driver.signed_delivery_dedupe()
+    assert result["replay_receipts"] == 2
+    assert result["forge_updates_after_replay"] == 1
+    assert result["forge_updates_after_changed_push"] == 2
+    assert result["human_edit_preserved"] is True
+    assert sum("status" in response for response in result["responses"]) == 1
+    assert sum("ignored" in response for response in result["responses"]) == 1
+    assert len(harness.DRILLS) == 16
 
 
 def test_storage_oracle_requires_actual_filesystem_failure(monkeypatch):
