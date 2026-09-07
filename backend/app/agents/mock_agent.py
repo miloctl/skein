@@ -4,8 +4,12 @@ a real Strands Agent. Slash commands come from the shared commands engine
 smart-captured — no model, no keys, fully testable."""
 
 import json
+from typing import TYPE_CHECKING
 
 from starlette.concurrency import run_in_threadpool
+
+if TYPE_CHECKING:
+    from strands.types.content import ContentBlock
 
 from .. import ratelimit
 from ..services import capture
@@ -27,7 +31,14 @@ class MockAgent:
         self.persona = persona
         self.capture_freeform = capture_freeform
 
-    async def stream_async(self, message: str):
+    async def stream_async(self, message: str | list["ContentBlock"]):
+        if isinstance(message, list):
+            # routes/chat.py::_attachment_prompt puts the user's text LAST, even
+            # when empty. Joining or falling back to earlier blocks turns file
+            # content into commands and capture writes.
+            if len(message) > 1:
+                yield {"data": "No model is configured to read attached files.\n\n"}
+            message = message[-1].get("text", "") if message else ""
         text = message.strip()
         if text.lower() in ("help", ""):
             text = "/help"
@@ -116,7 +127,7 @@ class MockAgent:
             receipts.record("failed", capture.classify(text), str(exc))
             yield {"data": str(exc)}
 
-    def __call__(self, message: str) -> str:
+    def __call__(self, message: str | list["ContentBlock"]) -> str:
         import asyncio
 
         chunks = []
