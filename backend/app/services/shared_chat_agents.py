@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from .. import config, db
 from ..extensions.policy import PolicyEngine
-from . import scope, usage
+from . import leases, scope, usage
 
 if TYPE_CHECKING:
     from ..extensions import ExtensionRegistry
@@ -241,9 +241,10 @@ def claim_next() -> dict | None:
             now = db.now()
             return db.query_row(
                 "UPDATE chat_agent_runs SET status = 'running', started_at = ?,"
-                " finished_at = NULL, execution_active = TRUE, error_code = ''"
+                " finished_at = NULL, execution_active = TRUE, error_code = '',"
+                " lease_owner = ?, lease_until = ?"
                 " WHERE turn_id = ? AND status = 'pending' RETURNING *",
-                (now, row["turn_id"]),
+                (now, leases.PROCESS_ID, leases.until(), row["turn_id"]),
             )
     return None
 
@@ -291,10 +292,14 @@ def _settle(
             return
         chat_threads._lock_shared(str(run["thread_id"]))
         current = db.query_one(
-            "SELECT status FROM chat_agent_runs WHERE turn_id = ? FOR UPDATE",
+            "SELECT status, lease_owner FROM chat_agent_runs WHERE turn_id = ? FOR UPDATE",
             (turn_id,),
         )
-        if not current or current["status"] != "running":
+        if (
+            not current
+            or current["status"] != "running"
+            or current["lease_owner"] != leases.PROCESS_ID
+        ):
             return
         response_message_id = None
         if receipt_rows:
@@ -318,9 +323,13 @@ def _settle(
                 "UPDATE chat_threads SET updated_at = ? WHERE id = ?",
                 (message_time, run["thread_id"]),
             )
+        # A kept execution keeps its lease: the thread still owns the model
+        # session, and renewal is what stops the sweep from freeing it.
         db.execute(
             "UPDATE chat_agent_runs SET status = ?, response_message_id = ?,"
-            " finished_at = ?, execution_active = ?, error_code = ?"
+            " finished_at = ?, execution_active = ?, error_code = ?,"
+            " lease_owner = CASE WHEN ? THEN lease_owner ELSE '' END,"
+            " lease_until = CASE WHEN ? THEN lease_until ELSE '' END"
             " WHERE turn_id = ? AND status = 'running'",
             (
                 status,
@@ -328,6 +337,8 @@ def _settle(
                 db.now(),
                 keep_execution,
                 error_code,
+                keep_execution,
+                keep_execution,
                 turn_id,
             ),
         )
@@ -335,9 +346,15 @@ def _settle(
 
 def _release_execution(turn_id: str) -> None:
     with db.transaction():
+        # The turn thread releases the model session BEFORE the worker
+        # settles the row, so the lease stays until settle. A kept execution
+        # settles first and releases last, and that release ends the lease.
         db.execute(
-            "UPDATE chat_agent_runs SET execution_active = FALSE WHERE turn_id = ?",
-            (turn_id,),
+            "UPDATE chat_agent_runs SET execution_active = FALSE,"
+            " lease_owner = CASE WHEN status = 'running' THEN lease_owner ELSE '' END,"
+            " lease_until = CASE WHEN status = 'running' THEN lease_until ELSE '' END"
+            " WHERE turn_id = ? AND lease_owner = ?",
+            (turn_id, leases.PROCESS_ID),
         )
 
 
@@ -657,13 +674,15 @@ def _persist_late_failure(run: dict, receipt_rows: list[dict]) -> None:
     with db.transaction():
         chat_threads._lock_shared(str(run["thread_id"]))
         current = db.query_one(
-            "SELECT status, response_message_id FROM chat_agent_runs WHERE turn_id = ? FOR UPDATE",
+            "SELECT status, response_message_id, lease_owner FROM chat_agent_runs"
+            " WHERE turn_id = ? FOR UPDATE",
             (run["turn_id"],),
         )
         if (
             not current
             or current["status"] not in ("running", "completion_unknown")
             or current["response_message_id"]
+            or current["lease_owner"] != leases.PROCESS_ID
         ):
             return
         now = db.now()
@@ -684,7 +703,7 @@ def _persist_late_failure(run: dict, receipt_rows: list[dict]) -> None:
         db.execute(
             "UPDATE chat_agent_runs SET status = 'completion_unknown',"
             " response_message_id = ?, finished_at = ?, execution_active = FALSE,"
-            " error_code = 'turn_failed' WHERE turn_id = ?",
+            " error_code = 'turn_failed', lease_owner = '', lease_until = '' WHERE turn_id = ?",
             (message_id, now, run["turn_id"]),
         )
         db.execute(
@@ -706,13 +725,15 @@ def _finish_success(run: dict, reply: str, receipt_rows: list[dict]) -> None:
     with db.transaction():
         chat_threads._lock_shared(str(run["thread_id"]))
         current = db.query_one(
-            "SELECT status, response_message_id FROM chat_agent_runs WHERE turn_id = ? FOR UPDATE",
+            "SELECT status, response_message_id, lease_owner FROM chat_agent_runs"
+            " WHERE turn_id = ? FOR UPDATE",
             (run["turn_id"],),
         )
         if (
             not current
             or current["status"] not in ("running", "completion_unknown")
             or current["response_message_id"]
+            or current["lease_owner"] != leases.PROCESS_ID
         ):
             return
         now = db.now()
@@ -732,7 +753,8 @@ def _finish_success(run: dict, reply: str, receipt_rows: list[dict]) -> None:
         )
         db.execute(
             "UPDATE chat_agent_runs SET status = 'completed', response_message_id = ?,"
-            " finished_at = ?, execution_active = FALSE, error_code = '' WHERE turn_id = ?",
+            " finished_at = ?, execution_active = FALSE, error_code = '',"
+            " lease_owner = '', lease_until = '' WHERE turn_id = ?",
             (message_id, now, run["turn_id"]),
         )
         db.execute(
@@ -956,19 +978,25 @@ def kick() -> bool:
     return True
 
 
-def recover_startup() -> int:
+def reclaim_expired() -> int:
+    """A running row or held execution whose lease lapsed has no live holder."""
     with db.transaction():
+        now = db.now()
         recovered = db.execute_rowcount(
             "UPDATE chat_agent_runs SET status = 'completion_unknown', finished_at = ?,"
-            " execution_active = FALSE, error_code = 'process_restarted' WHERE status = 'running'",
-            (db.now(),),
+            " execution_active = FALSE, error_code = 'lease_expired',"
+            " lease_owner = '', lease_until = ''"
+            " WHERE status = 'running' AND lease_until <= ?",
+            (now, now),
         )
         return recovered + db.execute_rowcount(
-            "UPDATE chat_agent_runs SET execution_active = FALSE WHERE execution_active = TRUE",
+            "UPDATE chat_agent_runs SET execution_active = FALSE, lease_owner = '',"
+            " lease_until = '' WHERE execution_active = TRUE AND lease_until <= ?",
+            (now,),
         )
 
 
 def recover_and_kick() -> dict:
-    recovered = recover_startup()
+    recovered = reclaim_expired()
     started = kick() if _has_pending() else False
     return {"recovered": recovered, "started": started}

@@ -8,6 +8,7 @@ import threading
 from typing import TYPE_CHECKING
 
 from .. import config, db
+from . import leases
 
 if TYPE_CHECKING:
     from ..extensions import ExtensionRegistry
@@ -131,9 +132,10 @@ def claim_next() -> dict | None:
         now = db.now()
         return db.query_row(
             "UPDATE agent_wakeups SET status = 'running', started_at = ?,"
-            " finished_at = NULL, attempts = ?, thread_id = ?, reason = ''"
+            " finished_at = NULL, attempts = ?, thread_id = ?, reason = '',"
+            " lease_owner = ?, lease_until = ?"
             " WHERE agent = ? AND status = 'pending' RETURNING *",
-            (now, attempt, thread_id, row["agent"]),
+            (now, attempt, thread_id, leases.PROCESS_ID, leases.until(), row["agent"]),
         )
 
 
@@ -155,7 +157,8 @@ def _reason_code(result: dict) -> str:
 
 
 def finish(claim: dict, result: dict) -> None:
-    """Settle one claimed row. The attempt guard rejects a stale finisher."""
+    """Settle one claimed row. A stale finisher, or one whose lease another
+    process reclaimed, writes nothing."""
     agent = str(claim["agent"])
     attempt = int(claim["attempts"])
     with db.transaction():
@@ -163,9 +166,18 @@ def finish(claim: dict, result: dict) -> None:
             "SELECT * FROM agent_wakeups WHERE agent = ? FOR UPDATE",
             (agent,),
         )
-        if not row or row["status"] != "running" or int(row["attempts"]) != attempt:
+        if (
+            not row
+            or row["status"] != "running"
+            or int(row["attempts"]) != attempt
+            or row["lease_owner"] != leases.PROCESS_ID
+        ):
             return
         now = db.now()
+        db.execute(
+            "UPDATE agent_wakeups SET lease_owner = '', lease_until = '' WHERE agent = ?",
+            (agent,),
+        )
         if result.get("ran"):
             if row["rerun_requested"]:
                 db.execute(
@@ -219,27 +231,28 @@ def finish(claim: dict, result: dict) -> None:
         )
 
 
-def recover_startup() -> int:
-    """A prior process cannot still own a running row after startup.
+def reclaim_expired() -> int:
+    """A running row whose lease lapsed has no live holder.
 
     A row with rerun_requested carries a delegation that arrived DURING the
-    crashed turn — a distinct explicit human request that never got its turn.
+    lost turn — a distinct explicit human request that never got its turn.
     Re-pending it is not a retry of the uncertain turn, so it goes back to
-    pending instead of dying with the crash."""
+    pending instead of dying with the lease."""
     with db.transaction():
         now = db.now()
         recovered = db.execute_rowcount(
             "UPDATE agent_wakeups SET status = 'pending', requested_at = ?,"
             " started_at = NULL, finished_at = NULL, rerun_requested = 0,"
-            " thread_id = '', reason = ''"
-            " WHERE status = 'running' AND rerun_requested = 1",
-            (now,),
+            " thread_id = '', reason = '', lease_owner = '', lease_until = ''"
+            " WHERE status = 'running' AND rerun_requested = 1 AND lease_until <= ?",
+            (now, now),
         )
         return recovered + db.execute_rowcount(
             "UPDATE agent_wakeups SET status = 'completion_unknown',"
-            " finished_at = ?, rerun_requested = 0, reason = 'process_restarted'"
-            " WHERE status = 'running'",
-            (now,),
+            " finished_at = ?, rerun_requested = 0, reason = 'lease_expired',"
+            " lease_owner = '', lease_until = ''"
+            " WHERE status = 'running' AND lease_until <= ?",
+            (now, now),
         )
 
 
@@ -386,6 +399,6 @@ def kick() -> bool:
 
 
 def recover_and_kick() -> dict:
-    recovered = recover_startup()
+    recovered = reclaim_expired()
     started = kick() if _has_pending() else False
     return {"recovered": recovered, "started": started}

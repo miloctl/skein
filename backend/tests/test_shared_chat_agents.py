@@ -206,14 +206,14 @@ def test_agent_run_status_is_private_and_startup_never_retries_unknown_work(clie
             " finished_at = NULL, response_message_id = NULL WHERE turn_id = ?",
             (db.now(), trigger["turn_id"]),
         )
-    assert shared_chat_agents.recover_startup() == 1
+    assert shared_chat_agents.reclaim_expired() == 1
     recovered = db.query_row(
         "SELECT status, error_code FROM chat_agent_runs WHERE turn_id = ?",
         (trigger["turn_id"],),
     )
     assert recovered == {
         "status": "completion_unknown",
-        "error_code": "process_restarted",
+        "error_code": "lease_expired",
     }
     shared_chat_agents.kick()
     time.sleep(0.05)
@@ -229,7 +229,7 @@ def test_agent_run_status_is_private_and_startup_never_retries_unknown_work(clie
             "UPDATE chat_agent_runs SET execution_active = TRUE WHERE turn_id = ?",
             (trigger["turn_id"],),
         )
-    assert shared_chat_agents.recover_startup() == 1
+    assert shared_chat_agents.reclaim_expired() == 1
     assert (
         db.query_row(
             "SELECT execution_active FROM chat_agent_runs WHERE turn_id = ?",
@@ -2010,3 +2010,77 @@ def test_drain_retries_a_transient_coordinator_failure(client, monkeypatch):
     assert retried.wait(2)
     assert shared_chat_agents.wait_for_idle(2)
     assert calls >= 2
+
+
+def _held_run(room: dict, agent: str, message: dict, owner: str, lease_until: str) -> None:
+    with db.transaction():
+        db.execute(
+            "INSERT INTO chat_agent_runs"
+            " (turn_id, batch_id, thread_id, trigger_message_id, agent, requested_by,"
+            " requester_subject, status, execution_active, requested_at, started_at,"
+            " lease_owner, lease_until)"
+            " VALUES ('held-lease', 'held-lease', ?, ?, ?, 'mira', '{}', 'running', TRUE,"
+            " ?, ?, ?, ?)",
+            (room["id"], message["id"], agent, db.now(), db.now(), owner, lease_until),
+        )
+
+
+def _held_state() -> dict:
+    return db.query_row(
+        "SELECT status, execution_active, lease_owner, error_code FROM chat_agent_runs"
+        " WHERE turn_id = 'held-lease'"
+    )
+
+
+def test_another_process_lease_is_neither_reclaimed_nor_settled(client):
+    from app.services import leases, shared_chat_agents
+
+    agent = sorted(personas.bench_slugs())[0]
+    room, mira = create_room(client)
+    add_agent(client, room["id"], mira, agent)
+    message = post_message(client, room["id"], mira, "held", "held")
+    _held_run(room, agent, message, "other-process", leases.until())
+
+    assert shared_chat_agents.reclaim_expired() == 0
+    shared_chat_agents._settle("held-lease", "completed")
+    shared_chat_agents._release_execution("held-lease")
+    assert _held_state() == {
+        "status": "running",
+        "execution_active": True,
+        "lease_owner": "other-process",
+        "error_code": "",
+    }
+
+    with db.transaction():
+        db.execute("UPDATE chat_agent_runs SET lease_until = '' WHERE turn_id = 'held-lease'")
+    assert shared_chat_agents.reclaim_expired() == 1
+    assert _held_state() == {
+        "status": "completion_unknown",
+        "execution_active": False,
+        "lease_owner": "",
+        "error_code": "lease_expired",
+    }
+
+
+def test_a_kept_execution_keeps_its_lease_until_released(client):
+    from app.services import leases, shared_chat_agents
+
+    agent = sorted(personas.bench_slugs())[0]
+    room, mira = create_room(client)
+    add_agent(client, room["id"], mira, agent)
+    message = post_message(client, room["id"], mira, "held", "held")
+    _held_run(room, agent, message, leases.PROCESS_ID, leases.until())
+
+    shared_chat_agents._settle(
+        "held-lease", "completion_unknown", "turn_timeout", keep_execution=True
+    )
+    assert _held_state() == {
+        "status": "completion_unknown",
+        "execution_active": True,
+        "lease_owner": leases.PROCESS_ID,
+        "error_code": "turn_timeout",
+    }
+    assert shared_chat_agents.reclaim_expired() == 0
+    shared_chat_agents._release_execution("held-lease")
+    assert _held_state()["execution_active"] is False
+    assert _held_state()["lease_owner"] == ""
