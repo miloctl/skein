@@ -47,7 +47,37 @@ Approved images and packages enter through the organization's deployment
 process. Running Skein needs no GitHub token, webhook, or recovery polling.
 
 Existing Gitea and authenticated CI behavior remain available without adding
-a new integration. Generic delivery receipts prevent repeated application of
-an accepted delivery. They cannot recover a request that never reached Skein.
+a new integration. Neither can recover a request that never reached Skein.
 Any future source-specific catch-up needs a demonstrated workflow need and an
 approved network path. Do not promise recovery where neither exists.
+
+## Signed Gitea replay boundary
+
+A fingerprint combines the repository namespace, native event type, and exact
+raw payload SHA-256. A stored fingerprint suppresses replay regardless of
+the delivery UUID, including after a human task edit. This also covers mapped
+events that produced an ignored outcome. A new UUID receives an alias receipt
+with `task_id = NULL`, because it performed no task transition. Original and
+alias UUIDs remain bound to their event type and bytes within the repository
+namespace. Reuse with different bytes or an event type, including an unsupported
+event, is refused.
+
+When signed bytes are identical, Skein cannot distinguish a replay from a
+genuinely new occurrence. Skein conservatively suppresses both within the same
+repository namespace and native event type. Changed bytes remain eligible for
+existing policy and task-state checks, even when the branch, commit pair, pull
+request, or target state is unchanged. JSON formatting and metadata are part
+of those bytes. This is scoped signed-byte replay protection, not a semantic
+event identity or an unconditional exactly-once guarantee.
+
+Receipts and task changes commit together. A failed transaction creates no new
+receipt and leaves the request eligible for retry. Receipts remain permanent,
+including alias receipts, because pruning them permits old events to overwrite
+later human edits. Unsupported or unmapped new events create no receipt.
+
+A request without a delivery UUID creates no receipt. An existing native
+fingerprint still suppresses an exact request sent without that header. An
+initial headerless request leaves no fingerprint history. Pre-028 legacy
+receipts preserve suppression for their original delivery IDs but contain no
+reconstructible fingerprint. Neither case guarantees suppression of a later
+replay under a new UUID.

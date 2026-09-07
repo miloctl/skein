@@ -53,7 +53,7 @@ KEPT = {
     "pending_changes": "review provenance beside the ledger",
     "extension_review_invocations": "execution outcome of a reviewed remote write",
     "extension_command_receipts": "extension write receipts: provenance",
-    "forge_receipts": "permanent namespaced replay suppression, including after manual task edits",
+    "forge_receipts": "permanent repository/event/raw-payload fingerprints and delivery-ID bindings: pruning re-enables replay after human edits",
     "memories": "owner-forgettable (memory.forget), never age-pruned",
     "search_index": _DERIVED,
     "embeddings": _DERIVED,

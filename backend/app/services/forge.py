@@ -221,8 +221,6 @@ def apply_delivery(
     repository = _str(_dict(payload.get("repository")).get("html_url"))
     namespace = _namespace("gitea", repository.lower())
     mapped = parse_gitea(event, payload)
-    if mapped is None:
-        return {"ignored": "only push and pull_request events move work"}
     with db.transaction():
         # Receipt locks precede resource locks on every forge path. An insert
         # outside this transaction can lose an event before its task commits.
@@ -244,32 +242,50 @@ def apply_delivery(
                 "SELECT 1 FROM job_runs WHERE job = 'forge-delivery' AND run_key = ?", (delivery,)
             ):
                 return {"ignored": "this delivery was already applied"}
-        task_id = match_task(
-            mapped.get("branch", ""), mapped.get("title", ""), mapped.get("body", "")
-        )
-        if task_id:
-            hold_resource("task", task_id)
-            domain = {**existing("task", task_id), "repository": repository, "provider": "gitea"}
-            enforce_decision(
-                registry.policy_engine.decide(
-                    PolicyInput(
-                        registry.service_subject("forge"),
-                        "skein.integration.forge",
-                        PolicyResource(
-                            "task",
-                            str(task_id),
-                            str(domain.get("project_type") or ""),
-                            str(domain.get("classification") or ""),
-                            domain,
-                        ),
-                        "forge",
-                        tool="forge.webhook",
-                        tool_effect="write",
-                        tool_risk="high",
+        if mapped is None:
+            return {"ignored": "only push and pull_request events move work"}
+        # Gitea redelivery changes the UUID, not the signed bytes. The bigint
+        # lock space cannot collide with db.name_lock's two-int keys: nesting
+        # another name_lock here can invert receipt/task lock order on a hash collision.
+        fingerprint = _namespace(namespace, event, body_digest)
+        lock_key = int.from_bytes(bytes.fromhex(fingerprint)[:8], signed=True)
+        db.query("SELECT pg_advisory_xact_lock(?::bigint)", (lock_key,))
+        if db.query_one(
+            "SELECT 1 FROM forge_receipts WHERE namespace = ? AND event = ? AND payload_sha256 = ? LIMIT 1",
+            (namespace, event, body_digest),
+        ):
+            result = {"ignored": "this delivery was already applied"}
+        else:
+            task_id = match_task(
+                mapped.get("branch", ""), mapped.get("title", ""), mapped.get("body", "")
+            )
+            if task_id:
+                hold_resource("task", task_id)
+                domain = {
+                    **existing("task", task_id),
+                    "repository": repository,
+                    "provider": "gitea",
+                }
+                enforce_decision(
+                    registry.policy_engine.decide(
+                        PolicyInput(
+                            registry.service_subject("forge"),
+                            "skein.integration.forge",
+                            PolicyResource(
+                                "task",
+                                str(task_id),
+                                str(domain.get("project_type") or ""),
+                                str(domain.get("classification") or ""),
+                                domain,
+                            ),
+                            "forge",
+                            tool="forge.webhook",
+                            tool_effect="write",
+                            tool_risk="high",
+                        )
                     )
                 )
-            )
-        result = forge_event(**mapped, actor="forge")
+            result = forge_event(**mapped, actor="forge")
         if delivery:
             db.execute(
                 "INSERT INTO forge_receipts (namespace, delivery_id, provider, event, payload_sha256, task_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
