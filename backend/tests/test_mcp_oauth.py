@@ -134,7 +134,6 @@ def sealed(monkeypatch):
     FakeClient.seen.clear()
     mcp_tools.shutdown_mcp()
     mcp_oauth._pending.clear()
-    mcp_oauth._signin_required.clear()
     yield
     mcp_tools.shutdown_mcp()
 
@@ -213,9 +212,11 @@ def test_a_turn_never_waits_on_a_sign_in(fresh_db, sealed):
     """A stored grant the server no longer accepts: the provider asks for a
     redirect, and a connect with no flow refuses at once and marks the row."""
     from app.agents import mcp_oauth
+    from app.services import mcp_servers
 
+    row = mcp_servers.add("ava", "jira", "https://jira.example/mcp", auth="oauth", actor="ava")
     server = {
-        "id": 1,
+        "id": row["id"],
         "server_id": "personal:ava:jira",
         "url": "https://jira.example/mcp",
         "oauth_redirect_uri": "https://skein.example/api/mcp/oauth/callback",
@@ -225,7 +226,41 @@ def test_a_turn_never_waits_on_a_sign_in(fresh_db, sealed):
     with pytest.raises(RuntimeError):
         asyncio.run(provider.context.redirect_handler("https://idp.example/a?state=s"))
     assert time.monotonic() - started < 1
-    assert mcp_oauth.needs_sign_in("personal:ava:jira") is True
+    assert mcp_servers.list_for("ava")[0]["oauth_signin_required"] is True
+
+
+def test_the_callback_can_land_on_another_process(fresh_db, sealed, monkeypatch):
+    """The code returns to whichever process serves the callback. The waiting
+    connect reads it from the flow row, not from this process's memory."""
+    import threading
+
+    from app import db
+    from app.agents import mcp_oauth
+
+    flow = mcp_oauth._Flow("personal:ava:jira")
+    provider = mcp_oauth.provider(
+        {
+            "id": 1,
+            "server_id": "personal:ava:jira",
+            "url": "https://jira.example/mcp",
+            "oauth_redirect_uri": "https://skein.example/cb",
+            "flow": flow,
+        }
+    )
+    asyncio.run(provider.context.redirect_handler("https://idp.example/a?state=afar"))
+    assert db.query_one("SELECT 1 FROM mcp_oauth_flows WHERE state = 'afar'")
+    box: dict = {}
+    waiter = threading.Thread(
+        target=lambda: box.update(got=asyncio.run(provider.context.callback_handler()))
+    )
+    waiter.start()
+    # the other process has no local flow for this state
+    monkeypatch.setattr(mcp_oauth, "_pending", {})
+    assert mcp_oauth.complete("afar", "code-7") is True
+    waiter.join(5)
+    assert box["got"] == ("code-7", "afar")
+    assert db.query_one("SELECT 1 FROM mcp_oauth_flows WHERE state = 'afar'") is None
+    assert mcp_oauth.complete("afar", "late") is False
 
 
 def test_an_abandoned_sign_in_times_out_and_is_forgotten(fresh_db, sealed, monkeypatch):

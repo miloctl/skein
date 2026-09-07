@@ -77,6 +77,7 @@ def _public(row: dict) -> dict:
         "auth": row["auth"],
         "has_token": row["auth_token_sealed"] is not None,
         "signed_in": row["oauth_tokens_sealed"] is not None,
+        "oauth_signin_required": bool(row["oauth_signin_required"]),
         "server_id": server_id(row["owner"], row["name"]),
         "created_at": row["created_at"],
     }
@@ -140,6 +141,7 @@ def add(
             "auth": auth,
             "auth_token_sealed": sealed,
             "oauth_tokens_sealed": None,
+            "oauth_signin_required": False,
             "created_at": now,
         }
     )

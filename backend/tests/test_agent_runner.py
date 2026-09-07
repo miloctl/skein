@@ -363,10 +363,8 @@ def test_a_second_concurrent_turn_for_one_agent_refuses(fresh_db, monkeypatch):
     _delegated("research-agent")
     monkeypatch.setattr(config, "AGENT_RUNNER", [])
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
-    import threading
-
-    held = agent_runner._TURN_LOCKS.setdefault("research-agent", threading.Lock())
-    held.acquire()
+    # the claim another process would hold for a turn in flight
+    assert db.claim_job("agent-turn:research-agent", "turn", lease_seconds=60)
     try:
         out = agent_runner.run_one(
             "research-agent",
@@ -374,7 +372,7 @@ def test_a_second_concurrent_turn_for_one_agent_refuses(fresh_db, monkeypatch):
             allowed_tools={"my_agent_inbox"},
         )
     finally:
-        held.release()
+        db.release_job("agent-turn:research-agent", "turn")
     assert out["ran"] is False
     assert "already running" in out["reason"]
     # the claim went back with the refusal, so the same wake key still works
@@ -418,14 +416,60 @@ def test_timeout_keeps_the_turn_lock_until_the_abandoned_thread_ends(fresh_db, m
         allowed_tools={"my_agent_inbox"},
     )
     assert out["completion_unknown"] is True
-    lock = agent_runner._TURN_LOCKS["research-agent"]
-    assert lock.locked()  # the abandoned thread still owns the turn
+
+    def held() -> bool:
+        return (
+            db.query_one("SELECT 1 FROM job_runs WHERE job = 'agent-turn:research-agent'")
+            is not None
+        )
+
+    assert held()  # the abandoned thread still owns the turn
 
     gate.set()
     deadline = time.monotonic() + 5
-    while lock.locked() and time.monotonic() < deadline:
+    while held() and time.monotonic() < deadline:
         time.sleep(0.01)
-    assert not lock.locked()
+    assert not held()
+
+
+def test_a_pause_from_another_process_cancels_a_running_turn(fresh_db, monkeypatch):
+    """automation_paused reaches only this process's agents. The runner polls
+    the pause row while its turn runs, so a pause served elsewhere still stops it."""
+    import threading
+    import time
+
+    from app.services import settings
+
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", [])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "AGENT_RUN_SECONDS", 10)
+    gate = threading.Event()
+    cancelled = []
+
+    class Turn:
+        def __call__(self, _message, **_kw):
+            gate.wait(5)
+            return "stopped"
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", lambda *_a, **_k: Turn())
+    monkeypatch.setattr(
+        agent_runner, "_cancel_agent", lambda agent: (cancelled.append(agent), gate.set())
+    )
+
+    def pause_from_elsewhere():
+        time.sleep(0.3)
+        # the row alone, without automation_paused(): what another process's request writes
+        db.execute(
+            "INSERT INTO app_settings (key, value, updated_at) VALUES (?, 'off', ?)"
+            " ON CONFLICT (key) DO UPDATE SET value = 'off'",
+            (settings.AGENT_AUTOMATION, db.now()),
+        )
+
+    threading.Thread(target=pause_from_elsewhere, daemon=True).start()
+    out = agent_runner.run_one("research-agent", explicit_key="1", allowed_tools={"my_agent_inbox"})
+    assert out["ran"] is True
+    assert cancelled
 
 
 def test_explicit_wake_marks_post_invocation_failure_unknown(fresh_db, monkeypatch):

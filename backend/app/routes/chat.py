@@ -11,16 +11,16 @@ import json
 import logging
 import re
 import time
-from collections import Counter
 from pathlib import Path
 from typing import Any, Literal
+from uuid import uuid4
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
-from .. import config, ratelimit
+from .. import config, db, ratelimit
 from ..agents import commands, receipts, session_log, turn_guard
 from ..agents.identity import (
     reset_agent_identity,
@@ -56,6 +56,7 @@ from ..services import (
     chat_threads,
     fieldguide,
     flocks,
+    leases,
     mentions,
     personas,
     uploads,
@@ -68,11 +69,32 @@ from .deps import CurrentUser, StrongUser, ViewerDep
 
 router = APIRouter(route_class=PolicyAPIRoute)
 
-# agent streams in flight, keyed by their session id. The command bridge
-# (session_log) computes message indices from disk while a live agent caches
-# its own — interleaved writes on the same session silently clobber files,
-# so the bridge stands down while an agent turn owns the session.
-_inflight: Counter[str] = Counter()
+# Agent streams in flight, one leased claim per turn keyed by session id
+# (services/leases.py renews it). The command bridge (session_log) computes
+# message indices from disk while a live agent caches its own — interleaved
+# writes on the same session silently clobber files, so the bridge stands
+# down while an agent turn owns the session, on this process or another.
+
+
+def _turn_started(thread_id: str) -> str:
+    key = f"{leases.PROCESS_ID}:{uuid4().hex}"
+    db.claim_job(f"chat-turn:{thread_id}", key, lease_seconds=leases.LEASE_SECONDS)
+    return key
+
+
+def _turn_ended(thread_id: str, key: str) -> None:
+    db.release_job(f"chat-turn:{thread_id}", key)
+
+
+def turn_in_flight(thread_id: str) -> bool:
+    return (
+        db.query_one(
+            "SELECT 1 FROM job_runs WHERE job = ? AND lease_until > ? LIMIT 1",
+            (f"chat-turn:{thread_id}", db.now()),
+        )
+        is not None
+    )
+
 
 # The DEFAULT deadline for one flock member, and for the merge step after
 # them — _member_deadline() below is what a turn actually uses. Generous: a
@@ -970,7 +992,7 @@ async def _flock_stream(
         # and holds every write tool. Unlabelled, an instruction inside a
         # member's answer reads to the Chief of Staff as its own prior
         # reasoning. SUMMARIZER_PROMPT defends the same shape for pasted text.
-        if ui_thread not in _inflight:
+        if not turn_in_flight(ui_thread):
             with contextlib.suppress(Exception):
                 bridged = (
                     f'<flock-answers flock="{fdef["slug"]}">\n'
@@ -1351,7 +1373,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                 # for a whole streaming turn. The bridge itself commits
                 # atomically (session_log); the residue is one overwritten
                 # exchange when a user message races a command turn's close.
-                if ui_thread in _inflight:
+                if turn_in_flight(ui_thread):
                     logging.getLogger("skein.chat").info(
                         "session bridge skipped, agent turn in flight (thread=%s)", ui_thread
                     )
@@ -1570,7 +1592,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
         if not persona:
             start_consults(await run_in_threadpool(_consult_budget, message))
         receipts.start()
-        _inflight[thread_id] += 1
+        turn_key = await run_in_threadpool(_turn_started, thread_id)
         closed = False
 
         def _close_turn() -> None:
@@ -1728,9 +1750,10 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
             yield _sse({"type": "error", "message": fault})
             await run_in_threadpool(_close_turn)
         finally:
-            _inflight[thread_id] -= 1
-            if _inflight[thread_id] <= 0:
-                del _inflight[thread_id]
+            # Sync on purpose: this finally can run while the generator is
+            # being closed, where an await raises. One DELETE.
+            with contextlib.suppress(Exception):
+                _turn_ended(thread_id, turn_key)
             # an abandoned stream may be finalized in a foreign context,
             # where reset raises — identity is per-task, so it can't leak
             try:

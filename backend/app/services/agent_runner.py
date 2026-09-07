@@ -39,19 +39,31 @@ import contextlib
 import contextvars
 import logging
 import threading
+import time
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from .. import config, db
-from . import delegation, usage
+from . import delegation, leases, usage
 
 if TYPE_CHECKING:
     from ..extensions import ExtensionRegistry, PolicyEngine
 
 log = logging.getLogger("skein")
 
-# One turn per agent per process at a time — see the acquire site in run_one.
-_TURN_LOCKS: dict[str, threading.Lock] = {}
+# One turn per agent at a time, across processes: a leased claim that the
+# heartbeat renews (services/leases.py) and the turn thread releases. See
+# the acquire site in run_one.
+_TURN = "agent-turn"
+
+
+def _hold_turn(agent: str) -> bool:
+    return db.claim_job(f"{_TURN}:{agent}", "turn", lease_seconds=leases.LEASE_SECONDS)
+
+
+def _drop_turn(agent: str) -> None:
+    db.release_job(f"{_TURN}:{agent}", "turn")
+
 
 # Days without a worklog note before the sponsor hears about it. The sweep
 # runs daily, so without a threshold every open delegation pings every day.
@@ -392,11 +404,10 @@ def run_one(
         if not db.claim_job(claim_job, claim_key):
             return _refused(agent, "already ran this wake" if explicit_key else "already ran today")
 
-    # The wake worker and the daily 05:30 job share one process and disjoint
-    # claim namespaces, so without this an agent runs two concurrent turns
-    # over the same inbox: double spend, duplicate proposals and notes.
-    turn_lock = _TURN_LOCKS.setdefault(agent, threading.Lock())
-    if not turn_lock.acquire(blocking=False):
+    # The wake worker and the daily 05:30 job use disjoint claim namespaces,
+    # so without this an agent runs two concurrent turns over the same
+    # inbox: double spend, duplicate proposals and notes.
+    if not _hold_turn(agent):
         # the claim goes back: this entrant spent nothing, and the turn that
         # holds the lock owns the day's (or this wake's) allowance
         _release(agent, explicit_key=explicit_key)
@@ -533,12 +544,13 @@ def run_one(
                             )
                 finally:
                     _untrack_active(built)
-                    # An invoked turn owns the lock: run_one's finally released
+                    # An invoked turn owns the claim: run_one's finally released
                     # it at the wall-clock timeout while this thread kept
                     # calling tools, and the next wake ran a second concurrent
                     # turn over the same inbox — the exact double spend the
-                    # lock exists to prevent.
-                    turn_lock.release()
+                    # claim exists to prevent.
+                    with contextlib.suppress(Exception):
+                        _drop_turn(agent)
 
         # copy_context(), because a ContextVar does NOT cross a bare
         # threading.Thread — the worker starts at the var's default. Without
@@ -565,7 +577,14 @@ def run_one(
             _release(agent, explicit_key=explicit_key)
             return _paused(agent)
         invoked = True
-        worker.join(timeout=config.AGENT_RUN_SECONDS)
+        deadline = time.monotonic() + config.AGENT_RUN_SECONDS
+        while worker.is_alive() and time.monotonic() < deadline:
+            worker.join(timeout=min(2.0, max(0.0, deadline - time.monotonic())))
+            # The pause is a row (services/settings.py). automation_paused
+            # cancels only the agents of the process that served the request,
+            # so a turn on another process learns of the pause here.
+            if worker.is_alive() and not agent_automation_enabled():
+                _cancel_agent(built)
         if worker.is_alive():
             # the claim key stays taken on purpose: a turn that ran long
             # enough to time out has already spent tokens, and retrying it
@@ -601,10 +620,10 @@ def run_one(
         reset_policy_subject(subject_token)
         reset_policy_engine(policy_token)
         # only when no turn thread started: once invoked, _turn's finally is
-        # the sole releaser, so an abandoned turn keeps the agent locked until
+        # the sole releaser, so an abandoned turn keeps the agent claimed until
         # its thread actually ends
         if not invoked:
-            turn_lock.release()
+            _drop_turn(agent)
 
 
 def run(

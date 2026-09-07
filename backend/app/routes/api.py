@@ -1537,7 +1537,6 @@ class McpServerIn(BaseModel):
 
 @router.get("/mcp/servers")
 def get_mcp_servers(user: StrongUser):
-    from ..agents.mcp_oauth import needs_sign_in
     from ..agents.mcp_tools import status
     from ..services import credentials
 
@@ -1546,7 +1545,7 @@ def get_mcp_servers(user: StrongUser):
     for row in mine:
         row["status"] = live.get(row["server_id"])
         row["sign_in_required"] = row["auth"] == "oauth" and (
-            not row["signed_in"] or needs_sign_in(row["server_id"])
+            not row["signed_in"] or row.pop("oauth_signin_required")
         )
     # an env server's URL is deployment shape; only its name and health show
     return {
