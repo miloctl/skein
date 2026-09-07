@@ -52,6 +52,11 @@ EXCLUDED = frozenset(
         "extension_event_attempts",
         "extension_command_receipts",
         "extension_review_invocations",
+        "forge_receipts",
+        "github_recovery_api",
+        "github_recovery_hooks",
+        "github_recovery_deliveries",
+        "github_recovery_attempts",
         # secret hashes and IdP subject bindings must not travel in portable
         # exports. Recreate keys, and preserve bindings only in full backups.
         "api_keys",

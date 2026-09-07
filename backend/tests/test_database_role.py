@@ -36,7 +36,7 @@ def _bootstrap_conninfo(info: dict, database: str, user: str) -> tuple[str, str]
     return make_conninfo(**{key: str(value) for key, value in params.items()}), password
 
 
-def test_bootstrap_role_runs_skein_without_database_create(monkeypatch):
+def test_bootstrap_role_runs_skein_without_database_create(monkeypatch, tmp_path):
     from conftest import _create_test_database, _drop_test_database
 
     from app import config, db
@@ -51,7 +51,7 @@ def test_bootstrap_role_runs_skein_without_database_create(monkeypatch):
     created = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
     database = f"skein_role_{created}_{suffix}"
     role = f"skein_app_{created}_{suffix}"
-    password = "p@ss:w/x?#'quoted"
+    password = f"{uuid4().hex}@ss:w/x?#'quoted"
     script = Path(__file__).parents[2] / "deploy" / "postgres-init" / "10-app-role.sh"
 
     with psycopg.connect(original_url, autocommit=True) as control:
@@ -150,6 +150,13 @@ def test_bootstrap_role_runs_skein_without_database_create(monkeypatch):
         ).stdout
         assert "SCHEMA - private" in listing
         assert "SCHEMA - ext_role_contract" in listing
+
+        from test_recovery_runbook import _restricted_restore_drill
+
+        _restricted_restore_drill(db, tmp_path, monkeypatch)
+        assert store.query("SELECT value FROM records") == [{"value": "works"}]
+        assert private_notes.list_notes("mira", "dana")[0]["id"] == note["id"]
+        assert db.privilege_warnings() == []
     finally:
         admin.set_extension_stores({}, set())
         private_notes._schema_ready = False

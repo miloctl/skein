@@ -57,6 +57,72 @@ def _pr(branch, action="opened", merged=False, title="", body=""):
     }
 
 
+def test_gitea_full_compatibility_headers_share_one_native_receipt(signed, fresh_db):
+    from uuid import uuid4
+
+    from app.services import work
+
+    task = work.create_task("Real Gitea header aliases")
+    payload = _push(f"task/{task['id']}-aliases")
+    body = json.dumps(payload).encode()
+    delivery = str(uuid4())
+    digest = hmac.new(SECRET.encode(), body, sha256).hexdigest()
+    # Gitea documents all three header families on one delivery:
+    # https://docs.gitea.com/usage/webhooks
+    aliases = {
+        "X-Gitea-Event-Type": "push",
+        "X-Gitea-Delivery": delivery,
+        "X-Gitea-Hook-Installation-Target-Type": "repository",
+        "X-Gogs-Event": "push",
+        "X-Gogs-Event-Type": "push",
+        "X-Gogs-Delivery": delivery,
+        "X-Gogs-Signature": digest,
+        "X-GitHub-Event": "push",
+        "X-GitHub-Event-Type": "push",
+        "X-GitHub-Delivery": delivery,
+        "X-GitHub-Hook-Installation-Target-Type": "repository",
+        "X-Hub-Signature": "sha1=" + hmac.new(SECRET.encode(), body, "sha1").hexdigest(),
+        "X-Hub-Signature-256": "sha256=" + digest,
+    }
+    response = signed("push", payload, **aliases)
+    assert response.status_code == 200
+    assert response.json()["status"] == "in_progress"
+    work.update_task(task["id"], status="todo", actor="mira")
+    assert signed("push", payload, **{"X-Gitea-Delivery": delivery}).json() == {
+        "ignored": "this delivery was already applied"
+    }
+    assert fresh_db.query_one("SELECT provider, delivery_id FROM forge_receipts") == {
+        "provider": "gitea",
+        "delivery_id": delivery,
+    }
+
+
+@pytest.mark.parametrize(
+    "overrides, expected",
+    [
+        ({"X-GitHub-Event": "pull_request"}, 400),
+        ({"X-GitHub-Delivery": "another-delivery"}, 400),
+        ({"X-Hub-Signature-256": "sha256=" + "0" * 64}, 401),
+    ],
+)
+def test_gitea_conflicting_aliases_or_signatures_are_refused(signed, fresh_db, overrides, expected):
+    from app.services import work
+
+    task = work.create_task("Refuse conflicting Gitea aliases")
+    response = signed(
+        "push",
+        _push(f"task/{task['id']}-aliases"),
+        **{
+            "X-Gitea-Delivery": "delivery",
+            "X-GitHub-Delivery": "delivery",
+            "X-GitHub-Event": "push",
+            **overrides,
+        },
+    )
+    assert response.status_code == expected
+    assert not fresh_db.query("SELECT * FROM forge_receipts")
+
+
 # --- matching ---------------------------------------------------------------
 
 
@@ -721,7 +787,9 @@ def test_a_delivery_applies_once_and_a_failed_apply_keeps_no_receipt(signed, fre
     assert first.status_code == 200 and "ignored" not in first.json()
     again = signed("push", _push(f"task/{tid}-x"), **{"X-Gitea-Delivery": "d-1"})
     assert again.json() == {"ignored": "this delivery was already applied"}
-    assert db.query_one("SELECT 1 FROM job_runs WHERE job = 'forge-delivery' AND run_key = 'd-1'")
+    assert db.query_one(
+        "SELECT 1 FROM forge_receipts WHERE provider = 'gitea' AND delivery_id = 'd-1'"
+    )
 
     # an apply that fails rolls its receipt back, so the forge's redelivery runs
     def broken(*_args, **_kwargs):
@@ -731,16 +799,10 @@ def test_a_delivery_applies_once_and_a_failed_apply_keeps_no_receipt(signed, fre
         failing.setattr(forge, "forge_event", broken)
         signed("push", _push(f"task/{tid}-y"), **{"X-Gitea-Delivery": "d-2"})
     assert (
-        db.query_one("SELECT 1 FROM job_runs WHERE job = 'forge-delivery' AND run_key = 'd-2'")
+        db.query_one(
+            "SELECT 1 FROM forge_receipts WHERE provider = 'gitea' AND delivery_id = 'd-2'"
+        )
         is None
     )
     retried = signed("push", _push(f"task/{tid}-y"), **{"X-Gitea-Delivery": "d-2"}).json()
     assert retried != {"ignored": "this delivery was already applied"}
-
-
-def test_delivery_receipt_requires_the_application_transaction(fresh_db):
-    from app.services import forge
-
-    with pytest.raises(RuntimeError, match="application transaction"):
-        forge.claim_delivery("not-applied")
-    assert fresh_db.query_one("SELECT 1 FROM job_runs WHERE job = 'forge-delivery'") is None

@@ -244,6 +244,34 @@ D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped, without the proposed
   Ops work on the runner host, not a repo change. (The proxy-aware client
   addresses item that lived beside this one shipped: `SKEIN_TRUST_PROXY_HOPS`.)
 
+## Work durability and multi-replica validation
+
+Intent: [Work durability, at one replica or several](intent/work-durability.md).
+Keep one backend replica with Recreate as the default. PostgreSQL and shared
+ReadWriteMany storage are the infrastructure choices. Do not add a browser
+write queue or automatically replay an external action with an unknown
+outcome. Local test success does not authorize a production replica increase.
+
+- **GitHub production activation and recovery rehearsal.** Native ingestion,
+  bounded recovery, and local failure fixtures are implemented. Configure the
+  actual GitHub.com or Enterprise endpoint, repository and hook inventory,
+  and narrowly scoped API credentials in the deployment Secret. Use a canary
+  repository to check genuine delivery, failed-delivery redelivery, shared
+  throttling and restart progress. Rehearse the manual current-state comparison
+  for a retained-history gap before acknowledging it. No live GitHub inventory
+  or recovery credential has been supplied for this validation.
+
+- **OpenShift multi-replica rollout gate.** After the container drills pass,
+  validate the actual ReadWriteMany storage class, shared data and backup-mirror
+  mounts, permissions, file durability, Route behavior, and pod placement on
+  separate nodes. Exercise pod loss, termination grace periods, readiness and
+  draining, and old/new image overlap with compatible migrations. Prove restore
+  and reconciliation with the deployment database role and persistent volumes.
+  Only then add an opt-in multi-replica overlay with RollingUpdate and a
+  PodDisruptionBudget, together with updated deployment contracts and operator
+  instructions. Preserve the single-replica default. Extra backend replicas do
+  not provide database or storage high availability.
+
 ## Delight (2026-07-25)
 
 - **W1 the Skein takes flight** — one goose per ship this season forms a V on

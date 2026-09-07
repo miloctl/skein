@@ -58,10 +58,9 @@ def overlay_errors() -> list[str]:
 
 
 # ---- structured settings ---------------------------------------------------
-# Four settings hold a whole document inside one variable (SKEIN_MODELS,
-# SKEIN_MODEL_PRICES, SKEIN_MODEL_PARAMS, SKEIN_MCP_SERVERS). Each also takes
-# a <NAME>_FILE path, so a deployment can mount and edit it as YAML with
-# comments. deploy/k8s/README.md decides ConfigMap versus Secret by content.
+# Structured settings also take a <NAME>_FILE path, so a deployment can
+# mount and edit YAML with comments. deploy/k8s/README.md decides ConfigMap
+# versus Secret by content.
 
 
 class _StructuredFault(ValueError):
@@ -1347,8 +1346,66 @@ API_TOKEN = os.getenv("SKEIN_API_TOKEN", "")
 # When API_TOKEN is set but this is not, the feed is disabled (fail closed).
 ICS_TOKEN = os.getenv("SKEIN_ICS_TOKEN", "")
 
-# Shared secret for the Gitea webhook (HMAC-SHA256 over the raw body). Empty
+# Shared secret for GitHub and Gitea (HMAC-SHA256 over the raw body). Empty
 # disables the endpoint: the webhook moves tasks, so an unsigned caller must
 # never reach it. Its own secret, never the API token — the forge stores it
 # in a repository setting that every repo admin can read.
 FORGE_WEBHOOK_SECRET = os.getenv("SKEIN_FORGE_WEBHOOK_SECRET", "")
+
+
+def _github_settings() -> tuple[str, list[dict], str]:
+    import re
+    from urllib.parse import urlsplit
+
+    api = os.getenv("SKEIN_GITHUB_API_URL", "https://api.github.com").rstrip("/")
+    fault = "GitHub configuration is not valid. Check SKEIN_GITHUB_API_URL and SKEIN_GITHUB_HOOKS."
+    try:
+        parts = urlsplit(api)
+        if (
+            parts.scheme != "https"
+            or not parts.hostname
+            or "@" in parts.netloc
+            or parts.username
+            or parts.password
+            or parts.query
+            or parts.fragment
+            or parts.path not in ("", "/api/v3")
+            or not all(33 <= ord(c) <= 126 for c in api)
+            or "\\" in api
+            or parts.port == 0
+        ):
+            return "", [], fault
+        api = f"https://{parts.netloc.lower()}{parts.path}"
+        raw, error, _ = _structured("SKEIN_GITHUB_HOOKS")
+        if error:
+            return api, [], fault
+        hooks = json.loads(raw) if raw else []
+        if not isinstance(hooks, list) or len(hooks) > 32:
+            return api, [], fault
+        seen = set()
+        normalized = []
+        for item in hooks:
+            if not isinstance(item, dict) or set(item) != {"repository", "hook_id"}:
+                return api, [], fault
+            repo, hook = item["repository"], item["hook_id"]
+            if (
+                not isinstance(repo, str)
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}", repo)
+                or repo.split("/")[1] in (".", "..")
+                or type(hook) is not int
+                or not 0 < hook < 2**63
+                or (repo.lower(), hook) in seen
+            ):
+                return api, [], fault
+            seen.add((repo.lower(), hook))
+            normalized.append({"repository": repo.lower(), "hook_id": hook})
+        return api, normalized, ""
+    except (ValueError, TypeError, RecursionError):
+        return "", [], fault
+
+
+# The deployment grants exactly this API destination. Payload URLs and Link
+# headers never grant another destination, and the credential is never stored.
+GITHUB_API_URL, GITHUB_HOOKS, GITHUB_CONFIG_ERROR = _github_settings()
+GITHUB_TOKEN = os.getenv("SKEIN_GITHUB_TOKEN", "")
+GITHUB_RECOVERY = os.getenv("SKEIN_GITHUB_RECOVERY", "0") == "1"

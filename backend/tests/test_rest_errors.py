@@ -143,3 +143,92 @@ def test_clear_sentinel_rejected_on_create_paths(fresh_db):
     e = engagements.create_engagement("SentinelCheck")
     with pytest.raises(ValueError, match="only clears"):
         engagements.allocate("mira", e["id"], 50, starts_on="-")
+
+
+def test_storage_permission_failure_is_a_safe_server_error(client, fresh_db, tmp_path):
+    from app.services import api_keys
+
+    token = api_keys.create_key("tester", "storage-test")["key"]
+    uploads = tmp_path / "artifacts" / "uploads"
+    uploads.mkdir(parents=True)
+    uploads.chmod(0o500)
+    try:
+        response = client.post(
+            "/api/files",
+            files={"file": ("blocked.txt", b"test bytes", "text/plain")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        uploads.chmod(0o700)
+    assert response.status_code == 500, response.text
+    assert "storage" in response.json()["detail"]
+    assert str(tmp_path) not in response.text
+    assert fresh_db.query_one("SELECT COUNT(*) AS n FROM artifacts")["n"] == 0
+
+
+@pytest.mark.parametrize("perimeter", [False, True])
+@pytest.mark.parametrize(
+    "error_name",
+    [
+        "OperationalError",
+        "AdminShutdown",
+        "CrashShutdown",
+        "CannotConnectNow",
+        "ConnectionFailure",
+        "TooManyConnections",
+    ],
+)
+def test_database_disconnect_is_retryable_without_exposing_connection_details(
+    client, monkeypatch, perimeter, error_name
+):
+    import psycopg
+
+    from app import config
+    from app.services import api_keys, users
+
+    token = api_keys.create_key("tester", "connection-test")["key"]
+
+    def disconnected(*_args, **_kwargs):
+        error = (
+            psycopg.OperationalError
+            if error_name == "OperationalError"
+            else getattr(psycopg.errors, error_name)
+        )
+        raise error("connection lost to private-db.example password=hidden")
+
+    if perimeter:
+        monkeypatch.setattr(config, "AUTH_MODE", "api-key")
+        monkeypatch.setattr(api_keys, "verify_key", disconnected)
+    else:
+        monkeypatch.setattr(users, "public_users", disconnected)
+    response = client.get("/api/users", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 503, response.text
+    assert response.headers["Retry-After"] == "5"
+    assert "private-db" not in response.text and "hidden" not in response.text
+    assert "outcome" in response.json()["detail"]
+
+
+def test_database_authentication_configuration_fault_stays_a_server_error(client, monkeypatch):
+    import psycopg
+
+    from app.services import users
+
+    def invalid_configuration(*_args, **_kwargs):
+        raise psycopg.errors.InvalidPassword("private configuration details")
+
+    monkeypatch.setattr(users, "public_users", invalid_configuration)
+    response = client.get("/api/users")
+    assert response.status_code == 500, response.text
+    assert "private configuration" not in response.text
+
+
+def test_semantic_permission_refusal_stays_forbidden():
+    import asyncio
+
+    from app.main import permission_error_handler
+
+    response = asyncio.run(
+        permission_error_handler(None, PermissionError("Only a steward can do this."))
+    )
+    assert response.status_code == 403
+    assert response.body == b'{"detail":"Only a steward can do this."}'

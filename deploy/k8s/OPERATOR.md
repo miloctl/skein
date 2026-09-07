@@ -37,8 +37,9 @@ personal API key, or a signed-in browser session. The page always returns
 200 when the process and the database are up: the content is the
 diagnosis, not the status code. The open `/health` endpoint answers startup
 and liveness probes. The open `/ready` endpoint answers readiness probes and
-returns 503 when authentication configuration is invalid. Both carry only `ok`, `auth_mode`, and
-`auth_error`, so the reason remains readable without a credential.
+returns 503 when authentication configuration is invalid or the bounded database check fails.
+Liveness does not depend on database availability. Both probes carry only `ok`, `auth_mode`, and
+`auth_error`. Read `/api/health` after database access returns for further diagnosis.
 
 | Field | Healthy value | If not |
 |---|---|---|
@@ -113,12 +114,40 @@ oc rollout restart deployment/skein-backend -n <namespace>
 ```
 
 This takes the service down for the length of one restart. The deployment
-uses Recreate so two backend pods never overlap on in-process scheduler,
-rate-limit, chat-turn, or file state. PostgreSQL supports concurrent writers.
+uses Recreate until the exact deployment passes cross-node storage, failure, and mixed-image compatibility checks.
+Database-backed coordination does not replace those checks. PostgreSQL supports concurrent writers.
 With scheduled jobs enabled, startup checks today's recovery files and retries
 an incomplete backup on the same day. Existing job claims do not block the retry.
 Check `/api/health` after the restart. If the backup still reports a failure,
 read the pod log. Fix the cause, then run a manual backup.
+
+## Replica and recovery rehearsals
+
+Keep one replica with Recreate in the supported deployment.
+Do not activate multiple replicas because a local Docker drill passes.
+Use the `Replica validation gate` in `README.md` for a platform-approved disposable namespace.
+The procedure requires explicit context and namespace values, a disposable label, and an opt-in before faults.
+Its preflight checks RWX data and mirror claims, separate nodes, probes, runtime UIDs, and the disruption budget.
+The optional storage probe writes unique markers and checks their bytes through both pods.
+It does not certify Route draining, storage independence, or old/new migration compatibility.
+Those gates need the recorded target-cluster fault procedure and a separate reviewed activation change.
+
+For a local database and file rehearsal, run
+`scripts/recovery-contract.sh <local-backend-image>` from a source checkout.
+The script creates a disposable PostgreSQL 17 server with generated credentials.
+It runs the restricted-role and pre-boot restore contracts with native PostgreSQL clients.
+It never uses local development database shims, and it cleans only resources it created.
+Save the image digests, database versions, test counts, and `exit=` result.
+Do not treat a skipped or blocked cluster gate as a pass.
+
+## GitHub recovery activation
+
+Leave `SKEIN_GITHUB_RECOVERY=0` until the deployment inventory and credentials are approved.
+`README.md` lists the exact Secret and ConfigMap variables under `GitHub delivery recovery`.
+Check the repository and hook IDs, token permissions, webhook signature, HTTPS destination, and namespace egress.
+Test a real redelivery on a disposable repository before activation.
+Keep recovery disabled during a database restore and reconcile any retained-history gap before resuming it.
+Never delete receipt tables to force a replay.
 
 ## Backups
 

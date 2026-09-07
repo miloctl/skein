@@ -1,9 +1,12 @@
 """Execute the operator's pre-boot fence against disposable recovery state."""
 
+import importlib.util
 import re
 import shlex
 import shutil
 import subprocess
+import sys
+import tempfile
 import textwrap
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -42,7 +45,7 @@ def _apply_fence():
     # The local psql shim drops PGDATABASE. An explicit fixture conninfo keeps
     # these exact runbook flags and SQL away from the shim's default database.
     assert conninfo_to_dict(config.DATABASE_URL)["dbname"].startswith(
-        ("skein_test_", "skein_scratch_")
+        ("skein_test_", "skein_scratch_", "skein_role_")
     )
     result = subprocess.run(  # noqa: S603
         [_tool("psql"), "--dbname", config.DATABASE_URL, *argv[1:]],
@@ -128,6 +131,116 @@ def _queued_work(db, monkeypatch):
     }
     db.claim_job("restore-receipt", "keep-this-claim")
     return room["id"], agent
+
+
+def _restricted_restore_drill(db, tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import config
+    from app.main import app
+    from app.services import (
+        activity,
+        admin,
+        agent_wakeups,
+        api_keys,
+        browser_sessions,
+        documents,
+        handoff,
+        shared_chat_agents,
+    )
+
+    data = tmp_path / "data"
+    monkeypatch.setattr(config, "DATA_DIR", data)
+    issued = _oidc_session(monkeypatch)
+    _queued_work(db, monkeypatch)
+    _oauth_flow()
+    key = api_keys.create_key("restore-owner")
+    document = documents.create_document("Restore drill", "Recovered bytes", actor="restore-owner")
+    # /dev/shm is a second local filesystem, not proof of an independent storage array.
+    with tempfile.TemporaryDirectory(prefix="skein-restore-mirror-", dir="/dev/shm") as mirror:
+        monkeypatch.setenv("SKEIN_BACKUP_MIRROR", mirror)
+        assert activity.nightly_verify()["ok"] is True
+        result = admin.backup()
+        assert result["status"] == "ok"
+        assert result["mirror_status"] == "written"
+        archive = Path(result["database_path"])
+        digest = result["database_sha256"]
+        assert admin._sha256_file(archive) == digest
+        assert activity.recorded_backup_digests(archive.name) == {digest}
+        assert (Path(mirror) / activity.ANCHOR_LOG).read_bytes() == (
+            data / "backups" / activity.ANCHOR_LOG
+        ).read_bytes()
+        snapshot = tmp_path / "storage-snapshot"
+        shutil.copytree(data, snapshot)
+        env = admin._pg_env()
+        listing = subprocess.run(  # noqa: S603
+            [_tool("pg_restore"), "--list", str(archive)],
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        assert " TABLE DATA public browser_sessions " not in listing
+        assert " TABLE DATA public mcp_oauth_flows " not in listing
+        restore_list = tmp_path / "restore.list"
+        restore_list.write_text(
+            "\n".join(line for line in listing.splitlines() if " SCHEMA - " not in line)
+        )
+        browser_sessions.revoke(issued.cookie)
+        shutil.rmtree(data)
+        db.close_pool()
+        loaded = subprocess.run(  # noqa: S603
+            [
+                _tool("pg_restore"),
+                "--dbname",
+                env["PGDATABASE"],
+                "--clean",
+                "--if-exists",
+                "--no-owner",
+                "--no-privileges",
+                "--no-comments",
+                "--single-transaction",
+                "--exit-on-error",
+                "-L",
+                str(restore_list),
+                str(snapshot / "backups" / archive.name),
+            ],
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert loaded.returncode == 0, loaded.stderr
+        with pytest.raises(handoff.ArtifactUnreadable):
+            handoff.read_artifact(document["id"])
+        shutil.copytree(snapshot, data)
+        ledger = db.query("SELECT * FROM activity ORDER BY id")
+        messages = db.query("SELECT * FROM chat_messages ORDER BY id")
+        claims = db.query("SELECT * FROM job_runs ORDER BY job, run_key")
+        _apply_fence()
+        assert db.query("SELECT * FROM browser_sessions") == []
+        assert db.query("SELECT * FROM mcp_oauth_flows") == []
+        assert db.query_row("SELECT active FROM api_keys WHERE id = ?", (key["id"],))["active"] == 0
+        with pytest.raises(browser_sessions.SessionInvalid):
+            browser_sessions.authenticate(issued.cookie, mode="oidc")
+        assert activity.verify_chain()["ok"] is True
+        assert activity.check_anchor_log()["ok"] is True
+        with TestClient(app):
+            assert shared_chat_agents.wait_for_idle()
+            assert shared_chat_agents.claim_next() is None
+            assert agent_wakeups.claim_next() is None
+            assert {r["status"] for r in db.query("SELECT status FROM chat_agent_runs")} == {
+                "completion_unknown"
+            }
+            assert {r["status"] for r in db.query("SELECT status FROM agent_wakeups")} == {
+                "completion_unknown"
+            }
+            assert db.query("SELECT * FROM activity ORDER BY id") == ledger
+            assert db.query("SELECT * FROM chat_messages ORDER BY id") == messages
+            assert db.query("SELECT * FROM job_runs ORDER BY job, run_key") == claims
+            assert handoff.read_artifact(document["id"])["markdown"] == "Recovered bytes"
+            assert activity.verify_chain()["ok"] is True
+            assert activity.check_anchor_log()["ok"] is True
 
 
 def test_preboot_fence_invalidates_restored_revoked_oidc_authority(
@@ -300,6 +413,46 @@ def test_manual_backup_command_excludes_session_data(fresh_db, tmp_path, monkeyp
     assert " TABLE public mcp_oauth_flows " in result.stdout
     assert " TABLE DATA public mcp_oauth_flows " not in result.stdout
     assert " TABLE DATA public users " in result.stdout
+
+
+@pytest.mark.parametrize("flag", ["--allow-faults", "--probe-storage"])
+def test_cluster_guard_requires_exact_opt_in_before_client(flag, tmp_path):
+    script = ROOT / "scripts/openshift-durability-check.py"
+    result = subprocess.run(  # noqa: S603
+        [
+            sys.executable,
+            str(script),
+            "--context",
+            "unused",
+            "--namespace",
+            "disposable",
+            flag,
+            "--confirm-namespace",
+            "another-namespace",
+        ],
+        env={"PATH": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert "Repeat the namespace" in result.stderr
+
+
+def test_cluster_guard_refuses_the_shipped_single_replica_base():
+    import yaml
+
+    spec = importlib.util.spec_from_file_location(
+        "cluster_guard", ROOT / "scripts/openshift-durability-check.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    base = list(yaml.safe_load_all((ROOT / "deploy/k8s/base/backend.yaml").read_text()))
+    deployment = next(row for row in base if row["kind"] == "Deployment")
+    assert deployment["spec"]["replicas"] == 1
+    assert deployment["spec"]["strategy"]["type"] == "Recreate"
+    with pytest.raises(module.GateError, match="at least two replicas"):
+        module.validate_deployment(deployment, [], [], [])
 
 
 @pytest.mark.parametrize("environment", ["dev", "prod"])

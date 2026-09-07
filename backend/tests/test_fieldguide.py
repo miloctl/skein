@@ -29,7 +29,7 @@ def test_registry_is_valid_and_complete(fresh_db):
     from app.services import fieldguide
 
     cards = fieldguide.registry()
-    assert len(cards) == 58
+    assert len(cards) == 59
     ids = {k["id"] for k in cards}
     assert ids == set(fieldguide.PREDICATES)
     for k in cards:
@@ -167,7 +167,7 @@ def test_hint_and_guide_use_the_same_tieable_total(fresh_db):
     from app.services import fieldguide
 
     _mint(fresh_db, "ava")
-    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 57
+    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 58
 
 
 def test_first_detection_seeds_silently(fresh_db):
@@ -784,3 +784,37 @@ def test_browser_signin_knot_uses_real_session_provenance(fresh_db):
     assert not fieldguide.PREDICATES["browser_signin"]("ava")
     browser_sessions.create_key_session(key, mode="trusted-header")
     assert fieldguide.PREDICATES["browser_signin"]("ava")
+
+
+def test_github_updates_need_an_applied_receipt(fresh_db):
+    from app.services import fieldguide, users, work
+
+    users.ensure_human_identity("ava")
+    task = work.create_task("Linked code is not a delivery", assignee="ava", actor="ava")
+    work.update_task(task["id"], actor="ava", forge_url="https://github.com/example/project/pull/1")
+    assert "github_updates" in fieldguide.PREDICATES
+    assert not fieldguide.PREDICATES["github_updates"]("ava")
+
+
+def test_github_updates_tie_for_the_person_whose_task_was_updated(client, monkeypatch):
+    from test_github_webhooks import HOOK, REPOSITORY, SECRET, headers, push
+
+    from app import config
+    from app.services import fieldguide, users, work
+
+    users.ensure_human_identity("ava")
+    users.ensure_human_identity("mira")
+    monkeypatch.setattr(config, "FORGE_WEBHOOK_SECRET", SECRET)
+    monkeypatch.setattr(
+        config, "GITHUB_HOOKS", [{"repository": REPOSITORY.lower(), "hook_id": HOOK}]
+    )
+    monkeypatch.setattr(config, "GITHUB_CONFIG_ERROR", "")
+    monkeypatch.setattr(config, "GITHUB_API_URL", "https://api.github.com")
+    task = work.create_task("GitHub handoff", assignee="ava", actor="ava")
+    assert not fieldguide.PREDICATES["github_updates"]("ava")
+    body = json.dumps(push(task["id"])).encode()
+    response = client.post("/api/webhooks/forge", content=body, headers=headers("push", body))
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "in_progress"
+    assert fieldguide.PREDICATES["github_updates"]("ava")
+    assert not fieldguide.PREDICATES["github_updates"]("mira")

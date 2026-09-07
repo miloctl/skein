@@ -978,6 +978,8 @@ def chain_health() -> dict:
 VERBS: dict[str, tuple[str, str]] = {
     # loud: an adoption nobody expected is the tamper signal (adopt_unchained)
     "adopt_unchained": ("ran an activity-chain adoption", "loud"),
+    "github_history_gap": ("found a GitHub delivery history gap", "loud"),
+    "reconcile_github_gap": ("recorded a GitHub recovery check", "loud"),
     "capture": ("captured", "normal"),
     "save_note": ("saved a note", "normal"),
     "update_note": ("edited a note", "normal"),

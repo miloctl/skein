@@ -1,5 +1,6 @@
 import asyncio
 import json
+from hashlib import sha256
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -9,7 +10,7 @@ from .. import config, ratelimit
 from ..extensions.fastapi import PolicySubjectDep, enforce_decision
 from ..extensions.policy import PolicyInput, PolicyResource
 from ..services import ci, forge
-from .deps import StrongUser, forge_webhook_off, verify_forge_signature
+from .deps import AdminUser, StrongUser, forge_webhook_off, verify_forge_signature
 
 router = APIRouter()
 
@@ -20,6 +21,40 @@ MAX_FORGE_BODY = 262_144
 # connection slot open forever by dribbling bytes — uvicorn applies no body
 # timeout, and this route sits outside the perimeter.
 FORGE_READ_TIMEOUT = 10
+
+
+class GitHubReconciliationIn(BaseModel):
+    namespace: str = Field(pattern=r"^[0-9a-f]{64}$")
+    gap_until: str = Field(min_length=1, max_length=40)
+    note: str = Field(min_length=1, max_length=1000)
+
+
+@router.get("/api/webhooks/github/recovery")
+def github_recovery_status(user: AdminUser, request: Request, subject: PolicySubjectDep) -> dict:
+    from ..services import github_recovery
+
+    return github_recovery.status(
+        policy=request.app.state.skein_registry.policy_engine, subject=subject
+    )
+
+
+@router.post("/api/webhooks/github/recovery/reconcile")
+def github_recovery_reconcile(
+    body: GitHubReconciliationIn,
+    user: AdminUser,
+    request: Request,
+    subject: PolicySubjectDep,
+) -> dict:
+    from ..services import github_recovery
+
+    ratelimit.check("write", user)
+    return github_recovery.acknowledge_gap(
+        body.namespace,
+        body.gap_until,
+        body.note,
+        policy=request.app.state.skein_registry.policy_engine,
+        subject=subject,
+    )
 
 
 class CIEventIn(BaseModel):
@@ -92,11 +127,10 @@ async def forge_webhook(
     x_hub_signature_256: str = Header(""),
     x_gitea_delivery: str = Header("", max_length=200),
     x_github_delivery: str = Header("", max_length=200),
+    x_github_event: str = Header(""),
+    x_github_hook_id: str = Header(""),
 ) -> dict:
-    """Gitea moves tasks through here. No CurrentUser: the signature IS the
-    identity, and a forge cannot send a personal key or sign in. Gitea-shaped
-    payloads only — GitHub names the same fields differently (`compare`,
-    `pusher.name`), so it needs its own parser, not just its header."""
+    """GitHub and Gitea authenticate with the raw-body HMAC, not a user key."""
     # BEFORE the read, because this path sits outside the perimeter: a
     # deployment that never turned the webhook on must not buffer a byte for
     # an unsigned caller. routes/slack.py refuses the same way, first thing.
@@ -119,78 +153,74 @@ async def forge_webhook(
     # route sits outside the perimeter middleware, and the forge_addr cap
     # admits 600 of these a minute — inline, a busy monorepo's push traffic
     # ran on the loop that carries every open chat stream
-    await run_in_threadpool(verify_forge_signature, body, x_gitea_signature or x_hub_signature_256)
+    # HMAC authenticates bytes, not headers. Ambiguous provider routing or
+    # duplicate headers must not choose a different parser for those bytes.
+    routing_headers = (
+        "x-gitea-event",
+        "x-gitea-signature",
+        "x-gitea-delivery",
+        "x-github-event",
+        "x-hub-signature-256",
+        "x-github-delivery",
+        "x-github-hook-id",
+    )
+    if any(len(request.headers.getlist(name)) > 1 for name in routing_headers):
+        raise HTTPException(
+            400, "The webhook headers are ambiguous. Send one set of provider headers."
+        )
+    github = not bool(x_gitea_event)
+    # Gitea sends matching GitHub aliases alongside its native headers. Only
+    # the native family chooses Gitea, and forge.apply_delivery still binds
+    # the signed repository host so relabeled GitHub bytes cannot bypass it.
+    if (github and (x_gitea_signature or x_gitea_delivery)) or (
+        not github
+        and (
+            (x_github_event and x_github_event != x_gitea_event)
+            or (x_github_delivery and x_github_delivery != x_gitea_delivery)
+            or x_github_hook_id
+        )
+    ):
+        raise HTTPException(
+            400, "The webhook headers conflict. Send the original provider headers."
+        )
+    event = x_github_event if github else x_gitea_event
+    if (
+        not event
+        or len(event) > 100
+        or not all(c.isascii() and (c.isalnum() or c == "_") for c in event)
+    ):
+        raise HTTPException(
+            400, "The webhook event header is not valid. Send the original event header."
+        )
+    if github and not x_hub_signature_256.startswith("sha256="):
+        raise HTTPException(401, "The webhook signature does not match. Check the webhook secret.")
+    # Every supplied SHA-256 signature must verify. Taking the first one
+    # would accept a contradictory alias and hide a broken secret rollout.
+    signatures = tuple(value for value in (x_gitea_signature, x_hub_signature_256) if value)
+    for signature in signatures or ("",):
+        await run_in_threadpool(verify_forge_signature, body, signature)
     # RecursionError, not just ValueError: deeply nested JSON raises it, and
     # this route hand-rolls the parse instead of taking a pydantic model, so
     # main.py's RequestValidationError handler never sees the payload
     try:
-        payload = json.loads(body)
+        payload = json.loads(
+            body, object_pairs_hook=config._json_object, parse_constant=config._json_constant
+        )
     except (ValueError, RecursionError) as exc:
         raise HTTPException(400, "the webhook payload is not valid JSON") from exc
     # a JSON array parses fine and then dies inside parse_gitea with
     # AttributeError — a caller's input must never reach a 500
     if not isinstance(payload, dict):
         raise HTTPException(400, "the webhook payload must be a JSON object")
-    mapped = forge.parse_gitea(x_gitea_event, payload)
-    if mapped is None:
-        # the event name is caller-supplied — name what we accept, never echo
-        return {"ignored": "only push and pull_request events move work"}
-    # AFTER the ignored-event return, so a repo's comment and label traffic
-    # does not spend the budget that real transitions need. Its own bucket,
-    # keyed to the integration: keying on the pusher's name would let a
-    # signed caller drain a named teammate's REST write budget.
-    ratelimit.check("forge", "forge")
-    registry = request.app.state.skein_registry
-
-    def authorized_event() -> dict:
-        from .. import db
-        from ..services.policy_context import existing
-
-        # One transaction holds the task-match, the policy snapshot, and the
-        # mutation, with the deciding row held inside it
-        # (policy_context.hold_resource). Without both, a concurrent relink
-        # moves the task into a denied project between the decision and
-        # forge_event's write.
-        with db.transaction():
-            # A redelivery, a retry, or the same delivery reaching two
-            # processes applies once. Inside the transaction, so a refused
-            # or failed apply gives the receipt back and the retry runs.
-            delivery = x_gitea_delivery or x_github_delivery
-            if not forge.claim_delivery(delivery):
-                return {"ignored": "this delivery was already applied"}
-            task_id = forge.match_task(
-                str(mapped.get("branch") or ""),
-                str(mapped.get("title") or ""),
-                str(mapped.get("body") or ""),
-            )
-            if task_id:
-                # Held before the snapshot is read, so the relink this comment
-                # warns about waits instead of landing mid-decision.
-                from ..services.policy_context import hold_resource
-
-                hold_resource("task", task_id)
-                domain = existing("task", task_id)
-                enforce_decision(
-                    registry.policy_engine.decide(
-                        PolicyInput(
-                            registry.service_subject("forge"),
-                            "skein.integration.forge",
-                            PolicyResource(
-                                "task",
-                                str(task_id),
-                                str(domain.get("project_type") or ""),
-                                str(domain.get("classification") or ""),
-                                domain,
-                            ),
-                            "forge",
-                            tool="forge.webhook",
-                            tool_effect="write",
-                            tool_risk="high",
-                        )
-                    )
-                )
-            return forge.forge_event(**mapped, actor="forge")
-
-    # threadpooled for the reason the HMAC above is: this is the full service
-    # write chain — task moves, activity, notifications, the search index
-    return await run_in_threadpool(authorized_event)
+    if event in ("push", "pull_request"):
+        await run_in_threadpool(ratelimit.check, "forge", "forge")
+    return await run_in_threadpool(
+        forge.apply_delivery,
+        request.app.state.skein_registry,
+        "github" if github else "gitea",
+        event,
+        payload,
+        x_github_delivery if github else x_gitea_delivery,
+        sha256(body).hexdigest(),
+        x_github_hook_id,
+    )
