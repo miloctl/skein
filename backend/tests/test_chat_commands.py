@@ -107,11 +107,15 @@ def test_bridge_skipped_while_agent_turn_in_flight(client, monkeypatch):
 
     calls = []
     monkeypatch.setattr("app.agents.session_log.log_exchange", lambda *a: calls.append(a))
-    chat_route._inflight["t"] += 1
+    from app import db
+
+    # what a turn on any process holds while it streams
+    assert db.claim_job("chat-turn:t", "elsewhere", lease_seconds=60)
     try:
+        assert chat_route.turn_in_flight("t")
         _read_chat(client, "/help")
     finally:
-        del chat_route._inflight["t"]
+        db.release_job("chat-turn:t", "elsewhere")
     assert calls == []
 
 

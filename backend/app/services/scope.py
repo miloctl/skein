@@ -684,8 +684,13 @@ UNSCOPED: dict[str, str] = {
         " tier only. That rule is the classification here."
     ),
     "job_runs": (
-        "scheduler claims plus capture idempotency receipts — a `capture:<user>`"
-        " row holds the caller's name and a token-charset key, never capture text"
+        "scheduler claims, turn claims, and capture idempotency receipts — a"
+        " `capture:<user>` row holds the caller's name and a token-charset key,"
+        " never capture text; a `chat-turn:<thread>` row holds only the thread id"
+    ),
+    "mcp_oauth_flows": (
+        "a sign-in's one-time code in transit: a provider nonce and a code that"
+        " expire in minutes, never a token"
     ),
     "mention_log": "a dedupe key, not content",
     "notification_reads": (

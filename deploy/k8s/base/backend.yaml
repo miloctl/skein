@@ -1,16 +1,13 @@
-# Single-replica by design, not by accident. The DATABASE no longer requires
-# it — PostgreSQL takes concurrent writers, and the check-then-write paths
-# hold real locks (db.py::name_lock, policy_context.hold_resource). What
-# still assumes one process: artifacts and exports on a ReadWriteOnce volume
-# (a second replica serves 404s for half of them), the in-process scheduler,
-# per-process rate-cap windows (app/ratelimit.py), the chat turn registry
-# (routes/chat.py::_inflight), and the shared-chat agent worker
-# (services/shared_chat_agents.py serializes each model session with a
-# process-local lock). Execution rows are fenced by owner and lease
-# (services/leases.py), so a second replica booting no longer resets the
-# first replica's live turns, and each scheduled firing is claimed once
-# (services/jobs.py::run_job). Raising replicas still halves every
-# process-local rate cap — do not raise it until those move.
+# Single-replica by design, not by accident. The DATABASE does not require
+# it — PostgreSQL takes concurrent writers, the check-then-write paths hold
+# real locks (db.py::name_lock, policy_context.hold_resource), execution
+# rows and scheduled firings are fenced by process lease
+# (services/leases.py, services/jobs.py::run_job), and sign-in codes, turn
+# claims, and the pause reach every process through rows. What still
+# assumes one process: artifacts and exports on a ReadWriteOnce volume (a
+# second replica serves 404s for half of them) and the per-process rate-cap
+# windows (app/ratelimit.py). Raising replicas halves every rate cap — do
+# not raise it until those move.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

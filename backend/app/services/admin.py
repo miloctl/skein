@@ -61,6 +61,8 @@ EXCLUDED = frozenset(
         "browser_sessions",
         # sealed personal tokens and private server URLs
         "mcp_servers",
+        # sign-in codes in transit, dead within minutes of the export
+        "mcp_oauth_flows",
         # proposal payloads can contain private target bodies and extension
         # previews. The portable export cannot reconstruct their governing tier.
         "pending_changes",

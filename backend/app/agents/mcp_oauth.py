@@ -12,11 +12,14 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
 from mcp.client.auth import OAuthClientProvider
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 from pydantic import AnyUrl
+
+from .. import db
 
 log = logging.getLogger(__name__)
 
@@ -37,18 +40,35 @@ class _Flow:
 
 
 _lock = threading.Lock()
-# ponytail: pending flows live in this process, so the callback must reach
-# the pod that started the sign-in; store the flow in the database if a
-# deployment runs more than one backend replica
+# The thread that started a sign-in waits here for its code. The code itself
+# arrives through mcp_oauth_flows, because the callback can land on any
+# process; this map only holds the local events and the parked URL.
 _pending: dict[str, _Flow] = {}
-# servers whose stored grant no longer works: a chat turn's connect met a
-# fresh authorization demand and refused it, the card shows "sign in"
-_signin_required: set[str] = set()
 
 
-def needs_sign_in(server_id: str) -> bool:
-    with _lock:
-        return server_id in _signin_required
+def _mark_sign_in(sid: int, required: bool) -> None:
+    """A stored grant the server no longer accepts: a chat turn's connect met
+    a fresh authorization demand and refused it, so the card shows sign in
+    (mcp_servers.oauth_signin_required, read by the server listing)."""
+    db.execute("UPDATE mcp_servers SET oauth_signin_required = ? WHERE id = ?", (required, sid))
+
+
+def _flow_expiry() -> str:
+    return (datetime.now(UTC) + timedelta(seconds=FLOW_SECONDS)).isoformat(timespec="seconds")
+
+
+def _await_code(flow: _Flow) -> None:
+    """Block until the callback lands on any process, or the flow lapses."""
+    deadline = time.monotonic() + FLOW_SECONDS
+    while not flow.done.wait(0.25):
+        row = db.query_one(
+            "SELECT code, error, done FROM mcp_oauth_flows WHERE state = ?", (flow.state,)
+        )
+        if row and row["done"]:
+            flow.code, flow.error = row["code"], row["error"]
+            break
+        if time.monotonic() >= deadline:
+            break
 
 
 class _SealedStorage:
@@ -68,8 +88,7 @@ class _SealedStorage:
         from ..services.mcp_servers import store_oauth
 
         store_oauth(self.row_id, tokens=tokens.model_dump_json())
-        with _lock:
-            _signin_required.discard(self.server_id)
+        _mark_sign_in(self.row_id, False)
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
         from ..services.mcp_servers import load_oauth
@@ -99,22 +118,27 @@ def provider(server: dict) -> OAuthClientProvider:
 
     async def redirect(url: str) -> None:
         if flow is None:
-            with _lock:
-                _signin_required.add(server_id)
+            _mark_sign_in(int(server["id"]), True)
             raise RuntimeError("sign-in required")
         flow.state = parse_qs(urlsplit(url).query).get("state", [""])[0]
         with _lock:
             _pending[flow.state] = flow
+        db.execute(
+            "INSERT INTO mcp_oauth_flows (state, server_id, created_at, expires_at)"
+            " VALUES (?, ?, ?, ?) ON CONFLICT (state) DO NOTHING",
+            (flow.state, server_id, db.now(), _flow_expiry()),
+        )
         flow.authorization_url = url
         flow.url_ready.set()
 
     async def callback() -> tuple[str, str | None]:
         if flow is None:
             raise RuntimeError("sign-in required")
-        finished = await asyncio.to_thread(flow.done.wait, FLOW_SECONDS)
+        await asyncio.to_thread(_await_code, flow)
         with _lock:
             _pending.pop(flow.state, None)
-        if not finished or not flow.code:
+        db.execute("DELETE FROM mcp_oauth_flows WHERE state = ?", (flow.state,))
+        if not flow.code:
             raise RuntimeError(flow.error or "sign-in was not completed")
         return flow.code, flow.state
 
@@ -135,10 +159,13 @@ def start(server_id: str, server: dict) -> str:
     from . import mcp_tools
 
     flow = _Flow(server_id)
+    db.execute("DELETE FROM mcp_oauth_flows WHERE expires_at <= ?", (db.now(),))
     with _lock:
-        if any(pending.server_id == server_id for pending in _pending.values()):
+        if any(pending.server_id == server_id for pending in _pending.values()) or db.query_one(
+            "SELECT 1 FROM mcp_oauth_flows WHERE server_id = ? AND NOT done", (server_id,)
+        ):
             raise ValueError("A sign-in for this server is already in progress. Finish it first.")
-        _signin_required.discard(server_id)
+    _mark_sign_in(int(server["id"]), False)
     mcp_tools.forget(server_id)
 
     def run() -> None:
@@ -148,6 +175,8 @@ def start(server_id: str, server: dict) -> str:
             flow.done.set()
             with _lock:
                 _pending.pop(flow.state, None)
+            if flow.state:
+                db.execute("DELETE FROM mcp_oauth_flows WHERE state = ?", (flow.state,))
 
     threading.Thread(target=run, daemon=True, name="skein-mcp-oauth").start()
     deadline = time.monotonic() + _URL_WAIT_SECONDS
@@ -164,12 +193,17 @@ def start(server_id: str, server: dict) -> str:
 
 
 def complete(state: str, code: str, error: str = "") -> bool:
-    """The browser came back. True when a flow was waiting for this state."""
+    """The browser came back. True when a flow was waiting for this state,
+    on this process or another."""
+    landed = db.execute_rowcount(
+        "UPDATE mcp_oauth_flows SET code = ?, error = ?, done = TRUE"
+        " WHERE state = ? AND NOT done AND expires_at > ?",
+        ("" if error else code, error, state, db.now()),
+    )
     with _lock:
         flow = _pending.get(state)
-    if flow is None:
-        return False
-    flow.code = "" if error else code
-    flow.error = error
-    flow.done.set()
-    return True
+    if flow is not None:
+        flow.code = "" if error else code
+        flow.error = error
+        flow.done.set()
+    return bool(landed) or flow is not None
