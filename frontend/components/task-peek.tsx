@@ -125,7 +125,7 @@ function taskIdFromUrl(): number | null {
 export function openTaskPeek(taskId: number) {
   const url = new URL(window.location.href);
   url.searchParams.set(PARAM, String(taskId));
-  window.history.pushState({}, "", url);
+  window.history.pushState({ skeinPeekTask: taskId }, "", url);
   window.dispatchEvent(new Event("skein-peek"));
 }
 
@@ -184,11 +184,15 @@ export function TaskPeek() {
   // keyboard reader from being dropped at the top of the document on close
   const restoreFocus = useRef<HTMLElement | null>(null);
   const openedTask = useRef<number | null>(null);
+  const pendingBack = useRef(false);
 
   // popstate fires for Back/Forward; the custom event covers same-page opens,
   // which pushState does NOT announce to anyone
   useEffect(() => {
-    const sync = () => setTaskId(taskIdFromUrl());
+    const sync = () => {
+      pendingBack.current = false;
+      setTaskId(taskIdFromUrl());
+    };
     sync();
     window.addEventListener("popstate", sync);
     window.addEventListener("skein-peek", sync);
@@ -199,9 +203,22 @@ export function TaskPeek() {
   }, []);
 
   const close = useCallback(() => {
+    // A repeated Escape before popstate must not queue a second Back.
+    if (pendingBack.current) return;
     const url = new URL(window.location.href);
-    if (url.searchParams.get(PARAM)) window.history.back();
-    setTaskId(null);
+    const requestedTask = taskIdFromUrl();
+    // A direct link has no panel-owned predecessor: Back can leave Skein or
+    // do nothing. Only entries pushed by openTaskPeek can close by traversal.
+    if (requestedTask && window.history.state?.skeinPeekTask === requestedTask) {
+      pendingBack.current = true;
+      window.history.back();
+    } else {
+      url.searchParams.delete(PARAM);
+      // Pass fresh state so Next's history wrapper synchronizes the URL.
+      // Copying its internal flags bypasses that synchronization.
+      window.history.replaceState({}, "", url);
+      setTaskId(null);
+    }
   }, []);
 
   // Focus handling only — an external system, which is what an effect is for.
@@ -211,22 +228,26 @@ export function TaskPeek() {
   useEffect(() => {
     if (!taskId && !openedTask.current) return;
     if (!taskId) {
-      const el = restoreFocus.current;
-      const closedTask = openedTask.current;
-      // The search dropdown can unmount its row before this effect captures
-      // the opener, leaving <body> as the recorded target. Detached nodes and
-      // body both drop the reader at the document start; fall back to Search.
-      if (el?.isConnected && el !== document.body) el.focus();
-      else document.getElementById("nav-search")?.focus();
-      restoreFocus.current = null;
-      openedTask.current = null;
-      if (closedTask)
-        window.dispatchEvent(
-          new CustomEvent("skein-peek-close", {
-            detail: { taskId: closedTask },
-          }),
-        );
-      return;
+      // Fragment focus follows popstate and can steal an immediate restore.
+      // Cancel on reopen/unmount so a stale close cannot take the new focus.
+      const frame = requestAnimationFrame(() => {
+        const el = restoreFocus.current;
+        const closedTask = openedTask.current;
+        // The search dropdown can unmount its row before this effect captures
+        // the opener, leaving <body> as the recorded target. Detached nodes and
+        // body both drop the reader at the document start; fall back to Search.
+        if (el?.isConnected && el !== document.body) el.focus();
+        else document.getElementById("nav-search")?.focus();
+        restoreFocus.current = null;
+        openedTask.current = null;
+        if (closedTask)
+          window.dispatchEvent(
+            new CustomEvent("skein-peek-close", {
+              detail: { taskId: closedTask },
+            }),
+          );
+      });
+      return () => cancelAnimationFrame(frame);
     }
     openedTask.current = taskId;
     restoreFocus.current = document.activeElement as HTMLElement;
