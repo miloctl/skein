@@ -6,12 +6,10 @@
 # per-process rate-cap windows (app/ratelimit.py), the chat turn registry
 # (routes/chat.py::_inflight), and the shared-chat agent worker
 # (services/shared_chat_agents.py serializes each model session with a
-# process-local lock, and recover_startup() at boot clears every execution
-# lease — a second replica booting marks the first replica's live turns
-# completion_unknown and lets a queued turn write the same model session).
-# Raising replicas double-fires the scheduler, halves every rate cap, and
-# corrupts in-flight shared-chat agent sessions — do not raise it until
-# those move.
+# process-local lock). Execution rows are fenced by owner and lease
+# (services/leases.py), so a second replica booting no longer resets the
+# first replica's live turns. Raising replicas still double-fires the
+# scheduler and halves every rate cap — do not raise it until those move.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

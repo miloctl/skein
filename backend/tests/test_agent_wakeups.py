@@ -218,10 +218,11 @@ def test_startup_never_retries_unknown_completion(fresh_db):
     claim = agent_wakeups.claim_next()
     assert claim
 
-    assert agent_wakeups.recover_startup() == 1
+    fresh_db.execute("UPDATE agent_wakeups SET lease_until = '' WHERE agent = ?", (claim["agent"],))
+    assert agent_wakeups.reclaim_expired() == 1
     row = agent_wakeups.status("backend-architect")
     assert row["status"] == "completion_unknown"
-    assert row["reason"] == "process_restarted"
+    assert row["reason"] == "lease_expired"
     assert agent_wakeups.claim_next() is None
 
     # a NEW human delegation is a new explicit trigger, so it re-arms the
@@ -378,11 +379,11 @@ def test_crash_recovery_keeps_a_delegation_queued_mid_run(fresh_db):
         agent_wakeups.enqueue("backend-architect", 80, requested_by="sponsor")
     agent_wakeups.claim_next()
     fresh_db.execute(
-        "UPDATE agent_wakeups SET rerun_requested = 1 WHERE agent = ?",
+        "UPDATE agent_wakeups SET rerun_requested = 1, lease_until = '' WHERE agent = ?",
         ("backend-architect",),
     )
 
-    assert agent_wakeups.recover_startup() == 1
+    assert agent_wakeups.reclaim_expired() == 1
     assert agent_wakeups.status("backend-architect")["status"] == "pending"
 
 
@@ -403,3 +404,43 @@ def test_wake_status_exposes_only_safe_fields(fresh_db):
         "automation_enabled",
     }
     assert "sponsor" not in str(projected)
+
+
+def test_live_lease_of_another_process_is_neither_reclaimed_nor_finished(fresh_db):
+    from app.services import agent_wakeups
+
+    _mint(fresh_db, "sponsor")
+    _mint(fresh_db, "backend-architect", "agent")
+    with fresh_db.transaction():
+        agent_wakeups.enqueue("backend-architect", 80, requested_by="sponsor")
+    claim = agent_wakeups.claim_next()
+    assert claim
+    assert agent_wakeups.reclaim_expired() == 0
+    fresh_db.execute(
+        "UPDATE agent_wakeups SET lease_owner = 'other-process' WHERE agent = ?",
+        (claim["agent"],),
+    )
+    assert agent_wakeups.reclaim_expired() == 0
+    agent_wakeups.finish(claim, {"ran": True, "fault": False})
+    row = fresh_db.query_one(
+        "SELECT status, lease_owner FROM agent_wakeups WHERE agent = ?", (claim["agent"],)
+    )
+    assert row == {"status": "running", "lease_owner": "other-process"}
+
+
+def test_finish_clears_the_lease(fresh_db):
+    from app.services import agent_wakeups, leases
+
+    _mint(fresh_db, "sponsor")
+    _mint(fresh_db, "backend-architect", "agent")
+    with fresh_db.transaction():
+        agent_wakeups.enqueue("backend-architect", 80, requested_by="sponsor")
+    claim = agent_wakeups.claim_next()
+    assert claim["lease_owner"] == leases.PROCESS_ID
+    assert claim["lease_until"] > fresh_db.now()
+    agent_wakeups.finish(claim, {"ran": True, "fault": False})
+    row = fresh_db.query_one(
+        "SELECT status, lease_owner, lease_until FROM agent_wakeups WHERE agent = ?",
+        (claim["agent"],),
+    )
+    assert row == {"status": "completed", "lease_owner": "", "lease_until": ""}

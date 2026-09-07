@@ -500,21 +500,20 @@ async def lifespan(app: FastAPI):
         scheduler = (
             _start_scheduler(specs, settings.timezone) if settings.scheduler_enabled else None
         )
-        # Recovery is unconditional: a crash mid-turn leaves a `running` row,
-        # and a restore boot with SKEIN_SCHEDULER=0 must not leave Task Peek
-        # claiming an agent is working. Only the kick is gated on the flag.
-        from .services import shared_chat_agents
-        from .services.agent_wakeups import configure, recover_and_kick, recover_startup
+        # Recovery is a lease sweep, not a reset: a running row another live
+        # process holds keeps its lease, and only a lapsed one is reclaimed.
+        # The sweep runs here and then on a heartbeat, because a process that
+        # died seconds before this boot still holds an unexpired lease.
+        # Only the wake kick is gated on the scheduler flag.
+        from .services import leases, shared_chat_agents
+        from .services.agent_wakeups import configure
 
         if settings.scheduler_enabled:
             configure(registry)
-            recover_and_kick()
-        else:
-            recover_startup()
         # A shared-chat turn follows an explicit human call. Scheduler-disabled
         # deployments still drain it, unlike unattended and delegation work.
         shared_chat_agents.configure(registry)
-        shared_chat_agents.recover_and_kick()
+        leases.start(wake_kicks=settings.scheduler_enabled)
         from .mcp_server import session_manager
 
         app.state.skein_mcp_manager = session_manager()
@@ -523,6 +522,12 @@ async def lifespan(app: FastAPI):
     finally:
         # Keep each cleanup independent so one failure cannot skip the
         # database close or the machine-subject release.
+        try:
+            from .services import leases
+
+            leases.stop()
+        except Exception:
+            log.exception("execution lease heartbeat shutdown failed")
         if scheduler:
             try:
                 scheduler.shutdown(wait=False)
