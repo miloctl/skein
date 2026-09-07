@@ -21,15 +21,15 @@ LEASE_SECONDS = 90
 HEARTBEAT_SECONDS = 30
 # Every table with lease_owner/lease_until. Renewal touches all of them at
 # once, so a table left out here loses its rows to the sweep mid-turn.
-LEASED_TABLES = ("agent_wakeups", "chat_agent_runs")
+LEASED_TABLES = ("agent_wakeups", "chat_agent_runs", "job_runs")
 
 _stop = threading.Event()
 _thread: threading.Thread | None = None
 _wake_kicks = False
 
 
-def until() -> str:
-    return (datetime.now(UTC) + timedelta(seconds=LEASE_SECONDS)).isoformat(timespec="seconds")
+def until(seconds: int = LEASE_SECONDS) -> str:
+    return (datetime.now(UTC) + timedelta(seconds=seconds)).isoformat(timespec="seconds")
 
 
 def renew() -> int:

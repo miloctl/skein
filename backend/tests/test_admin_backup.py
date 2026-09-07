@@ -849,3 +849,31 @@ def test_manual_backup_ties_the_knot_and_scheduled_does_not(fresh_db):
         "SELECT detail FROM activity WHERE actor = 'ava' AND action = 'backup'"
     )
     assert row and row["detail"] == Path(result["database_path"]).name
+
+
+def test_backup_lock_reaches_another_connection(fresh_db, monkeypatch):
+    from psycopg.errors import LockNotAvailable
+
+    from app import db
+    from app.services import admin
+
+    monkeypatch.setattr(admin, "_BACKUP_LOCK_WAIT_SECONDS", 0.05)
+    with db.pool().connection() as other:
+        other.execute(
+            f"SELECT pg_advisory_lock({db._DB_KEY}, hashtext(%s))", (f"{db.LOCK_JOB}:backup",)
+        )
+        try:
+            with monkeypatch.context() as held:
+                held.setattr(
+                    admin,
+                    "_backup",
+                    lambda **_kwargs: pytest.fail("pg_dump path ran under a held lock"),
+                )
+                with pytest.raises(LockNotAvailable, match="backup lock"):
+                    admin.backup()
+        finally:
+            other.execute(
+                f"SELECT pg_advisory_unlock({db._DB_KEY}, hashtext(%s))",
+                (f"{db.LOCK_JOB}:backup",),
+            )
+    assert admin.backup()["status"] in ("ok", "partial")
