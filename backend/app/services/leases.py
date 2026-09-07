@@ -46,9 +46,11 @@ def renew() -> int:
 
 def sweep() -> dict:
     """Renew this process's leases, then reclaim what any process let lapse."""
+    from .. import ratelimit
     from . import agent_wakeups, shared_chat_agents
 
     renewed = renew()
+    ratelimit.prune()
     wakes = (
         agent_wakeups.recover_and_kick()
         if _wake_kicks

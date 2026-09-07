@@ -77,6 +77,7 @@ EXCLUDED = frozenset(
         # can also carry model names, integrity marks, exception text, and paths.
         "app_settings",
         "job_runs",
+        "rate_hits",
         "job_outcomes",
         "agent_wakeups",
         # the immutable ledger carries historical settings and operational

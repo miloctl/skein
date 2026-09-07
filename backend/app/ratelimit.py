@@ -2,24 +2,27 @@
 endpoints (capture, ingest). Not a security control — a DoS-annoyance guard
 for a single-process trusted-network deployment.
 
-The WINDOWS are process-local: restarting resets them, and multi-worker
-deployments each get their own. The LIMITS are not — three of them are stored
-in app_settings and shared across every process (see TUNED below, and
+The per-person WINDOWS are process-local: restarting resets them, and a
+second process gets its own, so a person's effective cap is the limit times
+the process count. The LIMITS are not — three of them are stored in
+app_settings and shared across every process (see TUNED below, and
 services/tuning.py). Do not read the process-local note as covering both.
 
-Not a security control, with one exception that decides what may be tuned:
-`signin`, `forge_addr`, `slack_addr`, `verify`, `export`, and `backup` bound an
-UNAUTHENTICATED caller or a whole-deployment cost, so they are withheld from
-the admin surface and stay
-env-only. Adding one of them to TUNED hands an administrator the dial that
+Not a security control, with one exception that decides what may be tuned
+and where the count lives: `signin`, `forge_addr`, `slack_addr`, `verify`,
+`export`, and `backup` bound an UNAUTHENTICATED caller or a whole-deployment
+cost, so they are withheld from the admin surface, stay env-only, and count
+in the database (SHARED, the rate_hits table) so every process adds to one
+window. Adding one of them to TUNED hands an administrator the dial that
 holds an unsigned caller off the identity provider."""
 
+import contextlib
 import math
 import time
 from collections import defaultdict, deque
 from threading import Lock
 
-from . import config
+from . import config, db
 
 _hits: dict[tuple[str, str], deque[float]] = defaultdict(deque)
 _lock = Lock()
@@ -155,6 +158,10 @@ NAMED = {
 # whole-deployment cost (verify, export), and those are the operator's to set in the
 # environment, not an admin's to raise from a form.
 TUNED = {"chat": "chat_limit", "write": "write_limit", "capture": "capture_limit"}
+# Counted in the database, as fixed windows: a process-local count would
+# multiply each of these by the process count, and each bounds something a
+# second process cannot be allowed to double (services/leases.py prunes).
+SHARED = frozenset({"signin", "forge_addr", "slack_addr", "verify", "export", "backup"})
 
 
 def _tuned(surface: str, fallback: int) -> int:
@@ -194,6 +201,19 @@ def check(surface: str, user: str, cost: int = 1) -> None:
     # a caller computing cost from data (a member count) must never reach zero
     # by arithmetic accident and turn the cap into a no-op
     cost = max(1, cost)
+    if cost > limit:
+        # unreachable today (the flock cost caps at MAX_MEMBERS + 1, below
+        # every limit) — but a full window of waiting never makes room for
+        # this request, and window[need - 1] below would index past the deque
+        raise RateLimited(
+            f"Skein refused this request. One request cannot use {cost}"
+            f" {NAMED.get(surface, surface)} slots, and the limit is {limit} per minute"
+            f" {PER.get(surface, 'per person')}. Send a smaller request.",
+            retry_after=int(WINDOW_SECONDS),
+        )
+    if surface in SHARED:
+        _check_shared(surface, user, cost, limit)
+        return
     now = time.monotonic()
     key = (surface, user)
     with _lock:
@@ -219,37 +239,56 @@ def check(surface: str, user: str, cost: int = 1) -> None:
             # as a 500 somewhere unrelated.
             if not window:
                 del _hits[key]
-            scope = PER.get(surface, "per person")
-            named = NAMED.get(surface, surface)
-            if cost > limit:
-                # unreachable today (the flock cost caps at MAX_MEMBERS + 1,
-                # below every limit) — but window[need - 1] below indexes past
-                # the deque the moment that stops being true, and a full
-                # window of waiting never makes room for this request
-                raise RateLimited(
-                    f"Skein refused this request. One request cannot use {cost}"
-                    f" {named} slots, and the limit is {limit} per minute"
-                    f" {scope}. Send a smaller request.",
-                    retry_after=int(WINDOW_SECONDS),
-                )
             # window[need - 1] is the timestamp whose expiry first makes room
             # for `cost` slots, so the wait is exact, not a window-sized guess
             need = len(window) + cost - limit
             wait = max(1, math.ceil(WINDOW_SECONDS - (now - window[need - 1])))
-            unit = "second" if wait == 1 else "seconds"
-            # "of them" pointed at the LIMIT, the nearest number — name the
-            # noun instead, because the word `slots` appears nowhere a reader
-            # of this sentence has been
-            uses = f" This request uses {cost} slots." if cost > 1 else ""
-            raise RateLimited(
-                f"Skein refused this request. The limit for {named} is {limit}"
-                f" per minute {scope}.{uses}"
-                f" Wait {wait} {unit}, then send the request again.",
-                retry_after=wait,
-            )
+            raise _refusal(surface, limit, cost, wait)
         window.extend([now] * cost)
+
+
+def _refusal(surface: str, limit: int, cost: int, wait: int) -> RateLimited:
+    unit = "second" if wait == 1 else "seconds"
+    # "of them" pointed at the LIMIT, the nearest number — name the noun
+    # instead, because the word `slots` appears nowhere a reader of this
+    # sentence has been
+    uses = f" This request uses {cost} slots." if cost > 1 else ""
+    return RateLimited(
+        f"Skein refused this request. The limit for {NAMED.get(surface, surface)} is {limit}"
+        f" per minute {PER.get(surface, 'per person')}.{uses}"
+        f" Wait {wait} {unit}, then send the request again.",
+        retry_after=wait,
+    )
+
+
+def _window() -> int:
+    return int(time.time() // WINDOW_SECONDS)
+
+
+def _check_shared(surface: str, user: str, cost: int, limit: int) -> None:
+    window = _window()
+    # One statement decides and counts: a read-then-write from two processes
+    # would both read room and both take it.
+    taken = db.query_one(
+        "INSERT INTO rate_hits (surface, key, window_start, count) VALUES (?, ?, ?, ?)"
+        " ON CONFLICT (surface, key, window_start) DO UPDATE"
+        " SET count = rate_hits.count + EXCLUDED.count"
+        " WHERE rate_hits.count + EXCLUDED.count <= ? RETURNING count",
+        (surface, user, window, cost, limit),
+    )
+    if taken is None:
+        wait = max(1, math.ceil((window + 1) * WINDOW_SECONDS - time.time()))
+        raise _refusal(surface, limit, cost, wait)
+
+
+def prune() -> int:
+    """Drop windows no request can still count against."""
+    return db.execute_rowcount("DELETE FROM rate_hits WHERE window_start < ?", (_window() - 1,))
 
 
 def reset() -> None:
     with _lock:
         _hits.clear()
+    # Test-only: a suite without a database still resets the memory half.
+    with contextlib.suppress(Exception):
+        db.execute("DELETE FROM rate_hits")

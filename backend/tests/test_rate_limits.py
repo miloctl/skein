@@ -184,3 +184,32 @@ def test_the_write_bucket_is_per_person_even_on_the_shared_agent(fresh_db, monke
         reset_requester_identity(r2)
         reset_agent_identity(t2)
     ratelimit.reset()
+
+
+def test_deployment_wide_caps_count_across_processes(fresh_db):
+    """A per-process count would let each process hand out the whole cap."""
+    import pytest
+
+    from app import db, ratelimit
+
+    # what other processes already counted in this window
+    db.execute(
+        "INSERT INTO rate_hits (surface, key, window_start, count) VALUES (?, ?, ?, ?)",
+        ("signin", "203.0.113.7", ratelimit._window(), ratelimit.LIMITS["signin"] - 1),
+    )
+    ratelimit.check("signin", "203.0.113.7")
+    with pytest.raises(ratelimit.RateLimited, match="per address") as refused:
+        ratelimit.check("signin", "203.0.113.7")
+    assert 1 <= refused.value.retry_after <= 60
+    ratelimit.check("signin", "203.0.113.8")
+    # a per-person cap writes no row
+    ratelimit.check("write", "someone")
+    surfaces = {row["surface"] for row in db.query("SELECT surface FROM rate_hits")}
+    assert surfaces == {"signin"}
+    # only windows no request can still count against are pruned
+    db.execute(
+        "INSERT INTO rate_hits (surface, key, window_start, count) VALUES ('export', 'x', ?, 1)",
+        (ratelimit._window() - 2,),
+    )
+    assert ratelimit.prune() == 1
+    assert db.query_one("SELECT 1 FROM rate_hits WHERE surface = 'signin'")

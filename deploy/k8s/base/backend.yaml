@@ -2,12 +2,14 @@
 # it — PostgreSQL takes concurrent writers, the check-then-write paths hold
 # real locks (db.py::name_lock, policy_context.hold_resource), execution
 # rows and scheduled firings are fenced by process lease
-# (services/leases.py, services/jobs.py::run_job), and sign-in codes, turn
-# claims, and the pause reach every process through rows. What still
-# assumes one process: artifacts and exports on a ReadWriteOnce volume (a
-# second replica serves 404s for half of them) and the per-process rate-cap
-# windows (app/ratelimit.py). Raising replicas halves every rate cap — do
-# not raise it until those move.
+# (services/leases.py, services/jobs.py::run_job), sign-in codes, turn
+# claims, and the pause reach every process through rows, and the
+# deployment-wide rate caps count in the database (app/ratelimit.py::SHARED).
+# What still assumes one process: artifacts, exports, backups, and anchor
+# logs on a ReadWriteOnce volume (a second replica serves 404s for half of
+# them and keeps a second anchor history). Per-person rate caps stay
+# process-local and multiply by the process count, which is accepted. Do
+# not raise replicas until the volume is shared.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

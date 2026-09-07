@@ -688,6 +688,7 @@ UNSCOPED: dict[str, str] = {
         " `capture:<user>` row holds the caller's name and a token-charset key,"
         " never capture text; a `chat-turn:<thread>` row holds only the thread id"
     ),
+    "rate_hits": "a count per surface, key and minute — a name or an address, no content",
     "mcp_oauth_flows": (
         "a sign-in's one-time code in transit: a provider nonce and a code that"
         " expire in minutes, never a token"
