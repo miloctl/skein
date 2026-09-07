@@ -11,7 +11,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from .. import db
+from .. import config, db
+from . import leases
 
 log = logging.getLogger("skein")
 
@@ -276,9 +277,56 @@ def _outcome_detail(result: object) -> str:
     return str(result)
 
 
+def fire_key(spec: JobSpec, now: datetime | None = None) -> str:
+    """The firing this run stands for, agreed by every process.
+
+    A cron job keys on its latest scheduled time, so two processes firing
+    together and a boot catch-up hours later all name the same run. An
+    interval job fires relative to each process's own start, so it keys on
+    the period window instead."""
+    now = now or datetime.now(UTC)
+    if spec.trigger.get("trigger") == "cron":
+        from apscheduler.triggers.cron import CronTrigger
+
+        fields = {k: v for k, v in spec.trigger.items() if k != "trigger"}
+        trigger = CronTrigger(**fields, timezone=config.TZ_NAME)
+        # Two periods back: at 06:00 a 07:00-and-15:00 job last fired 15 hours
+        # ago, one period back finds nothing and the key falls to the window.
+        cursor = now - timedelta(hours=2 * spec.period_hours)
+        latest = None
+        while (fire := trigger.get_next_fire_time(None, cursor)) and fire <= now:
+            latest = fire
+            cursor = fire + timedelta(seconds=1)
+        if latest is not None:
+            return latest.isoformat(timespec="minutes")
+    seconds = max(int(spec.period_hours * 3600), 60)
+    return str(int(now.timestamp()) // seconds)
+
+
 def run_job(spec: JobSpec) -> None:
     """Run one registered job: log, time, record the outcome. Never raises —
-    a failing job must not take down the scheduler or startup."""
+    a failing job must not take down the scheduler or startup.
+
+    One process runs each firing. The claim is leased, so a process that dies
+    mid-job frees the firing for the next catch-up instead of burning it. A
+    firing that fails releases its claim for the same reason: the job rolled
+    its work back, and the next catch-up is its retry."""
+    key = fire_key(spec)
+    if not db.claim_job(f"fire:{spec.name}", key, lease_seconds=leases.LEASE_SECONDS):
+        log.info("job %s: skipped, firing %s is claimed", spec.name, key)
+        return
+    succeeded = False
+    try:
+        succeeded = _run_claimed(spec)
+    finally:
+        with contextlib.suppress(Exception):
+            if succeeded:
+                db.settle_job(f"fire:{spec.name}", key)
+            else:
+                db.release_job(f"fire:{spec.name}", key)
+
+
+def _run_claimed(spec: JobSpec) -> bool:
     log.info("job %s: start", spec.name)
     start = time.monotonic()
     try:
@@ -298,7 +346,7 @@ def run_job(spec: JobSpec) -> None:
         # the winner's failures needed to show.
         if declared == "noop":
             log.info("job %s: done (noop) %s", spec.name, detail)
-            return
+            return True
         # `partial` is STORED as 'error': job_outcomes.status is a two-value
         # CHECK (001_baseline.sql) and job_health counts only 'ok' rows toward
         # last-success, which is the honest answer for a fleet where some
@@ -307,12 +355,14 @@ def run_job(spec: JobSpec) -> None:
         status = "ok" if declared not in ("partial", "error") else "error"
         record_outcome(spec.name, status, detail, elapsed)
         log.info("job %s: done (%s) %s", spec.name, declared or status, detail)
+        return status == "ok"
     except Exception as exc:
         elapsed = int((time.monotonic() - start) * 1000)
         # outcome table unavailable must not mask the real failure
         with contextlib.suppress(Exception):
             record_outcome(spec.name, "error", f"{type(exc).__name__}: {exc}", elapsed)
         log.exception("job %s: FAILED", spec.name)
+        return False
 
 
 def job_health(specs: Sequence[JobSpec] = JOBS) -> list[dict]:

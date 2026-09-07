@@ -173,7 +173,8 @@ def _held_export_lock():
     if not _EXPORT_LOCK.acquire(timeout=_EXPORT_LOCK_WAIT_SECONDS):
         raise LockNotAvailable("Another portable export is still running.")
     try:
-        yield
+        with db.session_lock(db.LOCK_JOB, "export", wait_seconds=_EXPORT_LOCK_WAIT_SECONDS):
+            yield
     finally:
         _EXPORT_LOCK.release()
 
@@ -352,27 +353,36 @@ def _backup_one(args: list[str], dest: Path, prefix: str = "") -> None:
 
 @contextmanager
 def _held_backup_lock():
-    """Serialize workers that share the backup directory, including manual runs."""
+    """Serialize workers that share the backup directory, including manual runs.
+
+    Three locks, widest last: the thread lock, the database lock that reaches
+    every process on every node, and the file lock for a directory shared by
+    something that is not a Skein process at all."""
     if not _BACKUP_LOCK.acquire(timeout=_BACKUP_LOCK_WAIT_SECONDS):
         raise LockNotAvailable("Another database backup is still running.")
     try:
-        lock_path = _backups_dir() / ".backup.lock"
-        with lock_path.open("a+") as lock:
-            deadline = time.monotonic() + _BACKUP_LOCK_WAIT_SECONDS
-            while True:
-                try:
-                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    break
-                except BlockingIOError as exc:
-                    if time.monotonic() >= deadline:
-                        raise LockNotAvailable("Another database backup is still running.") from exc
-                    time.sleep(0.1)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        with db.session_lock(db.LOCK_JOB, "backup", wait_seconds=_BACKUP_LOCK_WAIT_SECONDS):
+            yield from _held_backup_file_lock()
     finally:
         _BACKUP_LOCK.release()
+
+
+def _held_backup_file_lock():
+    lock_path = _backups_dir() / ".backup.lock"
+    with lock_path.open("a+") as lock:
+        deadline = time.monotonic() + _BACKUP_LOCK_WAIT_SECONDS
+        while True:
+            try:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError as exc:
+                if time.monotonic() >= deadline:
+                    raise LockNotAvailable("Another database backup is still running.") from exc
+                time.sleep(0.1)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
 def backup(*, keep: int = 14, actor: str | None = None) -> dict:

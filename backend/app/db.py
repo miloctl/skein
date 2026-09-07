@@ -18,6 +18,7 @@ from contextvars import Context, ContextVar, Token, copy_context
 from datetime import UTC, date, datetime, time, timedelta
 from functools import lru_cache
 from pathlib import Path
+from time import monotonic, sleep
 from typing import Any
 from uuid import uuid4
 
@@ -852,18 +853,86 @@ def execute_rowcount(sql: str, params: tuple = ()) -> int:
         return conn.execute(*_prepare(sql, params)).rowcount
 
 
-def claim_job(job: str, run_key: str) -> bool:
-    """CAS-style once-only claim: scheduled jobs (digest, flush, backup) so
-    accidental multi-worker deployments can't double-run them, and the
-    capture route's idempotency receipt (`capture:<user>` rows)."""
+def claim_job(job: str, run_key: str, *, lease_seconds: int = 0) -> bool:
+    """CAS-style claim: scheduled jobs (digest, flush, backup) so a second
+    process cannot double-run them, and the capture route's idempotency
+    receipt (`capture:<user>` rows).
+
+    With no lease the claim is permanent. With one, a claim whose holder
+    stopped renewing (services/leases.py) can be retaken after it lapses,
+    and settle_job makes it permanent once the work is done. A leased claim
+    that the caller never settles is retaken every lapse."""
+    from .services import leases
+
+    stamp = now()
+    lease = leases.until(lease_seconds) if lease_seconds else ""
+    owner = leases.PROCESS_ID if lease_seconds else ""
     return (
         execute_rowcount(
-            "INSERT INTO job_runs (job, run_key, created_at) VALUES (?, ?, ?)"
-            " ON CONFLICT DO NOTHING",
-            (job, run_key, now()),
+            "INSERT INTO job_runs (job, run_key, created_at, lease_owner, lease_until)"
+            " VALUES (?, ?, ?, ?, ?)"
+            " ON CONFLICT (job, run_key) DO UPDATE"
+            " SET lease_owner = EXCLUDED.lease_owner, lease_until = EXCLUDED.lease_until"
+            " WHERE job_runs.lease_until != '' AND job_runs.lease_until <= ?",
+            (job, run_key, stamp, owner, lease, stamp),
         )
         == 1
     )
+
+
+def settle_job(job: str, run_key: str) -> bool:
+    """Make this process's leased claim permanent."""
+    from .services import leases
+
+    return (
+        execute_rowcount(
+            "UPDATE job_runs SET lease_owner = '', lease_until = ''"
+            " WHERE job = ? AND run_key = ? AND lease_owner = ?",
+            (job, run_key, leases.PROCESS_ID),
+        )
+        == 1
+    )
+
+
+def release_job(job: str, run_key: str) -> bool:
+    """Give this process's leased claim back so the next caller retakes it."""
+    from .services import leases
+
+    return (
+        execute_rowcount(
+            "DELETE FROM job_runs WHERE job = ? AND run_key = ? AND lease_owner = ?",
+            (job, run_key, leases.PROCESS_ID),
+        )
+        == 1
+    )
+
+
+@contextmanager
+def session_lock(namespace: int, name: str, *, wait_seconds: float) -> Iterator[None]:
+    """One `name` inside `namespace`, held across processes for the block.
+
+    name_lock ends with its transaction. Work that must not run inside one
+    (pg_dump, a portable export) holds this instead, on a pooled connection
+    of its own, so a second process waits or gives up rather than writing
+    the same recovery files."""
+    with pool().connection() as conn:
+        key = f"{namespace}:{name}"
+        deadline = monotonic() + wait_seconds
+        while True:
+            held = conn.execute(
+                f"SELECT pg_try_advisory_lock({_DB_KEY}, hashtext(%s)) AS held", (key,)
+            ).fetchone()
+            if held and held["held"]:
+                break
+            if monotonic() >= deadline:
+                raise psycopg.errors.LockNotAvailable(
+                    f"Another process holds the {name} lock. Try again later."
+                )
+            sleep(0.1)
+        try:
+            yield
+        finally:
+            conn.execute(f"SELECT pg_advisory_unlock({_DB_KEY}, hashtext(%s))", (key,))
 
 
 # ---- provenance ledger -----------------------------------------------------

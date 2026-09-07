@@ -8,8 +8,9 @@
 # (services/shared_chat_agents.py serializes each model session with a
 # process-local lock). Execution rows are fenced by owner and lease
 # (services/leases.py), so a second replica booting no longer resets the
-# first replica's live turns. Raising replicas still double-fires the
-# scheduler and halves every rate cap — do not raise it until those move.
+# first replica's live turns, and each scheduled firing is claimed once
+# (services/jobs.py::run_job). Raising replicas still halves every
+# process-local rate cap — do not raise it until those move.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

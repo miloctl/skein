@@ -246,8 +246,8 @@ def _start_scheduler(
 ):
     """Background jobs in the team's zone, from the composed registry.
 
-    Jobs are once-only via db.claim_job or CAS status flips, so an accidental
-    multi-worker deployment cannot double-run them.
+    services/jobs.py::run_job claims each firing with a lease, so a second
+    process running the same schedule skips what the first one holds.
 
     The hours in JOBS are the hours a person experiences: the 07:00 digest is
     07:00 where the team works. APScheduler resolves the DST edges — a job at
