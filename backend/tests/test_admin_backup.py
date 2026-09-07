@@ -120,9 +120,21 @@ def test_existing_mirror_works_with_a_custom_data_dir(fresh_db, tmp_path, monkey
 def test_recovery_archives_keep_browser_session_schema_but_never_authority(
     fresh_db, tmp_path, monkeypatch
 ):
-    from app.services import admin, api_keys, browser_sessions, users
+    from cryptography.fernet import Fernet
 
+    from app import config
+    from app.services import admin, api_keys, browser_sessions, mcp_servers, users
+
+    monkeypatch.setattr(config, "CREDENTIAL_KEY", Fernet.generate_key().decode())
     users.ensure_human_identity("browser-owner")
+    server = mcp_servers.add(
+        "browser-owner", "oauth", "https://mcp.example/mcp", auth="oauth", actor="browser-owner"
+    )
+    claim = mcp_servers.claim_oauth(server["id"], "browser-owner", 300)
+    mcp_servers.register_oauth_state(claim, "backup-flow")
+    assert mcp_servers.complete_oauth("backup-flow", "backup-code-secret", False)
+    raw = fresh_db.query_row("SELECT code_sealed FROM mcp_oauth_flows")["code_sealed"]
+    assert b"backup-code-secret" not in bytes(raw)
     issued = browser_sessions.create_key_session(
         api_keys.create_key("browser-owner")["key"], mode="trusted-header"
     )
@@ -137,6 +149,8 @@ def test_recovery_archives_keep_browser_session_schema_but_never_authority(
         listing = _dump_list(path, admin)
         assert " TABLE public browser_sessions " in listing
         assert " TABLE DATA public browser_sessions " not in listing
+        assert " TABLE public mcp_oauth_flows " in listing
+        assert " TABLE DATA public mcp_oauth_flows " not in listing
         assert " TABLE DATA public api_keys " in listing
 
 

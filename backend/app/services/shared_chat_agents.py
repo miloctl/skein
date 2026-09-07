@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import json
 import logging
 import queue
@@ -242,9 +243,9 @@ def claim_next() -> dict | None:
             return db.query_row(
                 "UPDATE chat_agent_runs SET status = 'running', started_at = ?,"
                 " finished_at = NULL, execution_active = TRUE, error_code = '',"
-                " lease_owner = ?, lease_until = ?"
+                " lease_owner = ?, lease_until = ?, lease_token = ?"
                 " WHERE turn_id = ? AND status = 'pending' RETURNING *",
-                (now, leases.PROCESS_ID, leases.until(), row["turn_id"]),
+                (now, leases.PROCESS_ID, leases.until(), leases.new_token(), row["turn_id"]),
             )
     return None
 
@@ -280,6 +281,7 @@ def _settle(
     receipt_rows: list[dict] | None = None,
     *,
     keep_execution: bool = False,
+    lease_token: str,
 ) -> None:
     from . import chat_threads
 
@@ -292,13 +294,14 @@ def _settle(
             return
         chat_threads._lock_shared(str(run["thread_id"]))
         current = db.query_one(
-            "SELECT status, lease_owner FROM chat_agent_runs WHERE turn_id = ? FOR UPDATE",
+            "SELECT status, lease_owner, lease_token FROM chat_agent_runs WHERE turn_id = ? FOR UPDATE",
             (turn_id,),
         )
         if (
             not current
             or current["status"] != "running"
             or current["lease_owner"] != leases.PROCESS_ID
+            or current["lease_token"] != lease_token
         ):
             return
         response_message_id = None
@@ -329,7 +332,8 @@ def _settle(
             "UPDATE chat_agent_runs SET status = ?, response_message_id = ?,"
             " finished_at = ?, execution_active = ?, error_code = ?,"
             " lease_owner = CASE WHEN ? THEN lease_owner ELSE '' END,"
-            " lease_until = CASE WHEN ? THEN lease_until ELSE '' END"
+            " lease_until = CASE WHEN ? THEN lease_until ELSE '' END,"
+            " lease_token = CASE WHEN ? THEN lease_token ELSE '' END"
             " WHERE turn_id = ? AND status = 'running'",
             (
                 status,
@@ -339,12 +343,13 @@ def _settle(
                 error_code,
                 keep_execution,
                 keep_execution,
+                keep_execution,
                 turn_id,
             ),
         )
 
 
-def _release_execution(turn_id: str) -> None:
+def _release_execution(turn_id: str, lease_token: str) -> None:
     with db.transaction():
         # The turn thread releases the model session BEFORE the worker
         # settles the row, so the lease stays until settle. A kept execution
@@ -352,9 +357,10 @@ def _release_execution(turn_id: str) -> None:
         db.execute(
             "UPDATE chat_agent_runs SET execution_active = FALSE,"
             " lease_owner = CASE WHEN status = 'running' THEN lease_owner ELSE '' END,"
-            " lease_until = CASE WHEN status = 'running' THEN lease_until ELSE '' END"
-            " WHERE turn_id = ? AND lease_owner = ?",
-            (turn_id, leases.PROCESS_ID),
+            " lease_until = CASE WHEN status = 'running' THEN lease_until ELSE '' END,"
+            " lease_token = CASE WHEN status = 'running' THEN lease_token ELSE '' END"
+            " WHERE turn_id = ? AND lease_owner = ? AND lease_token = ?",
+            (turn_id, leases.PROCESS_ID, lease_token),
         )
 
 
@@ -592,11 +598,6 @@ def _run_claim(
                 turn_complete.set()
                 monitor_decision.wait()
                 try:
-                    if box.get("timed_out") and not _shutdown.is_set():
-                        if "error" not in box and "refused" not in box:
-                            _finish_success(run, str(box.get("reply") or ""), box["receipts"])
-                        elif box["receipts"]:
-                            _persist_late_failure(run, box["receipts"])
                     if built is not None and not _shutdown.is_set():
                         row = usage.row_from_agent(
                             built,
@@ -610,6 +611,11 @@ def _run_claim(
                                 trigger_message_id=int(run["trigger_message_id"]),
                                 chat_agent_run_id=str(run["turn_id"]),
                             )
+                    if box.get("timed_out") and not _shutdown.is_set():
+                        if "error" not in box and "refused" not in box:
+                            _finish_success(run, str(box.get("reply") or ""), box["receipts"])
+                        elif box["receipts"]:
+                            _persist_late_failure(run, box["receipts"])
                 except Exception:
                     # Persistence failure must not retain the model-session lock
                     # or one of the four execution slots. The durable row stays
@@ -629,15 +635,16 @@ def _run_claim(
                 finally:
                     if not _shutdown.is_set():
                         with contextlib.suppress(Exception):
-                            _release_execution(str(run["turn_id"]))
+                            _release_execution(str(run["turn_id"]), str(run["lease_token"]))
                     if session_lock.locked():
                         session_lock.release()
                     execution_lease.release()
                     with contextlib.suppress(Exception):
                         kick()
 
+    context = contextvars.copy_context()
     worker = threading.Thread(
-        target=turn,
+        target=lambda: context.run(turn),
         daemon=True,
         name=f"shared-chat-agent-{run['agent']}",
     )
@@ -674,7 +681,7 @@ def _persist_late_failure(run: dict, receipt_rows: list[dict]) -> None:
     with db.transaction():
         chat_threads._lock_shared(str(run["thread_id"]))
         current = db.query_one(
-            "SELECT status, response_message_id, lease_owner FROM chat_agent_runs"
+            "SELECT status, response_message_id, lease_owner, lease_token FROM chat_agent_runs"
             " WHERE turn_id = ? FOR UPDATE",
             (run["turn_id"],),
         )
@@ -683,6 +690,7 @@ def _persist_late_failure(run: dict, receipt_rows: list[dict]) -> None:
             or current["status"] not in ("running", "completion_unknown")
             or current["response_message_id"]
             or current["lease_owner"] != leases.PROCESS_ID
+            or current["lease_token"] != run["lease_token"]
         ):
             return
         now = db.now()
@@ -703,7 +711,7 @@ def _persist_late_failure(run: dict, receipt_rows: list[dict]) -> None:
         db.execute(
             "UPDATE chat_agent_runs SET status = 'completion_unknown',"
             " response_message_id = ?, finished_at = ?, execution_active = FALSE,"
-            " error_code = 'turn_failed', lease_owner = '', lease_until = '' WHERE turn_id = ?",
+            " error_code = 'turn_failed', lease_owner = '', lease_until = '', lease_token = '' WHERE turn_id = ?",
             (message_id, now, run["turn_id"]),
         )
         db.execute(
@@ -725,7 +733,7 @@ def _finish_success(run: dict, reply: str, receipt_rows: list[dict]) -> None:
     with db.transaction():
         chat_threads._lock_shared(str(run["thread_id"]))
         current = db.query_one(
-            "SELECT status, response_message_id, lease_owner FROM chat_agent_runs"
+            "SELECT status, response_message_id, lease_owner, lease_token FROM chat_agent_runs"
             " WHERE turn_id = ? FOR UPDATE",
             (run["turn_id"],),
         )
@@ -734,6 +742,7 @@ def _finish_success(run: dict, reply: str, receipt_rows: list[dict]) -> None:
             or current["status"] not in ("running", "completion_unknown")
             or current["response_message_id"]
             or current["lease_owner"] != leases.PROCESS_ID
+            or current["lease_token"] != run["lease_token"]
         ):
             return
         now = db.now()
@@ -754,7 +763,7 @@ def _finish_success(run: dict, reply: str, receipt_rows: list[dict]) -> None:
         db.execute(
             "UPDATE chat_agent_runs SET status = 'completed', response_message_id = ?,"
             " finished_at = ?, execution_active = FALSE, error_code = '',"
-            " lease_owner = '', lease_until = '' WHERE turn_id = ?",
+            " lease_owner = '', lease_until = '', lease_token = '' WHERE turn_id = ?",
             (message_id, now, run["turn_id"]),
         )
         db.execute(
@@ -764,6 +773,15 @@ def _finish_success(run: dict, reply: str, receipt_rows: list[dict]) -> None:
 
 
 def _process_run(run: dict, lock: threading.Lock) -> None:
+    try:
+        with leases.held(str(run["lease_token"]), table="chat_agent_runs"):
+            _process_held(run, lock)
+    except leases.LeaseLost:
+        if lock.locked():
+            lock.release()
+
+
+def _process_held(run: dict, lock: threading.Lock) -> None:
     _execution_slots.acquire()
     execution_lease = _ExecutionLease()
     # Set by _run_claim once the turn thread owns lock + lease. lock.locked()
@@ -783,6 +801,7 @@ def _process_run(run: dict, lock: threading.Lock) -> None:
                 value,
                 receipt_rows,
                 keep_execution=handoff.is_set() and lock.locked(),
+                lease_token=str(run["lease_token"]),
             )
     except Exception:
         log.exception("private shared-chat agent worker failed")
@@ -794,6 +813,7 @@ def _process_run(run: dict, lock: threading.Lock) -> None:
                 "completion_unknown",
                 "worker_failed",
                 keep_execution=handoff.is_set() and lock.locked(),
+                lease_token=str(run["lease_token"]),
             )
         except Exception:
             log.exception("private shared-chat agent run could not settle")
@@ -827,7 +847,12 @@ def _drain() -> None:
                     break
                 lock = _session_lock(str(run["thread_id"]), str(run["agent"]))
                 if not lock.acquire(blocking=False):
-                    _settle(str(run["turn_id"]), "failed", "session_busy")
+                    _settle(
+                        str(run["turn_id"]),
+                        "failed",
+                        "session_busy",
+                        lease_token=str(run["lease_token"]),
+                    )
                     continue
                 turn_id = str(run["turn_id"])
                 worker = threading.Thread(
@@ -841,7 +866,12 @@ def _drain() -> None:
                 except Exception:
                     if lock.locked():
                         lock.release()
-                    _settle(turn_id, "failed", "worker_start_failed")
+                    _settle(
+                        turn_id,
+                        "failed",
+                        "worker_start_failed",
+                        lease_token=str(run["lease_token"]),
+                    )
                     continue
                 active[turn_id] = worker
             if not active:
@@ -985,14 +1015,15 @@ def reclaim_expired() -> int:
         recovered = db.execute_rowcount(
             "UPDATE chat_agent_runs SET status = 'completion_unknown', finished_at = ?,"
             " execution_active = FALSE, error_code = 'lease_expired',"
-            " lease_owner = '', lease_until = ''"
-            " WHERE status = 'running' AND lease_until <= ?",
-            (now, now),
+            " lease_owner = '', lease_until = '', lease_token = ''"
+            " WHERE status = 'running'"
+            " AND COALESCE(NULLIF(lease_until, '')::timestamptz, '-infinity') <= clock_timestamp()",
+            (now,),
         )
         return recovered + db.execute_rowcount(
             "UPDATE chat_agent_runs SET execution_active = FALSE, lease_owner = '',"
-            " lease_until = '' WHERE execution_active = TRUE AND lease_until <= ?",
-            (now,),
+            " lease_until = '', lease_token = '' WHERE execution_active = TRUE"
+            " AND COALESCE(NULLIF(lease_until, '')::timestamptz, '-infinity') <= clock_timestamp()",
         )
 
 

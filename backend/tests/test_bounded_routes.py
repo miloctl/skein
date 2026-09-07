@@ -46,14 +46,30 @@ def _calls_the_check(fn) -> bool:
         tree = ast.parse(src)
     except SyntaxError:  # pragma: no cover
         return False
-    return any(
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "check"
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == "ratelimit"
-        for node in ast.walk(tree)
-    )
+
+    def is_check(node: ast.AST) -> bool:
+        return (
+            isinstance(node, ast.Attribute)
+            and node.attr == "check"
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "ratelimit"
+        )
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and is_check(node.func):
+            return True
+        # Merely creating a threadpool coroutine executes no check. Only its
+        # awaited form with ratelimit.check as the callable satisfies the cap.
+        if isinstance(node, ast.Await) and isinstance(node.value, ast.Call):
+            call = node.value
+            if (
+                isinstance(call.func, ast.Name)
+                and call.func.id == "run_in_threadpool"
+                and call.args
+                and is_check(call.args[0])
+            ):
+                return True
+    return False
 
 
 def _routes():
@@ -244,3 +260,22 @@ def test_the_census_actually_walked_the_table():
     keys = [key for key, _ in _routes()]
     assert len(keys) > 60, f"only {len(keys)} mutating routes found — the walk is broken"
     assert "POST /api/tasks" in keys
+
+
+def test_rate_census_recognizes_only_an_awaited_threadpool_check():
+    from starlette.concurrency import run_in_threadpool
+
+    from app import ratelimit
+
+    async def checked():
+        await run_in_threadpool(ratelimit.check, "signin", "caller")
+
+    def unawaited():
+        return run_in_threadpool(ratelimit.check, "signin", "caller")
+
+    async def wrong_callable():
+        await run_in_threadpool(str, ratelimit.check)
+
+    assert _calls_the_check(checked)
+    assert not _calls_the_check(unawaited)
+    assert not _calls_the_check(wrong_callable)

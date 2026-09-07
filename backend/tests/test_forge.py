@@ -692,6 +692,26 @@ def test_workplace_policy_denies_a_forge_transition_in_the_write_transaction(fre
     )
 
 
+def test_delivery_receipts_survive_retention(signed, fresh_db, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from app.services import retention, work
+
+    tid = work.create_task("Keep the delivery receipt")["id"]
+    payload = _push(f"task/{tid}-x")
+    assert (
+        signed("push", payload, **{"X-Gitea-Delivery": "old-delivery"}).json()["status"]
+        == "in_progress"
+    )
+    work.update_task(tid, status="todo", actor="mira")
+    cutoff = (datetime.now(UTC) + timedelta(days=1)).isoformat(timespec="seconds")
+    monkeypatch.setattr(retention, "_cutoff", lambda days: cutoff)
+    retention.prune()
+    assert signed("push", payload, **{"X-Gitea-Delivery": "old-delivery"}).json() == {
+        "ignored": "this delivery was already applied"
+    }
+
+
 def test_a_delivery_applies_once_and_a_failed_apply_keeps_no_receipt(signed, fresh_db, monkeypatch):
     from app import db
     from app.services import forge, work
@@ -716,3 +736,11 @@ def test_a_delivery_applies_once_and_a_failed_apply_keeps_no_receipt(signed, fre
     )
     retried = signed("push", _push(f"task/{tid}-y"), **{"X-Gitea-Delivery": "d-2"}).json()
     assert retried != {"ignored": "this delivery was already applied"}
+
+
+def test_delivery_receipt_requires_the_application_transaction(fresh_db):
+    from app.services import forge
+
+    with pytest.raises(RuntimeError, match="application transaction"):
+        forge.claim_delivery("not-applied")
+    assert fresh_db.query_one("SELECT 1 FROM job_runs WHERE job = 'forge-delivery'") is None

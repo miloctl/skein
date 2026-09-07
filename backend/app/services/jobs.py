@@ -24,6 +24,8 @@ class JobSpec:
     trigger: dict = field(default_factory=dict)  # APScheduler add_job kwargs
     period_hours: float = 24  # expected cadence — drives the job_stale rule
     catch_up: bool = False  # run at startup to fill in missed firings
+    retry_safe: bool = False
+    timezone: str | None = None
 
 
 def _blocker_sweep():
@@ -148,12 +150,36 @@ def _retention_prune():
 
 
 JOBS: tuple[JobSpec, ...] = (
-    JobSpec("blocker-sweep", _blocker_sweep, {"trigger": "interval", "hours": 1}, 1, True),
+    # Retry opt-ins belong beside the body. Transactional sweeps, unique
+    # snapshots, and backup_if_stale can repeat without another effect.
+    # Model calls, outbound sends, and unclassified bodies stay conservative.
+    JobSpec(
+        "blocker-sweep",
+        _blocker_sweep,
+        {"trigger": "interval", "hours": 1},
+        1,
+        True,
+        retry_safe=True,
+    ),
     # hourly like the blocker sweep, and for the same reason: the job runs
     # often so a due date is noticed the day it passes, while the nudge itself
     # is once per cycle (services/promises.py::NUDGE_CYCLE_HOURS)
-    JobSpec("promise-chase", _chase_received, {"trigger": "interval", "hours": 1}, 1, True),
-    JobSpec("daily-backup", _daily_backup, {"trigger": "cron", "hour": 3, "minute": 0}, 24, True),
+    JobSpec(
+        "promise-chase",
+        _chase_received,
+        {"trigger": "interval", "hours": 1},
+        1,
+        True,
+        retry_safe=True,
+    ),
+    JobSpec(
+        "daily-backup",
+        _daily_backup,
+        {"trigger": "cron", "hour": 3, "minute": 0},
+        24,
+        True,
+        retry_safe=True,
+    ),
     # Hourly heal for _maybe_embed's best-effort gaps. No startup catch-up:
     # 200 external calls at the five-second timeout can delay readiness by
     # roughly 1000 seconds, and semantic repair is not a pre-serve dependency.
@@ -165,13 +191,20 @@ JOBS: tuple[JobSpec, ...] = (
         24,
         True,
     ),
-    JobSpec("context-pack", _context_pack, {"trigger": "cron", "hour": 5, "minute": 0}, 24),
+    JobSpec(
+        "context-pack",
+        _context_pack,
+        {"trigger": "cron", "hour": 5, "minute": 0},
+        24,
+        retry_safe=True,
+    ),
     JobSpec(
         "health-snapshot",
         _health_snapshot,
         {"trigger": "cron", "hour": 5, "minute": 10},
         24,
         True,
+        retry_safe=True,
     ),
     JobSpec(
         "forecast-snapshot",
@@ -179,6 +212,7 @@ JOBS: tuple[JobSpec, ...] = (
         {"trigger": "cron", "hour": 5, "minute": 15},
         24,
         True,
+        retry_safe=True,
     ),
     JobSpec(
         "weekly-plan",
@@ -186,6 +220,7 @@ JOBS: tuple[JobSpec, ...] = (
         {"trigger": "cron", "day_of_week": "mon", "hour": 6, "minute": 0},
         168,
         True,
+        retry_safe=True,
     ),
     JobSpec(
         "week-open",
@@ -193,12 +228,14 @@ JOBS: tuple[JobSpec, ...] = (
         {"trigger": "cron", "day_of_week": "mon", "hour": 6, "minute": 30},
         168,
         True,
+        retry_safe=True,
     ),
     JobSpec(
         "week-close",
         _week_close,
         {"trigger": "cron", "day_of_week": "fri", "hour": 15, "minute": 0},
         168,
+        retry_safe=True,
     ),
     JobSpec(
         "authority-review",
@@ -212,6 +249,7 @@ JOBS: tuple[JobSpec, ...] = (
         {"trigger": "cron", "day_of_week": "mon", "hour": 6, "minute": 15},
         168,
         True,
+        retry_safe=True,
     ),
     JobSpec(
         "agent-run",
@@ -224,7 +262,13 @@ JOBS: tuple[JobSpec, ...] = (
         {"trigger": "cron", "hour": 5, "minute": 30},
         24,
     ),
-    JobSpec("stale-decisions", _stale_decisions, {"trigger": "cron", "hour": 6, "minute": 30}, 24),
+    JobSpec(
+        "stale-decisions",
+        _stale_decisions,
+        {"trigger": "cron", "hour": 6, "minute": 30},
+        24,
+        retry_safe=True,
+    ),
     JobSpec("findings", _findings, {"trigger": "cron", "hour": 6, "minute": 50}, 24, True),
     JobSpec("daily-digest", _daily_digest, {"trigger": "cron", "hour": 7, "minute": 0}, 24),
     JobSpec(
@@ -243,12 +287,26 @@ JOBS: tuple[JobSpec, ...] = (
 )
 
 
-def record_outcome(job: str, status: str, detail: str = "", duration_ms: int = 0) -> None:
-    db.execute(
-        "INSERT INTO job_outcomes (job, status, detail, duration_ms, created_at)"
-        " VALUES (?, ?, ?, ?, ?)",
-        (job, status, detail[:500], duration_ms, db.now()),
-    )
+def record_outcome(
+    job: str,
+    status: str,
+    detail: str = "",
+    duration_ms: int = 0,
+    *,
+    outcome_id: int | None = None,
+) -> None:
+    if outcome_id is not None:
+        db.execute(
+            "UPDATE job_outcomes SET status = ?, detail = ?, duration_ms = ?, created_at = ?"
+            " WHERE id = ? AND job = ?",
+            (status, detail[:500], duration_ms, db.now(), outcome_id, job),
+        )
+    else:
+        db.execute(
+            "INSERT INTO job_outcomes (job, status, detail, duration_ms, created_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (job, status, detail[:500], duration_ms, db.now()),
+        )
 
 
 def _outcome_detail(result: object) -> str:
@@ -284,19 +342,22 @@ def fire_key(spec: JobSpec, now: datetime | None = None) -> str:
     together and a boot catch-up hours later all name the same run. An
     interval job fires relative to each process's own start, so it keys on
     the period window instead."""
-    now = now or datetime.now(UTC)
+    now = (now or datetime.now(UTC)).astimezone(UTC)
     if spec.trigger.get("trigger") == "cron":
         from apscheduler.triggers.cron import CronTrigger
 
         fields = {k: v for k, v in spec.trigger.items() if k != "trigger"}
-        trigger = CronTrigger(**fields, timezone=config.TZ_NAME)
+        fields.setdefault("timezone", spec.timezone or config.TZ_NAME)
+        trigger = CronTrigger(**fields)
         # Two periods back: at 06:00 a 07:00-and-15:00 job last fired 15 hours
         # ago, one period back finds nothing and the key falls to the window.
         cursor = now - timedelta(hours=2 * spec.period_hours)
         latest = None
         while (fire := trigger.get_next_fire_time(None, cursor)) and fire <= now:
             latest = fire
-            cursor = fire + timedelta(seconds=1)
+            # Local arithmetic resets fold=1 and repeats the same DST firing
+            # forever. UTC progress is strict across both copies of that hour.
+            cursor = fire.astimezone(UTC) + timedelta(seconds=1)
         if latest is not None:
             return latest.isoformat(timespec="minutes")
     seconds = max(int(spec.period_hours * 3600), 60)
@@ -304,65 +365,112 @@ def fire_key(spec: JobSpec, now: datetime | None = None) -> str:
 
 
 def run_job(spec: JobSpec) -> None:
-    """Run one registered job: log, time, record the outcome. Never raises —
-    a failing job must not take down the scheduler or startup.
+    """Fence the whole job independently of its firing receipt.
 
-    One process runs each firing. The claim is leased, so a process that dies
-    mid-job frees the firing for the next catch-up instead of burning it. A
-    firing that fails releases its claim for the same reason: the job rolled
-    its work back, and the next catch-up is its retry."""
-    key = fire_key(spec)
-    if not db.claim_job(f"fire:{spec.name}", key, lease_seconds=leases.LEASE_SECONDS):
+    Only retry_safe bodies can replay a failed or interrupted firing. Other
+    bodies commit a receipt and unknown-completion evidence before invocation,
+    because an exception cannot undo an external effect. Acquisition failures
+    never escape into startup or the scheduler."""
+    active = None
+    try:
+        key = fire_key(spec)
+        active = db.claim_job(f"active:{spec.name}", "running", lease_seconds=leases.LEASE_SECONDS)
+        if not active:
+            log.info("job %s: skipped, another firing is running", spec.name)
+            return
+        with leases.held(active):
+            if spec.retry_safe:
+                _run_retryable(spec, key)
+            else:
+                _run_once(spec, key)
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            record_outcome(spec.name, "error", f"{type(exc).__name__}: {exc}")
+        log.exception("job %s: acquisition or settlement failed", spec.name)
+    finally:
+        if active:
+            try:
+                db.release_job(f"active:{spec.name}", "running", active)
+            except Exception:
+                log.exception("job %s: could not release its active claim", spec.name)
+
+
+def _run_retryable(spec: JobSpec, key: str) -> None:
+    token = db.claim_job(f"fire:{spec.name}", key, lease_seconds=leases.LEASE_SECONDS)
+    if not token:
         log.info("job %s: skipped, firing %s is claimed", spec.name, key)
         return
     succeeded = False
     try:
-        succeeded = _run_claimed(spec)
+        with leases.held(token):
+            succeeded = _run_claimed(spec)
     finally:
-        with contextlib.suppress(Exception):
-            if succeeded:
-                db.settle_job(f"fire:{spec.name}", key)
-            else:
-                db.release_job(f"fire:{spec.name}", key)
+        if succeeded:
+            db.settle_job(f"fire:{spec.name}", key, token)
+        else:
+            db.release_job(f"fire:{spec.name}", key, token)
 
 
-def _run_claimed(spec: JobSpec) -> bool:
+def _run_once(spec: JobSpec, key: str) -> None:
+    with db.transaction():
+        if not db.claim_job(f"fire:{spec.name}", key):
+            log.info("job %s: skipped, firing %s is claimed", spec.name, key)
+            return
+        # The receipt and evidence commit together before a socket or file
+        # effect. A killed process then leaves a visible reconciliation need,
+        # not a lapsed receipt that silently repeats an uncertain operation.
+        outcome_id = db.execute(
+            "INSERT INTO job_outcomes (job, status, detail, duration_ms, created_at)"
+            " VALUES (?, 'error', ?, 0, ?) RETURNING id",
+            (
+                spec.name,
+                f"Completion unknown for firing {key}. Check its effects before a manual retry.",
+                db.now(),
+            ),
+        )
+    _run_claimed(spec, outcome_id=outcome_id)
+
+
+def _run_claimed(spec: JobSpec, *, outcome_id: int | None = None) -> bool:
     log.info("job %s: start", spec.name)
     start = time.monotonic()
     try:
         result = spec.fn()
-        elapsed = int((time.monotonic() - start) * 1000)
-        detail = _outcome_detail(result)
-        # A job can declare its own outcome. Without this branch, "did it
-        # raise" is the only health signal a job has: a fleet run where every
-        # allowlisted agent fails to build returns an ordinary dict, this
-        # records `ok`, and /health shows green while nothing has run for a
-        # week. Only our own literals are honored — anything else is `ok`, so
-        # a job returning a row with a `status` column cannot forge a state.
-        declared = result.get("status") if isinstance(result, dict) else None
-        # A lost cross-worker claim records NOTHING: the loser's every-minute
-        # skip otherwise wrote a fresh 'ok', so job_health's last-success was
-        # permanently current on the one deployment shape (two workers) where
-        # the winner's failures needed to show.
-        if declared == "noop":
-            log.info("job %s: done (noop) %s", spec.name, detail)
-            return True
-        # `partial` is STORED as 'error': job_outcomes.status is a two-value
-        # CHECK (001_baseline.sql) and job_health counts only 'ok' rows toward
-        # last-success, which is the honest answer for a fleet where some
-        # agents failed — an operator has to look. Widening the CHECK would
-        # mean rebuilding the table for a distinction only this log line makes.
-        status = "ok" if declared not in ("partial", "error") else "error"
-        record_outcome(spec.name, status, detail, elapsed)
-        log.info("job %s: done (%s) %s", spec.name, declared or status, detail)
-        return status == "ok"
     except Exception as exc:
         elapsed = int((time.monotonic() - start) * 1000)
-        # outcome table unavailable must not mask the real failure
+        unknown = "Completion unknown. " if not spec.retry_safe else ""
         with contextlib.suppress(Exception):
-            record_outcome(spec.name, "error", f"{type(exc).__name__}: {exc}", elapsed)
+            record_outcome(
+                spec.name,
+                "error",
+                f"{unknown}{type(exc).__name__}: {exc}",
+                elapsed,
+                outcome_id=outcome_id,
+            )
         log.exception("job %s: FAILED", spec.name)
         return False
+
+    elapsed = int((time.monotonic() - start) * 1000)
+    declared = result.get("status") if isinstance(result, dict) else None
+    # Only these explicit outcomes affect health. A domain row's ordinary
+    # status value cannot turn a successful job into a failure.
+    status = "error" if declared in ("partial", "error") else "ok"
+    try:
+        if declared == "noop":
+            # A no-op must not replace the winner's last outcome. Unsafe jobs
+            # already wrote provisional evidence, so remove only that row.
+            if outcome_id is not None:
+                db.execute("DELETE FROM job_outcomes WHERE id = ?", (outcome_id,))
+            log.info("job %s: done (noop)", spec.name)
+            return True
+        detail = _outcome_detail(result)
+        record_outcome(spec.name, status, detail, elapsed, outcome_id=outcome_id)
+        log.info("job %s: done (%s) %s", spec.name, declared or status, detail)
+    except Exception:
+        # The body has finished. Losing its outcome write cannot turn its
+        # successful effects into a retry of the same firing.
+        log.exception("job %s: could not record its outcome", spec.name)
+    return status == "ok"
 
 
 def job_health(specs: Sequence[JobSpec] = JOBS) -> list[dict]:

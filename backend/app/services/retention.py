@@ -19,6 +19,8 @@ PRUNE_LABEL = {
     "mention_log": "orphan mention record",
     "extension_outbox": "delivered extension event",
     "browser_sessions": "expired browser session",
+    "mcp_oauth_flows": "expired MCP sign-in",
+    "rate_hits": "expired rate window",
 }
 
 FORECAST_SNAPSHOT_DAYS = 365
@@ -140,10 +142,13 @@ def prune(*, actor: str = "scheduler") -> dict:
     # agent, so two flock turns in one thread are indistinguishable there). It
     # is bounded in practice by the chat cap, and chat_threads.delete_thread
     # removes a thread's traces with the thread.
-    from . import browser_sessions
+    from .. import ratelimit
+    from . import browser_sessions, mcp_servers
 
     removed = {
         "browser_sessions": browser_sessions.prune_expired(),
+        "mcp_oauth_flows": mcp_servers.prune_oauth_flows(),
+        "rate_hits": ratelimit.prune(),
         "forecast_snapshots": db.execute_rowcount(
             "DELETE FROM forecast_snapshots WHERE created_at < ?",
             (_cutoff(FORECAST_SNAPSHOT_DAYS),),
@@ -182,8 +187,14 @@ def prune(*, actor: str = "scheduler") -> dict:
         # This also expires capture idempotency receipts (`capture:<user>`),
         # so an outbox row re-sent after the horizon files a duplicate —
         # at-least-once, the safe direction, and old enough to notice.
+        # Forge redeliveries and annual firings outlive the telemetry horizon.
+        # Their small receipt rows grow permanently: pruning them permits an
+        # old event or an uncertain external effect to run again.
         "job_runs": db.execute_rowcount(
-            "DELETE FROM job_runs WHERE created_at < ?", (_cutoff(JOB_ROW_DAYS),)
+            "DELETE FROM job_runs WHERE created_at < ? AND job != 'forge-delivery'"
+            " AND job NOT LIKE 'fire:%'"
+            " AND (lease_until = '' OR NULLIF(lease_until, '')::timestamptz <= clock_timestamp())",
+            (_cutoff(JOB_ROW_DAYS),),
         ),
         "job_outcomes": db.execute_rowcount(
             "DELETE FROM job_outcomes WHERE created_at < ?", (_cutoff(JOB_ROW_DAYS),)

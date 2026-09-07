@@ -90,6 +90,33 @@ def _settled(server_id: str) -> dict:
     return next((row for row in mcp_tools.status() if row["server_id"] == server_id), {})
 
 
+def test_registration_cannot_recreate_credentials_after_deactivation(fresh_db, sealed, monkeypatch):
+    from app.services import mcp_servers, users
+
+    users.ensure_user("ava")
+    entered, release = threading.Event(), threading.Event()
+    check = mcp_servers.check_url
+
+    def delayed_check(url):
+        check(url)
+        entered.set()
+        assert release.wait(5)
+
+    monkeypatch.setattr(mcp_servers, "check_url", delayed_check)
+    with ThreadPoolExecutor(1) as callers:
+        pending = callers.submit(
+            mcp_servers.add, "ava", "jira", "https://jira.example/mcp", "token", actor="ava"
+        )
+        try:
+            assert entered.wait(3)
+            users.set_active("ava", False)
+        finally:
+            release.set()
+        with pytest.raises(ValueError, match="not active"):
+            pending.result(5)
+    assert mcp_servers.list_for("ava") == []
+
+
 def test_initial_personal_discovery_does_not_hold_the_registration_request(
     client, sealed, monkeypatch
 ):

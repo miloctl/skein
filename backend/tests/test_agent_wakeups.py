@@ -3,6 +3,15 @@
 import threading
 import time
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _wake_lifecycle(monkeypatch):
+    from app.services import agent_wakeups
+
+    monkeypatch.setattr(agent_wakeups, "_shutdown", threading.Event())
+
 
 def _mint(db, name, kind="human"):
     db.execute(

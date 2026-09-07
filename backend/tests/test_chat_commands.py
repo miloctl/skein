@@ -103,19 +103,20 @@ def test_command_wrapped_fb_refused_before_bridge(client, monkeypatch):
 
 
 def test_bridge_skipped_while_agent_turn_in_flight(client, monkeypatch):
-    from app.routes import chat as chat_route
+    from app.services import chat_threads
 
     calls = []
     monkeypatch.setattr("app.agents.session_log.log_exchange", lambda *a: calls.append(a))
     from app import db
 
     # what a turn on any process holds while it streams
-    assert db.claim_job("chat-turn:t", "elsewhere", lease_seconds=60)
+    token = db.claim_job("chat-turn:t", "turn", lease_seconds=60)
+    assert token
     try:
-        assert chat_route.turn_in_flight("t")
+        assert chat_threads.model_turn_active("t")
         _read_chat(client, "/help")
     finally:
-        db.release_job("chat-turn:t", "elsewhere")
+        db.release_job("chat-turn:t", "turn", token)
     assert calls == []
 
 

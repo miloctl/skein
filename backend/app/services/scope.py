@@ -686,12 +686,13 @@ UNSCOPED: dict[str, str] = {
     "job_runs": (
         "scheduler claims, turn claims, and capture idempotency receipts — a"
         " `capture:<user>` row holds the caller's name and a token-charset key,"
-        " never capture text; a `chat-turn:<thread>` row holds only the thread id"
+        " never capture text; a `chat-turn:<thread>` row holds only the thread id;"
+        " forge-delivery and fire:* receipts hold IDs and are kept permanently"
     ),
     "rate_hits": "a count per surface, key and minute — a name or an address, no content",
     "mcp_oauth_flows": (
-        "a sign-in's one-time code in transit: a provider nonce and a code that"
-        " expire in minutes, never a token"
+        "server-bound OAuth ownership and callback nonces, with sealed one-time codes;"
+        " expires in minutes, pruned on the lease sweep, excluded from export and backups"
     ),
     "mention_log": "a dedupe key, not content",
     "notification_reads": (

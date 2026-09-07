@@ -24,6 +24,7 @@ _extensions: ExtensionRegistry | None = None
 def configure(extensions: ExtensionRegistry) -> None:
     global _extensions
     _extensions = extensions
+    _shutdown.clear()
 
 
 WAKE_TOOLS = frozenset(
@@ -62,6 +63,8 @@ WAKE_TOOLS = frozenset(
 
 _worker_lock = threading.Lock()
 _worker_running = False
+_worker_thread: threading.Thread | None = None
+_shutdown = threading.Event()
 _SAFE_STOP_REASONS = frozenset({"cancelled", "limit_turns", "limit_total_tokens"})
 
 
@@ -133,9 +136,17 @@ def claim_next() -> dict | None:
         return db.query_row(
             "UPDATE agent_wakeups SET status = 'running', started_at = ?,"
             " finished_at = NULL, attempts = ?, thread_id = ?, reason = '',"
-            " lease_owner = ?, lease_until = ?"
+            " lease_owner = ?, lease_until = ?, lease_token = ?"
             " WHERE agent = ? AND status = 'pending' RETURNING *",
-            (now, attempt, thread_id, leases.PROCESS_ID, leases.until(), row["agent"]),
+            (
+                now,
+                attempt,
+                thread_id,
+                leases.PROCESS_ID,
+                leases.until(),
+                leases.new_token(),
+                row["agent"],
+            ),
         )
 
 
@@ -171,11 +182,16 @@ def finish(claim: dict, result: dict) -> None:
             or row["status"] != "running"
             or int(row["attempts"]) != attempt
             or row["lease_owner"] != leases.PROCESS_ID
+            or row["lease_token"] != claim["lease_token"]
+            or not db.query_one(
+                "SELECT 1 WHERE NULLIF(?, '')::timestamptz > clock_timestamp()",
+                (row["lease_until"],),
+            )
         ):
             return
         now = db.now()
         db.execute(
-            "UPDATE agent_wakeups SET lease_owner = '', lease_until = '' WHERE agent = ?",
+            "UPDATE agent_wakeups SET lease_owner = '', lease_until = '', lease_token = '' WHERE agent = ?",
             (agent,),
         )
         if result.get("ran"):
@@ -243,16 +259,18 @@ def reclaim_expired() -> int:
         recovered = db.execute_rowcount(
             "UPDATE agent_wakeups SET status = 'pending', requested_at = ?,"
             " started_at = NULL, finished_at = NULL, rerun_requested = 0,"
-            " thread_id = '', reason = '', lease_owner = '', lease_until = ''"
-            " WHERE status = 'running' AND rerun_requested = 1 AND lease_until <= ?",
-            (now, now),
+            " thread_id = '', reason = '', lease_owner = '', lease_until = '', lease_token = ''"
+            " WHERE status = 'running' AND rerun_requested = 1"
+            " AND COALESCE(NULLIF(lease_until, '')::timestamptz, '-infinity') <= clock_timestamp()",
+            (now,),
         )
         return recovered + db.execute_rowcount(
             "UPDATE agent_wakeups SET status = 'completion_unknown',"
             " finished_at = ?, rerun_requested = 0, reason = 'lease_expired',"
-            " lease_owner = '', lease_until = ''"
-            " WHERE status = 'running' AND lease_until <= ?",
-            (now, now),
+            " lease_owner = '', lease_until = '', lease_token = ''"
+            " WHERE status = 'running'"
+            " AND COALESCE(NULLIF(lease_until, '')::timestamptz, '-infinity') <= clock_timestamp()",
+            (now,),
         )
 
 
@@ -321,45 +339,46 @@ def _drain() -> None:
         # checked BEFORE claiming: a claim made while paused would finish as
         # refused and need a fresh delegation to re-arm — left pending, the
         # resume switch drains it with no data lost
-        while agent_automation_enabled() and (claim := claim_next()):
-            try:
-                # its own guard, not the run_one try below: a database blip
-                # in this read must not mark a turn that never started as
-                # completion_unknown. Not capped on error — a failing
-                # database refuses the turn itself a moment later.
-                capped = _wake_cap_reached()
-            except Exception:
-                log.exception("wake cap check failed for %s", claim["agent"])
-                capped = False
-            if capped:
-                finish(claim, {"ran": False, "fault": False, "reason": "wake cap"})
-                continue
-            try:
-                result = run_one(
-                    str(claim["agent"]),
-                    actor="scheduler",
-                    extensions=_extensions,
-                    policy=_extensions.policy_engine if _extensions else None,
-                    explicit_key=str(claim["attempts"]),
-                    allowed_tools=WAKE_TOOLS,
-                )
-            except Exception:
-                log.exception("agent wake worker failed for %s", claim["agent"])
-                result = {
-                    "agent": claim["agent"],
-                    "ran": False,
-                    "fault": True,
-                    "completion_unknown": True,
-                    "reason": "worker failed",
-                }
-            try:
-                finish(claim, result)
-            except Exception:
-                # the row stays running until the next restart's recovery; a
-                # database that refuses this write refuses claim_next too, so
-                # looping on would spin
-                log.exception("wake settle failed for %s", claim["agent"])
-                break
+        while not _shutdown.is_set() and agent_automation_enabled() and (claim := claim_next()):
+            with leases.tracked(str(claim["lease_token"]), table="agent_wakeups"):
+                try:
+                    # its own guard, not the run_one try below: a database blip
+                    # in this read must not mark a turn that never started as
+                    # completion_unknown. Not capped on error — a failing
+                    # database refuses the turn itself a moment later.
+                    capped = _wake_cap_reached()
+                except Exception:
+                    log.exception("wake cap check failed for %s", claim["agent"])
+                    capped = False
+                if capped:
+                    finish(claim, {"ran": False, "fault": False, "reason": "wake cap"})
+                    continue
+                try:
+                    result = run_one(
+                        str(claim["agent"]),
+                        actor="scheduler",
+                        extensions=_extensions,
+                        policy=_extensions.policy_engine if _extensions else None,
+                        explicit_key=str(claim["attempts"]),
+                        allowed_tools=WAKE_TOOLS,
+                    )
+                except Exception:
+                    log.exception("agent wake worker failed for %s", claim["agent"])
+                    result = {
+                        "agent": claim["agent"],
+                        "ran": False,
+                        "fault": True,
+                        "completion_unknown": True,
+                        "reason": "worker failed",
+                    }
+                try:
+                    finish(claim, result)
+                except Exception:
+                    # the row stays running until the next restart's recovery; a
+                    # database that refuses this write refuses claim_next too, so
+                    # looping on would spin
+                    log.exception("wake settle failed for %s", claim["agent"])
+                    break
     finally:
         with _worker_lock:
             _worker_running = False
@@ -380,15 +399,16 @@ def _automation_enabled() -> bool:
 
 def kick() -> bool:
     """Start one process-local queue drain after a committed delegation."""
-    global _worker_running
-    if not _automation_enabled():
+    global _worker_running, _worker_thread
+    if _shutdown.is_set() or not _automation_enabled():
         return False
     with _worker_lock:
         if _worker_running:
             return False
         _worker_running = True
     try:
-        threading.Thread(target=_drain, daemon=True, name="agent-wake-worker").start()
+        _worker_thread = threading.Thread(target=_drain, daemon=True, name="agent-wake-worker")
+        _worker_thread.start()
     except Exception:
         # thread-resource exhaustion: a wedged True here would refuse every
         # future kick until restart with pending rows visible and undrained
@@ -402,3 +422,11 @@ def recover_and_kick() -> dict:
     recovered = reclaim_expired()
     started = kick() if _has_pending() else False
     return {"recovered": recovered, "started": started}
+
+
+def shutdown(timeout: float = 5.0) -> bool:
+    _shutdown.set()
+    if _worker_thread is not None:
+        _worker_thread.join(timeout)
+        return not _worker_thread.is_alive()
+    return True

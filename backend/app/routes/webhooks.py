@@ -104,7 +104,7 @@ async def forge_webhook(
         raise forge_webhook_off()
     # by address, BEFORE the read and the HMAC: an unsigned caller has no name
     # to key on, and everything after this point costs real work
-    ratelimit.check("forge_addr", ratelimit.client_addr(request))
+    await run_in_threadpool(ratelimit.check, "forge_addr", ratelimit.client_addr(request))
     # Content-Length is a hint a caller can lie about, so the stream is
     # counted too; the timeout bounds a caller who dribbles bytes instead.
     declared = request.headers.get("content-length") or "0"
@@ -156,7 +156,7 @@ async def forge_webhook(
             # processes applies once. Inside the transaction, so a refused
             # or failed apply gives the receipt back and the retry runs.
             delivery = x_gitea_delivery or x_github_delivery
-            if delivery and not db.claim_job("forge-delivery", delivery):
+            if not forge.claim_delivery(delivery):
                 return {"ignored": "this delivery was already applied"}
             task_id = forge.match_task(
                 str(mapped.get("branch") or ""),

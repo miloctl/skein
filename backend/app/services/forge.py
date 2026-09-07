@@ -88,6 +88,14 @@ def _clean_url(url: str) -> str:
     return url
 
 
+def claim_delivery(delivery: str) -> bool:
+    # Committing a receipt before its task mutation loses the event on failure.
+    # routes/webhooks.py keeps policy checks and application in this transaction.
+    if not db.in_transaction():
+        raise RuntimeError("A delivery receipt requires the application transaction.")
+    return not delivery or db.claim_job("forge-delivery", delivery)
+
+
 def forge_event(
     kind: str,
     branch: str = "",

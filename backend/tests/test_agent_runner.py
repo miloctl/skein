@@ -364,7 +364,8 @@ def test_a_second_concurrent_turn_for_one_agent_refuses(fresh_db, monkeypatch):
     monkeypatch.setattr(config, "AGENT_RUNNER", [])
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
     # the claim another process would hold for a turn in flight
-    assert db.claim_job("agent-turn:research-agent", "turn", lease_seconds=60)
+    token = db.claim_job("agent-turn:research-agent", "turn", lease_seconds=60)
+    assert token
     try:
         out = agent_runner.run_one(
             "research-agent",
@@ -372,7 +373,7 @@ def test_a_second_concurrent_turn_for_one_agent_refuses(fresh_db, monkeypatch):
             allowed_tools={"my_agent_inbox"},
         )
     finally:
-        db.release_job("agent-turn:research-agent", "turn")
+        db.release_job("agent-turn:research-agent", "turn", token)
     assert out["ran"] is False
     assert "already running" in out["reason"]
     # the claim went back with the refusal, so the same wake key still works

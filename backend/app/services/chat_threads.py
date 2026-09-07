@@ -19,11 +19,39 @@ import secrets
 import shutil
 
 from .. import config, db
-from . import scope
+from . import leases, scope
 from .users import fold
 
 _THREAD_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 TITLE_LEN = 60
+
+
+def start_model_turn(thread_id: str) -> str:
+    with db.transaction():
+        token = db.claim_job(f"chat-turn:{thread_id}", "turn", lease_seconds=leases.LEASE_SECONDS)
+        if not token:
+            raise db.ResourceBusy(
+                "The model session is in use. Wait for the current turn to finish."
+            )
+        # Acquisition row first, matching fenced SDK writes. The bridge only
+        # reads this row, so it can finish while this claim waits on its lock.
+        db.name_lock(db.LOCK_SESSION, thread_id)
+    return token
+
+
+def finish_model_turn(thread_id: str, key: str) -> None:
+    db.release_job(f"chat-turn:{thread_id}", "turn", key)
+
+
+def model_turn_active(thread_id: str) -> bool:
+    return (
+        db.query_one(
+            "SELECT 1 FROM job_runs WHERE job = ?"
+            " AND NULLIF(lease_until, '')::timestamptz > clock_timestamp() LIMIT 1",
+            (f"chat-turn:{thread_id}",),
+        )
+        is not None
+    )
 
 
 def _check_id(thread_id: str) -> str:

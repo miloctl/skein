@@ -199,6 +199,12 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
                 trigger=dict(contribution.trigger),
                 period_hours=contribution.period_hours,
                 catch_up=contribution.catch_up,
+                retry_safe=(
+                    next((spec.retry_safe for spec in JOBS if spec.name == name), False)
+                    if contribution.name.startswith("skein.core.")
+                    else False
+                ),
+                timezone=settings.timezone,
             )
         )
     from .extensions.contracts import EventExecutionContext
@@ -459,6 +465,13 @@ async def lifespan(app: FastAPI):
         # catch-up job that builds an Agent before this line would export
         # unredacted conversation spans for the process lifetime.
         setup_telemetry()
+        from .services import agent_wakeups, leases, shared_chat_agents
+
+        agent_wakeups.configure(registry)
+        shared_chat_agents.configure(registry)
+        # A catch-up can outlive its first lease. Renewal must already run,
+        # while queue recovery waits for the rest of the composition root.
+        leases.start(wake_kicks=settings.scheduler_enabled, recover=False)
         # Claim-guarded catch-up runs fill in for missed cron firings only when
         # the scheduler is enabled. A restore boot uses SKEIN_SCHEDULER=0 so no
         # old notification, retention, or agent job runs before reconciliation.
@@ -505,15 +518,9 @@ async def lifespan(app: FastAPI):
         # The sweep runs here and then on a heartbeat, because a process that
         # died seconds before this boot still holds an unexpired lease.
         # Only the wake kick is gated on the scheduler flag.
-        from .services import leases, shared_chat_agents
-        from .services.agent_wakeups import configure
-
-        if settings.scheduler_enabled:
-            configure(registry)
         # A shared-chat turn follows an explicit human call. Scheduler-disabled
         # deployments still drain it, unlike unattended and delegation work.
-        shared_chat_agents.configure(registry)
-        leases.start(wake_kicks=settings.scheduler_enabled)
+        leases.enable_recovery(wake_kicks=settings.scheduler_enabled)
         from .mcp_server import session_manager
 
         app.state.skein_mcp_manager = session_manager()
@@ -525,9 +532,9 @@ async def lifespan(app: FastAPI):
         try:
             from .services import leases
 
-            leases.stop()
+            leases.disable_recovery()
         except Exception:
-            log.exception("execution lease heartbeat shutdown failed")
+            log.exception("execution recovery shutdown failed")
         if scheduler:
             try:
                 scheduler.shutdown(wait=False)
@@ -539,6 +546,13 @@ async def lifespan(app: FastAPI):
             shutdown_mcp()
         except Exception:
             log.exception("MCP shutdown failed")
+        wake_idle = False
+        try:
+            from .services import agent_wakeups
+
+            wake_idle = agent_wakeups.shutdown()
+        except Exception:
+            log.exception("agent wake shutdown failed")
         shared_chat_idle = True
         try:
             from .services import shared_chat_agents
@@ -548,19 +562,25 @@ async def lifespan(app: FastAPI):
             shared_chat_idle = False
             log.exception("shared-chat agent shutdown failed")
         try:
+            # Drains had their bounded chance to finish while renewal continued.
+            # Revocation now rejects writes from any daemon that remains alive.
+            leases.stop()
+        except Exception:
+            log.exception("execution lease heartbeat shutdown failed")
+        try:
             from .services import adoption
 
             adoption.flush()
         except Exception:
             log.exception("adoption flush failed")
         try:
-            if shared_chat_idle:
+            if shared_chat_idle and wake_idle and not leases.workers_active():
                 db.close_pool()
             else:
                 # The process will close the pool at exit. Keeping it open here
                 # prevents a late model/tool thread from reopening a pool after
                 # the application lifespan has ended.
-                log.warning("database pool left open for an active shared-chat turn")
+                log.warning("database pool left open for an active agent turn")
         finally:
             deactivate_runtime_machine_subjects(runtime_subject_token)
 

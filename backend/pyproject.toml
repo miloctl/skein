@@ -138,6 +138,9 @@ ignore_names = [
     "row_factory", "isolation_level",  # sqlite3 connection config, write-only
     "repository",  # CIEventIn schema field, read via model_dump() in services/ci.py
     "model_config",  # pydantic v2 model settings, read by the metaclass
+    # OAuthClientProvider reads this flag in the MCP SDK. Our refresh-CAS
+    # failure hook clears it so the next request reloads the stored grant.
+    "_initialized",
     # request.state fields the perimeter middleware sets and routes/deps.py
     # reads back through getattr, which static analysis cannot follow
     "auth_key_owner", "auth_claims", "auth_human_owner", "auth_browser_identity",

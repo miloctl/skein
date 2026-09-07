@@ -1544,9 +1544,8 @@ def get_mcp_servers(user: StrongUser):
     live = {row["server_id"]: row for row in status()}
     for row in mine:
         row["status"] = live.get(row["server_id"])
-        row["sign_in_required"] = row["auth"] == "oauth" and (
-            not row["signed_in"] or row.pop("oauth_signin_required")
-        )
+        required = row.pop("oauth_signin_required")
+        row["sign_in_required"] = row["auth"] == "oauth" and (not row["signed_in"] or required)
     # an env server's URL is deployment shape; only its name and health show
     return {
         "sealing": credentials.available(),
@@ -1592,7 +1591,6 @@ def post_mcp_sign_in(server_id: int, request: Request, user: StrongUser):
     if config.TRUST_PROXY_HOPS and request.headers.get("x-forwarded-proto"):
         base = base.replace(scheme=request.headers["x-forwarded-proto"].split(",")[0].strip())
     redirect_uri = f"{base}api/mcp/oauth/callback"
-    mcp_servers.set_redirect_uri(server_id, redirect_uri)
     server["oauth_redirect_uri"] = redirect_uri
     return {"authorization_url": mcp_oauth.start(sid, server)}
 

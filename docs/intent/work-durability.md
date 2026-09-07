@@ -21,16 +21,36 @@ Confirmed 2026-09-06 with the repository owner.
 
 ## Why not zero downtime first
 
-Nobody is hurt by the seconds a Recreate deploy costs. Lost work comes from
-unfenced startup recovery and unclaimed scheduled jobs, and both are fixed
-by ownership leases and single-flight claims with one replica. A second
-replica adds nothing to that target and adds a class of bugs that appear
-only with two processes. It stays available as a manifest change once the
-harness proves the code.
+The team accepts brief deployment interruptions. Correct recovery takes
+priority over uninterrupted access. Execution ownership, durable receipts,
+and explicit handling of uncertain outcomes are required at any replica
+count. Additional replicas also require shared storage and tests of actual
+concurrent execution, process loss, and rolling upgrades. The presence of
+lease columns alone does not satisfy this requirement.
+
+The outcome above is the design goal, not an unconditional exactly-once
+guarantee. A database transaction can fence local writes. An external
+system can accept an action before the worker loses its connection, leaving
+its result unknown. Do not automatically repeat such an action without an
+idempotency contract or reconciliation. Keep uncertain work visible.
 
 ## Why catch-up at boot for webhooks
 
-A delivery that lands during a deploy gap is recovered by asking the forge
-and Slack what was missed since the last recorded delivery. That closes the
-loss window without a second replica, and it also covers the failure a
-second replica cannot: the sender never delivering at all.
+GitHub is the selected forge. Catch-up is separate work: a GitHub event
+adapter, repository and webhook allowlists, API credentials held in the
+deployment Secret, and durable recovery progress are still required.
+
+GitHub does not automatically redeliver failed webhooks. Its delivery
+history supports bounded recovery, not an unlimited record of events.
+Run catch-up after startup and periodically. If the history no longer covers
+the gap, report it and reconcile current repository state instead of
+claiming that every event was recovered. Repository webhook redelivery
+requires Webhooks write permission, separate from the incoming signature
+secret.
+
+Slack slash commands are interactive requests, not a recoverable event log.
+A person retries a command that the server did not receive. Do not promise
+slash-command recovery from channel history.
+
+See [GitHub failed-delivery handling](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries)
+and [redelivery limits](https://docs.github.com/en/webhooks/testing-and-troubleshooting-webhooks/redelivering-webhooks).
