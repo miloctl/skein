@@ -1,17 +1,8 @@
 """@mentions in chat: a leading @slug invokes the bench, an @person that
 reaches nobody says so instead of going quiet."""
 
-import pytest
-
 from app.agents import turn_guard
 from app.services import mentions, users
-
-
-@pytest.fixture(autouse=True)
-def _no_slack(monkeypatch):
-    from app.services import notifications
-
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
 
 
 class _Quiet:

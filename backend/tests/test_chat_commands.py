@@ -1,4 +1,4 @@
-"""Slash commands: deterministic dispatch shared by chat, Slack, and mock."""
+"""Slash commands: deterministic dispatch shared by chat and mock."""
 
 from app.agents import commands
 from app.services import wording

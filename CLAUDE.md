@@ -22,6 +22,8 @@ model and constraints, is archived at
   the deployment requirement explicitly changes. Internal GitLab is reachable,
   but GitLab and Teams integrations also need a concrete user workflow before
   implementation. Core work durability must not depend on those integrations.
+  Slack and public Tavily/Exa integrations are outside the selected product
+  scope. Do not reintroduce them unless explicit requirements change.
 - **Provider-agnostic.** `backend/app/config.py::PROVIDERS` is the list of
   model providers; `agents/team_agent.py::_model()` is the ONLY place that
   may branch on a provider name. Everywhere else reads

@@ -38,12 +38,11 @@ def test_resolve_blocker_unblocks_linked_task(fresh_db):
         blockers.resolve_blocker(999)
 
 
-def test_blocker_funeral_after_three_days(fresh_db, monkeypatch):
+def test_blocker_funeral_after_three_days(fresh_db):
     from datetime import datetime, timedelta
 
     from app.services import blockers, notifications
 
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     b = blockers.raise_blocker("ancient blocker", escalate_after_hours=999)
     old = (datetime.now(UTC) - timedelta(days=4)).isoformat(timespec="seconds")
     fresh_db.execute("UPDATE blockers SET created_at = ? WHERE id = ?", (old, b["id"]))

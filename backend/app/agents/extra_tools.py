@@ -31,11 +31,6 @@ ALLOWED = {
     "sleep": ("sleep", "sleep"),
     # external feed reader (has its own storage traversal guard)
     "rss": ("rss", "rss"),
-    # key-gated research (TAVILY_API_KEY / EXA_API_KEY; each reads only its key)
-    "tavily_search": ("tavily", "tavily_search"),
-    "tavily_extract": ("tavily", "tavily_extract"),
-    "exa_search": ("exa", "exa_search"),
-    "exa_get_contents": ("exa", "exa_get_contents"),
 }
 
 

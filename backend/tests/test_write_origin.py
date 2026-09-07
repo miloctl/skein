@@ -75,14 +75,12 @@ def _origin_rows(tables: list[str]) -> dict[tuple[str, str], str]:
     return rows
 
 
-def test_every_agent_tool_records_an_agent_origin(fresh_db, monkeypatch):
+def test_every_agent_tool_records_an_agent_origin(fresh_db):
     """The severe half of the gap: a tool that writes origin='human' launders
     an agent's write as a person's, and provenance is the whole point of
     telling them apart. Sweeps the registry, so a new tool is covered on the
     first run rather than on the day someone remembers to add it."""
-    from app.services import notifications
 
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     _seed(fresh_db)
     tables = _origin_tables()
     assert tables, "no table carries an origin column — the sweep would pass vacuously"

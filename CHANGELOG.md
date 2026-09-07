@@ -30,13 +30,14 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- Slack commands and outbound delivery are removed, along with the Tavily and Exa research tools. In-app notifications remain available at once. RSS and local helper tools remain supported.
 - Signed Gitea deliveries use namespaced, payload-bound receipts committed with policy-checked task updates. Matching compatibility headers are accepted, conflicting aliases or payloads are refused, and exact redeliveries do not apply twice.
 - Readiness includes bounded database and application-pool checks. Liveness remains available during database loss or request-worker saturation. Transient database disconnects return safe JSON 503 responses with Retry-After at authentication and route boundaries. Callers must check a write's outcome before retrying it. Filesystem permission failures return safe server errors without exposing internal paths; policy refusals remain 403.
 
 - Agent wakes, shared-chat turns, and scheduled firings use a unique token per execution claim. The heartbeat renews only registered live acquisitions before expiry. Execution-bound transactions fence local tool and session writes as well as completion. A stale worker cannot release a successor's claim. Unknown external outcomes still require reconciliation.
 - Scheduled work holds job-wide exclusion separately from firing receipts. Only explicitly retry-safe jobs automatically release failed firings for retry. Other jobs preserve evidence of an uncertain outcome. The heartbeat starts before catch-up work. Cron keys progress across repeated daylight-saving hours, and acquisition failures do not abort startup. Failed advisory-lock cleanup discards the connection.
 - MCP OAuth sign-in claims the numeric server before discovery. Codes are sealed in transient flow rows, and all callbacks use the same one-shot expiry checks. Concurrent grants cannot mix client and token state. Flow rows expire independently of another sign-in and are excluded from recovery dumps. Per-agent turns and chat in-flight markers use token-owned claims. A running agent turn polls the pause row.
-- The six deployment-wide caps count in a `rate_hits` table as fixed windows across processes. Async ingress offloads these database checks and bounds lock waits. Per-person caps stay process-local.
+- The five deployment-wide caps count in a `rate_hits` table as fixed windows across processes. Async ingress offloads these database checks and bounds lock waits. Per-person caps stay process-local.
 - The anchor-log append holds a database lock across processes. Forge delivery receipts are exempt from generic job retention. New transient tables have explicit retention decisions.
 
 - Saved solo chats load recent messages first. Load older messages adds earlier pages to the current transcript without replacing existing message nodes. Thread and identity changes discard loaded pages and obsolete responses. A field-guide card ties only after a successful, nonempty older-page read.
@@ -69,9 +70,9 @@ keeps its existing `minimum_core` and needs no change.
 - Upgrade instructions require each image tag and its matching reviewed digest. Render the private overlay and check both backend and environment-specific frontend references before sync. A tag-only edit retains the old image bytes.
 
 - Atomic REST policy checks and transaction lifecycle work run off the event loop. Contended database locks have a bounded wait and return a retryable response instead of blocking the API.
-- Failed scheduled backups can retry on the same day. Weekly-plan, stale-work, and notification-flush claims commit with their database effects. Slack delivery remains best-effort after commit.
+- Failed scheduled backups can retry on the same day. Weekly-plan and stale-work claims commit with their database effects.
 - Personal MCP discovery starts in a bounded background pool. Registration and chat do not wait for remote startup, and deleted or renamed connections cannot return through a late discovery result.
-- Web pages refuse framing and MIME-type guessing. Cross-origin requests omit the referrer, and Slack rejects non-finite signature timestamps.
+- Web pages refuse framing and MIME-type guessing. Cross-origin requests omit the referrer.
 
 - The npm packages publish to public npmjs.com through OIDC Trusted Publishing, with provenance, instead of GitHub Packages. `@miloctl/skein-extension-api` and `@miloctl/skein-frontend-host` install with no token, and the `.npmrc` scope routing and `read:packages` PAT are gone. The first version of each package is published by hand once, then the workflow publishes (RELEASING.md).
 

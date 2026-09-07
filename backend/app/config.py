@@ -1210,11 +1210,6 @@ SCHEDULER_ENABLED = os.getenv("SKEIN_SCHEDULER", "1") == "1"
 
 # ---- optional integrations: each activates only when its config is set ----
 
-# Slack: webhook for outbound notifications/digests; signing secret enables
-# the inbound /api/slack/command endpoint.
-SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
-SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
-
 # MCP servers for the real agent, JSON list:
 # [{"name": "github", "url": "https://.../mcp/", "auth_token_env": "GITHUB_MCP_TOKEN"}]
 # The fault has no /health field of its own: MCP is an optional agent shell,

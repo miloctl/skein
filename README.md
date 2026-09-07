@@ -204,11 +204,9 @@ keys remain supported. See [Browser sessions](docs/BROWSER-SESSIONS.md).
 
 | Integration | Turns on when | What you get |
 |---|---|---|
-| Slack outbound | `SLACK_WEBHOOK_URL` | Immediate pings + twice-daily notification digests |
-| Slack commands | `SLACK_SIGNING_SECRET` | `/skein …` slash command (capture, briefing, search, plan) with signature verification |
 | MCP tools | `SKEIN_MCP_SERVERS` (JSON) | GitHub/Linear/etc. tools attached to the real agent |
 | Personal MCP servers | `SKEIN_CREDENTIAL_KEY` (Fernet key) | seals the tokens people store for their own MCP servers on Settings → Connections; unset, personal servers can be added without a token only |
-| Prebuilt tools | `SKEIN_EXTRA_TOOLS` | Allowlisted [strands-agents-tools](https://github.com/strands-agents/tools) for the real agent (keyless: `calculator,current_time,think,batch,sleep,rss`; key-gated: tavily/exa research tools — full allowlist in `app/agents/extra_tools.py`). Shell/file/exec tools **and** `http_request`/`use_agent`/`workflow` are deliberately not loadable — see `app/agents/extra_tools.py` for the security rationale |
+| Prebuilt tools | `SKEIN_EXTRA_TOOLS` | Allowlisted [strands-agents-tools](https://github.com/strands-agents/tools) for the real agent: `calculator,current_time,think,batch,sleep,rss` (keyless). Shell/file/exec tools **and** `http_request`/`use_agent`/`workflow` are deliberately not loadable — see `app/agents/extra_tools.py` for the security rationale |
 | Semantic search | `SKEIN_EMBEDDINGS=1` + `SKEIN_EMBED_PROVIDER` | openai (key) · openai_compatible (base URL) · ollama (keyless) — vectors tagged per model |
 | OpenTelemetry | `SKEIN_OTEL_ENDPOINT` | Agent traces to Jaeger/Langfuse |
 | API auth | `SKEIN_AUTH_MODE` | `api-key` (default — a personal key on every request) · `trusted-header` (`X-User` name picker for dev / trusted networks; the dev entry points set it) · `oidc` (IdP tokens validated in-process). Admin surfaces are held to `SKEIN_ADMINS` / `SKEIN_OIDC_ADMIN_GROUP` |
@@ -362,7 +360,7 @@ end-to-end: streaming chat, tool calls, and usage accounting.
 
 Every phase of the [original implementation spec](docs/reviews/2026-07-23-implementation-spec.md), plus the synthesized picks from
 four ideation rounds, is **built**: the keyless operating system, the
-integrations (Slack, MCP both ways, CI, keys, CLI), delight and pulse, the
+integrations (MCP both ways, CI, keys, CLI), delight and pulse, the
 round-3 operating-system layer (portfolio health, weekly commitment line, flow
 metrics, agent delegation and the authority matrix, review analytics and the
 eval corpus, decision half-life, commitment ledger, context pack), the manager

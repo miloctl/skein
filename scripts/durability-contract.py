@@ -465,7 +465,7 @@ class Harness:
         for name in ("a", "b"):
             assert docker("exec", self.pods[name]["name"], "id", "-u") == "1000710000"
             selected = self.code(
-                "import json,os\nfrom app import config\nfrom psycopg.conninfo import conninfo_to_dict\np=conninfo_to_dict(config.DATABASE_URL)\nprint(json.dumps({'host':p['host'],'port':p['port'],'dbname':p['dbname'],'user':p['user'],'clean':os.getenv('SKEIN_DATABASE_URL') == '' and not any(os.getenv(k) for k in ('SKEIN_MODEL_API_KEY','SKEIN_MODEL_BASE_URL','SKEIN_MCP_SERVERS','SLACK_WEBHOOK_URL','OTEL_EXPORTER_OTLP_ENDPOINT','HTTP_PROXY','HTTPS_PROXY','ALL_PROXY')),'otel_disabled':os.getenv('OTEL_SDK_DISABLED')}))",
+                "import json,os\nfrom app import config\nfrom psycopg.conninfo import conninfo_to_dict\np=conninfo_to_dict(config.DATABASE_URL)\nprint(json.dumps({'host':p['host'],'port':p['port'],'dbname':p['dbname'],'user':p['user'],'clean':os.getenv('SKEIN_DATABASE_URL') == '' and not any(os.getenv(k) for k in ('SKEIN_MODEL_API_KEY','SKEIN_MODEL_BASE_URL','SKEIN_MCP_SERVERS','OTEL_EXPORTER_OTLP_ENDPOINT','HTTP_PROXY','HTTPS_PROXY','ALL_PROXY')),'otel_disabled':os.getenv('OTEL_SDK_DISABLED')}))",
                 name,
             )
             assert selected == {

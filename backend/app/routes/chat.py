@@ -1295,7 +1295,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
     await run_in_threadpool(chat_threads.claim_thread, ui_thread, user)
 
     # slash commands are deterministic for EVERY provider: no agent, no
-    # tokens — same engine the mock agent and Slack use. The exchange is
+    # tokens — same engine the mock agent uses. The exchange is
     # still bridged into the model session afterwards (session_log) so a
     # follow-up question to the agent has the context.
     command_events = commands.dispatch(

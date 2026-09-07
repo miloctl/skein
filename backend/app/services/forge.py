@@ -52,7 +52,7 @@ def match_task(branch: str = "", title: str = "", body: str = "") -> int | None:
 
 def _clean_url(url: str) -> str:
     """A forge-supplied URL reaches an href and any future renderer that is
-    not React (a digest, a Slack card, the CLI). Only bounded http(s) with no
+    not React (a digest, the CLI). Only bounded http(s) with no
     embedded credentials and no control characters survives here, so no
     renderer has to remember. Scheme alone is not enough: `https://ok/" onx="`
     passes a scheme check and breaks the first renderer that builds markup by

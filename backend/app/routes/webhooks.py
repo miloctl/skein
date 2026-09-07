@@ -98,7 +98,7 @@ async def forge_webhook(
     """Gitea authenticates with the raw-body HMAC, not a user key."""
     # BEFORE the read, because this path sits outside the perimeter: a
     # deployment that never turned the webhook on must not buffer a byte for
-    # an unsigned caller. routes/slack.py refuses the same way, first thing.
+    # an unsigned caller.
     if not config.FORGE_WEBHOOK_SECRET:
         raise forge_webhook_off()
     # by address, BEFORE the read and the HMAC: an unsigned caller has no name

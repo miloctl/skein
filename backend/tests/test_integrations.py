@@ -1,19 +1,14 @@
-"""Tests for the keyless integration layer: notifications, Slack, memory,
+"""Tests for the keyless integration layer: notifications, memory,
 MCP gating, and the optional API token."""
 
-import hashlib
-import hmac
 import time
 from datetime import UTC
 
 import pytest
 
 
-def test_notification_tiers(fresh_db, monkeypatch):
+def test_notification_tiers(fresh_db):
     from app.services import notifications
-
-    posts = []
-    monkeypatch.setattr(notifications, "_post_slack", posts.append)
 
     notifications.notify("ava", "urgent thing", tier="immediate")
     notifications.notify("ava", "later thing", tier="digest")
@@ -23,30 +18,22 @@ def test_notification_tiers(fresh_db, monkeypatch):
 
     unread = notifications.list_notifications("ava")
     assert len(unread) == 2
-    assert len(posts) == 1  # only immediate posted right away
-
-    flushed = notifications.flush_digest_tier()
-    assert flushed["flushed"] == 1
-    assert len(posts) == 2  # digest batch posted
-    # a COUNT, never the message: the batch goes to ONE shared channel, so a
-    # body addressed to one person lands in front of everybody
-    assert "later thing" not in posts[1]
-    assert posts[1] == "Skein digest — 1 notification for ava. Open Skein to read it."
-    # the immediate post carries no body either — same channel, same reason
-    assert "urgent thing" not in posts[0]
-    assert posts[0] == "Skein — 1 notification for ava. Open Skein to read it."
+    assert {row["tier"] for row in unread} == {"immediate", "digest"}
+    assert all(row["sent_at"] is None for row in unread)
+    assert fresh_db.query_row(
+        "SELECT actor, detail FROM activity WHERE action = 'notify_passive'"
+    ) == {"actor": "notifier", "detail": "quiet thing"}
 
     notifications.mark_read("ava")
     assert notifications.list_notifications("ava") == []
 
 
-def test_escalation_notifies_owner(fresh_db, monkeypatch):
+def test_escalation_notifies_owner(fresh_db):
     from datetime import datetime, timedelta
 
     from app.services import blockers, notifications, users
 
     users.ensure_user("marcus")
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     b = blockers.raise_blocker("aging", owner="marcus", impact="critical")
     old = (datetime.now(UTC) - timedelta(hours=3)).isoformat(timespec="seconds")
     fresh_db.execute("UPDATE blockers SET created_at = ? WHERE id = ?", (old, b["id"]))
@@ -55,10 +42,9 @@ def test_escalation_notifies_owner(fresh_db, monkeypatch):
     assert any("escalated" in m for m in msgs)
 
 
-def test_briefing_includes_team_notifications(client, monkeypatch):
+def test_briefing_includes_team_notifications(client):
     from app.services import notifications
 
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     notifications.notify("team", "review the thing", tier="digest")
     b = client.get("/api/briefing").json()
     assert any("review the thing" in n["message"] for n in b["needs_you"]["notifications"])
@@ -97,133 +83,6 @@ def test_mcp_disabled_without_config(fresh_db):
 
     mcp_tools._tools = None
     assert mcp_tools.mcp_tools() == []
-
-
-def _slack_headers(secret: str, body: bytes) -> dict:
-    ts = str(int(time.time()))
-    base = f"v0:{ts}:{body.decode()}"
-    sig = "v0=" + hmac.new(secret.encode(), base.encode(), hashlib.sha256).hexdigest()
-    return {
-        "X-Slack-Request-Timestamp": ts,
-        "X-Slack-Signature": sig,
-        "Content-Type": "application/x-www-form-urlencoded",
-    }
-
-
-def test_slack_command_roundtrip(client, monkeypatch):
-    from app import config
-
-    r = client.post("/api/slack/command", content=b"text=help")
-    assert r.status_code == 404  # unconfigured
-
-    monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")
-    body = b"text=blocked%20on%20dns&user_name=ava"
-    r = client.post("/api/slack/command", content=body, headers=_slack_headers("shhh", body))
-    assert r.status_code == 200
-    assert "blocker" in r.json()["text"].lower()
-
-    r = client.post(
-        "/api/slack/command", content=body, headers=_slack_headers("wrong-secret", body)
-    )
-    assert r.status_code == 401
-
-
-def test_workplace_policy_can_deny_signed_slack_writes(fresh_db, monkeypatch):
-    from fastapi.testclient import TestClient
-
-    from app import config
-    from app.extensions import (
-        PolicyContribution,
-        PolicyDecision,
-        PolicyEffect,
-        SkeinModule,
-    )
-    from app.main import create_app
-
-    def deny_slack(request):
-        if request.action == "skein.integration.slack":
-            return PolicyDecision(PolicyEffect.DENY, ("Slack is disabled",))
-        return None
-
-    module = SkeinModule(
-        module_id="acme.workplace",
-        version="1.0.0",
-        extension_api="1.0",
-        minimum_core="0.2.0",
-        maximum_core_exclusive="0.6.0",
-        policies=(PolicyContribution("acme.workplace.slack", deny_slack),),
-    )
-    monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")
-    body = b"text=blocked%20on%20dns&user_name=ava"
-    with TestClient(create_app(modules=(module,))) as client:
-        response = client.post(
-            "/api/slack/command",
-            content=body,
-            headers=_slack_headers("shhh", body),
-        )
-    assert response.status_code == 403
-    assert fresh_db.query_one("SELECT id FROM blockers") is None
-
-
-@pytest.mark.parametrize(
-    ("effect", "expected"),
-    [
-        (
-            "deny",
-            "Workplace policy denied this action. Use an allowed action or ask an"
-            " administrator to change the policy.",
-        ),
-        (
-            "review",
-            "Workplace policy requires review. This surface cannot resume the action."
-            " Use a governed tool or workflow.",
-        ),
-    ],
-)
-def test_signed_slack_capture_states_direct_policy_refusal(effect, expected, fresh_db, monkeypatch):
-    from fastapi.testclient import TestClient
-
-    from app import config
-    from app.extensions import (
-        PolicyContribution,
-        PolicyDecision,
-        PolicyEffect,
-        SkeinModule,
-    )
-    from app.main import create_app
-
-    def capture_rule(request):
-        if request.action == "task.create":
-            return PolicyDecision(PolicyEffect(effect), ("capture is governed",))
-        return None
-
-    module = SkeinModule(
-        module_id="acme.workplace",
-        version="1.0.0",
-        extension_api="1.0",
-        minimum_core="0.2.0",
-        maximum_core_exclusive="0.6.0",
-        policies=(PolicyContribution("acme.workplace.slack-capture", capture_rule),),
-    )
-    monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")
-    body = b"text=todo%3A%20policy%20capture&user_name=ava"
-    with TestClient(create_app(modules=(module,))) as client:
-        pending_before = fresh_db.query_one("SELECT COUNT(*) AS n FROM pending_changes")["n"]
-        activity_before = fresh_db.query_one("SELECT COUNT(*) AS n FROM activity")["n"]
-        response = client.post(
-            "/api/slack/command",
-            content=body,
-            headers=_slack_headers("shhh", body),
-        )
-        pending_after = fresh_db.query_one("SELECT COUNT(*) AS n FROM pending_changes")["n"]
-        activity_after = fresh_db.query_one("SELECT COUNT(*) AS n FROM activity")["n"]
-
-    assert response.status_code == 200
-    assert response.json()["text"] == expected
-    assert "⚠" not in response.text
-    assert pending_after == pending_before
-    assert activity_after == activity_before
-    assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'policy capture'") is None
 
 
 def test_api_token_gate(client, monkeypatch):
@@ -316,22 +175,6 @@ def test_api_token_allows_cors_preflight(client, monkeypatch):
     )
     assert r.status_code == 200
     assert r.headers.get("access-control-allow-origin") == "http://localhost:3000"
-
-
-def test_slack_garbage_timestamp_is_401(client, monkeypatch):
-    from app import config
-
-    monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")
-    r = client.post(
-        "/api/slack/command",
-        content=b"text=hi",
-        headers={
-            "X-Slack-Request-Timestamp": "not-a-number",
-            "X-Slack-Signature": "v0=deadbeef",
-            "Content-Type": "application/x-www-form-urlencoded",
-        },
-    )
-    assert r.status_code == 401
 
 
 def _mcp_server(name: str, url: str, tool_name: str) -> dict:
@@ -682,36 +525,6 @@ def test_a_failed_retry_thread_start_leaves_mcp_retryable(monkeypatch, clean_mcp
     assert m.mcp_tools() == []
     assert retried.wait(2)
     assert calls == 2
-
-
-def test_the_slack_digest_carries_no_message_body(fresh_db, monkeypatch):
-    """One channel, N audiences. Every notify() addresses somebody who can
-    read the row it quotes, but this batch posts them together — so a crew
-    row's title addressed to one member would land in front of the roster.
-    `notifications` has no tier to filter on, so nothing is carried at all.
-
-    BOTH tiers, because only the digest was fixed the first time: the
-    immediate path posts to the same channel the moment a caller quotes a
-    scoped title into it, which blockers.resolve_blocker and delegation do.
-    """
-    from app.services import notifications
-
-    posts: list[str] = []
-    monkeypatch.setattr(notifications, "_post_slack", posts.append)
-    notifications.notify("ava", "ZZSECRETZZ vendor terms", tier="digest")
-    notifications.notify("bo", "ZZSECRETZZ vendor terms", tier="digest")
-    notifications.notify("bo", "another", tier="digest")
-    notifications.flush_digest_tier()
-
-    assert len(posts) == 1
-    assert "ZZSECRETZZ" not in posts[0]
-    assert posts[0] == (
-        "Skein digest — 1 notification for ava, 2 notifications for bo. Open Skein to read them."
-    )
-
-    notifications.notify("ava", "ZZSECRETZZ escalated", tier="immediate")
-    assert len(posts) == 2
-    assert "ZZSECRETZZ" not in posts[1]
 
 
 def _personal_client(monkeypatch, m, seen: list[str]):

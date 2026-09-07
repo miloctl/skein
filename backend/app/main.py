@@ -607,7 +607,7 @@ async def _perimeter_auth(request: Request, call_next):
     resolve WHO the caller is; this layer only refuses requests that carry no
     valid credential at all — so a future route that forgets a user dependency
     is still not open in api-key/oidc mode. /health stays open for container
-    checks; Slack verifies its own signature.
+    checks.
 
     trusted-header mode keeps the historical behavior: open unless
     SKEIN_API_TOKEN sets a shared perimeter token.
@@ -619,11 +619,10 @@ async def _perimeter_auth(request: Request, call_next):
     # client parameters, and a relay of a code the browser already holds).
     # /api/webhooks/forge: a git forge cannot hold a personal key or sign in,
     # so it proves itself with an HMAC over the body (deps.verify_forge_
-    # signature), the way Slack does. Without this the endpoint answers every
+    # signature). Without this the endpoint answers every
     # delivery with "get a personal API key" in api-key, oidc, and token mode.
     open_paths = (
         "/health",
-        "/api/slack/",
         "/api/calendar.ics",
         "/api/auth/",
         "/api/webhooks/forge",

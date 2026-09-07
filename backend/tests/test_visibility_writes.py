@@ -502,7 +502,7 @@ def _seed_every_scoped_kind(cid):
 
 def test_no_egress_surface_carries_a_scoped_row(client, fresh_db):
     """Each of these writes a markdown file, hands text to the model provider,
-    posts to Slack, or renders inside a mail client. No column check reaches a
+    or renders inside a mail client. No column check reaches a
     file on disk, so the tier has to hold at the query."""
     from app.services import (
         context_pack,

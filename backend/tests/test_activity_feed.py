@@ -186,10 +186,10 @@ def test_rename_leaves_the_ledger_alone(fresh_db):
 
 def test_an_unrostered_human_actor_is_hidden_not_shown_as_system(fresh_db):
     """The blocklist version was default-open: a human writing under a name
-    with no users row (the Slack path did this) leaked to every viewer's feed
+    with no users row leaked to every viewer's feed
     labeled system. Default-closed: unknown actors are hidden."""
     _seed_people(fresh_db)
-    db.log_activity("jane.slack", "capture", "her note")
+    db.log_activity("jane.unrostered", "capture", "her note")
     assert activity.feed("ava")["entries"] == []
 
 

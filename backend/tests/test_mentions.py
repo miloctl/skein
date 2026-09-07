@@ -3,13 +3,6 @@
 import pytest
 
 
-@pytest.fixture(autouse=True)
-def _no_slack(monkeypatch):
-    from app.services import notifications
-
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
-
-
 @pytest.fixture()
 def roster(fresh_db):
     from app.services import users

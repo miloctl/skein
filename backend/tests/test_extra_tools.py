@@ -23,6 +23,44 @@ def test_allowlisted_tools_load(monkeypatch):
     assert {"calculator", "current_time"} <= names
 
 
+def test_rss_loads_with_its_optional_dependencies(monkeypatch):
+    import pytest
+
+    pytest.importorskip("feedparser", reason="strands-agents-tools[rss] is not installed")
+    pytest.importorskip("html2text", reason="strands-agents-tools[rss] is not installed")
+    tools = _load(monkeypatch, ["rss"])
+    assert len(tools) == 1
+    assert tools[0].tool_name == "rss"
+
+
+def test_supported_extra_tool_inventory():
+    from app.agents.extra_tools import ALLOWED
+
+    assert set(ALLOWED) == {"calculator", "current_time", "think", "batch", "sleep", "rss"}
+
+
+def test_unlisted_research_tools_are_not_imported(monkeypatch):
+    import builtins
+
+    original = builtins.__import__
+    attempted = []
+
+    def guarded_import(name, *args, **kwargs):
+        if name in {"strands_tools.tavily", "strands_tools.exa"}:
+            attempted.append(name)
+            raise ImportError("A non-allowlisted tool must not be imported.")
+        return original(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+    tools = _load(
+        monkeypatch,
+        ["tavily_search", "tavily_extract", "exa_search", "exa_get_contents", "calculator"],
+    )
+    assert attempted == []
+    assert len(tools) == 1
+    assert tools[0].tool_name == "calculator"
+
+
 def test_legacy_tool_spec_style_loads_as_module(monkeypatch):
     # batch is TOOL_SPEC-style: the Strands registry needs the module, not the
     # bare function ("unrecognized tool specification" otherwise)

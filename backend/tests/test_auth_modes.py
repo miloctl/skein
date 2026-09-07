@@ -761,12 +761,15 @@ def test_an_unusable_identity_provider_response_is_a_502(client, monkeypatch):
     assert response.json()["detail"] == "The identity provider response is unusable."
 
 
-def test_slack_endpoint_keeps_its_own_gate(client, monkeypatch):
+def test_removed_slack_route_has_no_perimeter_exception(client, monkeypatch):
     from app import config
 
+    assert "/api/slack/command" not in client.app.openapi()["paths"]
     monkeypatch.setattr(config, "AUTH_MODE", "api-key")
-    # Slack verifies its own signature — unconfigured is a 404, never a 401
-    assert client.post("/api/slack/command").status_code == 404
+    assert client.post("/api/slack/command").status_code == 401
+    response = client.post("/api/slack/command", headers=_key("tester"))
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}
 
 
 def test_calendar_feed_fails_closed_outside_trusted_header_mode(client, monkeypatch):

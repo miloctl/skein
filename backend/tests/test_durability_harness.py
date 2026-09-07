@@ -46,7 +46,6 @@ def test_inherited_image_settings_cannot_select_external_services(tmp_path):
         "SKEIN_MODEL_API_KEY=fixture-only-key",
         "SKEIN_MODEL_BASE_URL=https://unused.invalid",
         'SKEIN_MCP_SERVERS=[{"url":"https://unused.invalid"}]',
-        "SLACK_WEBHOOK_URL=https://unused.invalid",
         "OTEL_EXPORTER_OTLP_ENDPOINT=https://unused.invalid",
         "AWS_SECRET_ACCESS_KEY=fixture-only-key",
         "HTTPS_PROXY=http://unused.invalid:1",
@@ -70,7 +69,6 @@ def test_inherited_image_settings_cannot_select_external_services(tmp_path):
             "SKEIN_MODEL_API_KEY",
             "SKEIN_MODEL_BASE_URL",
             "SKEIN_MCP_SERVERS",
-            "SLACK_WEBHOOK_URL",
             "AWS_SECRET_ACCESS_KEY",
             "HTTPS_PROXY",
         )

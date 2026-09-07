@@ -300,9 +300,9 @@ reinterpret an existing callable's unrelated `actions` member. Skein treats
 unclassified free-form text as unsafe when an applicable workplace rule
 exists. A scoped rule does not disable unrelated core readouts.
 
-Auth bootstrap endpoints keep their specialized gates. Signed Slack and forge
-requests first pass signature checks. Skein then evaluates
-`skein.integration.slack` or `skein.integration.forge`. CI requests evaluate
+Auth bootstrap endpoints keep their specialized gates. Signed forge requests
+first pass signature checks. Skein then evaluates
+`skein.integration.forge`. CI requests evaluate
 `skein.integration.ci`. A direct integration route cannot resume a review.
 
 Collection and composite reads use the same policy engine. Row-shaped results
@@ -446,10 +446,9 @@ composition, human authentication, health checks, and repair. `anonymous` is
 the one documented compatibility exception. It is a synthetic unnamed subject,
 not an authenticated person or an extension-owned machine identity. OIDC,
 personal API keys, bootstrap keys, explicit trusted headers, delegation, and
-authority changes cannot claim it. Signed Slack identities cannot claim it
-either. Browser OIDC token exchange refuses it before the UI reports a
-successful sign-in. Only an absent weak identity and old unnamed records use
-it.
+authority changes cannot claim it. Browser OIDC token exchange refuses it
+before the UI reports a successful sign-in. Only an absent weak identity and
+old unnamed records use it.
 
 Persona and flock overlays cannot use any composed machine identity. This
 includes core actors, private services, specialists, and the configured MCP

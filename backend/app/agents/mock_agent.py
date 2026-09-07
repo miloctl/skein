@@ -8,7 +8,7 @@ import json
 from starlette.concurrency import run_in_threadpool
 
 from .. import ratelimit
-from ..services import capture, wording
+from ..services import capture
 from ..tools._gate import gated_write
 from . import commands, receipts
 
@@ -20,34 +20,19 @@ class MockAgent:
         user: str = "anonymous",
         persona: str = "",
         *,
-        gated_capture: bool = True,
         capture_freeform: bool = True,
-        direct_policy=None,
-        direct_subject=None,
-        direct_origin: str = "human",
     ):
         self.thread_id = thread_id
         self.user = user
         self.persona = persona
-        self.gated_capture = gated_capture
         self.capture_freeform = capture_freeform
-        self.direct_policy = direct_policy
-        self.direct_subject = direct_subject
-        self.direct_origin = direct_origin
 
     async def stream_async(self, message: str):
         text = message.strip()
         if text.lower() in ("help", ""):
             text = "/help"
 
-        access = None
-        if self.direct_policy is not None and self.direct_subject is not None:
-            access = commands.CommandAccess(
-                self.direct_policy,
-                self.direct_subject,
-                self.direct_origin,
-            )
-        it = commands.dispatch(text, self.user, access=access)
+        it = commands.dispatch(text, self.user)
         if it is not None:
             async for event in it:
                 yield event
@@ -72,58 +57,17 @@ class MockAgent:
             # agent. origin="agent" still records which path wrote it.
             agent_actor = self.persona or "agent"
             kind, entity, payload = capture.plan(text, actor=self.user, origin="agent")
-            # threadpooled: this generator is iterated on the event loop
-            # (chat SSE, the Slack route), and capture writes the database plus the
-            # search index — inline, the keyless default path was the one
-            # chat path that stalled every open stream on a busy ledger
-            if self.gated_capture:
-                encoded = await run_in_threadpool(
-                    gated_write,
-                    entity,
-                    "create",
-                    payload,
-                    lambda: capture.capture(text, actor=self.user, origin="agent"),
-                    summary=text[:160],
-                    actor=agent_actor,
-                )
-            else:
-                if self.direct_policy is not None and self.direct_subject is not None:
-                    from ..extensions.policy import PolicyEffect, PolicyInput, PolicyResource
-                    from ..services.policy_context import for_change
-
-                    domain = for_change(entity, 0, payload)
-                    decision = self.direct_policy.decide(
-                        PolicyInput(
-                            self.direct_subject,
-                            f"{entity}.create",
-                            PolicyResource(
-                                entity,
-                                project_type=str(domain.get("project_type") or ""),
-                                classification=str(domain.get("classification") or ""),
-                                attributes=domain,
-                            ),
-                            self.direct_origin,
-                            tool="capture",
-                            tool_effect="write",
-                            tool_risk="medium",
-                        )
-                    )
-                    if decision.effect != PolicyEffect.PERMIT:
-                        yield {
-                            "data": (
-                                wording.policy_review_unsupported()
-                                if decision.effect == PolicyEffect.REVIEW
-                                else wording.workplace_policy_denied()
-                            )
-                        }
-                        return
-                direct = await run_in_threadpool(
-                    capture.capture,
-                    text,
-                    actor=self.user,
-                    origin=self.direct_origin,
-                )
-                encoded = json.dumps(direct)
+            # Capture writes the database and search index. Running it on the
+            # chat event loop would stall every open stream on a busy ledger.
+            encoded = await run_in_threadpool(
+                gated_write,
+                entity,
+                "create",
+                payload,
+                lambda: capture.capture(text, actor=self.user, origin="agent"),
+                summary=text[:160],
+                actor=agent_actor,
+            )
             result = json.loads(encoded)
             if result.get("error"):
                 yield {"data": str(result["error"])}
@@ -221,12 +165,10 @@ _MEMBER_LINES = (
 class MockFlockMember:
     """A flock member on the keyless path. It answers and writes NOTHING.
 
-    Deliberately NOT MockAgent: that class smart-captures freeform text
-    straight through capture.capture, outside the tool gate. Routed through
-    it, one `/flock` message would file N duplicate records attributed to the
-    human who asked a question — the opposite of the review gating a flock
-    turn promises (docs/FLOCKS.md). It also dispatches slash commands, which
-    would run a member's copy of the command N times.
+    MockAgent captures freeform text through the tool gate. Using it for each
+    member would file duplicate proposals or records for one question. It also
+    dispatches slash commands, which would run a member's copy of the command
+    N times (docs/FLOCKS.md).
     """
 
     def __init__(self, slug: str, name: str = ""):

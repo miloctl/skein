@@ -1124,7 +1124,7 @@ VERBS: dict[str, tuple[str, str]] = {
 
 # Actors that are processes, not people. An allowlist, because the previous
 # blocklist-of-registered-humans was default-open: a human writing under a
-# name that never got a users row (the Slack path did this) leaked to every
+# name that never got a users row leaked to every
 # viewer's feed labeled "system".
 # 'forge' is the webhook acting for a push whose login names nobody on the
 # roster. It belongs here for the same reason 'scheduler' does: the filter

@@ -87,8 +87,8 @@ one private-package use when the requirement appears.
 
 ## Core convergence, deferred from the 0.2.2 release
 
-Both were planned for 0.2.2 and dropped: neither buys a workplace anything it
-cannot already do, and each carries a risk that wants its own release.
+Stock-tool convergence was planned for 0.2.2 and deferred. It needs a separate
+release but adds no capability that a workplace lacks today.
 
 - **Stock tools on the `ToolContribution` harness.** Core tools bypass it, so
   they carry no pydantic schemas, no per-tool timeout, and a different
@@ -101,14 +101,6 @@ cannot already do, and each carries a risk that wants its own release.
   names must not change: persona allowlists and session history reference
   them. Do it a tranche at a time, whenever a stock tool is next touched for
   another reason.
-- **Notification delivery through the outbox.** Channels are hardcoded to
-  in-app rows and one Slack webhook, so a second channel is a core change.
-  The design tension to resolve first: an outbox envelope is content-free by
-  contract and a delivery channel needs the body. The likely shape is a
-  notification event carrying source references and the saved policy context,
-  with the subscriber reading the body under its own service identity, and
-  core's own Slack post becoming the first subscriber. Settle that before
-  writing code.
 
 ## Bounded-input census (from the 2026-08-03 holistic review)
 
@@ -300,8 +292,6 @@ settled (time zone, the auth bridge, `wip_by_person` egress) were dropped
   only, so the IdP session survives), and refresh-token rotation if the
   deployment's IdP issues rotating tokens.
 - **`promised:` audience is ambiguous at capture time.**
-- **The Slack `fb:` refusal is documented but not stated in the Slack copy.**
-  The code fails closed, so this is a documentation gap only.
 - **If HMAC is ever added to the activity chain** — changing the preimage
   invalidates every existing chain AND contradicts the append-only anchor
   log. Plan it as a logged genesis reset, never a migration.
