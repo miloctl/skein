@@ -36,6 +36,163 @@ cannot change on an existing claim, so a later move means a new claim and a
 copy. The anchor-log append already serializes across processes through a
 database lock, so a shared volume keeps one anchor history.
 
+## Replica validation gate
+
+Keep the base and normal overlays at one replica with Recreate.
+A local Docker result does not prove cross-node storage or OpenShift Route behavior.
+There is no activated multi-replica overlay in this repository.
+Run the following procedure only in a disposable namespace approved by the platform team.
+Do not use production credentials, production PVCs, a shared database, or real upstream side effects.
+Do not drain a node or change cluster-wide storage configuration.
+
+### Prepare the disposable candidate
+
+Have the platform team create the namespace and label it
+`skein.dev/durability-drill=disposable`. This label identifies the test target, not a production opt-in.
+Use fresh database credentials and separate PVCs for all test state.
+Keep ArgoCD and other reconcilers away from the candidate during faults.
+Record the namespace UID, cluster identity, storage owner, image digests, and test start time.
+
+The candidate configuration must meet these conditions before faults start:
+
+| Area | Required candidate value |
+|---|---|
+| Backend | At least two replicas, `RollingUpdate`, `maxUnavailable: 0`, `maxSurge: 1` |
+| Placement | Backend pods on separate nodes. Use required pod anti-affinity on `kubernetes.io/hostname`. Supply one eligible node per replica plus one for the surge pod |
+| Data and mirror | Two distinct Bound `ReadWriteMany` claims, mounted at `/data` and `/backup-mirror` |
+| Storage | The storage owner must identify independent failure domains for the mirror. Different PVC names alone prove nothing |
+| Identity | The real restricted OpenShift security context. No fixed UID, root workaround, or privileged init container |
+| Probes | `/ready` for readiness, `/health` for startup and liveness, at least 210 seconds for shutdown |
+| Disruption budget | `policy/v1` PodDisruptionBudget, selector `app: skein-backend`, `minAvailable: 1` |
+| Images | Reviewed immutable backend digests. Use mock and a disposable upstream fixture. Keep test hooks out of serving images |
+| Database | PostgreSQL 17 and the restricted application role from `deploy/postgres-init/10-app-role.sh` |
+
+Do not copy this candidate configuration into a normal overlay before every gate below passes.
+Provisioning the test candidate is separate from activating a supported deployment.
+A StorageClass must support real cross-node RWX, coherent file reads, and file locks.
+Record storage snapshot and restore procedures for both recovery volumes.
+
+Select the target explicitly. These commands never switch the current context:
+
+```sh
+set -euo pipefail
+context='<approved-disposable-context>'
+namespace='<approved-disposable-namespace>'
+k() { kubectl --context "$context" --namespace "$namespace" --request-timeout=30s "$@"; }
+guard() {
+    python3 scripts/openshift-durability-check.py --context "$context" --namespace "$namespace" "$@"
+}
+k get namespace "$namespace" -o jsonpath='{.metadata.uid}{"\\n"}'
+guard
+```
+
+The preflight reads configuration and checks probes through `exec`. It does not inject faults.
+It refuses missing targets, unlabeled namespaces, RWO claims, one replica, unready pods, or same-node placement.
+It prints actual pod image IDs and runtime UIDs without reading Secrets.
+For an explicit storage write probe, run:
+
+```sh
+guard --probe-storage --confirm-namespace "$namespace"
+```
+
+This probe creates unique files with exclusive creation on both volumes.
+Both pods must append, read the resulting bytes, and call `fsync` on separate nodes.
+The probe deletes only markers it created successfully.
+If access fails after creation, keep the printed run log and remove only that run's marker after access returns.
+This tests assigned UID permissions, not independent storage hardware or all filesystem failure modes.
+
+### Execute faults and keep the receipts
+
+Before each fault, run `guard --allow-faults --confirm-namespace "$namespace"`.
+This is an explicit opt-in check, not a command that injects faults.
+Stop if it fails. Keep every later `kubectl` command bound to the same context and namespace.
+Capture command exit codes, pod UIDs, node names, timestamps, logs, HTTP responses, and persisted receipts.
+Do not count an HTTP response alone as proof of a committed effect.
+`scripts/durability-contract.py` supplies the local container cases and their deterministic upstream fixture.
+Its `scripts/fixtures/Durability.Dockerfile` derives a test image from the real backend image.
+The fixture exercises normal HTTP routes and holds work at a controlled upstream boundary.
+Port that fixture to the approved disposable namespace before the delayed-worker cluster cases.
+Do not install the fixture in a normal deployment or count the Docker run as cluster proof.
+
+1. Start bounded deterministic work through both direct pod endpoints and the backend Route.
+   Record request IDs, execution lease tokens, artifact digests, and job claims before the fault.
+   Keep one streaming chat open through the Route and send new requests through a separate client.
+   Record the Route's timeout configuration and router version.
+2. Watch `k get endpointslices -l kubernetes.io/service-name=skein-backend -w` from a separate terminal.
+   Evict one explicitly selected backend pod through the Eviction API.
+   Do not use pod deletion as proof of the disruption budget. Deletion bypasses it.
+
+   ```sh
+   pod='<recorded-candidate-backend-pod>'
+   guard --allow-faults --confirm-namespace "$namespace"
+   printf '{"apiVersion":"policy/v1","kind":"Eviction","metadata":{"name":"%s","namespace":"%s"}}' \
+       "$pod" "$namespace" | k create --raw "/api/v1/namespaces/$namespace/pods/$pod/eviction" -f -
+   ```
+
+   Before replacement readiness, a second eviction that violates `minAvailable` must return HTTP 429.
+   Do not force it. Check that new Route requests stop reaching the terminating pod.
+   Check the existing stream completes within the grace period or reports its interrupted outcome honestly.
+   No late worker can create a second reply, proposal, worklog entry, or external effect.
+   Save EndpointSlice transitions and terminal request rows, then wait for replacement readiness.
+3. Repeat the container failure cases with pods on separate nodes.
+   Include a delayed worker past real lease expiry, stale resume, process loss, and commit-before-ack retry.
+   Check one persisted effect for each receipt and explicit unknown outcomes for uncertain external calls.
+   Test file reads through the other pod after every artifact write.
+   Check matching artifact digests and both anchor logs after concurrent backup and ledger verification.
+4. With the storage owner, deny the candidate's storage access without affecting any other namespace.
+   Agree on the restoration command before this fault.
+   A missing mirror must report a partial backup, not create a local replacement directory.
+   Wrong artifact bytes must fail their digest check. Restore access and check both volumes again.
+5. Rehearse database recovery against only the candidate StatefulSet or its dedicated managed database.
+   For the supplied StatefulSet, an explicitly guarded restart is:
+
+   ```sh
+   guard --allow-faults --confirm-namespace "$namespace"
+   k delete pod skein-db-0 --wait=false
+   ```
+
+   During database loss, `/ready` must return 503 within its bound and `/health` must remain live.
+   After database recovery, readiness must return without duplicate job or execution effects.
+   Also test loss for one backend while its peer can still reach PostgreSQL.
+   Use only a platform-approved, namespace-scoped fault mechanism.
+   Restore its access before the next gate. Do not modify node networking.
+6. Run the complete restore procedure below against fresh candidate DB and file copies.
+   Keep ingress closed until the pre-boot fence and anchor checks pass.
+   Prove revoked browser authority and unfinished OAuth codes cannot return.
+   Prove API keys remain disabled and restored work remains `completion_unknown` after boot.
+   Check private notes, extension data, artifact bytes, and the independent mirror recovery boundary.
+
+### Prove the exact old and new image pair
+
+Migration serialization is not schema compatibility. A database lock only prevents simultaneous migration writers.
+Do not overlap a version that predates the acquisition fences with a version that relies on them.
+Before a rolling trial, compare both images' migration files and extension migration contracts.
+Classify each change as compatible with old readers and writers, or stop the rolling trial.
+Renames, drops, new required fields, changed enum values, and changed lease semantics need explicit compatibility evidence.
+If compatibility fails, retain Recreate and use a stopped-writer upgrade.
+
+Start the disposable candidate on the exact old digest and prepare a coordinated recovery point.
+Record `schema_version`, extension versions, and migration file digests before the trial.
+Run old-image reads and writes against a disposable database migrated by the new image first.
+Then keep old-image requests active while the candidate rolls to the new digest:
+
+```sh
+new_image='<reviewed-registry-image>@sha256:<reviewed-digest>'
+guard --allow-faults --confirm-namespace "$namespace"
+k set image deployment/skein-backend "backend=$new_image"
+k rollout status deployment/skein-backend --timeout=15m
+```
+
+Record actual overlapping old and new pod image IDs, not only the rollout exit code.
+Repeat receipt, lease, session, artifact, and Route checks during overlap and after the last old pod exits.
+If a check fails, close candidate ingress and use the saved restore procedure.
+Do not undo migrations or treat a tag rollback as recovery.
+
+Keep the signed-off target evidence in the private deployment repository.
+A successful preflight is not approval to raise production replicas.
+Activation needs storage-owner sign-off, all fault receipts, exact image-pair compatibility proof, and a separate reviewed deployment change.
+If any target, credential, image, storage, or fault mechanism is absent, record that gate as blocked.
+
 ## The database
 
 `base/postgres.yaml` runs one PostgreSQL StatefulSet with its own PVC. The
@@ -131,6 +288,70 @@ Create it out of band, or manage it with the cluster's secret operator
 (External Secrets, Sealed Secrets — whichever the platform team already
 runs). A keyless mock deployment needs no Secret: the reference is
 `optional: true`.
+
+## GitHub delivery recovery
+
+Keep recovery disabled until the repository inventory, webhook destination, and token permissions are approved.
+Fixture tests do not prove access to a live repository or its retained delivery history.
+Use `POST /api/webhooks/forge` for native GitHub webhooks and existing Gitea webhooks.
+Set the GitHub webhook secret to the value of `SKEIN_FORGE_WEBHOOK_SECRET` in `skein-secrets`.
+
+| Variable | Deployment location | Meaning |
+|---|---|---|
+| `SKEIN_GITHUB_HOOKS` | ConfigMap environment value | Explicit JSON inventory of repository names and hook IDs, at most 32 entries |
+| `SKEIN_GITHUB_HOOKS_FILE` | ConfigMap-mounted YAML file plus environment path | Alternative to the inline inventory. Set only one form |
+| `SKEIN_GITHUB_API_URL` | ConfigMap environment value | Exact outbound API destination. Default `https://api.github.com`, or the approved GHES `https://host/api/v3` |
+| `SKEIN_GITHUB_RECOVERY` | ConfigMap environment value | `0` by default. Set `1` only after the activation checks |
+| `SKEIN_GITHUB_TOKEN` | `skein-secrets` | Fine-grained token with repository Webhooks write permission for the listed repositories |
+| `SKEIN_FORGE_WEBHOOK_SECRET` | `skein-secrets` | Incoming signature secret shared with the configured webhooks |
+
+A credential-free inventory file contains entries in this form:
+
+```yaml
+- repository: owner/repository
+  hook_id: 123
+```
+
+Replace these examples with the approved inventory. Never infer it from incoming webhook headers.
+Do not store either credential in `app_settings`, the ConfigMap, source control, or the inventory file.
+Mount a file read-only and set `SKEIN_GITHUB_HOOKS_FILE` to its container path.
+Keep `SKEIN_GITHUB_HOOKS` unset when you use the file.
+
+Grant backend egress only to the approved API destination in the private overlay.
+The client uses HTTPS and refuses redirects.
+It ignores `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY`. Supply approved direct-connect egress.
+The default SSL context uses system trust, including `SSL_CERT_FILE` and `SSL_CERT_DIR`.
+For GitHub Enterprise Server, mount the approved CA trust and check its TLS chain from the actual backend image.
+Do not disable TLS checks to make the connection work.
+Check token scope and hook ownership using the intended deployment identity.
+Then test one signed delivery, a duplicate delivery, and a recovery redelivery on a disposable repository.
+Check one persisted effect, durable recovery progress, and explicit retained-history gaps.
+Only then set `SKEIN_GITHUB_RECOVERY=1` in the reviewed private overlay.
+
+Keep recovery disabled during a restore, alongside `SKEIN_SCHEDULER=0` and closed ingress.
+Retain forge receipts and recovery progress from the backup.
+Compare missing history with current repository state and Skein task receipts before acknowledging a gap.
+A restored receipt cannot prove an external effect did not occur after the backup point.
+Do not erase receipt or recovery tables to force redelivery.
+
+Use an authenticated admin to read `GET /api/webhooks/github/recovery`.
+For each hook, check `last_complete_at`, `retry_at`, `error_code`, `gap_since`, and `gap_until`.
+If history is missing, compare current branches and pull requests with Skein tasks.
+Correct task state through the normal UI or API. Do not manufacture events for the missing interval.
+Then send `POST /api/webhooks/github/recovery/reconcile` with:
+
+```json
+{
+  "namespace": "<64-character recovery ID from the status response>",
+  "gap_until": "<exact gap_until value from the status response>",
+  "note": "<the comparison performed and any explicit corrections>"
+}
+```
+
+This `namespace` is a recovery ID, not the Kubernetes namespace.
+The note must contain 1 to 1000 characters. A stale `gap_until` is refused.
+Read the status again before retrying a stale acknowledgment.
+The acknowledgment records the admin, time, and note in the ledger. It retains the missing interval and does not invent task changes.
 
 ## Images
 
@@ -273,10 +494,35 @@ This manual command does not append a digest to `activity-anchors.log`.
 Keep all writers stopped until the storage snapshot completes.
 This full manual dump needs the same access controls as the database.
 
-**Restore.** `tests/test_admin_backup.py` drills atomic archive load,
-schema data, and artifact recovery. The test database uses its bootstrap
-superuser. The deployment render contract pins the restricted application-role
-shape. Rehearse that role handoff against the target PostgreSQL service.
+### Disposable local restore contract
+
+Run `scripts/recovery-contract.sh <local-backend-image>` from a source checkout.
+Reuse the reviewed backend image from the container drill, or build `backend/Dockerfile` locally first.
+The script starts its own PostgreSQL 17 server with generated credentials and unique Docker resource labels.
+It publishes no ports and never reads the local PostgreSQL client shims.
+It deletes only container and network IDs it created. It retains the supplied image.
+Test dependencies install inside its disposable runner, not inside the serving image.
+Tests import the current checkout through a read-only mount. The image supplies Python, application dependencies, and PostgreSQL clients.
+This contract does not certify that mounted source matches the image's packaged application bytes.
+
+The script enables `SKEIN_ROLE_CONTRACT=1` for `tests/test_database_role.py`.
+The real bootstrap utility removes superuser, database-create, role-create, replication, and RLS-bypass privileges.
+The restricted role runs migrations, writes private and extension data, takes a backup, and restores it.
+The restore list excludes schema creation because the administrator pre-creates allowed schemas.
+The role never receives database-wide `CREATE`.
+
+`tests/test_recovery_runbook.py` executes the pre-boot SQL below, not a parallel implementation.
+Its combined restricted-role drill checks file loss and recovery, dump digests, both anchor logs, and ledger verification.
+It checks disabled keys, cleared browser and OAuth rows, terminal unknown requests, and no replay through application boot.
+A separate full-archive drill proves the fence invalidates a session revoked after the archive point.
+The local mirror uses a separate tmpfs filesystem. It does not prove independent storage hardware.
+`tests/test_admin_backup.py` also checks full and mirror-only recovery boundaries.
+
+Save the script output, image digests, PostgreSQL versions, and final `exit=` value with the test evidence.
+The upgrade-render tests run separately on a host with `kubectl`.
+Local success does not replace the target-cluster role and storage handoff.
+
+**Restore.** Rehearse this procedure against the target PostgreSQL service and its assigned runtime UID.
 
 1. Pause ArgoCD auto-sync. Close all ingress, including the frontend proxy,
    backend Route, and MCP access. Check that those paths are inaccessible.
@@ -467,8 +713,8 @@ thread pool with the REST handlers, so size it for both.
 An OAuth sign-in for a personal MCP server registers
 `<backend URL>/api/mcp/oauth/callback` as its redirect URI, built from the
 request's own base URL. Behind the router, set `SKEIN_TRUST_PROXY_HOPS` so
-the forwarded scheme is used, and keep one backend replica: a pending
-sign-in lives in the process that started it.
+the forwarded scheme is used. Pending sign-in ownership and sealed callback codes live in PostgreSQL.
+Keep one backend replica until the deployment validation gates pass.
 
 `SKEIN_CREDENTIAL_KEY` also belongs in `skein-secrets`. It seals the tokens
 people store for personal MCP servers through Settings. Without it, a
@@ -480,7 +726,8 @@ both-set fault for the three model settings.
 ## Observability
 
 `/health` is the open startup and liveness target. `/ready` is the open
-readiness target and returns 503 when authentication configuration is invalid. Both carry
+readiness target. It returns 503 when authentication configuration is invalid or the bounded database check fails.
+Liveness does not depend on database availability. Both probes carry
 only `ok`, `auth_mode`, and `auth_error`. `/api/health` is the diagnosis
 surface behind identity. It carries provider, timezone and overlay errors,
 per-job last-success with stale flags, database warnings, and activity-chain

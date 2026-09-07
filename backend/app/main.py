@@ -6,6 +6,7 @@ from functools import partial
 from inspect import isawaitable
 from typing import Any, cast
 
+import psycopg
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -93,6 +94,10 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
             from .services.agent_runner import run as run_agents
 
             return run_agents(actor=subject.name, extensions=registry, policy=policy)
+        if contribution.name == "skein.core.github-recovery":
+            from .services.github_recovery import run as recover_github
+
+            return recover_github(registry=registry)
         if contribution.name.startswith("skein.core."):
             return contribution.handler(
                 _bind_execution_context(
@@ -264,7 +269,12 @@ def _start_scheduler(
 
     scheduler = BackgroundScheduler(daemon=True, timezone=timezone or config.TZ_NAME)
     for spec in specs:
-        scheduler.add_job(lambda spec=spec: run_job(spec), id=spec.name, **spec.trigger)
+        trigger = dict(spec.trigger)
+        if spec.name == "github-recovery":
+            # Recovery can wait on GitHub. Schedule its first bounded pass in
+            # the worker pool instead of blocking the lifespan catch-up loop.
+            trigger["next_run_time"] = datetime.now(UTC)
+        scheduler.add_job(lambda spec=spec: run_job(spec), id=spec.name, **trigger)
     scheduler.start()
     return scheduler
 
@@ -586,7 +596,14 @@ async def lifespan(app: FastAPI):
 
 
 async def perimeter_auth(request: Request, call_next):
-    response = await _perimeter_auth(request, call_next)
+    # Authentication runs outside FastAPI's route exception middleware. A
+    # pooled socket lost during a restart must have the same retry contract here.
+    try:
+        response = await _perimeter_auth(request, call_next)
+    except db.BUSY_ERRORS as exc:
+        response = await database_busy_handler(request, exc)
+    except psycopg.OperationalError as exc:
+        response = await database_operation_error_handler(request, exc)
     if request.url.path.startswith("/api"):
         current = response.headers.get("Cache-Control", "")
         if "no-store" not in {part.strip().lower() for part in current.split(",")}:
@@ -804,6 +821,16 @@ async def not_found_handler(request: Request, exc: db.NotFound):
 
 
 async def permission_error_handler(request: Request, exc: PermissionError):
+    if exc.errno is not None or exc.filename is not None:
+        # OS permission failures describe server storage, not the caller's
+        # authority. str(exc) contains an internal path and must not reach HTTP.
+        logging.getLogger("skein").exception("storage permission failure", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Skein cannot access its storage. Ask whoever runs the server to check storage permissions."
+            },
+        )
     # 403, not 404: a crew is not a secret. GET /api/crews lists every crew to
     # every caller (scope.UNSCOPED classifies `crews` that way), so refusing a
     # steward-only change with "no such crew" would hide nothing and lie about
@@ -857,6 +884,23 @@ async def database_busy_handler(request: Request, exc: Exception):
         content={"detail": "The database is busy. Wait 5 seconds, then send the request again."},
         headers={"Retry-After": "5"},
     )
+
+
+async def database_operation_error_handler(request: Request, exc: psycopg.OperationalError):
+    state = exc.sqlstate
+    # Missing SQLSTATE is the driver's transport failure. Class 08 is a lost
+    # connection, class 53 exhausted resources, and 57P0x a server restart.
+    # Bad credentials and other configuration faults still require a server fix.
+    if state is None or state.startswith(("08", "53")) or state in {"57P01", "57P02", "57P03"}:
+        logging.getLogger("skein").warning("database unavailable (%s)", type(exc).__name__)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": "The database is unavailable. Check the operation's outcome before trying again."
+            },
+            headers={"Retry-After": "5"},
+        )
+    return await unhandled_error_handler(request, exc)
 
 
 async def artifact_unreadable_handler(request: Request, exc: RuntimeError):
@@ -931,7 +975,7 @@ def _public_auth_mode(settings: AppSettings) -> str:
     return settings.auth_mode if settings.auth_mode in config.AUTH_MODES else "invalid"
 
 
-def public_health(settings: AppSettings | None = None):
+async def public_health(settings: AppSettings | None = None):
     """The unauthenticated payload: enough for a probe and a sign-in flow.
 
     Everything else lives on /api/health behind identity. This endpoint is
@@ -950,14 +994,17 @@ def public_health(settings: AppSettings | None = None):
     }
 
 
-def readiness(settings: AppSettings | None = None):
-    """Authentication readiness without the topology that /api/health exposes."""
+async def readiness(settings: AppSettings | None = None):
+    """Bounded database and authentication readiness without private topology."""
+    from .services.readiness import database_ready
+
     selected = settings or AppSettings.from_config()
     error = selected.auth_error
+    ready = not error and await database_ready()
     return JSONResponse(
-        status_code=503 if error else 200,
+        status_code=200 if ready else 503,
         content={
-            "ok": not error,
+            "ok": ready,
             "auth_mode": _public_auth_mode(selected),
             "auth_error": error,
         },
@@ -1113,6 +1160,9 @@ def create_app(
     application.add_exception_handler(db.NotFound, cast(Any, not_found_handler))
     application.add_exception_handler(db.Conflict, cast(Any, conflict_error_handler))
     application.add_exception_handler(PermissionError, cast(Any, permission_error_handler))
+    application.add_exception_handler(
+        psycopg.OperationalError, cast(Any, database_operation_error_handler)
+    )
     application.add_exception_handler(ValueError, cast(Any, value_error_handler))
     application.add_exception_handler(PublicError, cast(Any, public_error_handler))
     application.add_exception_handler(ratelimit.RateLimited, cast(Any, rate_limited_handler))
@@ -1135,8 +1185,10 @@ def create_app(
             ]
         application.include_router(contribution.router, dependencies=dependencies)
     health_settings = selected_settings if explicit_settings else None
-    application.add_api_route("/health", lambda: public_health(health_settings), methods=["GET"])
-    application.add_api_route("/ready", lambda: readiness(health_settings), methods=["GET"])
+    # Sync probe wrappers queue behind DB-blocked request threads and turn a
+    # dependency outage into liveness restarts (tests/test_readiness.py).
+    application.add_api_route("/health", partial(public_health, health_settings), methods=["GET"])
+    application.add_api_route("/ready", partial(readiness, health_settings), methods=["GET"])
     # The full payload, behind identity: not in the perimeter's open list, so
     # api-key and oidc deployments require a credential while trusted-header
     # keeps its historical openness on the trusted network. CurrentUser, not

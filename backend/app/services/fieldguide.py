@@ -53,6 +53,19 @@ def _guided_first_week_predates(user: str, since: str) -> bool:
     )
 
 
+def _github_updates(user: str) -> bool:
+    viewer = scope.Viewer.for_actor(user)
+    visible, params = scope.visible_filter(viewer, "tasks", "t")
+    # A copied code URL is not evidence of an accepted GitHub delivery. Keep
+    # the card tied to a relevant task that the current person can still read.
+    return _has(
+        "SELECT 1 FROM tasks t WHERE (t.assignee = ? OR t.created_by = ?)"  # noqa: S608 -- visible_filter emits bound SQL
+        f" AND {visible} AND EXISTS ("
+        "SELECT 1 FROM forge_receipts r WHERE r.task_id = t.id AND r.provider = 'github')",
+        (user, user, *params),
+    )
+
+
 # id -> first-use test. None = tied only via mark() (read-only features write
 # nothing to detect against). Detail-string predicates are pinned by tests in
 # test_fieldguide.py — if a service changes its activity wording, the test
@@ -83,6 +96,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     ),
     "search": None,
     "browser_signin": lambda u: _act(u, "create_browser_session"),
+    "github_updates": _github_updates,
     # a theme write is not activity-logged (users.py: a slider drag would
     # flood the ledger), so the row itself is the evidence
     "theme": lambda u: _has("SELECT 1 FROM users WHERE name = ? AND theme <> ''", (u,)),
