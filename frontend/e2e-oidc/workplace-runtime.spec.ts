@@ -20,7 +20,6 @@ async function signedInPage(browser: Browser, user: string) {
   await page.waitForURL((url) => !url.pathname.startsWith("/auth/"), {
     timeout: 15_000,
   });
-  await page.unroute(`${IDP}/authorize**`);
   const sessionResponse = await context.request.get(`${API}/api/auth/session`);
   expect(sessionResponse.ok()).toBe(true);
   const session = await sessionResponse.json();
@@ -30,9 +29,12 @@ async function signedInPage(browser: Browser, user: string) {
   expect(session?.csrf_token).toBeTruthy();
   expect(session).not.toHaveProperty("access_token");
   expect(session).not.toHaveProperty("refresh_token");
+  // The API client does not wait for browser bootstrap. Removing interception
+  // during that bootstrap can leave the browser's auth requests pending.
   await expect(page.getByRole("button", { name: new RegExp(user, "i") })).toBeVisible({
     timeout: 15_000,
   });
+  await page.unroute(`${IDP}/authorize**`);
   return { context, page, csrf: String(session.csrf_token) };
 }
 

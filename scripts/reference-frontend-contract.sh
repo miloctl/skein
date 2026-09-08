@@ -25,12 +25,12 @@ if [[ ! "$run_label" =~ ^[a-z0-9_]{1,16}$ ]]; then
     exit 1
 fi
 run_id="${run_label}_$$"
-read -r api_port app_port idp_port < <(
+read -r api_port app_port idp_port api_http_port app_http_port < <(
     "$db_python" - <<'PY'
 import socket
 
 sockets = []
-for _ in range(3):
+for _ in range(5):
     item = socket.socket()
     item.bind(("127.0.0.1", 0))
     sockets.append(item)
@@ -45,10 +45,14 @@ node_image="node:22-bookworm@sha256:8a34c4ab3ea2c5cd194f07e317b2a8f09461d3c8b05c
 role_created=""
 database_created=""
 db_helper() {
+    local launch=()
+    # The background runtime must replace this shell, or cleanup kills only
+    # the wrapper and leaves Uvicorn serving from the deleted directory.
+    [ "$1" != run-clean ] || launch=(exec)
     SKEIN_DATABASE_URL="$admin_database_url" \
     SKEIN_CONTRACT_ROLE_NAME="$role_name" \
     SKEIN_CONTRACT_ROLE_PASSWORD="$role_password" \
-        "$db_python" "$root/examples/workplace-extension/scripts/contract-db.py" "$@"
+        "${launch[@]}" "$db_python" "$root/examples/workplace-extension/scripts/contract-db.py" "$@"
 }
 
 tmp="$(mktemp -d)"
@@ -56,11 +60,12 @@ export npm_config_cache="$tmp/npm-cache"
 server_pid=""
 backend_pid=""
 idp_pid=""
+proxy_pid=""
 node_container=""
 cleanup() {
     status=$?
     trap - EXIT
-    pids=("$server_pid" "$backend_pid" "$idp_pid")
+    pids=("$proxy_pid" "$server_pid" "$backend_pid" "$idp_pid")
     for pid in "${pids[@]}"; do
         [ -z "$pid" ] || kill "$pid" >/dev/null 2>&1 || true
     done
@@ -170,8 +175,8 @@ shopt -u nullglob
 
 (
     cd "$tmp/consumer"
-    export NEXT_PUBLIC_API_URL="http://127.0.0.1:$api_port"
-    export NEXT_PUBLIC_SITE_URL="http://127.0.0.1:$app_port"
+    export NEXT_PUBLIC_API_URL="https://127.0.0.1:$api_port"
+    export NEXT_PUBLIC_SITE_URL="https://127.0.0.1:$app_port"
     export NEXT_PUBLIC_API_TOKEN=
     # A source-built host keeps the release version but has new bytes. Refresh
     # only the copied lock, or npm ci rejects the exact tarball under test.
@@ -403,6 +408,13 @@ UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip install --quiet \
     "${core_wheels[0]}" "${extension_wheels[0]}"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip check --python "$tmp/venv/bin/python"
 
+# Playwright's API client omits Secure cookies on HTTP 127.0.0.1 even when
+# Chromium sends them. Both public origins need TLS for the session and writes.
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+    -subj /CN=127.0.0.1 -addext subjectAltName=IP:127.0.0.1 \
+    -keyout "$tmp/key.pem" -out "$tmp/cert.pem" >"$tmp/cert.log" 2>&1
+chmod 600 "$tmp/key.pem"
+
 wait_for_url() {
     pid="$1"
     url="$2"
@@ -414,7 +426,7 @@ wait_for_url() {
             while IFS= read -r line; do echo "$line" >&2; done <"$log"
             exit 1
         fi
-        if curl --fail --silent "$url" >/dev/null; then
+        if curl --fail --silent --cacert "$tmp/cert.pem" "$url" >/dev/null; then
             return
         fi
         sleep 0.5
@@ -443,23 +455,62 @@ db_helper run-clean "$runtime_db" env -C "$tmp/run" \
     SKEIN_OIDC_AUDIENCE=skein \
     SKEIN_OIDC_CLIENT_ID=skein-web \
     SKEIN_OIDC_ADMIN_GROUP=skein-admins \
-    SKEIN_CORS_ORIGINS="http://127.0.0.1:$app_port" \
+    SKEIN_CORS_ORIGINS="https://127.0.0.1:$app_port" \
     SKEIN_PLAYBOOKS_DIR="$tmp/consumer/content/playbooks" \
     SKEIN_PERSONAS_DIR="$tmp/consumer/content/personas" \
     SKEIN_FLOCKS_DIR="$tmp/consumer/content/flocks" \
     "$tmp/venv/bin/python" -m uvicorn atlas_skein.app:app \
-    --host 127.0.0.1 --port "$api_port" >"$tmp/backend.log" 2>&1 &
+    --host 127.0.0.1 --port "$api_http_port" >"$tmp/backend.log" 2>&1 &
 backend_pid=$!
-wait_for_url "$backend_pid" "http://127.0.0.1:$api_port/health" "installed Atlas backend" "$tmp/backend.log"
+wait_for_url "$backend_pid" "http://127.0.0.1:$api_http_port/health" "installed Atlas backend" "$tmp/backend.log"
 
-env -C "$tmp/runtime" PORT="$app_port" HOSTNAME=127.0.0.1 NEXT_PUBLIC_API_TOKEN= \
+env -C "$tmp/runtime" PORT="$app_http_port" HOSTNAME=127.0.0.1 NEXT_PUBLIC_API_TOKEN= \
     node server.js >"$tmp/runtime.log" 2>&1 &
 server_pid=$!
-wait_for_url "$server_pid" "http://127.0.0.1:$app_port/" "copied workplace frontend" "$tmp/runtime.log"
+wait_for_url "$server_pid" "http://127.0.0.1:$app_http_port/" "copied workplace frontend" "$tmp/runtime.log"
 
-env -C frontend PW_REUSE=1 SKEIN_WORKPLACE_RUNTIME=1 \
-    SKEIN_OIDC_API_URL="http://127.0.0.1:$api_port" \
-    SKEIN_OIDC_APP_URL="http://127.0.0.1:$app_port" \
+node - "$tmp/key.pem" "$tmp/cert.pem" "$api_port" "$api_http_port" "$app_port" "$app_http_port" \
+    >"$tmp/proxy.log" 2>&1 <<'JS' &
+const fs = require("node:fs");
+const http = require("node:http");
+const https = require("node:https");
+const [key, cert, apiPort, apiUpstream, appPort, appUpstream] = process.argv.slice(2);
+const credentials = { key: fs.readFileSync(key), cert: fs.readFileSync(cert) };
+const servers = [];
+for (const [port, upstreamPort] of [[apiPort, apiUpstream], [appPort, appUpstream]]) {
+  const server = https.createServer(credentials, (req, res) => {
+    const fail = () => {
+      if (res.headersSent) res.destroy();
+      else res.writeHead(502).end();
+    };
+    const upstream = http.request({
+      hostname: "127.0.0.1", port: Number(upstreamPort),
+      path: req.url, method: req.method,
+      // An idle pooled socket can race Uvicorn's keep-alive close.
+      agent: false,
+      headers: { ...req.headers, "x-forwarded-proto": "https" },
+    }, reply => {
+      reply.on("error", fail);
+      res.writeHead(reply.statusCode, reply.headers);
+      reply.pipe(res);
+    });
+    upstream.on("error", fail);
+    req.on("aborted", () => upstream.destroy());
+    res.on("close", () => { if (!res.writableEnded) upstream.destroy(); });
+    req.pipe(upstream);
+  });
+  server.listen(Number(port), "127.0.0.1");
+  servers.push(server);
+}
+process.on("SIGTERM", () => { for (const server of servers) server.close(); });
+JS
+proxy_pid=$!
+wait_for_url "$proxy_pid" "https://127.0.0.1:$api_port/health" "HTTPS API" "$tmp/proxy.log"
+wait_for_url "$proxy_pid" "https://127.0.0.1:$app_port/" "HTTPS frontend" "$tmp/proxy.log"
+
+env -C frontend PW_REUSE=1 SKEIN_WORKPLACE_RUNTIME=1 SKEIN_E2E_HTTPS=1 \
+    SKEIN_OIDC_API_URL="https://127.0.0.1:$api_port" \
+    SKEIN_OIDC_APP_URL="https://127.0.0.1:$app_port" \
     SKEIN_OIDC_IDP_URL="http://127.0.0.1:$idp_port" \
     npx playwright test --config playwright.oidc.config.ts \
     e2e-oidc/workplace-runtime.spec.ts
