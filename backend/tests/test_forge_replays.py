@@ -153,7 +153,7 @@ def test_concurrent_different_uuids_apply_policy_and_work_once(fresh_db, monkeyp
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.6.0",
+                maximum_core_exclusive="0.7.0",
                 policies=(PolicyContribution("acme.workplace.forge", policy),),
             ),
         )
@@ -461,7 +461,7 @@ def test_denied_packet_stays_retryable_but_accepted_replay_skips_policy(
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.6.0",
+        maximum_core_exclusive="0.7.0",
         policies=(PolicyContribution("acme.workplace.forge", policy),),
     )
     registry = create_app(modules=(module,)).state.skein_registry

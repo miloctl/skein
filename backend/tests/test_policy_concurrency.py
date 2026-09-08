@@ -358,7 +358,7 @@ def test_rest_auth_policy_and_commit_run_off_loop_but_body_reads_stay_on_it(fres
         version="1.0.0",
         extension_api="1.0",
         minimum_core="0.2.0",
-        maximum_core_exclusive="0.6.0",
+        maximum_core_exclusive="0.7.0",
         identities=(IdentityContribution("acme.workplace.identity", identities),),
         policies=(PolicyContribution("acme.workplace.policy", policy),),
         routes=(

@@ -18,6 +18,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- Core 0.6.0 reaches the previous compatibility ceiling. To load on this core, a package with `maximum_core_exclusive = "0.6.0"` or `maximumCoreExclusive: "0.6.0"` must advance that ceiling to `"0.7.0"`, and a pip bound of `<0.6.0` must widen to `<0.7.0`. Run the extension contracts before changing these declarations. Minimum-core floors and extension API 1.0 remain unchanged.
 - Solo-chat history adds `GET /api/chats/{thread_id}/messages/page` with `before=<message id>` and `limit` from 1 to 200, default 50. It returns `{messages, next_before}`. The existing messages endpoint retains its newest-1000 bare array.
 - `GET /api/tasks/browse` returns a compact task projection after scope and workplace-policy checks. Its fields are `id`, `title`, `status`, `priority`, `assignee`, `due_date`, `completed_at`, `forge_url`, `visibility`, and `crew_id`. Read `/api/tasks/{id}` for full task details. Extension API 1.0 does not change.
 
