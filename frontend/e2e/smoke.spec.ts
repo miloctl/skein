@@ -53,8 +53,9 @@ async function pickName(page: Page, key = "") {
     await page.goto("/settings");
     await page.getByLabel("Personal API key", { exact: true }).fill(key);
     await page.getByRole("button", { name: "Sign in with key", exact: true }).click();
+    // Obsolete pre-sign-in reads can outlive the identity change. Wait for
+    // the state this helper promises, not unrelated network silence.
     await expect(page.getByText(/strong identity active as ava/)).toBeVisible();
-    await page.waitForLoadState("networkidle");
   }
 }
 

@@ -25,10 +25,19 @@ whose full hit area is 24 CSS pixels high but is obscured by the sticky header.
 See [upstream issue #3720](https://github.com/dequelabs/axe-core/issues/3720).
 The checked 4.13.0 release does not resolve this case.
 
-Keep the original scan and assertion active. Report the known failure rather
-than patch the scanner, filter violations, or change application layout only to
-silence it. Check the same interaction when an upstream fix is released before
-removing this note or claiming a fully green browser gate.
+The Guided First Week test scans the expanded page at document scroll position
+zero. Every enabled axe rule and the zero-violations assertion remain active.
+This changes the scan position, not the application layout or scanner results.
+
+Separate checks measure the setup action in the original scrolled state. Native
+keyboard navigation must reveal it below the header, with a visible focus ring,
+a target at least 24 CSS pixels wide and high, and an unobstructed hit area.
+Enter must focus the standup input below the header. After the scan, the test
+restores the disclosure's scroll position and focus before it continues.
+
+The original scrolled scan still has the upstream limitation. Do not patch the
+scanner or filter violations. When an upstream fix is released, check the
+original interaction before removing the scroll normalization and this note.
 
 ## Build a workplace frontend
 
