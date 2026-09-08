@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 /** The half of the app the smoke walks never saw: every page, at phone width,
  *  and in dark. smoke.spec.ts covers seven pages, light, at one desktop width,
@@ -869,6 +869,47 @@ for (const path of ["/settings", "/agents"]) {
 }
 
 test.describe("Guided First Week", () => {
+  async function expectKeyboardTarget(target: Locator) {
+    await expect(target).toBeFocused();
+    const box = await target.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      // Canvas resolves alpha for modern CSS color formats as well as rgba().
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 1;
+      const context = canvas.getContext("2d")!;
+      context.fillStyle = style.outlineColor;
+      context.fillRect(0, 0, 1, 1);
+      const outlineAlpha = context.getImageData(0, 0, 1, 1).data[3];
+      const points = [
+        [r.left + r.width / 2, r.top + r.height / 2],
+        [r.left + 1, r.top + r.height / 2],
+        [r.right - 1, r.top + r.height / 2],
+        [r.left + r.width / 2, r.top + 1],
+        [r.left + r.width / 2, r.bottom - 1],
+      ];
+      return {
+        width: r.width, height: r.height,
+        top: r.top, bottom: r.bottom, left: r.left, right: r.right,
+        headerBottom: document.querySelector("header")!.getBoundingClientRect().bottom,
+        viewportWidth: innerWidth, viewportHeight: innerHeight,
+        visible: el.checkVisibility({ opacityProperty: true, visibilityProperty: true }),
+        ring: style.outlineStyle !== "none" && parseFloat(style.outlineWidth) >= 2 && outlineAlpha > 0,
+        reachable: points.every(([x, y]) => el.contains(document.elementFromPoint(x, y))),
+      };
+    });
+    const detail = JSON.stringify(box);
+    expect(box.width, detail).toBeGreaterThanOrEqual(24);
+    expect(box.height, detail).toBeGreaterThanOrEqual(24);
+    expect(box.top, detail).toBeGreaterThanOrEqual(box.headerBottom);
+    expect(box.bottom, detail).toBeLessThanOrEqual(box.viewportHeight);
+    expect(box.left, detail).toBeGreaterThanOrEqual(0);
+    expect(box.right, detail).toBeLessThanOrEqual(box.viewportWidth);
+    expect(box.visible, detail).toBe(true);
+    expect(box.ring, detail).toBe(true);
+    expect(box.reachable, detail).toBe(true);
+  }
+
   test.use({
     viewport: { width: 360, height: 800 },
     deviceScaleFactor: 2,
@@ -892,6 +933,7 @@ test.describe("Guided First Week", () => {
       );
       await page.goto("/");
       await page.waitForLoadState("networkidle").catch(() => {});
+      await page.evaluate(() => document.fonts.ready);
 
       const setup = page.getByRole("heading", {
         level: 2,
@@ -925,11 +967,33 @@ test.describe("Guided First Week", () => {
         page.getByRole("heading", { name: "Since yesterday" }),
       ).toBeVisible();
 
+      const disclosure = page.getByRole("button", { name: /Hide team context/ });
+      const interactionScroll = await page.evaluate(() => ({ x: scrollX, y: scrollY }));
+      const standup = page.getByRole("button", { name: /Post a standup/ });
+      const standupBox = await standup.boundingBox();
+      expect(standupBox).not.toBeNull();
+      expect(standupBox!.width).toBeGreaterThanOrEqual(24);
+      expect(standupBox!.height).toBeGreaterThanOrEqual(24);
+      for (let i = 0; i < 80; i++) {
+        if (await standup.evaluate((el) => el === document.activeElement)) break;
+        await page.keyboard.press("Shift+Tab");
+      }
+      await expectKeyboardTarget(standup);
+      await page.keyboard.press("Enter");
+      await expectKeyboardTarget(page.locator("#standup-today"));
+      await disclosure.evaluate((el) => (el as HTMLElement).focus({ preventScroll: true }));
+
+      // Axe #3720 clips targets behind sticky headers after scrolling. Check
+      // real keyboard geometry above, then audit the expanded DOM at its origin.
+      await page.evaluate(() => window.scrollTo({ left: 0, top: 0, behavior: "instant" }));
+      await expect.poll(() => page.evaluate(() => ({ x: scrollX, y: scrollY })))
+        .toEqual({ x: 0, y: 0 });
       const scan = await new AxeBuilder({ page })
         .withTags(["wcag2a", "wcag2aa", "wcag22aa"])
         .analyze();
       expect(
         scan.violations.map((v) => ({ rule: v.id, impact: v.impact })),
+        JSON.stringify(scan.violations.map((v) => ({ rule: v.id, nodes: v.nodes }))),
       ).toEqual([]);
       expect(
         await page.evaluate(
@@ -937,6 +1001,10 @@ test.describe("Guided First Week", () => {
         ),
       ).toBeLessThanOrEqual(1);
 
+      await page.evaluate(({ x, y }) => window.scrollTo({ left: x, top: y, behavior: "instant" }), interactionScroll);
+      await expect.poll(() => page.evaluate(() => ({ x: scrollX, y: scrollY })))
+        .toEqual(interactionScroll);
+      await expect(disclosure).toBeFocused();
       await page.keyboard.press("Enter");
       await expect(
         page.getByRole("heading", { name: "Since yesterday" }),
