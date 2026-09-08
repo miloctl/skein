@@ -35,7 +35,7 @@ def test_mcp_pages_past_the_cap_and_denials_without_skipping_visible_tasks(fresh
                 version="1.0.0",
                 extension_api="1.0",
                 minimum_core="0.2.0",
-                maximum_core_exclusive="0.6.0",
+                maximum_core_exclusive="0.7.0",
                 policies=(PolicyContribution("test.task-pages.read", deny_regulated),),
             ),
         )
