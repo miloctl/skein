@@ -2,6 +2,14 @@ import { expect, test, type Page } from "@playwright/test";
 
 const API = process.env.SKEIN_OIDC_API_URL ?? "http://127.0.0.1:8601";
 
+async function sessionCookieMetadata(page: Page) {
+  // Playwright's HTTP URL filter hides Secure cookies on 127.0.0.1, including
+  // cookies Chromium accepted. Return only metadata so failures cannot print credentials.
+  return (await page.context().cookies())
+    .filter((cookie) => cookie.name === "__Host-skein-session" && cookie.domain === new URL(API).hostname)
+    .map(({ domain, path, httpOnly, secure, sameSite }) => ({ domain, path, httpOnly, secure, sameSite }));
+}
+
 async function signIn(page: Page) {
   await page.goto("/");
   const origin = new URL(page.url()).origin;
@@ -24,8 +32,9 @@ test("a signed-out visitor is gated and a metadata-only exchange opens the works
   await signIn(page);
   const stored = await page.evaluate(() => ({ oidc: localStorage.getItem("skein-oidc"), key: localStorage.getItem("skein-key") }));
   expect(stored).toEqual({ oidc: null, key: null });
-  const cookie = (await page.context().cookies(API)).find((c) => c.name === "__Host-skein-session");
-  expect(cookie).toMatchObject({ httpOnly: true, secure: true, sameSite: "Lax", path: "/" });
+  expect(await sessionCookieMetadata(page)).toEqual([
+    { domain: new URL(API).hostname, httpOnly: true, secure: true, sameSite: "Lax", path: "/" },
+  ]);
   expect(await page.evaluate(() => document.cookie)).not.toContain("__Host-skein-session");
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
   await page.getByRole("link", { name: "Work", exact: true }).click();
@@ -46,7 +55,7 @@ test("authenticated reads carry cookie-bound CSRF and no bearer or name header",
 test("a callback that did not start in this tab is refused", async ({ page }) => {
   await page.goto("/auth/callback?code=code-forged&state=not-this-tab");
   await expect(page.locator("body")).toContainText(/did not start in this tab|no longer valid/i, { timeout: 15_000 });
-  expect((await page.context().cookies(API)).some((c) => c.name === "__Host-skein-session")).toBe(false);
+  expect(await sessionCookieMetadata(page)).toEqual([]);
 });
 
 test("sign-out revokes the browser cookie and clears another tab's private page", async ({ page }) => {
@@ -62,6 +71,6 @@ test("sign-out revokes the browser cookie and clears another tab's private page"
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible({ timeout: 15_000 });
   await other.bringToFront();
   await expect(other.getByRole("button", { name: "Sign in" })).toBeVisible({ timeout: 15_000 });
-  expect((await page.context().cookies(API)).some((c) => c.name === "__Host-skein-session")).toBe(false);
+  expect(await sessionCookieMetadata(page)).toEqual([]);
   await other.close();
 });
