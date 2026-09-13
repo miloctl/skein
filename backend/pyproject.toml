@@ -1,6 +1,6 @@
 [project]
 name = "skein-agents"
-version = "0.5.0"
+version = "0.6.0"
 description = "Skein — team coordination platform for humans + AI agents, built on the Strands Agents SDK"
 # LICENSE/NOTICE are copies of the repo-root originals: PEP 639 forbids
 # parent-directory paths in license-files, and setuptools silently drops
@@ -122,6 +122,7 @@ also_copy = [
     "fieldguide/",
     "schemas/",
     "seed.py",
+    ".env.example",
 ]
 
 [tool.pytest.ini_options]

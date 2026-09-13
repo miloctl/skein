@@ -6,6 +6,24 @@ import threading
 import pytest
 
 
+def test_memory_reset_preserves_shared_counters_and_full_reset_clears_both(fresh_db):
+    from app import ratelimit
+
+    ratelimit.check("feedback", "tester")
+    ratelimit.check("signin", "198.51.100.12")
+    shared = fresh_db.query("SELECT * FROM rate_hits")
+    assert shared and ratelimit._hits
+
+    ratelimit.reset_memory()
+    assert not ratelimit._hits
+    assert fresh_db.query("SELECT * FROM rate_hits") == shared
+
+    ratelimit.check("feedback", "tester")
+    ratelimit.reset()
+    assert not ratelimit._hits
+    assert fresh_db.query("SELECT * FROM rate_hits") == []
+
+
 def test_unsigned_shared_cap_runs_off_the_event_loop(fresh_db, monkeypatch):
     from fastapi import HTTPException
     from starlette.requests import Request

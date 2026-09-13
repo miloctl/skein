@@ -55,6 +55,48 @@ def test_chain_verifies_after_appends(fresh_db):
     assert result["broken_at"] is None
 
 
+def test_verified_anchor_requires_its_stored_digest(fresh_db):
+    _log(2)
+    assert activity.verify_tail(advance=True)["ok"] is True
+    assert activity.verify_chain()["ok"] is True
+
+    db.execute("DELETE FROM app_settings WHERE key = ?", (activity.ANCHOR_HASH,))
+    result = activity.verify_chain()
+    assert result["ok"] is False
+
+
+def test_optional_hash_preserves_a_present_ledger_digest(fresh_db):
+    _log(1)
+    marks = activity._settings(activity.HIGH_HASH)
+    digest = db.query_row("SELECT hash FROM activity WHERE seq = 1")["hash"]
+    assert activity._mark_hash(marks, activity.HIGH_HASH) == digest
+    assert activity._mark_hash(marks, activity.ANCHOR_HASH) == ""
+
+
+def test_verify_chain_checks_the_callers_expected_digest(fresh_db):
+    _log(3)
+    rows = db.query("SELECT seq, hash FROM activity ORDER BY seq")
+    assert rows[0]["hash"] != rows[1]["hash"]
+    assert activity.verify_chain(since_seq=2, expected_prev=rows[1]["hash"])["ok"] is True
+
+    result = activity.verify_chain(since_seq=2, expected_prev=rows[0]["hash"])
+    assert result["ok"] is False
+    assert result["broken_at"] == 2
+
+
+def test_verified_anchor_beyond_a_consistent_live_tip_fails(fresh_db):
+    _log(3)
+    assert activity.verify_tail(advance=True)["ok"] is True
+    assert activity.verify_chain()["ok"] is True
+    tail = db.query_row("SELECT seq, hash FROM activity WHERE seq = 2")
+
+    db.execute("DELETE FROM activity WHERE seq = 3")
+    activity._put({activity.HIGH_SEQ: str(tail["seq"]), activity.HIGH_HASH: tail["hash"]})
+    result = activity.verify_chain()
+    assert result["ok"] is False
+    assert result["broken_at"] == 3
+
+
 def test_first_row_chains_to_genesis(fresh_db):
     _log(1)
     row = db.query_row("SELECT seq, prev_hash FROM activity WHERE seq = 1")
@@ -787,6 +829,24 @@ def test_torn_and_conflicting_lines(fresh_db):
     result = activity.check_anchor_log()
     assert not result["ok"]
     assert result["reason"] == "the anchor logs disagree about this entry"
+
+
+def test_anchor_replay_rejects_an_invalid_stored_verified_anchor(fresh_db):
+    _log(2)
+    assert activity.nightly_verify()["anchor"]["anchored"] == 2
+    path = activity._anchor_log_paths()[0]
+    recorded = path.read_bytes()
+    assert recorded
+    before = activity.check_anchor_log()
+    assert before["ok"] is True
+    assert before["checked"] == 1
+
+    activity._put({activity.ANCHOR_SEQ: "invalid"})
+    result = activity.check_anchor_log()
+    assert result["ok"] is False
+    assert result["checked"] == 1
+    assert "The verified anchor is invalid" in result["reason"]
+    assert path.read_bytes() == recorded
 
 
 def test_an_unbounded_anchor_number_cannot_crash_replay(fresh_db):

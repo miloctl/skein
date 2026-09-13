@@ -286,9 +286,13 @@ def prune() -> int:
     return db.execute_rowcount("DELETE FROM rate_hits WHERE window_start < ?", (_window() - 1,))
 
 
-def reset() -> None:
+def reset_memory() -> None:
     with _lock:
         _hits.clear()
+
+
+def reset() -> None:
+    reset_memory()
     # Test-only: a suite without a database still resets the memory half.
     with contextlib.suppress(Exception):
         db.execute("DELETE FROM rate_hits")

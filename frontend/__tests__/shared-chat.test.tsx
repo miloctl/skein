@@ -229,16 +229,23 @@ describe("private shared chat", () => {
     state.failPost = true;
     fireEvent.change(composer, { target: { value: "Keep this draft" } });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-    await waitFor(() => expect(composer.value).toBe("Keep this draft"));
-    const failedKey = String(
-      (state.requests.at(-1)?.body as { client_key?: string } | null)?.client_key,
+    await screen.findByText("message refused");
+    const send = screen.getByRole("button", { name: "Send message" }) as HTMLButtonElement;
+    await waitFor(() => expect(send.disabled).toBe(false));
+    expect(composer.value).toBe("Keep this draft");
+    const messagePosts = () => state.requests.filter(
+      (request) => request.path === "/api/shared-chats/shared-room/messages" && request.method === "POST",
     );
+    const failed = messagePosts().at(-1)!;
+    const failedKey = (failed.body as { client_key: string }).client_key;
+    expect(failed.body).toMatchObject({ message: "Keep this draft", client_key: expect.any(String) });
     state.failPost = false;
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    fireEvent.click(send);
     await waitFor(() => expect(composer.value).toBe(""));
-    expect(
-      (state.requests.at(-2)?.body as { client_key?: string } | null)?.client_key,
-    ).toBe(failedKey);
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    const retried = messagePosts().at(-1)!;
+    expect(retried).not.toBe(failed);
+    expect(retried.body).toMatchObject({ message: "Keep this draft", client_key: failedKey });
   });
 
   it("clears the open private transcript as soon as the browser identity changes", async () => {

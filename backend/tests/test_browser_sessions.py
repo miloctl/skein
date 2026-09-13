@@ -210,6 +210,59 @@ def test_refresh_preserves_omitted_refresh_token_and_replaces_groups(
     assert row["refresh_nonce"] == ""
 
 
+def test_local_refresh_sealing_failure_preserves_rotation_and_retries(
+    sessions, provider, monkeypatch, fresh_db
+):
+    from app import oidc
+    from app.services import credentials
+
+    tokens, claims, verified = provider
+    issued = sessions.create_oidc_session(tokens, claims, mode="oidc")
+    _expire_access(fresh_db)
+    verified["candidate-access"] = {**claims, "groups": ["readers"]}
+    exchanges = []
+
+    def exchange(form):
+        exchanges.append(form["refresh_token"])
+        return {"access_token": "candidate-access", "refresh_token": "rotated-refresh"}
+
+    seal = credentials.seal
+
+    def fail_publication(value):
+        if not json.loads(value).get("pending_validation"):
+            raise ValueError("local sealing secret")
+        return seal(value)
+
+    monkeypatch.setattr(oidc, "exchange", exchange)
+    monkeypatch.setattr(credentials, "seal", fail_publication)
+    with pytest.raises(sessions.SessionUnavailable) as caught:
+        sessions.authenticate(issued.cookie, mode="oidc")
+    assert "local sealing secret" not in str(caught.value)
+    pending = fresh_db.query_one("SELECT * FROM browser_sessions")
+    assert pending is not None
+    assert pending["refresh_nonce"] == ""
+    assert pending["refresh_until"] == 0
+    assert pending["access_expires_at"] <= datetime.now(UTC).timestamp()
+    assert json.loads(credentials.unseal(pending["sealed_tokens"])) == {
+        "access_token": "candidate-access",
+        "refresh_token": "rotated-refresh",
+        "pending_validation": True,
+    }
+    assert sessions.metadata(issued.cookie, mode="oidc")["authenticated"]
+
+    monkeypatch.setattr(credentials, "seal", seal)
+    assert sessions.authenticate(issued.cookie, mode="oidc").groups == ("readers",)
+    recovered = fresh_db.query_row("SELECT * FROM browser_sessions")
+    assert recovered["refresh_nonce"] == ""
+    assert recovered["refresh_until"] == 0
+    assert recovered["access_expires_at"] == verified["candidate-access"]["exp"]
+    assert json.loads(credentials.unseal(recovered["sealed_tokens"])) == {
+        "access_token": "candidate-access",
+        "refresh_token": "rotated-refresh",
+    }
+    assert exchanges == [tokens["refresh_token"]]
+
+
 @pytest.mark.parametrize("candidate", ["valid", "expired", "wrong-subject"])
 def test_rotated_refresh_survives_transient_signing_key_failure(
     sessions, provider, monkeypatch, fresh_db, candidate

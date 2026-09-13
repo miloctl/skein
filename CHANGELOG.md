@@ -18,6 +18,14 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+### Behavior
+
+### Operations
+
+## 0.6.0 — 2026-09-08
+
+### Contracts
+
 - Core 0.6.0 reaches the previous compatibility ceiling. To load on this core, a package with `maximum_core_exclusive = "0.6.0"` or `maximumCoreExclusive: "0.6.0"` must advance that ceiling to `"0.7.0"`, and a pip bound of `<0.6.0` must widen to `<0.7.0`. Run the extension contracts before changing these declarations. Minimum-core floors and extension API 1.0 remain unchanged.
 - Solo-chat history adds `GET /api/chats/{thread_id}/messages/page` with `before=<message id>` and `limit` from 1 to 200, default 50. It returns `{messages, next_before}`. The existing messages endpoint retains its newest-1000 bare array.
 - `GET /api/tasks/browse` returns a compact task projection after scope and workplace-policy checks. Its fields are `id`, `title`, `status`, `priority`, `assignee`, `due_date`, `completed_at`, `forge_url`, `visibility`, and `crew_id`. Read `/api/tasks/{id}` for full task details. Extension API 1.0 does not change.
@@ -31,6 +39,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- My Day preserves keyboard focus after action refreshes, including when background refreshes overlap, without moving focus from another control.
 - Keyless chat accepts attached-file turns without a server error. It states that files remain unread and processes only the person's message through the existing command and review gates. File content cannot become a command or capture request.
 - Task Peek restores focus only after a panel has opened. Initial page load keeps the normal keyboard order and skip link. A history-backed close waits for URL synchronization before restoring focus, so native fragments stay in history without taking focus from the opener. Search remains the fallback when the opener is gone.
 - Slack commands and outbound delivery are removed, along with the Tavily and Exa research tools. In-app notifications remain available at once. RSS and local helper tools remain supported.
@@ -61,6 +70,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+- The frontend pins Next.js and its ESLint configuration to 16.3.4 and Sharp to 0.35.4 to address image-processing and Windows server security advisories. Workplace roots must use the same Next.js pin and Sharp override.
 - Database pool creation and shutdown are serialized, so concurrent first requests cannot leave an orphan pool. Browser-authentication tests reuse the existing application lifespan and stop maintenance before database teardown.
 - Migration 028 adds generic namespaced forge delivery receipts. Migration 029 adds a nonunique repository/event/payload index that permits existing duplicate fingerprints and new alias receipts. Receipt creation and the corresponding policy-checked task mutation commit together. Receipt retention stays permanent. Existing execution fencing, scheduling, and backup/restore behavior remain independent of optional integrations.
 - Local Docker fault and PostgreSQL recovery contract scripts use isolated resources and generated test credentials. The guarded OpenShift validation procedure requires an explicit disposable namespace. No production replica default changes. See deploy/k8s/README.md for required cluster and recovery checks.

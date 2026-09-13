@@ -12,10 +12,11 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from conftest import authored_repo_root
 from cryptography.fernet import Fernet
 from psycopg.conninfo import conninfo_to_dict
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = authored_repo_root(Path(__file__))
 README = ROOT / "deploy/k8s/README.md"
 OPERATOR = ROOT / "deploy/k8s/OPERATOR.md"
 

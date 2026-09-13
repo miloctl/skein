@@ -440,6 +440,7 @@ function shouldWave() {
 
 export default function MyDay() {
   const [b, setB] = useState<Briefing | null>(null);
+  const [briefingGeneration, setBriefingGeneration] = useState(0);
   const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
   const [onboardingStatus, setOnboardingStatus] = useState<
     "loading" | "ready" | "dismissed" | "failed"
@@ -538,6 +539,7 @@ export default function MyDay() {
       .then((r) => {
         if (g !== generation.current) return;
         setB(r); // last request wins
+        setBriefingGeneration(g);
         setError(null); // a past blip must not brick a now-healthy page
 
         // The bearer can resolve to a different person than the local name.
@@ -592,6 +594,7 @@ export default function MyDay() {
   }, [load]);
 
   const focusAfterAction = useRef<{
+    generation: number;
     control: HTMLElement;
     rows: Element[];
   } | null>(null);
@@ -601,6 +604,7 @@ export default function MyDay() {
       const siblings = Array.from(row.parentElement?.children ?? []);
       const at = siblings.indexOf(row);
       focusAfterAction.current = {
+        generation: generation.current + 1,
         control,
         rows: [row, ...siblings.slice(at + 1), ...siblings.slice(0, at).reverse()],
       };
@@ -609,6 +613,8 @@ export default function MyDay() {
   };
   useEffect(() => {
     const pending = focusAfterAction.current;
+    // An older briefing's effect must not consume a newer action's focus intent.
+    if (pending && briefingGeneration < pending.generation) return;
     focusAfterAction.current = null;
     // A delayed refresh must not take focus from someone who moved on while
     // the write was in flight. Only a removed control needs a replacement.
@@ -616,7 +622,7 @@ export default function MyDay() {
     const row = pending.rows.find((candidate) => candidate.isConnected);
     const next = row?.querySelector<HTMLElement>("a[href], button:not([disabled]), input");
     (next ?? mainRef.current)?.focus();
-  }, [b]);
+  }, [b, briefingGeneration]);
 
   const cancelQuestion = () => {
     if (!questionAction) return;

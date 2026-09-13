@@ -50,6 +50,7 @@ os.environ["SKEIN_TZ"] = ""
 os.environ["SKEIN_BACKUP_MIRROR"] = ""
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import psycopg
 import pytest
@@ -73,6 +74,15 @@ _TEST_DATABASE = re.compile(
     r")$"
 )
 _ORPHAN_AGE = timedelta(hours=24)
+
+
+def authored_repo_root(start: Path) -> Path:
+    # Copied tests live below mutants/, but scripts and docs stay in the authored tree.
+    # Use this only for file reads; runtime imports must stay in the copied backend.
+    for root in start.resolve().parents:
+        if (root / "backend/pyproject.toml").is_file() and (root / "docs/FEATURES.md").is_file():
+            return root
+    raise FileNotFoundError("The authored repository was not found.")
 
 
 def _test_database_name(
@@ -196,9 +206,9 @@ def _postgres_preflight(url: str) -> str | None:
 def _reset_ratelimit():
     from app import ratelimit
 
-    ratelimit.reset()
+    ratelimit.reset_memory()
     yield
-    ratelimit.reset()
+    ratelimit.reset_memory()
 
 
 @pytest.fixture(autouse=True)
@@ -266,7 +276,8 @@ def _worker_db(worker_id, testrun_uid):
 
     base = config.DATABASE_URL
     if error := _postgres_preflight(base):
-        pytest.exit(error, returncode=1)
+        # mutmut counts exit 1 as a kill even when no tests ran. Exit 35 stays suspicious.
+        pytest.exit(error, returncode=35)
     previous_error = config.DATABASE_ERROR
     previous_env = os.environ.get("SKEIN_DATABASE_URL")
     name = _test_database_name("test", datetime.now(UTC), testrun_uid, worker_id)

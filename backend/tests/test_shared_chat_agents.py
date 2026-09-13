@@ -5,6 +5,8 @@ import threading
 import time
 from types import SimpleNamespace
 
+import pytest
+
 from app import db
 from app.services import personas, users
 from app.services.api_keys import create_key
@@ -662,6 +664,170 @@ def test_late_timeout_completion_persists_reply_receipts_and_releases_access(cli
     )["content"]
     assert "late answer" in content
     assert "Proposal queued for human review" in content
+
+
+@pytest.mark.parametrize("fence", ["current", "owner", "token", "response"])
+def test_late_failed_turn_receipts_respect_lease_and_existing_response(client, monkeypatch, fence):
+    from app import config
+    from app.agents import receipts, team_agent
+    from app.services import leases, shared_chat_agents
+
+    agent = sorted(personas.bench_slugs())[0]
+    room, mira = create_room(client)
+    add_agent(client, room["id"], mira, agent)
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "AGENT_RUN_SECONDS", 0.05)
+    proposed, timed_out, release = threading.Event(), threading.Event(), threading.Event()
+    receipt_rows = []
+    observed = {}
+    settle = shared_chat_agents._settle
+    persist = shared_chat_agents._persist_late_failure
+
+    class FakeAgent:
+        event_loop_metrics = SimpleNamespace(
+            accumulated_usage={}, accumulated_metrics={}, cycle_count=1
+        )
+        model = SimpleNamespace(get_config=lambda: {"model_id": "test-model"})
+
+        def __call__(self, prompt):
+            from app.tools._gate import gated_write
+
+            gated_write(
+                "task",
+                "create",
+                {"title": "proposal before late failure"},
+                direct=lambda: pytest.fail("shared-chat writes must queue for review"),
+            )
+            receipt_rows.extend(receipts.drain())
+            for row in receipt_rows:
+                receipts.record(**row)
+            proposed.set()
+            assert release.wait(5)
+            raise RuntimeError("secret sk-live-late request_id=42")
+
+    def settle_timeout(turn_id, status, error_code="", rows=None, **kwargs):
+        if error_code == "turn_timeout":
+            assert proposed.wait(5)
+            # A receipt-bearing settlement can retain its live execution lease.
+            # Keep that service-created state to test the response fence alone.
+            settle(
+                turn_id, status, error_code, receipt_rows if fence == "response" else rows, **kwargs
+            )
+            timed_out.set()
+        else:
+            settle(turn_id, status, error_code, rows, **kwargs)
+
+    def persist_late(run, rows):
+        observed["run"] = dict(run)
+        observed["receipts"] = rows
+        try:
+            persist(run, rows)
+        except leases.LeaseLost:
+            observed["lease_lost"] = True
+            raise
+
+    monkeypatch.setattr(team_agent, "build_agent", lambda *_args, **_kwargs: FakeAgent())
+    monkeypatch.setattr(shared_chat_agents, "_settle", settle_timeout)
+    monkeypatch.setattr(shared_chat_agents, "_persist_late_failure", persist_late)
+    try:
+        trigger = post_message(
+            client, room["id"], mira, f"@{agent} fail late", "late-failure", invoke_agent=agent
+        )
+        assert proposed.wait(5)
+        assert timed_out.wait(5)
+        run = db.query_row(
+            "SELECT * FROM chat_agent_runs WHERE trigger_message_id = ?", (trigger["id"],)
+        )
+        assert run["status"] == "completion_unknown"
+        assert run["execution_active"] is True
+        if fence == "owner":
+            db.execute(
+                "UPDATE chat_agent_runs SET lease_owner = 'replacement-worker' WHERE turn_id = ?",
+                (run["turn_id"],),
+            )
+        elif fence == "token":
+            db.execute(
+                "UPDATE chat_agent_runs SET lease_token = 'replacement-token' WHERE turn_id = ?",
+                (run["turn_id"],),
+            )
+        before = db.query_row("SELECT * FROM chat_agent_runs WHERE turn_id = ?", (run["turn_id"],))
+    finally:
+        release.set()
+        assert shared_chat_agents.wait_for_idle(5)
+
+    assert observed["receipts"] == receipt_rows
+    assert receipt_rows and receipt_rows[0]["kind"] == "queued"
+    messages = db.query(
+        "SELECT * FROM chat_messages WHERE reply_to_message_id = ? AND author_kind = 'agent'",
+        (trigger["id"],),
+    )
+    if fence in {"owner", "token"}:
+        assert observed["lease_lost"] is True
+        assert (
+            db.query_row("SELECT * FROM chat_agent_runs WHERE turn_id = ?", (run["turn_id"],))
+            == before
+        )
+        assert messages == []
+        # The worker's inherited transaction fence refuses first. This separate
+        # unleased call pins the helper's own guard without disabling that fence.
+        assert not leases.active()
+        persist(observed["run"], receipt_rows)
+        assert (
+            db.query_row("SELECT * FROM chat_agent_runs WHERE turn_id = ?", (run["turn_id"],))
+            == before
+        )
+        assert (
+            db.query(
+                "SELECT * FROM chat_messages WHERE reply_to_message_id = ? AND author_kind = 'agent'",
+                (trigger["id"],),
+            )
+            == []
+        )
+    else:
+        assert "lease_lost" not in observed
+        assert len(messages) == 1
+        response = messages[0]
+        assert response["content"].startswith("The agent response did not complete.\n\n")
+        assert (
+            f"Proposal queued for human review: task #{receipt_rows[0]['ref']}"
+            in response["content"]
+        )
+        assert "sk-live" not in response["content"] and "request_id" not in response["content"]
+        assert response["turn_id"] == run["turn_id"]
+        assert response["author"] == agent
+        settled = db.query_row("SELECT * FROM chat_agent_runs WHERE turn_id = ?", (run["turn_id"],))
+        assert settled["response_message_id"] == response["id"]
+        assert settled["status"] == "completion_unknown"
+        assert settled["finished_at"]
+        assert settled["execution_active"] is False
+        assert (settled["lease_owner"], settled["lease_token"], settled["lease_until"]) == (
+            "",
+            "",
+            "",
+        )
+        assert settled["error_code"] == ("turn_timeout" if fence == "response" else "turn_failed")
+        if fence == "response":
+            assert settled == {
+                **before,
+                "execution_active": False,
+                "lease_owner": "",
+                "lease_token": "",
+                "lease_until": "",
+            }
+            assert response["id"] == run["response_message_id"]
+        persist(observed["run"], receipt_rows)
+        assert (
+            db.query_row("SELECT * FROM chat_agent_runs WHERE turn_id = ?", (run["turn_id"],))
+            == settled
+        )
+        assert (
+            db.query(
+                "SELECT * FROM chat_messages WHERE reply_to_message_id = ? AND author_kind = 'agent'",
+                (trigger["id"],),
+            )
+            == messages
+        )
+    assert not shared_chat_agents._session_lock(room["id"], agent).locked()
 
 
 def test_late_persistence_failure_releases_session_and_execution_slot(client, monkeypatch):

@@ -8,7 +8,9 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "stub-idp.py"
+from conftest import authored_repo_root
+
+SCRIPT = authored_repo_root(Path(__file__)) / "scripts" / "stub-idp.py"
 
 
 def test_an_explicit_group_map_fails_closed_for_unknown_users(monkeypatch):

@@ -152,6 +152,9 @@ def _run(
     env: dict[str, str] | None = None,
     capture: bool = False,
 ) -> subprocess.CompletedProcess[str]:
+    if env is None:
+        env = os.environ.copy()
+        env.pop("SKEIN_DATABASE_URL", None)
     try:
         return runner(
             list(args),
@@ -559,6 +562,8 @@ def prepare(
     dist = root / "examples/workplace-extension/dist"
     _clean_dist(dist)
     env = os.environ.copy()
+    # Build hooks must not receive the administrator connection needed by pytest.
+    database_url = env.pop("SKEIN_DATABASE_URL", None)
     env["UV_PYTHON"] = sys.executable
     commands = [
         (["uv", "build", "--quiet", "--wheel", "--out-dir", str(dist), "backend"], root),
@@ -672,6 +677,8 @@ def prepare(
         env=env,
     )
     test_env = env.copy()
+    if database_url is not None:
+        test_env["SKEIN_DATABASE_URL"] = database_url
     test_env["SKEIN_RELEASE_MARKER_OVERRIDE"] = version
     _run(
         runner,

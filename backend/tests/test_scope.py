@@ -198,6 +198,45 @@ def test_a_machine_name_is_never_a_viewer(fresh_db):
     assert scope.Viewer("ava", True).name == "ava"
 
 
+@pytest.mark.parametrize(
+    ("tier", "removed", "expected"),
+    [
+        ("private", False, {"workspace", "private", "own crew", "crew", "other crew"}),
+        ("workspace", False, {"workspace"}),
+        ("crew", False, {"workspace", "own crew", "crew"}),
+        ("crew", True, {"workspace"}),
+    ],
+    ids=["private", "workspace", "crew-member", "removed-author"],
+)
+def test_document_audience_narrows_readable_content(fresh_db, tier, removed, expected):
+    for name in ("ava", "bo", "cass"):
+        users.ensure_user(name)
+    target = crews.create_crew("Platform", actor="bo")["id"]
+    crews.add_member(target, "ava", actor="bo")
+    other = crews.create_crew("Design", actor="ava")["id"]
+    outside = crews.create_crew("Operations", actor="cass")["id"]
+    for title, actor, visibility, crew_id in [
+        ("workspace", "cass", "workspace", 0),
+        ("private", "ava", "private", 0),
+        ("own crew", "ava", "crew", target),
+        ("crew", "bo", "crew", target),
+        ("other crew", "ava", "crew", other),
+        ("outside crew", "cass", "crew", outside),
+        ("other private", "cass", "private", 0),
+    ]:
+        work.create_task(title, actor=actor, visibility=visibility, crew_id=crew_id)
+    if removed:
+        crews.remove_member(target, "ava", actor="bo")
+    writer = scope.Viewer("ava", True)
+    readable = {row["title"] for row in work.list_tasks(viewer=writer)}
+    assert readable == {"workspace", "private", "own crew", "other crew"} | (
+        set() if removed else {"crew"}
+    )
+
+    audience = scope.audience(tier, target if tier == "crew" else None, writer)
+    assert {row["title"] for row in work.list_tasks(viewer=audience)} == expected
+
+
 def test_the_tiers_match_the_documented_three():
     assert scope.TIERS == ("private", "crew", "workspace")
     assert scope.WORKSPACE == "workspace", "the migration default — changing it changes every row"

@@ -44,6 +44,86 @@ def test_task_relink_across_milestones(client):
     assert row["milestone_id"] is None
 
 
+@pytest.mark.parametrize("parent_field", ["milestone_id", "engagement_id"])
+def test_task_relink_accepts_same_crew_and_refuses_other_crew(fresh_db, parent_field):
+    from app.services import crews, engagements, users, work
+
+    users.ensure_user("ava")
+    own = crews.create_crew("Platform", actor="ava")["id"]
+    other = crews.create_crew("Delivery", actor="ava")["id"]
+    create_parent = (
+        work.create_milestone if parent_field == "milestone_id" else engagements.create_engagement
+    )
+    permitted = create_parent("Same crew", actor="ava", visibility="crew", crew_id=own)["id"]
+    refused = create_parent("Other crew", actor="ava", visibility="crew", crew_id=other)["id"]
+    task = work.create_task("Scoped task", actor="ava", visibility="crew", crew_id=own)["id"]
+
+    try:
+        work.update_task(task, actor="ava", **{parent_field: permitted})
+    except ValueError as exc:
+        pytest.fail(f"Same-crew parent update was refused: {exc}")
+    before = fresh_db.query_row("SELECT * FROM tasks WHERE id = ?", (task,))
+    assert before[parent_field] == permitted
+    assert before["crew_id"] == own
+
+    with pytest.raises(ValueError, match="cannot be visible to more people"):
+        work.update_task(task, actor="ava", **{parent_field: refused})
+    assert fresh_db.query_row("SELECT * FROM tasks WHERE id = ?", (task,)) == before
+
+
+@pytest.mark.parametrize("visibility", ["crew", "private"])
+def test_task_reassignment_refuses_a_recipient_who_cannot_read_it(fresh_db, visibility):
+    from app.services import crews, users, work
+
+    users.ensure_user("ava")
+    users.ensure_user("bo")
+    crew_id = crews.create_crew("Platform", actor="ava")["id"] if visibility == "crew" else None
+    task = work.create_task(
+        "Scoped assignment",
+        actor="ava",
+        assignee="ava",
+        visibility=visibility,
+        crew_id=crew_id,
+    )["id"]
+    before = fresh_db.query_row("SELECT * FROM tasks WHERE id = ?", (task,))
+
+    with pytest.raises(ValueError):
+        work.update_task(task, assignee="bo", actor="ava")
+    assert fresh_db.query_row("SELECT * FROM tasks WHERE id = ?", (task,)) == before
+
+
+@pytest.mark.parametrize(
+    ("origin", "explicit_kind", "expected_kind"),
+    [("human", "", "human"), ("agent_verified", "", "agent"), ("human", "service", "service")],
+)
+def test_task_update_outbox_preserves_actor_identity(
+    fresh_db, origin, explicit_kind, expected_kind
+):
+    from app.services import users, work
+
+    users.ensure_user("ava")
+    task = work.create_task("Event subject", actor="ava", origin="human")["id"]
+    work.update_task(
+        task,
+        title="Updated event subject",
+        actor="ava",
+        origin=origin,
+        event_actor_kind=explicit_kind,
+        correlation_id="task-update-identity",
+    )
+
+    events = fresh_db.query(
+        "SELECT payload FROM extension_outbox WHERE event_type = 'skein.task.updated'"
+    )
+    assert len(events) == 1
+    event = json.loads(events[0]["payload"])
+    assert event["actor"] == {"name": "ava", "kind": expected_kind}
+    assert event["origin"] == origin
+    assert event["resource"] == {"type": "task", "id": str(task)}
+    assert event["correlation_id"] == "task-update-identity"
+    assert "title" in event["changes"]
+
+
 def test_waiting_on_validation_and_clear(client, fresh_db):
     from app.services import blockers, work
 

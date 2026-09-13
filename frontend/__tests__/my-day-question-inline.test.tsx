@@ -175,6 +175,129 @@ it.each(["start", "done"])("restores task focus and announces %s", async (action
   expect(getStatus()?.message).toBe(`Task #1 ${action === "done" ? "done" : "started"}.`);
 });
 
+it("keeps task focus intent through an earlier briefing commit", async () => {
+  const original = mocks.api.getMockImplementation()!;
+  let finishPatch!: () => void;
+  let finishBackground!: () => void;
+  let finishActionRefresh!: () => void;
+  let reads = 0;
+  const snapshot = (status: string) => ({
+    ...briefing,
+    your_work: { ...briefing.your_work, tasks: [
+      { id: 1, title: "Plan launch", priority: "high", status },
+      { id: 2, title: "Check evidence", priority: "high", status: "in_progress" },
+    ] },
+  });
+  mocks.api.mockImplementation((path: string, opts?: { method?: string }) => {
+    if (path === "/api/tasks/1" && opts?.method === "PATCH")
+      return new Promise((resolve) => { finishPatch = () => resolve({}); });
+    if (path === "/api/briefing") {
+      reads += 1;
+      if (reads === 1) return Promise.resolve(snapshot("todo"));
+      if (reads === 2) return new Promise((resolve) => { finishBackground = () => resolve(snapshot("todo")); });
+      if (reads === 3) return new Promise((resolve) => { finishActionRefresh = () => resolve(snapshot("in_progress")); });
+      throw new Error(`Unexpected briefing read ${reads}`);
+    }
+    return original(path, opts);
+  });
+  await act(async () => { render(<MyDay />); });
+  const control = screen.getByRole("button", { name: /^start/ });
+  control.focus();
+  fireEvent.click(control);
+  fireEvent(window, new Event("skein-attention-change"));
+  expect(reads).toBe(2);
+  await act(async () => {
+    finishBackground();
+    finishPatch();
+  });
+  expect(reads).toBe(3);
+  expect(control.isConnected).toBe(true);
+  expect(document.activeElement).toBe(control);
+  await act(async () => { finishActionRefresh(); });
+  expect(control.isConnected).toBe(false);
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Open.*Plan launch$/ })));
+});
+
+it.each(["focus moved", "superseded", "failed then recovered"])(
+  "preserves task focus boundaries when the refresh is %s", async (scenario) => {
+    const original = mocks.api.getMockImplementation()!;
+    let reads = 0;
+    let finishPatch!: () => void;
+    let finishAction!: () => void;
+    let failAction!: () => void;
+    let finishLater!: () => void;
+    const snapshot = (changed: boolean) => ({
+      ...briefing,
+      your_work: { ...briefing.your_work, tasks: [
+        { id: 1, title: "Plan launch", priority: "high", status: changed ? "in_progress" : "todo" },
+      ] },
+    });
+    mocks.api.mockImplementation((path: string, opts?: { method?: string }) => {
+      if (path === "/api/tasks/1" && opts?.method === "PATCH")
+        return new Promise((resolve) => { finishPatch = () => resolve({}); });
+      if (path === "/api/briefing") {
+        reads += 1;
+        if (reads === 1) return Promise.resolve(snapshot(false));
+        if (reads === 2) return new Promise((resolve, reject) => {
+          finishAction = () => resolve(snapshot(scenario !== "superseded"));
+          failAction = () => reject(new Error("Refresh failed"));
+        });
+        if (reads === 3) return new Promise((resolve) => { finishLater = () => resolve(snapshot(true)); });
+        throw new Error(`Unexpected briefing read ${reads}`);
+      }
+      return original(path, opts);
+    });
+    await act(async () => { render(<MyDay />); });
+    const control = screen.getByRole("button", { name: /^start/ });
+    control.focus();
+    fireEvent.click(control);
+    await act(async () => { finishPatch(); });
+    expect(reads).toBe(2);
+    expect(document.activeElement).toBe(control);
+    const field = screen.getByLabelText("Standup: what are you on today?");
+    if (scenario === "focus moved") field.focus();
+    if (scenario === "failed then recovered") {
+      await act(async () => { failAction(); });
+      expect(control.isConnected).toBe(true);
+      expect(document.activeElement).toBe(control);
+    }
+    if (scenario === "superseded" || scenario === "failed then recovered") {
+      fireEvent(window, new Event("skein-attention-change"));
+      await act(async () => { finishLater(); });
+    } else {
+      await act(async () => { finishAction(); });
+    }
+    expect(control.isConnected).toBe(false);
+    const expected = scenario === "focus moved" ? field
+      : screen.getByRole("button", { name: /^Open.*Plan launch$/ });
+    await waitFor(() => expect(document.activeElement).toBe(expected));
+    if (scenario === "superseded") {
+      await act(async () => { finishAction(); });
+      expect(screen.queryByRole("button", { name: /^start/ })).toBeNull();
+      expect(document.activeElement).toBe(expected);
+    }
+  },
+);
+
+it("falls back to main when the final notice group leaves", async () => {
+  const original = mocks.api.getMockImplementation()!;
+  let dismissed = false;
+  mocks.api.mockImplementation((path: string, opts?: { method?: string }) => {
+    if (path === "/api/notifications/read") dismissed = true;
+    if (path === "/api/briefing") return Promise.resolve({
+      ...briefing,
+      attention: dismissed ? [] : briefing.attention.filter((item) => item.ref_id === 9),
+    });
+    return original(path, opts);
+  });
+  await act(async () => { render(<MyDay />); });
+  const control = screen.getByRole("button", { name: /dismiss/i });
+  control.focus();
+  fireEvent.click(control);
+  await waitFor(() => expect(control.isConnected).toBe(false));
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("main")));
+});
+
 it("does not take focus from a later action when a task write finishes", async () => {
   const original = mocks.api.getMockImplementation()!;
   let finish!: (value: object) => void;

@@ -10,8 +10,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from conftest import authored_repo_root
 
-SCRIPT = Path(__file__).resolve().parents[2] / "scripts/durability-contract.py"
+BACKEND = Path(__file__).resolve().parents[1]
+SCRIPT = authored_repo_root(Path(__file__)) / "scripts/durability-contract.py"
 spec = importlib.util.spec_from_file_location("durability_contract", SCRIPT)
 assert spec and spec.loader
 harness = importlib.util.module_from_spec(spec)
@@ -78,9 +80,9 @@ def test_inherited_image_settings_cannot_select_external_services(tmp_path):
         [
             sys.executable,
             "-c",
-            "import json,socket; socket.socket.connect=lambda *a,**k: (_ for _ in ()).throw(AssertionError('No network in configuration check')); from app import config; from psycopg.conninfo import conninfo_to_dict; p=conninfo_to_dict(config.DATABASE_URL); print(json.dumps({k:p[k] for k in ('host','port','user','dbname')}))",
+            "import json,socket; socket.socket.connect=lambda *a,**k: (_ for _ in ()).throw(AssertionError('No network in configuration check')); from app import config; from psycopg.conninfo import conninfo_to_dict; p=conninfo_to_dict(config.DATABASE_URL); print(json.dumps({**{k:p[k] for k in ('host','port','user','dbname')}, 'source':config.__file__}))",
         ],
-        cwd=SCRIPT.parent.parent / "backend",
+        cwd=BACKEND,
         env=env,
         capture_output=True,
         text=True,
@@ -88,6 +90,7 @@ def test_inherited_image_settings_cannot_select_external_services(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {
+        "source": str(BACKEND / "app/config.py"),
         "host": "owned-db",
         "port": "5432",
         "user": "owned-role",

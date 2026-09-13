@@ -3,7 +3,7 @@
 from pathlib import Path
 
 
-def test_content_validator_includes_field_guide(fresh_db, monkeypatch):
+def test_content_validator_includes_field_guide(monkeypatch):
     from app import content
 
     def broken_registry():
@@ -14,7 +14,7 @@ def test_content_validator_includes_field_guide(fresh_db, monkeypatch):
     assert any("field-guide" in error and "broken tour manifest" in error for error in errors)
 
 
-def test_unversioned_stock_content_is_version_one(fresh_db):
+def test_unversioned_stock_content_is_version_one():
     from app.services import flocks, personas, playbooks
 
     assert playbooks.get_playbook("prototype")["schema_version"] == 1
@@ -22,7 +22,7 @@ def test_unversioned_stock_content_is_version_one(fresh_db):
     assert flocks.get_flock("delivery")["schema_version"] == 1
 
 
-def test_unversioned_workplace_content_keeps_the_legacy_open_shape(fresh_db, tmp_path, monkeypatch):
+def test_unversioned_workplace_content_keeps_the_legacy_open_shape(tmp_path, monkeypatch):
     from app import config, content
     from app.services import flocks, personas, playbooks
 
@@ -57,7 +57,7 @@ def test_unversioned_workplace_content_keeps_the_legacy_open_shape(fresh_db, tmp
 
 
 def test_startup_validation_skips_malformed_legacy_but_rejects_versioned_content(
-    fresh_db, tmp_path, monkeypatch
+    tmp_path, monkeypatch
 ):
     from app import config
     from app.services import playbooks
@@ -74,7 +74,7 @@ def test_startup_validation_skips_malformed_legacy_but_rejects_versioned_content
     assert any("unknown top-level fields" in error for error in playbooks.validate_startup(set()))
 
 
-def test_deployment_validator_accepts_versioned_overlay_content(fresh_db, tmp_path, monkeypatch):
+def test_deployment_validator_accepts_versioned_overlay_content(tmp_path, monkeypatch):
     from app import config, content
 
     playbook_dir = tmp_path / "playbooks"
@@ -99,9 +99,7 @@ def test_deployment_validator_accepts_versioned_overlay_content(fresh_db, tmp_pa
     assert content.validate() == []
 
 
-def test_deployment_validator_rejects_future_versions_and_unknown_fields(
-    fresh_db, tmp_path, monkeypatch
-):
+def test_deployment_validator_rejects_future_versions_and_unknown_fields(tmp_path, monkeypatch):
     from app import config, content
 
     playbook_dir = tmp_path / "playbooks"
@@ -129,9 +127,12 @@ def test_deployment_validator_rejects_future_versions_and_unknown_fields(
     assert any("unknown top-level" in error for error in errors)
 
 
-def test_content_validation_cli_accepts_explicit_directories(fresh_db, tmp_path, monkeypatch):
-    from app import content
+def test_content_validation_cli_accepts_explicit_directories(tmp_path, monkeypatch):
+    from app import config, content
 
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", config.PLAYBOOKS_OVERLAY)
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", config.PERSONAS_OVERLAY)
+    monkeypatch.setattr(config, "FLOCKS_OVERLAY", config.FLOCKS_OVERLAY)
     empty = tmp_path / "empty"
     empty.mkdir()
     monkeypatch.setattr(
@@ -150,9 +151,7 @@ def test_content_validation_cli_accepts_explicit_directories(fresh_db, tmp_path,
     assert isinstance(empty, Path)
 
 
-def test_content_validation_cli_rejects_core_machine_overlay_slugs(
-    fresh_db, tmp_path, monkeypatch, capsys
-):
+def test_content_validation_cli_rejects_core_machine_overlay_slugs(tmp_path, monkeypatch, capsys):
     from app import config, content
 
     empty = tmp_path / "empty"
@@ -192,7 +191,7 @@ def test_content_validation_cli_rejects_core_machine_overlay_slugs(
     assert "flock: system.yaml (overlay): slug is reserved" in output
 
 
-def test_playbook_validation_rejects_nested_entries_without_titles(fresh_db, tmp_path, monkeypatch):
+def test_playbook_validation_rejects_nested_entries_without_titles(tmp_path, monkeypatch):
     from app import config
     from app.services import playbooks
 
@@ -209,9 +208,7 @@ def test_playbook_validation_rejects_nested_entries_without_titles(fresh_db, tmp
     assert any("ritual 1 has no title" in error for error in errors)
 
 
-def test_deployment_validation_checks_composed_workflow_action_names(
-    fresh_db, tmp_path, monkeypatch
-):
+def test_deployment_validation_checks_composed_workflow_action_names(tmp_path, monkeypatch):
     from app import config
     from app.services import playbooks
 
@@ -228,7 +225,7 @@ def test_deployment_validation_checks_composed_workflow_action_names(
     )
 
 
-def test_content_cli_checks_registered_workflow_actions(fresh_db, tmp_path, monkeypatch):
+def test_content_cli_checks_registered_workflow_actions(tmp_path, monkeypatch):
     from app import config, content
 
     overlay = tmp_path / "playbooks"
