@@ -9,8 +9,13 @@ license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.12"
 dependencies = [
-    # >=1.50: agent_runner passes per-invocation Limits (strands.types.agent)
-    "strands-agents[anthropic,openai,ollama]>=1.50",
+    # Older Strands releases require MCP 1.x, which lacks our server/client API.
+    "strands-agents[anthropic,openai,ollama]>=1.55.1",
+    "mcp>=2.1.1,<2.2",
+    # The MCP transport and OAuth client import HTTPX2 directly.
+    "httpx2>=2.9",
+    # HTTPX builds the TLS context that preserves existing certificate trust.
+    "httpx>=0.28.1,<1",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pydantic>=2.7",
@@ -43,9 +48,6 @@ dependencies = [
 dev = [
     "pytest>=8",
     "pytest-xdist>=3",
-    # starlette 1.x TestClient imports this. No test file names it, so a
-    # dependency cleanup reads it as unused.
-    "httpx2>=2.9",
     "ruff>=0.8",
     "mypy>=1.13",
     "types-PyYAML",

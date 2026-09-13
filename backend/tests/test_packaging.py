@@ -8,14 +8,50 @@ import os
 import subprocess
 import sys
 import tomllib
+from importlib.metadata import requires
 from pathlib import Path
 
+import pytest
 from conftest import authored_repo_root
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 BACKEND = Path(__file__).resolve().parent.parent
 ROOT = authored_repo_root(Path(__file__))
 DOCKERFILE = BACKEND / "Dockerfile"
 CONTENT_DIRS = {"fieldguide", "flocks", "personas", "playbooks", "schemas"}
+
+
+@pytest.mark.parametrize("source", ["pyproject", "installed-metadata"])
+def test_runtime_dependencies_declare_the_supported_mcp_sdk(source):
+    if source == "pyproject":
+        values = tomllib.loads((BACKEND / "pyproject.toml").read_text())["project"]["dependencies"]
+    else:
+        values = requires("skein-agents")
+        assert values is not None
+    requirements = {
+        canonicalize_name(requirement.name): requirement
+        for requirement in map(Requirement, values)
+        if requirement.marker is None or requirement.marker.evaluate({"extra": ""})
+    }
+    mcp = requirements["mcp"]
+    assert mcp.marker is None
+    for version in ("2.1.1", "2.1.2", "2.1.99"):
+        assert version in mcp.specifier
+    for version in ("1.26.0", "2.0.0", "2.1.0", "2.2.0", "3.0.0"):
+        assert version not in mcp.specifier
+    strands = requirements["strands-agents"]
+    assert "1.55.1" in strands.specifier
+    assert "1.55.0" not in strands.specifier
+    httpx2 = requirements["httpx2"]
+    assert httpx2.marker is None
+    assert "2.9.0" in httpx2.specifier
+    assert "2.8.0" not in httpx2.specifier
+    httpx = requirements["httpx"]
+    assert httpx.marker is None
+    assert "0.28.1" in httpx.specifier
+    assert "0.28.0" not in httpx.specifier
+    assert "1.0.0" not in httpx.specifier
 
 
 def content_dirs() -> set[str]:

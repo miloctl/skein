@@ -11,9 +11,15 @@ import time
 from dataclasses import dataclass, field
 from urllib.parse import parse_qs, urlsplit
 
-import httpx
+import httpx2
 from mcp.client.auth import OAuthClientProvider
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+from mcp.client.auth.exceptions import OAuthFlowError
+from mcp.shared.auth import (
+    AuthorizationCodeResult,
+    OAuthClientInformationFull,
+    OAuthClientMetadata,
+    OAuthToken,
+)
 from pydantic import AnyUrl
 
 from ..services import mcp_servers
@@ -30,6 +36,7 @@ class _Flow:
     state: str = ""
     authorization_url: str = ""
     code: str = ""
+    iss: str | None = None
     error: str = ""
     url_ready: threading.Event = field(default_factory=threading.Event)
     done: threading.Event = field(default_factory=threading.Event)
@@ -43,6 +50,7 @@ def _await_code(flow: _Flow) -> None:
             break
         if row["done"]:
             flow.code = row["code"]
+            flow.iss = row["iss"]
             flow.error = "sign-in was refused" if row["refused"] else ""
             break
         if time.monotonic() >= deadline:
@@ -71,7 +79,7 @@ class _SealedStorage:
         return OAuthToken.model_validate_json(tokens) if tokens else None
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
-        encoded = tokens.model_dump_json()
+        encoded = tokens.model_dump_json(by_alias=True)
         expected = self._load()
         mcp_servers.store_oauth(
             self.row_id,
@@ -90,7 +98,7 @@ class _SealedStorage:
         return OAuthClientInformationFull.model_validate_json(client) if client else None
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
-        encoded = client_info.model_dump_json()
+        encoded = client_info.model_dump_json(by_alias=True)
         expected = self._load()
         mcp_servers.store_oauth(
             self.row_id,
@@ -103,7 +111,17 @@ class _SealedStorage:
 
 
 class _Provider(OAuthClientProvider):
-    async def _handle_refresh_response(self, response: httpx.Response) -> bool:
+    async def _perform_authorization_code_grant(self) -> tuple[str, str]:
+        try:
+            return await super()._perform_authorization_code_grant()
+        except OAuthFlowError:
+            # The SDK's outer auth flow logs tracebacks. Its validation errors
+            # include callback state and issuer, so redact before that logger.
+            raise OAuthFlowError(
+                "The sign-in response is invalid. Start it again from Settings."
+            ) from None
+
+    async def _handle_refresh_response(self, response: httpx2.Response) -> bool:
         try:
             return await super()._handle_refresh_response(response)
         except mcp_servers.OAuthGrantChanged:
@@ -121,6 +139,7 @@ def provider(server: dict) -> OAuthClientProvider:
     flow: _Flow | None = server.get("flow")
     metadata = OAuthClientMetadata(
         client_name="Skein",
+        application_type="web",
         redirect_uris=[AnyUrl(server["oauth_redirect_uri"])],
         grant_types=["authorization_code", "refresh_token"],
         response_types=["code"],
@@ -136,13 +155,13 @@ def provider(server: dict) -> OAuthClientProvider:
         flow.authorization_url = url
         flow.url_ready.set()
 
-    async def callback() -> tuple[str, str | None]:
+    async def callback() -> AuthorizationCodeResult:
         if flow is None:
             raise RuntimeError("sign-in required")
         await asyncio.to_thread(_await_code, flow)
         if not flow.code:
             raise RuntimeError(flow.error or "sign-in was not completed")
-        return flow.code, flow.state
+        return AuthorizationCodeResult(code=flow.code, state=flow.state, iss=flow.iss)
 
     return _Provider(
         server["url"],
@@ -150,7 +169,6 @@ def provider(server: dict) -> OAuthClientProvider:
         _SealedStorage(int(server["id"]), server_id, flow),
         redirect,
         callback,
-        timeout=FLOW_SECONDS,
     )
 
 
@@ -192,5 +210,5 @@ def start(server_id: str, server: dict) -> str:
     return flow.authorization_url
 
 
-def complete(state: str, code: str, error: str = "") -> bool:
-    return mcp_servers.complete_oauth(state, code, bool(error))
+def complete(state: str, code: str, error: str = "", *, iss: str | None = None) -> bool:
+    return mcp_servers.complete_oauth(state, code, bool(error), iss=iss)

@@ -6,6 +6,7 @@ import re
 import tomllib
 from pathlib import Path
 
+import pytest
 import yaml
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
@@ -82,6 +83,27 @@ def test_core_release_and_extension_api_versions_are_synchronized():
     }
     direct = {canonicalize_name(Requirement(value).name) for value in backend["dependencies"]}
     assert direct <= locked
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "backend/requirements.lock",
+        "examples/workplace-extension/requirements.lock",
+        "examples/workplace-extension/requirements-test.lock",
+    ],
+)
+def test_locked_mcp_dependencies_match_the_runtime_contract(path):
+    locked = _lock_versions(path)
+    requirements = {
+        canonicalize_name(requirement.name): requirement
+        for requirement in map(
+            Requirement, _toml("backend/pyproject.toml")["project"]["dependencies"]
+        )
+    }
+    for name in ("mcp", "strands-agents", "httpx2", "httpx"):
+        assert locked[name] in requirements[name].specifier, (path, name, locked[name])
+    assert locked["mcp-types"] == locked["mcp"]
 
 
 def test_the_source_fallback_version_matches_the_packaged_version():

@@ -10,6 +10,7 @@ SKEIN_CREDENTIAL_KEY and never leaves this module unsealed except into the
 connection that uses it."""
 
 import ipaddress
+import json
 import re
 import secrets
 import socket
@@ -300,7 +301,34 @@ def register_oauth_state(claim: str, state: str) -> None:
         raise ValueError("The sign-in expired. Start it again from Settings.")
 
 
-def complete_oauth(state: str, code: str, refused: bool) -> bool:
+_CALLBACK_PREFIX = b"skein-oauth-callback-v1:"
+
+
+def _seal_callback(code: str, iss: str | None) -> bytes:
+    return _CALLBACK_PREFIX + credentials.seal(json.dumps({"code": code, "iss": iss}))
+
+
+def _unseal_callback(sealed: bytes) -> dict:
+    blob = bytes(sealed)
+    if not blob.startswith(_CALLBACK_PREFIX):
+        # Old callbacks seal an opaque code. Parsing that code as JSON could
+        # invent an issuer the authorization server never sent.
+        return {"code": credentials.unseal(blob), "iss": None}
+    try:
+        value = json.loads(credentials.unseal(blob[len(_CALLBACK_PREFIX) :]))
+    except ValueError:
+        return {"code": "", "iss": None}
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"code", "iss"}
+        or not isinstance(value["code"], str)
+        or (value["iss"] is not None and not isinstance(value["iss"], str))
+    ):
+        return {"code": "", "iss": None}
+    return value
+
+
+def complete_oauth(state: str, code: str, refused: bool, *, iss: str | None = None) -> bool:
     if not credentials.available():
         return False
     return bool(
@@ -309,7 +337,7 @@ def complete_oauth(state: str, code: str, refused: bool) -> bool:
             " WHERE state = ? AND NOT done AND expires_at > ?"
             " AND EXISTS (SELECT 1 FROM mcp_servers s"
             " WHERE s.id = f.server_id AND s.owner = f.owner)",
-            (credentials.seal(code) if code and not refused else None, refused, state, db.now()),
+            (_seal_callback(code, iss) if code and not refused else None, refused, state, db.now()),
         )
     )
 
@@ -323,7 +351,7 @@ def oauth_result(claim: str) -> dict | None:
     )
     if row:
         sealed = row.pop("code_sealed")
-        row["code"] = credentials.unseal(sealed) if sealed else ""
+        row.update(_unseal_callback(sealed) if sealed else {"code": "", "iss": None})
     return row
 
 

@@ -30,7 +30,7 @@ from typing import Any
 
 import anyio
 from mcp import types as mcp_types
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import ToolAnnotations
 
@@ -84,7 +84,7 @@ log = logging.getLogger(__name__)
 # life (main() sets it). The in-API endpoint sets the identity per request
 # instead, so every tool reads it through _actor(), never this constant.
 ACTOR = os.getenv("SKEIN_MCP_USER", "mcp-agent")
-mcp = FastMCP("skein")
+mcp = MCPServer("skein")
 REMOTE_PATH = "/api/mcp-server"
 # one line per tool, for the context pack's "How to plug in" section
 TOOL_LINES: list[str] = []
@@ -99,9 +99,11 @@ FAILED = "The tool failed. Read the server log for the cause."
 TOO_LARGE = "The result is larger than a client accepts. Narrow the request."
 ARGUMENTS_REFUSED = "The arguments were refused. Check the tool's input schema."
 
-READ = ToolAnnotations(readOnlyHint=True)
-WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False)
-IDEMPOTENT_WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True)
+READ = ToolAnnotations(read_only_hint=True)
+WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False)
+IDEMPOTENT_WRITE = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=True
+)
 
 
 # The MCP actor has its own variable, distinct from the chat agent identity
@@ -125,13 +127,10 @@ def _person() -> str:
 def _tool(annotations: ToolAnnotations) -> Callable:
     """Register a sync tool body as an async tool.
 
-    The SDK runs a sync body inline on the event loop; mounted in the API,
-    one database-bound call would stall every other request, so the body
-    runs in a worker thread (context variables travel with it). The SDK also
-    forwards any exception's text to the client: a ValueError is an input
-    error whose text is written for the caller (the 4xx rule), anything
-    else answers a fixed sentence and logs its class. The original function
-    is returned unchanged so tests and services keep calling it directly."""
+    Rate checks, adoption accounting, and the body share a worker thread
+    with the request's context variables. The guard preserves Skein's input,
+    busy, and unexpected-error responses before SDK output conversion.
+    The original function is returned unchanged for direct callers."""
 
     def register(fn):
         @functools.wraps(fn)
@@ -139,11 +138,18 @@ def _tool(annotations: ToolAnnotations) -> Callable:
             def body():
                 # a read is presence, not an action (routes/deps.py does the
                 # same): a client polling list_tasks must not inflate the tally
-                record_use(_person(), "mcp", counts=not annotations.readOnlyHint)
+                record_use(_person(), "mcp", counts=not annotations.read_only_hint)
                 ratelimit.check("mcp", _person())
                 return fn(**kwargs)
 
-            return await anyio.to_thread.run_sync(functools.partial(_guarded, fn.__name__, body))
+            result = await anyio.to_thread.run_sync(functools.partial(_guarded, fn.__name__, body))
+            # An error must bypass SDK output-schema validation: a refusal is
+            # not a successful return value (tests/test_mcp_remote.py).
+            if _is_refusal(result):
+                return mcp_types.CallToolResult(
+                    content=[mcp_types.TextContent(type="text", text=result)], is_error=True
+                )
+            return result
 
         mcp.add_tool(run, name=fn.__name__, annotations=annotations)
         TOOL_LINES.append(f"{fn.__name__} — {_first_sentence(fn.__doc__)}")
@@ -182,35 +188,30 @@ def _is_refusal(text: str) -> bool:
 
 
 def _install_call_guard() -> None:
-    """Two things the SDK's tool handler gets wrong for Skein: a refused
-    argument answers pydantic's message, rejected value included (an error
-    never echoes the value it refused); and a tool's own refusal, a JSON
-    object with "error", travels as success content, which a governance-
-    aware client (Skein's own agents/mcp_tools.py) records as a completed
-    call. Wrapping the registered handler fixes both in one place."""
-    server = mcp._mcp_server
-    inner = server.request_handlers[mcp_types.CallToolRequest]
+    """Hide SDK argument errors that occur before the tool wrapper runs.
 
-    async def handler(request):
-        result = await inner(request)
-        call = result.root
+    Pydantic's message includes the rejected value. Intercept the registered
+    handler so neither stdio nor HTTP can echo private arguments."""
+    server = mcp._lowlevel_server
+    inner = server.get_request_handler("tools/call")
+    if inner is None:
+        raise RuntimeError("MCP tools/call handler is not registered")
+
+    async def handler(ctx, params):
+        call = await inner.handler(ctx, params)
         if not isinstance(call, mcp_types.CallToolResult):
-            return result
+            return call
         text = "".join(
             block.text for block in call.content if isinstance(block, mcp_types.TextContent)
         )
-        if call.isError and text.startswith("Error executing tool"):
-            return mcp_types.ServerResult(
-                mcp_types.CallToolResult(
-                    content=[mcp_types.TextContent(type="text", text=ARGUMENTS_REFUSED)],
-                    isError=True,
-                )
+        if call.is_error and text.startswith("Error executing tool"):
+            return mcp_types.CallToolResult(
+                content=[mcp_types.TextContent(type="text", text=ARGUMENTS_REFUSED)],
+                is_error=True,
             )
-        if not call.isError and _is_refusal(text):
-            call.isError = True
-        return result
+        return call
 
-    server.request_handlers[mcp_types.CallToolRequest] = handler
+    server.add_request_handler("tools/call", mcp_types.CallToolRequestParams, handler)
 
 
 _install_call_guard()
@@ -877,7 +878,15 @@ def _remote_actor(user: str) -> str:
 def session_manager() -> StreamableHTTPSessionManager:
     """One per lifespan entry, never per app: run() is once per instance,
     and a test client enters one app's lifespan more than once."""
-    return StreamableHTTPSessionManager(app=mcp._mcp_server, json_response=True, stateless=True)
+    return StreamableHTTPSessionManager(
+        app=mcp._lowlevel_server,
+        json_response=True,
+        stateless=True,
+        # Keep the mounted API's existing host/origin behavior. The SDK's
+        # standalone loopback defaults refuse deployed hostnames.
+        security_settings=None,
+        max_request_body_size=BODY_MAX_BYTES,
+    )
 
 
 def remote_app(registry: ExtensionRegistry):
@@ -935,12 +944,6 @@ def remote_app(registry: ExtensionRegistry):
                 scope, receive, send
             )
             return
-        # the SDK reads the whole body with no cap; nothing here needs more
-        if int(request.headers.get("content-length") or 0) > BODY_MAX_BYTES:
-            await JSONResponse({"detail": "The request body is too large."}, status_code=413)(
-                scope, receive, send
-            )
-            return
         try:
             user, actor, subject = await run_in_threadpool(identify, request)
         except HTTPException as exc:
@@ -959,8 +962,22 @@ def remote_app(registry: ExtensionRegistry):
         agent_token = set_agent_identity(actor)
         requester_token = set_requester_identity(user)
         viewer_token = set_requester_viewer(request.state.viewer)
+        body_refused = False
+
+        async def bounded_send(message):
+            nonlocal body_refused
+            if message["type"] == "http.response.start" and message["status"] == 413:
+                body_refused = True
+                # The SDK bounds chunked bodies too, but its plain-text 413
+                # must not bypass Skein's JSON error contract.
+                await JSONResponse({"detail": "The request body is too large."}, status_code=413)(
+                    scope, receive, send
+                )
+            elif not body_refused:
+                await send(message)
+
         try:
-            await manager.handle_request(scope, receive, send)
+            await manager.handle_request(scope, receive, bounded_send)
         finally:
             reset_requester_viewer(viewer_token)
             reset_requester_identity(requester_token)

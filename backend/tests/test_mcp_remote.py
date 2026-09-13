@@ -6,7 +6,7 @@ context, and an unexpected error never leaks its text."""
 import asyncio
 import json
 
-import httpx
+import httpx2
 import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
@@ -29,8 +29,8 @@ def _session(headers: dict, scenario):
     async def run():
         async with (
             app.router.lifespan_context(app),
-            httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app),
+            httpx2.AsyncClient(
+                transport=httpx2.ASGITransport(app=app),
                 base_url="http://testserver",
                 headers=headers,
             ) as http,
@@ -43,14 +43,14 @@ def _session(headers: dict, scenario):
     return asyncio.run(run())
 
 
-def _raw(headers: dict) -> httpx.Response:
+def _raw(headers: dict, method: str = "initialize", params: dict | None = None) -> httpx2.Response:
     from app.main import app
 
     async def run():
         async with (
             app.router.lifespan_context(app),
-            httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app),
+            httpx2.AsyncClient(
+                transport=httpx2.ASGITransport(app=app),
                 base_url="http://testserver",
                 headers=headers,
             ) as http,
@@ -60,8 +60,10 @@ def _raw(headers: dict) -> httpx.Response:
                 json={
                     "jsonrpc": "2.0",
                     "id": 1,
-                    "method": "initialize",
-                    "params": {
+                    "method": method,
+                    "params": params
+                    if params is not None
+                    else {
                         "protocolVersion": "2025-06-18",
                         "capabilities": {},
                         "clientInfo": {"name": "t", "version": "0"},
@@ -77,6 +79,62 @@ def _text(result) -> str:
     return "".join(getattr(item, "text", "") for item in result.content)
 
 
+def test_stdio_process_discovers_calls_and_reads_resources(fresh_db, tmp_path):
+    import sys
+    from pathlib import Path
+
+    import anyio
+    from mcp import StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    from app import config, mcp_server
+    from app.services import users, work
+
+    users.ensure_user("ava")
+    task = work.create_task("Read this task over stdio", actor="ava")
+    backend = Path(mcp_server.__file__).resolve().parents[1]
+    server = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "app.mcp_server"],
+        cwd=backend,
+        env={
+            "PYTHON_DOTENV_DISABLED": "1",
+            "PYTHONPATH": str(backend),
+            "SKEIN_DATABASE_URL": config.DATABASE_URL,
+            "SKEIN_DATA_DIR": str(tmp_path),
+            "SKEIN_MODEL_PROVIDER": "mock",
+            "SKEIN_SCHEDULER": "0",
+            "SKEIN_MCP_USER": "mcp-agent",
+        },
+    )
+
+    async def run():
+        # A failed handshake must still leave stdio_client's shielded,
+        # bounded shutdown in charge of reaping the real child process.
+        with anyio.fail_after(30):
+            with (tmp_path / "stdio-stderr.log").open("w") as stderr:
+                async with (
+                    stdio_client(server, errlog=stderr) as streams,
+                    ClientSession(*streams, read_timeout_seconds=10) as session,
+                ):
+                    initialized = await session.initialize()
+                    assert initialized.server_info.name == "skein"
+                    tools = (await session.list_tools()).tools
+                    assert len(tools) == 23
+                    result = await session.call_tool("list_tasks", {})
+                    assert not result.is_error, _text(result)
+                    assert [row["id"] for row in json.loads(_text(result))] == [task["id"]]
+                    bad = await session.call_tool("list_tasks", {"limit": "private-XYZ"})
+                    assert bad.is_error and _text(bad) == mcp_server.ARGUMENTS_REFUSED
+                    assert "XYZ" not in _text(bad)
+                    resources = (await session.list_resources()).resources
+                    assert "skein://context-pack" in {resource.uri for resource in resources}
+                    resource = await session.read_resource("skein://context-pack")
+                    assert "# Team context pack" in resource.contents[0].text
+
+    asyncio.run(run())
+
+
 def test_tools_are_listed_with_annotations(fresh_db):
     async def scenario(session):
         return (await session.list_tools()).tools
@@ -84,14 +142,124 @@ def test_tools_are_listed_with_annotations(fresh_db):
     tools = _session(_key("ava"), scenario)
     by_name = {tool.name: tool for tool in tools}
     assert len(tools) == 23
-    assert by_name["get_my_day"].annotations.readOnlyHint is True
-    assert by_name["capture"].annotations.readOnlyHint is False
-    assert by_name["capture"].annotations.destructiveHint is False
-    assert by_name["complete_task"].annotations.idempotentHint is True
-    assert set(by_name["list_tasks"].inputSchema["properties"]) >= {"limit", "offset"}
+    assert by_name["get_my_day"].annotations.read_only_hint is True
+    assert by_name["capture"].annotations.read_only_hint is False
+    assert by_name["capture"].annotations.destructive_hint is False
+    assert by_name["complete_task"].annotations.idempotent_hint is True
+    assert set(by_name["list_tasks"].input_schema["properties"]) >= {"limit", "offset"}
     assert {"update_task", "ask_question", "answer_question", "resolve_blocker", "week"} <= set(
         by_name
     )
+
+
+def test_discovery_keeps_protocol_wire_aliases(fresh_db):
+    response = _raw(_key("ava"), "tools/list", {})
+    assert response.status_code == 200, response.text
+    tools = {tool["name"]: tool for tool in response.json()["result"]["tools"]}
+    assert tools["get_my_day"]["annotations"]["readOnlyHint"] is True
+    assert tools["capture"]["annotations"]["readOnlyHint"] is False
+    assert tools["capture"]["annotations"]["destructiveHint"] is False
+    assert tools["complete_task"]["annotations"]["idempotentHint"] is True
+    assert set(tools["list_tasks"]["inputSchema"]["properties"]) >= {"limit", "offset"}
+    assert "input_schema" not in tools["list_tasks"]
+    assert "read_only_hint" not in tools["get_my_day"]["annotations"]
+
+
+@pytest.mark.parametrize("chunked", [False, True])
+def test_oversized_request_is_json_without_echo(fresh_db, chunked):
+    from app.main import app
+    from app.mcp_server import BODY_MAX_BYTES
+
+    headers = _key("ava")
+    body = b"private-body-XYZ" + b" " * BODY_MAX_BYTES
+
+    async def chunks():
+        for offset in range(0, len(body), 65536):
+            yield body[offset : offset + 65536]
+
+    async def run():
+        async with (
+            app.router.lifespan_context(app),
+            httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app), headers=headers) as http,
+        ):
+            request = http.build_request(
+                "POST",
+                URL,
+                content=chunks() if chunked else body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, text/event-stream",
+                },
+            )
+            assert ("content-length" not in request.headers) is chunked
+            return await http.send(request)
+
+    response = asyncio.run(run())
+    assert response.status_code == 413, response.text
+    assert response.json() == {"detail": "The request body is too large."}
+    assert "XYZ" not in response.text
+
+
+@pytest.mark.parametrize("origin", ["http://localhost:3000", "https://untrusted.example"])
+def test_mounted_host_and_origin_keep_api_policy(fresh_db, origin):
+    # Bearer-authenticated MCP does not acquire the standalone SDK's loopback
+    # allowlist. Disallowed browser origins still get no CORS permission.
+    response = _raw({**_key("ava"), "Host": "skein.internal.example", "Origin": origin})
+    assert response.status_code == 200, response.text
+    assert "serverInfo" in response.json()["result"]
+    if origin == "https://untrusted.example":
+        assert "access-control-allow-origin" not in response.headers
+
+
+def test_concurrent_writes_keep_request_context(fresh_db, monkeypatch):
+    import threading
+
+    from app import config, mcp_server
+    from app.main import app
+    from app.services import users
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    for person in ("ava", "bo"):
+        users.ensure_user(person)
+    headers = {person: _key(person) for person in ("ava", "bo")}
+    barrier = threading.Barrier(2, timeout=10)
+    plan = mcp_server.capture_svc.plan
+
+    def overlapping_plan(*args, **kwargs):
+        barrier.wait()
+        return plan(*args, **kwargs)
+
+    monkeypatch.setattr(mcp_server.capture_svc, "plan", overlapping_plan)
+
+    async def run():
+        async with app.router.lifespan_context(app):
+
+            async def call(person):
+                async with (
+                    httpx2.AsyncClient(
+                        transport=httpx2.ASGITransport(app=app), headers=headers[person]
+                    ) as http,
+                    streamable_http_client(URL, http_client=http) as streams,
+                    ClientSession(streams[0], streams[1]) as session,
+                ):
+                    await session.initialize()
+                    result = await session.call_tool(
+                        "capture", {"text": f"todo: work for {person}"}
+                    )
+                    assert not result.is_error, _text(result)
+
+            await asyncio.gather(call("ava"), call("bo"))
+
+    asyncio.run(run())
+    rows = fresh_db.query(
+        "SELECT proposed_by, requested_by FROM pending_changes ORDER BY requested_by"
+    )
+    assert [(row["proposed_by"], row["requested_by"]) for row in rows] == [
+        ("ava-mcp", "ava"),
+        ("bo-mcp", "bo"),
+    ]
+    assert mcp_server._actor() == mcp_server.ACTOR
+    assert mcp_server.requester_identity() == ""
 
 
 def test_a_write_acts_as_the_persons_mcp_agent(fresh_db, monkeypatch):
@@ -194,7 +362,7 @@ def test_invalid_task_fields_are_tool_errors_without_pending_proposals(
         return await session.call_tool(tool, {**arguments, **fields})
 
     result = _session(_key("ava"), scenario)
-    assert result.isError, _text(result)
+    assert result.is_error, _text(result)
     assert "error" in json.loads(_text(result))
     assert fresh_db.query("SELECT id FROM pending_changes") == []
     assert fresh_db.query("SELECT id FROM activity WHERE action = 'propose_change'") == []
@@ -216,7 +384,7 @@ def test_task_self_wait_is_refused_before_mcp_or_proposal_storage(fresh_db, monk
         return await session.call_tool("update_task", {"task_id": task_id, **payload})
 
     result = _session(_key("ava"), scenario)
-    assert result.isError, _text(result)
+    assert result.is_error, _text(result)
     assert "cannot wait on itself" in json.loads(_text(result))["error"]
     with pytest.raises(ValueError, match="cannot wait on itself"):
         review.propose_change("task", "update", payload, entity_id=task_id, actor="agent")
@@ -265,9 +433,10 @@ def test_refusals_and_bad_arguments_are_errors_without_echo(fresh_db, monkeypatc
         return bad, refusal
 
     bad, refusal = _session(_key("ava"), scenario)
-    assert bad.isError and _text(bad) == mcp_server.ARGUMENTS_REFUSED
+    assert bad.is_error and _text(bad) == mcp_server.ARGUMENTS_REFUSED
     assert "XYZ" not in _text(bad)
-    assert refusal.isError and json.loads(_text(refusal))["error"]
+    assert refusal.is_error and json.loads(_text(refusal))["error"]
+    assert refusal.structured_content is None
 
 
 def test_busy_and_oversized_answers_are_named(fresh_db, monkeypatch):

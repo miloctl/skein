@@ -70,6 +70,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+- The backend requires MCP `>=2.1.1,<2.2`, Strands Agents SDK `>=1.55.1`, and HTTPX2 `>=2.9` at runtime. HTTPX `>=0.28.1,<1` remains the TLS context builder to preserve existing certificate trust. MCP 1.x is no longer supported. Rebuild the backend image and refresh workplace Python locks against the matching core wheel.
 - The frontend pins Next.js and its ESLint configuration to 16.3.4 and Sharp to 0.35.4 to address image-processing and Windows server security advisories. Workplace roots must use the same Next.js pin and Sharp override.
 - Database pool creation and shutdown are serialized, so concurrent first requests cannot leave an orphan pool. Browser-authentication tests reuse the existing application lifespan and stop maintenance before database teardown.
 - Migration 028 adds generic namespaced forge delivery receipts. Migration 029 adds a nonunique repository/event/payload index that permits existing duplicate fingerprints and new alias receipts. Receipt creation and the corresponding policy-checked task mutation commit together. Receipt retention stays permanent. Existing execution fencing, scheduling, and backup/restore behavior remain independent of optional integrations.

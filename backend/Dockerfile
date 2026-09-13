@@ -27,9 +27,9 @@ RUN apt-get update \
     && apt-get purge -y curl gnupg && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-# Dependency layer first (pinned, reproducible) so source edits don't
-# reinstall everything. Regenerate with:
-#   uv pip freeze --python .venv/bin/python > requirements.lock  (minus dev deps)
+# Keep runtime pins separate from the dev environment. From the repo root:
+#   uv pip compile backend/pyproject.toml --python-version 3.12 --no-header \
+#     --output-file backend/requirements.lock
 COPY requirements.lock ./
 RUN pip install --no-cache-dir -r requirements.lock
 

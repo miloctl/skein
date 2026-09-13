@@ -125,6 +125,7 @@ def test_a_sign_in_callback_on_another_process_completes_the_waiting_connect(fre
     import asyncio
 
     from cryptography.fernet import Fernet
+    from mcp.client.auth import AuthorizationCodeResult
 
     from app import config
     from app.agents import mcp_oauth
@@ -162,11 +163,14 @@ def test_a_sign_in_callback_on_another_process_completes_the_waiting_connect(fre
     )
     waiter.start()
     landed = other_process(
-        "from app.agents import mcp_oauth\nprint(json.dumps(mcp_oauth.complete('remote', 'code-r')))"
+        "from app.agents import mcp_oauth\n"
+        "print(json.dumps(mcp_oauth.complete('remote', 'code-r', iss='https://idp.example')))"
     )
     assert landed is True
     waiter.join(10)
-    assert box["got"] == ("code-r", "remote")
+    assert box["got"] == AuthorizationCodeResult(
+        code="code-r", state="remote", iss="https://idp.example"
+    )
     assert (
         other_process(
             "from app.agents import mcp_oauth\nprint(json.dumps(mcp_oauth.complete('remote', 'again')))"
