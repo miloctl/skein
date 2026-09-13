@@ -10,8 +10,10 @@ import sys
 import tomllib
 from pathlib import Path
 
+from conftest import authored_repo_root
+
 BACKEND = Path(__file__).resolve().parent.parent
-ROOT = BACKEND.parent
+ROOT = authored_repo_root(Path(__file__))
 DOCKERFILE = BACKEND / "Dockerfile"
 CONTENT_DIRS = {"fieldguide", "flocks", "personas", "playbooks", "schemas"}
 

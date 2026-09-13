@@ -4585,6 +4585,160 @@ def test_review_revalidation_uses_the_proposed_relationship_target(fresh_db):
     }
 
 
+@pytest.mark.parametrize("visibility", [None, "private", "crew"])
+@pytest.mark.parametrize("relationship", ["standalone", "linked", "hidden"])
+def test_lesson_create_context_preserves_classification(fresh_db, visibility, relationship):
+    from app.services import crews, engagements, policy_context, users
+
+    users.ensure_user("mira")
+    users.ensure_user("noah")
+    crew = crews.create_crew("Lesson policy crew", actor="mira")["id"]
+    project = engagements.create_engagement(
+        "Lesson policy project",
+        project_class="regulated",
+        actor="noah" if relationship == "hidden" else "mira",
+        visibility="private" if relationship == "hidden" else "workspace",
+    )
+    payload = {"lesson": "Keep the classification", "project_class": "standard"}
+    if visibility is not None:
+        payload["visibility"] = visibility
+    if visibility == "crew":
+        payload["crew_id"] = crew
+    if relationship != "standalone":
+        payload["engagement_id"] = project["id"]
+    expected_classification = visibility or "workspace"
+    expected_project = {"standalone": "standard", "linked": "regulated", "hidden": ""}[relationship]
+    observed = []
+
+    def protect_classification(request: PolicyInput):
+        observed.append((request.resource.classification, request.resource.project_type))
+        return PolicyDecision(
+            PolicyEffect.DENY
+            if request.resource.classification in ("private", "crew")
+            else PolicyEffect.PERMIT
+        )
+
+    domain = policy_context.for_change("lesson", 0, payload, actor="mira")
+    decision = PolicyEngine((protect_classification,)).decide(
+        PolicyInput(
+            PolicySubject("mira"),
+            "lesson.create",
+            PolicyResource(
+                "lesson",
+                classification=domain.get("classification", ""),
+                project_type=domain.get("project_type", ""),
+                attributes=domain,
+            ),
+            "rest",
+        )
+    )
+    assert observed == [(expected_classification, expected_project)]
+    assert decision.effect == (
+        PolicyEffect.DENY
+        if visibility in ("private", "crew") or relationship == "hidden"
+        else PolicyEffect.PERMIT
+    )
+    if relationship == "hidden":
+        assert domain["relationship_conflict"] == "true"
+        with pytest.raises(ValueError, match="engagement"):
+            engagements.record_lesson(**payload, actor="mira")
+    else:
+        lesson = engagements.record_lesson(**payload, actor="mira")
+        assert fresh_db.query_one(
+            "SELECT visibility FROM lessons WHERE id = ?", (lesson["id"],)
+        ) == {"visibility": expected_classification}
+        assert "relationship_conflict" not in domain
+
+
+@pytest.mark.parametrize("entity", ["allocation", "milestone", "engagement", "lesson", "note"])
+def test_existing_resource_context_controls_typed_notifications(fresh_db, entity):
+    from app.services import collab, crews, engagements, notifications, policy_context, users, work
+
+    users.ensure_user("mira")
+    crew = crews.create_crew("Notification policy crew", actor="mira")["id"]
+    resources = []
+    for protected in (False, True):
+        visibility = "crew" if protected else "workspace"
+        project_type = "regulated" if protected else "standard"
+        scope_fields = {
+            "actor": "mira",
+            "visibility": visibility,
+            "crew_id": crew if protected else 0,
+        }
+        project = engagements.create_engagement(
+            f"Notification project {protected}", project_class=project_type, **scope_fields
+        )
+        if entity == "allocation":
+            resource = engagements.allocate("mira", project["id"], actor="mira")
+        elif entity == "milestone":
+            resource = work.create_milestone(
+                f"Notification milestone {protected}",
+                project=f"Notification project {protected}",
+                **scope_fields,
+            )
+        elif entity == "engagement":
+            resource = project
+        elif entity == "lesson":
+            resource = engagements.record_lesson(
+                f"Notification lesson {protected}", engagement_id=project["id"], **scope_fields
+            )
+        else:
+            resource = collab.save_note(
+                f"Notification note {protected}",
+                "Policy-filtered content",
+                author="mira",
+                **scope_fields,
+            )
+            project_type = ""
+        notification = notifications.notify(
+            "mira",
+            lambda row: f"Source {row['id']} content",
+            source_entity=entity,
+            source_id=resource["id"],
+        )
+        resources.append((resource["id"], notification["id"], visibility, project_type))
+
+    def protect_resource(request: PolicyInput):
+        return PolicyDecision(
+            PolicyEffect.DENY
+            if request.resource.classification == "crew"
+            or request.resource.project_type == "regulated"
+            else PolicyEffect.PERMIT
+        )
+
+    engine = PolicyEngine((protect_resource,))
+
+    def permitted(resource_type, resource_id, domain):
+        return (
+            engine.decide(
+                PolicyInput(
+                    PolicySubject("mira"),
+                    "skein.rest.get.notifications",
+                    PolicyResource(
+                        resource_type,
+                        str(resource_id),
+                        project_type=domain.get("project_type", ""),
+                        classification=domain.get("classification", ""),
+                        attributes=domain,
+                    ),
+                    "rest",
+                )
+            ).effect
+            == PolicyEffect.PERMIT
+        )
+
+    rows = fresh_db.query(
+        "SELECT * FROM notifications WHERE id IN (?, ?) ORDER BY id",
+        (resources[0][1], resources[1][1]),
+    )
+    visible = notifications.policy_filter(rows, permitted, allow_unclassified=False)
+    assert [row["id"] for row in visible] == [resources[0][1]]
+    for resource_id, _, visibility, project_type in resources:
+        domain = policy_context.existing(entity, resource_id)
+        assert domain["classification"] == visibility
+        assert domain["project_type"] == project_type
+
+
 def test_milestone_link_supplies_task_project_context(fresh_db):
     from app.services import engagements, policy_context, work
 

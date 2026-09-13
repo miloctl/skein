@@ -4,8 +4,9 @@ import importlib.util
 from pathlib import Path
 
 import pytest
+from conftest import authored_repo_root
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = authored_repo_root(Path(__file__))
 SPEC = importlib.util.spec_from_file_location(
     "validate_release_run", ROOT / "scripts/validate_release_run.py"
 )

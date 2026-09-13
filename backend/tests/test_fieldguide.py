@@ -25,7 +25,7 @@ def _mint(db, name, kind="human"):
     )
 
 
-def test_registry_is_valid_and_complete(fresh_db):
+def test_registry_is_valid_and_complete():
     from app.services import fieldguide
 
     cards = fieldguide.registry()
@@ -37,7 +37,7 @@ def test_registry_is_valid_and_complete(fresh_db):
         assert k["link"].startswith("/")
 
 
-def test_cached_registry_cards_cannot_be_poisoned(fresh_db):
+def test_cached_registry_cards_cannot_be_poisoned():
     from app.services import fieldguide
 
     fieldguide.registry()  # fill the cache
@@ -48,7 +48,7 @@ def test_cached_registry_cards_cannot_be_poisoned(fresh_db):
     assert fieldguide.registry()[0]["feature"] == original
 
 
-def test_field_guide_tool_returns_the_live_registry(fresh_db):
+def test_field_guide_tool_returns_the_live_registry():
     from app.services import fieldguide
     from app.tools import ALL_TOOLS, field_guide
 
@@ -60,7 +60,7 @@ def test_field_guide_tool_returns_the_live_registry(fresh_db):
     assert "field_guide" in names
 
 
-def test_cards_for_path_match_exact_and_nested_routes(fresh_db):
+def test_cards_for_path_match_exact_and_nested_routes():
     from app.services import fieldguide
 
     exact = {row["id"] for row in fieldguide.cards_for_path("/review")}
@@ -74,7 +74,7 @@ def test_cards_for_path_match_exact_and_nested_routes(fresh_db):
     assert fieldguide.cards_for_path("/reviews") == []
 
 
-def test_cards_for_path_rejects_non_paths_without_echoing_them(fresh_db):
+def test_cards_for_path_rejects_non_paths_without_echoing_them():
     from app.services import fieldguide
 
     rejected = "https://example.test/review"

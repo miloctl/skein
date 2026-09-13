@@ -247,6 +247,85 @@ def test_workplace_policy_can_deny_forge_transitions(fresh_db, monkeypatch):
     }
 
 
+@pytest.mark.parametrize("protected_field", ["project_type", "classification", "tool_risk"])
+def test_forge_policy_uses_task_context_and_write_risk(fresh_db, monkeypatch, protected_field):
+    from fastapi.testclient import TestClient
+
+    from app import config
+    from app.extensions import PolicyContribution, PolicyDecision, PolicyEffect, SkeinModule
+    from app.main import create_app
+    from app.services import engagements, work
+
+    standard = engagements.create_engagement("Ordinary forge project", project_class="standard")
+    regulated = engagements.create_engagement("Protected forge project", project_class="regulated")
+    ordinary = work.create_task("Ordinary forge task", engagement_id=standard["id"])
+    protected = work.create_task(
+        "Protected forge task",
+        engagement_id=regulated["id"],
+        visibility="private" if protected_field == "classification" else "workspace",
+        actor="mira",
+    )
+
+    def protect_context(request):
+        if request.action != "skein.integration.forge":
+            return None
+        denied = {
+            "project_type": request.resource.project_type == "regulated",
+            "classification": request.resource.classification == "private",
+            "tool_risk": request.resource.project_type == "regulated"
+            and request.tool_risk == "high",
+        }[protected_field]
+        return PolicyDecision(PolicyEffect.DENY if denied else PolicyEffect.PERMIT)
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.7.0",
+        policies=(PolicyContribution("acme.workplace.forge-context", protect_context),),
+    )
+    monkeypatch.setattr(config, "FORGE_WEBHOOK_SECRET", SECRET)
+    with TestClient(create_app(modules=(module,))) as client:
+        for task, status in ((ordinary, 200), (protected, 403)):
+            body = json.dumps(_push(f"task/{task['id']}-policy")).encode()
+            response = client.post(
+                "/api/webhooks/forge",
+                content=body,
+                headers={
+                    "X-Gitea-Event": "push",
+                    "X-Gitea-Delivery": f"context-{task['id']}",
+                    "X-Gitea-Signature": hmac.new(SECRET.encode(), body, sha256).hexdigest(),
+                    "Content-Type": "application/json",
+                },
+            )
+            assert response.status_code == status, response.text
+    assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (ordinary["id"],)) == {
+        "status": "in_progress"
+    }
+    assert fresh_db.query_one(
+        "SELECT status, forge_url FROM tasks WHERE id = ?", (protected["id"],)
+    ) == {"status": "todo", "forge_url": ""}
+    assert fresh_db.query("SELECT task_id FROM forge_receipts") == [{"task_id": ordinary["id"]}]
+
+
+def test_title_only_pull_request_reference_finishes_task(signed, fresh_db):
+    from app.services import work
+
+    task = work.create_task("Title-only forge reference")
+    response = signed(
+        "pull_request",
+        _pr("fix-login", action="closed", merged=True, title=f"Closes task {task['id']}"),
+        **{"X-Gitea-Delivery": "title-only-merge"},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "done"
+    assert fresh_db.query_one(
+        "SELECT status, forge_url FROM tasks WHERE id = ?", (task["id"],)
+    ) == {"status": "done", "forge_url": "https://git.example/skein/pulls/7"}
+    assert fresh_db.query("SELECT task_id FROM forge_receipts") == [{"task_id": task["id"]}]
+
+
 def test_merged_pull_request_finishes_the_task(signed, fresh_db):
     from app import db
     from app.services import work

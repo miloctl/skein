@@ -4,11 +4,13 @@ import ast
 import asyncio
 from pathlib import Path
 
+from conftest import authored_repo_root
+
 from app import mcp_server
 from app.services import fieldguide, insights, personas
 from app.tools import ALL_TOOLS
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = authored_repo_root(Path(__file__))
 README = (ROOT / "README.md").read_text()
 FEATURES = (ROOT / "docs" / "FEATURES.md").read_text()
 INSIGHTS = (ROOT / "docs" / "INSIGHTS.md").read_text()
@@ -35,7 +37,8 @@ def test_mcp_claim_matches_the_registry():
 
 
 def test_findings_claim_matches_the_registry():
-    tree = ast.parse(Path(insights.__file__).read_text())
+    # Generated service variants contain extra literals, not extra published finding IDs.
+    tree = ast.parse((ROOT / "backend/app/services/insights.py").read_text())
     rule_ids = {
         call.args[0].value
         for call in ast.walk(tree)

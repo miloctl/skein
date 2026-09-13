@@ -21,11 +21,10 @@ _FILE_KEYS = (
 
 
 @pytest.fixture(autouse=True)
-def _restore_config():
+def _restore_config(monkeypatch):
     yield
-    # scrub BEFORE reloading, the test_model_registry.py rule: fixture
-    # finalization can run while a test's env is still live, and reloading
-    # then bakes that test's file into the module for the next test.
+    # Reloading before undo leaves rejected database settings in config for the next test.
+    monkeypatch.undo()
     # "" and not pop, the conftest.py rule: config's load_dotenv() re-fills an
     # ABSENT var from backend/.env, so popping hands the next test whatever
     # this dev box happens to mount.

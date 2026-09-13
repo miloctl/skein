@@ -258,7 +258,7 @@ def test_key_minting_requires_strong_identity(client, fresh_db):
     assert client.get("/api/private/notes", headers={"X-User": "manager"}).status_code == 403
 
 
-def test_feedback_parses_hyphenated_names(fresh_db):
+def test_feedback_parses_hyphenated_names():
     from app.services.private_notes import parse_feedback
 
     assert parse_feedback("fb: mary-jane — crushed the demo") == ("mary-jane", "crushed the demo")

@@ -203,6 +203,21 @@ def test_postgres_preflight_names_old_orphans_without_deleting(monkeypatch):
     )
 
 
+def test_worker_preflight_refusal_cannot_count_as_a_mutation_kill(monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "DATABASE_URL", "unused")
+    monkeypatch.setattr(fixtures, "_postgres_preflight", lambda _url: "preflight refusal")
+
+    def unexpected_create(*_args, **_kwargs):
+        raise AssertionError("Database creation must not follow a refused preflight")
+
+    monkeypatch.setattr(fixtures, "_create_test_database", unexpected_create)
+    with pytest.raises(pytest.exit.Exception, match="preflight refusal") as stopped:
+        next(fixtures._worker_db.__wrapped__("master", "guard-check"))
+    assert stopped.value.returncode == 35
+
+
 def test_orphan_database_catalog_is_scoped_to_the_current_owner():
     class CatalogConnection:
         query = ""
@@ -217,25 +232,77 @@ def test_orphan_database_catalog_is_scoped_to_the_current_owner():
     assert "owner.rolname = current_user" in connection.query
 
 
+def test_ratelimit_fixture_clears_memory_without_database_access(monkeypatch):
+    from app import db, ratelimit
+
+    attempts = []
+
+    def connection():
+        attempts.append(True)
+        raise AssertionError("Pure cleanup must not access PostgreSQL")
+
+    monkeypatch.setattr(db, "_conn", connection)
+    ratelimit.check("feedback", "tester")
+    cleanup = fixtures._reset_ratelimit.__wrapped__()
+    next(cleanup)
+    assert not ratelimit._hits
+    ratelimit.check("feedback", "tester")
+    with pytest.raises(StopIteration):
+        next(cleanup)
+    assert not ratelimit._hits
+    assert attempts == []
+
+
 def test_pure_selection_runs_without_postgres():
     path = Path(__file__)
-    result = subprocess.run(  # noqa: S603 — fixed Python, pytest module and test path
+    script = """
+import sys
+import psycopg
+import pytest
+from app import db
+
+attempts = []
+def connection(*args, **kwargs):
+    attempts.append(True)
+    raise AssertionError("Pure tests must not access PostgreSQL")
+
+db._conn = connection
+psycopg.connect = connection
+psycopg.Connection.connect = connection
+status = pytest.main(sys.argv[1:])
+assert attempts == [], attempts
+raise SystemExit(status)
+"""
+    result = subprocess.run(  # noqa: S603 — fixed Python, pytest module and test paths
         [
             sys.executable,
-            "-m",
-            "pytest",
+            "-c",
+            script,
             "-q",
             "-n0",
+            "--setup-show",
             f"{path}::test_database_names_are_unique_parseable_and_bounded",
+            "tests/test_privacy.py::test_feedback_parses_hyphenated_names",
+            "tests/test_fieldguide.py::test_registry_is_valid_and_complete",
+            "tests/test_fieldguide.py::test_cached_registry_cards_cannot_be_poisoned",
+            "tests/test_fieldguide.py::test_field_guide_tool_returns_the_live_registry",
+            "tests/test_fieldguide.py::test_cards_for_path_match_exact_and_nested_routes",
+            "tests/test_fieldguide.py::test_cards_for_path_rejects_non_paths_without_echoing_them",
+            "tests/test_content_schemas.py",
         ],
         cwd=path.parents[1],
-        env=_offline_env(),
+        env=_offline_env(PYTHON_DOTENV_DISABLED="1"),
         capture_output=True,
         text=True,
         timeout=60,
         check=False,
     )
-    assert result.returncode == 0, result.stdout + result.stderr
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "18 passed" in output
+    assert "_worker_db" not in output
+    assert "fresh_db" not in output
+    assert "scratch_db" not in output
 
 
 def test_role_contract_normal_skip_happens_before_database_fixtures():

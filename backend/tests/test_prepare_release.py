@@ -2,6 +2,7 @@ import base64
 import hashlib
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 from datetime import date
@@ -9,8 +10,9 @@ from pathlib import Path
 from typing import NamedTuple
 
 import pytest
+from conftest import authored_repo_root
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = authored_repo_root(Path(__file__))
 SPEC = importlib.util.spec_from_file_location(
     "prepare_release", ROOT / "scripts/prepare-release.py"
 )
@@ -319,6 +321,40 @@ def test_unreleased_notes_require_all_sections(tmp_path):
     )
     with pytest.raises(prepare_release.ReleaseError, match="Unreleased"):
         prepare_release.promote_changelog(tmp_path, "0.3.2", date(2026, 8, 28))
+
+
+def test_prepare_confines_database_credentials_to_release_checks(release_tree, monkeypatch):
+    root, _old, target = release_tree
+    runner = FakeRun(root, target)
+    sentinels = {
+        "SKEIN_DATABASE_URL": "postgresql://release:synthetic@127.0.0.1/release_test",
+        "PIP_INDEX_URL": "https://python.example.invalid/simple",
+        "NPM_CONFIG_REGISTRY": "https://npm.example.invalid",
+        "SSL_CERT_FILE": "/release-test-ca.pem",
+        "UV_CACHE_DIR": "/release-test-cache",
+    }
+    observed = []
+
+    def record(args, *, env=None, **kwargs):
+        effective = os.environ if env is None else env
+        observed.append((list(args), {key: effective.get(key) for key in sentinels}))
+        return runner(args, env=env, **kwargs)
+
+    with monkeypatch.context() as isolated:
+        for key, value in sentinels.items():
+            isolated.setenv(key, value)
+        prepare_release.prepare(root, target, runner=record, today=date(2026, 9, 8))
+        assert {key: os.environ.get(key) for key in sentinels} == sentinels
+
+    assert len(observed) == len(runner.calls) > 0
+    for args, effective in observed:
+        expected_database = (
+            sentinels["SKEIN_DATABASE_URL"] if args[1:3] == ["-m", "pytest"] else None
+        )
+        assert effective["SKEIN_DATABASE_URL"] == expected_database, args
+        for key in sentinels.keys() - {"SKEIN_DATABASE_URL"}:
+            assert effective[key] == sentinels[key], (args, key)
+    assert observed[-1][0][1:3] == ["-m", "pytest"]
 
 
 def test_prepare_builds_artifacts_before_locks_and_writes_marker_last(release_tree):
