@@ -704,7 +704,7 @@ def test_derived_metadata_reads_annotations_and_bounds_personal_descriptions(cle
         return NS(
             tool_name="t",
             tool_spec={"name": "t", "description": description, "inputSchema": schema or {}},
-            mcp_tool=NS(annotations=NS(readOnlyHint=read_only, destructiveHint=destructive)),
+            mcp_tool=NS(annotations=NS(read_only_hint=read_only, destructive_hint=destructive)),
         )
 
     def classify(remote):

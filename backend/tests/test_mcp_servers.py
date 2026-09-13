@@ -22,8 +22,8 @@ def _bootstrap(owner: str) -> dict:
 
 class _Annotations:
     def __init__(self, read_only: bool):
-        self.readOnlyHint = read_only
-        self.destructiveHint = not read_only
+        self.read_only_hint = read_only
+        self.destructive_hint = not read_only
 
 
 class _Raw:
@@ -386,6 +386,36 @@ def test_a_person_registers_a_bounded_number_of_servers(client, sealed):
     )
     assert refused.status_code == 400
     assert f"up to {mcp_servers.LIMIT}" in refused.json()["detail"]
+
+
+def test_personal_reconnect_rechecks_dns_but_system_urls_remain_configured(monkeypatch):
+    import socket
+
+    from app.agents import mcp_tools
+
+    address = "10.0.0.5"
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, 443))
+        ],
+    )
+    monkeypatch.setattr("strands.tools.mcp.MCPClient", FakeClient)
+    entry = {
+        "url": "https://rebind.example/mcp",
+        "name": "rebind",
+        "tier": "personal",
+        "derive": True,
+    }
+    _, opened = mcp_tools._connect_servers([("personal:ava:rebind", entry)])
+    assert len(opened) == 1
+    opened[0].client.__exit__(None, None, None)
+    address = "127.0.0.1"
+    assert mcp_tools._connect_servers([("personal:ava:rebind", entry)]) == ([], [])
+    _, configured = mcp_tools._connect_servers([("configured", {**entry, "tier": "system"})])
+    assert len(configured) == 1
+    configured[0].client.__exit__(None, None, None)
 
 
 def test_offboarding_and_rename_carry_the_rows(client, sealed):

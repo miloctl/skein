@@ -11,6 +11,7 @@ from typing import ClassVar
 
 import pytest
 from cryptography.fernet import Fernet
+from mcp.shared.auth import AuthorizationCodeResult
 
 from app import config
 
@@ -20,7 +21,7 @@ def test_oauth_discovery_validates_every_request_destination(monkeypatch, destin
     import socket
     from unittest.mock import AsyncMock
 
-    import httpx
+    import httpx2 as httpx
 
     from app.agents import mcp_oauth, mcp_tools
 
@@ -81,6 +82,359 @@ def test_oauth_discovery_validates_every_request_destination(monkeypatch, destin
 
     asyncio.run(connect())
     assert sent == ["https://mcp.example/mcp"]
+
+
+@pytest.mark.parametrize("iss", ["https://idp.example", "https://other.example", None, ""])
+@pytest.mark.parametrize("required", [False, True])
+def test_callback_issuer_is_validated_before_code_exchange(client, sealed, iss, required):
+    from urllib.parse import parse_qs, urlsplit
+
+    from mcp.client.auth.exceptions import OAuthFlowError
+    from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
+
+    from app.agents import mcp_oauth
+    from app.services import mcp_servers
+
+    row, flow, provider = _registered_flow("issuer")
+    mcp_servers.release_oauth(flow.claim)
+    flow.claim = mcp_servers.claim_oauth(row["id"], "ava", mcp_oauth.FLOW_SECONDS)
+    provider.context.client_info = OAuthClientInformationFull(client_id="skein")
+    provider.context.oauth_metadata = OAuthMetadata(
+        issuer="https://idp.example",
+        authorization_endpoint="https://idp.example/authorize",
+        token_endpoint="https://idp.example/token",
+        response_types_supported=["code"],
+        authorization_response_iss_parameter_supported=required,
+    )
+    original_redirect = provider.context.redirect_handler
+
+    async def browser(url):
+        await original_redirect(url)
+        state = parse_qs(urlsplit(url).query)["state"][0]
+        params = {"state": state, "code": "issuer-code"}
+        if iss is not None:
+            params["iss"] = iss
+        response = client.get("/api/mcp/oauth/callback", params=params)
+        assert response.status_code == 200
+        assert "issuer-code" not in response.text
+        assert not mcp_oauth.complete(state, "replayed", iss=iss)
+
+    provider.context.redirect_handler = browser
+    assert provider.context.client_metadata.application_type == "web"
+    if iss == "https://idp.example" or (iss is None and not required):
+        code, verifier = asyncio.run(provider._perform_authorization_code_grant())
+        assert code == "issuer-code" and verifier
+    else:
+        with pytest.raises(OAuthFlowError):
+            asyncio.run(provider._perform_authorization_code_grant())
+
+
+@pytest.mark.parametrize("location", ["https://mcp.example/next", "https://other.example/next"])
+def test_personal_client_refuses_redirects(monkeypatch, location):
+    import httpx2
+
+    from app.agents import mcp_tools
+    from app.services import mcp_servers
+
+    sent = []
+    monkeypatch.setattr(mcp_servers, "check_url", lambda url: None)
+    real_client = httpx2.AsyncClient
+
+    def respond(request):
+        sent.append(str(request.url))
+        return httpx2.Response(307, headers={"Location": location})
+
+    monkeypatch.setattr(
+        httpx2,
+        "AsyncClient",
+        lambda **kwargs: real_client(
+            transport=httpx2.MockTransport(respond), trust_env=False, **kwargs
+        ),
+    )
+
+    async def connect():
+        async with mcp_tools._no_redirect_client(
+            headers={"Authorization": "Bearer secret"}
+        ) as client:
+            assert not client.follow_redirects
+            with pytest.raises(ValueError, match="redirect"):
+                await client.post("https://mcp.example/mcp")
+
+    asyncio.run(connect())
+    assert sent == ["https://mcp.example/mcp"]
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "opaque-code",
+        '{"code":"nested","iss":"https://fake.example"}',
+        "skein-oauth-callback-v1:plain-code",
+    ],
+)
+def test_callback_encoding_preserves_opaque_legacy_codes(monkeypatch, code):
+    from app.services import credentials, mcp_servers
+
+    monkeypatch.setattr(config, "CREDENTIAL_KEY", Fernet.generate_key().decode())
+    legacy = credentials.seal(code)
+    assert mcp_servers._unseal_callback(legacy) == {"code": code, "iss": None}
+    encoded = mcp_servers._seal_callback(code, "https://idp.example")
+    assert code.encode() not in encoded
+    assert b"https://idp.example" not in encoded
+    assert mcp_servers._unseal_callback(encoded) == {"code": code, "iss": "https://idp.example"}
+
+
+@pytest.mark.parametrize("payload", ['{"code":"c"}', '{"code":"c","iss":12}', "[]", "not-json"])
+def test_malformed_callback_payload_is_not_an_authorization_code(monkeypatch, payload):
+    from app.services import credentials, mcp_servers
+
+    monkeypatch.setattr(config, "CREDENTIAL_KEY", Fernet.generate_key().decode())
+    for prefix in (mcp_servers._CALLBACK_PREFIX, b"skein-oauth-callback-v2:"):
+        encoded = prefix + credentials.seal(payload)
+        assert mcp_servers._unseal_callback(encoded) == {"code": "", "iss": None}
+
+
+def test_http_transport_owns_its_client_and_yields_the_sdk_pair(monkeypatch):
+    from contextlib import asynccontextmanager
+
+    import httpx2
+    import mcp.client.streamable_http
+
+    from app.agents import mcp_tools
+    from app.services import mcp_servers
+
+    events = []
+    monkeypatch.setattr(mcp_servers, "check_url", lambda url: None)
+    real_client = httpx2.AsyncClient
+    clients = []
+
+    def make_client(**kwargs):
+        client = real_client(
+            transport=httpx2.MockTransport(lambda request: httpx2.Response(200)),
+            trust_env=False,
+            **kwargs,
+        )
+        clients.append(client)
+        return client
+
+    @asynccontextmanager
+    async def transport(url, *, http_client):
+        assert not http_client.is_closed
+        assert http_client.headers["Authorization"] == "Bearer secret"
+        events.append("enter")
+        try:
+            yield "read", "write"
+        finally:
+            assert not http_client.is_closed
+            events.append("exit")
+
+    monkeypatch.setattr(httpx2, "AsyncClient", make_client)
+    monkeypatch.setattr(mcp.client.streamable_http, "streamable_http_client", transport)
+
+    async def connect():
+        assert clients == []
+        async with mcp_tools._http_transport(
+            "https://mcp.example/mcp", headers={"Authorization": "Bearer secret"}, personal=True
+        ) as streams:
+            assert streams == ("read", "write")
+            assert not clients[0].is_closed
+        assert clients[0].is_closed
+
+    asyncio.run(connect())
+    assert events == ["enter", "exit"]
+
+
+@pytest.mark.parametrize("personal", [False, True])
+@pytest.mark.parametrize("trust", ["default", "file", "directory", "both"])
+def test_mcp_transport_preserves_certificate_trust(monkeypatch, personal, trust):
+    import ssl
+    from contextlib import asynccontextmanager
+
+    import certifi
+    import httpx2
+    import mcp.client.streamable_http
+
+    from app.agents import mcp_tools
+
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    monkeypatch.delenv("SSL_CERT_DIR", raising=False)
+    if trust in ("file", "both"):
+        monkeypatch.setenv("SSL_CERT_FILE", "/configured/ca.pem")
+    if trust in ("directory", "both"):
+        monkeypatch.setenv("SSL_CERT_DIR", "/configured/certs")
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    seen = []
+    monkeypatch.setattr(
+        ssl, "create_default_context", lambda **kwargs: seen.append(kwargs) or context
+    )
+
+    @asynccontextmanager
+    async def client(**kwargs):
+        assert kwargs["verify"] is context
+        assert kwargs.get("trust_env", True)
+        assert kwargs["follow_redirects"] is (not personal)
+        assert kwargs["timeout"].connect == 30.0
+        assert kwargs["timeout"].read == 300.0
+        yield object()
+
+    @asynccontextmanager
+    async def transport(url, *, http_client):
+        yield "read", "write"
+
+    monkeypatch.setattr(httpx2, "AsyncClient", client)
+    monkeypatch.setattr(mcp.client.streamable_http, "streamable_http_client", transport)
+
+    async def connect():
+        async with mcp_tools._http_transport("https://mcp.example", personal=personal):
+            pass
+
+    asyncio.run(connect())
+    expected = (
+        {"cafile": "/configured/ca.pem"}
+        if trust in ("file", "both")
+        else (
+            {"capath": "/configured/certs"} if trust == "directory" else {"cafile": certifi.where()}
+        )
+    )
+    assert seen == [expected]
+
+
+@pytest.mark.parametrize(
+    "failure", ["metadata", "registration", "token", "refresh", "issuer", "state"]
+)
+def test_oauth_rejects_unsafe_requests_without_logging_callback_secrets(
+    monkeypatch, caplog, failure
+):
+    import socket
+    from unittest.mock import AsyncMock
+
+    import httpx2
+    from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata, OAuthToken
+
+    from app.agents import mcp_oauth, mcp_tools
+    from app.services import mcp_servers
+
+    sentinel = "private-callback-sentinel"
+    forbidden = "http://169.254.169.254/" + sentinel
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda host, *args, **kwargs: [
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                (host if host == "169.254.169.254" else "10.0.0.5", 443),
+            )
+        ],
+    )
+    monkeypatch.setattr(mcp_oauth._SealedStorage, "get_tokens", AsyncMock(return_value=None))
+    monkeypatch.setattr(mcp_oauth._SealedStorage, "get_client_info", AsyncMock(return_value=None))
+    monkeypatch.setattr(mcp_oauth._SealedStorage, "set_client_info", AsyncMock())
+    monkeypatch.setattr(mcp_servers, "register_oauth_state", lambda claim, state: None)
+    flow = mcp_oauth._Flow("personal:ava:test", "claim")
+
+    def callback(flow):
+        flow.code = sentinel
+        flow.iss = sentinel if failure == "issuer" else "https://idp.example"
+        if failure == "state":
+            flow.state = sentinel
+
+    monkeypatch.setattr(mcp_oauth, "_await_code", callback)
+    auth = mcp_oauth.provider(
+        {
+            "server_id": flow.server_id,
+            "id": 1,
+            "url": "https://mcp.example/mcp",
+            "oauth_redirect_uri": "https://skein.example/cb",
+            "flow": flow,
+        }
+    )
+    metadata = {
+        "issuer": "https://idp.example",
+        "authorization_endpoint": "https://idp.example/authorize",
+        "token_endpoint": forbidden
+        if failure in ("token", "refresh")
+        else "https://idp.example/token",
+        "registration_endpoint": forbidden
+        if failure == "registration"
+        else "https://idp.example/register",
+        "response_types_supported": ["code"],
+        "code_challenge_methods_supported": ["S256"],
+        "authorization_response_iss_parameter_supported": True,
+    }
+    if failure == "refresh":
+        auth._initialized = True
+        auth.context.current_tokens = OAuthToken(access_token="old", refresh_token=sentinel)
+        auth.context.client_info = OAuthClientInformationFull(
+            client_id="skein", issuer="https://idp.example"
+        )
+        auth.context.token_expiry_time = 1
+        auth.context.oauth_metadata = OAuthMetadata.model_validate(metadata)
+    sent = []
+
+    def respond(request):
+        url = str(request.url)
+        sent.append(url)
+        assert request.url.host != "169.254.169.254"
+        if url == "https://mcp.example/mcp":
+            return httpx2.Response(
+                401,
+                headers={
+                    "WWW-Authenticate": 'Bearer resource_metadata="https://mcp.example/metadata"'
+                },
+            )
+        if url == "https://mcp.example/metadata":
+            return httpx2.Response(
+                200,
+                json={
+                    "resource": "https://mcp.example/mcp",
+                    "authorization_servers": [
+                        forbidden if failure == "metadata" else "https://idp.example"
+                    ],
+                },
+            )
+        if ".well-known/" in url:
+            return httpx2.Response(200, json=metadata)
+        if url == "https://idp.example/register":
+            return httpx2.Response(
+                201,
+                json={
+                    "client_id": "skein",
+                    "redirect_uris": ["https://skein.example/cb"],
+                    "token_endpoint_auth_method": "none",
+                },
+            )
+        raise AssertionError("The refused OAuth flow reached token exchange")
+
+    real_client = httpx2.AsyncClient
+    monkeypatch.setattr(
+        httpx2,
+        "AsyncClient",
+        lambda **kwargs: real_client(
+            transport=httpx2.MockTransport(respond), trust_env=False, **kwargs
+        ),
+    )
+
+    async def connect():
+        async with mcp_tools._no_redirect_client(auth=auth) as client:
+            from mcp.client.auth.exceptions import OAuthFlowError
+
+            error = OAuthFlowError if failure in ("issuer", "state") else ValueError
+            with pytest.raises(error) as caught:
+                await client.post("https://mcp.example/mcp")
+            assert sentinel not in str(caught.value)
+
+    asyncio.run(connect())
+    assert (
+        len(sent)
+        == {"metadata": 2, "registration": 3, "token": 4, "refresh": 0, "issuer": 4, "state": 4}[
+            failure
+        ]
+    )
+    assert not any(url.startswith(forbidden) for url in sent)
+    assert sentinel not in caplog.text
 
 
 def _bootstrap(owner: str) -> dict:
@@ -168,13 +522,15 @@ def test_the_grant_is_bridged_to_the_browser_and_the_connect_completes(client, s
     assert client.post(f"/api/mcp/servers/{row['id']}/sign-in", headers=ava).status_code == 400
     assert client.get("/api/mcp/oauth/callback?state=other&code=c").status_code == 404
 
-    done = client.get("/api/mcp/oauth/callback?state=nonce-1&code=code-9")
+    done = client.get("/api/mcp/oauth/callback?state=nonce-1&code=code-9&iss=https://idp.example")
     assert done.status_code == 200 and "code-9" not in done.text
     deadline = time.monotonic() + 5
     while "personal:ava:jira" not in mcp_tools._connections and time.monotonic() < deadline:
         time.sleep(0.05)
     assert "personal:ava:jira" in mcp_tools._connections
-    assert mcp_tools._connections["personal:ava:jira"].client.granted == ("code-9", "nonce-1")
+    assert mcp_tools._connections["personal:ava:jira"].client.granted == AuthorizationCodeResult(
+        code="code-9", state="nonce-1", iss="https://idp.example"
+    )
     deadline = time.monotonic() + 3
     while db.query("SELECT * FROM mcp_oauth_flows") and time.monotonic() < deadline:
         time.sleep(0.01)
@@ -250,9 +606,14 @@ def test_the_callback_can_land_on_another_process(fresh_db, sealed, monkeypatch)
         target=lambda: box.update(got=asyncio.run(provider.context.callback_handler()))
     )
     waiter.start()
-    assert mcp_oauth.complete("afar", "code-7") is True
+    assert mcp_oauth.complete("afar", "code-7", iss="https://idp.example") is True
+    stored = db.query_row("SELECT code_sealed FROM mcp_oauth_flows WHERE state = 'afar'")
+    assert b"code-7" not in bytes(stored["code_sealed"])
+    assert b"https://idp.example" not in bytes(stored["code_sealed"])
     waiter.join(5)
-    assert box["got"] == ("code-7", "afar")
+    assert box["got"] == AuthorizationCodeResult(
+        code="code-7", state="afar", iss="https://idp.example"
+    )
     assert mcp_oauth.complete("afar", "late") is False
     # Ownership survives the callback until the provider stores its tokens.
     assert db.query_one("SELECT 1 FROM mcp_oauth_flows WHERE state = 'afar'")
@@ -295,7 +656,9 @@ def test_local_callback_is_one_shot(fresh_db, sealed):
     _, flow, provider = _registered_flow()
     assert mcp_oauth.complete(flow.state, "first")
     assert not mcp_oauth.complete(flow.state, "second")
-    assert asyncio.run(provider.context.callback_handler()) == ("first", flow.state)
+    assert asyncio.run(provider.context.callback_handler()) == AuthorizationCodeResult(
+        code="first", state=flow.state
+    )
 
 
 def test_local_callback_refuses_expired_flow(fresh_db, sealed, monkeypatch):
@@ -366,8 +729,15 @@ def test_a_state_collision_cannot_attach_a_second_server(fresh_db, sealed):
     with pytest.raises(UniqueViolation):
         mcp_servers.register_oauth_state(claim, first.state)
     assert mcp_oauth.complete(first.state, "first-only")
-    assert asyncio.run(provider.context.callback_handler()) == ("first-only", first.state)
-    assert mcp_servers.oauth_result(claim) == {"refused": False, "done": False, "code": ""}
+    assert asyncio.run(provider.context.callback_handler()) == AuthorizationCodeResult(
+        code="first-only", state=first.state
+    )
+    assert mcp_servers.oauth_result(claim) == {
+        "refused": False,
+        "done": False,
+        "code": "",
+        "iss": None,
+    }
     mcp_servers.release_oauth(claim)
     assert mcp_servers.oauth_result(first.claim)["done"]
 
@@ -418,8 +788,47 @@ def test_expired_grant_cannot_store_tokens_or_release_its_successor(fresh_db, se
     assert mcp_servers.load_oauth(row["id"]) == ("", "")
 
 
+@pytest.mark.parametrize("rotate", [False, True])
+def test_refresh_preserves_or_rotates_the_sealed_grant(fresh_db, sealed, rotate):
+    import httpx2
+    from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+
+    from app.agents import mcp_oauth
+    from app.services import mcp_servers
+
+    row, flow, provider = _registered_flow()
+    storage = provider.context.storage
+    asyncio.run(
+        storage.set_client_info(
+            OAuthClientInformationFull(
+                client_id="first",
+                issuer="https://idp.example",
+                redirect_uris=["https://skein.example/cb"],
+            )
+        )
+    )
+    asyncio.run(
+        storage.set_tokens(
+            OAuthToken(access_token="first", refresh_token="first-refresh", scope="tools:read")
+        )
+    )
+    mcp_servers.release_oauth(flow.claim)
+    flow.claim = ""
+    asyncio.run(provider._initialize())
+    response = {"access_token": "next", "expires_in": 300}
+    if rotate:
+        response["refresh_token"] = "next-refresh"
+    assert asyncio.run(provider._handle_refresh_response(httpx2.Response(200, json=response)))
+    restored = mcp_oauth._SealedStorage(row["id"], row["server_id"])
+    tokens = asyncio.run(restored.get_tokens())
+    assert tokens.access_token == "next"
+    assert tokens.refresh_token == ("next-refresh" if rotate else "first-refresh")
+    assert tokens.scope == "tools:read"
+    assert asyncio.run(restored.get_client_info()).issuer == "https://idp.example"
+
+
 def test_refresh_cannot_overwrite_a_new_interactive_grant(fresh_db, sealed):
-    import httpx
+    import httpx2 as httpx
     from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
     from app.agents import mcp_oauth

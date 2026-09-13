@@ -601,8 +601,8 @@ def _derived_metadata(remote_tool) -> MCPToolMetadata:
     between proposal and approval stales the proposal instead of replaying
     the reviewed input against a different tool."""
     annotations = getattr(getattr(remote_tool, "mcp_tool", None), "annotations", None)
-    read_only = bool(getattr(annotations, "readOnlyHint", False))
-    destructive = getattr(annotations, "destructiveHint", None)
+    read_only = bool(getattr(annotations, "read_only_hint", False))
+    destructive = getattr(annotations, "destructive_hint", None)
     effect = "read" if read_only else "write"
     if read_only:
         risk = "low"
@@ -1084,7 +1084,6 @@ def _connect_servers(
         client = None
         entered = False
         try:
-            from mcp.client.streamable_http import streamablehttp_client
             from strands.tools.mcp import MCPClient
 
             url = server["url"]
@@ -1122,14 +1121,14 @@ def _connect_servers(
                         # seconds would cancel it mid-sign-in
                         startup = int(mcp_oauth.FLOW_SECONDS)
                 transport = partial(
-                    streamablehttp_client,
+                    _http_transport,
                     url,
                     headers=headers,
-                    httpx_client_factory=_no_redirect_client,
+                    personal=True,
                     auth=auth,
                 )
             else:
-                transport = partial(streamablehttp_client, url, headers=headers)
+                transport = partial(_http_transport, url, headers=headers)
             client = (
                 MCPClient(transport, prefix=prefix, startup_timeout=startup)
                 if prefix
@@ -1190,25 +1189,58 @@ def _list_tools(client) -> list:
         pool.shutdown(wait=False)
 
 
-def _no_redirect_client(headers=None, timeout=None, auth=None):
-    """mcp's own factory hard-codes follow_redirects=True; the defaults
-    below are its defaults (mcp/shared/_httpx_utils.py) minus that one."""
+@contextlib.asynccontextmanager
+async def _http_transport(url, *, headers=None, auth=None, personal=False):
     import httpx
+    import httpx2
+    from mcp.client.streamable_http import streamable_http_client
+    from mcp.shared._httpx_utils import MCP_DEFAULT_SSE_READ_TIMEOUT, MCP_DEFAULT_TIMEOUT
+
+    # HTTPX2 defaults to OS trust. Keep the existing certifi / SSL_CERT_FILE /
+    # SSL_CERT_DIR trust contract for configured and personal credential destinations.
+    factory = (
+        _no_redirect_client
+        if personal
+        else partial(
+            httpx2.AsyncClient,
+            follow_redirects=True,
+            timeout=httpx2.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT),
+            verify=httpx.create_ssl_context(),
+        )
+    )
+    # Strands enters this on its own event-loop thread. An HTTP client made
+    # outside this context can retain sockets bound to the caller's loop.
+    async with (
+        factory(headers=headers, auth=auth) as client,
+        streamable_http_client(url, http_client=client) as streams,
+    ):
+        yield streams
+
+
+def _no_redirect_client(headers=None, timeout=None, auth=None):
+    """Personal requests validate each destination and refuse every redirect."""
+    import httpx
+    import httpx2
     from mcp.shared._httpx_utils import MCP_DEFAULT_SSE_READ_TIMEOUT, MCP_DEFAULT_TIMEOUT
 
     from ..services.mcp_servers import check_url
 
-    async def validate_destination(request: httpx.Request) -> None:
+    async def validate_destination(request: httpx2.Request) -> None:
         # OAuth emits discovery and token requests to server-supplied URLs.
         # Disabling redirects alone does not validate those destinations.
         await asyncio.to_thread(check_url, str(request.url))
 
-    return httpx.AsyncClient(
+    async def refuse_redirect(response: httpx2.Response) -> None:
+        if 300 <= response.status_code < 400:
+            raise ValueError("The MCP server returned a redirect. Use its final URL.")
+
+    return httpx2.AsyncClient(
         follow_redirects=False,
-        timeout=timeout or httpx.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT),
+        verify=httpx.create_ssl_context(),
+        timeout=timeout or httpx2.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT),
         headers=headers,
         auth=auth,
-        event_hooks={"request": [validate_destination]},
+        event_hooks={"request": [validate_destination], "response": [refuse_redirect]},
     )
 
 

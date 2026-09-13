@@ -1596,14 +1596,16 @@ def post_mcp_sign_in(server_id: int, request: Request, user: StrongUser):
 
 
 @router.get("/mcp/oauth/callback", response_class=HTMLResponse)
-def get_mcp_oauth_callback(state: str = "", code: str = "", error: str = ""):
+def get_mcp_oauth_callback(
+    state: str = "", code: str = "", error: str = "", iss: str | None = None
+):
     """Where the authorization server sends the browser back. Open on the
     perimeter (main.py open_paths): the browser arrives from the IdP with
     no Skein credential. The state is the provider's 256-bit nonce and the
     only key; nothing here is echoed, and an unknown state learns nothing."""
     from ..agents import mcp_oauth
 
-    if not state or not mcp_oauth.complete(state, code, error or ""):
+    if not state or not mcp_oauth.complete(state, code, error or "", iss=iss):
         return HTMLResponse(
             "<p>This sign-in is not known. Start it again from Skein Settings.</p>",
             status_code=404,

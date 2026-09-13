@@ -816,7 +816,9 @@ httpcore==1.0.9 \
 httpcore2==2.12.0 \
     --hash=sha256:7e04258ce01013d7d615e5b910a3b27fac937d7a95038227e79652b4ba3b4ceb \
     --hash=sha256:9293522bba0aa7c4c8e9e3f040c16575bd8868e155a77fa30c7a9085a5eae648
-    # via httpx2
+    # via
+    #   -c requirements.lock
+    #   httpx2
 httptools==0.8.0 \
     --hash=sha256:0770728beb05094c809b98e814edff5fef69d26ad7d21185f2f6d5884a0ba683 \
     --hash=sha256:0ea897f0c729581ebf72131a438a7932d9b14efef72d75ada966700cac3caaeb \
@@ -877,20 +879,18 @@ httpx==0.28.1 \
     # via
     #   -c requirements.lock
     #   anthropic
-    #   mcp
     #   ollama
     #   openai
+    #   skein-agents
     #   strands-agents
-httpx-sse==0.4.3 \
-    --hash=sha256:0ac1c9fe3c0afad2e0ebb25a934a59f4c7823b60792691f779fad2c5568830fc \
-    --hash=sha256:9b1ed0127459a66014aec3c56bebd93da3c1bc8bb6618c8082039a44889a755d
-    # via
-    #   -c requirements.lock
-    #   mcp
 httpx2==2.12.0 \
     --hash=sha256:7631fe9887a8a2275f4a2540e053aa670fcc50742864a9ae7c66e609fdcf12cf \
     --hash=sha256:cc8b6eecb8661c146b8f89a60e97456ee086e91a784ed31ac450c3a9e613dd36
-    # via atlas-skein-extension
+    # via
+    #   -c requirements.lock
+    #   atlas-skein-extension
+    #   mcp
+    #   skein-agents
 idna==3.19 \
     --hash=sha256:5e0811a4383b21dc5838069f801c4fb62113b7447663d2530d2bd6e77b49bf15 \
     --hash=sha256:815e7be7a7806d54abb586dc943addc79e8b2ee16915059658cbeff4b1b43bf4
@@ -1190,12 +1190,19 @@ markdownify==1.2.3 \
     # via
     #   -c requirements.lock
     #   strands-agents-tools
-mcp==1.29.1 \
-    --hash=sha256:1967ba4c315f7a375146209949f45950d18b0efd2f913d7cf3400bc723ee5f04 \
-    --hash=sha256:b6310eeb59153300c4ab8b9aec4c52f4819a2d6a8e429eb43d908bed7c783648
+mcp==2.1.1 \
+    --hash=sha256:1c6c31c5d6471c58db76af3af8af67f46d11d01f0a59077d0a308cbdb3d3e915 \
+    --hash=sha256:50b7ba1ebbe117008ea7bdd288234043e69c20b403d6851d19661e6d431a75ef
     # via
     #   -c requirements.lock
+    #   skein-agents
     #   strands-agents
+mcp-types==2.1.1 \
+    --hash=sha256:26f9f7f03f2a5730717a5b98e2ab7eb640ac352d05a00cdc725c311864778295 \
+    --hash=sha256:77dcbe48fba73cca71a673f2646a5f037a017b7a0a07ac89cec1113028890eda
+    # via
+    #   -c requirements.lock
+    #   mcp
 mdurl==0.1.2 \
     --hash=sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8 \
     --hash=sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba
@@ -1524,6 +1531,7 @@ opentelemetry-api==1.44.0 \
     --hash=sha256:94b98c893a91b88657eaac1e3ba89618cdb85be6918196705354f34728b2cdef
     # via
     #   -c requirements.lock
+    #   mcp
     #   opentelemetry-instrumentation
     #   opentelemetry-instrumentation-threading
     #   opentelemetry-sdk
@@ -1908,9 +1916,9 @@ pydantic==2.13.4 \
     #   anthropic
     #   fastapi
     #   mcp
+    #   mcp-types
     #   ollama
     #   openai
-    #   pydantic-settings
     #   skein-agents
     #   strands-agents
 pydantic-core==2.46.4 \
@@ -2037,12 +2045,6 @@ pydantic-core==2.46.4 \
     # via
     #   -c requirements.lock
     #   pydantic
-pydantic-settings==2.15.0 \
-    --hash=sha256:0ba092c291c94baceb5eff768aa0d56400a457585bc0175925a5a5510303da42 \
-    --hash=sha256:694b793e84f766ba76a90ebdefc01d0a9a045dab0382bee70393da93712ad117
-    # via
-    #   -c requirements.lock
-    #   mcp
 pygments==2.21.0 \
     --hash=sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9 \
     --hash=sha256:610ca751c9bc2492b38eb9a38a7fbc93edbbb2d7182edaf34e66ae493dee5c8c
@@ -2077,7 +2079,6 @@ python-dotenv==1.2.3 \
     --hash=sha256:a20a594dabeaa385725aa239d5244871c143ecb356add8a20fcf23773a6c3a35
     # via
     #   -c requirements.lock
-    #   pydantic-settings
     #   skein-agents
     #   uvicorn
 python-multipart==0.0.32 \
@@ -2366,9 +2367,9 @@ starlette==1.6.0 \
     #   fastapi
     #   mcp
     #   sse-starlette
-strands-agents==1.53.0 \
-    --hash=sha256:35b28436208486320ed121cbfe425368318847193d57c175823e82e5cc7700de \
-    --hash=sha256:b8a3ebf34c844ece7292288bbf7063a81dfc2f31ab54358993854ecbfc39c691
+strands-agents==1.55.1 \
+    --hash=sha256:3b62a8ca6f34d14140789900e35205c0032fa4a92f6147c7f69a7fda149da7ab \
+    --hash=sha256:55dc609a9d7c75d61842304180456a815e60b34d00ce089c29362cedd274cd2a
     # via
     #   -c requirements.lock
     #   skein-agents
@@ -2454,6 +2455,7 @@ truststore==0.10.4 \
     --hash=sha256:9d91bd436463ad5e4ee4aba766628dd6cd7010cf3e2461756b3303710eebc301 \
     --hash=sha256:adaeaecf1cbb5f4de3b1959b42d41f6fab57b2b1666adb59e89cb0b53361d981
     # via
+    #   -c requirements.lock
     #   httpcore2
     #   httpx2
 typing-extensions==4.16.0 \
@@ -2470,6 +2472,7 @@ typing-extensions==4.16.0 \
     #   fastapi
     #   httpx2
     #   mcp
+    #   mcp-types
     #   mypy
     #   openai
     #   opentelemetry-api
@@ -2492,7 +2495,6 @@ typing-inspection==0.4.4 \
     #   fastapi
     #   mcp
     #   pydantic
-    #   pydantic-settings
 tzdata==2026.3 \
     --hash=sha256:4a1518b8993086a7982523e071643f3c0e5f213e75b21318e78bcabfff9d1415 \
     --hash=sha256:dc096730c87af6cab1b171c9d532be840741ff5d459015e7f6947bd7d7e54931
