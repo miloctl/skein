@@ -139,6 +139,9 @@ paths = ["app", "seed.py", "../cli/skein_cli.py"]
 ignore_decorators = ["@app.*", "@router.*", "@mcp.*", "@_tool", "@_resource", "@tool", "@pytest.fixture"]
 ignore_names = [
     "row_factory", "isolation_level",  # sqlite3 connection config, write-only
+    # strands reads Agent.callback_handler with every stream event during
+    # __call__; services/shared_chat_agents.py only ever assigns it
+    "callback_handler",
     "repository",  # CIEventIn schema field, read via model_dump() in services/ci.py
     "model_config",  # pydantic v2 model settings, read by the metaclass
     # OAuthClientProvider reads this flag in the MCP SDK. Our refresh-CAS

@@ -1560,7 +1560,11 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
             subject_token = set_policy_subject(subject)
             rv_token = set_requester_viewer(viewer)
             if masthead:
-                yield _sse({"type": "text", "text": masthead})
+                # its own frame type, not "text": a text frame fills the bubble
+                # and hides the working indicator (components/thread.tsx Empty
+                # slot) for the whole model wait, which on a persona turn is the
+                # only wait there is. The client prepends it to the first word.
+                yield _sse({"type": "masthead", "text": masthead})
             # Seeded from the specialists the USER named, not from the constant
             # alone: the cap exists to bound consults the MODEL chose on its own,
             # and a message naming three specialists must not have the third
@@ -1754,7 +1758,13 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                         chat_threads.finish_model_turn(thread_id, turn_key)
             yield _sse({"type": "done"})
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    # X-Accel-Buffering: an nginx-style edge buffers text/event-stream unless
+    # told not to, and delivers the whole reply at once when the turn ends
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 def _log_turn(thread_id: str, owner: str, role: str, text: str) -> None:

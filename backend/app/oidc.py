@@ -26,6 +26,7 @@ cooldown the other two do.
 """
 
 import contextlib
+import hashlib
 import http.client
 import ipaddress
 import json
@@ -230,6 +231,7 @@ def reset() -> None:
         _jwks_fetching = False
         _key_refreshing = False
         _last_refresh = float("-inf")
+        _userinfo_cache.clear()
 
 
 def _record_discovery_failure(exc: OIDCError) -> None:
@@ -494,6 +496,95 @@ def authorize_url() -> str:
 
 def token_url() -> str:
     return _endpoint(config.OIDC_TOKEN_URL, "token_endpoint", "SKEIN_OIDC_TOKEN_URL")
+
+
+def userinfo_url() -> str:
+    return _endpoint(config.OIDC_USERINFO_URL, "userinfo_endpoint", "SKEIN_OIDC_USERINFO_URL")
+
+
+def _fetch_userinfo(access_token: str) -> dict[str, Any]:
+    try:
+        url = userinfo_url()
+    except OIDCError as exc:
+        # deployment state, not the caller's token: a plain OIDCError here is
+        # a 401 at the bearer door and SessionInvalid at the cookie door,
+        # which signs every user out over a missing userinfo_endpoint
+        raise OIDCProviderError(str(exc)) from exc
+    request = urllib.request.Request(  # noqa: S310 — scheme checked by _web_url
+        url,
+        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+    )
+    try:
+        payload = _fetch_json(request, FETCH_TIMEOUT)
+    except OIDCError:
+        raise
+    except _ProviderHTTPError as exc:
+        if exc.status in (401, 403):
+            # the IdP no longer accepts a token whose signature we verified:
+            # revoked, or issued for another resource. Invalid, not unavailable.
+            raise OIDCError(
+                "the identity provider refused the sign-in token. Sign in again."
+            ) from exc
+        if exc.status in TRANSIENT_HTTP_STATUSES or exc.status >= 500:
+            log.warning("identity provider userinfo unavailable (HTTP %s)", exc.status)
+            raise OIDCUnavailable(IDP_UNREACHABLE) from exc
+        raise OIDCProviderError(
+            "The identity provider returned an unusable userinfo response."
+        ) from exc
+    except (RecursionError, TypeError, ValueError) as exc:
+        raise OIDCProviderError(
+            "The identity provider returned an unusable userinfo response."
+        ) from exc
+    except Exception as exc:
+        raise OIDCUnavailable(
+            f"the identity provider cannot be reached ({exc.__class__.__name__})."
+            " Try again in a minute."
+        ) from exc
+    if not isinstance(payload, dict):
+        raise OIDCProviderError("The identity provider returned an unusable userinfo response.")
+    return payload
+
+
+# token hash -> (token exp, groups). Bounded at _USERINFO_CACHE_MAX entries;
+# expired entries are dropped only when it fills.
+_userinfo_cache: dict[str, tuple[float, list[str]]] = {}
+_USERINFO_CACHE_MAX = 1024
+
+
+def groups(claims: dict[str, Any], access_token: str) -> list[str]:
+    """Group names for a VERIFIED token, from SKEIN_OIDC_GROUPS_SOURCE.
+
+    `userinfo` asks the issuer, once per token: every request re-validates the
+    token locally (services/browser_sessions.authenticate), and a network call
+    per request would put the IdP on the path of every page load.
+    """
+    if config.OIDC_GROUPS_SOURCE != "userinfo":
+        # through principal(), not _groups_in(): principal is the seam tests
+        # and extensions replace to supply a subject's groups
+        return principal(claims)[1]
+    key = hashlib.sha256(access_token.encode()).hexdigest()
+    now = time.time()
+    with _lock:
+        hit = _userinfo_cache.get(key)
+        if hit and hit[0] > now:
+            return list(hit[1])
+    document = _fetch_userinfo(access_token)
+    # OIDC Core 5.3.2: the client MUST verify the userinfo sub against the
+    # token's. Without it a proxy that answers for another user grants that
+    # user's groups — admin included — to whoever holds this token.
+    if str(document.get("sub", "")) != str(claims.get("sub", "")):
+        raise OIDCProviderError("The identity provider's userinfo names a different subject.")
+    found = _groups_in(document)
+    # validate() requires exp, so a verified token always has one
+    expiry = float(claims["exp"])
+    with _lock:
+        if len(_userinfo_cache) >= _USERINFO_CACHE_MAX:
+            for stale in [k for k, (exp, _) in _userinfo_cache.items() if exp <= now]:
+                del _userinfo_cache[stale]
+            if len(_userinfo_cache) >= _USERINFO_CACHE_MAX:
+                _userinfo_cache.clear()
+        _userinfo_cache[key] = (expiry, list(found))
+    return found
 
 
 def exchange(form: dict[str, str]) -> dict[str, Any]:
@@ -874,14 +965,16 @@ def principal(claims: dict[str, Any]) -> tuple[str, list[str]]:
         )
     if not name.isprintable():
         raise OIDCError("the sign-in token user name has control characters. Sign in again.")
-    raw = claims.get(config.OIDC_GROUPS_CLAIM)
+    return name, _groups_in(claims)
+
+
+def _groups_in(document: dict[str, Any]) -> list[str]:
+    raw = document.get(config.OIDC_GROUPS_CLAIM)
     if isinstance(raw, str):
         # some IdPs send a lone group as a bare string. Taking it whole is the
         # only reading that cannot invent a group: splitting on spaces would
         # turn "Domain Admins" into two.
-        groups = [raw] if raw else []
-    elif isinstance(raw, list):
-        groups = [str(g) for g in raw]
-    else:
-        groups = []
-    return name, groups
+        return [raw] if raw else []
+    if isinstance(raw, list):
+        return [str(g) for g in raw]
+    return []

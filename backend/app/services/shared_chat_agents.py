@@ -10,8 +10,9 @@ import logging
 import queue
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .. import config, db
 from ..extensions.policy import PolicyEngine
@@ -330,7 +331,7 @@ def _settle(
         # session, and renewal is what stops the sweep from freeing it.
         db.execute(
             "UPDATE chat_agent_runs SET status = ?, response_message_id = ?,"
-            " finished_at = ?, execution_active = ?, error_code = ?,"
+            " finished_at = ?, execution_active = ?, error_code = ?, partial_text = '',"
             " lease_owner = CASE WHEN ? THEN lease_owner ELSE '' END,"
             " lease_until = CASE WHEN ? THEN lease_until ELSE '' END,"
             " lease_token = CASE WHEN ? THEN lease_token ELSE '' END"
@@ -362,6 +363,46 @@ def _release_execution(turn_id: str, lease_token: str) -> None:
             " WHERE turn_id = ? AND lease_owner = ? AND lease_token = ?",
             (turn_id, leases.PROCESS_ID, lease_token),
         )
+
+
+# Seconds between partial-reply writes. The room polls every 2s
+# (components/shared-chat.tsx POLL_MS), so a finer cadence only adds UPDATEs
+# nobody reads.
+PROGRESS_SECONDS = 1.0
+
+
+def _progress_writer(run: dict) -> Callable[..., None]:
+    """A strands callback_handler that publishes the reply streamed so far.
+
+    Guarded by lease_token and status: a reclaimed or timed-out turn must not
+    write over a row another process now owns. A failed write is dropped —
+    progress is a courtesy, the stored message is the reply."""
+    from . import chat_threads
+
+    parts: list[str] = []
+    last = 0.0
+
+    def handle(**event: Any) -> None:
+        nonlocal last
+        if "data" not in event:
+            return
+        parts.append(str(event["data"]))
+        now = time.monotonic()
+        if now - last < PROGRESS_SECONDS:
+            return
+        last = now
+        text = "".join(parts)[-chat_threads.MESSAGE_TEXT_LEN :]
+        try:
+            with db.transaction():
+                db.execute(
+                    "UPDATE chat_agent_runs SET partial_text = ? WHERE turn_id = ?"
+                    " AND status = 'running' AND lease_token = ?",
+                    (text, run["turn_id"], run["lease_token"]),
+                )
+        except Exception:
+            log.debug("private shared-chat partial reply not written", exc_info=True)
+
+    return handle
 
 
 def _receipt_text(rows: list[dict]) -> str:
@@ -584,6 +625,10 @@ def _run_claim(
                 review_forced=True,
             )
             box["invoked"] = True
+            # build_agent passes callback_handler=None (the null handler); the
+            # attribute is what strands calls with every stream event during
+            # __call__, so this is the only hook that needs no second call path
+            built.callback_handler = _progress_writer(run)
             box["reply"] = str(built(prompt))
         except Exception as exc:
             box["error"] = type(exc).__name__
@@ -711,7 +756,8 @@ def _persist_late_failure(run: dict, receipt_rows: list[dict]) -> None:
         db.execute(
             "UPDATE chat_agent_runs SET status = 'completion_unknown',"
             " response_message_id = ?, finished_at = ?, execution_active = FALSE,"
-            " error_code = 'turn_failed', lease_owner = '', lease_until = '', lease_token = '' WHERE turn_id = ?",
+            " error_code = 'turn_failed', partial_text = '',"
+            " lease_owner = '', lease_until = '', lease_token = '' WHERE turn_id = ?",
             (message_id, now, run["turn_id"]),
         )
         db.execute(
@@ -762,7 +808,7 @@ def _finish_success(run: dict, reply: str, receipt_rows: list[dict]) -> None:
         )
         db.execute(
             "UPDATE chat_agent_runs SET status = 'completed', response_message_id = ?,"
-            " finished_at = ?, execution_active = FALSE, error_code = '',"
+            " finished_at = ?, execution_active = FALSE, error_code = '', partial_text = '',"
             " lease_owner = '', lease_until = '', lease_token = '' WHERE turn_id = ?",
             (message_id, now, run["turn_id"]),
         )
@@ -1014,7 +1060,7 @@ def reclaim_expired() -> int:
         now = db.now()
         recovered = db.execute_rowcount(
             "UPDATE chat_agent_runs SET status = 'completion_unknown', finished_at = ?,"
-            " execution_active = FALSE, error_code = 'lease_expired',"
+            " execution_active = FALSE, error_code = 'lease_expired', partial_text = '',"
             " lease_owner = '', lease_until = '', lease_token = ''"
             " WHERE status = 'running'"
             " AND COALESCE(NULLIF(lease_until, '')::timestamptz, '-infinity') <= clock_timestamp()",

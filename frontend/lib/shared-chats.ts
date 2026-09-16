@@ -57,6 +57,8 @@ export type SharedChatMessage = {
   turn_id: string;
   reply_to_message_id: number | null;
   deleted_at: string | null;
+  /** client-only: shown at once, replaced by the stored row when the POST answers */
+  pending?: boolean;
 };
 
 export type SharedChatAgentRun = {
@@ -71,6 +73,8 @@ export type SharedChatAgentRun = {
   started_at: string | null;
   finished_at: string | null;
   error_code: string;
+  /** the reply streamed so far, while status is "running" */
+  partial_text?: string;
 };
 
 export type BenchPersona = {

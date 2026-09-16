@@ -79,6 +79,15 @@ export function subscribeSession(listener: () => void) {
 }
 export const signedInUser = () => session.authenticated ? session.user : "";
 export const isSignedIn = () => session.authenticated;
+/** True while every protected request can only answer 401. Read at RENDER
+ *  time by the auth gate and by the nav's attention poll: the two are
+ *  siblings in app/layout.tsx, and a flag the gate publishes from an effect
+ *  reaches the nav one commit after the nav's own effect has already fired
+ *  the poll — whose 401 re-reads the session and remounts the shell, once
+ *  per round trip (frontend/__tests__/nav-locked-session.test.tsx). */
+export const sessionLocked = () =>
+  (mode === "oidc" || mode === "api-key" || Boolean(session.csrf_token) || sessionEnd() === "expired") &&
+  !session.authenticated;
 export const trustedHeaderIdentity = () =>
   mode === "trusted-header" && session.status === "ready" &&
   !session.csrf_token && !session.authenticated && !blockWeakFallback;

@@ -12,7 +12,7 @@ import { PageHelp } from "@/components/page-help";
 import { actionError, api, getUser, subscribeUser } from "@/lib/api";
 import { bridgeAttentionChange } from "@/lib/attention";
 import { reportStatus } from "@/lib/status";
-import { authConfig, isSignedIn, sessionSnapshot, signIn, signOut } from "@/lib/auth";
+import { authConfig, isSignedIn, sessionLocked, sessionSnapshot, signIn, signOut, subscribeSession } from "@/lib/auth";
 import { isGated, subscribeGated } from "@/lib/gated";
 import { useFrontendExtensions } from "@/lib/extensions/context";
 
@@ -153,13 +153,15 @@ export function Nav() {
   }, []);
 
   const gated = useSyncExternalStore(subscribeGated, isGated, () => false);
+  const locked = useSyncExternalStore(subscribeSession, sessionLocked, () => false);
 
   useEffect(() => {
-    // nothing to count while the auth gate stands: this can only 401, and the
+    // nothing to count while the session is locked: this can only 401, and the
     // number it would carry describes a workspace the reader cannot open. The
-    // `gated` dependency also makes signing in re-poll at once, so the badge
-    // is current the moment the workspace comes back.
-    if (gated) return;
+    // `locked` dependency also makes signing in re-poll at once, so the badge
+    // is current the moment the workspace comes back. `locked`, not `gated`:
+    // the gate publishes `gated` from its effect, which runs AFTER this one.
+    if (locked) return;
     let generation = 0;
     const poll = () => {
       const g = ++generation;
@@ -196,7 +198,7 @@ export function Nav() {
       window.removeEventListener("skein-shared-chat-activity", poll);
       unbridge();
     };
-  }, [gated]);
+  }, [locked]);
 
   // The attention count in the TAB TITLE, which is the only part of Skein a
   // person sees while they are in their editor. Without it the immediate

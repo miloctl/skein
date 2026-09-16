@@ -1305,6 +1305,12 @@ OIDC_AUDIENCE = os.getenv("SKEIN_OIDC_AUDIENCE", "").strip()
 OIDC_JWKS_URL = os.getenv("SKEIN_OIDC_JWKS_URL", "").strip()
 OIDC_USERNAME_CLAIM = os.getenv("SKEIN_OIDC_USERNAME_CLAIM", "").strip() or "preferred_username"
 OIDC_GROUPS_CLAIM = os.getenv("SKEIN_OIDC_GROUPS_CLAIM", "").strip() or "groups"
+# Where the groups claim is read: the access token itself, or the issuer's
+# userinfo endpoint (for an ATM that does not stamp groups into the token).
+# Env-only: it decides who is an admin. An unknown value is refused below,
+# not degraded — silently reading the token would drop every group.
+OIDC_GROUPS_SOURCE = os.getenv("SKEIN_OIDC_GROUPS_SOURCE", "").strip() or "token"
+OIDC_USERINFO_URL = os.getenv("SKEIN_OIDC_USERINFO_URL", "").strip()
 # IdP group that grants admin, alongside SKEIN_ADMINS
 OIDC_ADMIN_GROUP = os.getenv("SKEIN_OIDC_ADMIN_GROUP", "").strip()
 # Browser sign-in (authorization code + PKCE). The web app is a PUBLIC client:
@@ -1330,6 +1336,8 @@ if not AUTH_ERROR and AUTH_MODE == "oidc":
         AUTH_ERROR = "SKEIN_AUTH_MODE=oidc requires SKEIN_OIDC_ISSUER"
     elif not OIDC_AUDIENCE:
         AUTH_ERROR = "SKEIN_AUTH_MODE=oidc requires SKEIN_OIDC_AUDIENCE"
+    elif OIDC_GROUPS_SOURCE not in ("token", "userinfo"):
+        AUTH_ERROR = "SKEIN_OIDC_GROUPS_SOURCE must be token or userinfo"
 
 # Optional shared bearer token for the whole API (set when exposing beyond
 # a trusted network). Only read in trusted-header mode — the other modes

@@ -319,7 +319,12 @@ team this list. Item 1 is the one that blocks everything.
 2. The ATM attribute contract must carry `iss`, `sub`, `aud`, `exp`, the
    username claim (`preferred_username` preferred), and a multi-valued
    `groups` claim. `SKEIN_OIDC_USERNAME_CLAIM` and
-   `SKEIN_OIDC_GROUPS_CLAIM` adapt to different names.
+   `SKEIN_OIDC_GROUPS_CLAIM` adapt to different names. If the ATM cannot
+   carry groups, set `SKEIN_OIDC_GROUPS_SOURCE=userinfo`: Skein then reads
+   the same claim from the issuer's userinfo endpoint, once per access
+   token, and checks that its `sub` matches the token. The userinfo
+   response must then carry the groups claim, and the client's scopes must
+   release it. `SKEIN_OIDC_USERINFO_URL` overrides discovery.
 3. The exact issuer string, and whether discovery is served at it. If
    not, also the authorize URL, the token URL, and the ATM's JWKS URL —
    `SKEIN_OIDC_AUTHORIZE_URL`, `SKEIN_OIDC_TOKEN_URL`, and

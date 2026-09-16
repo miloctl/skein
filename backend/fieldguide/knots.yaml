@@ -238,7 +238,7 @@ knots:
     set: loops
     role: any
     pitch: Several strands enter one private loop, and only invited hands hold it.
-    how: "In Chat, create a private shared chat. Invite teammates. Add up to four agents. When you want their answers, start the message with their @mentions."
+    how: "In Chat, create a private shared chat. Invite teammates. Add up to four agents. When you want their answers, start the message with their @mentions. Type @ and the first letters of an agent, then press Enter to complete the name. A message shows at once, then the agent's words as they arrive."
     link: /chat
     since: 2026-08-24
 
