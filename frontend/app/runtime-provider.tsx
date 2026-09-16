@@ -122,7 +122,7 @@ function makeAttachmentAdapter(): AttachmentAdapter {
 }
 
 /** Streams from the FastAPI backend, which emits SSE lines of
- *  {"type": "text" | "tool" | "error" | "done", ...}.
+ *  {"type": "masthead" | "text" | "tool" | "receipt" | "error" | "done", ...}.
  *
  *  The thread id is owned by the chat page (sidebar); the backend logs a
  *  provider-agnostic transcript per thread, which ThreadHydrator loads on
@@ -184,6 +184,7 @@ function makeAdapter(threadId: string): ChatModelAdapter {
       const decoder = new TextDecoder();
       let buffer = "";
       let acc = "";
+      let shown = false;
 
       const handle = (chunk: string): string | null => {
         if (!chunk.startsWith("data: ")) return null;
@@ -194,7 +195,14 @@ function makeAdapter(threadId: string): ChatModelAdapter {
           return null; // tolerate malformed lines (e.g. proxy keep-alives)
         }
         if (event.type === "text") acc += event.text;
-        else if (event.type === "tool") acc += `\n\n*🔧 ${event.name}…*\n\n`;
+        else if (event.type === "masthead") {
+          // the nameplate is kept until the first word: yielded alone it is a
+          // text part, and a message WITH a part suppresses the Empty slot
+          // components/thread.tsx puts the working indicator in — so a
+          // persona turn sits behind a bare nameplate for the whole model wait
+          acc += event.text;
+          return null;
+        } else if (event.type === "tool") acc += `\n\n*🔧 ${event.name}…*\n\n`;
         else if (event.type === "receipt") acc += receiptLine(event);
         else if (event.type === "error") acc += `\n\n> ${event.message}\n`;
         else return null;
@@ -218,6 +226,7 @@ function makeAdapter(threadId: string): ChatModelAdapter {
             // bubble and — because the message HAS a part — suppresses the
             // Empty slot components/thread.tsx puts the working indicator in.
             if (handle(chunk) !== null && acc) {
+              shown = true;
               yield { content: [{ type: "text", text: acc }] };
             }
           }
@@ -225,6 +234,11 @@ function makeAdapter(threadId: string): ChatModelAdapter {
         checkSessionRevision(owner);
         buffer += decoder.decode(); // flush a truncated tail on abrupt close
         if (buffer && handle(buffer) !== null && acc) {
+          yield { content: [{ type: "text", text: acc }] };
+        } else if (acc && !shown) {
+          // a masthead with no word after it (an empty reply, a stop before
+          // the first token): the transcript stores the nameplate, so the
+          // bubble shows it too rather than "The turn ended without a reply."
           yield { content: [{ type: "text", text: acc }] };
         }
       } finally {

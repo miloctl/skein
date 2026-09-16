@@ -99,6 +99,33 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("a persona masthead", () => {
+  it("waits for the first word instead of filling the bubble alone", async () => {
+    mocks.authenticatedFetch.mockResolvedValue(
+      ok([
+        'data: {"type":"masthead","text":"🏛️ **Backend Architect**\\n\\n"}\n\n',
+        'data: {"type":"text","text":"Start"}\n\n',
+        'data: {"type":"done"}\n\n',
+      ]),
+    );
+    await mountAndCapture();
+    // one yield, not two: a masthead-only yield is a text part, and a message
+    // with a part hides the working indicator for the whole model wait
+    expect(await drain()).toEqual(["🏛️ **Backend Architect**\n\nStart"]);
+  });
+
+  it("still shows the nameplate when no word follows it", async () => {
+    mocks.authenticatedFetch.mockResolvedValue(
+      ok([
+        'data: {"type":"masthead","text":"🏛️ **Backend Architect**\\n\\n"}\n\n',
+        'data: {"type":"done"}\n\n',
+      ]),
+    );
+    await mountAndCapture();
+    expect(await drain()).toEqual(["🏛️ **Backend Architect**\n\n"]);
+  });
+});
+
 describe("the chat SSE reader", () => {
   it("accumulates text events and yields the running transcript", async () => {
     vi.stubGlobal(

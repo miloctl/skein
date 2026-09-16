@@ -13,6 +13,7 @@ import {
   type SharedChatMessage,
 } from "@/lib/shared-chats";
 import { HASH_TARGET, useHashTarget } from "@/lib/hash-target";
+import { mentionQuery } from "@/lib/slash";
 import { timeAgo } from "@/lib/time";
 
 const POLL_MS = 2_000;
@@ -164,6 +165,7 @@ export function SharedChat({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [draft, setDraft] = useState("");
+  const [sel, setSel] = useState(0);
   const [busy, setBusy] = useState(false);
   const [hasOlder, setHasOlder] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -387,7 +389,17 @@ export function SharedChat({
         if (rows.length > 0) {
           const newest = rows.at(-1);
           latestId.current = Math.max(latestId.current, newest?.id ?? 0);
-          setMessages((current) => mergeMessages(current, rows));
+          // a slow POST can lose the race to this poll: the stored row
+          // arrives here first, and its pending twin must not stay beside it
+          setMessages((current) =>
+            mergeMessages(
+              current.filter(
+                (m) =>
+                  !(m.pending && rows.some((r) => r.author === m.author && r.content === m.content)),
+              ),
+              rows,
+            ),
+          );
           // The message id keeps consecutive same-author strings distinct —
           // identical state makes React skip the DOM write, and a live
           // region that does not mutate announces nothing.
@@ -438,6 +450,31 @@ export function SharedChat({
     const messageKey =
       retryKey.current?.message === message ? retryKey.current.key : clientKey();
     retryKey.current = { message, key: messageKey };
+    // Shown before the POST answers. The box empties at once: a draft that
+    // sits there through a slow round trip reads as a message that never
+    // went, and Enter (refused while busy) says nothing about why.
+    // +0.5 sorts the row after the newest stored id and before any later one.
+    // It cannot collide only because `busy` serialises sends: one pending
+    // row exists at a time.
+    const pendingId = latestId.current + 0.5;
+    setMessages((current) =>
+      mergeMessages(current, [
+        {
+          id: pendingId,
+          thread_id: threadId,
+          role: "user",
+          author_kind: "human",
+          author: detail?.viewer ?? "",
+          content: message,
+          created_at: new Date().toISOString(),
+          turn_id: "",
+          reply_to_message_id: null,
+          deleted_at: null,
+          pending: true,
+        },
+      ]),
+    );
+    setDraft("");
     setBusy(true);
     setError("");
     try {
@@ -453,13 +490,20 @@ export function SharedChat({
         },
       );
       latestId.current = Math.max(latestId.current, stored.id);
-      setMessages((current) => mergeMessages(current, [stored]));
+      setMessages((current) =>
+        mergeMessages(
+          current.filter((m) => m.id !== pendingId),
+          [stored],
+        ),
+      );
       retryKey.current = null;
-      setDraft("");
       markRead(stored.id);
       if (calledAgents.length) loadAgentRuns().catch(() => {});
       announceSharedChatActivity();
     } catch (caught) {
+      setMessages((current) => current.filter((m) => m.id !== pendingId));
+      // the draft comes back only if nothing new was typed meanwhile
+      setDraft((current) => (current.trim() ? current : draft));
       setError(actionError(caught));
     } finally {
       setBusy(false);
@@ -720,6 +764,19 @@ export function SharedChat({
   // the backend's leading-mention check). A mid-message mention silently
   // does nothing — surface that before the send, not after.
   const agentSlugs = agents.map((member) => member.person);
+  // "@bac" at the end of the draft: the chips row narrows to the agents that
+  // match, and Enter or Tab completes the picked one. Without it, Enter
+  // sends "@bac", which calls nobody (the backend wants the full slug).
+  const at = mentionQuery(draft);
+  const suggested = at ? agentSlugs.filter((slug) => slug.startsWith(at.token)) : [];
+  const pick = suggested[Math.min(sel, Math.max(0, suggested.length - 1))];
+  const complete = (slug: string) => {
+    retryKey.current = null;
+    setDraft((current) =>
+      current.replace(/(^|\s)@[a-z0-9._-]*$/i, (_m, lead) => `${lead}@${slug} `),
+    );
+    setSel(0);
+  };
   const calledNow = invokedAgents(draft, agentSlugs);
   const inertMention = agentSlugs.find(
     (slug) =>
@@ -1100,9 +1157,16 @@ export function SharedChat({
             const settled = run.status !== "pending" && run.status !== "running";
             return (
               <div key={run.turn_id} className="flex items-start justify-between gap-2">
-                <p className={"text-xs " + (settled ? "text-danger" : "text-ink-3")}>
-                  {runMessage(run)}
-                </p>
+                <div className="min-w-0">
+                  <p className={"text-xs " + (settled ? "text-danger" : "text-ink-3")}>
+                    {runMessage(run)}
+                  </p>
+                  {run.status === "running" && run.partial_text ? (
+                    <p className="mt-1 whitespace-pre-wrap break-words text-sm text-ink-2">
+                      {run.partial_text}
+                    </p>
+                  ) : null}
+                </div>
                 {settled ? (
                   <button
                     type="button"
@@ -1156,9 +1220,11 @@ export function SharedChat({
                   className={`flex flex-col ${mine ? "items-end" : "items-start"} ${HASH_TARGET}`}
                 >
                   <article
+                    aria-busy={message.pending || undefined}
                     className={
                       "max-w-[85%] rounded-xl px-3 py-2 text-sm " +
-                      (mine ? "bg-thread-solid text-white" : "bg-raised text-ink")
+                      (mine ? "bg-thread-solid text-white" : "bg-raised text-ink") +
+                      (message.pending ? " opacity-70" : "")
                     }
                   >
                     <p
@@ -1168,7 +1234,7 @@ export function SharedChat({
                     >
                       {message.author || "Skein"}
                       {message.author_kind === "agent" ? " · agent" : ""} ·{" "}
-                      {timeAgo(message.created_at)}
+                      {message.pending ? "Sending…" : timeAgo(message.created_at)}
                     </p>
                     {message.deleted_at ? (
                       <p className={"italic " + (mine ? "text-white/70" : "text-ink-3")}>
@@ -1243,13 +1309,31 @@ export function SharedChat({
           <div>
             {agents.length > 0 ? (
               <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs text-ink-3">
-                <span>Call an agent:</span>
-                {agents.map((member) => (
+                <span>{suggested.length ? "Enter or Tab inserts:" : "Call an agent:"}</span>
+                <div
+                  id="shared-chat-agents"
+                  role={suggested.length ? "listbox" : undefined}
+                  aria-label={suggested.length ? "Agent mentions" : undefined}
+                  className="flex flex-wrap items-center gap-1.5"
+                >
+                {(suggested.length ? agents.filter((m) => suggested.includes(m.person)) : agents).map((member) => (
                   <button
                     key={member.person}
+                    id={`agent-option-${member.person}`}
                     type="button"
-                    aria-label={`Call ${agentNames.get(member.person) || member.person} (@${member.person})`}
+                    role={suggested.length ? "option" : undefined}
+                    aria-selected={suggested.length ? member.person === pick : undefined}
+                    aria-label={
+                      suggested.length
+                        ? `Insert @${member.person}`
+                        : `Call ${agentNames.get(member.person) || member.person} (@${member.person})`
+                    }
                     onClick={() => {
+                      if (suggested.length) {
+                        complete(member.person);
+                        setTimeout(() => composerRef.current?.focus(), 0);
+                        return;
+                      }
                       retryKey.current = null;
                       setDraft((current) =>
                         addAgentMention(
@@ -1260,11 +1344,17 @@ export function SharedChat({
                       );
                       setTimeout(() => composerRef.current?.focus(), 0);
                     }}
-                    className="min-h-9 rounded-lg bg-raised px-2.5 py-1.5 font-mono text-thread hover:bg-line"
+                    className={
+                      "min-h-9 rounded-lg px-2.5 py-1.5 font-mono text-thread hover:bg-line " +
+                      (suggested.length && member.person === pick
+                        ? "bg-line ring-1 ring-thread-solid"
+                        : "bg-raised")
+                    }
                   >
                     @{member.person}
                   </button>
                 ))}
+                </div>
               </div>
             ) : null}
             {inertMention ? (
@@ -1287,16 +1377,37 @@ export function SharedChat({
                   if (retryKey.current && value.trim() !== retryKey.current.message) {
                     retryKey.current = null;
                   }
+                  setSel(0);
                   setDraft(value);
                 }}
+                aria-autocomplete={suggested.length ? "list" : undefined}
+                aria-controls={suggested.length ? "shared-chat-agents" : undefined}
+                aria-activedescendant={pick ? `agent-option-${pick}` : undefined}
                 onKeyDown={(event) => {
-                  // isComposing: Enter that commits an IME conversion must
-                  // not send a half-composed message.
-                  if (
-                    event.key === "Enter" &&
-                    !event.shiftKey &&
-                    !event.nativeEvent.isComposing
-                  ) {
+                  if (event.nativeEvent.isComposing) return;
+                  // only with something to choose: with one match the arrows
+                  // still move the caret through a multi-line draft
+                  if (suggested.length > 1 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+                    event.preventDefault();
+                    const step = event.key === "ArrowDown" ? 1 : suggested.length - 1;
+                    setSel((s) => (s + step) % suggested.length);
+                    return;
+                  }
+                  // Enter on a slug already typed in full SENDS: completing it
+                  // again only adds a space, and the first Enter looks ignored.
+                  // Tab always completes. Shift+Tab is focus movement.
+                  const completes =
+                    pick &&
+                    ((event.key === "Tab" && !event.shiftKey) ||
+                      (event.key === "Enter" && !event.shiftKey && pick !== at?.token));
+                  if (completes) {
+                    event.preventDefault();
+                    complete(pick);
+                    return;
+                  }
+                  // isComposing (above): Enter that commits an IME conversion
+                  // must not send a half-composed message.
+                  if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
                     send();
                   }

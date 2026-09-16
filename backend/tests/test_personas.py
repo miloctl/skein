@@ -1,5 +1,7 @@
 """The Bench: persona registry, /as invocation, per-persona identity."""
 
+import json
+
 from app.agents import commands
 from app.agents.identity import agent_identity, reset_agent_identity, set_agent_identity
 from app.services import personas
@@ -117,6 +119,12 @@ def test_masthead_and_disclosure_on_fresh_thread(client):
     out = _read_chat(client, "/as growth-mentor note: thinking about goals")
     assert "Growth Mentor" in out  # route-emitted masthead, provider-agnostic
     assert "chat isn" in out  # privacy disclosure for growth personas
+    # its own frame type: a "text" frame fills the bubble and hides the
+    # working indicator for the whole model wait (app/runtime-provider.tsx)
+    frames = [json.loads(f[6:]) for f in out.split("\n\n") if f.startswith("data: ")]
+    assert frames[0]["type"] == "masthead"
+    assert "Growth Mentor" in frames[0]["text"]
+    assert all("Growth Mentor" not in f.get("text", "") for f in frames[1:])
 
 
 def test_bench_slugs_are_reserved_names(client, fresh_db):

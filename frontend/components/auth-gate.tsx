@@ -6,7 +6,7 @@ import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from "rea
 import type { CSSProperties } from "react";
 
 import { getUser, subscribeUser } from "@/lib/api";
-import { authConfig, bootstrapSession, isSignedIn, sessionEnd, sessionSnapshot, signIn, signOut, subscribeSession } from "@/lib/auth";
+import { authConfig, bootstrapSession, sessionEnd, sessionLocked, sessionSnapshot, signIn, signOut, subscribeSession } from "@/lib/auth";
 import { setGated } from "@/lib/gated";
 import { signedOutLine } from "@/lib/whimsy";
 
@@ -92,7 +92,6 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     authConfig().then((c) => setMode(c.mode));
   }, []);
-  const signedIn = useSyncExternalStore(subscribeUser, isSignedIn, () => false);
   const session = useSyncExternalStore(subscribeSession, sessionSnapshot, sessionSnapshot);
   const ended = useSyncExternalStore(subscribeUser, sessionEnd, () => "");
   const pathname = usePathname();
@@ -103,7 +102,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   // where a personal key gets pasted — gating either locks the door shut.
   // The trailing slash keeps a future /authority page out of the exemption.
   const exempt = pathname.startsWith("/auth/") || pathname.startsWith("/settings");
-  const locked = (mode === "oidc" || mode === "api-key" || Boolean(session.csrf_token) || ended === "expired") && !signedIn;
+  const locked = useSyncExternalStore(subscribeSession, sessionLocked, () => false);
   const gating = locked && !exempt;
 
   // The nav and the two overlays are siblings of this component, not children,

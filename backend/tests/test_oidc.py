@@ -695,6 +695,45 @@ def test_principal_requires_the_username_claim():
     assert "SKEIN_OIDC_USERNAME_CLAIM" in str(e.value)
 
 
+def test_groups_come_from_userinfo_once_per_token_when_configured(monkeypatch):
+    # an ATM that stamps no groups into the access token: the issuer's
+    # userinfo endpoint carries them, keyed to the same subject
+    monkeypatch.setattr(config, "OIDC_GROUPS_SOURCE", "userinfo")
+    monkeypatch.setattr(oidc, "_userinfo_cache", {})
+    calls: list[str] = []
+
+    def fetched(token):
+        calls.append(token)
+        return {"sub": "abc123", "groups": ["skein-admins"]}
+
+    monkeypatch.setattr(oidc, "_fetch_userinfo", fetched)
+    claims = {"sub": "abc123", "exp": time.time() + 600, "preferred_username": "casey"}
+    assert oidc.groups(claims, "tok-1") == ["skein-admins"]
+    # a second request with the same token is answered from memory: every
+    # request re-validates the token, and a network call each time would put
+    # the identity provider on the path of every page load
+    assert oidc.groups(claims, "tok-1") == ["skein-admins"]
+    assert calls == ["tok-1"]
+    # the token's own claim is NOT consulted in this mode
+    assert oidc.groups({**claims, "groups": ["from-token"]}, "tok-1") == ["skein-admins"]
+
+
+def test_userinfo_for_another_subject_grants_nothing(monkeypatch):
+    monkeypatch.setattr(config, "OIDC_GROUPS_SOURCE", "userinfo")
+    monkeypatch.setattr(oidc, "_userinfo_cache", {})
+    monkeypatch.setattr(
+        oidc, "_fetch_userinfo", lambda token: {"sub": "someone-else", "groups": ["skein-admins"]}
+    )
+    with pytest.raises(oidc.OIDCProviderError, match="different subject"):
+        oidc.groups({"sub": "abc123", "exp": time.time() + 600}, "tok-2")
+
+
+def test_groups_default_to_the_token_claim(monkeypatch):
+    monkeypatch.setattr(oidc, "_fetch_userinfo", lambda token: pytest.fail("userinfo contacted"))
+    claims = {"sub": "abc123", "preferred_username": "casey", "groups": ["eng"]}
+    assert oidc.groups(claims, "tok-3") == ["eng"]
+
+
 def test_principal_reads_a_lone_string_groups_claim_whole():
     # some IdPs send a single group as a bare string. Splitting on spaces
     # would invent two groups out of "Domain Admins", so it is taken whole.

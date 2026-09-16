@@ -1050,6 +1050,56 @@ def test_real_turn_uses_workspace_tools_and_forces_requester_attributed_review(c
     assert "Proposal queued for human review" in reply
 
 
+def test_partial_reply_is_visible_while_the_agent_streams(client, monkeypatch):
+    """A room polls agent-runs every 2s; the reply streamed so far rides the
+    running row so the wait is not a blank "is responding…" for a minute."""
+    from app import config
+    from app.agents import team_agent
+    from app.services import shared_chat_agents
+
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    release = threading.Event()
+
+    class FakeAgent:
+        event_loop_metrics = SimpleNamespace(
+            accumulated_usage={}, accumulated_metrics={}, cycle_count=1
+        )
+        model = SimpleNamespace(get_config=lambda: {"model_id": "test-model"})
+        callback_handler = staticmethod(lambda **event: None)
+
+        def __call__(self, prompt):
+            del prompt
+            # strands calls the handler with every stream event during __call__
+            self.callback_handler(data="Half a ")
+            self.callback_handler(data="reply", delta={"text": "reply"})
+            release.wait(5)
+            return "Half a reply, then the rest."
+
+    monkeypatch.setattr(team_agent, "build_agent", lambda *_args, **_kwargs: FakeAgent())
+    agent = sorted(personas.bench_slugs())[0]
+    room, mira = create_room(client)
+    add_agent(client, room["id"], mira, agent)
+    post_message(client, room["id"], mira, f"@{agent} go", "partial", invoke_agent=agent)
+
+    def runs():
+        return client.get(f"/api/shared-chats/{room['id']}/agent-runs", headers=mira).json()
+
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline and not (runs() and runs()[-1]["partial_text"]):
+        time.sleep(0.02)
+    live = runs()[-1]
+    assert live["status"] == "running"
+    # the first delta is written at once; later ones ride the next write, one
+    # per PROGRESS_SECONDS, so the second delta above is not expected here
+    assert live["partial_text"] == "Half a "
+    release.set()
+    wait_for_terminal_run(room["id"])
+    assert shared_chat_agents.wait_for_idle(5)
+    done = runs()[-1]
+    assert done["status"] == "completed"
+    assert done["partial_text"] == ""  # the stored message is the only reply
+
+
 def test_two_turns_run_serially_against_one_agent_session(client, monkeypatch):
     from app import config
     from app.agents import team_agent

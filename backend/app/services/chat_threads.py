@@ -1164,7 +1164,7 @@ def list_shared_agent_runs(thread_id: str, person: str, *, after: int = 0) -> li
     _require_member(thread_id, person)
     select = (
         "SELECT turn_id, batch_id, trigger_message_id, response_message_id, agent, requested_by,"
-        " status, requested_at, started_at, finished_at, error_code"
+        " status, requested_at, started_at, finished_at, error_code, partial_text"
         " FROM chat_agent_runs WHERE thread_id = ? AND trigger_message_id > ?"
     )
     if after:

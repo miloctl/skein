@@ -235,7 +235,8 @@ def _resolve(
                 if claims is None:
                     claims = oidc.validate(authorization[7:])
                 issuer, subject = oidc.identity(claims)
-                display_name, groups = oidc.principal(claims)
+                display_name, _ = oidc.principal(claims)
+                groups = oidc.groups(claims, authorization[7:])
             except oidc.OIDCProviderError as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
             except oidc.OIDCUnavailable as exc:

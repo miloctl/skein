@@ -390,7 +390,8 @@ def _refresh(cookie: str, row: dict, *, mode: str) -> BrowserIdentity:
             )
             _stage_refresh(cookie, row, nonce, replacement, mode=mode)
             claims = oidc.validate(replacement["access_token"])
-        _, groups = _claims(claims, original=row)
+        _claims(claims, original=row)
+        groups = tuple(oidc.groups(claims, replacement["access_token"]))
         sealed = credentials.seal(json.dumps(replacement))
     except (oidc.OIDCUnavailable, oidc.OIDCProviderError, SessionUnavailable):
         _finish_failure(row, nonce, invalid=False)
@@ -439,8 +440,10 @@ def authenticate(cookie: str, *, mode: str) -> BrowserIdentity:
     if row["access_expires_at"] <= datetime.now(UTC).timestamp():
         return _refresh(cookie, row, mode=mode)
     try:
-        claims = oidc.validate(_unseal(row)["access_token"])
-        _, groups = _claims(claims, original=row)
+        access_token = _unseal(row)["access_token"]
+        claims = oidc.validate(access_token)
+        _claims(claims, original=row)
+        groups = tuple(oidc.groups(claims, access_token))
     except (oidc.OIDCUnavailable, oidc.OIDCProviderError):
         raise SessionUnavailable() from None
     except oidc.OIDCError:
