@@ -276,7 +276,8 @@ MESSAGE_LIMIT = 1000
 
 def list_threads(owner: str) -> list[dict]:
     return db.query(
-        "SELECT id, title, folder, engagement_id, created_at, updated_at FROM chat_threads"
+        "SELECT id, title, folder, engagement_id, model_id, created_at, updated_at"
+        " FROM chat_threads"
         " WHERE owner = ? AND kind = 'solo' ORDER BY updated_at DESC, id DESC LIMIT ?",
         (owner, THREAD_LIMIT),
     )
@@ -421,11 +422,15 @@ def _snap_folder(owner: str, wanted: str) -> str:
     return wanted
 
 
-def thread_model(thread_id: str) -> str:
+def thread_model(thread_id: str, *, raw: bool = False) -> str:
     """The /model pick for a solo chat, or empty. Ignored — never guessed —
-    when the menu no longer offers it, the same rule as the admin pick."""
+    when the menu no longer offers it, the same rule as the admin pick.
+    `raw` returns the stored id even then, so /model can REPORT the stale
+    pick instead of silently answering "team model"."""
     row = db.query_one("SELECT model_id FROM chat_threads WHERE id = ?", (thread_id,))
     picked = str(row["model_id"]) if row else ""
+    if raw:
+        return picked
     return picked if picked in config.MODELS else ""
 
 
@@ -438,10 +443,15 @@ def set_thread_model(thread_id: str, owner: str, model_id: str) -> str:
         settings.check_menu_model(model_id)
     with db.transaction():
         _own(thread_id, owner)
-        db.execute(
-            "UPDATE chat_threads SET model_id = ?, updated_at = ? WHERE id = ?",
-            (model_id, db.now(), thread_id),
+        # owner and kind in the UPDATE too: a delete between _own and here
+        # must not leave an activity row for a thread that is gone
+        changed = db.execute_rowcount(
+            "UPDATE chat_threads SET model_id = ?, updated_at = ?"
+            " WHERE id = ? AND owner = ? AND kind = 'solo'",
+            (model_id, db.now(), thread_id, owner),
         )
+        if not changed:
+            raise db.NotFound("No chat was found.")
         db.log_activity(owner, "set_chat_model", f"{thread_id}: {model_id or 'default'}")
     return model_id
 

@@ -362,7 +362,8 @@ async def _model(
         else:
             yield {"data": "This chat now uses the team model."}
         return
-    current = await run_in_threadpool(chat_threads.thread_model, thread_id)
+    stored = await run_in_threadpool(chat_threads.thread_model, thread_id, raw=True)
+    current = stored if stored in config.MODELS else ""
     team = await run_in_threadpool(model_in_force)
     state = await run_in_threadpool(settings.model_pick_state)
     if config.EFFECTIVE_PROVIDER == "mock":
@@ -381,9 +382,14 @@ async def _model(
         if current
         else f"This chat uses the team model, **{team}**."
     )
+    if stored and not current:
+        head += " The model picked here is no longer in the menu."
     if state.get("ignored"):
-        head += f" {state['ignored']}"
-    body = "\n".join(lines) or "The menu is empty. Set SKEIN_MODELS."
+        head += f" The team pick is ignored: {state['ignored']}"
+    if config.MODELS_ERROR:
+        body = "SKEIN_MODELS is unusable — fix the registry first (/health says why)."
+    else:
+        body = "\n".join(lines) or "The menu is empty. Set SKEIN_MODELS."
     yield {"data": f"{head}\n\nPick one with `/model <id>`, or `/model default`:\n\n{body}"}
 
 

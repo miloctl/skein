@@ -16,10 +16,9 @@ vi.mock("@assistant-ui/react", () => ({
   ThreadPrimitive: { Root: () => null, Viewport: () => null, Empty: () => null },
   MessagePrimitive: { Root: () => null, Parts: () => null, Attachments: () => null },
   AttachmentPrimitive: { Root: () => null, Name: () => null, Remove: () => null },
-  ComposerPrimitive: { Root: () => null, Input: () => null, Send: () => null },
+  ComposerPrimitive: { Root: () => null, Input: () => null, Send: () => null, Cancel: () => null },
   useComposer: () => ({}),
   useComposerRuntime: () => ({}),
-  useThreadRuntime: () => ({ cancelRun: () => {} }),
   useThread: (selector: (t: { messages: unknown[]; isRunning: boolean }) => unknown) =>
     selector({ messages: mocks.messages, isRunning: mocks.isRunning }),
   unstable_useComposerInputHistory: () => ({}),
@@ -77,15 +76,17 @@ describe("the working indicator", () => {
 
   it("names the refusal a failed turn carried instead of a bare ending", () => {
     mocks.messages = [{ role: "user" }];
+    // the shape the local runtime stores (toAssistantError): a plain object,
+    // not the Error the adapter threw
     render(
       <WorkingIndicator
         status={{
           type: "incomplete",
-          error: new Error("The model session is in use. Wait for the current turn to finish."),
+          error: { code: "unknown", message: "The model session is in use. Wait for the current turn to finish." },
         }}
       />,
     );
-    expect(screen.getByRole("alert").textContent).toBe(
+    expect(screen.getByRole("status").textContent).toBe(
       "The model session is in use. Wait for the current turn to finish.",
     );
     expect(screen.queryByText("The turn ended without a reply.")).toBeNull();

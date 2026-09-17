@@ -62,3 +62,30 @@ describe("a turn that never answers", () => {
     expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });
+
+function RefusedHarness() {
+  const runtime = useLocalRuntime({
+    // the backend refused before the first token; the sentence rides the
+    // thrown Error, which the runtime stores as a plain {code, message}
+    run: () =>
+      Promise.reject(new Error("The model session is in use. Wait for the current turn to finish.")),
+  });
+  return (
+    <AssistantRuntimeProvider runtime={runtime}>
+      <Thread />
+    </AssistantRuntimeProvider>
+  );
+}
+
+describe("a turn the server refused", () => {
+  it("shows the server's sentence, not a bare ending", async () => {
+    render(<RefusedHarness />);
+    fireEvent.change(composer(), { target: { value: "again" } });
+    fireEvent.keyDown(composer(), { key: "Enter" });
+    expect(
+      (await screen.findByText("The model session is in use. Wait for the current turn to finish."))
+        .getAttribute("role"),
+    ).toBe("status");
+    expect(screen.queryByText("The turn ended without a reply.")).toBeNull();
+  });
+});

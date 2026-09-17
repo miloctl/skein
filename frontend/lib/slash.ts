@@ -1,7 +1,7 @@
 // The slug-argument half of the composer's autocomplete ("/flock eng"), split
 // out as a pure function so a test pins it.
 
-export type ArgItem = { slug: string; emoji: string; description: string };
+export type ArgItem = { slug: string; emoji?: string; description: string };
 
 /**
  * The roster the composer must offer for this input, and the slug prefix
