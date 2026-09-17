@@ -93,12 +93,13 @@ def test_a_converted_task_names_the_finding_that_asked_for_it(client, fresh_db):
     users.ensure_user("mira")
     # a finding row in the shape the rules write (services/insights.py::_fire),
     # rather than hoping a rule fires against the fixture: a skipped test pins
-    # nothing, and this one exists to pin the backlink
+    # nothing, and this one exists to pin the backlink. The week is THIS week:
+    # list_findings keeps a four-week window, and a literal week left it.
     db.execute(
         "INSERT INTO findings (rule_id, severity, subject, message, receipt, week, created_at)"
         " VALUES ('aging_wip', 'medium', 'task-1', 'Three tasks have sat in progress"
-        " for over two weeks.', '{}', '2026-W33', ?)",
-        (db.now(),),
+        " for over two weeks.', '{}', ?, ?)",
+        (insights._week(), db.now()),
     )
     found = insights.list_findings()
     assert found, "the fixture must file exactly one finding"
