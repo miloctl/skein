@@ -111,11 +111,15 @@ def test_a_finding_that_already_fired_is_not_new(client, fresh_db):
         (old,),
     )
     delta.brief("ava", _viewer(), mark=True)
-    # the same rule and subject fires again in a later week
+    # the same rule and subject fires again THIS week (a literal week ages out
+    # of list_findings' four-week window, and the test then passes with the
+    # row unseen, pinning nothing)
+    from app.services import insights
+
     db.execute(
         "INSERT INTO findings (rule_id, severity, subject, message, receipt, week, created_at)"
-        " VALUES ('aging_wip', 'medium', 'task-1', 'same news again', '{}', '2026-W33', ?)",
-        (db.now(),),
+        " VALUES ('aging_wip', 'medium', 'task-1', 'same news again', '{}', ?, ?)",
+        (insights._week(), db.now()),
     )
     assert not any(
         "same news again" in i["headline"] for i in delta.brief("ava", _viewer())["items"]
