@@ -216,3 +216,98 @@ def test_remember_in_a_linked_thread_files_an_engagement_proposal(client):
 def test_remember_in_an_unlinked_thread_stays_a_direct_team_memory(client):
     out = _read_chat(client, "/remember demos every Friday")
     assert "Remembered" in out
+
+
+def _menu(monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "MODEL_PROVIDER", "openai_compatible")
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "openai_compatible")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr(config, "MODEL_ID", "team-default")
+    monkeypatch.setattr(config, "MODELS_ERROR", "")
+    entry = {
+        "label": "",
+        "detail": "",
+        "max_tokens": None,
+        "context_tokens": None,
+        "price": None,
+        "params": {},
+        "attachments": None,
+    }
+    monkeypatch.setattr(
+        config,
+        "MODELS",
+        {
+            "team-default": {**entry, "id": "team-default"},
+            "mini": {**entry, "id": "mini", "label": "mini", "detail": "cheap and quick"},
+        },
+    )
+
+
+def test_model_command_names_the_mock_provider(client, fresh_db):
+    assert "mock provider" in _read_chat(client, "/model")
+
+
+def test_model_command_lists_the_menu_and_picks_per_chat(client, fresh_db, monkeypatch):
+    from app.services import chat_threads
+
+    _menu(monkeypatch)
+    out = _read_chat(client, "/model")
+    assert "team model, **team-default**" in out
+    assert "mini" in out and "cheap and quick" in out
+    out = _read_chat(client, "/model mini")
+    assert "now uses **mini**" in out
+    assert chat_threads.thread_model("t") == "mini"
+    # per chat: another thread stays on the team model
+    assert chat_threads.thread_model("other") == ""
+    assert "**mini** (picked here)" in _read_chat(client, "/model")
+    assert "team model" in _read_chat(client, "/model default")
+    assert chat_threads.thread_model("t") == ""
+
+
+def test_model_command_refuses_an_unknown_id_without_echoing_it(client, fresh_db, monkeypatch):
+    from app.services import chat_threads
+
+    _menu(monkeypatch)
+    out = _read_chat(client, "/model gpt-nope")
+    assert "not changed" in out and "expected one of" in out
+    assert "gpt-nope" not in out
+    assert chat_threads.thread_model("t") == ""
+
+
+def test_model_command_needs_a_chat(fresh_db):
+    import asyncio
+
+    async def first():
+        stream = commands.dispatch("/model", "tester")
+        assert stream is not None
+        async for event in stream:
+            if "data" in event:
+                return event["data"]
+        return ""
+
+    assert "inside a chat" in asyncio.run(first())
+
+
+def test_the_chat_pick_reaches_the_agent_build(client, fresh_db, monkeypatch):
+    """The pick outranks the persona default and the team pick: it is the one
+    explicit choice in the ladder (routes/chat.py resolved_model)."""
+    from app.services import chat_threads
+
+    _menu(monkeypatch)
+    chat_threads.claim_thread("t", "tester")
+    chat_threads.set_thread_model("t", "tester", "mini")
+    seen: dict = {}
+
+    class Quiet:
+        async def stream_async(self, message):
+            yield {"data": "ok"}
+
+    def build(*_args, **kwargs):
+        seen.update(kwargs)
+        return Quiet()
+
+    monkeypatch.setattr("app.routes.chat.build_agent", build)
+    _read_chat(client, "hello")
+    assert seen["resolved_model"] == "mini"

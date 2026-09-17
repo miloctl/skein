@@ -1077,6 +1077,8 @@ VERBS: dict[str, tuple[str, str]] = {
     "set_agent_automation": ("changed whether unattended agent runs happen", "loud"),
     # loud like the strategy above: it changes what every chat costs
     "set_model_pick": ("changed the team model", "loud"),
+    # normal, not loud: one chat's cost changes, nobody else's
+    "set_chat_model": ("picked a model for one chat", "normal"),
     "backup": ("took a manual backup", "normal"),
     # The portable file leaves Skein with workspace and crew work in it.
     "export": ("exported portable work data", "loud"),
