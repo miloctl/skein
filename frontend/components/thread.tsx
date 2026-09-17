@@ -18,7 +18,6 @@ import {
   useComposer,
   useComposerRuntime,
   useThread,
-  useThreadRuntime,
   unstable_useComposerInputHistory,
   unstable_useThreadMessageIds,
 } from "@assistant-ui/react";
@@ -27,7 +26,7 @@ import remarkGfm from "remark-gfm";
 
 import { MermaidDiagram } from "@/components/mermaid-diagram";
 import { useTranscriptHistory } from "@/app/runtime-provider";
-import { api } from "@/lib/api";
+import { api, getUser } from "@/lib/api";
 import { argQuery, mentionQuery, type ArgItem } from "@/lib/slash";
 import { reportStatus } from "@/lib/status";
 import {
@@ -185,14 +184,17 @@ export const WorkingIndicator = ({
     // the sentence the backend refused with (a 503 "model session is in
     // use", a rate cap) is the whole answer; without it the bubble said a
     // turn had ended and nothing said why
+    // the local runtime stores toAssistantError(e): a plain {code, message}
+    // object, never the Error the adapter threw, so instanceof finds nothing
+    const raw = status.error;
     const said =
-      status.error instanceof Error
-        ? status.error.message
-        : typeof status.error === "string"
-          ? status.error
+      typeof raw === "string"
+        ? raw
+        : raw && typeof raw === "object" && typeof (raw as { message?: unknown }).message === "string"
+          ? (raw as { message: string }).message
           : "";
     return (
-      <p role={said ? "alert" : undefined} className="text-sm text-ink-3">
+      <p role={said ? "status" : undefined} className="text-sm text-ink-3">
         {said || "The turn ended without a reply."}
       </p>
     );
@@ -249,6 +251,10 @@ type SlashCommand = {
   mention?: string;
   group?: string;
 };
+
+// "[x]" is an optional argument: Enter on the bare command runs it (the
+// /model listing) instead of parking the caret for a slug that need not come
+const optionalArgs = (args: string) => args.startsWith("[");
 
 // shipped set as a fallback so autocomplete works even if the catalog
 // fetch fails; the backend response replaces it and is the source of truth
@@ -390,7 +396,6 @@ function modelList(): Promise<ArgItem[]> {
       .then((r) =>
         (r.menu ?? []).map((m) => ({
           slug: m.id,
-          emoji: "",
           description: [m.label !== m.id ? m.label : "", m.detail].filter(Boolean).join(" — "),
         })),
       )
@@ -418,7 +423,6 @@ function flockList(): Promise<Flock[]> {
 const Composer = () => {
   const text = useComposer((s) => s.text);
   const composer = useComposerRuntime();
-  const thread = useThreadRuntime();
   const running = useThread((t) => t.isRunning);
   const [commands, setCommands] = useState<SlashCommand[]>(FALLBACK_COMMANDS);
   const [personas, setPersonas] = useState<Persona[]>([]);
@@ -507,9 +511,10 @@ const Composer = () => {
     flockList()
       .then(setFlocks)
       .catch(() => {});
-    modelList()
-      .then(setModels)
-      .catch(() => {});
+    if (getUser() !== "anonymous")
+      modelList()
+        .then(setModels)
+        .catch(() => {});
     peopleList()
       .then(setPeople)
       .catch(() => {});
@@ -602,9 +607,12 @@ const Composer = () => {
           .filter((x) => x.slug.startsWith(arg.token))
           .map((x) => ({
             name: `${arg.cmd} ${x.slug}`,
-            // a /model row is the whole command; every other roster row still
-            // wants the message that follows the slug
-            args: arg.cmd === "model" ? "" : "<message>",
+            // what the command declares after its slug: "<persona> <message>"
+            // leaves "<message>", "[model]" leaves nothing and the row sends
+            args: (commands.find((c) => c.name === arg.cmd)?.args ?? "")
+              .split(/\s+/)
+              .slice(1)
+              .join(" "),
             description: x.description,
           }))
       : cmdToken === null
@@ -675,7 +683,7 @@ const Composer = () => {
     // "[model]" is an OPTIONAL argument: Enter on the bare command runs it
     // (the listing) instead of parking the caret for a slug that need not
     // come. A required "<x>" still fills the command and waits.
-    if (c.args && !c.args.startsWith("[")) {
+    if (c.args && !optionalArgs(c.args)) {
       composer.setText(`/${c.name} `);
     } else {
       composer.setText(`/${c.name}`);
@@ -725,7 +733,7 @@ const Composer = () => {
       // command that does not exist
       if (active?.mention) run(active);
       else if (active)
-        composer.setText(`/${active.name}${active.args ? " " : ""}`);
+        composer.setText(`/${active.name}${active.args && !optionalArgs(active.args) ? " " : ""}`);
     } else if (e.key === "Escape") {
       e.stopPropagation();
       setDismissed(true);
@@ -876,7 +884,6 @@ const Composer = () => {
           // answers made that forever: Stop aborts the fetch, which ends
           // the backend turn and frees the thread for the next message
           <ComposerPrimitive.Cancel
-            onClick={() => thread.cancelRun()}
             className="rounded-lg border border-line-strong px-4 py-2 text-sm font-medium text-ink transition hover:bg-raised"
           >
             Stop

@@ -1415,7 +1415,11 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
             user,
             cost=len(flock_def["members"]) + int(flock_def["synthesis"]) - 1,
         )
-        team_model = await run_in_threadpool(model_in_force)
+        # the person's /model pick applies here as on the solo path; a member
+        # with its own persona model still wins through model_in_force
+        team_model = await run_in_threadpool(chat_threads.thread_model, ui_thread) or (
+            await run_in_threadpool(model_in_force)
+        )
         # the turn guard is skipped on purpose: it re-prompts ONE agent to file
         # what a filing-shaped message asked for, and a flock turn has N heads
         # and no write path of its own (docs/FLOCKS.md)

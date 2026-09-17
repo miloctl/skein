@@ -105,7 +105,9 @@ def reset_team_model_snapshot(token: Token[str | None]) -> None:
 def model_in_force(persona_model: str = "") -> str:
     """The model id in force: explicit > turn snapshot > admin pick > env.
 
-    The explicit value covers persona and vision models. The snapshot freezes
+    The explicit value covers the chat's own /model pick (routes/chat.py,
+    which outranks a persona's model), persona and vision models. The
+    snapshot freezes
     only the team default, so nested planners and titles do not inherit a
     persona model.
     """
@@ -131,8 +133,9 @@ def _model(model_id: str = "", temperature: float | None = None):
 
     Model id precedence, resolved here and nowhere else so the planner,
     summarizer, and consult paths all inherit it:
-    persona > admin pick > SKEIN_MODEL_ID > provider default (the last two
-    are already folded into config.MODEL_ID).
+    chat pick (routes/chat.py resolved_model) > persona > admin pick >
+    SKEIN_MODEL_ID > provider default (the last two are already folded
+    into config.MODEL_ID).
 
     Params precedence per key: SKEIN_MODEL_PARAMS < the registry entry
     (typed fields AND params) < persona overrides — each layer is the more

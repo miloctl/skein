@@ -290,6 +290,49 @@ def test_model_command_needs_a_chat(fresh_db):
     assert "inside a chat" in asyncio.run(first())
 
 
+def test_the_chat_pick_outranks_a_persona_model(client, fresh_db, monkeypatch):
+    from app.agents import team_agent
+    from app.services import chat_threads, personas
+
+    _menu(monkeypatch)
+    chat_threads.claim_thread("t", "tester")
+    chat_threads.set_thread_model("t", "tester", "mini")
+    real = personas.behavior
+
+    def with_model(slug):
+        return {**real(slug), "model": "team-default"}
+
+    monkeypatch.setattr("app.routes.chat.personas.behavior", with_model)
+    seen: dict = {}
+
+    class Quiet:
+        async def stream_async(self, message):
+            yield {"data": "ok"}
+
+    def build(*_args, **kwargs):
+        seen.update(kwargs)
+        return Quiet()
+
+    monkeypatch.setattr(team_agent, "build_agent", build)
+    monkeypatch.setattr("app.routes.chat.build_agent", build)
+    _read_chat(client, "/as growth-mentor hello")
+    assert seen["resolved_model"] == "mini"
+
+
+def test_a_pick_that_left_the_menu_is_reported_not_guessed(client, fresh_db, monkeypatch):
+    from app import config
+    from app.services import chat_threads
+
+    _menu(monkeypatch)
+    chat_threads.claim_thread("t", "tester")
+    chat_threads.set_thread_model("t", "tester", "mini")
+    monkeypatch.setattr(config, "MODELS", {"team-default": config.MODELS["team-default"]})
+    assert chat_threads.thread_model("t") == ""
+    out = _read_chat(client, "/model")
+    assert "team model" in out
+    assert "no longer in the menu" in out
+
+
 def test_the_chat_pick_reaches_the_agent_build(client, fresh_db, monkeypatch):
     """The pick outranks the persona default and the team pick: it is the one
     explicit choice in the ladder (routes/chat.py resolved_model)."""
