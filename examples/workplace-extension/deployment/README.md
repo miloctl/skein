@@ -30,15 +30,15 @@ rm -rf dist
 mkdir -p dist
 uv build --wheel --out-dir dist .
 python -m pip download --no-deps --dest dist \
-  skein-agents==0.6.0 \
+  skein-agents==0.6.1 \
   --index-url https://pypi.org/simple
 npm pack @miloctl/skein-extension-api@1.0.0 --pack-destination dist
-npm pack @miloctl/skein-frontend-host@0.6.0 --pack-destination dist
+npm pack @miloctl/skein-frontend-host@0.6.1 --pack-destination dist
 ```
 
 The `@miloctl` npm packages are public on npmjs.com. No registry token is needed.
 
-The Dockerfiles require the exact `0.6.0`, `1.0.0`, and `2.0.0` artifact names. A clean `dist` directory prevents an old artifact from entering the build. The Dockerfiles pin each base image by digest. Before deployment, replace each zero application-image digest with the digest from the reviewed registry image.
+The Dockerfiles require the exact `0.6.1`, `1.0.0`, and `2.0.0` artifact names. A clean `dist` directory prevents an old artifact from entering the build. The Dockerfiles pin each base image by digest. Before deployment, replace each zero application-image digest with the digest from the reviewed registry image.
 
 Regenerate `package-lock.json` with Node 22 after an npm artifact changes bytes. Regenerate each Python lock after its dependency graph changes.
 
