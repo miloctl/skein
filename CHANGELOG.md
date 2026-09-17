@@ -22,6 +22,25 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+## 0.6.1 — 2026-09-17
+
+### Contracts
+
+- No change to extension API 1.0, `app.extensions`, `app.public`, or the compatibility declarations. A package that loads on core 0.6.0 loads on this release unchanged.
+
+### Behavior
+
+- In a private shared chat, an `@` followed by the first letters of an invited agent narrows the agent chips to the matches. Enter, Tab, or a click completes the picked one. A slug typed in full sends on the first Enter. A sent message shows at once as "Sending…" and the box empties before the server answers. If the send fails, the draft comes back with the error.
+- While a shared-chat agent answers, the room shows the reply streamed so far under the agent's status line, refreshed by the 2-second poll. The stored message stays the only durable reply.
+- In solo chat, a specialist's nameplate joins the first word of the reply, so the working indicator stays visible through the model wait.
+- A stale browser session cookie reaches the sign-in gate once. The nav no longer polls attention while the session is locked, which removed a sign-out loop.
+
+### Operations
+
+- `SKEIN_OIDC_GROUPS_SOURCE=userinfo` reads the groups claim from the issuer's userinfo endpoint once per access token, with the `sub` checked against the token. `SKEIN_OIDC_USERINFO_URL` overrides the discovery document. The default `token` reads the access token as before.
+- Migration 030 adds `chat_agent_runs.partial_text`. It applies at startup.
+- The solo-chat stream answers with `Cache-Control: no-cache` and `X-Accel-Buffering: no`, so a buffering edge delivers frames as they are sent.
+
 ## 0.6.0 — 2026-09-08
 
 ### Contracts
