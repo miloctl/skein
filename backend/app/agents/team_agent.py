@@ -189,6 +189,11 @@ def _model(model_id: str = "", temperature: float | None = None):
             # local servers ignore it, but the openai client demands one
             client_args["api_key"] = "not-needed"
         client_args["timeout"] = _client_timeout()
+        # the SDK default is 2, and each retry re-waits the whole read
+        # timeout on a provider that accepts and never answers: 300s became
+        # 15 minutes of a turn nothing could interrupt. One retry keeps a
+        # transient 429 or 5xx recoverable.
+        client_args["max_retries"] = 1
         # No max_tokens here on purpose — the registry entry's included: the
         # SDK splats params straight into chat.completions.create, and
         # reasoning models (gpt-5 included) reject max_tokens in favour of
@@ -236,6 +241,7 @@ def _model(model_id: str = "", temperature: float | None = None):
 
         client_args = {"api_key": key} if key else {}
         client_args["timeout"] = _client_timeout()
+        client_args["max_retries"] = 1  # same reason as the openai branch
         return AnthropicModel(
             client_args=client_args,
             model_id=mid,

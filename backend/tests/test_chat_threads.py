@@ -539,3 +539,19 @@ def test_a_folder_differing_only_in_accent_case_is_the_same_folder(client):
     chat_threads.create_folder("ava", "été")
     folders = chat_threads.list_folders("ava")
     assert folders.count("Été") + folders.count("été") == 1, folders
+
+
+def test_a_held_turn_answers_with_its_own_sentence(client, fresh_db):
+    """A turn still running is not a busy database. The generic 503 sent the
+    reader to wait for a database that was fine, while the provider hang
+    holding the turn was the thing to stop."""
+    from app.services import chat_threads
+
+    chat_threads.claim_thread("t-held", "tester")
+    chat_threads.start_model_turn("t-held")
+    response = client.post("/api/chat", json={"thread_id": "t-held", "message": "again"})
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "5"
+    assert response.json()["detail"] == (
+        "The model session is in use. Wait for the current turn to finish."
+    )

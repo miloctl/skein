@@ -14,12 +14,12 @@ import time
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
-from .. import config, ratelimit
+from .. import config, db, ratelimit
 from ..agents import commands, receipts, session_log, turn_guard
 from ..agents.identity import (
     reset_agent_identity,
@@ -1478,11 +1478,20 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
     # Freeze the TEAM default separately. A persona still wins for the outer
     # agent, while nested planners and titles stay on the team model.
     team_model = await run_in_threadpool(model_in_force)
-    resolved_model = persona_model or team_model
+    # the person's own /model pick for this chat outranks a persona's default:
+    # it is the one explicit choice in the ladder, and /model default undoes it
+    thread_model = await run_in_threadpool(chat_threads.thread_model, ui_thread)
+    resolved_model = thread_model or persona_model or team_model
     prompt, attached = await run_in_threadpool(
         _attachment_prompt, message, req.attachments, user, resolved_model
     )
-    turn_key = await run_in_threadpool(chat_threads.start_model_turn, thread_id)
+    try:
+        turn_key = await run_in_threadpool(chat_threads.start_model_turn, thread_id)
+    except db.ResourceBusy as exc:
+        # its own sentence, not the generic database_busy_handler one: a turn
+        # still running (or a provider hang holding it) is not a busy database,
+        # and "the database is busy" sends the reader to the wrong fix
+        raise HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "5"}) from exc
     try:
         with leases.held(turn_key):
             # threadpool, not inline: build_agent restores the whole session

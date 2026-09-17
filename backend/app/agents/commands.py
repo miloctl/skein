@@ -326,6 +326,67 @@ async def _personas(
     }
 
 
+async def _model(
+    args: str, user: str, viewer: scope.Viewer, access: CommandAccess | None
+) -> AsyncIterator[Event]:
+    """`/model` lists the menu and names the model this chat runs on;
+    `/model <id>` picks one for THIS chat; `/model default` clears it.
+
+    The pick is per chat, not per person: a person's cost lands on the
+    thread's engagement, and a thread-scoped choice is what the usage row
+    already records (services/usage.py reads the built agent's model)."""
+    from ..agents.team_agent import model_in_force
+    from ..services import chat_threads, settings
+
+    yield _tool_event("chat_model")
+    thread_id = access.thread_id if access else ""
+    if not thread_id:
+        yield {"data": "Run `/model` inside a chat."}
+        return
+    want = args.strip()
+    if want:
+        try:
+            picked = await run_in_threadpool(
+                chat_threads.set_thread_model,
+                thread_id,
+                user,
+                "" if want.lower() == "default" else want,
+            )
+        except ValueError as exc:
+            yield {"data": f"The model was not changed: {exc}."}
+            return
+        if picked:
+            yield {
+                "data": f"This chat now uses **{picked}**. `/model default` returns it to the team model."
+            }
+        else:
+            yield {"data": "This chat now uses the team model."}
+        return
+    current = await run_in_threadpool(chat_threads.thread_model, thread_id)
+    team = await run_in_threadpool(model_in_force)
+    state = await run_in_threadpool(settings.model_pick_state)
+    if config.EFFECTIVE_PROVIDER == "mock":
+        yield {"data": "This deployment runs the mock provider, which has no model menu."}
+        return
+    menu = sorted(config.MODELS.values(), key=lambda m: m["id"])
+    in_force = current or team
+    lines = [
+        f"- {'**' if m['id'] == in_force else ''}{m['id']}{'**' if m['id'] == in_force else ''}"
+        + (f" — {m['label']}" if m.get("label") and m["label"] != m["id"] else "")
+        + (f": {m['detail']}" if m.get("detail") else "")
+        for m in menu
+    ]
+    head = (
+        f"This chat uses **{current}** (picked here)."
+        if current
+        else f"This chat uses the team model, **{team}**."
+    )
+    if state.get("ignored"):
+        head += f" {state['ignored']}"
+    body = "\n".join(lines) or "The menu is empty. Set SKEIN_MODELS."
+    yield {"data": f"{head}\n\nPick one with `/model <id>`, or `/model default`:\n\n{body}"}
+
+
 async def _flocks(
     args: str, user: str, viewer: scope.Viewer, access: CommandAccess | None
 ) -> AsyncIterator[Event]:
@@ -462,6 +523,14 @@ COMMANDS: list[dict] = [
         "args": "",
         "description": "List the flocks — groups of personas you can call at one time",
         "handler": _flocks,
+    },
+    {
+        "name": "model",
+        # brackets: optional. The composer runs the bare command on Enter
+        # (components/thread.tsx run) instead of waiting for the argument.
+        "args": "[model]",
+        "description": "Pick the model for this chat from the menu, or list the menu",
+        "handler": _model,
     },
     # handler None: resolved by the chat route (needs the agent layer);
     # listed here so autocomplete and /help stay a single source of truth

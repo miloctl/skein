@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 /** The wait before an assistant's first word is real and used to be invisible:
@@ -19,6 +19,7 @@ vi.mock("@assistant-ui/react", () => ({
   ComposerPrimitive: { Root: () => null, Input: () => null, Send: () => null },
   useComposer: () => ({}),
   useComposerRuntime: () => ({}),
+  useThreadRuntime: () => ({ cancelRun: () => {} }),
   useThread: (selector: (t: { messages: unknown[]; isRunning: boolean }) => unknown) =>
     selector({ messages: mocks.messages, isRunning: mocks.isRunning }),
   unstable_useComposerInputHistory: () => ({}),
@@ -38,7 +39,7 @@ vi.mock("@/lib/persona", () => ({
 }));
 
 import { reportStatus } from "@/lib/status";
-import { Thread, WorkingIndicator } from "@/components/thread";
+import { LONG_WAIT_S, Thread, WorkingIndicator } from "@/components/thread";
 
 describe("the working indicator", () => {
   it("says the turn is thinking when nothing was attached", () => {
@@ -72,6 +73,38 @@ describe("the working indicator", () => {
     expect(container.querySelectorAll(".working-dot")).toHaveLength(0);
     expect(screen.queryByText("Thinking…")).toBeNull();
     expect(screen.getByText("The turn ended without a reply.")).toBeTruthy();
+  });
+
+  it("names the refusal a failed turn carried instead of a bare ending", () => {
+    mocks.messages = [{ role: "user" }];
+    render(
+      <WorkingIndicator
+        status={{
+          type: "incomplete",
+          error: new Error("The model session is in use. Wait for the current turn to finish."),
+        }}
+      />,
+    );
+    expect(screen.getByRole("alert").textContent).toBe(
+      "The model session is in use. Wait for the current turn to finish.",
+    );
+    expect(screen.queryByText("The turn ended without a reply.")).toBeNull();
+  });
+
+  it("says the wait is unusual after thirty seconds and points to Stop", () => {
+    vi.useFakeTimers();
+    try {
+      mocks.messages = [{ role: "user" }];
+      render(<WorkingIndicator status={{ type: "running" }} />);
+      expect(screen.queryByRole("status")).toBeNull();
+      act(() => vi.advanceTimersByTime(LONG_WAIT_S * 1000));
+      expect(screen.getByRole("status").textContent).toBe(
+        "The model has not answered yet. Press Stop to send a new message.",
+      );
+      expect(screen.getByText("Thinking…")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("still shows the dots while the turn is running", () => {

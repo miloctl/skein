@@ -102,6 +102,21 @@ def set_agent_automation(enabled: bool, *, actor: str) -> dict:
 MODEL_PICK = "model_pick"
 
 
+def check_menu_model(model_id: str) -> None:
+    """Refuse an id the menu does not offer. Shared by the admin pick and
+    the per-chat /model pick: agents/team_agent.py::_model passes an unknown
+    id to the provider untouched, so this is the only refusal there is."""
+    if config.EFFECTIVE_PROVIDER == "mock":
+        raise ValueError("the mock provider runs no real model — configure a model provider first")
+    if config.MODELS_ERROR:
+        raise ValueError("SKEIN_MODELS is unusable — fix the registry first (/health says why)")
+    if not config.MODELS:
+        raise ValueError("no model menu is configured — set SKEIN_MODELS")
+    if model_id not in config.MODELS:
+        # never echo the submitted id back — list the menu instead
+        raise ValueError(f"unknown model — expected one of: {', '.join(sorted(config.MODELS))}")
+
+
 def set_model_pick(model_id: str, *, actor: str) -> dict:
     """Empty clears the pick and returns the deployment to SKEIN_MODEL_ID.
 
@@ -110,17 +125,7 @@ def set_model_pick(model_id: str, *, actor: str) -> dict:
     """
     model_id = (model_id or "").strip()
     if model_id:
-        if config.EFFECTIVE_PROVIDER == "mock":
-            raise ValueError(
-                "the mock provider runs no real model — configure a model provider first"
-            )
-        if config.MODELS_ERROR:
-            raise ValueError("SKEIN_MODELS is unusable — fix the registry first (/health says why)")
-        if not config.MODELS:
-            raise ValueError("no model menu is configured — set SKEIN_MODELS")
-        if model_id not in config.MODELS:
-            # never echo the submitted id back — list the menu instead
-            raise ValueError(f"unknown model — expected one of: {', '.join(sorted(config.MODELS))}")
+        check_menu_model(model_id)
         # provider recorded WITH the pick: a later provider switch must
         # invalidate it (the id means nothing on another endpoint), and the
         # read side can only tell if the write side says which provider the

@@ -18,6 +18,7 @@ import {
   useComposer,
   useComposerRuntime,
   useThread,
+  useThreadRuntime,
   unstable_useComposerInputHistory,
   unstable_useThreadMessageIds,
 } from "@assistant-ui/react";
@@ -161,28 +162,61 @@ const UserMessage = () => (
  *  status the slot passes is what tells the two apart.
  *
  *  Exported for __tests__/chat-working-indicator.test.tsx. */
-export const WorkingIndicator = ({ status }: { status?: { type: string } }) => {
+// seconds of silence before the indicator says the wait is unusual. A
+// thinking model is silent for a few seconds; a provider that accepts the
+// request and never answers is silent for the whole read timeout.
+export const LONG_WAIT_S = 30;
+
+export const WorkingIndicator = ({
+  status,
+}: {
+  status?: { type: string; error?: unknown };
+}) => {
   const readingFile = useThread((t) => {
     const last = [...t.messages].reverse().find((m) => m.role === "user");
     return (last?.attachments?.length ?? 0) > 0;
   });
-  if (status && status.type !== "running")
+  const [long, setLong] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setLong(true), LONG_WAIT_S * 1000);
+    return () => clearTimeout(t);
+  }, []);
+  if (status && status.type !== "running") {
+    // the sentence the backend refused with (a 503 "model session is in
+    // use", a rate cap) is the whole answer; without it the bubble said a
+    // turn had ended and nothing said why
+    const said =
+      status.error instanceof Error
+        ? status.error.message
+        : typeof status.error === "string"
+          ? status.error
+          : "";
     return (
-      <p className="text-sm text-ink-3">The turn ended without a reply.</p>
+      <p role={said ? "alert" : undefined} className="text-sm text-ink-3">
+        {said || "The turn ended without a reply."}
+      </p>
     );
+  }
   return (
-    <p className="flex items-center gap-2 text-sm text-ink-3">
-      <span aria-hidden className="flex gap-1">
-        <span className="working-dot size-1.5 rounded-full bg-ink-3" />
-        <span className="working-dot size-1.5 rounded-full bg-ink-3" />
-        <span className="working-dot size-1.5 rounded-full bg-ink-3" />
-      </span>
-      {/* aria-live so a screen reader is told the turn is working rather than
-          left on a silent empty message */}
-      <span aria-live="polite">
-        {readingFile ? "Reading the attachment…" : "Thinking…"}
-      </span>
-    </p>
+    <div className="text-sm text-ink-3">
+      <p className="flex items-center gap-2">
+        <span aria-hidden className="flex gap-1">
+          <span className="working-dot size-1.5 rounded-full bg-ink-3" />
+          <span className="working-dot size-1.5 rounded-full bg-ink-3" />
+          <span className="working-dot size-1.5 rounded-full bg-ink-3" />
+        </span>
+        {/* aria-live so a screen reader is told the turn is working rather than
+            left on a silent empty message */}
+        <span aria-live="polite">
+          {readingFile ? "Reading the attachment…" : "Thinking…"}
+        </span>
+      </p>
+      {long && (
+        <p role="status" className="mt-1">
+          The model has not answered yet. Press Stop to send a new message.
+        </p>
+      )}
+    </div>
   );
 };
 
@@ -232,6 +266,11 @@ const FALLBACK_COMMANDS: SlashCommand[] = [
     description: "Instantiate a playbook as a new engagement",
   },
   { name: "playbooks", args: "", description: "List available playbooks" },
+  {
+    name: "model",
+    args: "[model]",
+    description: "Pick the model for this chat from the menu, or list the menu",
+  },
   {
     name: "remember",
     args: "<fact>",
@@ -341,6 +380,29 @@ function peopleList(): Promise<Person[]> {
 // shows — a flock is picked by slug here, not inspected.
 type Flock = { slug: string; description: string; emoji: string };
 
+// the menu GET /api/settings/model serves every named person (the same
+// projection the Settings page renders); "/model <id>" completes from it
+type MenuModel = { id: string; label?: string; detail?: string };
+let modelsCache: Promise<ArgItem[]> | null = null;
+function modelList(): Promise<ArgItem[]> {
+  if (!modelsCache) {
+    const attempt = api<{ menu?: MenuModel[] }>("/api/settings/model")
+      .then((r) =>
+        (r.menu ?? []).map((m) => ({
+          slug: m.id,
+          emoji: "",
+          description: [m.label !== m.id ? m.label : "", m.detail].filter(Boolean).join(" — "),
+        })),
+      )
+      .catch((e) => {
+        if (modelsCache === attempt) modelsCache = null;
+        throw e;
+      });
+    modelsCache = attempt;
+  }
+  return modelsCache;
+}
+
 let flocksCache: Promise<Flock[]> | null = null;
 function flockList(): Promise<Flock[]> {
   if (!flocksCache) {
@@ -356,9 +418,12 @@ function flockList(): Promise<Flock[]> {
 const Composer = () => {
   const text = useComposer((s) => s.text);
   const composer = useComposerRuntime();
+  const thread = useThreadRuntime();
+  const running = useThread((t) => t.isRunning);
   const [commands, setCommands] = useState<SlashCommand[]>(FALLBACK_COMMANDS);
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [flocks, setFlocks] = useState<Flock[]>([]);
+  const [models, setModels] = useState<ArgItem[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
   const [consultReady, setConsultReady] = useState(false);
   const [sel, setSel] = useState(0);
@@ -442,6 +507,9 @@ const Composer = () => {
     flockList()
       .then(setFlocks)
       .catch(() => {});
+    modelList()
+      .then(setModels)
+      .catch(() => {});
     peopleList()
       .then(setPeople)
       .catch(() => {});
@@ -471,7 +539,7 @@ const Composer = () => {
   // two popup modes: the command token ("/bri"), and the slug argument right
   // after a command that takes one — the hard-to-recall half of the
   // invocation. A command absent from argRosters gets no argument popup.
-  const argRosters: Record<string, ArgItem[]> = { as: personas, flock: flocks };
+  const argRosters: Record<string, ArgItem[]> = { as: personas, flock: flocks, model: models };
   const cmdToken = /^\/[a-z]*$/i.test(text)
     ? text.slice(1).toLowerCase()
     : null;
@@ -534,7 +602,9 @@ const Composer = () => {
           .filter((x) => x.slug.startsWith(arg.token))
           .map((x) => ({
             name: `${arg.cmd} ${x.slug}`,
-            args: "<message>",
+            // a /model row is the whole command; every other roster row still
+            // wants the message that follows the slug
+            args: arg.cmd === "model" ? "" : "<message>",
             description: x.description,
           }))
       : cmdToken === null
@@ -602,7 +672,10 @@ const Composer = () => {
       }
       return;
     }
-    if (c.args) {
+    // "[model]" is an OPTIONAL argument: Enter on the bare command runs it
+    // (the listing) instead of parking the caret for a slug that need not
+    // come. A required "<x>" still fills the command and waits.
+    if (c.args && !c.args.startsWith("[")) {
       composer.setText(`/${c.name} `);
     } else {
       composer.setText(`/${c.name}`);
@@ -798,9 +871,21 @@ const Composer = () => {
           className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-ink-3"
           rows={1}
         />
-        <ComposerPrimitive.Send className="rounded-lg bg-thread-solid px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-40">
-          Send
-        </ComposerPrimitive.Send>
+        {running ? (
+          // Send is disabled for the whole run, and a provider that never
+          // answers made that forever: Stop aborts the fetch, which ends
+          // the backend turn and frees the thread for the next message
+          <ComposerPrimitive.Cancel
+            onClick={() => thread.cancelRun()}
+            className="rounded-lg border border-line-strong px-4 py-2 text-sm font-medium text-ink transition hover:bg-raised"
+          >
+            Stop
+          </ComposerPrimitive.Cancel>
+        ) : (
+          <ComposerPrimitive.Send className="rounded-lg bg-thread-solid px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-40">
+            Send
+          </ComposerPrimitive.Send>
+        )}
         </div>
       </ComposerPrimitive.Root>
       <p className="mt-1.5 text-xs text-ink-3">

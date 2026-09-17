@@ -421,6 +421,31 @@ def _snap_folder(owner: str, wanted: str) -> str:
     return wanted
 
 
+def thread_model(thread_id: str) -> str:
+    """The /model pick for a solo chat, or empty. Ignored — never guessed —
+    when the menu no longer offers it, the same rule as the admin pick."""
+    row = db.query_one("SELECT model_id FROM chat_threads WHERE id = ?", (thread_id,))
+    picked = str(row["model_id"]) if row else ""
+    return picked if picked in config.MODELS else ""
+
+
+def set_thread_model(thread_id: str, owner: str, model_id: str) -> str:
+    """Empty clears the pick. The id must be on the menu (settings.check_menu_model)."""
+    from . import settings
+
+    model_id = (model_id or "").strip()
+    if model_id:
+        settings.check_menu_model(model_id)
+    with db.transaction():
+        _own(thread_id, owner)
+        db.execute(
+            "UPDATE chat_threads SET model_id = ?, updated_at = ? WHERE id = ?",
+            (model_id, db.now(), thread_id),
+        )
+        db.log_activity(owner, "set_chat_model", f"{thread_id}: {model_id or 'default'}")
+    return model_id
+
+
 def update_thread(
     thread_id: str,
     owner: str,

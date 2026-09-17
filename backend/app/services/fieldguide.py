@@ -191,6 +191,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     "readout": lambda u: _act(u, "exec_readout"),
     "handoff": lambda u: _act(u, "generate_handoff"),
     "model_pick": lambda u: _act(u, "set_model_pick"),
+    "chat_model": lambda u: _act(u, "set_chat_model"),
     "agent_pause": lambda u: _act(u, "set_agent_automation"),
     "playbook_closeout": lambda u: _act(u, "playbook_closeout"),
     # only the MANUAL backup logs an actor (services/admin.py::backup) —

@@ -513,6 +513,15 @@ knots:
     link: /settings
     since: 2026-08-08
 
+  - id: chat_model
+    feature: Pick the model for one chat
+    knot: Slipped Buntline
+    set: hitches
+    pitch: One conversation, one model of your own choosing, and a single tug returns it to the team line.
+    how: "In a chat, type `/model` to see the menu and the model in force. Type `/model <id>` to use one model for this chat. Type `/model default` to return to the team model."
+    link: /chat
+    since: 2026-09-17
+
   - id: playbook_closeout
     feature: Teach the playbook what happened
     knot: Bowline on a Bight

@@ -514,3 +514,14 @@ def test_bedrock_demands_an_explicit_model_id(monkeypatch, restore_config):
     cfg = _reload_config(monkeypatch, SKEIN_MODEL_PROVIDER="bedrock")
     assert "SKEIN_MODEL_ID" in cfg.MODEL_PROVIDER_ERROR
     assert cfg.PROVIDERS["bedrock"]["default_model"] is None
+
+
+def test_real_clients_retry_once_not_twice(monkeypatch):
+    """Each SDK retry re-waits the whole read timeout on a provider that
+    accepts and never answers; the SDK default of 2 turned 300s into 15
+    minutes of a turn nothing could interrupt."""
+    _configure(monkeypatch, "openai_compatible", base_url="http://localhost:8001/v1")
+    assert team_agent._model().client_args["max_retries"] == 1
+    _configure(monkeypatch, "anthropic", api_key="sk-ant")
+    # anthropic builds its client in __init__ and keeps only that
+    assert team_agent._model().client.max_retries == 1
