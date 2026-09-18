@@ -14,11 +14,22 @@ async function signIn(page: Page) {
   await page.goto("/");
   const origin = new URL(page.url()).origin;
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
-  const exchanged = page.waitForResponse((r) => r.url().endsWith("/api/auth/token") && r.request().method() === "POST");
+  // The exchange body is captured in a route, never read off the Response after
+  // the click. Signing in navigates, and Chromium frees a response body along
+  // with the page it belonged to ("No resource with given identifier found"),
+  // so whichever test lost that race failed on response.json(). Fulfilling with
+  // the fetched response forwards Set-Cookie unchanged, so the session cookie
+  // asserted below is still the backend's own.
+  let exchanged: { status: number; body: string } | null = null;
+  await page.route("**/api/auth/token", async (route) => {
+    const res = await route.fetch();
+    exchanged = { status: res.status(), body: await res.text() };
+    await route.fulfill({ response: res, body: exchanged.body });
+  });
   await page.getByRole("button", { name: "Sign in" }).click();
-  const response = await exchanged;
-  expect(response.ok()).toBe(true);
-  const metadata = await response.json();
+  await expect.poll(() => exchanged?.status, { timeout: 15_000 }).toBe(200);
+  await page.unroute("**/api/auth/token");
+  const metadata = JSON.parse(exchanged!.body);
   expect(metadata.authenticated).toBe(true);
   expect(metadata).not.toHaveProperty("access_token");
   expect(metadata).not.toHaveProperty("refresh_token");

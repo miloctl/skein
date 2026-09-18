@@ -63,12 +63,23 @@ describe("a turn that never answers", () => {
   });
 });
 
+const REFUSAL = "The model session is in use. Wait for the current turn to finish.";
+
 function RefusedHarness() {
   const runtime = useLocalRuntime({
-    // the backend refused before the first token; the sentence rides the
-    // thrown Error, which the runtime stores as a plain {code, message}
-    run: () =>
-      Promise.reject(new Error("The model session is in use. Wait for the current turn to finish.")),
+    // The refusal is RETURNED as the status the runtime itself would store, not
+    // thrown. Both reach the UI identically: performRoundtrip catches a thrown
+    // Error, records {type:"incomplete", reason:"error", error: {code, message}},
+    // and then RETHROWS. Nothing awaits the append the composer primitive
+    // starts, so that rethrow lands as an unhandled rejection — which the app
+    // accepts (app/runtime-provider.tsx says so at the attachment adapter) but
+    // which fails a vitest run whatever the assertions did.
+    // `error` is a plain object here for the reason this test exists: the
+    // runtime never stores an Error, so reading it with `instanceof Error`
+    // renders nothing.
+    run: async () => ({
+      status: { type: "incomplete" as const, reason: "error" as const, error: { code: "unknown", message: REFUSAL } },
+    }),
   });
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -82,10 +93,7 @@ describe("a turn the server refused", () => {
     render(<RefusedHarness />);
     fireEvent.change(composer(), { target: { value: "again" } });
     fireEvent.keyDown(composer(), { key: "Enter" });
-    expect(
-      (await screen.findByText("The model session is in use. Wait for the current turn to finish."))
-        .getAttribute("role"),
-    ).toBe("status");
+    expect((await screen.findByText(REFUSAL)).getAttribute("role")).toBe("status");
     expect(screen.queryByText("The turn ended without a reply.")).toBeNull();
   });
 });
