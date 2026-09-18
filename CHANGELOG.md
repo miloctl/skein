@@ -18,6 +18,14 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+### Behavior
+
+### Operations
+
+## 0.6.2 — 2026-09-17
+
+### Contracts
+
 - Solo chat threads carry `model_id` (migration 031). The rows of `GET /api/chats` return it; empty means the team model. A second message on a thread whose turn is still running answers 503 with `Retry-After: 5` and the sentence "The model session is in use. Wait for the current turn to finish.", no longer the generic database-busy sentence.
 
 ### Behavior
