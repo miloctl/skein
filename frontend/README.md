@@ -45,7 +45,7 @@ Use Node 22 for a workplace build. The `@miloctl` packages are public on npmjs.c
 
 The workplace root pins these packages directly:
 
-- `@miloctl/skein-frontend-host@0.6.1`
+- `@miloctl/skein-frontend-host@0.6.2`
 - `@miloctl/skein-extension-api@1.0.0`
 - `next@16.3.4`
 - `react@19.2.4`
