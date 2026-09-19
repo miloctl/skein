@@ -892,6 +892,33 @@ def test_public_machine_cannot_use_its_actor_name_as_a_private_viewer(fresh_db):
     assert raised.value.code == "TASK_NOT_FOUND"
 
 
+def test_public_blocker_read_holds_the_same_bar_as_the_task_read(fresh_db):
+    """get_blocker selected the row unfiltered and only then asked policy by
+    the execution actor, so a weak context read a private blocker the sibling
+    task read refused."""
+    from app.services import blockers
+    from app.services import work as service_work
+
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    blocker = blockers.raise_blocker("Victim secret", actor="mira", visibility="private")["id"]
+    task = service_work.create_task("Victim task", actor="mira", visibility="private")["id"]
+    context = _context(
+        facade,
+        subject=PolicySubject("mira", strong=False),
+        namespace="atlas.workplace.weak-read",
+        read_as_human=True,
+    )
+
+    with pytest.raises(PublicError) as task_refused:
+        facade.get_task(task, context)
+    with pytest.raises(PublicError) as blocker_refused:
+        facade.get_blocker(blocker, context)
+
+    assert task_refused.value.code == "TASK_NOT_FOUND"
+    assert blocker_refused.value.code == "BLOCKER_NOT_FOUND"
+    assert "Victim" not in str(blocker_refused.value)
+
+
 def test_workflow_does_not_inherit_the_requesters_private_read_scope(fresh_db):
     from app.services import work as service_work
 

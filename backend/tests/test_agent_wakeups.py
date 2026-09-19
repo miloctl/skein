@@ -453,3 +453,42 @@ def test_finish_clears_the_lease(fresh_db):
         (claim["agent"],),
     )
     assert row == {"status": "completed", "lease_owner": "", "lease_until": ""}
+
+
+def _delegated(db):
+    from app.services import delegation, users, work
+
+    users.ensure_user("sponsor")
+    task = work.create_task("Delegated", actor="sponsor")["id"]
+    delegation.delegate_task(task, "scout", "sponsor", actor="sponsor")
+    assert (
+        db.query_one("SELECT status FROM agent_wakeups WHERE agent = 'scout'")["status"]
+        == "pending"
+    )
+
+
+def test_deactivating_an_agent_settles_its_queued_wake(fresh_db):
+    """set_active is the offboarding switch. It refused the pending shared-chat
+    runs and left the unattended queue alone, so the deactivated agent still
+    took its delegated turn on the next tick."""
+    from app.services import agent_wakeups, users
+
+    _delegated(fresh_db)
+    users.set_active("scout", False, actor="admin")
+    row = fresh_db.query_one("SELECT status, reason FROM agent_wakeups WHERE agent = 'scout'")
+    assert (row["status"], row["reason"]) == ("refused", "agent_unavailable")
+    assert agent_wakeups.claim_next() is None
+
+
+def test_a_deactivated_agent_cannot_be_delegated_to_again(fresh_db):
+    from app.services import delegation, users, work
+
+    _delegated(fresh_db)
+    users.set_active("scout", False, actor="admin")
+    task = work.create_task("Delegated again", actor="sponsor")["id"]
+    with pytest.raises(ValueError, match="deactivated"):
+        delegation.delegate_task(task, "scout", "sponsor", actor="sponsor")
+    assert (
+        fresh_db.query_one("SELECT status FROM agent_wakeups WHERE agent = 'scout'")["status"]
+        == "refused"
+    )

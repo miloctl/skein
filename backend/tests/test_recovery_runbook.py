@@ -335,6 +335,53 @@ def test_preboot_fence_stops_all_restored_agent_requests(fresh_db, monkeypatch):
         assert activity.verify_chain()["ok"] is True
 
 
+def test_preboot_fence_strips_restored_personal_mcp_credentials(scratch_db, tmp_path, monkeypatch):
+    """A restore brings back every personal MCP server the backup held, with
+    the sealed token still usable under the unchanged key: a server its owner
+    deleted after the backup came back and its first chat turn connected."""
+    from app.services import admin, mcp_servers
+
+    _oidc_session(monkeypatch)  # sets a throwaway SKEIN_CREDENTIAL_KEY
+    server = mcp_servers.add(
+        "restore-owner",
+        "leaked",
+        "https://mcp.example/mcp",
+        "placeholder-token",
+        actor="restore-owner",
+    )
+    env = admin._pg_env()
+    archive = tmp_path / "before-delete.dump"
+    subprocess.run(  # noqa: S603
+        [_tool("pg_dump"), "--format=custom", "--file", str(archive)],
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+    mcp_servers.delete(server["id"], "restore-owner", actor="restore-owner")
+    subprocess.run(  # noqa: S603
+        [
+            _tool("pg_restore"),
+            "--dbname",
+            env["PGDATABASE"],
+            "--clean",
+            "--if-exists",
+            "--no-owner",
+            "--no-privileges",
+            "--single-transaction",
+            "--exit-on-error",
+            str(archive),
+        ],
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+    _apply_fence()
+
+    [(_sid, entry)] = mcp_servers.entries_for("restore-owner")
+    assert entry["name"] == "leaked"
+    assert entry["auth_token"] == "" and entry["signed_in"] is False
+
+
 def test_preboot_fence_accepts_backups_before_session_and_queue_tables(scratch_db):
     for table in ("browser_sessions", "mcp_oauth_flows", "chat_agent_runs", "agent_wakeups"):
         scratch_db.execute(f"DROP TABLE {table} CASCADE")

@@ -136,7 +136,7 @@ def test_deactivation_and_merge_delete_sessions_but_rename_follows_id(sessions, 
     users.rename_user("mira", "renamed", actor="mira")
     assert sessions.authenticate(issued.cookie, mode="trusted-header").user == "renamed"
     users.ensure_human_identity("destination")
-    users.rename_user("renamed", "destination", actor="renamed")
+    users.rename_user("renamed", "destination", actor="ops")
     assert not sessions.metadata(issued.cookie, mode="trusted-header")["authenticated"]
     issued, _ = _key_session(sessions, name="destination")
     users.set_active("destination", False)

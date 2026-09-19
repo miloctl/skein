@@ -12,6 +12,7 @@ from . import scope
 from .users import (
     ensure_agent_identity,
     fold,
+    is_active,
     is_delegatable_agent_identity,
     refuse_ambiguous_identity,
 )
@@ -64,6 +65,13 @@ def delegate_task(
     # human-approved proposal path (origin agent_verified) stays open
     if agent.strip() == actor and origin != "agent_verified":
         raise ValueError("an agent cannot delegate a task to itself — propose it instead")
+    # set_active(False) settles the queued wake; this keeps the next
+    # delegation from queueing a new one for an identity that is gone
+    if not is_active(agent):
+        raise ValueError(
+            f"'{agent.strip()}' is deactivated. Reactivate the agent on the roster"
+            " before you delegate to it."
+        )
     with db.transaction():
         # Identity BEFORE the task row, because rename_user acquires in that
         # order: LOCK_IDENTITY first, then row locks on the tasks it

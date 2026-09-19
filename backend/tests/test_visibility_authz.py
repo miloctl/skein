@@ -560,6 +560,20 @@ def test_recall_answers_one_person_out_of_their_own_memories(fresh_db):
     assert got == {"ava likes rust", "the standup is at 9"}
 
 
+def test_recall_with_no_person_returns_only_team_wide_memories(fresh_db):
+    """The unattended runner and a tool call with no requester recall with
+    `user=""`. The owner predicate used to vanish there, so a turn nobody
+    asked for read every person's targeted memories into its prompt."""
+    users.ensure_user("ava")
+    users.ensure_user("bo")
+    memory.remember("ava likes rust", user="ava", actor="ava")
+    memory.remember("bo likes go", user="bo", actor="bo")
+    memory.remember("the standup is at 9", user="", actor="ava")
+
+    assert {m["content"] for m in memory.recall(user="")} == {"the standup is at 9"}
+    assert {m["content"] for m in memory.recall("likes", user="")} == set()
+
+
 def test_a_private_memory_never_reaches_a_system_prompt(fresh_db):
     """The agent path passes NOBODY, so a private memory is not injected even
     for its own author — recall has no strong identity to check there."""

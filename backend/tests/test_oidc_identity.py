@@ -41,4 +41,4 @@ def test_merge_refuses_two_subjects_from_the_same_issuer(fresh_db):
     oidc_identities.resolve(ISSUER, "subject-b", "bob")
 
     with pytest.raises(db.Conflict, match="different OIDC subjects"):
-        users.rename_user("alice", "bob", actor="alice", expected_merge=True)
+        users.rename_user("alice", "bob", actor="ops", expected_merge=True)

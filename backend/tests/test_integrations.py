@@ -59,7 +59,8 @@ def test_memory_remember_recall_prompt(fresh_db):
 
     memory.remember("Mario prefers uv over pip", topic="tooling", user="mario")
     memory.remember("Deploys happen Fridays", topic="process")
-    assert len(memory.recall()) == 2
+    assert len(memory.recall()) == 1  # no person named: team-wide rows only
+    assert len(memory.recall(user="mario")) == 2
     hits = memory.recall("deploys")
     assert hits and "Fridays" in hits[0]["content"]
     prompt = memory.memory_prompt("mario")

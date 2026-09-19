@@ -294,17 +294,20 @@ def one_on_one_brief(person: str, days: int = 14, viewer: scope.Viewer = scope.N
 
 # a bare '-' only separates when whitespace-surrounded, so hyphenated names
 # (mary-jane) never get split into person="mary", body="jane — …"
-FB_LINE = re.compile(r"^\s*fb:", re.I)
-# FB_LINE plus the command-wrapped shape ("/remember fb: …"): surfaces that
-# sink to disk or a model provider must refuse both, or a slash prefix
-# becomes a private-data smuggling route (chat gate, session bridge)
+#
+# The guard also matches the command-wrapped shape ("/remember fb: …"). Every
+# surface that sinks text to disk, a model provider, or a team-visible record
+# (chat gate, session bridge, capture) asks this ONE predicate: a narrower one
+# on any of them makes a slash prefix a private-data smuggling route, and the
+# capture route skips domain policy for exactly what this matches
+# (tests/test_extension_policy.py pins the wrapped multi-line capture).
 FB_GUARD = re.compile(r"^\s*(?:/[a-z]+\s+)?fb:", re.I)
 _FB = re.compile(r"^\s*fb:\s*(?P<person>.+?)\s*(?:—|:|\s-\s)\s*(?P<body>.+)$", re.I | re.S)
 
 
 def parse_feedback(text: str) -> tuple[str, str]:
     """Parse 'fb: <person> — <note>' (also ':' or spaced '-' separators).
-    Only call on FB_LINE-matching text; raises on malformed input."""
+    Only call on FB_GUARD-matching text; raises on malformed input."""
     m = _FB.match(text)
     if not m:
         raise ValueError("feedback format: fb: <person> — <note>")

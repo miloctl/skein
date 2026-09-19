@@ -18,9 +18,18 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- `WorkItems.get_blocker` and `update_blocker` read the blocker through the viewer the composition boundary granted, as the task and promise reads already did. A blocker outside that viewer's scope answers `BLOCKER_NOT_FOUND` with the same sentence the other reads use, no longer the row.
+
 ### Behavior
 
+- A rename that merges into an existing account is refused when the account that moves is the caller's own. The merge carried the caller's API keys onto the target row, so any keyholder could become a colleague and read their private journal. A teammate can still run the merge.
+- Memory recall with no person named returns the team-wide memories only. An unattended turn and a tool call with no requester read every person's targeted memories before.
+- Deactivating an agent settles its queued wake as `refused` with reason `agent_unavailable`, the unattended runner refuses a deactivated identity, and a delegation to a deactivated agent is refused with the instruction to reactivate it first.
+- A capture whose text carries a command-wrapped feedback line (`/x fb:`) is refused by the service, the same shape the capture route already skips policy for. A multi-line capture with such a line skipped both the policy check and the feedback branch and was captured as a task.
+
 ### Operations
+
+- The restore fence in `deploy/k8s/README.md` step 7 now removes the sealed bearer token and OAuth sign-in from every restored personal MCP server row. A token revoked or a server deleted after the backup came back usable before. Owners enter the token or sign in again.
 
 ## 0.6.2 — 2026-09-17
 

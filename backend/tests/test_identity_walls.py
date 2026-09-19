@@ -54,6 +54,26 @@ def test_the_author_renaming_themselves_does_move_it(fresh_db):
     assert [n["body"] for n in private_notes.list_notes("alice-2", "bob")] == ["my own note"]
 
 
+def test_a_self_directed_merge_onto_a_colleague_is_refused(fresh_db):
+    """A merge moves the caller's API keys onto the target row. Self-directed,
+    that made any keyholder into any colleague: mallory's unchanged key then
+    authenticated as victim, with victim's private journal renamed along."""
+    from app.services import api_keys, private_notes, users
+
+    users.ensure_user("mallory")
+    users.ensure_user("victim")
+    private_notes.add_note("victim", "bob", "victim's private feedback", kind="feedback")
+    key = api_keys.create_key("mallory")["key"]
+
+    with pytest.raises(ValueError, match="cannot be self-directed"):
+        users.rename_user("mallory", "victim", actor="mallory")
+
+    assert api_keys.verify_key(key) == "mallory"
+    assert [n["body"] for n in private_notes.list_notes("victim", "bob")] == [
+        "victim's private feedback"
+    ]
+
+
 def test_an_agent_identity_can_be_freed_by_rename(fresh_db):
     """SKEIN_MCP_USER is operator-supplied and the obvious thing to type is
     your own name, which reserves it as an AGENT identity — refused on REST and

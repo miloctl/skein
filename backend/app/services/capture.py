@@ -239,9 +239,13 @@ def capture(
     # no index_record, no activity log (the audit lives in the private schema).
     # Line-oriented and fail-closed: an fb: line buried in a multi-line
     # capture must never ride along into a task/note (it would land in FTS).
+    # FB_GUARD, the predicate is_private_feedback gives the capture route,
+    # which skips domain policy for text this branch refuses. A narrower one
+    # here (bare "fb:") let "/x fb:" carry a multi-line capture past policy
+    # into a task.
     from . import private_notes
 
-    if any(private_notes.FB_LINE.match(ln) for ln in text.splitlines()):
+    if any(private_notes.FB_GUARD.match(ln) for ln in text.splitlines()):
         if len(text.splitlines()) > 1:
             raise ValueError(
                 "fb: lines must be captured alone — they are private and the"
