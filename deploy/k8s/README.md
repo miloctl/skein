@@ -536,6 +536,11 @@ Local success does not replace the target-cluster role and storage handoff.
        IF to_regclass('public.mcp_oauth_flows') IS NOT NULL THEN
            DELETE FROM public.mcp_oauth_flows;
        END IF;
+       IF to_regclass('public.mcp_servers') IS NOT NULL THEN
+           UPDATE public.mcp_servers
+           SET auth_token_sealed = NULL, oauth_tokens_sealed = NULL,
+               oauth_client_sealed = NULL;
+       END IF;
        IF to_regclass('public.chat_agent_runs') IS NOT NULL THEN
            UPDATE public.chat_agent_runs
            SET status = 'completion_unknown', finished_at = recovered_at,
@@ -561,7 +566,10 @@ Local success does not replace the target-cluster role and storage handoff.
    External copies can contain sessions revoked after the backup and unfinished MCP
    sign-in flows. Older copies can hold unsealed authorization codes. Delete all flow
    rows before startup, including rows that have not expired. These deletions require
-   new sign-ins without changing the credential-sealing key.
+   new sign-ins without changing the credential-sealing key. Personal MCP server
+   rows are kept, but their bearer tokens and OAuth sign-ins are removed: a
+   token revoked or a server deleted after the backup must not come back
+   usable. Each owner enters the token or signs in again.
 
    `completion_unknown` means the outcome needs operator reconciliation.
    Even a restored `pending` request can have executed after the backup point.

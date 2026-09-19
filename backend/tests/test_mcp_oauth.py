@@ -752,7 +752,7 @@ def test_rename_invalidates_the_old_grants_owner(fresh_db, sealed, merge):
     row, flow, provider = _registered_flow()
     if merge:
         users.ensure_user("dana")
-    users.rename_user("ava", "dana", actor="ava")
+    users.rename_user("ava", "dana", actor="ops")
     assert not mcp_oauth.complete(flow.state, "renamed")
     assert fresh_db.query("SELECT * FROM mcp_oauth_flows") == []
     successor = mcp_servers.claim_oauth(row["id"], "dana", mcp_oauth.FLOW_SECONDS)

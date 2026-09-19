@@ -1404,11 +1404,18 @@ class WorkItems:
     def _blocker_state(
         self, blocker_id: int, context: CommandContext
     ) -> tuple[dict[str, Any], dict[str, str]]:
-        row = db.query_one("SELECT * FROM blockers WHERE id = ?", (blocker_id,))
+        # the caller's own filter, as _task_state and _visible_promise_row:
+        # an unfiltered SELECT returned a private blocker to any caller
+        viewer = self._viewer(context)
+        visible, params = scope.visible_filter(viewer, "blockers")
+        row = db.query_one(
+            f"SELECT * FROM blockers WHERE id = ? AND {visible}",  # noqa: S608 -- scope emits only bound marks
+            (blocker_id, *params),
+        )
         if not row:
             raise PublicError(
                 "BLOCKER_NOT_FOUND",
-                f"blocker #{blocker_id} not found",
+                scope.missing_text("blockers", blocker_id),
                 status_code=404,
             )
         attributes = blockers.existing_policy_context(blocker_id, actor=context.execution_actor)

@@ -6,6 +6,8 @@ feature is a turn no human is watching."""
 
 from typing import ClassVar
 
+import pytest
+
 from app import config, db
 from app.services import agent_runner, delegation, usage, work
 
@@ -1196,3 +1198,18 @@ def test_runner_final_policy_check_and_daily_claim_share_one_transaction(fresh_d
         "SELECT 1 AS claimed FROM job_runs WHERE job = ?",
         ("agent-run:research-agent",),
     ) == {"claimed": 1}
+
+
+def test_a_deactivated_agent_gets_no_unattended_turn(fresh_db, monkeypatch):
+    """The allowlist is env and a wake can be explicit, so neither notices
+    that the roster switched the identity off. The runner built and ran the
+    agent anyway."""
+    from app.agents import team_agent
+    from app.services import users
+
+    _delegated()
+    users.set_active("research-agent", False, actor="tester")
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "openai")
+    monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: pytest.fail("built"))
+    out = agent_runner.run_one("research-agent", explicit_key="1")
+    assert out["ran"] is False and "deactivated" in out["reason"]

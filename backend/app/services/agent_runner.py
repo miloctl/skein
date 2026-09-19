@@ -44,7 +44,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
 from .. import config, db
-from . import delegation, leases, usage
+from . import delegation, leases, usage, users
 
 if TYPE_CHECKING:
     from ..extensions import ExtensionRegistry, PolicyEngine
@@ -374,6 +374,11 @@ def run_one(
         return _paused(agent)
     if not explicit_key and agent not in config.AGENT_RUNNER:
         return _refused(agent, "not in SKEIN_AGENT_RUNNER")
+    if not users.is_active(agent):
+        # the offboarding switch (users.set_active) revokes keys and settles
+        # the queue, but the allowlist above is env and a wake can be
+        # explicit, so the identity is checked here too
+        return _refused(agent, "identity deactivated")
     if config.EFFECTIVE_PROVIDER == "mock":
         # not an error: mock is a supported deployment, and sweep() above is
         # the whole feature there. Saying so keeps /health honest.

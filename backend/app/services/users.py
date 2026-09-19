@@ -831,6 +831,15 @@ def rename_user(
     # same ones. Without this a teammate is renameable to a system actor, and
     # their surviving API key then writes rows every viewer can read.
     target = _validate_rename_target(old, new, row, identity_repair=_identity_repair)
+    # A merge moves the caller's own API keys onto the target row, so a
+    # self-directed merge is a keyholder becoming a colleague: their key
+    # then authenticates as the target, and the private schema renames with
+    # them. A merge needs a second person, who cannot gain from it.
+    if target and actor == old:
+        raise ValueError(
+            f"'{new}' already names an account. A merge into another account"
+            " cannot be self-directed. Ask a teammate to run it."
+        )
     moved: dict[str, int] = {}
     with db.transaction():
         # BOTH names, in sorted order. A rename claims the new name and
@@ -1256,6 +1265,15 @@ def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
                 db.execute(
                     "UPDATE chat_agent_runs SET status = 'refused', finished_at = ?,"
                     " error_code = 'agent_unavailable'"
+                    " WHERE agent = ? AND status = 'pending'",
+                    (db.now(), name),
+                )
+                # The same for the unattended queue: a wake left pending here
+                # is a delegation that runs after the identity is gone, and
+                # nothing but this switch ever clears it.
+                db.execute(
+                    "UPDATE agent_wakeups SET status = 'refused', finished_at = ?,"
+                    " rerun_requested = 0, reason = 'agent_unavailable'"
                     " WHERE agent = ? AND status = 'pending'",
                     (db.now(), name),
                 )

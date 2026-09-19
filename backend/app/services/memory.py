@@ -141,8 +141,11 @@ def recall(
     """
     frag, vp = scope.visible_filter(viewer, "memories")
     # `user IN (?, '')`: an empty user is a memory addressed to the whole team,
-    # which every branch must keep returning
-    owner, op = (" AND \"user\" IN (?, '')", [user]) if user else ("", [])
+    # which every branch must keep returning. The predicate is unconditional:
+    # with no person (`user=""`, the unattended runner and any tool call with
+    # no requester) it narrows to the team-wide rows, where dropping it
+    # answered one caller out of everybody's targeted memories.
+    owner, op = (" AND \"user\" IN (?, '')", [user])
     if engagement_id is None:
         eng, ep2 = "", []
     elif engagement_id:

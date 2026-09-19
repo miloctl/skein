@@ -160,6 +160,8 @@ def _reason_code(result: dict) -> str:
         return "provider_unavailable"
     if "forbidden" in reason:
         return "authority_forbidden"
+    if "deactivated" in reason:
+        return "agent_unavailable"
     if "budget" in reason or "token" in reason:
         return "budget_spent"
     if "build" in reason or "no agent" in reason:

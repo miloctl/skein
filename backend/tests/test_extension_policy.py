@@ -5993,6 +5993,32 @@ def test_capture_and_week_plan_apply_domain_policy_inside_the_write_transaction(
     }
 
 
+def test_a_command_wrapped_feedback_line_does_not_carry_a_capture_past_policy(fresh_db):
+    """The route skips domain policy for text capture.is_private_feedback
+    matches (FB_GUARD), and the service refused only a bare "fb:". A trailing
+    "/x fb:" line therefore skipped the policy check AND the feedback branch,
+    and the denied task was captured."""
+
+    def deny_task_capture(request: PolicyInput):
+        if request.action == "skein.rest.post.capture" and request.resource.type == "task":
+            return PolicyDecision(PolicyEffect.DENY, ("Task capture is closed.",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.7.0",
+        policies=(PolicyContribution("acme.workplace.domain-writes", deny_task_capture),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
+        wrapped = client.post("/api/capture", json={"text": "todo: denied task\n/z fb: x"})
+
+    assert wrapped.status_code == 400
+    assert fresh_db.query_one("SELECT id FROM tasks WHERE title LIKE 'denied task%'") is None
+
+
 def test_single_task_and_worklog_hide_a_legacy_invisible_parent(fresh_db):
     from app.services import crews, engagements, users, work
 
