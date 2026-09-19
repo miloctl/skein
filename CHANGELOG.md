@@ -18,6 +18,14 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+### Behavior
+
+### Operations
+
+## 0.6.3 — 2026-09-18
+
+### Contracts
+
 - `WorkItems.get_blocker` and `update_blocker` read the blocker through the viewer the composition boundary granted, as the task and promise reads already did. A blocker outside that viewer's scope answers `BLOCKER_NOT_FOUND` with the same sentence the other reads use, no longer the row.
 
 ### Behavior
