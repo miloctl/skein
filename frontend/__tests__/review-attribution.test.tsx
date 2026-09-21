@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 const base = {
@@ -47,7 +47,11 @@ describe("review attribution", () => {
     expect(chip.textContent).toContain(
       "An agent proposed this and a person approved it.",
     );
-    await screen.findByRole("heading", { name: "Recently approved" });
-    expect(document.body.textContent).toContain("by scout · accepted by ava");
+    const heading = await screen.findByRole("heading", { name: "Recently approved" });
+    const details = heading.closest("details")!;
+    expect(details.open).toBe(false);
+    fireEvent.click(heading.closest("summary")!);
+    expect(details.open).toBe(true);
+    expect(details.textContent).toContain("by scout · accepted by ava");
   });
 });

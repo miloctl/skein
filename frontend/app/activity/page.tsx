@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api, loadError } from "@/lib/api";
 import { Card } from "@/components/card";
-import { SectionTabs } from "@/components/section-tabs";
 import { PeekLink } from "@/components/task-peek";
 import { timeAgo } from "@/lib/time";
 
@@ -110,7 +109,6 @@ export default function ActivityPage() {
       tabIndex={-1}
       className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6"
     >
-      <SectionTabs set="team" />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">

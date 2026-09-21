@@ -135,6 +135,7 @@ def engagement_health(
     viewer: scope.Viewer = scope.NOBODY,
     *,
     name_assignees: bool = True,
+    as_of: date | None = None,
     project_filter: Callable[[str], bool] | None = None,
     resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
 ) -> list[dict]:
@@ -147,12 +148,13 @@ def engagement_health(
     name_assignees=False drops the one receipt that carries a person's name.
     Callers that EGRESS their output pass it — see the stale-WIP receipt below.
     """
-    today = _today().isoformat()
+    as_of = as_of or _today()
+    today = as_of.isoformat()
     # stale_cutoff and silence_cutoff bound updated_at, a timestamp column, so
     # they are instants. Bound to a bare local date they begin at UTC midnight
     # and call work stale up to a day early west of UTC.
-    stale_cutoff = db.local_midnight_utc(_today() - timedelta(days=STALE_WIP_DAYS))
-    silence_cutoff = db.local_midnight_utc(_today() - timedelta(days=SILENCE_DAYS))
+    stale_cutoff = db.local_midnight_utc(as_of - timedelta(days=STALE_WIP_DAYS))
+    silence_cutoff = db.local_midnight_utc(as_of - timedelta(days=SILENCE_DAYS))
     frag, vp = scope.visible_filter(viewer, "engagements")
     engagements = db.query(
         f"SELECT * FROM engagements WHERE status != 'closed' AND {frag} ORDER BY id",  # noqa: S608 — scope.visible_filter emits only bound marks

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useHashTarget } from "@/lib/hash-target";
@@ -43,10 +43,114 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  window.location.hash = "";
+  window.history.replaceState(null, "", "/dashboard");
 });
 
+// Captured from the disposable seeded mock API as ava.
+const LESSON = { id: 1, engagement_id: null, project_class: "prototype", lesson: "Demo with realistic data — stakeholders don't extrapolate", recommendation: "Budget half a day for demo data", origin: "human", created_by: "ava", created_at: "2026-09-20T18:01:54+00:00", visibility: "workspace", crew_id: null };
+
+const announce = (anchor: string) => act(() => window.dispatchEvent(new CustomEvent("skein-hash", { detail: { anchor } })));
+
 describe("a deep link that names one row", () => {
+  it("lands generic main fragments before delayed registers arrive", async () => {
+    window.history.replaceState(null, "", "/dashboard?task=1#content");
+    const original = mocks.api.getMockImplementation()!;
+    let deliver!: (rows: typeof QUESTIONS) => void;
+    mocks.api.mockImplementation((path: string) => path === "/api/questions" ? new Promise((resolve) => { deliver = resolve; }) : original(path));
+    render(<Dashboard />);
+    const main = screen.getByRole("main");
+    expect(document.activeElement).toBe(main);
+    await act(async () => deliver(QUESTIONS));
+    expect(document.activeElement).toBe(main);
+    expect((screen.getByRole("combobox", { name: "Browse register" }) as HTMLSelectElement).value).toBe("browse-tasks");
+  });
+  it("restores Tasks on Back to a hashless Browse URL without default autofocus", async () => {
+    window.history.replaceState(null, "", "/dashboard");
+    const { rerender } = render(<Dashboard />);
+    const select = await screen.findByRole("combobox", { name: "Browse register" }) as HTMLSelectElement;
+    expect(document.activeElement?.id).not.toBe("browse-tasks");
+    // a fragment link (an engagement's return link, a search hit) pushes an
+    // entry; the select rewrites the current one and is covered elsewhere
+    act(() => {
+      window.history.pushState(null, "", "/dashboard#browse-calendar");
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    rerender(<Dashboard />);
+    expect((screen.getByRole("combobox", { name: "Browse register" }) as HTMLSelectElement).value).toBe("browse-calendar");
+    await waitFor(() => expect(document.activeElement?.id).toBe("browse-calendar"));
+    act(() => window.history.back());
+    await waitFor(() => expect(select.value).toBe("browse-tasks"));
+    expect(window.location.hash).toBe("");
+    expect(screen.getByRole("heading", { name: "Tasks" })).toBeTruthy();
+    expect(document.activeElement?.id).not.toBe("browse-tasks");
+    act(() => window.history.forward());
+    await waitFor(() => expect(document.activeElement?.id).toBe("browse-calendar"));
+  });
+  it("reveals a delayed lesson once without taking focus back after a register switch", async () => {
+    const original = mocks.api.getMockImplementation()!;
+    let deliver!: (rows: typeof LESSON[]) => void;
+    mocks.api.mockImplementation((path: string) => path === "/api/lessons" ? new Promise((resolve) => { deliver = resolve; }) : original(path));
+    window.history.replaceState(null, "", "/dashboard");
+    render(<Dashboard />);
+    await screen.findByRole("combobox", { name: "Browse register" });
+    announce("lesson-1");
+    expect((screen.getByRole("combobox", { name: "Browse register" }) as HTMLSelectElement).value).toBe("browse-lessons");
+    expect(document.activeElement?.id).not.toBe("lesson-1");
+    await act(async () => deliver([LESSON]));
+    expect(document.activeElement?.id).toBe("lesson-1");
+    expect(document.activeElement?.closest("[hidden]")).toBeNull();
+    fireEvent.change(screen.getByRole("combobox", { name: "Browse register" }), { target: { value: "browse-tasks" } });
+    expect(document.activeElement?.id).not.toBe("browse-tasks");
+    expect(screen.queryByRole("heading", { name: /Lessons/ })).toBeNull();
+    announce("lesson-1");
+    expect(document.activeElement?.id).toBe("lesson-1");
+  });
+
+  it("retains a lesson request sent before the registers mount", async () => {
+    const original = mocks.api.getMockImplementation()!;
+    let deliver!: (rows: typeof QUESTIONS) => void;
+    mocks.api.mockImplementation((path: string) => path === "/api/questions" ? new Promise((resolve) => { deliver = resolve; }) : path === "/api/lessons" ? Promise.resolve([LESSON]) : original(path));
+    window.history.replaceState(null, "", "/dashboard");
+    render(<Dashboard />);
+    announce("lesson-1");
+    await act(async () => deliver(QUESTIONS));
+    await waitFor(() => expect(document.activeElement?.id).toBe("lesson-1"));
+    expect(document.activeElement?.closest("[hidden]")).toBeNull();
+  });
+
+  it("clears the lesson filter for a requested row and focuses only once", async () => {
+    const original = mocks.api.getMockImplementation()!;
+    mocks.api.mockImplementation((path: string) => path === "/api/lessons" ? Promise.resolve([LESSON]) : path.startsWith("/api/lessons?") ? Promise.resolve([]) : original(path));
+    window.history.replaceState(null, "", "/dashboard#browse-lessons");
+    render(<Dashboard />);
+    const filter = await screen.findByRole("combobox", { name: "Filter lessons by type of work" });
+    fireEvent.change(filter, { target: { value: "prototype" } });
+    await screen.findByText("No lesson recorded from prototype work yet.");
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    try {
+      announce("lesson-1");
+      await waitFor(() => expect(document.activeElement?.id).toBe("lesson-1"));
+      expect((filter as HTMLSelectElement).value).toBe("");
+      expect(focus.mock.instances.filter((el) => (el as HTMLElement).id === "lesson-1")).toHaveLength(1);
+    } finally { focus.mockRestore(); }
+  });
+
+  it("keeps an uncontrolled answer while switching and handles Back/Forward fragments", async () => {
+    window.history.replaceState(null, "", "/dashboard#question-11");
+    render(<Dashboard />);
+    await waitFor(() => expect(document.activeElement?.id).toBe("question-11"));
+    fireEvent.click(screen.getByRole("button", { name: /answer… question #11/ }));
+    const answer = screen.getByRole("textbox", { name: "Answer this question" });
+    fireEvent.change(answer, { target: { value: "Keep this answer" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Browse register" }), { target: { value: "browse-tasks" } });
+    window.history.replaceState(null, "", "/dashboard#question-11");
+    act(() => window.dispatchEvent(new HashChangeEvent("hashchange")));
+    await waitFor(() => expect(document.activeElement?.id).toBe("question-11"));
+    expect(screen.getByRole("textbox", { name: "Answer this question" })).toBe(answer);
+    expect((answer as HTMLInputElement).value).toBe("Keep this answer");
+    announce("unknown-fragment");
+    expect((screen.getByRole("combobox", { name: "Browse register" }) as HTMLSelectElement).value).toBe("browse-open-questions");
+  });
   it("focuses that row on the dashboard, not the top of the page", async () => {
     // set BEFORE the render, the way an arriving navigation leaves it. The
     // rows do not exist until the fetch settles, which is why the browser's
@@ -88,6 +192,21 @@ function Harness({ ready, rows }: { ready: number; rows: number[] }) {
 }
 
 describe("useHashTarget", () => {
+  it("does not spend a landing on a hidden target", () => {
+    window.location.hash = "#question-12";
+    const { rerender } = render(<div hidden><Harness ready={0} rows={[12]} /></div>);
+    expect(document.activeElement?.id).not.toBe("question-12");
+    rerender(<div><Harness ready={1} rows={[12]} /></div>);
+    expect(document.activeElement?.id).toBe("question-12");
+  });
+
+  it("retains a sent anchor until delayed rows arrive before the URL changes", () => {
+    window.history.replaceState(null, "", "/dashboard");
+    const { rerender } = render(<Harness ready={0} rows={[]} />);
+    act(() => window.dispatchEvent(new CustomEvent("skein-hash", { detail: { anchor: "question-12" } })));
+    rerender(<Harness ready={1} rows={[12]} />);
+    expect(document.activeElement?.id).toBe("question-12");
+  });
   it("waits for the row instead of spending its one try on the empty page", () => {
     window.location.hash = "#question-12";
     const { rerender } = render(<Harness ready={0} rows={[]} />);

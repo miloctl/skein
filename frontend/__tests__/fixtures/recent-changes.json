@@ -1,0 +1,967 @@
+{
+  "user": "mario",
+  "since": "2026-09-14T00:00:00+00:00",
+  "window_start": "2026-09-14",
+  "window_end": "2026-09-20",
+  "items": [
+    {
+      "kind": "health_moved",
+      "entity": "engagement",
+      "entity_id": 1,
+      "headline": "Onboarding revamp is scored yellow for the first time",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "engagement #1 unscored to yellow",
+          "refs": [
+            {
+              "entity": "engagement",
+              "id": 1
+            }
+          ]
+        }
+      ],
+      "link": "/engagement/1"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 1,
+      "headline": "External promise due 2026-09-23: \u201cSend Acme the diligence summary\u201d (to Acme PM).",
+      "rule_id": "promise_due",
+      "severity": "medium",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #1 (medium)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 1
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 2,
+      "headline": "'Quick capture' has zero team-wide first-uses 30+ days after entering the field guide (2026-07-31) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #2 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 2
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 3,
+      "headline": "'Guided first week' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-15) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #3 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 3
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 4,
+      "headline": "'Today\u2019s Three' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-15) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #4 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 4
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 5,
+      "headline": "'Answer a question' has zero team-wide first-uses 30+ days after entering the field guide (2026-07-31) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #5 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 5
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 6,
+      "headline": "'Search & /ask' has zero team-wide first-uses 30+ days after entering the field guide (2026-07-31) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #6 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 6
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 7,
+      "headline": "'Intake requests' has zero team-wide first-uses 30+ days after entering the field guide (2026-07-31) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #7 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 7
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 8,
+      "headline": "'Growth interests' has zero team-wide first-uses 30+ days after entering the field guide (2026-07-31) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #8 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 8
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 9,
+      "headline": "'Chat & the bench' has zero team-wide first-uses 30+ days after entering the field guide (2026-07-31) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #9 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 9
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 10,
+      "headline": "'Page help' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-16) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #10 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 10
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 11,
+      "headline": "'File it from chat' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-01) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #11 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 11
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 12,
+      "headline": "'CLI & MCP' has zero team-wide first-uses 30+ days after entering the field guide (2026-07-31) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #12 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 12
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 13,
+      "headline": "'Read report history' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-15) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #13 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 13
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 14,
+      "headline": "'Meeting-notes ingestion' has zero team-wide first-uses 30+ days after entering the field guide (2026-07-31) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #14 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 14
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 15,
+      "headline": "'Bosun' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-16) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #15 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 15
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 16,
+      "headline": "'The activity feed' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-02) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #16 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 16
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 17,
+      "headline": "'Close the delegation loop' has zero team-wide first-uses 30+ days after entering the field guide (2026-07-31) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #17 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 17
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 18,
+      "headline": "'@mentions' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-03) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #18 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 18
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 19,
+      "headline": "'Bill a chat to its engagement' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-02) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #19 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 19
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 20,
+      "headline": "'Ask a specialist mid-chat' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-07) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #20 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 20
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 21,
+      "headline": "'Finding \u2192 work' has zero team-wide first-uses 30+ days after entering the field guide (2026-07-31) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #21 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 21
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 22,
+      "headline": "'Settle a promise' has zero team-wide first-uses 30+ days after entering the field guide (2026-07-31) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #22 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 22
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 23,
+      "headline": "'Resolve a blocker' has zero team-wide first-uses 30+ days after entering the field guide (2026-07-31) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #23 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 23
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 24,
+      "headline": "'Close an engagement honestly' has zero team-wide first-uses 30+ days after entering the field guide (2026-07-31) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #24 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 24
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 25,
+      "headline": "'Review a proposal' has zero team-wide first-uses 30+ days after entering the field guide (2026-07-31) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #25 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 25
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 26,
+      "headline": "'Week rituals' has zero team-wide first-uses 30+ days after entering the field guide (2026-07-31) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #26 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 26
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 27,
+      "headline": "'Exec readout' has zero team-wide first-uses 30+ days after entering the field guide (2026-07-31) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #27 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 27
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 28,
+      "headline": "'Handoff package' has zero team-wide first-uses 30+ days after entering the field guide (2026-07-31) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #28 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 28
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 29,
+      "headline": "'Pick the team model' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-08) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #29 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 29
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 30,
+      "headline": "'Teach the playbook what happened' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-09) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #30 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 30
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 31,
+      "headline": "'Manual backup' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-14) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #31 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 31
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 32,
+      "headline": "'See what needs a decision' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-10) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #32 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 32
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 33,
+      "headline": "'Ask where a row came from' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-10) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #33 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 33
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 34,
+      "headline": "'Give a memory a subject' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-10) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #34 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 34
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 35,
+      "headline": "'Attach a file to a question' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-16) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #35 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 35
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 36,
+      "headline": "'Ask for a written document' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-16) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #36 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 36
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 37,
+      "headline": "'Staffing allocations' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-20) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #37 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 37
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "finding_new",
+      "entity": "finding",
+      "entity_id": 38,
+      "headline": "'Void a mistake' has zero team-wide first-uses 30+ days after entering the field guide (2026-08-20) \u2014 broken entry point, or a feature nobody wants? The how-to card is on /guide.",
+      "rule_id": "feature_unadopted",
+      "severity": "low",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "finding #38 (low)",
+          "refs": [
+            {
+              "entity": "finding",
+              "id": 38
+            }
+          ]
+        }
+      ],
+      "link": "/insights"
+    },
+    {
+      "kind": "promise_broke",
+      "entity": "promise",
+      "entity_id": 2,
+      "headline": "The promise to Fixture stakeholder 1 passed its date",
+      "direction": "worse",
+      "receipts": [
+        {
+          "message": "promise #2 was due 2026-09-19",
+          "refs": [
+            {
+              "entity": "promise",
+              "id": 2
+            }
+          ]
+        }
+      ],
+      "link": "/portfolio#promise-2"
+    },
+    {
+      "kind": "promise_broke",
+      "entity": "promise",
+      "entity_id": 3,
+      "headline": "The promise to Fixture stakeholder 2 passed its date",
+      "direction": "worse",
+      "receipts": [
+        {
+          "message": "promise #3 was due 2026-09-19",
+          "refs": [
+            {
+              "entity": "promise",
+              "id": 3
+            }
+          ]
+        }
+      ],
+      "link": "/portfolio#promise-3"
+    },
+    {
+      "kind": "promise_broke",
+      "entity": "promise",
+      "entity_id": 4,
+      "headline": "The promise to Fixture stakeholder 3 passed its date",
+      "direction": "worse",
+      "receipts": [
+        {
+          "message": "promise #4 was due 2026-09-19",
+          "refs": [
+            {
+              "entity": "promise",
+              "id": 4
+            }
+          ]
+        }
+      ],
+      "link": "/portfolio#promise-4"
+    },
+    {
+      "kind": "promise_broke",
+      "entity": "promise",
+      "entity_id": 5,
+      "headline": "The promise to Fixture stakeholder 4 passed its date",
+      "direction": "worse",
+      "receipts": [
+        {
+          "message": "promise #5 was due 2026-09-19",
+          "refs": [
+            {
+              "entity": "promise",
+              "id": 5
+            }
+          ]
+        }
+      ],
+      "link": "/portfolio#promise-5"
+    },
+    {
+      "kind": "promise_broke",
+      "entity": "promise",
+      "entity_id": 6,
+      "headline": "The promise to Fixture stakeholder 5 passed its date",
+      "direction": "worse",
+      "receipts": [
+        {
+          "message": "promise #6 was due 2026-09-19",
+          "refs": [
+            {
+              "entity": "promise",
+              "id": 6
+            }
+          ]
+        }
+      ],
+      "link": "/portfolio#promise-6"
+    },
+    {
+      "kind": "promise_broke",
+      "entity": "promise",
+      "entity_id": 7,
+      "headline": "The promise to Fixture stakeholder 6 passed its date",
+      "direction": "worse",
+      "receipts": [
+        {
+          "message": "promise #7 was due 2026-09-19",
+          "refs": [
+            {
+              "entity": "promise",
+              "id": 7
+            }
+          ]
+        }
+      ],
+      "link": "/portfolio#promise-7"
+    },
+    {
+      "kind": "acceptance_waiting",
+      "entity": "proposal",
+      "entity_id": 2,
+      "headline": "An agent submitted 'Summarize competitor pricing pages' for your acceptance",
+      "direction": "new",
+      "receipts": [
+        {
+          "message": "proposal #2 on task #10",
+          "refs": [
+            {
+              "entity": "proposal",
+              "id": 2
+            },
+            {
+              "entity": "task",
+              "id": 10
+            }
+          ]
+        }
+      ],
+      "link": "/review?id=2"
+    }
+  ],
+  "quiet": false,
+  "snapshot_id": "94fdeec199bcf19742f103125fd80317dc9cc4cac874174f04e3599a7fbc05bf",
+  "review_revision": 0,
+  "reviewed": false,
+  "truncated": false
+}

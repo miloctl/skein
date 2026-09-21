@@ -999,13 +999,14 @@ export function Thread() {
               ))}
             </div>
             <p className="mt-6 text-xs text-ink-3">
-              Type <code>/help</code> for commands — <code>/plan</code>,{" "}
-              <code>/playbooks</code>, <code>/search</code>,{" "}
-              <code>/briefing</code>, <code>/remember</code> — they run
-              instantly, no model needed. <code>/personas</code> lists the bench
-              of specialists, and <code>/as</code> calls one.{" "}
-              <code>/flocks</code> lists the groups of them, and{" "}
-              <code>/flock</code> asks a whole group at one time.{" "}
+              Use <code>/help</code> to list commands. No model is needed.{" "}
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new CustomEvent("skein-chat-compose", { detail: "/help" }))}
+                className="font-medium text-thread underline"
+              >
+                Prepare /help
+              </button>{" "}
               {activePersona
                 ? `Every other message goes to ${activePersona.name}, the persona above the composer.`
                 : "Every other message goes to the Chief of Staff."}

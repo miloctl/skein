@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ api: vi.fn() }));
@@ -48,6 +48,7 @@ beforeEach(() => {
 describe("standup authorship", () => {
   it("names the agent writer beside a human byline only for non-human origin", async () => {
     render(<Dashboard />);
+    fireEvent.change(await screen.findByRole("combobox", { name: "Browse register" }), { target: { value: "browse-recent-standups" } });
     expect(await screen.findByText(/filed by scout/)).toBeTruthy();
     expect(screen.queryByText(/filed by ava/)).toBeNull();
   });

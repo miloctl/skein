@@ -230,7 +230,7 @@ describe("page help", () => {
     // shrink-0 as well as the width: the cluster is min-w-0 and the search box
     // is flex-1 below sm, so a shrinkable spacer collapses and /guide reflows
     // again on exactly the narrow viewports this was reported from
-    expect(container.querySelector(".h-8.w-8.shrink-0")).not.toBeNull();
+    expect(container.querySelector(".h-8.w-14.shrink-0")).not.toBeNull();
   });
 
   it("offers help on Chat, handing the Bosun prefill to the live composer", async () => {

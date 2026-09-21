@@ -3948,14 +3948,34 @@ def get_delta(
     viewer: ViewerDep,
     request: Request,
     subject: PolicySubjectDep,
-    mark: bool = False,
 ):
-    """What changed for this reader since their last brief.
-
-    `mark` defaults to False so a caller can PREVIEW without consuming: the
-    chat command shows the brief, and only the surface that displays it moves
-    the reader's last-seen mark (services/delta.py)."""
-    transaction = db.transaction if mark else db.read_transaction
-    with transaction():
+    """Read the recent summary. A preview never writes review state."""
+    with db.read_transaction():
         _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.delta")
-        return delta.brief(user, viewer, mark=mark)
+        return delta.brief(user, viewer)
+
+
+class DeltaAckIn(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    snapshot_id: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    review_revision: int = Field(ge=0)
+
+
+@router.post("/delta/ack")
+def post_delta_ack(
+    body: DeltaAckIn,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    ratelimit.check("write", user)
+    # Keep this metadata-only route out of extensions/fastapi.py::_ATOMIC_POLICY.
+    # An ambient write transaction makes read_transaction() join READ COMMITTED,
+    # splitting the authorized summary across snapshots. The metadata lock and
+    # revision check need a separate fresh transaction after this read ends.
+    with db.read_transaction():
+        _require_opaque_project_policy(request, subject, viewer, "skein.rest.post.delta.ack")
+        _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.delta")
+        snapshot = delta.brief(user, viewer)
+    return delta.acknowledge(user, snapshot, body.snapshot_id, body.review_revision)

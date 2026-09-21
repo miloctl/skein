@@ -47,7 +47,7 @@ export function PageHelp() {
   // unmounting the button shrank the header's right cluster by the button plus
   // its gap, so every control left of it jumped sideways on arrival.
   if (pathname === "/guide")
-    return <div aria-hidden className="h-8 w-8 shrink-0 md:w-[3.75rem]" />;
+    return <div aria-hidden className="h-8 w-14 shrink-0" />;
 
   const pageCards = cards?.path === pathname ? cards.rows : null;
   const load = () => {
@@ -115,12 +115,11 @@ export function PageHelp() {
         aria-controls="page-help"
         title="Help for this page"
         onClick={() => (open ? dismiss() : load())}
-        // The /guide spacer above holds both responsive widths. Change one and
+        // The /guide spacer above holds this control's width. Change one and
         // the top bar reflows when the guide removes this control.
-        className="flex h-8 min-w-8 items-center justify-center gap-1 rounded-full border border-dashed border-line-strong px-2 font-mono text-xs text-ink-2 hover:bg-raised hover:text-ink"
+        className="flex h-8 w-14 items-center justify-center rounded-full border border-dashed border-line-strong px-2 font-mono text-xs text-ink-2 hover:bg-raised hover:text-ink"
       >
-        <span aria-hidden>?</span>
-        <span className="hidden md:inline">Help</span>
+        Help
       </button>
       {open && (
         <section

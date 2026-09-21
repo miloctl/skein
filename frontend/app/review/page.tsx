@@ -12,7 +12,6 @@ import { actionError, api, getUser, loadError, subscribeUser } from "@/lib/api";
 import { notifyAttentionChange } from "@/lib/attention";
 import { reportStatus } from "@/lib/status";
 import { EmptyState } from "@/components/card";
-import { SectionTabs } from "@/components/section-tabs";
 import { PeekLink } from "@/components/task-peek";
 import { timeAgo } from "@/lib/time";
 import { emptyState } from "@/lib/whimsy";
@@ -204,7 +203,7 @@ function AcceptanceEvidence({
   evidence: NonNullable<Change["evidence"]>;
 }) {
   return (
-    <div className="mb-3 rounded-lg border border-line bg-raised p-2.5 text-xs">
+    <div className="mb-3 space-y-1 text-sm">
       <p className="mb-1 text-ink-2">
         <span className="font-medium">{evidence.title}</span>
         <span className="text-ink-3">
@@ -653,7 +652,6 @@ export default function ReviewPage() {
       tabIndex={-1}
       className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6"
     >
-      <SectionTabs set="inbox" />
       <h1
         id="review-queue-heading"
         tabIndex={-1}
@@ -739,10 +737,10 @@ export default function ReviewPage() {
             data-review-card
             tabIndex={-1}
             aria-label={`Proposal #${c.id}: ${c.label}`}
-            className="rounded-xl border border-line bg-card p-4 shadow-card"
+            className="rounded-xl border border-line bg-card p-4 skein-card"
           >
             <div className="mb-2 flex flex-wrap items-start gap-2">
-              <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2 break-words text-sm font-semibold">
+              <div className="flex min-w-0 w-full items-start gap-2">
                 <input
                   type="checkbox"
                   checked={selected.has(c.id)}
@@ -761,6 +759,7 @@ export default function ReviewPage() {
                   }
                   className="h-4 w-4 disabled:opacity-40"
                 />
+                <h2 className="skein-section-title min-w-0 break-words">
                 #{c.id} · {c.label}
                 {/* the id after a task_completion names the TASK the sponsor is
                     accepting, not this proposal — the bare "#10" read as a
@@ -795,8 +794,9 @@ export default function ReviewPage() {
                     identical to #{duplicateOf.get(c.id)}
                   </span>
                 ) : null}
-              </span>
-              <span className="ml-auto text-xs text-ink-3">
+                </h2>
+              </div>
+              <p className="w-full text-xs text-ink-3">
                 by {c.proposed_by} <OriginChip origin={c.origin} />
                 {c.requested_by ? ` · asked by ${c.requested_by}` : ""}
                 {c.sponsor
@@ -806,7 +806,7 @@ export default function ReviewPage() {
                 <time dateTime={c.created_at} title={c.created_at}>
                   {timeAgo(c.created_at)}
                 </time>
-              </span>
+              </p>
             </div>
             {c.summary && (
               <p className="mb-2 text-sm text-ink-2">{c.summary}</p>
@@ -939,7 +939,7 @@ export default function ReviewPage() {
         <section aria-labelledby="unknown-execution-heading" className="mt-8">
           <h2
             id="unknown-execution-heading"
-            className="mb-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-danger"
+            className="mb-2 skein-section-title text-danger"
           >
             Execution needs reconciliation
           </h2>
@@ -957,13 +957,14 @@ export default function ReviewPage() {
 
       {(recentApproved.length > 0 || historyError) && (
         <>
-          <h2 className="mb-2 mt-8 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
-            Recently approved
-          </h2>
           {historyError && (
-            <p className="text-xs text-danger">{historyError}</p>
+            <p className="mt-4 text-sm text-danger">{historyError}</p>
           )}
-          <ul className="space-y-1">
+          {recentApproved.length > 0 && <details className="mt-8">
+            <summary className="cursor-pointer">
+              <h2 className="skein-section-title inline text-ink-3">Recently approved</h2>
+            </summary>
+          <ul className="mt-2 space-y-1">
             {recentApproved
               .slice(0, 10)
               .map((c) => (
@@ -986,6 +987,7 @@ export default function ReviewPage() {
               </li>
             ))}
           </ul>
+          </details>}
         </>
       )}
     </main>

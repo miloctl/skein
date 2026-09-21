@@ -9,7 +9,6 @@ import { HASH_TARGET, useHashTarget } from "@/lib/hash-target";
 import { dismissStatus, reportStatus } from "@/lib/status";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
 import { Card } from "@/components/card";
-import { SectionTabs } from "@/components/section-tabs";
 
 type Health = {
   id: number;
@@ -38,32 +37,6 @@ type Flow = {
   throughput_by_week: Record<string, number>;
   wip_by_person: { person: string; in_progress: number }[];
   stale_wip: { id: number; title: string; assignee: string; days_stale: number }[];
-};
-
-type Week = {
-  week: string;
-  committed: number;
-  done: number;
-  kept_percent: number | null;
-  // forge_url: written only by the forge webhook, so it is absent on every
-  // task nobody pushed for. weekly.py selects t.*, so it is on the wire.
-  tasks: {
-    id: number;
-    title: string;
-    status: string;
-    assignee: string;
-    forge_url?: string;
-  }[];
-  // the Monday job's plan for this week, when one sits unjudged in Approvals
-  // (weekly.py). The card offers the review instead of the drafter then —
-  // drafting again files a second proposal for the same week.
-  pending_proposal?: { id: number; summary: string } | null;
-};
-
-type Draft = {
-  week: string;
-  items: { task_id: number; title: string; assignee: string }[];
-  skipped_absent?: { person: string; away_days: number }[];
 };
 
 type Forecast = {
@@ -174,8 +147,6 @@ export default function Portfolio() {
   // "Nobody is over 100%" during the first paint and after a failed fetch
   const [conflicts, setConflicts] = useState<Conflict[] | null>(null);
   const [flow, setFlow] = useState<Flow | null>(null);
-  const [week, setWeek] = useState<Week | null>(null);
-  const [draft, setDraft] = useState<Draft | null>(null);
   const [forecast, setForecast] = useState<Forecast | null>(null);
   const [promises, setPromises] = useState<PromiseRow[] | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
@@ -218,7 +189,6 @@ export default function Portfolio() {
       .then(ok(setConflicts, "conflicts"))
       .catch(fail("conflicts", "capacity conflicts"));
     api<Flow>("/api/portfolio/flow").then(ok(setFlow, "flow")).catch(fail("flow", "flow"));
-    api<Week>("/api/week").then(ok(setWeek, "week")).catch(fail("week", "this week's plan"));
     api<Forecast>("/api/portfolio/forecast")
       .then(ok(setForecast, "forecast"))
       .catch(fail("forecast", "the slip forecast"));
@@ -268,16 +238,18 @@ export default function Portfolio() {
   return (
     <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <SectionTabs set="work" />
+        <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Health</h1>
         <ManageToggle />
       </div>
-      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Health</h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
-        Engagement health, this week&apos;s plan, flow, and forecasts — evidence
-        behind every health call.
+        Delivery condition, risks, and the evidence behind each health call.{" "}
+        <Link href="/planning#planning-this-week" className="underline underline-offset-2">Plan the week</Link>.
       </p>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      <Card title="Engagement health — each call shows why">
+      <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
+      <Card title="Engagement health — each call shows why" className="md:col-span-2">
+        {errors.health && health !== null && (
+          <p className="mb-2 text-sm text-danger">Last refresh failed. Skein shows the state from the last good load. {errors.health}</p>
+        )}
         {health === null ? (
           pending("health")
         ) : health.length === 0 ? (
@@ -329,121 +301,10 @@ export default function Portfolio() {
         )}
       </Card>
 
-      <Card title={week ? `This week's plan — ${week.week}` : "This week's plan"}>
-        <p className="mb-2 text-xs text-ink-3">
-          The tasks the team promised to finish this week.
-        </p>
-        {week === null ? (
-          pending("week")
-        ) : week.committed > 0 ? (
-          <>
-            <p className="mb-2 text-sm">
-              {week.done}/{week.committed} done
-              {week.kept_percent !== null && (
-                <span className="ml-2 text-xs text-ink-3">({week.kept_percent}%)</span>
-              )}
-            </p>
-            <ul className="space-y-1 text-sm">
-              {week.tasks.map((t) => (
-                <li
-                  key={t.id}
-                  className={`break-words ${t.status === "done" ? "text-ink-3 line-through" : ""}`}
-                >
-                  #{t.id} {t.title}
-                  <span className="ml-1 text-xs text-ink-3">@{t.assignee || "unassigned"}</span>
-                  {/* the only surface a merged task's pull request has: Browse
-                      drops a task the moment it is done, which is exactly when
-                      the forge stores the PR link */}
-                  {t.forge_url ? (
-                    <a
-                      href={String(t.forge_url)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label={`Code for task #${t.id}: ${t.title} (opens a new tab)`}
-                      // inline-block: a done row is struck through, and an
-                      // ancestor's line-through paints over descendants —
-                      // the merged pull request is the most live thing here
-                      className="ml-2 inline-block text-xs text-ink-3 underline hover:text-ink-2"
-                    >
-                      code <span aria-hidden>↗</span>
-                    </a>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </>
-        ) : (
-          <p className="text-sm text-ink-3">Nothing committed this week yet.</p>
-        )}
-        {/* a plan proposal already waiting supersedes the drafter: drafting
-            again files a SECOND proposal for the same week, and the reviewer
-            gets two commitment lines to untangle */}
-        {week?.pending_proposal ? (
-          <p className="mt-3 text-sm">
-            <Link
-              href={`/review?id=${week.pending_proposal.id}`}
-              className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-3"
-            >
-              Proposal #{week.pending_proposal.id}
-            </Link>{" "}
-            already proposes this week&apos;s plan. Review it in Inbox →
-            Approvals.
-          </p>
-        ) : (
-        <>
-        <div className="mt-3 flex gap-2">
-          <button
-            onClick={() =>
-              api<Draft>("/api/week/draft")
-                .then(setDraft)
-                .catch((e) => reportStatus(actionError(e)))
-            }
-            className="rounded-lg bg-raised px-3 py-1 text-xs font-medium hover:bg-line"
-          >
-            Draft a plan
-          </button>
-          {draft && draft.items.length > 0 && (
-            <button
-              aria-busy={busy}
-              onClick={() =>
-                mutate(
-                  api("/api/week/plan", {
-                    method: "POST",
-                    body: JSON.stringify({
-                      week: draft.week,
-                      task_ids: draft.items.map((i) => i.task_id),
-                    }),
-                  }),
-                ).then(() => setDraft(null))
-              }
-              className="rounded-lg bg-thread-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
-            >
-              {busy
-                ? "Planning…"
-                : `Add ${draft.items.length} task${draft.items.length === 1 ? "" : "s"} to the plan`}
-            </button>
-          )}
-        </div>
-        {draft && (
-          <ul className="mt-2 space-y-1 text-xs text-ink-3">
-            {(draft.skipped_absent ?? []).map((s) => (
-              <li key={s.person} className="text-weld">
-                {s.person} skipped — away {s.away_days} weekday{s.away_days === 1 ? "" : "s"} that week
-              </li>
-            ))}
-            {draft.items.length === 0 && <li>Nothing to draft — assign some tasks first.</li>}
-            {draft.items.map((i) => (
-              <li key={i.task_id}>
-                #{i.task_id} {i.title} @{i.assignee}
-              </li>
-            ))}
-          </ul>
-        )}
-        </>
-        )}
-      </Card>
-
       <Card title="Capacity conflicts">
+        {errors.conflicts && conflicts !== null && (
+          <p className="mb-2 text-sm text-danger">Last refresh failed. Skein shows the state from the last good load. {errors.conflicts}</p>
+        )}
         {conflicts === null ? (
           pending("conflicts")
         ) : conflicts.length === 0 ? (
@@ -463,117 +324,10 @@ export default function Portfolio() {
         )}
       </Card>
 
-      <Card title="AI usage and estimated cost">
-        {/* The budget finding pointed people at a raw JSON endpoint. Spend
-            belongs beside engagement health because that is where the
-            question is asked: what is the AI layer costing, and on what. */}
-        {errors.usage ? (
-          <p className="text-sm text-danger">{errors.usage}</p>
-        ) : /* a payload with no month is a payload this card cannot read.
-               Reaching into it renders nothing and throws instead, and an
-               exception here takes down HEALTH, CONFLICTS and the week plan
-               with it — one card must never cost the page. */
-        !usage?.month ? (
-          <p className="text-sm text-ink-3">Loading…</p>
-        ) : usage.month.calls === 0 ? (
-          <p className="text-sm text-ink-3">
-            No AI model calls were recorded this month.
-          </p>
-        ) : (
-          <>
-            <p className="text-sm">
-              {usage.month.month}: {usage.month.calls.toLocaleString()} call
-              {usage.month.calls === 1 ? "" : "s"}
-              {usage.month.cost_usd !== null ? (
-                <> · ${usage.month.cost_usd.toFixed(2)} estimated</>
-              ) : null}
-              {usage.month.budget_usd ? (
-                <> of a ${usage.month.budget_usd.toFixed(2)} ceiling</>
-              ) : null}
-            </p>
-            {/* An unpriced call is reported as unpriced, never as zero: a sum
-                that silently omits calls reads as a total (services/usage.py) */}
-            {usage.month.unpriced_calls > 0 ? (
-              <p className="text-xs text-weld">
-                {usage.month.unpriced_calls.toLocaleString()} call
-                {usage.month.unpriced_calls === 1 ? " has" : "s have"} no price.
-                The estimated cost does not include {usage.month.unpriced_calls === 1 ? "it" : "them"}.
-                {/* the fix is an env var — whoever runs the server acts on
-                    it, and for everyone else it is a wall of config they
-                    cannot touch */}
-                {manage
-                  ? " Set a price for the model in SKEIN_MODELS or SKEIN_MODEL_PRICES."
-                  : ""}
-              </p>
-            ) : null}
-            <h3 className="mt-3 text-xs uppercase tracking-wide text-ink-3">
-              By engagement
-            </h3>
-            <ul className="space-y-1 text-sm">
-              {usage.engagements.map((e) => (
-                <li key={e.engagement_id ?? "unlinked"}>
-                  {e.engagement}: {e.calls.toLocaleString()} call
-                  {e.calls === 1 ? "" : "s"} ·{" "}
-                  {(e.input_tokens + e.output_tokens).toLocaleString()} tokens
-                  {e.cost_usd !== null ? <> · ${e.cost_usd.toFixed(2)}</> : null}
-                </li>
-              ))}
-            </ul>
-            <h3 className="mt-3 text-xs uppercase tracking-wide text-ink-3">
-              By model
-            </h3>
-            <ul className="space-y-1 text-sm">
-              {usage.models.map((m) => (
-                <li key={m.model_id}>
-                  {m.model_id}: {m.calls.toLocaleString()} call
-                  {m.calls === 1 ? "" : "s"} ·{" "}
-                  {(m.input_tokens + m.output_tokens).toLocaleString()} tokens
-                  {m.cost_usd !== null ? <> · ${m.cost_usd.toFixed(2)}</> : null}
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-      </Card>
-
-      <Card title="Flow — cycle time from real task history">
-        {flow === null ? (
-          pending("flow")
-        ) : (
-          <div className="space-y-2 text-sm">
-            <p>
-              {flow.cycle_time.tasks_done} task{flow.cycle_time.tasks_done === 1 ? "" : "s"} done in 8 weeks
-              {flow.cycle_time.tasks_done > 0 && (
-                <span className="text-xs text-ink-3">
-                  {" "}
-                  · median {cycleTime(flow.cycle_time.median_days)} · avg{" "}
-                  {cycleTime(flow.cycle_time.avg_days)}
-                </span>
-              )}
-            </p>
-            <p className="text-xs text-ink-3">
-              WIP:{" "}
-              {flow.wip_by_person.map((w) => `${w.person} ${w.in_progress}`).join(" · ") ||
-                "none"}
-            </p>
-            <Throughput weeks={flow.throughput_by_week} />
-            {flow.stale_wip.length > 0 && (
-              <div>
-                <p className="text-xs font-medium text-weld">Stale in-progress:</p>
-                <ul className="ml-4 list-disc text-xs text-ink-3">
-                  {flow.stale_wip.map((s) => (
-                    <li key={s.id}>
-                      #{s.id} {s.title} — {s.days_stale}d (@{s.assignee || "unassigned"})
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-      </Card>
-
       <Card title="Slip forecast">
+        {errors.forecast && forecast !== null && (
+          <p className="mb-2 text-sm text-danger">Last refresh failed. Skein shows the state from the last good load. {errors.forecast}</p>
+        )}
         {forecast === null ? (
           pending("forecast")
         ) : (
@@ -610,6 +364,9 @@ export default function Portfolio() {
       </Card>
 
       <Card title="Promises — external + yours to the team">
+        {errors.promises && promises !== null && (
+          <p className="mb-2 text-sm text-danger">Last refresh failed. Skein shows the state from the last good load. {errors.promises}</p>
+        )}
         {!manage && promises?.some((c) => c.status === "open") && (
           <p className="mb-2 text-xs text-ink-3">
             To mark a promise kept or missed, turn on <b>Management view</b>
@@ -682,6 +439,125 @@ export default function Portfolio() {
               </li>
             ))}
           </ul>
+        )}
+      </Card>
+
+      <Card title="AI usage and estimated cost">
+        {/* The budget finding pointed people at a raw JSON endpoint. Spend
+            belongs beside engagement health because that is where the
+            question is asked: what is the AI layer costing, and on what. */}
+        {errors.usage ? (
+          <p className="text-sm text-danger">{errors.usage}</p>
+        ) : /* a payload with no month is a payload this card cannot read.
+               Reaching into it renders nothing and throws instead, and an
+               exception here takes down HEALTH, CONFLICTS and the week plan
+               with it — one card must never cost the page. */
+        !usage?.month ? (
+          <p className="text-sm text-ink-3">Loading…</p>
+        ) : usage.month.calls === 0 ? (
+          <p className="text-sm text-ink-3">
+            No AI model calls were recorded this month.
+          </p>
+        ) : (
+          <>
+            <p className="text-sm">
+              {usage.month.month}: {usage.month.calls.toLocaleString()} call
+              {usage.month.calls === 1 ? "" : "s"}
+              {usage.month.cost_usd !== null ? (
+                <> · ${usage.month.cost_usd.toFixed(2)} estimated</>
+              ) : null}
+              {usage.month.budget_usd ? (
+                <> of a ${usage.month.budget_usd.toFixed(2)} ceiling</>
+              ) : null}
+            </p>
+            {/* An unpriced call is reported as unpriced, never as zero: a sum
+                that silently omits calls reads as a total (services/usage.py) */}
+            {usage.month.unpriced_calls > 0 ? (
+              <p className="text-xs text-weld">
+                {usage.month.unpriced_calls.toLocaleString()} call
+                {usage.month.unpriced_calls === 1 ? " has" : "s have"} no price.
+                The estimated cost does not include {usage.month.unpriced_calls === 1 ? "it" : "them"}.
+                {/* the fix is an env var — whoever runs the server acts on
+                    it, and for everyone else it is a wall of config they
+                    cannot touch */}
+                {manage
+                  ? " Set a price for the model in SKEIN_MODELS or SKEIN_MODEL_PRICES."
+                  : ""}
+              </p>
+            ) : null}
+            <details className="mt-3">
+              <summary className="cursor-pointer text-sm text-ink-2">Usage breakdown</summary>
+            <h3 className="mt-3 text-xs uppercase tracking-wide text-ink-3">
+              By engagement
+            </h3>
+            <ul className="space-y-1 text-sm">
+              {usage.engagements.map((e) => (
+                <li key={e.engagement_id ?? "unlinked"}>
+                  {e.engagement}: {e.calls.toLocaleString()} call
+                  {e.calls === 1 ? "" : "s"} ·{" "}
+                  {(e.input_tokens + e.output_tokens).toLocaleString()} tokens
+                  {e.cost_usd !== null ? <> · ${e.cost_usd.toFixed(2)}</> : null}
+                </li>
+              ))}
+            </ul>
+            <h3 className="mt-3 text-xs uppercase tracking-wide text-ink-3">
+              By model
+            </h3>
+            <ul className="space-y-1 text-sm">
+              {usage.models.map((m) => (
+                <li key={m.model_id}>
+                  {m.model_id}: {m.calls.toLocaleString()} call
+                  {m.calls === 1 ? "" : "s"} ·{" "}
+                  {(m.input_tokens + m.output_tokens).toLocaleString()} tokens
+                  {m.cost_usd !== null ? <> · ${m.cost_usd.toFixed(2)}</> : null}
+                </li>
+              ))}
+            </ul>            </details>
+
+          </>
+        )}
+      </Card>
+
+      <Card title="Flow — cycle time from real task history">
+        {errors.flow && flow !== null && (
+          <p className="mb-2 text-sm text-danger">Last refresh failed. Skein shows the state from the last good load. {errors.flow}</p>
+        )}
+        {flow === null ? (
+          pending("flow")
+        ) : (
+          <div className="space-y-2 text-sm">
+            <p>
+              {flow.cycle_time.tasks_done} task{flow.cycle_time.tasks_done === 1 ? "" : "s"} done in 8 weeks
+              {flow.cycle_time.tasks_done > 0 && (
+                <span className="text-xs text-ink-3">
+                  {" "}
+                  · median {cycleTime(flow.cycle_time.median_days)} · avg{" "}
+                  {cycleTime(flow.cycle_time.avg_days)}
+                </span>
+              )}
+            </p>
+            <details>
+              <summary className="cursor-pointer text-sm text-ink-2">Flow breakdown</summary>
+            <p className="text-xs text-ink-3">
+              WIP:{" "}
+              {flow.wip_by_person.map((w) => `${w.person} ${w.in_progress}`).join(" · ") ||
+                "none"}
+            </p>
+            <Throughput weeks={flow.throughput_by_week} />
+            </details>
+            {flow.stale_wip.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-weld">Stale in-progress:</p>
+                <ul className="ml-4 list-disc text-xs text-ink-3">
+                  {flow.stale_wip.map((s) => (
+                    <li key={s.id}>
+                      #{s.id} {s.title} — {s.days_stale}d (@{s.assignee || "unassigned"})
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
         )}
       </Card>
 

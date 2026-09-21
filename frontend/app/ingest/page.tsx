@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { actionError, api } from "@/lib/api";
-import { SectionTabs } from "@/components/section-tabs";
 import { Shortcut } from "@/components/shortcut";
 
 type IngestResult = {
@@ -58,7 +57,6 @@ export default function IngestPage() {
 
   return (
     <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
-      <SectionTabs set="inbox" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Paste meeting notes</h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
         Lines that start with <code>todo:</code>, <code>q:</code>,{" "}

@@ -126,14 +126,16 @@ export default function RootLayout({
           >
             Skip to content
           </a>
-          <Nav />
+          <Nav>
+            {/* The gate replaces content, not the navigation controller. */}
+            <AuthGate>
+              <FirstWatch />
+              {children}
+            </AuthGate>
+          </Nav>
+          {/* Both overlays inert direct body siblings. Nesting either inside
+              Nav would leave the rest of the shell reachable behind it. */}
           <CapturePalette />
-          {/* locked deployments (oidc, api-key): until an identity exists the
-              gate renders instead of the page — see components/auth-gate.tsx */}
-          <AuthGate>
-            <FirstWatch />
-            {children}
-          </AuthGate>
           {/* mounted once for the whole app: any surface that names a task can
               link to ?task=<id>, and the panel opens over whatever page the
               reader was already on instead of navigating them away from it */}

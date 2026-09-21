@@ -70,7 +70,7 @@ knots:
     knot: Slip Knot
     set: loops
     pitch: Yesterday prefills itself from your own activity; blockers auto-file.
-    how: Post one from My Day — the composer already knows what you did yesterday.
+    how: "On My Day, open Post a standup below Your work. The composer prefills yesterday from your own activity."
     link: /
     since: 2026-07-31
 
@@ -79,7 +79,7 @@ knots:
     knot: Double Bowline
     set: loops
     pitch: Your own line stays clear while the full formation waits one step back.
-    how: Complete one capture and one standup. Until then, My Day keeps team context behind Show team context. Select dismiss to use the full page now.
+    how: "Complete one capture and one standup. Select dismiss to hide the setup checklist. Show team context opens shared queues and routine activity for every user."
     link: /
     since: 2026-08-15
 
@@ -108,8 +108,8 @@ knots:
     knot: Figure-Eight Loop
     set: loops
     pitch: Done tasks feed cycle time, throughput, and the slip forecast.
-    how: Mark any task of yours done on Work → Browse. Open work stays in Tasks, and work from the last 7 days stays in Recently shipped.
-    link: /dashboard
+    how: "On Work → Browse, select Tasks and mark your task done. Select Recently shipped to see work from the last 7 days."
+    link: /dashboard#browse-tasks
     since: 2026-07-31
 
   - id: task_peek
@@ -118,7 +118,7 @@ knots:
     set: loops
     ties: mark
     pitch: One task opens beside the page without pulling you away from the formation.
-    how: Open any task link. Read or edit the task in the side panel. Use Escape or Back to close it.
+    how: "Open any task link. Read or edit the task in the side panel. Open Task details for its week, milestone, engagement, finish date, and code link. Use Escape or Back to close it."
     link: /dashboard
     since: 2026-08-23
 
@@ -136,8 +136,8 @@ knots:
     knot: Angler's Loop
     set: loops
     pitch: Assigned questions notify the assignee and wait visibly.
-    how: "`q: who owns the staging cert?` in quick capture, or assign one on Work → Browse."
-    link: /dashboard
+    how: "Type `q: who owns the staging cert?` in quick capture, or assign one in Work → Browse → Open questions."
+    link: /dashboard#browse-open-questions
     since: 2026-07-31
 
   - id: question_answered
@@ -157,7 +157,7 @@ knots:
     set: loops
     pitch: "`convention:` topics feed the context pack every agent reads."
     how: "Save a note whose topic starts with `convention`, for example how the team names branches."
-    link: /dashboard
+    link: /dashboard#browse-knowledge-base
     since: 2026-07-31
 
   - id: search
@@ -177,8 +177,8 @@ knots:
     knot: Honda Knot
     set: loops
     pitch: PTO and focus windows the weekly draft and staffing projections respect.
-    how: Log it on Work → Browse, in the Time-away card.
-    link: /dashboard
+    how: "On Work → Browse, select Time away. Open Add time away and enter the dates."
+    link: /dashboard#browse-time-away
     since: 2026-07-31
 
   - id: intake
@@ -218,7 +218,7 @@ knots:
     knot: Spanish Bowline
     set: loops
     pitch: The Chief of Staff, the specialist bench, and slash commands that run without a model.
-    how: "Open Team → Agents, choose Specialists, and select Ask in Chat. In Chat, try `/help` or call the bench with `/as growth-mentor …`."
+    how: "Open Team → Agents, choose Specialists, and select Chat beside a specialist. Open Details for its command and personality. In Chat, select Prepare /help, then send the command to list commands."
     link: /chat
     since: 2026-07-31
 
@@ -440,8 +440,8 @@ knots:
     knot: Wall Knot
     set: stoppers
     pitch: Stops the escalation clock; three-day-old blockers get a funeral.
-    how: Resolve one you own on Work → Browse.
-    link: /dashboard
+    how: "On Work → Browse, select Blockers. Resolve a blocker that you own."
+    link: /dashboard#browse-blockers
     since: 2026-07-31
 
   - id: close_engagement
@@ -449,8 +449,8 @@ knots:
     knot: Back Splice
     set: stoppers
     pitch: Closing requires a conclusion — invalidated-on-time is a success, not a slip.
-    how: Work → Browse, close out… on the engagement. Pick the conclusion that is true. If it started from a playbook, Skein shows the plan variance before you pick.
-    link: /dashboard
+    how: "On Work → Browse, select Engagements, then close out… on the engagement. Pick the conclusion that is true. If it started from a playbook, Skein shows the plan variance before you pick."
+    link: /dashboard#browse-engagements
     since: 2026-07-31
 
   - id: review
@@ -458,7 +458,7 @@ knots:
     knot: Turk's Head
     set: stoppers
     pitch: Someone proposed; a human verified. Approve and reject both count.
-    how: Inbox → Approvals starts with the oldest pending proposal. Select More proposals to continue. A rejection carries a note back to the proposer.
+    how: "Inbox → Approvals starts with the oldest pending proposal. Select More proposals to continue. A rejection carries a note back to the proposer. Open Recently approved to read ordinary approval history."
     link: /review
     since: 2026-07-31
 
@@ -500,7 +500,7 @@ knots:
     role: manager
     pitch: Everything the incoming roster needs, generated deterministically.
     how: Generate one from an engagement on Work → Browse.
-    link: /dashboard
+    link: /dashboard#browse-engagements
     since: 2026-07-31
 
   - id: model_pick
@@ -529,7 +529,7 @@ knots:
     role: manager
     pitch: The template said six weeks and every one of them ran nine. Close one out and the playbook finally hears about it.
     how: If an engagement started from a playbook, close it on Work → Browse. Skein diffs the plan against what happened and drafts the lesson. Approve it on Review, and the next kickoff of that class reads it.
-    link: /dashboard
+    link: /dashboard#browse-engagements
     since: 2026-08-09
 
   - id: engagement_brief
@@ -538,8 +538,8 @@ knots:
     set: bends
     role: any
     pitch: One piece of work, in one page — what it exists for, why it is red, and what to do about it.
-    how: On Work → Browse, select the name of an engagement. The brief shows its outcome and its health with the receipts behind it. It also shows open work, blockers, what an agent carries, and plan drift.
-    link: /dashboard
+    how: "On Work → Browse, select Engagements, then the engagement name. The brief shows its outcome and its health with receipts. It also shows open work, blockers, agent tasks, and plan drift."
+    link: /dashboard#browse-engagements
     since: 2026-08-10
 
   - id: agent_pause
@@ -562,14 +562,23 @@ knots:
     link: /settings
     since: 2026-08-14
 
+  - id: recent_summary_review
+    feature: Review recent changes
+    knot: Slipped Reef Knot
+    set: loops
+    pitch: Catch the changes without carrying the whole log into your day.
+    how: "On My Day, open Recent changes. Expand the summary to read its updates and evidence. Select Mark this summary reviewed. This records your review, not a decision on the work."
+    link: /#recent-changes
+    since: 2026-09-20
+
   - id: needs_a_call
     feature: See what needs a decision
     knot: Trucker's Hitch
     set: manager
     role: manager
     pitch: Everything that needs a decision, in one list. What is escalated, overdue, unowned or drifting, ranked by what it costs to leave alone.
-    how: On Work → Plan the week, open Needs a call. Each row states what is true, who holds it, and the next move. Follow a receipt to check the claim.
-    link: /planning
+    how: "On Work → Plan the week, read Needs a call. Each row states the condition, owner, and next action. Open Receipts to check the claim. Under This week, select Draft a plan or open the pending proposal."
+    link: /planning#planning-needs-call
     since: 2026-08-10
 
   - id: provenance
@@ -625,8 +634,8 @@ knots:
     set: manager
     role: manager
     pitch: The capacity math is only as honest as the allocations under it.
-    how: "On Work → Browse, the Capacity card takes a teammate, an engagement, and a percent. Conflicts, the weeks ahead, and intake what-ifs all read from the same table. When an allocation ends, delete it from the same card."
-    link: /dashboard
+    how: "On Work → Browse, select Capacity, then open Add allocation. Enter a teammate, an engagement, and a percent. When an allocation ends, delete it from the same register."
+    link: /dashboard#browse-capacity
     since: 2026-08-20
 
   - id: void_task

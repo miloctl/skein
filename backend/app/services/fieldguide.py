@@ -121,6 +121,9 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # slug, and `/as` writes exactly the same row
     "consult": None,
     "activity_feed": None,  # read-only page — tied by mark() on the feed route
+    "recent_summary_review": lambda u: _has(
+        "SELECT 1 FROM app_settings WHERE key = ?", (f"delta_reviewed:{u}",)
+    ),
     "chat_engagement": lambda u: _has(
         "SELECT 1 FROM chat_threads WHERE owner = ? AND engagement_id IS NOT NULL", (u,)
     ),

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 /** Browse hides done tasks, so a merge that closes a task removed it and its
@@ -61,6 +61,7 @@ import Dashboard from "@/app/dashboard/page";
 describe("the Recently shipped section", () => {
   it("shows work finished inside the window, with its code link", async () => {
     render(<Dashboard />);
+    fireEvent.change(await screen.findByRole("combobox", { name: "Browse register" }), { target: { value: "browse-recently-shipped" } });
     expect(await screen.findByText("shipped yesterday")).toBeTruthy();
     const link = screen.getByRole("link", {
       name: /Code for task #1/,
@@ -70,6 +71,7 @@ describe("the Recently shipped section", () => {
 
   it("drops work older than the window, and undated done work", async () => {
     render(<Dashboard />);
+    fireEvent.change(await screen.findByRole("combobox", { name: "Browse register" }), { target: { value: "browse-recently-shipped" } });
     await screen.findByText("shipped yesterday");
     expect(screen.queryByText("shipped just outside the window")).toBeNull();
     expect(screen.queryByText("done with no date")).toBeNull();
@@ -77,6 +79,7 @@ describe("the Recently shipped section", () => {
 
   it("leaves open work to the Tasks section", async () => {
     render(<Dashboard />);
+    fireEvent.change(await screen.findByRole("combobox", { name: "Browse register" }), { target: { value: "browse-recently-shipped" } });
     await screen.findByText("shipped yesterday");
     // present on the page (Tasks renders it) but exactly once — a done task
     // must not be listed by both sections

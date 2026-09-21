@@ -107,6 +107,17 @@ describe("⌘K focuses search", () => {
     expect(screen.queryByLabelText("What to capture")).toBeNull();
   });
 
+  it("does not focus Search behind a capture draft", () => {
+    render(<><NavSearch /><CapturePalette /></>);
+    act(() => window.dispatchEvent(new Event("skein-capture-open")));
+    const capture = screen.getByLabelText("What to capture");
+    fireEvent.change(capture, { target: { value: "todo: Keep this draft" } });
+    capture.focus();
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    expect(document.activeElement).toBe(capture);
+    expect((capture as HTMLTextAreaElement).value).toBe("todo: Keep this draft");
+  });
+
   it("leaves the metaKey half of the binding working", () => {
     render(<NavSearch />);
     const input = screen.getByLabelText(/Search Skein/);

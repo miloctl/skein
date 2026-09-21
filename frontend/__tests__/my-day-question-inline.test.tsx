@@ -63,7 +63,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.setItem("skein-user", "tester");
   window.localStorage.setItem("skein-onboarded:tester", "1");
-  window.localStorage.setItem("skein-guided-core-done:tester", "1");
   mocks.api.mockImplementation((path: string, opts?: { method?: string }) => {
     if (opts?.method) return Promise.resolve({});
     if (path === "/api/briefing") return Promise.resolve(briefing);

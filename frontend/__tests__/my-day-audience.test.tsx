@@ -1,5 +1,6 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import recentChanges from "./fixtures/recent-changes.json";
 
 /** "Needs you" has to mean it.
  *
@@ -11,7 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *  page renders the two audiences apart, and counts only the personal ones.
  */
 
-const mocks = vi.hoisted(() => ({ briefingCalls: 0 }));
+const mocks = vi.hoisted(() => ({ briefingCalls: 0, delta: {} as unknown, deltaReads: 0, deltaMarks: 0 }));
 
 const briefing = {
   user: "tester",
@@ -51,6 +52,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return {
     ...real,
     api: (path: string) => {
+      if (path === "/api/delta") { mocks.deltaReads += 1; return Promise.resolve(mocks.delta); }
+      if (path === "/api/delta?mark=true") { mocks.deltaMarks += 1; return Promise.resolve({}); }
       if (path.startsWith("/api/briefing")) {
         mocks.briefingCalls += 1;
         return Promise.resolve(briefing);
@@ -77,9 +80,32 @@ import MyDay from "@/app/page";
 
 beforeEach(() => {
   mocks.briefingCalls = 0;
+  mocks.delta = {};
+  mocks.deltaReads = 0;
+  mocks.deltaMarks = 0;
 });
 
 describe("My Day", () => {
+  it("puts recent changes after personal work and urgent team context without marking or remounting", async () => {
+    mocks.delta = recentChanges;
+    render(<MyDay />);
+    const updates = await screen.findByText("Recent changes");
+    for (const name of ["Needs you", "Your work", "Team today"]) {
+      const heading = screen.getByRole("heading", { name });
+      expect(heading.compareDocumentPosition(updates) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    expect(updates.closest("[hidden], details")).toBeNull();
+    expect(updates.closest("#recent-changes")).not.toBeNull();
+    expect(mocks.deltaReads).toBe(1);
+    expect(mocks.deltaMarks).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: /Show team context/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Hide team context/ }));
+    act(() => window.dispatchEvent(new Event("skein-attention-change")));
+    await waitFor(() => expect(mocks.briefingCalls).toBe(2));
+    expect(screen.getByText("Recent changes")).toBe(updates);
+    expect(mocks.deltaReads).toBe(1);
+    expect(mocks.deltaMarks).toBe(0);
+  });
   it("keeps the shared queues out of the count that says 'needs you'", async () => {
     render(<MyDay />);
     // one personal row, so the sentence is singular and names ONE thing —
@@ -91,8 +117,9 @@ describe("My Day", () => {
 
   it("renders the team's queue under its own heading", async () => {
     render(<MyDay />);
+    fireEvent.click(await screen.findByRole("button", { name: /Show team context/ }));
     await waitFor(() => expect(screen.getByText("Team queues")).toBeTruthy());
-    // the row itself is still shown — this is a framing fix, not a hiding one
+    // Opening the shared queue preserves its audience boundary.
     expect(screen.getByText(/intake #7/)).toBeTruthy();
     expect(screen.getByText(/Nobody assigned these to you/)).toBeTruthy();
   });

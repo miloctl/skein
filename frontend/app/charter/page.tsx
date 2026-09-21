@@ -5,7 +5,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { actionError, api, loadError } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import { EmptyState } from "@/components/card";
-import { SectionTabs } from "@/components/section-tabs";
 
 type Decision = {
   id: number;
@@ -171,7 +170,6 @@ export default function CharterPage() {
       tabIndex={-1}
       className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6"
     >
-      <SectionTabs set="team" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
         Team charter & decision rights
       </h1>

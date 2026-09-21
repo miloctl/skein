@@ -16,7 +16,7 @@ import { startFirstWatch } from "@/lib/first-watch";
 import { GuideHint } from "@/components/guide-hint";
 import { emptyState, loadingLine } from "@/lib/whimsy";
 import { Card } from "@/components/card";
-import { ReceiptLine } from "@/components/receipt";
+import { RecentChanges } from "@/components/recent-changes";
 import { PeekLink } from "@/components/task-peek";
 import { PersonInput } from "@/components/person-input";
 import { taskRef } from "@/lib/task-ref";
@@ -130,18 +130,6 @@ function savedTodaysThreeDate(raw: string): string {
   } catch {}
   return "";
 }
-
-// An API key and the two team facts can stay incomplete for a fully active
-// browser user. Using onboarding.complete here would hide team context forever.
-const GUIDED_CORE_STEPS = new Set(["first_capture", "first_standup"]);
-
-// The /api/onboarding read runs AFTER the briefing (dismissal keys off its
-// resolved user), so without this cache every established-but-incomplete
-// visitor rendered the collapsed guided layout first and watched the grid
-// reflow when the second response landed — on every My Day load, forever.
-// Core steps are activity rows and cannot un-happen, so a cached verdict
-// only ever goes stale in the safe direction.
-const guidedCoreDoneKey = (user: string) => `skein-guided-core-done:${user}`;
 
 // Module scope, not inline: an inline subscribe function is a new identity
 // every render, and useSyncExternalStore then resubscribes both listeners on
@@ -326,105 +314,6 @@ function StakeholderBrief({ eventId }: { eventId: number }) {
   );
 }
 
-/** What changed since this reader last looked.
- *
- *  Every other surface here is a standing picture: the same rows until
- *  somebody acts, which is correct and is also why a reader skims. This is the
- *  other question, and it answers itself out of the same rows — a health call
- *  that moved, a rule that fired for the first time, a commitment that broke,
- *  an acceptance that arrived (services/delta.py).
- *
- *  Reading it MARKS it. That is the point: the second read is empty, and an
- *  empty second read is what makes the first one worth opening.
- */
-function SinceYouLooked() {
-  const [d, setD] = useState<{
-    since: string;
-    quiet: boolean;
-    items: {
-      kind: string;
-      entity: string;
-      entity_id: number;
-      headline: string;
-      direction: string;
-      receipts: { message: string; refs: { entity: string; id: number }[] }[];
-      link: string;
-    }[];
-  } | null>(null);
-  const [failed, setFailed] = useState(false);
-  // Reading and MARKING are two steps, and they must not be one request.
-  // React re-invokes an effect on a remount — StrictMode does it on every dev
-  // mount — so a fetch that marked as it read consumed the brief with its
-  // first call and rendered the empty second answer. The brief is then gone
-  // and nobody ever saw it.
-  const marked = useRef(false);
-
-  useEffect(() => {
-    api<NonNullable<typeof d>>("/api/delta")
-      .then(setD)
-      .catch(() => setFailed(true));
-  }, []);
-
-  // marked once the items are ON SCREEN, never before: a brief that failed to
-  // render must still be new tomorrow
-  useEffect(() => {
-    if (!d?.items?.length || marked.current) return;
-    marked.current = true;
-    api("/api/delta?mark=true").catch(() => {});
-  }, [d]);
-
-  // silent when nothing changed, and silent on failure. This card is ADDITIVE:
-  // a reader who sees nothing here has lost nothing, because every row it
-  // names is also standing somewhere below it.
-  //
-  // `items` is tested, not `quiet`: a response missing the array — an older
-  // backend behind a newer bundle, a proxy returning an empty body — left
-  // `quiet` undefined, so the guard passed and `.map` threw on `undefined`,
-  // which unmounts the WHOLE of My Day for a card that is meant to be
-  // additive.
-  if (failed || !d?.items?.length) return null;
-
-  return (
-    <div className="mb-4 rounded-xl border border-thread/30 bg-thread/5 p-4">
-      <p className="mb-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
-        Since you last looked
-      </p>
-      <ul className="space-y-1.5 text-sm">
-        {d.items.map((i) => (
-          <li key={`${i.kind}${i.entity_id}`}>
-            <span aria-hidden className="mr-1 text-ink-3">
-              {i.direction === "worse"
-                ? "▼"
-                : i.direction === "better"
-                  ? "▲"
-                  : "•"}
-            </span>
-            {/* the glyph is the whole payload for a sighted reader and is
-                aria-hidden, so the word carries it for everyone else */}
-            <span className="sr-only">
-              {i.direction === "worse"
-                ? "worse: "
-                : i.direction === "better"
-                  ? "better: "
-                  : ""}
-            </span>
-            <Link href={i.link} className="hover:underline">
-              {i.headline}
-            </Link>
-            {i.receipts.map((r, n) => (
-              <ReceiptLine
-                key={n}
-                receipt={r}
-                className="ml-4 block text-xs text-ink-3"
-              />
-            ))}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 // one wave per session, then stillness; memoized so StrictMode double-renders
 // and mid-animation re-renders see the same answer (wave renders client-only,
 // behind the briefing-loaded gate, so SSR never sees it)
@@ -442,10 +331,6 @@ export default function MyDay() {
   const [b, setB] = useState<Briefing | null>(null);
   const [briefingGeneration, setBriefingGeneration] = useState(0);
   const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
-  const [onboardingStatus, setOnboardingStatus] = useState<
-    "loading" | "ready" | "dismissed" | "failed"
-  >("loading");
-  const [guidedCoreDone, setGuidedCoreDone] = useState(false);
   const [teamContextOpen, setTeamContextOpen] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
   const markedTodaysThree = useRef(false);
@@ -501,7 +386,12 @@ export default function MyDay() {
   const runStep = (link: string) => {
     if (link === "#capture")
       window.dispatchEvent(new Event("skein-capture-open"));
-    if (link === "#standup") document.getElementById("standup-today")?.focus();
+    if (link === "#standup") {
+      const input = document.getElementById("standup-today");
+      const disclosure = input?.closest("details");
+      if (disclosure) disclosure.open = true;
+      input?.focus();
+    }
   };
   const [error, setError] = useState<string | null>(null);
   // persisted per ISO week — an accidental reload must not re-ask (votes are
@@ -545,40 +435,25 @@ export default function MyDay() {
         // The bearer can resolve to a different person than the local name.
         // Dismissal belongs to the server-resolved identity, like all page data.
         const onboardKey = `skein-onboarded:${r.user}`;
-        // Read the cached core-steps verdict in the same pass, so the layout
-        // below never collapses for a user this browser already saw finish.
-        setGuidedCoreDone(
-          window.localStorage.getItem(guidedCoreDoneKey(r.user)) === "1",
-        );
         if (window.localStorage.getItem(onboardKey) === "1") {
           setOnboarding(null);
-          setOnboardingStatus("dismissed");
           return;
         }
         api<Onboarding>("/api/onboarding")
           .then((o) => {
             if (g !== generation.current) return;
             // Dismissal can happen while this request is in flight. Re-checking
-            // prevents the late response from restoring the card and disclosure.
+            // prevents the late response from restoring the setup card.
             if (window.localStorage.getItem(onboardKey) === "1") {
               setOnboarding(null);
-              setOnboardingStatus("dismissed");
               return;
             }
             if (o.complete) window.localStorage.setItem(onboardKey, "1");
-            if (
-              o.steps.every((s) => !GUIDED_CORE_STEPS.has(s.id) || s.done)
-            ) {
-              window.localStorage.setItem(guidedCoreDoneKey(r.user), "1");
-              setGuidedCoreDone(true);
-            }
             setOnboarding(o);
-            setOnboardingStatus("ready");
           })
           .catch(() => {
             if (g === generation.current) {
               setOnboarding(null);
-              setOnboardingStatus("failed");
             }
           });
       })
@@ -850,12 +725,6 @@ export default function MyDay() {
   // with what is on screen — the drift rule above is about a second copy of
   // the JUDGMENT count, and this is the other half of the same rows
   const noticeCount = yours.filter((a) => a.group === "notice").length;
-  const guidedFirstWeek =
-    !guidedCoreDone &&
-    (onboardingStatus === "loading" ||
-      Boolean(
-        onboarding?.steps.some((s) => GUIDED_CORE_STEPS.has(s.id) && !s.done),
-      ));
   const GROUP_META: Record<
     AttentionItem["group"],
     { title: string; tone: string }
@@ -971,8 +840,6 @@ export default function MyDay() {
   const teamContextCount =
     teamQueue.length +
     extraReviews +
-    b.team.escalated_blockers.length +
-    b.team.todays_events.length +
     Math.min(12, b.team.recent_activity.length);
 
   return (
@@ -1012,7 +879,7 @@ export default function MyDay() {
         <section
           data-first-week
           aria-labelledby="first-week-setup-title"
-          className="mb-4 rounded-xl border border-thread-solid/25 bg-card p-4 text-sm shadow-card"
+          className="skein-card mb-4 rounded-xl border border-thread-solid/25 bg-card p-4 text-sm"
         >
           {(() => {
             // personal steps drive the checklist; team facts are a separate
@@ -1043,7 +910,6 @@ export default function MyDay() {
                         "1",
                       );
                       setOnboarding(null);
-                      setOnboardingStatus("dismissed");
                       requestAnimationFrame(() => mainRef.current?.focus());
                     }}
                     aria-label="Dismiss first-week setup"
@@ -1159,8 +1025,6 @@ export default function MyDay() {
           recap in the knowledge base. Nice work, team.
         </div>
       )}
-
-      <SinceYouLooked />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card title="Needs you">
@@ -1340,15 +1204,7 @@ export default function MyDay() {
           )}
         </Card>
 
-        {!guidedFirstWeek && teamQueueCard}
-
         <Card title="Your work">
-          <div className="mb-3 border-b border-line pb-3">
-            <StandupComposer
-              suggestion={b.your_work.standup_suggestion ?? ""}
-              onPosted={load}
-            />
-          </div>
           {b.your_work.tasks.length > 0 && (
             <section
               aria-labelledby="todays-three-title"
@@ -1471,60 +1327,20 @@ export default function MyDay() {
                 ))}
               </li>
             )}
-            <li className="pt-2 text-xs text-ink-3">
-              {pulseVoted ? (
-                // identical quiet acknowledgment for both votes — a 👎 must
-                // never trigger anything peppy, and no modal ever
-                <span>Counted. Team tally only.</span>
-              ) : (
-                <>
-                  Did Skein reduce coordination effort this week?{" "}
-                  {(["up", "down"] as const).map((v) => (
-                    <button
-                      key={v}
-                      onClick={async () => {
-                        try {
-                          await api("/api/feedback", {
-                            method: "POST",
-                            body: JSON.stringify({
-                              kind: "pulse",
-                              input_text: new Date().toISOString().slice(0, 10),
-                              verdict: v,
-                            }),
-                          });
-                          try {
-                            window.localStorage.setItem(
-                              `skein-pulse-voted:${getUser()}`,
-                              pulseWeek,
-                            );
-                          } catch {}
-                          window.dispatchEvent(new Event("storage"));
-                        } catch (e) {
-                          reportStatus(actionError(e));
-                        }
-                      }}
-                      aria-label={
-                        v === "up"
-                          ? "Yes — Skein reduced coordination effort this week"
-                          : "No — Skein did not reduce coordination effort this week"
-                      }
-                      className="mx-0.5 min-h-6 min-w-6 rounded bg-raised px-2 py-0.5 hover:bg-line"
-                    >
-                      {v === "up" ? "Yes" : "No"}
-                    </button>
-                  ))}
-                </>
-              )}
-            </li>
-            <li className="pt-1 text-xs text-ink-3">
-              <Link href="/settings" className="underline hover:text-ink-2">
-                Set your growth interests (Settings)
-              </Link>
-            </li>
           </ul>
+          <details id="standup" className="mt-4 border-t border-line pt-3">
+            <summary className="cursor-pointer text-sm font-medium text-ink">Post a standup</summary>
+            <div className="mt-3">
+              <StandupComposer suggestion={b.your_work.standup_suggestion ?? ""} onPosted={load} />
+            </div>
+          </details>
         </Card>
 
-        {!guidedFirstWeek && teamTodayCard}
+        <div className="md:col-span-2">{teamTodayCard}</div>
+
+        <div className="md:col-span-2 empty:hidden">
+          <RecentChanges />
+        </div>
 
         {/* empty:hidden — GuideHint renders nothing for an anonymous reader or
             once every knot is tried, and a childless grid item still takes a
@@ -1533,32 +1349,71 @@ export default function MyDay() {
           <GuideHint />
         </div>
 
-        {guidedFirstWeek && (
-          <div className="md:col-span-2">
-            <button
-              type="button"
-              aria-expanded={teamContextOpen}
-              aria-controls="guided-team-context"
-              onClick={() => setTeamContextOpen((open) => !open)}
-              className="w-full rounded-xl border border-line bg-card px-4 py-3 text-left text-sm font-medium text-ink shadow-card hover:border-line-strong"
-            >
-              {teamContextOpen ? "Hide" : "Show"} team context (
-              {teamContextCount} {teamContextCount === 1 ? "item" : "items"})
-            </button>
-            {teamContextOpen && (
-              <div
-                id="guided-team-context"
-                className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2"
-              >
-                {teamQueueCard}
-                {teamTodayCard}
-                {sinceYesterdayCard}
-              </div>
-            )}
+        <div className="md:col-span-2">
+          <button
+            type="button"
+            aria-expanded={teamContextOpen}
+            aria-controls="guided-team-context"
+            onClick={() => setTeamContextOpen((open) => !open)}
+            className="skein-card w-full rounded-xl border border-line bg-card px-4 py-3 text-left text-sm font-medium text-ink hover:border-line-strong"
+          >
+            {teamContextOpen ? "Hide" : "Show"} team context (
+            {teamContextCount} {teamContextCount === 1 ? "item" : "items"})
+          </button>
+          <div
+            hidden={!teamContextOpen}
+            id="guided-team-context"
+            className={teamContextOpen ? "mt-4 grid grid-cols-1 gap-4 md:grid-cols-2" : undefined}
+          >
+            {teamQueueCard}
+            {sinceYesterdayCard}
           </div>
+        </div>
+      </div>
+      <div className="mt-4 text-xs text-ink-3">
+        {pulseVoted ? (
+          // identical quiet acknowledgment for both votes — a 👎 must
+          // never trigger anything peppy, and no modal ever
+          <span>Counted. Team tally only.</span>
+        ) : (
+          <>
+            Did Skein reduce coordination effort this week?{" "}
+            {(["up", "down"] as const).map((v) => (
+              <button
+                key={v}
+                onClick={async () => {
+                  try {
+                    await api("/api/feedback", {
+                      method: "POST",
+                      body: JSON.stringify({
+                        kind: "pulse",
+                        input_text: new Date().toISOString().slice(0, 10),
+                        verdict: v,
+                      }),
+                    });
+                    try {
+                      window.localStorage.setItem(
+                        `skein-pulse-voted:${getUser()}`,
+                        pulseWeek,
+                      );
+                    } catch {}
+                    window.dispatchEvent(new Event("storage"));
+                  } catch (e) {
+                    reportStatus(actionError(e));
+                  }
+                }}
+                aria-label={
+                  v === "up"
+                    ? "Yes — Skein reduced coordination effort this week"
+                    : "No — Skein did not reduce coordination effort this week"
+                }
+                className="mx-0.5 min-h-6 min-w-6 rounded bg-raised px-2 py-0.5 hover:bg-line"
+              >
+                {v === "up" ? "Yes" : "No"}
+              </button>
+            ))}
+          </>
         )}
-
-        {!guidedFirstWeek && sinceYesterdayCard}
       </div>
     </main>
   );

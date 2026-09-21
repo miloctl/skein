@@ -152,6 +152,20 @@ export default function ChatPage() {
     return () => mq.removeEventListener("change", onChange);
   }, []);
 
+  useEffect(() => {
+    // A utility or the global drawer owns the next focus. closeChats restores
+    // the Chats trigger on a timer, which would steal that focus back.
+    const handoff = () => setMobileChats(false);
+    window.addEventListener("skein-navigation-open", handoff);
+    window.addEventListener("skein-search-focus", handoff);
+    window.addEventListener("skein-capture-open", handoff);
+    return () => {
+      window.removeEventListener("skein-navigation-open", handoff);
+      window.removeEventListener("skein-search-focus", handoff);
+      window.removeEventListener("skein-capture-open", handoff);
+    };
+  }, []);
+
   const startNew = () => {
     window.history.replaceState({}, "", "/chat");
     setMissing("");

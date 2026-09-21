@@ -100,6 +100,9 @@ test("First Watch carries one real task through Skein by keyboard", async ({
     page.getByRole("heading", { name: /First Watch, step 2 of 6/ }),
   ).toBeFocused();
 
+  await expect(page.getByRole("region", { name: "Tasks", exact: true })).toBeVisible();
+  await expect(page.locator("#browse-milestones")).toBeHidden();
+
   const openTask = page.getByRole("button", { name: /Open task #\d+/ });
   await tabTo(page, openTask);
   await page.keyboard.press("Enter");
@@ -189,7 +192,7 @@ test("First Watch remains inside a short phone viewport at larger text", async (
   await page.keyboard.press("Space");
   const capture = page.getByRole("dialog", { name: "Quick capture" });
   await expect(capture).toBeVisible();
-  await expect(page.locator("main")).toHaveAttribute("inert", "");
+  expect(await page.locator("main").evaluate((el) => !!el.closest("[inert]"))).toBe(true);
   const visibility = page.getByLabel("Who can see this capture");
   await visibility.focus();
   await expect(visibility).toBeFocused();
@@ -197,5 +200,5 @@ test("First Watch remains inside a short phone viewport at larger text", async (
   await expectAxeClean(page);
   await capture.getByRole("button", { name: "Close" }).click();
   await expect(capture).toBeHidden();
-  await expect(page.locator("main")).not.toHaveAttribute("inert", "");
+  expect(await page.locator("main").evaluate((el) => !!el.closest("[inert]"))).toBe(false);
 });

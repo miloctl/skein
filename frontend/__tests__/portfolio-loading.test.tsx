@@ -27,6 +27,14 @@ vi.mock("next/navigation", () => ({
 import PortfolioPage from "@/app/portfolio/page";
 
 describe("the portfolio page before any data arrives", () => {
+  it("leads with full-width health and risks before supporting metrics", () => {
+    render(<PortfolioPage />);
+    const health = screen.getByRole("region", { name: "Engagement health — each call shows why" });
+    expect(health.classList.contains("md:col-span-2")).toBe(true);
+    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(headings.indexOf("Slip forecast")).toBeLessThan(headings.indexOf("AI usage and estimated cost"));
+    expect(screen.getAllByRole("link", { name: "Plan the week" }).some((link) => link.getAttribute("href") === "/planning#planning-this-week")).toBe(true);
+  });
   it("says Loading, never a verdict about data it does not have", async () => {
     const { container } = render(<PortfolioPage />);
     expect(screen.getAllByText("Loading…").length).toBeGreaterThan(0);

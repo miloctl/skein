@@ -27,7 +27,9 @@ const BACKEND_ENV = {
 
 export default defineConfig({
   testDir: "./e2e",
-  fullyParallel: false, // one shared backend; parallel writes would interleave seeds
+  fullyParallel: false,
+  // Files also share the backend: another file's write invalidates a reviewed snapshot.
+  workers: 1,
   retries: 0,
   reporter: [["list"]],
   use: {

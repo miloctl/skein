@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /** Browse's open list measured 82 rows over a 5,400px page with no way to
@@ -19,6 +19,7 @@ const task = (id: number, title: string, assignee: string, status = "todo") => (
 });
 
 beforeEach(() => {
+  window.history.replaceState(null, "", "/dashboard");
   vi.clearAllMocks();
   mocks.api.mockImplementation((path: string, opts?: { method?: string }) => {
     if (opts?.method) return Promise.resolve({});
@@ -37,6 +38,26 @@ beforeEach(() => {
 });
 
 describe("the Browse task filter", () => {
+  it("does not restore save focus into a register the reader has hidden", async () => {
+    const original = mocks.api.getMockImplementation()!;
+    let saved!: (value: object) => void;
+    mocks.api.mockImplementation((path: string, opts?: { method?: string }) => {
+      if (path === "/api/tasks/1" && opts?.method === "PATCH") return new Promise((resolve) => { saved = resolve; });
+      return original(path, opts);
+    });
+    render(<Dashboard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit task #1: Map the drop-off points" }));
+    fireEvent.click(screen.getByRole("button", { name: "save" }));
+    const select = screen.getByRole("combobox", { name: "Browse register" }) as HTMLSelectElement;
+    select.focus();
+    fireEvent.change(select, { target: { value: "browse-open-questions" } });
+    expect(document.activeElement).toBe(select);
+    await act(async () => saved({}));
+    await waitFor(() => expect(mocks.api.mock.calls.filter(([path]) => path === "/api/tasks/browse")).toHaveLength(2));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+    expect(document.activeElement).toBe(select);
+    expect(select.value).toBe("browse-open-questions");
+  });
   it("narrows by assignee and status, and says when nothing matches", async () => {
     render(<Dashboard />);
     expect(await screen.findByText(/Map the drop-off points/)).toBeTruthy();

@@ -99,12 +99,7 @@ async def _help(
 async def _delta(
     args: str, user: str, viewer: scope.Viewer, access: CommandAccess | None
 ) -> AsyncIterator[Event]:
-    """What changed since this reader last asked.
-
-    Does NOT mark the brief as seen. A command is a preview — the reader asked
-    a question, and consuming their mark would mean the next surface that shows
-    it has nothing to show. `GET /api/delta?mark=true` is the one that marks.
-    """
+    """Preview the recent team-date window without recording a review."""
     yield _tool_event("delta")
     if access is not None:
         policy = projection_policy.ProjectionPolicy(
@@ -130,12 +125,14 @@ async def _delta(
     if out["quiet"]:
         yield {
             "data": (
-                f"Nothing has changed since {db.local_day(out['since'])}."
+                f"No recent changes from {out['window_start']} to {out['window_end']}."
                 " The standing picture is on My Day and Work → Plan the week."
             )
         }
         return
-    lines = [f"**Since {db.local_day(out['since'])}**", ""]
+    lines = [f"**Recent changes — {out['window_start']} to {out['window_end']}**", ""]
+    if out["truncated"]:
+        lines.append("This summary is incomplete. More findings are available in Insights.")
     for item in out["items"]:
         mark = {"worse": "▼", "better": "▲"}.get(item["direction"], "•")
         lines.append(f"{mark} {item['headline']}")
@@ -491,7 +488,7 @@ COMMANDS: list[dict] = [
     {
         "name": "delta",
         "args": "",
-        "description": "What changed since you last looked",
+        "description": "Recent changes in the team window",
         "handler": _delta,
     },
     {

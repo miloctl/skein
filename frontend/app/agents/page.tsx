@@ -8,7 +8,6 @@ import { dismissStatus, reportStatus } from "@/lib/status";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
 import { Card } from "@/components/card";
 import { FlockDiamond, type FlockTrace } from "@/components/flock-diamond";
-import { SectionTabs } from "@/components/section-tabs";
 import { PeekLink } from "@/components/task-peek";
 import { timeAgo } from "@/lib/time";
 
@@ -351,12 +350,11 @@ export default function Agents() {
       className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6"
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <SectionTabs set="team" />
+        <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+          Agents
+        </h1>
         <ManageToggle />
       </div>
-      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
-        Agents
-      </h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
         The bench, mission control, authority, and trust — agents earn autonomy
         through review verdicts. Humans hold every switch.
@@ -367,7 +365,8 @@ export default function Agents() {
         </p>
       )}
       {status && (
-        <p className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-line bg-card px-4 py-2.5 text-xs text-ink-2 shadow-card">
+        <div className="mb-4 space-y-2 text-xs text-ink-2">
+          <p className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <span>
             <span
               aria-hidden
@@ -391,23 +390,25 @@ export default function Agents() {
               ? "Review gate on — every agent write waits in Inbox → Approvals"
               : "Review gate off — current grants write directly. Expired elevated grants still wait."}
           </span>
-          {/* the effective strategy and any config fault are SEPARATE spans:
-              rendering the fault instead of the strategy let the strip assert
-              a strategy the deployment was not using, because the Settings
-              toggle overrides the env value the fault describes */}
+          </p>
+          {/* Settings can override the strategy despite an env fault, so the
+              effective strategy and its configuration error must both remain. */}
           {status.context_strategy && (
-            <span>
+            <details>
+              <summary className="cursor-pointer text-ink-3">Runtime details</summary>
+              <p className="mt-1">
               {status.context_strategy === "summarize"
                 ? "Long chats: older messages are summarized (costs one extra model call each time)"
                 : "Long chats: oldest messages are dropped"}
-            </span>
+              </p>
+            </details>
           )}
           {status.context_error && (
             <span className="text-danger">
               {`Long-chat settings: ${status.context_error} Correct the SKEIN_CONTEXT_* values in .env, then restart the server.`}
             </span>
           )}
-        </p>
+        </div>
       )}
       <div role="group" aria-label="Agents view" className="mb-4 flex flex-wrap gap-1.5">
         {(
@@ -431,7 +432,7 @@ export default function Agents() {
               "rounded-full px-3 py-1 text-xs " +
               (mode === value
                 ? "bg-thread-solid font-medium text-white"
-                : "bg-raised text-ink-2 hover:bg-line")
+                : "text-ink-2 hover:bg-raised")
             }
           >
             {label}
@@ -442,9 +443,9 @@ export default function Agents() {
         {errors.bench && (
           <section
             hidden={mode !== "specialists"}
-            className="mb-4 rounded-xl border border-line bg-card p-4 shadow-card"
+            className="mb-4 rounded-xl border border-line bg-card p-4 skein-card"
           >
-            <h2 className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+            <h2 className="mb-1 skein-section-title text-ink-3">
               The bench
             </h2>
             {failed("bench")}
@@ -453,52 +454,30 @@ export default function Agents() {
         {bench.length > 0 && (
           <section
             hidden={mode !== "specialists"}
-            className="rounded-xl border border-line bg-card p-4 shadow-card md:col-span-2"
+            className="rounded-xl border border-line bg-card p-4 skein-card md:col-span-2"
           >
-            <h2 className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+            <h2 className="mb-1 skein-section-title text-ink-3">
               The bench
             </h2>
             <p className="mb-3 text-xs text-ink-3">
-              Specialist personas you can invoke in chat — same tools, same
-              review gate, their own name on every proposal. They appear in
-              Mission control below after their first use.
+              Choose a specialist to ask in Chat. After their first use,
+              specialists also appear in Active work.
             </p>
-            <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <ul className="divide-y divide-line">
               {bench.map((p) => (
-                <li key={p.slug}>
-                  <Link
-                    href={`/chat?as=${p.slug}`}
-                    className="flex items-start gap-2.5 rounded-lg border border-line-strong p-2.5 transition-colors hover:border-thread-solid hover:bg-thread/5"
-                  >
-                    <span
-                      aria-hidden
-                      className="flex size-7 shrink-0 items-center justify-center rounded-full bg-thread/10 font-mono text-xs font-semibold text-thread"
-                    >
-                      {p.name.slice(0, 1)}
-                    </span>
-                    <span className="min-w-0 text-sm">
-                      <span className="flex items-baseline gap-2">
-                        <span className="font-medium text-ink">{p.name}</span>
-                        <code className="text-[10px] text-ink-3">
-                          /as {p.slug}
-                        </code>
-                      </span>
-                      <span className="block text-xs text-ink-3">
-                        {p.description}
-                      </span>
-                      {/* no alpha on ink tokens: text-3 is tuned to clear AA
-                        exactly, and /80 undoes that — the axe scan in
-                        e2e/smoke.spec.ts fails it */}
-                      {p.vibe && (
-                        <span className="block text-xs italic text-ink-3">
-                          {p.vibe}
-                        </span>
-                      )}
-                      <span className="mt-1 block text-xs font-medium text-thread">
-                        Ask in Chat
-                      </span>
-                    </span>
-                  </Link>
+                <li key={p.slug} className="py-3">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <h3 className="text-sm font-semibold text-ink">{p.name}</h3>
+                    <Link href={`/chat?as=${p.slug}`} className="shrink-0 text-sm font-medium text-thread underline">
+                      Chat<span className="sr-only"> with {p.name}</span>
+                    </Link>
+                  </div>
+                  <p className="mt-1 text-sm text-ink-2">{p.description}</p>
+                  <details className="mt-2 text-xs text-ink-3">
+                    <summary className="cursor-pointer">Details</summary>
+                    <code className="mt-1 block">/as {p.slug}</code>
+                    {p.vibe && <p className="mt-1 italic">{p.vibe}</p>}
+                  </details>
                 </li>
               ))}
             </ul>
@@ -521,7 +500,7 @@ export default function Agents() {
                     "rounded-lg px-2.5 py-1 text-xs " +
                     (missionView === view
                       ? "bg-thread/15 font-medium text-thread"
-                      : "bg-raised text-ink-2 hover:bg-line")
+                      : "text-ink-2 hover:bg-raised")
                   }
                 >
                   {view === "work" ? "Has work" : "All agents"}
@@ -614,13 +593,13 @@ export default function Agents() {
             id="agent-inbox"
             aria-labelledby="agent-inbox-heading"
             aria-busy={inbox === null}
-            className="rounded-xl border border-line bg-card p-4 shadow-card"
+            className="rounded-xl border border-line bg-card p-4 skein-card"
           >
             <h2
               id="agent-inbox-heading"
               ref={inboxHeading}
               tabIndex={-1}
-              className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3"
+              className="mb-3 skein-section-title text-ink-3"
             >
               Inbox — {inboxFor}
             </h2>

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import { NAVIGATION, ROUTE_TITLES, activeNavigation } from "@/lib/navigation";
+
 import { SkeinMark } from "@/components/mark";
 import { NavSearch } from "@/components/nav-search";
 import { PageHelp } from "@/components/page-help";
@@ -16,108 +18,59 @@ import { authConfig, isSignedIn, sessionLocked, sessionSnapshot, signIn, signOut
 import { isGated, subscribeGated } from "@/lib/gated";
 import { useFrontendExtensions } from "@/lib/extensions/context";
 
-// five destinations, grouped by job: my work | team work | needs a verdict |
-// people & rules. Former top-level pages live on as tabs inside Work
-// (Health/Browse/Insights), Inbox (Approvals/Requests/Paste notes), and Team
-// (1:1s/Charter beside Agents and the Activity feed, which was born a tab)
-// — their URLs are unchanged.
-const ROUTE_TITLES: Record<string, string> = {
-  "/": "My Day",
-  "/chat": "Chat",
-  "/planning": "Planning",
-  "/portfolio": "Health",
-  "/dashboard": "Browse",
-  "/insights": "Insights",
-  "/artifacts": "Reports",
-  "/review": "Approvals",
-  "/intake": "Requests",
-  "/ingest": "Paste notes",
-  "/agents": "Agents",
-  "/activity": "Activity",
-  "/people": "1:1s",
-  "/charter": "Charter",
-  "/guide": "Field guide",
-  "/settings": "Settings",
-};
-
-const GROUPS: { href: string; label: string; paths: string[] }[][] = [
-  [
-    { href: "/", label: "My Day", paths: ["/"] },
-    { href: "/chat", label: "Chat", paths: ["/chat"] },
-  ],
-  [
-    {
-      href: "/portfolio",
-      label: "Work",
-      paths: ["/planning", "/portfolio", "/dashboard", "/insights", "/artifacts"],
-    },
-    {
-      href: "/review",
-      label: "Inbox",
-      paths: ["/review", "/intake", "/ingest"],
-    },
-  ],
-  [
-    {
-      href: "/agents",
-      label: "Team",
-      paths: ["/agents", "/people", "/charter", "/activity"],
-    },
-  ],
-];
-
-function NavLink({
-  href,
-  label,
-  active,
-  badge,
-  badgeLabel = "awaiting a verdict",
-  badgeTone = "danger",
-}: {
-  href: string;
-  label: string;
-  active: boolean;
-  badge?: number;
-  badgeLabel?: string;
-  badgeTone?: "danger" | "quiet";
-}) {
-  return (
-    <Link
-      href={href}
-      aria-current={active ? "page" : undefined}
-      className={
-        "relative flex h-10 items-center whitespace-nowrap text-[13px] transition-colors md:h-14 " +
-        (active ? "font-medium text-ink" : "text-ink-2 hover:text-ink")
-      }
-    >
-      {label}
-      {badge ? (
-        <>
-          <span
-            aria-hidden
-            className={
-              "ml-1.5 rounded-full border px-1.5 py-px font-mono text-[10px] tabular-nums " +
-              (badgeTone === "danger"
-                ? "border-danger/25 bg-danger/10 text-danger"
-                : "border-thread/25 bg-thread/10 text-thread")
-            }
-          >
-            {badge}
-          </span>
-          <span className="sr-only">, {badge} {badgeLabel}</span>
-        </>
-      ) : null}
-      {active && (
-        <span
-          aria-hidden
-          className="absolute inset-x-0 bottom-0 h-0.5 bg-thread"
-        />
-      )}
-    </Link>
-  );
+const DESKTOP = "(min-width: 1024px)";
+const COLLAPSE_KEY = "skein-navigation-collapsed";
+function subscribeDesktop(changed: () => void) {
+  const media = window.matchMedia?.(DESKTOP);
+  media?.addEventListener("change", changed);
+  return () => media?.removeEventListener("change", changed);
+}
+function subscribePreference(changed: () => void) {
+  window.addEventListener("storage", changed);
+  return () => window.removeEventListener("storage", changed);
+}
+function readCollapsed() {
+  try { return localStorage.getItem(COLLAPSE_KEY) === "true"; } catch { return false; }
 }
 
-export function Nav() {
+function NavigationDestination({ href, onClick, ...props }: Omit<React.ComponentProps<typeof Link>, "href"> & { href: string }) {
+  return <Link href={href} {...props} onClick={(event) => {
+    onClick?.(event);
+    if (event.defaultPrevented) return;
+    const [target, fragment] = href.split("#");
+    // Next appends a link's fragment to its cached canonical URL, which can
+    // already carry one: /settings#settings-team became
+    // #settings-team#settings-you. A same-document fragment jump replaces it
+    // and fires hashchange for the page's own listeners. Any other href stays
+    // a soft navigation, so a contributed link whose query differs from the
+    // address bar never reloads the document.
+    if (fragment !== undefined && target === window.location.pathname + window.location.search) {
+      event.preventDefault();
+      window.location.hash = fragment;
+    }
+  }} />;
+}
+
+function NavigationIcon({ name }: { name: string }) {
+  const paths: Record<string, string> = {
+    day: "M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0",
+    chat: "M4 4h16v12H9l-5 4V4Z",
+    work: "M4 7h16v13H4V7Zm4 0V4h8v3M4 12h16",
+    inbox: "m4 4-2 11v5h20v-5L20 4H4Zm-2 11h6l2 3h4l2-3h6",
+    team: "M15 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM5 21v-3a7 7 0 0 1 14 0v3M3 7a3 3 0 0 0 0 6m18-6a3 3 0 0 1 0 6",
+    settings: "M4 6h16M4 12h16M4 18h16M8 3v6m8 0v6m-6 0v6",
+    collapse: "m14 6-6 6 6 6M19 4v16",
+    expand: "m10 6 6 6-6 6M5 4v16",
+    menu: "M4 6h16M4 12h16M4 18h16",
+    close: "m6 6 12 12M6 18 18 6",
+    guide: "M12 5c-3-2-6-2-9-1v15c3-1 6-1 9 1 3-2 6-2 9-1V4c-3-1-6-1-9 1Zm0 0v15",
+  };
+  return <svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+    <path d={paths[name] ?? "M4 4h16v16H4V4Zm4 4h8v8H8V8Z"} />
+  </svg>;
+}
+
+export function Nav({ children }: { children?: React.ReactNode }) {
   const { navigation } = useFrontendExtensions();
   const pathname = usePathname();
   const user = useSyncExternalStore(subscribeUser, getUser, () => "anonymous");
@@ -250,69 +203,103 @@ export function Nav() {
   }, [attention.yours, gated, navigation, pathname]);
 
   const anonymous = user === "anonymous";
+  const desktop = useSyncExternalStore(subscribeDesktop, () => window.matchMedia?.(DESKTOP).matches ?? true, () => true);
+  const savedCollapsed = useSyncExternalStore(subscribePreference, readCollapsed, () => false);
+  const [collapseOverride, setCollapseOverride] = useState<boolean | null>(null);
+  const collapsed = desktop && (collapseOverride ?? savedCollapsed);
+  const [drawerPath, setDrawerPath] = useState<string | null>(null);
+  const drawerOpen = drawerPath === pathname && !desktop && !gated;
   const headerRef = useRef<HTMLElement>(null);
-  // inert while the auth gate stands: the gate COVERS the header rather than
-  // unmounting it, so without this a keyboard user tabs into links hidden
-  // under the overlay and focus lands on nothing visible.
-  //
-  // An EFFECT writing the ATTRIBUTE, never a rendered inert={gated} prop.
-  // task-peek.tsx strips the inert attribute from every body sibling when its
-  // panel closes, and React does not re-apply an attribute it believes is
-  // already set — as a prop this survived until the first ?task= link and
-  // then never came back. React runs every cleanup in a commit before any
-  // effect body, so re-asserting here always lands after that strip, and both
-  // writers have to name the same thing for that to work.
-  useEffect(() => {
-    const el = headerRef.current;
-    if (!el) return;
-    if (gated) el.setAttribute("inert", "");
-    else el.removeAttribute("inert");
-  }, [gated]);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const drawerRef = useRef<HTMLDialogElement>(null);
+  const drawerButton = useRef<HTMLButtonElement>(null);
+  const activeGroup = activeNavigation(pathname);
 
-  return (
-    <header ref={headerRef} className="sticky top-0 z-10 bg-page/85 backdrop-blur">
-      <div className="flex min-h-[var(--nav-h)] flex-wrap items-center px-4 sm:px-6 md:min-h-0">
-        {/* Logo and identity share ONE non-wrapping row; only the nav below
-            wraps. Without this they are two flex items of a flex-wrap parent,
-            and flex breaks lines using hypothetical sizes BEFORE it shrinks
-            anything — so no min-w-0 on the name can stop the identity being
-            pushed onto a third row when a pack re-cuts the type wider
-            (phosphor uppercases the wordmark; hermes ships a pixel face).
-            md:contents dissolves this wrapper on desktop, where the parent's
-            own order-1/order-2 places the same children. */}
-        <div className="flex w-full min-w-0 items-center md:contents">
-          <Link
-            href="/"
-            className="flex h-14 shrink-0 items-center gap-2 whitespace-nowrap"
-          >
-            {/* the mark carries the fixed identity; the wordmark stays live text
-              so it keeps being re-cut per pack (Fraunces under ledger/atelier,
-              glowing mono under phosphor) — freezing it would make it the one
-              non-parametric piece of type on screen */}
-            <SkeinMark size={17} className="text-thread" />
-            <span className="font-display text-[15px] font-semibold tracking-tight text-ink">
-              Skein
-            </span>
-            <span className="hidden font-mono text-[11px] tracking-[0.08em] text-ink-3 xl:inline">
-              many strands · one formation
-            </span>
-          </Link>
-          {/* min-w-0 so this cluster SHRINKS instead of wrapping the header onto
-            a third row. A fixed cap on the name is not enough: a pack re-cuts
-            the type, and phosphor (mono) and hermes (pixel display) render the
-            same characters wider, which pushed the cluster past the row and
-            drifted --nav-h by 56px — one whole row. Shrinking makes the name's
-            truncate absorb whatever the pack costs. */}
-          <div className="ml-auto flex h-14 min-w-0 items-center gap-3 md:order-2 md:ml-4">
-            {/* hidden for an anonymous visitor: every result is scoped to a
-                caller, so an unnamed one would search as nobody and read an
-                empty index as "the team has nothing" */}
-            {!anonymous && <NavSearch />}
-            <PageHelp key={pathname} />
-            <span aria-hidden className="hidden h-4 w-px bg-line md:block" />
+  useEffect(() => {
+    // An effect, never a rendered inert={gated} prop: React skips re-applying
+    // an attribute it believes is already set, so one removal by any other
+    // owner would be permanent (task-peek.tsx strips inert on cleanup).
+    for (const el of [headerRef.current, sidebarRef.current]) {
+      if (gated) el?.setAttribute("inert", "");
+      else el?.removeAttribute("inert");
+    }
+  }, [gated, desktop]);
+
+  useEffect(() => {
+    const dialog = drawerRef.current;
+    if (!dialog || !drawerOpen) return;
+    dialog.showModal();
+    dialog.querySelector<HTMLButtonElement>("button")?.focus();
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      dialog.close();
+      document.body.style.overflow = overflow;
+    };
+  }, [drawerOpen]);
+
+  useEffect(() => {
+    const dismiss = () => {
+      // Close the native top layer before another overlay takes focus.
+      drawerRef.current?.close();
+      setDrawerPath(null);
+      setMenuOpen(false);
+    };
+    // TaskPeek listens to these history/peek events too. Close the native
+    // top layer synchronously, before its effect focuses the incoming panel.
+    const events = ["skein-search-focus", "skein-capture-open", "skein-peek", "popstate", "hashchange"];
+    events.forEach((event) => window.addEventListener(event, dismiss));
+    return () => events.forEach((event) => window.removeEventListener(event, dismiss));
+  }, []);
+
+  const closeDrawer = () => {
+    drawerRef.current?.close();
+    setDrawerPath(null);
+    setMenuOpen(false);
+  };
+  const link = (href: string, label: string, icon?: string, current?: "page" | "location", extension = false, badge = 0, key = href) => {
+    return <NavigationDestination key={key} href={href} aria-current={current}
+      className={"shell-row " + (icon ? "" : "shell-child ") + (current ? "shell-current" : "")}
+      onClick={(event) => {
+        if (!extension && pathname === href) event.preventDefault();
+        closeDrawer();
+        setMenuOpen(false);
+      }}>
+      {icon && <NavigationIcon name={icon} />}
+      <span className={icon ? "shell-label" : ""}>{label}</span>
+      {badge > 0 && <>
+        <span aria-hidden className={"shell-badge ml-auto rounded-full px-1.5 font-mono text-[10px] " + (label === "Inbox" ? "bg-danger/10 text-danger" : "bg-thread/10 text-thread")}>{badge}</span>
+        <span className="sr-only">, {badge} {label === "Chat" ? "waiting in private shared chats" : "awaiting a verdict"}</span>
+      </>}
+    </NavigationDestination>;
+  };
+  const contents = <>
+    <div className="flex h-[var(--nav-h)] shrink-0 items-center gap-2 px-3">
+      <Link href="/" aria-label="Skein — My Day" className="shell-brand flex min-w-0 items-center gap-2 font-display text-base font-semibold" onClick={closeDrawer}>
+        <SkeinMark size={22} className="shrink-0 text-thread" /><span className="shell-wordmark">Skein</span>
+      </Link>
+      {!desktop && <button type="button" aria-label="Close navigation" className="ml-auto flex min-h-11 min-w-11 items-center justify-center rounded hover:bg-raised" onClick={closeDrawer}><NavigationIcon name="close" /></button>}
+    </div>
+    <nav aria-label="Primary" className="shell-links space-y-1 p-2">
+      {NAVIGATION.map((group) => <div key={group.href}>
+        {link(group.href, group.label, group.icon,
+          activeGroup === group ? group.children.length ? "location" : "page" : undefined,
+          false, group.label === "Inbox" ? attention.inbox : group.label === "Chat" ? attention.chats : 0)}
+        {!collapsed && activeGroup === group && group.children.length > 0 && <div className="my-1 ml-4 border-l border-line pl-2">
+          {group.children.map((child) => link(child.href, child.label, undefined, pathname === child.href ? "page" : undefined))}
+        </div>}
+      </div>)}
+      {navigation.length > 0 && <div className="mt-3 space-y-1 border-t border-line pt-3">
+        {navigation.map((item) => link(item.href, item.label, "extension", item.activePaths.includes(pathname) ? "page" : undefined, true, 0, item.id))}
+      </div>}
+    </nav>
+    <div className="mt-auto space-y-1 border-t border-line p-2">
+      {link("/settings", "Settings", "settings", pathname === "/settings" ? "page" : undefined)}
+      {link("/guide", "Field guide", "guide", pathname === "/guide" ? "page" : undefined)}
             <div className="relative min-w-0">
               <button
                 ref={idBtnRef}
+                data-identity-control
                 onClick={() => {
                   const opening = !menuOpen;
                   setMenuOpen(opening);
@@ -331,7 +318,7 @@ export function Nav() {
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
                 title={anonymous ? "Pick your name" : `You — ${user}`}
-                className="relative flex min-h-11 min-w-0 items-center gap-1.5 rounded-full py-0.5 pl-0.5 pr-2 text-[13px] text-ink-2 hover:bg-raised hover:text-ink md:min-h-0"
+                className="shell-identity shell-row relative w-full min-w-0 text-left"
               >
                 <span
                   aria-hidden
@@ -345,20 +332,9 @@ export function Nav() {
                   {anonymous ? "?" : user[0]}
                 </span>
                 {anonymous ? (
-                  // no search box for an anonymous visitor, so the row has the
-                  // width to say this — and it must, because picking a name is
-                  // the one thing that visitor has to do
-                  <span className="text-ink-3">anonymous</span>
+                  <span className="shell-label text-ink-3">anonymous</span>
                 ) : (
-                  // Read, not seen, below `sm`. The header holds the logo, the
-                  // search field, this chip and the capture button in 328px of
-                  // content box at 360px; the name at 7rem left the search
-                  // field 10px wide. The avatar carries identity on a phone and
-                  // the menu spells it out, so the name stays in the
-                  // accessibility tree rather than being dropped: sr-only keeps
-                  // the button's accessible name, which is what a screen reader
-                  // and voice control both read.
-                  <span className="sr-only min-w-0 sm:not-sr-only sm:block sm:max-w-[9rem] sm:truncate">
+                  <span className="shell-label min-w-0 truncate">
                     {user}
                   </span>
                 )}
@@ -382,6 +358,8 @@ export function Nav() {
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Escape") {
+                      e.preventDefault();
+                      e.stopPropagation();
                       setMenuOpen(false);
                       idBtnRef.current?.focus();
                     }
@@ -402,13 +380,13 @@ export function Nav() {
                       next?.focus();
                     }
                   }}
-                  className="absolute right-0 top-full z-20 mt-1 w-56 rounded-xl border border-line bg-card p-1 shadow-float"
+                  className="shell-account-menu absolute bottom-full left-0 z-20 mb-2 w-56 max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-card p-1 shadow-float"
                 >
-                  <Link
+                  <NavigationDestination
                     href={anonymous && mode === "trusted-header" ? "/settings" : "/settings#settings-you"}
                     role="menuitem"
                     aria-describedby="account-access-summary"
-                    onClick={() => setMenuOpen(false)}
+                    onClick={closeDrawer}
                     className="block w-full rounded px-2.5 py-2 text-left text-[13px] text-ink-2 hover:bg-raised focus:bg-raised md:py-1.5"
                   >
                     <span aria-hidden>⚙ </span>
@@ -417,7 +395,7 @@ export function Nav() {
                     {anonymous && mode === "trusted-header"
                       ? "Pick your name…"
                       : "Settings & access"}
-                  </Link>
+                  </NavigationDestination>
                   {(mode === "oidc" || signedIn) && (
                     <button
                       role="menuitem"
@@ -446,7 +424,7 @@ export function Nav() {
                   <Link
                     href="/guide"
                     role="menuitem"
-                    onClick={() => setMenuOpen(false)}
+                    onClick={closeDrawer}
                     className="flex w-full items-baseline justify-between rounded px-2.5 py-2 text-left text-[13px] text-ink-2 hover:bg-raised focus:bg-raised md:py-1.5"
                   >
                     <span>
@@ -472,70 +450,50 @@ export function Nav() {
                 </div>
               )}
             </div>
-            <button
-              onClick={(e) => {
-                // Safari doesn't focus buttons on click — focus explicitly so
-                // the palette can hand focus back here when it closes
-                e.currentTarget.focus();
+
+      {desktop && <button type="button" className="shell-row w-full" aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
+        onClick={() => {
+          const next = !collapsed;
+          setCollapseOverride(next);
+          try { localStorage.setItem(COLLAPSE_KEY, String(next)); } catch {}
+        }}>
+        <NavigationIcon name={collapsed ? "expand" : "collapse"} />
+        <span className="shell-label">{collapsed ? "Expand navigation" : "Collapse navigation"}</span>
+      </button>}
+    </div>
+  </>;
+
+  return <div className="app-shell" data-collapsed={collapsed ? "true" : "false"}>
+    {desktop && <aside ref={sidebarRef} aria-label="Workspace navigation" className="shell-sidebar">{contents}</aside>}
+    <dialog ref={drawerRef} id="navigation-drawer" aria-label="Navigation" className="shell-drawer"
+      onCancel={(event) => { event.preventDefault(); closeDrawer(); }}
+      onClose={() => setDrawerPath(null)}
+      onClick={(event) => { if (event.target === event.currentTarget) closeDrawer(); }}>
+      {!desktop && <div className="flex min-h-full flex-col">{contents}</div>}
+    </dialog>
+    <div className="shell-content">
+      <header ref={headerRef} className="sticky top-0 z-10 bg-page/95 backdrop-blur">
+        <div className="flex h-[var(--nav-h)] min-w-0 items-center gap-2 px-4 sm:gap-3 sm:px-6">
+          {!desktop && <button ref={drawerButton} type="button" aria-label="Open navigation" aria-haspopup="dialog" aria-expanded={drawerOpen} aria-controls="navigation-drawer"
+            className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg border border-line text-ink-2 hover:bg-raised"
+            onClick={(event) => {
+              event.currentTarget.focus();
+              window.dispatchEvent(new Event("skein-navigation-open"));
+              setDrawerPath(pathname);
+            }}><NavigationIcon name="menu" /></button>}
+          {!anonymous && <NavSearch />}
+          <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
+            <PageHelp key={pathname} />
+            <button title="Quick capture" className="min-h-11 shrink-0 rounded-lg border border-line-strong bg-raised px-2 text-xs text-ink-2 hover:bg-line hover:text-ink"
+              onClick={(event) => {
+                event.currentTarget.focus();
                 window.dispatchEvent(new Event("skein-capture-open"));
-              }}
-              title="Quick capture"
-              className="flex shrink-0 items-center gap-1 rounded border border-line-strong bg-raised px-2 py-1.5 font-mono text-[11px] text-ink-2 hover:bg-line hover:text-ink md:px-1.5 md:py-0.5"
-            >
-              {/* The visible text NAMES the action. This button read "⌘K" on
-                  desktop while its accessible name was "Quick capture" — a
-                  WCAG 2.5.3 Label in Name failure, since nothing on screen
-                  matched the name a voice-control user must speak. It carries
-                  no keystroke at all now: ⌘K focuses search, which is the
-                  command-palette convention a shortcut beside a search box
-                  reads as, and capture WRITES a row. */}
-              <span>+ Capture</span>
-            </button>
+              }}>+ Capture</button>
           </div>
         </div>
-        <nav
-          aria-label="Primary"
-          className="-mx-4 flex w-full items-center gap-4 overflow-x-auto px-4 py-1.5 sm:-mx-6 sm:px-6 md:order-1 md:mx-0 md:ml-auto md:w-auto md:overflow-visible md:px-0 md:py-0"
-        >
-          {GROUPS.map((group, gi) => (
-            <div key={gi} className="flex items-center gap-3">
-              {gi > 0 && <span aria-hidden className="h-4 w-px bg-line" />}
-              {group.map((l) => (
-                <NavLink
-                  key={l.href}
-                  href={l.href}
-                  label={l.label}
-                  active={l.paths.includes(pathname)}
-                  badge={
-                    l.href === "/review"
-                      ? attention.inbox
-                      : l.href === "/chat"
-                        ? attention.chats
-                        : undefined
-                  }
-                  {...(l.href === "/chat"
-                    ? { badgeLabel: "waiting in private shared chats", badgeTone: "quiet" as const }
-                    : {})}
-                />
-              ))}
-            </div>
-          ))}
-          {navigation.length > 0 && (
-            <div className="flex items-center gap-3">
-              <span aria-hidden className="h-4 w-px bg-line" />
-              {navigation.map((item) => (
-                <NavLink
-                  key={item.id}
-                  href={item.href}
-                  label={item.label}
-                  active={item.activePaths.includes(pathname)}
-                />
-              ))}
-            </div>
-          )}
-        </nav>
-      </div>
-      <div className="selvage" id="selvage" aria-hidden />
-    </header>
-  );
+        <div className="selvage" id="selvage" aria-hidden />
+      </header>
+      {children}
+    </div>
+  </div>;
 }

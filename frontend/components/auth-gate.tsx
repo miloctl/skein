@@ -105,8 +105,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const locked = useSyncExternalStore(subscribeSession, sessionLocked, () => false);
   const gating = locked && !exempt;
 
-  // The nav and the two overlays are siblings of this component, not children,
-  // so they keep rendering while the gate stands. lib/gated.ts is how they
+  // The nav shell around this component and the two overlays beside it are
+  // not its children, so they keep rendering while the gate stands. lib/gated.ts is how they
   // learn to stand down — see the reasoning there.
   useEffect(() => {
     setGated(gating);

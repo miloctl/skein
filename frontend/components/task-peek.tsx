@@ -342,11 +342,11 @@ export function TaskPeek() {
     };
     document.addEventListener("keydown", onKey);
     return () => {
-      // This gives back inert on nodes another component may also want inert
-      // (the nav, while the auth gate stands). That is safe only because
-      // nav.tsx re-asserts its own in an effect, and React runs every cleanup
-      // in a commit before any effect body — never make the nav's inert a
-      // rendered prop again, which this silently strips for good.
+      // This gives back inert on body-level nodes another owner may also want
+      // inert (capture-palette.tsx runs the same sibling loop). That is safe
+      // only because every owner asserts inert from an effect, and React runs
+      // every cleanup in a commit before any effect body — an owner whose
+      // inert is a rendered prop loses it here for good.
       others.forEach((el) => el.removeAttribute("inert"));
       document.removeEventListener("keydown", onKey);
     };
@@ -401,19 +401,26 @@ export function TaskPeek() {
           <p className="text-sm text-ink-3">Loading…</p>
         ) : (
           <>
-            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-              <Row label="Status" value={task.status} />
-              <Row label="Priority" value={task.priority} />
-              <Row label="Assignee" value={task.assignee ? `@${task.assignee}` : ""} />
-              <Row label="Due" value={task.due_date} />
-              {/* set by work.py only on the move into `done`, so it is absent
-                  on every open task and Row drops the line entirely — the
-                  panel says when a task finished without claiming a date for
-                  one that has not */}
-              <Row label="Finished" value={task.completed_at} />
-              <Row label="Week" value={task.committed_week} />
-              <Row label="Milestone" value={task.milestone_title} />
-              <Row label="Engagement" value={task.engagement_name} />
+            <dl className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+              {[
+                ["Status", task.status],
+                ["Priority", task.priority],
+                ["Assignee", task.assignee ? `@${task.assignee}` : ""],
+                ["Due", task.due_date],
+              ].filter(([, value]) => value).map(([label, value]) => (
+                <div key={label} className="flex gap-1">
+                  <dt className="text-ink-3">{label}</dt>
+                  <dd className="text-ink-2">{value}</dd>
+                </div>
+              ))}
+            </dl>
+            {task.description ? (
+              <p className="whitespace-pre-wrap break-words text-sm text-ink-2">
+                {task.description}
+              </p>
+            ) : null}
+            {task.waiting_on_type && task.waiting_on_id ? (
+              <dl className="grid grid-cols-[auto_1fr] gap-x-3 text-xs">
               <Row
                 label="Waiting on"
                 value={
@@ -422,6 +429,35 @@ export function TaskPeek() {
                     : ""
                 }
               />
+              </dl>
+            ) : null}
+            {/* What is stopping it, named. `status: blocked` is set BY a
+                blocker (services/blockers.py::raise_blocker), so a panel that
+                showed the status without the row behind it left the reader to
+                find the blocker register by hand — and nothing on the way
+                there said which of its rows was theirs. Impact is what sets
+                the escalation clock, and the owner is who can stop it. */}
+            {task.blockers && task.blockers.length > 0 ? (
+              <>
+                <h3 className="mt-2 skein-section-title text-weld">
+                  Blocked by
+                </h3>
+                <ul className="mt-1 space-y-0.5 text-xs">
+                  {task.blockers.map((b) => (
+                    <li key={b.id}>
+                      <span className="text-ink-3">#{b.id}</span> {b.title}
+                      <span className="ml-1 text-ink-3">
+                        {b.impact} impact · {b.owner ? `@${b.owner}` : "unowned"}
+                        {b.status === "escalated" ? " · escalated" : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+
+            {task.delegated_agent ? (
+              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
               <Row
                 label="Delegated"
                 value={
@@ -441,7 +477,8 @@ export function TaskPeek() {
                 label="Check-in"
                 value={task.delegated_agent ? String(task.check_in_at ?? "") : ""}
               />
-            </dl>
+              </dl>
+            ) : null}
             {task.delegated_agent ? (
               <ActivationGuide
                 task={task}
@@ -469,49 +506,6 @@ export function TaskPeek() {
                 collect an edit the server refuses. */}
             <EditControls task={task} onSaved={reload} />
 
-            {task.description ? (
-              <p className="whitespace-pre-wrap break-words text-sm text-ink-2">
-                {task.description}
-              </p>
-            ) : null}
-            {task.forge_url ? (
-              // bare href is safe: services/forge.py::_clean_url is the only
-              // writer and admits bounded http(s) only
-              <a
-                href={String(task.forge_url)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-ink-3 underline hover:text-ink-2"
-              >
-                code <span aria-hidden>↗</span>
-              </a>
-            ) : null}
-
-            {/* What is stopping it, named. `status: blocked` is set BY a
-                blocker (services/blockers.py::raise_blocker), so a panel that
-                showed the status without the row behind it left the reader to
-                find the blocker register by hand — and nothing on the way
-                there said which of its rows was theirs. Impact is what sets
-                the escalation clock, and the owner is who can stop it. */}
-            {task.blockers && task.blockers.length > 0 ? (
-              <>
-                <h3 className="mt-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-weld">
-                  Blocked by
-                </h3>
-                <ul className="mt-1 space-y-0.5 text-xs">
-                  {task.blockers.map((b) => (
-                    <li key={b.id}>
-                      <span className="text-ink-3">#{b.id}</span> {b.title}
-                      <span className="ml-1 text-ink-3">
-                        {b.impact} impact · {b.owner ? `@${b.owner}` : "unowned"}
-                        {b.status === "escalated" ? " · escalated" : ""}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : null}
-
             {/* Delegation, from the UI. The Agents page empty state points
                 at this control, so removing it leaves that copy advertising
                 something nothing offers. Sponsor defaults to the caller
@@ -528,7 +522,7 @@ export function TaskPeek() {
                 noise on every panel to serve the few. */}
             {task.unblocks && task.unblocks.length > 0 ? (
               <>
-                <h3 className="mt-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+                <h3 className="mt-2 skein-section-title text-ink-3">
                   Finishing this unblocks
                 </h3>
                 <ul className="mt-1 space-y-0.5 text-xs">
@@ -568,6 +562,33 @@ export function TaskPeek() {
               </p>
             ) : null}
 
+            {(task.completed_at || task.committed_week || task.milestone_title || task.engagement_name || task.forge_url) && <details>
+              <summary className="cursor-pointer text-sm font-medium text-ink-2">Task details</summary>
+              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+              {/* set by work.py only on the move into `done`, so it is absent
+                  on every open task and Row drops the line entirely — the
+                  panel says when a task finished without claiming a date for
+                  one that has not */}
+              <Row label="Finished" value={task.completed_at} />
+              <Row label="Week" value={task.committed_week} />
+              <Row label="Milestone" value={task.milestone_title} />
+              <Row label="Engagement" value={task.engagement_name} />
+              </dl>
+            {task.forge_url ? (
+              // bare href is safe: services/forge.py::_clean_url is the only
+              // writer and admits bounded http(s) only
+              <a
+                href={String(task.forge_url)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-ink-3 underline hover:text-ink-2"
+              >
+                code <span aria-hidden>↗</span>
+              </a>
+            ) : null}
+
+            </details>}
+
             {/* How this task came to exist, and what has happened since.
                 `origin` was a label on the row and the rest of the chain lived
                 in three other tables (services/provenance.py). */}
@@ -579,7 +600,7 @@ export function TaskPeek() {
                 design (services/delegation.py::list_worklog) — this panel is
                 where a sponsor watches delegated work progress, and the only
                 place in the web app that shows it. */}
-            <h3 className="mt-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+            <h3 className="mt-2 skein-section-title text-ink-3">
               Worklog
             </h3>
             {worklogError ? (

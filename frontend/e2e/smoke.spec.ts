@@ -7,7 +7,7 @@ import { expect, test, type Page } from "@playwright/test";
  *  the mock provider, so every walk is deterministic and keyless. */
 
 // the nav destinations plus Settings and the Reports tab; paths from
-// components/nav.tsx and components/section-tabs.tsx
+// lib/navigation.ts
 const PAGES = [
   { path: "/", name: "My Day" },
   { path: "/chat", name: "Chat" },

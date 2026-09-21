@@ -167,7 +167,8 @@ describe("the nav under the auth gate", () => {
       { container: document.body },
     );
     const header = document.querySelector("header") as HTMLElement;
-    await waitFor(() => expect(header.hasAttribute("inert")).toBe(true)); // TaskPeek's
+    // TaskPeek inerts the body-level shell; the header is nested inside it.
+    await waitFor(() => expect(header.closest("[inert]")).not.toBeNull());
     act(() => setGated(true));
     await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
     expect(header.hasAttribute("inert")).toBe(true);
