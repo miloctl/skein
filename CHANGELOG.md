@@ -22,6 +22,28 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+## 0.6.4 — 2026-09-20
+
+### Contracts
+
+- `GET /api/delta` reports seven team calendar dates and carries `window_start`, `window_end`, `snapshot_id`, `review_revision`, `reviewed`, and `truncated`. Finding items carry `rule_id` and `severity`, and a new finding reports `direction` as `new` rather than `worse`. The reader's last-seen mark no longer decides the window, and a `mark=true` query writes nothing.
+- `POST /api/delta/ack` records that one reader reviewed one summary. Its body takes `snapshot_id` and `review_revision` and refuses every other field. A summary that changed since the preview, or a revision another tab already spent, answers 409. An incomplete summary answers 400, because a refresh returns the same incomplete summary. The route stores a fingerprint and a revision, never a source timestamp, so a review cannot consume a change the reader never saw.
+- A contributed `navigation` item renders in the workspace sidebar and in its narrow-screen drawer, with the declared query and fragment unchanged. Extension API 1.0 does not change. An item that declares no icon takes a neutral one.
+
+### Behavior
+
+- My Day's "Since you last looked" becomes Recent changes: one summary over seven team calendar dates, five headlines at the front, and low-severity feature-adoption findings grouped last. A finding reads as new rather than as a health call that worsened. **Mark this summary reviewed** records the summary on screen, not a point in time, so a summary that changes afterwards returns, and rows already reviewed can return with it. Opening the summary, expanding it, or reading its evidence records nothing.
+- One workspace sidebar replaces the top navigation row and the per-page section tabs. It holds the five destinations and the open group's pages, at 240px from 1024px wide, at 56px when collapsed, and in a labelled drawer below that width. Search, page help, and Capture stay in the utility bar. Settings, the field guide, and the identity menu sit in the sidebar footer.
+- My Day leads with Needs you and Your work. The standup composer sits in a closed disclosure below the task list, and the shared queues stay behind Show team context for every reader.
+- Browse shows one register at a time, chosen from a grouped selector at every width. Hidden registers stay mounted, so a half-typed form survives a switch. The selector rewrites the address fragment in place: it adds no history entry and does not move focus, because a closed selector reports a change on every arrow key.
+- Planning owns the weekly draft and the commitment. Health leads with engagement condition and risk and links to Planning for the plan. The specialist bench, the chat welcome, Approvals, and the task panel keep their main action and their evidence in view and fold reference material into disclosures.
+- The page help control reads **Help** at every width.
+
+### Operations
+
+- The `delta_seen:<user>` rows in `app_settings` are no longer read. Nothing removes them. They are safe to leave in place or to delete.
+- A browser still running the previous bundle asks for `GET /api/delta?mark=true`, which now writes nothing. That reader sees the same summary until the new bundle loads.
+
 ## 0.6.3 — 2026-09-18
 
 ### Contracts

@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@miloctl/skein-extension-api": "file:dist/miloctl-skein-extension-api-1.0.0.tgz",
-    "@miloctl/skein-frontend-host": "file:dist/miloctl-skein-frontend-host-0.6.3.tgz",
+    "@miloctl/skein-frontend-host": "file:dist/miloctl-skein-frontend-host-0.6.4.tgz",
     "next": "16.3.4",
     "react": "19.2.4",
     "react-dom": "19.2.4"
