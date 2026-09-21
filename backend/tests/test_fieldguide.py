@@ -6,6 +6,7 @@ instead of a knot silently going untieable."""
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 
 import pytest
 
@@ -29,12 +30,42 @@ def test_registry_is_valid_and_complete():
     from app.services import fieldguide
 
     cards = fieldguide.registry()
-    assert len(cards) == 59
+    assert len(cards) == 60
     ids = {k["id"] for k in cards}
     assert ids == set(fieldguide.PREDICATES)
     for k in cards:
         assert k["set"] in fieldguide.SETS
         assert k["link"].startswith("/")
+
+
+def test_recent_summary_review_ties_only_after_explicit_review(client, fresh_db):
+    from app.services import fieldguide, promises
+
+    _mint(fresh_db, "ava")
+    _mint(fresh_db, "mario")
+    promises.add_promise(
+        "Review the delivery summary",
+        due_date=(fresh_db.today() - timedelta(days=1)).isoformat(),
+        actor="ava",
+    )
+    headers = {"X-User": "ava"}
+    preview = client.get("/api/delta", headers=headers).json()
+    predicate = fieldguide.PREDICATES["recent_summary_review"]
+    assert predicate is not None
+    assert not predicate("ava")
+    reviewed = client.post(
+        "/api/delta/ack",
+        headers=headers,
+        json={
+            "snapshot_id": preview["snapshot_id"],
+            "review_revision": preview["review_revision"],
+        },
+    )
+    assert reviewed.status_code == 200
+    assert predicate("ava")
+    assert not predicate("mario")
+    card = next(c for c in fieldguide.guide("ava")["cards"] if c["id"] == "recent_summary_review")
+    assert card["tied"]
 
 
 def test_cached_registry_cards_cannot_be_poisoned():
@@ -167,7 +198,7 @@ def test_hint_and_guide_use_the_same_tieable_total(fresh_db):
     from app.services import fieldguide
 
     _mint(fresh_db, "ava")
-    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 58
+    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 59
 
 
 def test_first_detection_seeds_silently(fresh_db):

@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -83,11 +84,6 @@ describe("Today's Three", () => {
     render(<MyDay />);
 
     await screen.findByRole("heading", { level: 3, name: "Today's Three" });
-    // re-derived on every read, never held across a click: each click is a
-    // discrete event React flushes on its own, and `within` a section node
-    // React replaced during one of them searches a detached tree — the count
-    // is on the page and the query still fails, which reads as the selection
-    // never landing.
     const section = () =>
       screen
         .getByRole("heading", { level: 3, name: "Today's Three" })
@@ -95,11 +91,19 @@ describe("Today's Three", () => {
     expect(within(section()).getByText("0/3")).toBeTruthy();
 
     for (const id of [1, 2, 3]) {
-      fireEvent.click(
-        screen.getByRole("button", {
-          name: `Add task #${id} to Today's Three`,
-        }),
-      );
+      const control = screen.getByRole("button", {
+        name: `Add task #${id} to Today's Three`,
+      });
+      expect(control.isConnected).toBe(true);
+      // Sync act can leave the external-store commit pending. Check the write
+      // in the event, then await React before the next user interaction.
+      await act(async () => {
+        fireEvent.click(control);
+        expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "null")).toEqual({
+          team_date: "2026-08-15", task_ids: [1, 2, 3].slice(0, id),
+        });
+      });
+      expect(within(section()).getByText(`${id}/3`)).toBeTruthy();
     }
 
     expect(within(section()).getByText("3/3")).toBeTruthy();
@@ -117,28 +121,36 @@ describe("Today's Three", () => {
     expect(screen.getAllByText("Plan launch")).toHaveLength(2);
     expect(screen.getByText("Share result")).toBeTruthy();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Add task #4 to Today's Three" }),
-    );
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Add task #4 to Today's Three" }),
+      );
+    });
     expect(
       JSON.parse(window.localStorage.getItem(storageKey) ?? "null").task_ids,
     ).toEqual([1, 2, 3]);
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Remove task #2 from Today's Three" }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Add task #4 to Today's Three" }),
-    );
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Remove task #2 from Today's Three" }),
+      );
+    });
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Add task #4 to Today's Three" }),
+      );
+    });
     expect(
       JSON.parse(window.localStorage.getItem(storageKey) ?? "null").task_ids,
     ).toEqual([1, 3, 4]);
 
-    fireEvent.click(
-      within(section())
-        .getByText("Plan launch")
-        .closest("button") as HTMLElement,
-    );
+    await act(async () => {
+      fireEvent.click(
+        within(section())
+          .getByText("Plan launch")
+          .closest("button") as HTMLElement,
+      );
+    });
     expect(window.location.search).toBe("?task=1");
   });
 
@@ -206,14 +218,16 @@ describe("Today's Three", () => {
     const newer = { team_date: "2026-08-16", task_ids: [1] };
 
     window.localStorage.setItem(storageKey, JSON.stringify(newer));
-    fireEvent(window, new Event("storage"));
+    await act(async () => { fireEvent(window, new Event("storage")); });
 
     await waitFor(() =>
       expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "null")).toEqual(newer),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Add task #2 to Today's Three" }),
-    );
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Add task #2 to Today's Three" }),
+      );
+    });
     expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "null")).toEqual(newer);
   });
 });

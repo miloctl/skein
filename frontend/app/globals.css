@@ -260,6 +260,20 @@
   --shadow-float: 0 12px 32px light-dark(rgb(23 32 42 / 0.18), rgb(0 0 0 / 0.6));
 }
 
+/* The extension API's published Card bytes are frozen (test_release_contract.py).
+   Host classes restyle core cards without changing that package or its consumers. */
+.skein-card:not(:focus) {
+  box-shadow: none;
+}
+.skein-section-title {
+  font-family: var(--font-body), sans-serif;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
 /* Display-type voice (TD1): packs set the letterform personality of every
    font-display site — tracking, case, variable-font axes, glow — without
    touching a component (unlayered, so it beats the per-site tracking-*). */
@@ -442,25 +456,93 @@
 }
 
 :root {
-  /* The sticky header's height, published once: chat sizing and the mobile
-     drawer offset both derive from it. MEASURED, not chosen — at phone width
-     the header is two rows, 56px (logo + identity) + 52px (nav scroller).
-     At 6.25rem it under-reported by 8px, so the chat pane was 8px too tall
-     and its composer sat below the fold on an 800px screen.
-     min-height cannot pin a row count: what keeps this to two rows is the
-     phone layout in nav.tsx, where the name is sr-only below sm and
-     nav-search.tsx takes the slack (flex-1 min-w-0) — the logo plus the
-     identity cluster has to fit 328px of content box. Give the name a
-     visible width back at phone size and the header wraps to a third row,
-     and this number is wrong again. */
-  --nav-h: 6.75rem;
+  /* Chat height and sticky offsets exclude the separately themed selvage. */
+  --nav-h: 3.5rem;
 }
 
-@media (min-width: 768px) {
-  :root {
-    --nav-h: 3.5rem;
-  }
+.app-shell { min-width: 0; flex: 1; --sidebar-w: 0px; }
+.shell-content { min-width: 0; margin-left: var(--sidebar-w); }
+.shell-sidebar { display: none; }
+.shell-drawer {
+  position: fixed;
+  inset: 0 auto 0 0;
+  margin: 0;
+  padding: 0;
+  width: min(20rem, calc(100vw - 2rem));
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 0;
+  border-right: 1px solid var(--border-hairline);
+  color: var(--text-1);
+  background: var(--surface-page);
 }
+.shell-drawer::backdrop { background: rgb(0 0 0 / 35%); }
+.shell-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--r-lg, 0.5rem);
+  color: var(--text-2);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+.shell-row:hover { background: var(--surface-raised); color: var(--text-1); }
+.shell-current { background: var(--surface-raised); color: var(--text-1); font-weight: 600; }
+.shell-current::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.75rem;
+  bottom: 0.75rem;
+  width: 2px;
+  background: var(--thread-solid);
+}
+.shell-label { min-width: 0; overflow-wrap: anywhere; }
+.shell-child { min-height: 2.5rem; padding-left: 0.75rem; }
+
+@media (min-width: 1024px) {
+  .app-shell { --sidebar-w: 240px; }
+  .app-shell[data-collapsed="true"] { --sidebar-w: 56px; }
+  .shell-sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    width: var(--sidebar-w);
+    height: 100dvh;
+    border-right: 1px solid var(--border-hairline);
+    background: var(--surface-page);
+  }
+  .shell-links { min-height: 0; overflow-y: auto; }
+  [data-collapsed="true"] .shell-links { overflow: visible; }
+  [data-collapsed="true"] .shell-row { gap: 0; padding-left: 0.625rem; padding-right: 0.625rem; }
+  [data-collapsed="true"] .shell-wordmark { display: none; }
+  [data-collapsed="true"] .shell-label {
+    position: absolute;
+    left: calc(100% + 0.5rem);
+    width: max-content;
+    max-width: 16rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--r-lg, 0.5rem);
+    background: var(--surface-card);
+    color: var(--text-1);
+    box-shadow: var(--shadow-float);
+    clip-path: inset(50%);
+    pointer-events: none;
+  }
+  [data-collapsed="true"] .shell-row:is(:hover, :focus-visible) .shell-label { clip-path: none; }
+  [data-collapsed="true"] .shell-badge { position: absolute; right: -0.125rem; top: 0; }
+  [data-collapsed="true"] .shell-identity > span:first-child { flex-shrink: 0; }
+}
+
 
 /* the collapse preference is stamped pre-paint (layout.tsx) so a collapsed
    sidebar never flashes open before React hydrates */

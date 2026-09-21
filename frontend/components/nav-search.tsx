@@ -8,6 +8,13 @@ import { matchCommands } from "@/lib/commands";
 import { PeekLink } from "@/components/task-peek";
 import { Shortcut } from "@/components/shortcut";
 import { reportStatus } from "@/lib/status";
+import { isGated } from "@/lib/gated";
+
+function searchBlocked() {
+  // Capture and TaskPeek own their drafts and focus. A search shortcut must
+  // not move focus to the inert utility bar behind either modal.
+  return isGated() || Boolean(document.querySelector('[aria-modal="true"]:not(#chat-list):not(#navigation-drawer)'));
+}
 
 /** Search and /ask, in the nav.
  *
@@ -264,6 +271,8 @@ export function NavSearch() {
     const onShortcut = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
+        if (searchBlocked()) return;
+        window.dispatchEvent(new Event("skein-search-focus"));
         inputRef.current?.focus();
         inputRef.current?.select();
         // focus() on the already-focused input fires no focus event, so
@@ -278,7 +287,8 @@ export function NavSearch() {
   useEffect(() => {
     const onPrefill = (event: Event) => {
       const query = (event as CustomEvent<string>).detail;
-      if (typeof query !== "string" || !query.trim()) return;
+      if (typeof query !== "string" || !query.trim() || searchBlocked()) return;
+      window.dispatchEvent(new Event("skein-search-focus"));
       requestGeneration.current += 1;
       setQ(query);
       setHits(null);
@@ -300,6 +310,16 @@ export function NavSearch() {
     inputRef.current?.select();
     focusPrefill.current = false;
   }, [q]);
+
+  useEffect(() => {
+    const dismiss = () => setOpen(false);
+    window.addEventListener("skein-navigation-open", dismiss);
+    window.addEventListener("skein-capture-open", dismiss);
+    return () => {
+      window.removeEventListener("skein-navigation-open", dismiss);
+      window.removeEventListener("skein-capture-open", dismiss);
+    };
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -383,7 +403,10 @@ export function NavSearch() {
           if (matchCommands(e.target.value).length) setOpen(true);
         }}
         onKeyDown={(e) => e.key === "Enter" && run()}
-        onFocus={() => !focusPrefill.current && canOpen.current && setOpen(true)}
+        onFocus={() => {
+          window.dispatchEvent(new Event("skein-search-focus"));
+          if (!focusPrefill.current && canOpen.current) setOpen(true);
+        }}
         enterKeyHint="search"
         // "or ? to ask" promised a question-answerer and delivered a second
         // pass over the same keyword index. Once semantic hits blend into
@@ -405,7 +428,7 @@ export function NavSearch() {
         {q.trim() ? "Enter" : <Shortcut />}
       </span>
       {open && (commands.length > 0 || hasResults) && (
-        <div className="fixed inset-x-4 top-[calc(var(--nav-h)+var(--selvage-h,2px)+0.25rem)] z-50 max-h-96 w-auto overflow-y-auto rounded-xl border border-line bg-card p-3 shadow-card sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-1 sm:w-96">
+        <div className="fixed inset-x-4 top-[calc(var(--nav-h)+var(--selvage-h,2px)+0.25rem)] z-50 max-h-96 w-auto overflow-y-auto rounded-xl border border-line bg-card p-3 shadow-card sm:absolute sm:inset-x-auto sm:left-0 sm:right-auto sm:top-full sm:mt-1 sm:w-96 sm:max-w-[calc(100vw-2rem)]">
           {/* outside the live region below: the list changes on every
               keystroke, and a polite region would read it out each time */}
           {commands.length > 0 && (

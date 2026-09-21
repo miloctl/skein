@@ -54,6 +54,15 @@ beforeEach(() => {
 });
 
 describe("chat composer handoff", () => {
+  it("prepares help in the focused composer without sending it", async () => {
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole("button", { name: "Prepare /help" }));
+    const input = screen.getByRole("textbox", { name: /Message/ }) as HTMLTextAreaElement;
+    await waitFor(() => expect(input.value).toBe("/help"));
+    expect(document.activeElement).toBe(input);
+    expect(screen.queryByText("ok")).toBeNull();
+    expect(screen.getByText("An attached file goes to the model provider this deployment uses.")).toBeTruthy();
+  });
   it("prefills visible text once and consumes the URL parameter", async () => {
     const compose = "/as bosun I am on the /review page. ";
     window.history.replaceState(

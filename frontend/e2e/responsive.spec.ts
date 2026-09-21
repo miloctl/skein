@@ -74,7 +74,8 @@ async function probe(page: Page) {
       // if this ever reads ANON the walk is measuring a different app than it
       // claims: identity lives in localStorage, and a silent miss made a whole
       // 56-combination audit worthless once
-      anonymous: (header?.innerText ?? "").includes("anonymous"),
+      anonymous: !document.querySelector("[data-identity-control]") ||
+        (document.querySelector("[data-identity-control]")?.textContent ?? "").includes("anonymous"),
       overflowPx: de.scrollWidth - de.clientWidth,
       overflowCulprit:
         [...document.querySelectorAll("*")]
@@ -176,12 +177,8 @@ test.describe("desktop", () => {
   });
 });
 
-/** The name is HIDDEN below `sm` and must still be announced. At 360px the
- *  header holds the logo, the search field, the identity chip and the capture
- *  button in 328px, and the name at 7rem left the search field 10px wide — so
- *  the chip shows the avatar alone and carries the name as sr-only text. Drop
- *  that text instead of hiding it and the button announces "You" to a screen
- *  reader, with no way to tell which identity is in force. */
+/** Results use viewport gutters on phones. The field can be narrower than a
+ *  result label, so anchoring the panel to its width would clip the content. */
 test("search results stay inside a 360px viewport", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 });
   await page.route("**/api/search?*", (route) =>
@@ -248,23 +245,18 @@ test("page help stays reachable in a narrow, short viewport", async ({
   await expect(trigger).toBeFocused();
 });
 
-test("the identity chip announces who you are at phone width", async ({
-  page,
-}) => {
+test("navigation names the current identity at phone width", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 });
   await page.goto("/");
   await page.evaluate(() => window.localStorage.setItem("skein-user", "ava"));
   await page.goto("/");
-  await page.evaluate(() => document.fonts.ready);
-  const chip = page.getByRole("button", { name: /ava/ });
-  await expect(chip).toBeAttached();
-  // visually hidden, not display:none — a name the browser does not render is
-  // also a name it does not expose
-  const shown = await page
-    .locator("header span", { hasText: /^ava$/ })
-    .first()
-    .evaluate((el) => getComputedStyle(el).display !== "none");
-  expect(shown).toBe(true);
+  await page.getByRole("button", { name: "Open navigation", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "Navigation", exact: true });
+  const identity = drawer.locator("[data-identity-control]");
+  await expect(identity).toHaveAccessibleName("ava");
+  await expect(identity.getByText("ava", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Open navigation", exact: true })).toBeFocused();
 });
 
 /** The header is sticky, so a target scrolled to the top of the viewport lands
@@ -400,6 +392,16 @@ test("changed forms reflow at 320px", async ({ page }) => {
   for (const path of ["/dashboard", "/intake", "/settings"]) {
     await page.goto(path);
     await page.waitForLoadState("networkidle").catch(() => {});
+    if (path === "/dashboard") {
+      for (const [register, form] of [["Capacity", "Add allocation"], ["Time away", "Add time away"], ["Milestones", "Add milestone"], ["Calendar", "Add event"]]) {
+        await page.getByRole("combobox", { name: "Browse register", exact: true }).selectOption({ label: register });
+        await page.locator("summary", { hasText: new RegExp(`^${form}$`) }).click();
+        expect(
+          await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
+          `${form} overflows at 320px`,
+        ).toBeLessThanOrEqual(1);
+      }
+    }
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth - window.innerWidth,
@@ -485,7 +487,7 @@ test("every fabric pack reflows at 360px without breaking the page", async ({
       // --nav-h drift for phosphor and hermes against an app that was fine.
       await page
         .waitForFunction(
-          (n) => document.querySelector("header")?.innerText.includes(n),
+          (n) => document.querySelector("[data-identity-control]")?.textContent?.includes(n),
           LONG_NAME,
           { timeout: 10_000 },
         )
@@ -614,11 +616,13 @@ test("extreme content does not break the shell", async ({ page }) => {
   await page.waitForLoadState("networkidle").catch(() => {});
   await page
     .waitForFunction(
-      (n) => document.querySelector("header")?.innerText.includes(n),
+      (n) => document.querySelector("[data-identity-control]")?.textContent?.includes(n),
       LONG_NAME,
       { timeout: 10_000 },
     )
     .catch(() => {});
+  await page.getByRole("button", { name: "Open navigation", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Navigation", exact: true })).toBeVisible();
   const p = await probe(page);
   if (p.overflowPx > 1)
     problems.push({
@@ -1007,8 +1011,8 @@ test.describe("Guided First Week", () => {
       await expect(disclosure).toBeFocused();
       await page.keyboard.press("Enter");
       await expect(
-        page.getByRole("heading", { name: "Since yesterday" }),
-      ).toHaveCount(0);
+        page.getByRole("heading", { name: "Since yesterday", includeHidden: true }),
+      ).toBeHidden();
 
       const dismiss = page.getByRole("button", {
         name: "Dismiss first-week setup",

@@ -26,7 +26,15 @@
  */
 import { useEffect, useRef } from "react";
 
-export function useHashTarget(ready: unknown) {
+export function useHashTarget(
+  ready: unknown,
+  // Return false while a selection render is pending. `ready` retries after
+  // that render without replacing an in-app anchor with the previous URL.
+  { reveal }: { reveal?: (id: string) => boolean } = {},
+) {
+  // In-app search announces its anchor before Next changes the URL. Keep that
+  // request across the render that reveals a hidden register and delayed data.
+  const pending = useRef<string | null>(null);
   // the row focus was last moved to. Without it, every background refresh
   // (answering a question refetches the collection) re-ran the effect and
   // pulled focus back to the deep-linked row out from under the reader.
@@ -53,20 +61,29 @@ export function useHashTarget(ready: unknown) {
 
   useEffect(() => {
     const land = (id: string, force: boolean) => {
-      if (!id) return;
+      if (!id) {
+        // Back to a hashless URL restores the default register. Mount and
+        // refresh must neither reset the reader's selection nor move focus.
+        if (force) reveal?.("");
+        return;
+      }
+      if (pending.current === id && reveal && !reveal(id)) return;
       const el = document.getElementById(id);
       // a miss is not recorded: the first run happens before the fetch
       // settles, and marking it landed would spend the one attempt on an
       // empty page and never retry when the rows arrive
-      if (!el) return;
+      if (!el || el.closest("[hidden], [inert]")) return;
+      if (el.closest("details:not([open])") && el.tagName !== "SUMMARY") return;
       if (!force && landed.current === id) {
         // already landed — re-pin against layout shift from collections that
         // settled after the landing, until the reader takes over
         if (!readerTookOver.current) el.scrollIntoView({ block: "center" });
         return;
       }
-      landed.current = id;
       el.focus();
+      if (document.activeElement !== el) return;
+      landed.current = id;
+      pending.current = "";
       // the announcement the focus ring undersells: a brief theme-tinted
       // pulse (globals.css .hash-landed). Removed on end so a later landing
       // on the same row replays it.
@@ -77,7 +94,8 @@ export function useHashTarget(ready: unknown) {
         { once: true },
       );
     };
-    land(window.location.hash.slice(1), false);
+    if (pending.current === null) pending.current = window.location.hash.slice(1);
+    land(pending.current || landed.current, false);
     // Both events, because neither covers the other: `hashchange` is the
     // browser's own (a typed address, Back between two fragments) and
     // `skein-hash` is what an in-app link announces — a next/link soft
@@ -91,7 +109,9 @@ export function useHashTarget(ready: unknown) {
       // a deliberate second landing un-does the reader's take-over: they
       // clicked a link again, which IS reader input asking to be moved
       readerTookOver.current = false;
-      land(sent ?? window.location.hash.slice(1), true);
+      pending.current = sent ?? window.location.hash.slice(1);
+      landed.current = "";
+      land(pending.current, true);
     };
     window.addEventListener("hashchange", onHash);
     window.addEventListener("skein-hash", onHash);
@@ -99,7 +119,7 @@ export function useHashTarget(ready: unknown) {
       window.removeEventListener("hashchange", onHash);
       window.removeEventListener("skein-hash", onHash);
     };
-  }, [ready]);
+  }, [ready, reveal]);
 }
 
 /** The classes a hook target needs to be focusable and to show where focus

@@ -6,7 +6,6 @@ import { actionError, api, loadError } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import { Card } from "@/components/card";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
-import { SectionTabs } from "@/components/section-tabs";
 import { openTaskPeek } from "@/components/task-peek";
 
 type Finding = {
@@ -224,12 +223,11 @@ export default function InsightsPage() {
         className="mx-auto w-full max-w-5xl p-4 sm:p-6 xl:max-w-6xl"
       >
         <div className="flex flex-wrap items-start justify-between gap-2">
-          <SectionTabs set="work" />
+          <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+            Insights
+          </h1>
           <ManageToggle />
         </div>
-        <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
-          Insights
-        </h1>
         <p className="text-sm text-danger">{error}</p>
       </main>
     );
@@ -237,12 +235,11 @@ export default function InsightsPage() {
     return (
       <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-2">
-          <SectionTabs set="work" />
+          <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+            Insights
+          </h1>
           <ManageToggle />
         </div>
-        <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
-          Insights
-        </h1>
         <p className="mb-6 max-w-3xl text-sm text-ink-3">Reading the tea leaves…</p>
       </main>
     );
@@ -259,10 +256,9 @@ export default function InsightsPage() {
   return (
     <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <SectionTabs set="work" />
+        <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Insights</h1>
         <ManageToggle />
       </div>
-      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Insights</h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
         Everything on this page measures the system — rules, jobs, funnels —
         never individual people.

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { VisibilityBadge } from "@/components/visibility-picker";
 import { PeekLink } from "@/components/task-peek";
@@ -9,7 +9,6 @@ import { actionError, api, loadError } from "@/lib/api";
 import { HASH_TARGET, useHashTarget } from "@/lib/hash-target";
 import { reportStatus } from "@/lib/status";
 import { PersonInput } from "@/components/person-input";
-import { SectionTabs } from "@/components/section-tabs";
 import { ExtensionDashboardCards } from "@/components/extension-dashboard";
 import { timeAgo } from "@/lib/time";
 import { emptyState, loadingLine } from "@/lib/whimsy";
@@ -56,28 +55,29 @@ function Badge({ value }: { value: string }) {
   );
 }
 
-const BROWSE_SECTIONS = [
-  "Engagements",
-  "Blockers",
-  "Capacity",
-  "Time away",
-  "Milestones",
-  "Tasks",
-  "Recently shipped",
-  "Open questions",
-  "Decisions",
-  "Recent standups",
-  "Calendar",
-  "Knowledge base",
-  "Recent activity",
-] as const;
-
 function browseSectionId(title: string) {
   return `browse-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
 }
 
+const BROWSE_GROUPS = [
+  { label: "Work", titles: ["Tasks", "Recently shipped", "Engagements", "Milestones", "Blockers", "Open questions"] },
+  { label: "People", titles: ["Capacity", "Time away", "Calendar", "Recent standups"] },
+  { label: "Reference", titles: ["Decisions", "Lessons", "Knowledge base", "Recent activity"] },
+];
+
+function registerForAnchor(id: string) {
+  if (BROWSE_GROUPS.some((group) => group.titles.some((title) => browseSectionId(title) === id))) return id;
+  const row = /^(question|blocker|milestone|lesson)-\d+$/.exec(id);
+  return row ? ({ question: "browse-open-questions", blocker: "browse-blockers", milestone: "browse-milestones", lesson: "browse-lessons" } as Record<string, string>)[row[1]] : null;
+}
+
+function focusVisible(el: HTMLElement | null) {
+  if (el && !el.closest("[hidden]")) el.focus();
+}
+
 function Section({
   title,
+  hidden,
   rows,
   render,
   empty,
@@ -86,6 +86,7 @@ function Section({
   controls,
 }: {
   title: string;
+  hidden: boolean;
   rows: Row[];
   render: (r: Row) => React.ReactNode;
   empty: string;
@@ -105,14 +106,16 @@ function Section({
   return (
     <section
       id={id}
+      hidden={hidden}
+      tabIndex={-1}
       aria-labelledby={`${id}-title`}
-      className="scroll-mt-28 rounded-xl border border-line bg-card p-4 shadow-card"
+      className="skein-card scroll-mt-28 rounded-xl border border-line bg-card p-4 outline-none focus:ring-2 focus:ring-thread-solid"
     >
       <h2
         id={`${id}-title`}
         ref={headingRef}
         tabIndex={headingRef ? -1 : undefined}
-        className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3 outline-none focus:ring-2 focus:ring-thread-solid"
+        className="skein-section-title mb-3 outline-none focus:ring-2 focus:ring-thread-solid"
       >
         {title}
       </h2>
@@ -141,13 +144,12 @@ function Section({
 // mirrors services/engagements.py::list_lessons's default `limit`
 const LESSON_PAGE = 100;
 
-function LessonsCard() {
+function LessonsCard({ hidden, onLoaded, cls, setCls }: { hidden: boolean; onLoaded: (rows: Row[]) => void; cls: string; setCls: (value: string) => void }) {
   // rows carry the filter they belong to. A plain list plus a synchronous
   // clear at the top of the effect is the same idea, but setState directly
   // inside an effect is what react-hooks/set-state-in-effect forbids — and
   // this shape also survives an out-of-order response without a second guard.
   const [rows, setRows] = useState<{ cls: string; list: Row[] } | null>(null);
-  const [cls, setCls] = useState("");
   const [error, setError] = useState("");
   // classes come from the rows themselves — playbooks.py owns the real list
   // and a hardcoded copy here would drift the first time one is added
@@ -165,6 +167,7 @@ function LessonsCard() {
       .then((r) => {
         if (!live) return;
         setRows({ cls, list: r });
+        onLoaded(r);
         setError("");
         // only from the unfiltered read: a filtered one knows about one class
         if (!cls)
@@ -184,18 +187,16 @@ function LessonsCard() {
     return () => {
       live = false;
     };
-  }, [cls]);
+  }, [cls, onLoaded]);
   // showing the PREVIOUS filter's rows under the new label is the bug this
   // closes; a mismatch is the loading state
   const list = rows && rows.cls === cls ? rows.list : null;
-  // this card fetches on its own, so the page-level call in Dashboard cannot
-  // see a `#lesson-N` target arrive
-  useHashTarget(list);
+
 
   return (
-    <section className="rounded-xl border border-line bg-card p-4 shadow-card">
+    <section id="browse-lessons" hidden={hidden} tabIndex={-1} aria-labelledby="browse-lessons-title" className={`skein-card rounded-xl border border-line bg-card p-4 ${HASH_TARGET}`}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+        <h2 id="browse-lessons-title" className="skein-section-title">
           {/* `list_lessons` is LIMIT 100 with no offset, and nav-search links a
               hit straight to `#lesson-N` — so past 100 the anchor targets a row
               this card cannot show. Stating the page is the honest half; the
@@ -257,16 +258,18 @@ function LessonsCard() {
   );
 }
 
-function StandupCard({ rows }: { rows: Row[] }) {
+function StandupCard({ rows, hidden }: { rows: Row[]; hidden: boolean }) {
   return (
     <section
       id="browse-recent-standups"
+      hidden={hidden}
+      tabIndex={-1}
       aria-labelledby="browse-recent-standups-title"
-      className="scroll-mt-28 rounded-xl border border-line bg-card p-4 shadow-card"
+      className="skein-card scroll-mt-28 rounded-xl border border-line bg-card p-4 outline-none focus:ring-2 focus:ring-thread-solid"
     >
       <h2
         id="browse-recent-standups-title"
-        className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3"
+        className="skein-section-title mb-3"
       >
         Recent standups
       </h2>
@@ -591,6 +594,23 @@ function shippedRecently(tasks: Row[] | undefined): Row[] {
 
 export default function Dashboard() {
   const [data, setData] = useState<Record<string, Row[]>>({});
+  const [selected, setSelected] = useState("browse-tasks");
+  const [lessonRows, setLessonRows] = useState<Row[]>([]);
+  const [lessonClass, setLessonClass] = useState("");
+  const reveal = useCallback((id: string) => {
+    const register = id === "" ? "browse-tasks" : registerForAnchor(id);
+    // Generic targets such as #content need no register reveal. Blocking that
+    // landing makes a direct Task Peek lose main as its return-focus target.
+    if (!register) return true;
+    if (id.startsWith("lesson-") && lessonClass) {
+      setLessonClass("");
+      setSelected(register);
+      return false;
+    }
+    if (register === selected) return true;
+    setSelected(register);
+    return false;
+  }, [selected, lessonClass]);
   const [pulse, setPulse] = useState<Pulse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [closing, setClosing] = useState<number | null>(null);
@@ -609,7 +629,7 @@ export default function Dashboard() {
   // refocusEdit below, and the setTimeout is load-bearing for the same
   // reason: the button does not exist until React has re-rendered.
   const restoreFocus = useCallback((id: number) => {
-    setTimeout(() => document.getElementById(`close-out-${id}`)?.focus(), 0);
+    setTimeout(() => focusVisible(document.getElementById(`close-out-${id}`)), 0);
   }, []);
   const [draftedLesson, setDraftedLesson] = useState<number | null>(null);
   // A CONCLUSION click removes the trigger with the row, so there is nothing
@@ -624,7 +644,7 @@ export default function Dashboard() {
   const bannerRef = useRef<HTMLParagraphElement | null>(null);
   const engagementsRef = useRef<HTMLHeadingElement | null>(null);
   useEffect(() => {
-    if (draftedLesson !== null) bannerRef.current?.focus();
+    if (draftedLesson !== null && !engagementsRef.current?.closest("[hidden]")) bannerRef.current?.focus();
   }, [draftedLesson]);
 
   const [assigning, setAssigning] = useState<number | null>(null);
@@ -702,12 +722,13 @@ export default function Dashboard() {
   }, []);
   const load = useCallback(() => refresh(COLLECTIONS), [refresh]);
   useEffect(load, [load]);
-  // `#question-12`, `#blocker-4`, `#milestone-9` — every link that names one
-  // row of this page. LessonsCard makes its own call for `#lesson-N`.
-  useHashTarget(data);
+  // One landing owner includes independently fetched lessons, so a search
+  // request sent before LessonsCard mounts is not lost or focused twice.
+  const landing = useMemo(() => [data, lessonRows], [data, lessonRows]);
+  useHashTarget(landing, { reveal });
 
   const refocusEdit = (kind: string, id: number) =>
-    setTimeout(() => document.getElementById(`edit-${kind}-${id}`)?.focus(), 0);
+    setTimeout(() => focusVisible(document.getElementById(`edit-${kind}-${id}`)), 0);
 
   const addAbsence = async (draft: Record<string, string>) => {
     // absences feed capacity's "away" markers — both must refresh together
@@ -819,7 +840,6 @@ export default function Dashboard() {
         tabIndex={-1}
         className="mx-auto w-full max-w-5xl p-4 sm:p-6 xl:max-w-6xl"
       >
-        <SectionTabs set="work" />
         <p className="text-sm text-danger">
           {error}
           <button onClick={load} className="min-h-6 min-w-6 ml-2 underline">
@@ -837,7 +857,6 @@ export default function Dashboard() {
         tabIndex={-1}
         className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6"
       >
-        <SectionTabs set="work" />
         <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
           Browse
         </h1>
@@ -851,7 +870,6 @@ export default function Dashboard() {
       tabIndex={-1}
       className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6"
     >
-      <SectionTabs set="work" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
         Browse
       </h1>
@@ -869,104 +887,33 @@ export default function Dashboard() {
           </button>
         </p>
       )}
-      <nav
-        aria-label="Browse sections"
-        className="sticky top-[calc(var(--nav-h)+0.5rem)] z-[5] mb-4 flex flex-wrap gap-1.5 rounded-xl border border-line bg-page/95 p-2 shadow-card backdrop-blur"
-      >
-        {BROWSE_SECTIONS.map((title) => (
-          <a
-            key={title}
-            href={`#${browseSectionId(title)}`}
-            className="rounded-full bg-raised px-2.5 py-1 text-xs text-ink-2 hover:bg-line hover:text-ink"
-          >
-            {title}
-          </a>
-        ))}
-      </nav>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <ExtensionDashboardCards />
-        {pulse && (
-          <section className="rounded-xl border border-line bg-card p-4 shadow-card md:col-span-2 loom-band">
-            <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-thread">
-              Season {pulse.season.label}
-              {/* a real space, not just the margin: CSS gaps separate pixels,
-                not text, so "S5" + "0 days left" was read as "S50 days left" */}{" "}
-              <span className="ml-2 font-normal normal-case text-ink-3">
-                {pulse.season.days_left} days left
-              </span>
-            </h2>
-            <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
-              <div>
-                <p className="font-display text-[30px]/none font-semibold text-ink">
-                  {pulse.standup_chain.chain}{" "}
-                  {/* the unit sits INLINE with the number, so it reads as a
-                    phrase and must agree — the (s) allowance covers standalone
-                    stat labels, not "1 days" set in 30px type */}
-                  <span className="ml-1 text-sm font-normal text-ink-3">
-                    {pulse.standup_chain.chain === 1 ? "day" : "days"}
-                  </span>
-                </p>
-                <span
-                  aria-hidden
-                  className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.standup_chain.chain > 0 ? "bg-ok" : "bg-line-strong"}`}
-                />
-                <p className="text-xs text-ink-3">standup chain (whole team)</p>
-              </div>
-              <div>
-                <p className="font-display text-[30px]/none font-semibold text-ink">
-                  {pulse.season_totals.engagements_shipped +
-                    (pulse.season_totals.milestones_shipped ?? 0)}
-                </p>
-                <span
-                  aria-hidden
-                  className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.season_totals.engagements_shipped + (pulse.season_totals.milestones_shipped ?? 0) > 0 ? "bg-weld" : "bg-line-strong"}`}
-                />
-                {/* milestones count too: engagements alone read 0 over a
-                    season where three milestones landed, and a scoreboard
-                    that only says failure stops being read */}
-                <p className="text-xs text-ink-3">
-                  shipped this season — milestones and closed engagements
-                </p>
-              </div>
-              <div>
-                <p className="font-display text-[30px]/none font-semibold text-ink">
-                  {pulse.season_totals.blockers_spotted}{" "}
-                  <span className="ml-1 text-sm font-normal text-ink-3">
-                    / {pulse.season_totals.blockers_open} open
-                  </span>
-                </p>
-                <span
-                  aria-hidden
-                  className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.season_totals.blockers_open > 0 ? "bg-danger" : "bg-line-strong"}`}
-                />
-                <p className="text-xs text-ink-3">
-                  blockers spotted — spotting one is a win
-                </p>
-              </div>
-              <div>
-                <p className="font-display text-[30px]/none font-semibold text-ink">
-                  {pulse.season_totals.lessons_recorded}
-                </p>
-                <span
-                  aria-hidden
-                  className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.season_totals.lessons_recorded > 0 ? "bg-thread-solid" : "bg-line-strong"}`}
-                />
-                <p className="text-xs text-ink-3">lessons recorded</p>
-              </div>
-            </div>
-            {pulse.blocker_speedrun.length > 0 && (
-              <p className="mt-3 text-xs text-ink-3">
-                ⏱️ Time to clear blockers this season, by impact:{" "}
-                {pulse.blocker_speedrun
-                  .map(
-                    (s) =>
-                      `${s.impact} — avg ${s.avg_hours}h (fastest ${s.best_hours}h)`,
-                  )
-                  .join(" · ")}
-              </p>
-            )}
-          </section>
-        )}
+      <div className="mb-4 space-y-4 empty:hidden"><ExtensionDashboardCards /></div>
+      <div className="grid min-w-0 gap-4">
+      <label className="flex min-w-0 flex-col gap-1 text-sm font-medium">
+        Browse register
+        <select
+          value={selected}
+          onChange={(event) => {
+            // No history entry and no focus move: Chrome fires change on each
+            // ArrowDown of a closed select, so a landing here would take a
+            // keyboard reader off the control on the first step and push one
+            // entry per option. The fragment still names the register for a
+            // reload or a shared link.
+            setSelected(event.target.value);
+            window.history.replaceState(null, "", `#${event.target.value}`);
+          }}
+          className="min-h-10 w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-sm text-ink"
+        >
+          {BROWSE_GROUPS.map((group) => (
+            <optgroup key={group.label} label={group.label}>
+              {group.titles.map((title) => (
+                <option key={title} value={browseSectionId(title)}>{title}</option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </label>
+      <div className="min-w-0 space-y-4">
         {/* Focus moves HERE after a close that drafted something (the effect
             beside bannerRef), which is what reads it out — a region mounted
             and filled in the same tick is not a change to an existing live
@@ -996,6 +943,7 @@ export default function Dashboard() {
           </p>
         ) : null}
         <Section
+          hidden={selected !== "browse-engagements"}
           headingRef={engagementsRef}
           title="Engagements"
           rows={data.engagements ?? []}
@@ -1123,7 +1071,7 @@ export default function Dashboard() {
                           // banner-focus effect never fires and focus was left
                           // on <body>. The trigger unmounts with the row, so
                           // the fallback is the list's own heading.
-                          if (drafted === null) engagementsRef.current?.focus();
+                          if (drafted === null) focusVisible(engagementsRef.current);
                           closingRef.current = null;
                           setClosing(null);
                           setPlanDiff(null);
@@ -1162,6 +1110,7 @@ export default function Dashboard() {
           )}
         />
         <Section
+          hidden={selected !== "browse-blockers"}
           title="Blockers"
           rows={data.blockers ?? []}
           empty={emptyState("blockers")}
@@ -1286,6 +1235,7 @@ export default function Dashboard() {
           )}
         />
         <Section
+          hidden={selected !== "browse-capacity"}
           title="Capacity"
           rows={data.capacity ?? []}
           empty="No allocations recorded. Add the first one below."
@@ -1328,6 +1278,7 @@ export default function Dashboard() {
                   </button>
                 </p>
               ))}
+<details className="mt-3"><summary className="cursor-pointer text-sm font-medium">Add allocation</summary>
               <form
                 className="flex flex-wrap items-center gap-1.5"
                 onSubmit={async (ev) => {
@@ -1408,6 +1359,7 @@ export default function Dashboard() {
                   Allocate
                 </button>
               </form>
+</details>
             </div>
           }
           render={(c) => (
@@ -1436,12 +1388,14 @@ export default function Dashboard() {
         />
         <section
           id="browse-time-away"
+          hidden={selected !== "browse-time-away"}
+          tabIndex={-1}
           aria-labelledby="browse-time-away-title"
-          className="scroll-mt-28 rounded-xl border border-line bg-card p-4 shadow-card"
+          className="skein-card scroll-mt-28 rounded-xl border border-line bg-card p-4 outline-none focus:ring-2 focus:ring-thread-solid"
         >
           <h2
             id="browse-time-away-title"
-            className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3"
+            className="skein-section-title mb-3"
           >
             Time away
           </h2>
@@ -1449,7 +1403,7 @@ export default function Dashboard() {
             PTO zeroes someone out of capacity and the weekly plan. On-call and
             focus are advisory context for staffing calls.
           </p>
-          <AbsenceForm onAdd={addAbsence} />
+          <details className="mb-3"><summary className="cursor-pointer text-sm font-medium">Add time away</summary><AbsenceForm onAdd={addAbsence} /></details>
           {(data.absences ?? []).length === 0 ? (
             <p className="text-sm text-ink-3">Nobody is scheduled away.</p>
           ) : (
@@ -1532,10 +1486,12 @@ export default function Dashboard() {
           )}
         </section>
         <Section
+          hidden={selected !== "browse-milestones"}
           title="Milestones"
           rows={data.milestones ?? []}
           empty="No milestones yet. Add the first one below."
           footer={
+<details className="mt-3"><summary className="cursor-pointer text-sm font-medium">Add milestone</summary>
             <form
               className="mt-3 flex flex-wrap items-center gap-1.5 text-xs"
               onSubmit={async (ev) => {
@@ -1586,6 +1542,7 @@ export default function Dashboard() {
                 Add
               </button>
             </form>
+</details>
           }
           render={(m) =>
             editing?.kind === "milestone" && editing.id === m.id ? (
@@ -1638,6 +1595,7 @@ export default function Dashboard() {
           }
         />
         <Section
+          hidden={selected !== "browse-tasks"}
           title="Tasks"
           rows={filteredTasks}
           empty={
@@ -1730,6 +1688,7 @@ export default function Dashboard() {
           }
         />
         <Section
+          hidden={selected !== "browse-recently-shipped"}
           title="Recently shipped"
           // The Tasks section above hides done work, so a merge that closes a
           // task removes it and its forge link in the same second — the one
@@ -1771,6 +1730,7 @@ export default function Dashboard() {
           )}
         />
         <Section
+          hidden={selected !== "browse-open-questions"}
           title="Open questions"
           rows={data.questions ?? []}
           empty="No questions logged."
@@ -1910,6 +1870,7 @@ export default function Dashboard() {
           )}
         />
         <Section
+          hidden={selected !== "browse-decisions"}
           title="Decisions"
           rows={data.decisions ?? []}
           empty="No decisions recorded."
@@ -1926,13 +1887,15 @@ export default function Dashboard() {
             </li>
           )}
         />
-        <StandupCard rows={data.standups ?? []} />
-        <LessonsCard />
+        <StandupCard rows={data.standups ?? []} hidden={selected !== "browse-recent-standups"} />
+        <LessonsCard hidden={selected !== "browse-lessons"} onLoaded={setLessonRows} cls={lessonClass} setCls={setLessonClass} />
         <Section
+          hidden={selected !== "browse-calendar"}
           title="Calendar"
           rows={data.events ?? []}
           empty="Nothing scheduled. Add an event below."
           footer={
+<details className="mt-3"><summary className="cursor-pointer text-sm font-medium">Add event</summary>
             <form
               className="mt-3 flex flex-wrap items-center gap-1.5 text-xs"
               onSubmit={async (ev) => {
@@ -1983,6 +1946,7 @@ export default function Dashboard() {
                 Add
               </button>
             </form>
+</details>
           }
           render={(e) => (
             <li
@@ -2054,6 +2018,7 @@ export default function Dashboard() {
           )}
         />
         <Section
+          hidden={selected !== "browse-knowledge-base"}
           title="Knowledge base"
           rows={data.notes ?? []}
           empty="No notes saved."
@@ -2157,6 +2122,7 @@ export default function Dashboard() {
           }
         />
         <Section
+          hidden={selected !== "browse-recent-activity"}
           title="Recent activity"
           rows={data.activity ?? []}
           empty="No activity yet."
@@ -2174,6 +2140,89 @@ export default function Dashboard() {
             </li>
           )}
         />
+        {pulse && (
+          <details className="skein-card rounded-xl border border-line bg-card p-4">
+            <summary className="skein-section-title mb-3 cursor-pointer">
+              Season {pulse.season.label}
+              {/* a real space, not just the margin: CSS gaps separate pixels,
+                not text, so "S5" + "0 days left" was read as "S50 days left" */}{" "}
+              <span className="ml-2 font-normal normal-case text-ink-3">
+                {pulse.season.days_left} days left
+              </span>
+            </summary>
+            <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+              <div>
+                <p className="font-display text-[30px]/none font-semibold text-ink">
+                  {pulse.standup_chain.chain}{" "}
+                  {/* the unit sits INLINE with the number, so it reads as a
+                    phrase and must agree — the (s) allowance covers standalone
+                    stat labels, not "1 days" set in 30px type */}
+                  <span className="ml-1 text-sm font-normal text-ink-3">
+                    {pulse.standup_chain.chain === 1 ? "day" : "days"}
+                  </span>
+                </p>
+                <span
+                  aria-hidden
+                  className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.standup_chain.chain > 0 ? "bg-ok" : "bg-line-strong"}`}
+                />
+                <p className="text-xs text-ink-3">standup chain (whole team)</p>
+              </div>
+              <div>
+                <p className="font-display text-[30px]/none font-semibold text-ink">
+                  {pulse.season_totals.engagements_shipped +
+                    (pulse.season_totals.milestones_shipped ?? 0)}
+                </p>
+                <span
+                  aria-hidden
+                  className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.season_totals.engagements_shipped + (pulse.season_totals.milestones_shipped ?? 0) > 0 ? "bg-weld" : "bg-line-strong"}`}
+                />
+                {/* milestones count too: engagements alone read 0 over a
+                    season where three milestones landed, and a scoreboard
+                    that only says failure stops being read */}
+                <p className="text-xs text-ink-3">
+                  shipped this season — milestones and closed engagements
+                </p>
+              </div>
+              <div>
+                <p className="font-display text-[30px]/none font-semibold text-ink">
+                  {pulse.season_totals.blockers_spotted}{" "}
+                  <span className="ml-1 text-sm font-normal text-ink-3">
+                    / {pulse.season_totals.blockers_open} open
+                  </span>
+                </p>
+                <span
+                  aria-hidden
+                  className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.season_totals.blockers_open > 0 ? "bg-danger" : "bg-line-strong"}`}
+                />
+                <p className="text-xs text-ink-3">
+                  blockers spotted — spotting one is a win
+                </p>
+              </div>
+              <div>
+                <p className="font-display text-[30px]/none font-semibold text-ink">
+                  {pulse.season_totals.lessons_recorded}
+                </p>
+                <span
+                  aria-hidden
+                  className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.season_totals.lessons_recorded > 0 ? "bg-thread-solid" : "bg-line-strong"}`}
+                />
+                <p className="text-xs text-ink-3">lessons recorded</p>
+              </div>
+            </div>
+            {pulse.blocker_speedrun.length > 0 && (
+              <p className="mt-3 text-xs text-ink-3">
+                ⏱️ Time to clear blockers this season, by impact:{" "}
+                {pulse.blocker_speedrun
+                  .map(
+                    (s) =>
+                      `${s.impact} — avg ${s.avg_hours}h (fastest ${s.best_hours}h)`,
+                  )
+                  .join(" · ")}
+              </p>
+            )}
+          </details>
+        )}
+      </div>
       </div>
     </main>
   );

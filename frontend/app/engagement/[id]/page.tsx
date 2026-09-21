@@ -6,7 +6,6 @@ import { use, useCallback, useEffect, useState } from "react";
 import { Card } from "@/components/card";
 import { ReceiptLine } from "@/components/receipt";
 import { PeekLink } from "@/components/task-peek";
-import { SectionTabs } from "@/components/section-tabs";
 import { actionError, api, loadError } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import type { Receipt } from "@/lib/entity-ref";
@@ -127,14 +126,12 @@ export default function EngagementBrief({
   if (error && !b)
     return (
       <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl p-4 sm:p-6">
-        <SectionTabs set="work" />
         <p className="text-sm text-danger">{error}</p>
       </main>
     );
   if (!b)
     return (
       <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl p-4 sm:p-6">
-        <SectionTabs set="work" />
         <p className="text-sm text-ink-3">Loading…</p>
       </main>
     );
@@ -159,7 +156,6 @@ export default function EngagementBrief({
       tabIndex={-1}
       className="mx-auto w-full max-w-5xl xl:max-w-6xl space-y-4 p-4 sm:p-6"
     >
-      <SectionTabs set="work" />
 
       {error && (
         <p className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs text-danger">
@@ -168,11 +164,10 @@ export default function EngagementBrief({
         </p>
       )}
 
-      {/* a way back to the list. `/engagement/<id>` is in no tab set, so no
-          tab reads aria-current here and a reader arriving from Browse has no
-          other route back to where they came from. */}
+      {/* Browse defaults to Tasks. The fragment returns to the engagement
+          register instead of making the reader select it again. */}
       <p className="text-xs text-ink-3">
-        <Link href="/dashboard" className="hover:underline">
+        <Link href="/dashboard#browse-engagements" className="hover:underline">
           ← All engagements
         </Link>
       </p>

@@ -482,10 +482,6 @@ history center, so each surface keeps its own bound.
 - **Browse task pagination** [M] — each loaded task list still renders at
   once, with no cursor to reach rows beyond its bound.
   The local filter and compact task projection shipped, but neither adds pagination.
-- **Planning action placement** [S] — evidence and the control that
-  resolves it sit on different pages for the health draft. The capacity form
-  and the intervention queue's inline moves (assign, promise verdicts,
-  reconfirm, resolve) shipped 2026-08-20.
 
 ## Cut, with re-entry triggers
 

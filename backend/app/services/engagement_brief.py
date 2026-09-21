@@ -173,11 +173,10 @@ def brief(
     lessons = policy_context.filter_resource_rows("lesson", lessons, viewer, resource_filter)
     artifacts = list_artifacts(engagement_id, viewer)
     artifacts = policy_context.filter_resource_rows("artifact", artifacts, viewer, resource_filter)
-    # What moved on THIS engagement since local midnight yesterday — the same
-    # window delta.brief defaults to for a first read, and computed from the
-    # rows this function already scopes, because activity ledger rows carry no
-    # engagement id and delta.brief is reader-scoped and team-wide. Counts
-    # only: the cards below carry the rows themselves.
+    # What moved on THIS engagement since local midnight yesterday, computed
+    # from the rows this function already scopes, because activity ledger rows
+    # carry no engagement id and delta.brief is reader-scoped and team-wide.
+    # Counts only: the cards below carry the rows themselves.
     # both routes to an engagement: a task's own link, or through its milestone
     _ON_ENGAGEMENT = (
         " AND (t.engagement_id = ? OR t.milestone_id IN"

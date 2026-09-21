@@ -88,6 +88,13 @@ describe("the engagement brief", () => {
 
   const page = mount;
 
+  it("returns to the engagement register without a second navigation band", async () => {
+    page();
+    const back = await screen.findByRole("link", { name: /All engagements/ });
+    expect(back.getAttribute("href")).toBe("/dashboard#browse-engagements");
+    expect(screen.queryByRole("navigation", { name: "Section" })).toBeNull();
+  });
+
   it("keeps the intended-outcome label visible while editing", async () => {
     const prior = brief.engagement.outcome;
     brief.engagement.outcome = "";

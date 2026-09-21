@@ -32,6 +32,21 @@ describe("Card", () => {
     ).toBeTruthy();
   });
 
+  it("adds host styling without another enclosure or dropping caller classes", () => {
+    const { container } = render(
+      <Card title="Your work" className="caller-card" titleClassName="caller-title" headingLevel={3}>
+        Work list
+      </Card>,
+    );
+    const section = screen.getByRole("region", { name: "Your work" });
+    const heading = screen.getByRole("heading", { name: "Your work", level: 3 });
+    expect(container.querySelectorAll("section")).toHaveLength(1);
+    expect(section.classList.contains("skein-card")).toBe(true);
+    expect(section.classList.contains("caller-card")).toBe(true);
+    expect(heading.classList.contains("skein-section-title")).toBe(true);
+    expect(heading.classList.contains("caller-title")).toBe(true);
+  });
+
   it("renders no heading at all when it has no title", () => {
     render(<Card>body</Card>);
     expect(screen.queryByRole("heading")).toBeNull();

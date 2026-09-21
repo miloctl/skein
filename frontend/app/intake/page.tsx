@@ -7,7 +7,6 @@ import { reportStatus } from "@/lib/status";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
 import { EmptyState } from "@/components/card";
 import { PersonInput } from "@/components/person-input";
-import { SectionTabs } from "@/components/section-tabs";
 
 type Req = {
   id: number;
@@ -319,12 +318,11 @@ export default function IntakePage() {
       className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6"
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <SectionTabs set="inbox" />
+        <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+          Requests
+        </h1>
         <ManageToggle />
       </div>
-      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
-        Requests
-      </h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
         The team&apos;s front door: ask here instead of a DM. The person who
         triages scores each request and answers it with a reason that you can

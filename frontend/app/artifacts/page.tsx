@@ -5,7 +5,6 @@ import { useCallback, useEffect, useState } from "react";
 
 import { ArtifactMarkdown } from "@/components/artifact-markdown";
 import { Card, EmptyState } from "@/components/card";
-import { SectionTabs } from "@/components/section-tabs";
 import { PeekLink } from "@/components/task-peek";
 import { api, loadError } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
@@ -219,7 +218,6 @@ export default function ArtifactsPage() {
 
   return (
     <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
-      <SectionTabs set="work" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
         Reports
       </h1>

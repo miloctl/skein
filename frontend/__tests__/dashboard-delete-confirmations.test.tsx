@@ -47,6 +47,7 @@ beforeEach(() => {
 describe("dashboard deletion confirmations", () => {
   it("states what time-away deletion changes before it sends the request", async () => {
     render(<Dashboard />);
+    fireEvent.change(await screen.findByRole("combobox", { name: "Browse register" }), { target: { value: "browse-time-away" } });
     const trigger = await screen.findByRole("button", {
       name: "Delete Ava's PTO 2026-08-20",
     });
@@ -81,6 +82,7 @@ describe("dashboard deletion confirmations", () => {
 
   it("states what note deletion removes and lets Escape cancel", async () => {
     render(<Dashboard />);
+    fireEvent.change(await screen.findByRole("combobox", { name: "Browse register" }), { target: { value: "browse-knowledge-base" } });
     const trigger = await screen.findByRole("button", {
       name: "Delete note: Launch notes",
     });

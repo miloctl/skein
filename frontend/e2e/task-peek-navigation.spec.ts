@@ -46,7 +46,7 @@ async function expectOpen(page: Page, id: number, returnUrl: string) {
   await expect(page).toHaveURL(url.href);
   await expect(page.getByRole("dialog", { name: new RegExp(`^Task #${id}:`) })).toBeVisible();
   await expect(page.getByRole("button", { name: "Close the task panel", exact: true })).toBeFocused();
-  await expect(page.locator("#content")).toHaveAttribute("inert", "");
+  expect(await page.locator("#content").evaluate((el) => !!el.closest("[inert]"))).toBe(true);
 }
 
 async function expectClosed(page: Page, target: Locator, id: number, returnUrl: string, count: number) {
@@ -58,7 +58,7 @@ async function expectClosed(page: Page, target: Locator, id: number, returnUrl: 
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
   }));
   await expect(target).toBeFocused();
-  await expect(page.locator("#content")).not.toHaveAttribute("inert", "");
+  expect(await page.locator("#content").evaluate((el) => !!el.closest("[inert]"))).toBe(false);
   await expect.poll(() => page.evaluate(() => window.peekCloseReceipts))
     .toEqual(Array.from({ length: count }, () => ({ taskId: id, url: returnUrl })));
 }

@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
     progress: "1/4",
   },
   onboardingRequest: null as Promise<unknown> | null,
+  briefingOverride: null as unknown,
 }));
 
 const briefing = {
@@ -45,7 +46,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return {
     ...real,
     api: (path: string) => {
-      if (path === "/api/briefing") return Promise.resolve(briefing);
+      if (path === "/api/briefing") return Promise.resolve(mocks.briefingOverride ?? briefing);
       if (path === "/api/onboarding")
         return mocks.onboardingRequest ?? Promise.resolve(mocks.onboarding);
       if (path.startsWith("/api/field-guide/hint"))
@@ -63,12 +64,11 @@ import MyDay from "@/app/page";
 
 beforeEach(() => {
   briefing.user = "tester";
+  mocks.briefingOverride = null;
   window.localStorage.setItem("skein-user", "tester");
   window.localStorage.removeItem("skein-onboarded:tester");
   window.localStorage.removeItem("skein-onboarded:local-user");
   window.localStorage.removeItem("skein-onboarded:resolved-user");
-  window.localStorage.removeItem("skein-guided-core-done:tester");
-  window.localStorage.removeItem("skein-guided-core-done:resolved-user");
   mocks.onboarding.steps = mocks.onboarding.steps.map((step) => ({
     ...step,
     done: step.id === "pick_name",
@@ -78,6 +78,43 @@ beforeEach(() => {
 });
 
 describe("Guided First Week", () => {
+  it("puts real personal tasks before reporting and counts only hidden context", async () => {
+    // Projection of /api/briefing from the disposable seeded mock API as ava.
+    mocks.briefingOverride = {"user": "ava", "date": "2026-09-20", "attention_total": 0, "pending_reviews_total": 2, "this_week": "2026-W38", "attention": [{"kind": "proposal", "ref_id": 1, "group": "review", "audience": "team", "label": "proposal #1: Planner suggests adding error tracking", "reason": "proposed by planner-agent — applies only after a human verdict", "link": "/review?id=1"}, {"kind": "proposal", "ref_id": 2, "group": "review", "audience": "team", "label": "proposal #2: accept task #10 'Summarize competitor pricing pages': summary drafted for all 6 competitors", "reason": "proposed by research-agent — applies only after a human verdict", "link": "/review?id=2"}, {"kind": "intake", "ref_id": 1, "group": "decide", "audience": "team", "label": "intake #1: Diligence on Acme acquisition", "reason": "needs an accept, defer, or decline — the requester reads the reason", "link": "/intake"}], "your_work": {"tasks": [{"id": 11, "title": "Check calmer My Day order", "status": "todo", "assignee": "ava", "priority": "medium", "due_date": null, "committed_week": null}], "due_soon": [], "standup_suggestion": "capture task #11; create task #11 Check calmer My Day order; create api key #1 Playwright"}, "team": {"recently_shipped": [], "escalated_blockers": [], "todays_events": [{"id": 1, "title": "Kickoff — Onboarding revamp", "starts_at": "2026-09-20T10:00"}, {"id": 3, "title": "Team sync", "starts_at": "2026-09-20T16:00"}], "recent_activity": [{"id": 55, "actor": "ava", "action": "capture", "detail": "task #11"}, {"id": 54, "actor": "ava", "action": "create_task", "detail": "#11 Check calmer My Day order"}, {"id": 52, "actor": "ava", "action": "create_api_key", "detail": "#1 Playwright"}, {"id": 51, "actor": "ava", "action": "update_crew", "detail": "crew #2 (human)"}, {"id": 50, "actor": "ava", "action": "create_crew", "detail": "crew #2 Launch squad"}, {"id": 49, "actor": "ava", "action": "crew_member_add", "detail": "crew #1 marcus (member)"}, {"id": 48, "actor": "ava", "action": "create_crew", "detail": "crew #1 Platform"}, {"id": 47, "actor": "research-agent", "action": "propose_change", "detail": "#2 update task_completion"}, {"id": 46, "actor": "research-agent", "action": "report_progress", "detail": "task #10 pulled 4 of 6 pricing pages; two need JS rendering"}, {"id": 45, "actor": "research-agent", "action": "claim_task", "detail": "#10 Summarize competitor pricing pages"}, {"id": 39, "actor": "ava", "action": "add_absence", "detail": "#1 ava pto 2026-09-27..2026-10-01"}, {"id": 35, "actor": "planner-agent", "action": "propose_change", "detail": "#1 create task"}]}};
+    window.localStorage.setItem("skein-onboarded:ava", "1");
+    render(<MyDay />);
+    const task = await screen.findByRole("button", { name: "start task #11: Check calmer My Day order" });
+    const report = screen.getByText("Post a standup");
+    expect(task.compareDocumentPosition(report) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Today's Three" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Show team context (15 items)" }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByText("Team sync").closest("[hidden]")).toBeNull();
+    const survey = screen.getByRole("button", { name: /Yes — Skein reduced/ });
+    expect(survey.closest("section")).toBeNull();
+    expect(screen.queryByRole("link", { name: /Set your growth interests/ })).toBeNull();
+  });
+  it("opens the mounted standup form before onboarding focuses it", async () => {
+    render(<MyDay />);
+    await screen.findByRole("button", { name: /Post a standup/ });
+    const input = document.getElementById("standup-today")!;
+    const disclosure = input.closest("details");
+    expect(disclosure).not.toBeNull();
+    expect(disclosure?.open).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /Post a standup/ }));
+    expect(disclosure?.open).toBe(true);
+    expect(document.activeElement).toBe(input);
+    fireEvent.change(input, { target: { value: "Keep my update" } });
+    fireEvent.click(disclosure!.querySelector("summary")!);
+    fireEvent.click(disclosure!.querySelector("summary")!);
+    expect((input as HTMLInputElement).value).toBe("Keep my update");
+  });
+
+  it("keeps escalations visible while shared queues remain closed", async () => {
+    render(<MyDay />);
+    await screen.findByRole("heading", { name: "Your work" });
+    expect(screen.getByRole("heading", { name: "Team today" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Team queues" })).toBeNull();
+  });
   it("offers First Watch from the real-state setup card", async () => {
     const starts = vi.fn();
     window.addEventListener("skein-first-watch-start", starts);
@@ -101,18 +138,18 @@ describe("Guided First Week", () => {
     const needs = screen.getByText("Needs you");
     expect(setup.compareDocumentPosition(needs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText("Your work")).toBeTruthy();
-    expect(screen.queryByText("Team queues")).toBeNull();
-    expect(screen.queryByText("Team today")).toBeNull();
-    expect(screen.queryByText("Since yesterday")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Team queues" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Team today" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Since yesterday" })).toBeNull();
 
-    const toggle = screen.getByRole("button", { name: "Show team context (3 items)" });
+    const toggle = screen.getByRole("button", { name: "Show team context (2 items)" });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(toggle);
 
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByText("Team queues")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Team queues" })).toBeTruthy();
     expect(screen.getByText("Team today")).toBeTruthy();
-    expect(screen.getByText("Since yesterday")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Since yesterday" })).toBeTruthy();
   });
 
   it.each(["first_capture", "first_standup"])(
@@ -125,11 +162,11 @@ describe("Guided First Week", () => {
       render(<MyDay />);
 
       expect(await screen.findByRole("button", { name: /Show team context/ })).toBeTruthy();
-      expect(screen.queryByText("Team queues")).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Team queues" })).toBeNull();
     },
   );
 
-  it("restores the normal layout after the core personal steps are complete", async () => {
+  it("keeps shared context closed after the core personal steps are complete", async () => {
     mocks.onboarding.steps = mocks.onboarding.steps.map((step) =>
       step.id === "first_capture" || step.id === "first_standup"
         ? { ...step, done: true }
@@ -138,10 +175,11 @@ describe("Guided First Week", () => {
 
     render(<MyDay />);
 
-    await waitFor(() => expect(screen.getByText("Team queues")).toBeTruthy());
+    await screen.findByRole("heading", { name: "Team today" });
+    expect(screen.queryByRole("heading", { name: "Team queues" })).toBeNull();
     expect(screen.getByText("Team today")).toBeTruthy();
-    expect(screen.getByText("Since yesterday")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /team context/ })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Since yesterday" })).toBeNull();
+    expect(screen.getByRole("button", { name: /Show team context/ }).getAttribute("aria-expanded")).toBe("false");
   });
 
   it("keeps team context collapsed while onboarding loads and honors a concurrent dismissal", async () => {
@@ -153,31 +191,31 @@ describe("Guided First Week", () => {
     render(<MyDay />);
 
     expect(await screen.findByRole("button", { name: /Show team context/ })).toBeTruthy();
-    expect(screen.queryByText("Team queues")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Team queues" })).toBeNull();
 
     window.localStorage.setItem("skein-onboarded:tester", "1");
     await act(async () => resolveOnboarding(mocks.onboarding));
 
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: /team context/ })).toBeNull(),
+      expect(screen.getByRole("button", { name: /Show team context/ }).getAttribute("aria-expanded")).toBe("false"),
     );
-    expect(screen.getByText("Team queues")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Team queues" })).toBeNull();
   });
 
-  it("never collapses team context for a user this browser saw finish the core steps", async () => {
+  it("keeps shared context closed for an established user while onboarding loads", async () => {
     // The onboarding read is serial after the briefing, so without the cached
     // verdict this user watched the guided layout flash on every load.
-    window.localStorage.setItem("skein-guided-core-done:tester", "1");
     mocks.onboardingRequest = new Promise(() => {}); // never resolves
 
     render(<MyDay />);
 
-    await waitFor(() => expect(screen.getByText("Team queues")).toBeTruthy());
+    await screen.findByRole("heading", { name: "Team today" });
+    expect(screen.queryByRole("heading", { name: "Team queues" })).toBeNull();
     expect(screen.getByText("Team today")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /team context/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Show team context/ }).getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("caches the core-steps verdict once onboarding reports them done", async () => {
+  it("keeps shared context closed when onboarding reports the core steps done", async () => {
     mocks.onboarding.steps = mocks.onboarding.steps.map((step) =>
       step.id === "first_capture" || step.id === "first_standup"
         ? { ...step, done: true }
@@ -186,30 +224,32 @@ describe("Guided First Week", () => {
 
     render(<MyDay />);
 
-    await waitFor(() => expect(screen.getByText("Team queues")).toBeTruthy());
-    expect(window.localStorage.getItem("skein-guided-core-done:tester")).toBe("1");
+    await screen.findByRole("heading", { name: "Team today" });
+    expect(screen.queryByRole("heading", { name: "Team queues" })).toBeNull();
+    expect(screen.getByRole("button", { name: /Show team context/ }).getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("falls open to the full layout when the onboarding read fails", async () => {
+  it("keeps work and urgent context visible when onboarding fails", async () => {
     mocks.onboardingRequest = Promise.reject(new Error("onboarding exploded"));
 
     render(<MyDay />);
 
-    await waitFor(() => expect(screen.getByText("Team queues")).toBeTruthy());
+    await screen.findByRole("heading", { name: "Team today" });
+    expect(screen.queryByRole("heading", { name: "Team queues" })).toBeNull();
     expect(screen.getByText("Team today")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /team context/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Show team context/ }).getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("uses the existing dismissal to exit the guided layout", async () => {
+  it("dismisses guidance without expanding shared context", async () => {
     render(<MyDay />);
 
     expect(await screen.findByRole("button", { name: /Show team context/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Dismiss first-week setup" }));
 
-    expect(screen.queryByRole("button", { name: /team context/ })).toBeNull();
-    expect(screen.getByText("Team queues")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Show team context/ }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("heading", { name: "Team queues" })).toBeNull();
     expect(screen.getByText("Team today")).toBeTruthy();
-    expect(screen.getByText("Since yesterday")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Since yesterday" })).toBeNull();
     expect(window.localStorage.getItem("skein-onboarded:tester")).toBe("1");
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("main")));
   });
@@ -220,9 +260,10 @@ describe("Guided First Week", () => {
     window.localStorage.setItem("skein-onboarded:resolved-user", "1");
     render(<MyDay />);
 
-    await waitFor(() => expect(screen.getByText("Team queues")).toBeTruthy());
+    await screen.findByRole("heading", { name: "Team today" });
+    expect(screen.queryByRole("heading", { name: "Team queues" })).toBeNull();
     expect(screen.queryByRole("heading", { name: /Your first-week setup/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /team context/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Show team context/ }).getAttribute("aria-expanded")).toBe("false");
   });
 
   it("keys dismissal to the server-resolved identity", async () => {
