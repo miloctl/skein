@@ -1,6 +1,6 @@
 {
   "name": "@miloctl/skein-frontend-host",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "private": false,
   "description": "Buildable Skein frontend host for trusted workplace extensions",
   "license": "Apache-2.0",

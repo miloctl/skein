@@ -22,6 +22,25 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+## 0.6.5 — 2026-09-22
+
+### Contracts
+
+- `GET /api/chat/specialists` returns the built-in bench and workplace specialists that the caller can invoke. Each entry contains only `slug`, `name`, `description`, and `emoji`. The response is private and not cached. This endpoint requires core `0.6.5` or later. Extension API `1.0.0` is unchanged, and `/api/personas` still supplies sticky persona modes and shared-room agents.
+
+### Behavior
+
+- An expired browser session no longer causes repeated session and theme requests. After recovery confirms an anonymous session, repeated invalid responses do not restart recovery. Theme adoption skips locked sessions. Cookie-free trusted-header visitors still receive the team theme.
+- Enter, Tab, and picker clicks complete the mention at the caret in solo and shared chat without deleting the rest of the draft. Completion replaces the whole token, including text after the caret, and returns the caret after the name. In shared chat, Enter sends immediately only when the whole token is already the selected agent name.
+- The solo chat picker includes eligible workplace specialists. The list is fetched for the current identity, and restricted specialists are not carried across sign-in changes.
+- Chat uses the tested assistant-ui `0.15` dependency set. This removes the snapshot subscription defect that caused repeated updates in installed workplace frontends. Local chat history, streaming, Stop, attachments, and inert Markdown images retain their existing behavior.
+
+### Operations
+
+- The backend and workplace locks select Strands Agents SDK `1.56.0`. A cross-version PostgreSQL check passed SDK `1.55.1` writes, `1.56.0` restore and append, restart with offloaded-result retrieval, and `1.55.1` rollback and append. This release adds no database migration. Optional Strands tools versions are unchanged.
+- Upgrade the backend and frontend host together. Workplace frontend roots must carry the host's `@assistant-ui/tap` override at `0.9.18` and regenerate their npm lock. The installed host builder checks this override and every resolved copy. Do not apply this override to an older assistant-ui `0.14` host.
+- GitHub and Gitea workflows use the same `setup-uv` `v10.1.0` action commit. The release-contract gate continues to refuse mismatched mirror pins.
+
 ## 0.6.4 — 2026-09-20
 
 ### Contracts
