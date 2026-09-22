@@ -243,6 +243,14 @@ jobs:
         run: ./scripts/reference-images-contract.sh
       - name: Audit workplace production dependencies
         run: ./scripts/audit-deps.sh workplace
+      - name: Keep browser failure traces
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-failures-${{ github.job }}
+          path: frontend/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
 
   e2e:
     # a real browser walking the real app against a seeded mock-provider
@@ -297,3 +305,11 @@ jobs:
         # trusted-header. Its own config because NEXT_PUBLIC_API_URL is baked
         # at build time, so it needs a second backend and a second build.
         run: npx playwright test --config playwright.oidc.config.ts
+      - name: Keep browser failure traces
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-failures-${{ github.job }}
+          path: frontend/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
