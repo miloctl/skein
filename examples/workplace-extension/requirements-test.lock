@@ -2367,9 +2367,9 @@ starlette==1.6.0 \
     #   fastapi
     #   mcp
     #   sse-starlette
-strands-agents==1.55.1 \
-    --hash=sha256:3b62a8ca6f34d14140789900e35205c0032fa4a92f6147c7f69a7fda149da7ab \
-    --hash=sha256:55dc609a9d7c75d61842304180456a815e60b34d00ce089c29362cedd274cd2a
+strands-agents==1.56.0 \
+    --hash=sha256:8026a2fde7ca3d2f2760ea57003dd7163761bfba74972762468b745b4f7bfd08 \
+    --hash=sha256:d0a4587065f9b9f4890455ce947474067e5deaadf140d1b2ef5153a67ebf80a3
     # via
     #   -c requirements.lock
     #   skein-agents

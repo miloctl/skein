@@ -1088,6 +1088,30 @@ The image installs both exact first-party wheels with `--no-deps` after the lock
 
 Keep test tools in a separate hash-locked `requirements-test.lock`. Install this lock before the same first-party wheels in a test environment.
 
+The core and consumer Python locks select Strands SDK 1.56.0. The declared
+minimum remains 1.55.1. This update keeps the existing conversation managers,
+PostgreSQL session repository, and context offloader. It does not add
+`strands-harness` or migrate to the new ContextManager. Tools remain separately
+pinned at 0.8.5 for source and 0.8.6 for the consumer.
+
+`scripts/check-session-upgrade.py` checks real 1.55.1-written sessions under
+1.56.0, appends turns, restarts, retrieves offloaded content, and checks a
+return to 1.55.1. It uses scripted model responses, not a live provider.
+Prepare separate Python 3.12 environments with those exact SDK versions.
+Use a disposable PostgreSQL 17 control server with CREATEDB access. Do not
+point this check at production.
+
+```sh
+SKEIN_DATABASE_URL='<disposable-control-url>' path/to/new/bin/python \
+  scripts/check-session-upgrade.py \
+  --old-python path/to/old/bin/python --new-python path/to/new/bin/python
+```
+
+The check creates and deletes only its own randomly named database. It
+refuses unrelated targets and optimized Python, which disables assertions.
+The recorded session behaviors passed in both directions. A future SDK
+change needs a new qualification run, not an assumed rollback guarantee.
+
 The `@miloctl` npm packages are public on npmjs.com and install with no token. A controlled npm mirror serves them like any other package.
 
 Use Node 22. Pin the frontend host, its peers, and Next directly in the workplace root:
