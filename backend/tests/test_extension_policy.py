@@ -6384,22 +6384,31 @@ def test_capacity_still_fails_closed_on_a_rule_about_its_own_inputs(fresh_db):
     assert response.status_code == 403
 
 
-def test_a_timed_out_direct_tool_cannot_write_after_its_unknown_completion(fresh_db):
-    """asyncio.wait_for stopped WAITING at the deadline while the worker
-    thread kept a live WorkItems, so the handler created a core task AFTER
-    the terminal completion_unknown receipt. The owner-dispatch facade
-    closes at the deadline and the late command must fail."""
+def test_a_timed_out_direct_tool_cannot_write_after_its_unknown_completion(fresh_db, monkeypatch):
+    """A handler cannot write after its completion_unknown deadline result."""
     import threading
 
     from app.public import CreateTaskCommand, PublicError
+    from app.public._owner_work import _OwnerDispatcher
 
     outcome: dict[str, object] = {}
+    started = threading.Event()
+    release = threading.Event()
     finished = threading.Event()
     module = _module()
+    run_until = _OwnerDispatcher.run_until
+
+    def run_after_start(dispatcher, future, timeout):
+        # A deadline before worker startup cancels the handler instead of testing a late write.
+        assert started.wait(5)
+        return run_until(dispatcher, future, timeout)
+
+    monkeypatch.setattr(_OwnerDispatcher, "run_until", run_after_start)
 
     def late_writer(context, request: SyncIn):
-        time.sleep(0.15)
         try:
+            started.set()
+            assert release.wait(5)
             context.work_items.create_task(
                 CreateTaskCommand(title="late tool write"),
                 context.command_context(),
@@ -6422,17 +6431,20 @@ def test_a_timed_out_direct_tool_cannot_write_after_its_unknown_completion(fresh
     registry = ExtensionRegistry.build(
         (replace(module, policies=(), tools=(contribution,), specialists=(specialist,)),)
     )
-    result = asyncio.run(
-        execute_tool(
-            contribution,
-            {"external_id": "A-LATE"},
-            ToolCallContext(PolicySubject("manager"), "acme.workplace.delivery"),
-            registry.policy_engine,
+    try:
+        result = asyncio.run(
+            execute_tool(
+                contribution,
+                {"external_id": "A-LATE"},
+                ToolCallContext(PolicySubject("manager"), "acme.workplace.delivery"),
+                registry.policy_engine,
+            )
         )
-    )
-    assert result.status == "completion_unknown"
-    assert result.error_code == "deadline_exceeded"
-    assert finished.wait(2)
+        assert result.status == "completion_unknown"
+        assert result.error_code == "deadline_exceeded"
+    finally:
+        release.set()
+        assert finished.wait(5)
     assert outcome["late_write"] == "EXECUTION_CONTEXT_CLOSED"
     assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'late tool write'") is None
 
