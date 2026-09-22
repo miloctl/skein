@@ -41,7 +41,7 @@ vi.mock("@assistant-ui/react", () => ({
     };
     return {};
   },
-  useThreadRuntime: () => mocks.thread,
+  useAui: () => ({ thread: mocks.thread }),
 }));
 
 vi.mock("@/lib/api", () => ({

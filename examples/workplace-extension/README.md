@@ -60,7 +60,7 @@ Released deployments get the core wheel from PyPI. The two private npm packages 
 
 The executable contract builds the current Skein source in temporary staging and packs local npm tarballs before `npm ci`. These artifacts can differ from registry packages with the same version. Do not publish or distribute them. Release a new Skein version before production.
 
-The root also overrides `postcss` to `8.5.23`, `sharp` to `0.35.4`, and `@assistant-ui/tap` to `0.9.4`. The tap pin avoids a chat-state update loop in the current assistant-ui runtime. Installed package overrides do not affect the root installation.
+The root also overrides `postcss` to `8.5.23`, `sharp` to `0.35.4`, and `@assistant-ui/tap` to `0.9.18`. The tap pin matches the tested assistant-ui 0.15 graph, which includes the thread-list snapshot fix. Installed package overrides do not affect the root installation.
 
 Atlas uses Node 22. The Atlas frontend remains a local npm workspace. The workplace root compiles it before it runs `skein-frontend-build`.
 

@@ -23,7 +23,7 @@
     "@playwright/test": "1.62.1"
   },
   "overrides": {
-    "@assistant-ui/tap": "0.9.4",
+    "@assistant-ui/tap": "0.9.18",
     "postcss": "8.5.23",
     "sharp": "0.35.4"
   }

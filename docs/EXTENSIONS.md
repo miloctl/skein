@@ -1129,7 +1129,7 @@ Use Node 22. Pin the frontend host, its peers, and Next directly in the workplac
     "react-dom": "19.2.4"
   },
   "overrides": {
-    "@assistant-ui/tap": "0.9.4",
+    "@assistant-ui/tap": "0.9.18",
     "postcss": "8.5.23",
     "sharp": "0.35.4"
   }
@@ -1138,15 +1138,17 @@ Use Node 22. Pin the frontend host, its peers, and Next directly in the workplac
 
 An installed package cannot apply its overrides to the workplace root. `skein-frontend-build` refuses missing or different pins.
 
-The tap override is a compatibility workaround for the current assistant-ui
-thread-list adapter. That adapter returns a new state object on unchanged
-reads. With tap 0.9.14, this causes repeated chat updates and maximum-update-depth
-errors. The source checkout and workplace template pin the tested 0.9.4 version.
+The tested assistant-ui graph uses React wrapper 0.15.21, Markdown wrapper
+0.14.16, core 0.3.20, store 0.3.14, and tap 0.9.18. The core includes the
+thread-list snapshot fix. The tap override keeps source and workplace builds
+on the same tested dependency graph. Do not force the old 0.9.4 override
+into this graph.
 
-If an existing workplace uses another version, add the override to its root
-`package.json`, regenerate its lock with Node 22, and rebuild the frontend.
-A frontend host update alone cannot apply a root override. Remove this pin
-only after an SDK update passes the package-built chat checks.
+Update the frontend host and this root override together. Do not apply the
+0.9.18 pin to a host that still uses assistant-ui 0.14. Regenerate the workplace
+lock with Node 22, then rebuild the frontend. A frontend host update alone
+cannot apply a root override. The release contract checks the complete
+assistant-ui graph in both locks, including nested copies.
 
 The workplace repository owns these release inputs:
 

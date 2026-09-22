@@ -5,7 +5,7 @@ import {
   AssistantRuntimeProvider,
   ExportedMessageRepository,
   useLocalRuntime,
-  useThreadRuntime,
+  useAui,
   type AttachmentAdapter,
   type ChatModelAdapter,
   type ThreadMessageLike,
@@ -270,7 +270,7 @@ export const useTranscriptHistory = () => useContext(HistoryContext);
 /** The keyed runtime owns both its messages and its cursor. No history request
  *  can reset a different thread or identity, including a late cached list. */
 function ThreadHydrator({ threadId, children }: { threadId: string; children: ReactNode }) {
-  const thread = useThreadRuntime();
+  const thread = useAui().thread;
   const [ready, setReady] = useState(false);
   const [saved, setSaved] = useState(false);
   const [before, setBefore] = useState<number | null>(null);

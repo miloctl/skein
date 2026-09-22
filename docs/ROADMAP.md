@@ -228,12 +228,9 @@ D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped, without the proposed
   own proposal.
 - **F6** CLI argument grammar normalization. The commands that take an
   action word still validate their own combinations by hand in `main()`.
-- Migrate assistant-ui to the assessed 0.15 series and review
-  `strands-agents-tools` separately. Test chat streaming, history, attachments,
-  cancellation, and source and installed workplace builds. Replace the
-  `@assistant-ui/tap` 0.9.4 compatibility pin only with a tested matching graph.
-  Keep extra tools off by default and resolve raw `think` provider routing
-  before its next enablement.
+- Review the `strands-agents-tools` 0.8.9 upgrade separately. Keep extra tools
+  off by default, check the calculator sandbox, and resolve raw `think`
+  provider routing before its next enablement.
 - Use HTTPS for the browser stage in
   `examples/workplace-extension/scripts/local-contract.sh`. Playwright's API
   client omits Secure cookies on HTTP loopback. Reuse the TLS approach in
