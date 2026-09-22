@@ -1,4 +1,5 @@
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Page, type Request } from "@playwright/test";
+import { chatReads, observeChat, remainingFailures, type BrowserFailure } from "./chat-stream-observer";
 
 const IDP = process.env.SKEIN_OIDC_IDP_URL ?? "http://127.0.0.1:8610";
 const API = process.env.SKEIN_OIDC_API_URL ?? "http://127.0.0.1:8601";
@@ -39,20 +40,23 @@ async function signedInPage(browser: Browser, user: string) {
 }
 
 function watchSignedInPage(page: Page, ignoredFailures: string[] = []) {
-  const failures: string[] = [];
+  const failures: BrowserFailure[] = [];
   page.on("console", (message) => {
     const failure = `console: ${message.text()}`;
     if (message.type() === "error" && !ignoredFailures.includes(failure))
-      failures.push(failure);
+      failures.push({ kind: "console", message: failure });
   });
-  page.on("pageerror", (error) => failures.push(`page: ${error.message}`));
+  page.on("pageerror", (error) => failures.push({ kind: "page", message: error.message }));
   page.on("requestfailed", (request) =>
-    failures.push(`request: ${request.method()} ${request.url()}`),
+    failures.push({
+      kind: "request", method: request.method(), url: request.url(),
+      errorText: request.failure()?.errorText,
+    }),
   );
   page.on("response", (response) => {
     const failure = `response: ${response.status()} ${response.url()}`;
     if (response.status() >= 400 && !ignoredFailures.includes(failure))
-      failures.push(failure);
+      failures.push({ kind: "response", message: failure });
   });
   return failures;
 }
@@ -160,6 +164,8 @@ test("the package-built workplace keeps core writes and extension policy togethe
       created_by: "mira",
     }),
   );
+  const chatUrl = `${API}/api/chat`;
+  await observeChat(manager.page, chatUrl);
   const specialistCatalog = manager.page.waitForResponse(`${API}/api/chat/specialists`);
   await manager.page.goto("/chat");
   expect((await specialistCatalog).status()).toBe(200);
@@ -176,10 +182,26 @@ test("the package-built workplace keeps core writes and extension policy togethe
   }
   expect(chatRequests).toEqual([]);
   await composer.pressSequentially("Describe your role");
+  const chatFinished = new Promise<void>((resolve) => {
+    // response.finished() can remain pending when Chromium emits requestfailed.
+    const finished = (request: Request) => {
+      if (request.url() !== chatUrl || request.method() !== "POST") return;
+      manager.page.off("requestfinished", finished);
+      manager.page.off("requestfailed", finished);
+      resolve();
+    };
+    manager.page.on("requestfinished", finished);
+    manager.page.on("requestfailed", finished);
+  });
   await manager.page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(manager.page.getByText(/Atlas Delivery Specialist is available/)).toBeVisible();
+  await chatFinished;
+  await expect.poll(() => chatReads(manager.page)).toEqual([{
+    status: 200, done: true, eof: true, protocolError: false,
+    readError: "", signalAborted: false, cancelled: false,
+  }]);
   expect(chatRequests).toHaveLength(1);
-  expect(failures).toEqual([]);
+  expect(remainingFailures(failures, await chatReads(manager.page), chatUrl)).toEqual([]);
   await manager.context.close();
 
   const deniedAgain = await signedInPage(browser, "ava");
