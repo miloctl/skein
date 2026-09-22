@@ -22,7 +22,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
     api: (path: string) =>
       path === "/api/users"
         ? Promise.resolve([{ name: "mira", kind: "human" }])
-        : path === "/api/personas"
+        : path === "/api/personas" || path === "/api/chat/specialists"
           ? Promise.resolve([
               {
                 slug: "growth-mentor",
@@ -30,6 +30,12 @@ vi.mock("@/lib/api", async (importOriginal) => {
                 description: "coaching",
                 emoji: "🌱",
               },
+              ...(path === "/api/chat/specialists" ? [{
+                slug: "acme.workplace.delivery",
+                name: "Acme Delivery Specialist",
+                description: "Reviews delivery risk and Atlas synchronization.",
+                emoji: "🧩",
+              }] : []),
             ])
           : path === "/api/agents/status"
             ? Promise.resolve({ provider: "mock" })
@@ -65,6 +71,14 @@ async function type(value: string) {
 }
 
 describe("the @ picker on the mock provider", () => {
+  it("completes a leading workplace specialist on mock", async () => {
+    render(<Harness />);
+    const box = await type("@acme.workplace.del");
+    await screen.findByRole("option", { name: /@acme.workplace.delivery/ });
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(box.value).toBe("@acme.workplace.delivery "));
+  });
+
   it("keeps specialists out of the mid-sentence rows", async () => {
     render(<Harness />);
     await type("ask @");

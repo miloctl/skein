@@ -712,6 +712,15 @@ A specialist contribution contains its prompt, context sources, tools, and
 required capabilities. The Chief of Staff reads the registry. A private
 package does not import or patch the Chief implementation.
 
+In solo Chat, type `@` and the first letters of the specialist name, then
+press Enter or Tab to complete it. Start the message with the completed
+name to invoke that specialist for one turn. The picker includes workplace
+specialists only when the caller has their required capabilities.
+`GET /api/chat/specialists` returns only `slug`, `name`, `description`, and
+`emoji`, with private, no-store cache headers. Invocation checks capabilities
+again. `/api/personas`, sticky persona modes, and shared-room agent membership
+remain limited to the file-backed bench.
+
 Use a registered tool for side effects. A context contribution declares a
 read policy action, risk, capabilities, deadline, and output limit.
 Skein records a content-free receipt for each retrieval. The provider must be
@@ -1096,6 +1105,7 @@ Use Node 22. Pin the frontend host, its peers, and Next directly in the workplac
     "react-dom": "19.2.4"
   },
   "overrides": {
+    "@assistant-ui/tap": "0.9.4",
     "postcss": "8.5.23",
     "sharp": "0.35.4"
   }
@@ -1103,6 +1113,16 @@ Use Node 22. Pin the frontend host, its peers, and Next directly in the workplac
 ```
 
 An installed package cannot apply its overrides to the workplace root. `skein-frontend-build` refuses missing or different pins.
+
+The tap override is a compatibility workaround for the current assistant-ui
+thread-list adapter. That adapter returns a new state object on unchanged
+reads. With tap 0.9.14, this causes repeated chat updates and maximum-update-depth
+errors. The source checkout and workplace template pin the tested 0.9.4 version.
+
+If an existing workplace uses another version, add the override to its root
+`package.json`, regenerate its lock with Node 22, and rebuild the frontend.
+A frontend host update alone cannot apply a root override. Remove this pin
+only after an SDK update passes the package-built chat checks.
 
 The workplace repository owns these release inputs:
 

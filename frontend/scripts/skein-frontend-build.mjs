@@ -71,7 +71,7 @@ for (const name of ["next", "react", "react-dom"]) {
     throw new Error(`${name} must be ${required}. Pin it in the workplace dependencies.`);
   }
 }
-for (const name of ["postcss", "sharp"]) {
+for (const name of Object.keys(hostManifest.overrides)) {
   const required = hostManifest.overrides[name];
   if (workplaceManifest.overrides?.[name] !== required) {
     throw new Error(`${name} override must be ${required}. Add it to the workplace root.`);
@@ -151,7 +151,7 @@ const installedApi = JSON.parse(
 if (installedApi.version !== hostManifest.peerDependencies["@miloctl/skein-extension-api"]) {
   throw new Error("The extension API version does not match the frontend host. Install the required version.");
 }
-for (const name of ["postcss", "sharp"]) {
+for (const name of Object.keys(hostManifest.overrides)) {
   const locked = Object.entries(workplaceLock.packages ?? {}).filter(([packagePath]) =>
     packagePath.endsWith(`node_modules/${name}`),
   );

@@ -92,6 +92,68 @@ async function open() {
 }
 
 describe("@ completion", () => {
+  it.each(["Enter", "Tab", "click"])("completes before existing text with %s without sending", async (key) => {
+    await open();
+    const box = composer();
+    fireEvent.change(box, { target: { value: "@bac plan it" } });
+    box.focus();
+    fireEvent.select(box, { target: { selectionStart: 4, selectionEnd: 4 } });
+    const option = screen.getByRole("option", { name: "Insert @backend-architect" });
+    if (key === "click") fireEvent.click(option);
+    else fireEvent.keyDown(box, { key });
+    expect(box.value).toBe("@backend-architect plan it");
+    expect(document.activeElement).toBe(box);
+    expect(box.selectionStart).toBe("@backend-architect ".length);
+    expect(box.selectionEnd).toBe(box.selectionStart);
+    expect(posts()).toHaveLength(0);
+    expect(screen.queryByRole("option")).toBeNull();
+  });
+
+  it("moves the caret past an existing full mention when completion leaves the text unchanged", async () => {
+    await open();
+    const box = composer();
+    fireEvent.change(box, { target: { value: "@backend-architect plan it" } });
+    box.focus();
+    fireEvent.select(box, { target: { selectionStart: 4, selectionEnd: 4 } });
+    expect(screen.getByRole("option", { name: "Insert @backend-architect" })).toBeTruthy();
+    fireEvent.keyDown(box, { key: "Tab" });
+    expect(box.value).toBe("@backend-architect plan it");
+    expect(box.selectionStart).toBe("@backend-architect ".length);
+    expect(box.selectionEnd).toBe(box.selectionStart);
+    expect(document.activeElement).toBe(box);
+    expect(posts()).toHaveLength(0);
+    expect(screen.queryByRole("option")).toBeNull();
+  });
+
+  it("replaces the whole mention when the caret is inside the token", async () => {
+    await open();
+    const box = composer();
+    fireEvent.change(box, { target: { value: "ask @bac-old plan it" } });
+    box.focus();
+    fireEvent.select(box, { target: { selectionStart: 8, selectionEnd: 8 } });
+    expect(screen.getByRole("option", { name: "Insert @backend-architect" })).toBeTruthy();
+    fireEvent.keyDown(box, { key: "Tab" });
+    expect(box.value).toBe("ask @backend-architect plan it");
+    expect(box.selectionStart).toBe("ask @backend-architect ".length);
+    expect(posts()).toHaveLength(0);
+  });
+
+  it("closes for a selection and follows cursor movement without changing the draft", async () => {
+    await open();
+    const box = composer();
+    fireEvent.change(box, { target: { value: "@bac" } });
+    expect(screen.getByRole("option", { name: "Insert @backend-architect" })).toBeTruthy();
+    box.focus();
+    fireEvent.select(box, { target: { selectionStart: 1, selectionEnd: 4 } });
+    expect(screen.queryByRole("option")).toBeNull();
+    fireEvent.keyDown(box, { key: "Tab" });
+    expect(box.value).toBe("@bac");
+    fireEvent.select(box, { target: { selectionStart: 0, selectionEnd: 0 } });
+    expect(screen.queryByRole("option")).toBeNull();
+    fireEvent.select(box, { target: { selectionStart: 4, selectionEnd: 4 } });
+    expect(screen.getByRole("option", { name: "Insert @backend-architect" })).toBeTruthy();
+  });
+
   it("completes the matching agent on Enter instead of sending the fragment", async () => {
     await open();
     fireEvent.change(composer(), { target: { value: "@bac" } });

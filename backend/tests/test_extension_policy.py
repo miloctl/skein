@@ -2407,7 +2407,68 @@ def test_contributed_specialist_identity_cannot_be_claimed_by_a_human(fresh_db):
         pass
 
 
-def test_keyless_direct_specialist_uses_the_request_policy_subject(fresh_db):
+def test_chat_specialist_catalog_without_modules_returns_only_safe_bench_fields(fresh_db):
+    from app.services import personas
+
+    settings = replace(AppSettings.from_config(), scheduler_enabled=False)
+    with TestClient(create_app(settings, ()), headers={"X-User": "manager"}) as client:
+        response = client.get("/api/chat/specialists")
+        bench = client.get("/api/personas")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
+    assert bench.status_code == 200
+    assert bench.json() == personas.list_personas()
+    assert bench.json()
+    assert response.json() == [
+        {key: row[key] for key in ("slug", "name", "description", "emoji")} for row in bench.json()
+    ]
+
+
+def test_chat_specialist_catalog_filters_capabilities_per_request(fresh_db):
+    from app.services import personas
+
+    module = replace(
+        _module(),
+        identities=(
+            IdentityContribution(
+                "acme.workplace.identity",
+                lambda name, _groups, _strong: {
+                    "roles": (),
+                    "capabilities": (
+                        ("acme.use-delivery-specialist",) if name == "manager" else ()
+                    ),
+                },
+            ),
+        ),
+    )
+    settings = replace(AppSettings.from_config(), scheduler_enabled=False)
+    with TestClient(create_app(settings, (module,))) as client:
+        stock = [
+            {key: row[key] for key in ("slug", "name", "description", "emoji")}
+            for row in personas.list_personas()
+        ]
+        allowed = [
+            *stock,
+            {
+                "slug": "acme.workplace.delivery",
+                "name": "Acme Delivery Specialist",
+                "description": "Reviews delivery risk and Atlas synchronization.",
+                "emoji": "\U0001f9e9",
+            },
+        ]
+        for user, expected in (("manager", allowed), ("denied", stock), ("manager", allowed)):
+            response = client.get("/api/chat/specialists", headers={"X-User": user})
+            assert response.status_code == 200
+            assert response.headers["cache-control"] == "private, no-store"
+            assert response.json() == expected
+            bench = client.get("/api/personas", headers={"X-User": user})
+            assert bench.status_code == 200
+            assert bench.json() == personas.list_personas()
+
+
+@pytest.mark.parametrize("prefix", ["/as acme.workplace.delivery", "@acme.workplace.delivery"])
+def test_keyless_direct_specialist_uses_the_request_policy_subject(fresh_db, prefix):
     module = replace(
         _module(),
         identities=(
@@ -2428,12 +2489,23 @@ def test_keyless_direct_specialist_uses_the_request_policy_subject(fresh_db):
             "/api/chat",
             json={
                 "thread_id": "extension-specialist",
-                "message": "/as acme.workplace.delivery summarize delivery",
+                "message": f"{prefix} summarize delivery",
+            },
+        )
+        denied = client.post(
+            "/api/chat",
+            headers={"X-User": "denied"},
+            json={
+                "thread_id": "extension-specialist-denied",
+                "message": f"{prefix} summarize delivery",
             },
         )
     assert response.status_code == 200
     assert "Acme Delivery Specialist is available" in response.text
     assert "needs a workplace capability" not in response.text
+    assert denied.status_code == 200
+    assert "needs a workplace capability" in denied.text
+    assert "Acme Delivery Specialist is available" not in denied.text
 
 
 def test_contributed_tools_cannot_shadow_a_core_model_tool():

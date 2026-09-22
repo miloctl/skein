@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
@@ -259,6 +259,30 @@ def _with_attachments(message: str, titles: list[str]) -> str:
 def chat_commands() -> list[dict]:
     """Command catalog for the composer autocomplete — static metadata."""
     return commands.catalog()
+
+
+@router.get("/api/chat/specialists")
+def chat_specialists(request: Request, response: Response, user: CurrentUser) -> list[dict]:
+    from ..extensions.agents import missing_specialist_capabilities
+
+    registry = request.app.state.skein_registry
+    subject = subject_for(request, user)
+    response.headers["Cache-Control"] = "private, no-store"
+    roster = [
+        {key: row[key] for key in ("slug", "name", "description", "emoji")}
+        for row in personas.list_personas()
+    ]
+    roster.extend(
+        {
+            "slug": specialist.name,
+            "name": specialist.display_name,
+            "description": specialist.description,
+            "emoji": "\U0001f9e9",
+        }
+        for specialist in registry.specialists
+        if not missing_specialist_capabilities(registry, specialist.name, subject)
+    )
+    return roster
 
 
 class ChatPatch(BaseModel):

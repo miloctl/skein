@@ -336,8 +336,8 @@ function personaList(): Promise<Persona[]> {
 
 // The roster the @ picker lists under People. Agent rows share this table
 // (/as and /flock mint them), so the picker filters by kind rather than
-// showing every persona anyone has ever invoked — personaList() above is the
-// honest source for specialists.
+// showing every persona anyone has ever invoked. Specialist suggestions use
+// the caller-scoped chat catalog instead.
 type Person = { name: string; kind: string };
 
 // the charset services/mentions.py::_MENTION can tokenize. A roster name is
@@ -426,6 +426,7 @@ const Composer = () => {
   const running = useThread((t) => t.isRunning);
   const [commands, setCommands] = useState<SlashCommand[]>(FALLBACK_COMMANDS);
   const [personas, setPersonas] = useState<Persona[]>([]);
+  const [specialists, setSpecialists] = useState<Persona[]>([]);
   const [flocks, setFlocks] = useState<Flock[]>([]);
   const [models, setModels] = useState<ArgItem[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
@@ -452,6 +453,26 @@ const Composer = () => {
   );
   const pendingPrefill = useRef<string | null>(null);
   const composerText = useRef(text);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const pendingCaret = useRef<{ text: string; position: number } | null>(null);
+  const [selection, setSelection] = useState({ text, start: text.length, end: text.length });
+  if (selection.text !== text) {
+    setSelection({ text, start: text.length, end: text.length });
+  }
+  const trackSelection = (event: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    const input = event.currentTarget;
+    setSelection({ text: input.value, start: input.selectionStart, end: input.selectionEnd });
+  };
+
+  // Input's value={text} keeps its DOM update in this commit. Its separate
+  // assistant-ui subscription can otherwise commit later and reset the caret.
+  useLayoutEffect(() => {
+    const pending = pendingCaret.current;
+    pendingCaret.current = null;
+    if (pending?.text !== text || !inputRef.current) return;
+    inputRef.current.focus();
+    inputRef.current.setSelectionRange(pending.position, pending.position);
+  }, [text]);
 
   useEffect(() => {
     composerText.current = text;
@@ -505,6 +526,15 @@ const Composer = () => {
   }, [text]);
 
   useEffect(() => {
+    let alive = true;
+    // A page-wide cache offers a prior identity's restricted specialists after sign-in.
+    api<Persona[]>("/api/chat/specialists", { cache: "no-store" })
+      .then((list) => { if (alive) setSpecialists(list); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
     chatCommands()
       .then(setCommands)
       .catch(() => {});
@@ -550,9 +580,9 @@ const Composer = () => {
     : null;
   const arg = argQuery(text, Object.keys(argRosters));
   const argRoster = arg ? argRosters[arg.cmd] : undefined;
-  const at = mentionQuery(text);
+  const at = mentionQuery(text, selection.start, selection.end);
   const resetKey = at
-    ? `@${at.atStart ? "^" : ""}${at.token}`
+    ? `@${at.start}:${at.token}`
     : arg
       ? `${arg.cmd}:${arg.token}`
       : cmdToken;
@@ -588,7 +618,7 @@ const Composer = () => {
         // the orchestrator's consult tool, so those rows appear only when a
         // real provider answers the chat (agentStatus above)
         ...(at.atStart || consultReady
-          ? personas
+          ? specialists
               .filter((x) => x.slug.startsWith(at.token))
               .map((x) => ({
                 name: x.slug,
@@ -655,17 +685,19 @@ const Composer = () => {
 
   const run = (c: SlashCommand) => {
     if (c.mention) {
-      // splice at the @token rather than replacing the composer: unlike a
-      // command, a mention sits inside a sentence still being written
-      // function replacer, so this stays correct if MENTIONABLE above is ever
-      // widened: `$&`, `$'` or `$1` in a name would expand as replacement
-      // patterns and splice the wrong text
-      composer.setText(
-        text.replace(
-          /(^|\s)@[a-z0-9._-]*$/i,
-          (_m, lead) => `${lead}@${c.mention} `,
-        ),
-      );
+      if (!at) return;
+      const suffix = text.slice(at.end);
+      const prefix = `${text.slice(0, at.start)}@${c.mention}`;
+      const next = prefix + (/^\s/.test(suffix) ? "" : " ") + suffix;
+      const position = prefix.length + 1;
+      setSelection({ text: next, start: position, end: position });
+      if (next === text) {
+        inputRef.current?.focus();
+        inputRef.current?.setSelectionRange(position, position);
+      } else {
+        pendingCaret.current = { text: next, position };
+        composer.setText(next);
+      }
       return;
     }
     // "/as <persona>" is the one roster pick that enters a MODE outliving the
@@ -859,6 +891,10 @@ const Composer = () => {
         </ComposerPrimitive.AddAttachment>
         <ComposerPrimitive.Input
           {...inputHistory}
+          ref={inputRef}
+          value={text}
+          onChange={trackSelection}
+          onSelect={trackSelection}
           name="message"
           aria-label={
             activePersona
