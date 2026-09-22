@@ -182,6 +182,20 @@ def test_reference_extension_metadata_uses_owned_compatibility_literals():
         assert f'"{literal}"' in frontend_source
 
 
+def test_chat_snapshot_dependency_is_pinned_in_both_builds():
+    # The current thread-list adapter allocates a fresh snapshot on unchanged reads.
+    # tap 0.9.14 loops on it. docs/EXTENSIONS.md records the compatibility pin.
+    for root in ("frontend", "examples/workplace-extension"):
+        assert _json(f"{root}/package.json")["overrides"]["@assistant-ui/tap"] == "0.9.4"
+        packages = _json(f"{root}/package-lock.json")["packages"]
+        versions = {
+            entry["version"]
+            for name, entry in packages.items()
+            if name.endswith("/@assistant-ui/tap")
+        }
+        assert versions == {"0.9.4"}
+
+
 def test_extension_api_one_exports_exactly_the_documented_surface():
     """The 1.0 surface is frozen at release. A removal breaks installed
     packages; an addition is a new compatibility commitment. Both need a

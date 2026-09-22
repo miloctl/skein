@@ -170,6 +170,9 @@ export async function sessionRejected(response: Response, sentRevision: string) 
   try { code = (await response.clone().json()).code; } catch {}
   if (!["SESSION_INVALID", "SESSION_CHANGED"].includes(code)) return;
   if (sentRevision !== sessionRevision()) throw new Error(CHANGED);
+  // Repeating recovery remounts the shell and retries its failed reads forever.
+  // SESSION_CHANGED must still discover a newer cookie, even after expiry.
+  if (code === "SESSION_INVALID" && session.status === "ready" && !session.authenticated && blockWeakFallback) return;
   blockWeakFallback = true;
   markEnded("expired");
   publish({ ...session, authenticated: false, strong: false, status: "loading", error: "" });

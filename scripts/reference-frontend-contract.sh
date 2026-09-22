@@ -193,7 +193,7 @@ for (const name of ["@miloctl/skein-extension-api", "@miloctl/skein-frontend-hos
 JS
 
     expect_build_refusal() {
-        label="$1"
+        label="${1//\//-}"
         expected="$2"
         if node_modules/.bin/skein-frontend-build @atlas/skein-extension \
             >"$tmp/refusal-$label.log" 2>&1; then
@@ -222,12 +222,10 @@ JS
         mv package.saved package.json
     done
 
-    # Overrides declared by a dependency package do NOT apply to the consumer
-    # root. Pikachu's clean registry install resolved vulnerable PostCSS and
-    # Sharp versions until the workplace-owned pair was present (2026-08-31).
-    # Pin both halves: the manifest is the admin's decision, and the lock is
-    # the bytes npm will actually install.
-    for override in postcss sharp; do
+    # Dependency overrides do not apply to the consumer root. Missing pins can
+    # install vulnerable packages or a chat store that loops on unchanged snapshots.
+    # Check both the manifest's intent and every locked copy.
+    for override in postcss sharp @assistant-ui/tap; do
         cp package.json package.saved
         OVERRIDE="$override" node - <<'JS'
 const fs = require("node:fs");
@@ -242,7 +240,7 @@ JS
         mv package.saved package.json
     done
 
-    for override in postcss sharp; do
+    for override in postcss sharp @assistant-ui/tap; do
         cp package-lock.json package-lock.saved
         OVERRIDE="$override" node - <<'JS'
 const fs = require("node:fs");

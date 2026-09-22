@@ -76,6 +76,11 @@ test("the package-built workplace keeps core writes and extension policy togethe
     { headers: authorization(denied.csrf) },
   );
   expect(deniedMetrics.status()).toBe(403);
+  const deniedCatalog = denied.page.waitForResponse(`${API}/api/chat/specialists`);
+  await denied.page.goto("/chat");
+  expect((await deniedCatalog).status()).toBe(200);
+  await denied.page.getByRole("textbox", { name: "Message the Chief of Staff" }).fill("@atlas.workplace.del");
+  await expect(denied.page.getByRole("option", { name: /atlas.workplace.delivery-specialist/ })).toHaveCount(0);
   await denied.context.close();
 
   const integration = await signedInPage(browser, "nina");
@@ -155,6 +160,25 @@ test("the package-built workplace keeps core writes and extension policy togethe
       created_by: "mira",
     }),
   );
+  const specialistCatalog = manager.page.waitForResponse(`${API}/api/chat/specialists`);
+  await manager.page.goto("/chat");
+  expect((await specialistCatalog).status()).toBe(200);
+  const composer = manager.page.getByRole("textbox", { name: "Message the Chief of Staff" });
+  const chatRequests: string[] = [];
+  manager.page.on("request", (request) => {
+    if (request.method() === "POST" && request.url() === `${API}/api/chat`) chatRequests.push(request.url());
+  });
+  for (const key of ["Enter", "Tab"]) {
+    await composer.fill("@atlas.workplace.del");
+    await expect(manager.page.getByRole("option", { name: /@atlas.workplace.delivery-specialist/ })).toBeVisible();
+    await composer.press(key);
+    await expect(composer).toHaveValue("@atlas.workplace.delivery-specialist ");
+  }
+  expect(chatRequests).toEqual([]);
+  await composer.pressSequentially("Describe your role");
+  await manager.page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(manager.page.getByText(/Atlas Delivery Specialist is available/)).toBeVisible();
+  expect(chatRequests).toHaveLength(1);
   expect(failures).toEqual([]);
   await manager.context.close();
 

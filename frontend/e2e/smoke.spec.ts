@@ -59,6 +59,27 @@ async function pickName(page: Page, key = "") {
   }
 }
 
+test("agent mentions complete at the caret without sending", async ({ page }) => {
+  await pickName(page);
+  await page.goto("/chat");
+  const box = page.getByRole("textbox", { name: "Message the Chief of Staff" });
+  const sent: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().includes("/api/chat")) sent.push(request.url());
+  });
+  for (const key of ["Enter", "Tab"]) {
+    await box.fill("@bac plan it");
+    await box.press("Home");
+    for (let i = 0; i < 4; i++) await box.press("ArrowRight");
+    await expect(page.getByRole("option", { name: /^@backend-architect/ })).toBeVisible();
+    await box.press(key);
+    await expect(box).toHaveValue("@backend-architect plan it");
+    await expect.poll(() => box.evaluate((input: HTMLTextAreaElement) => input.selectionStart)).toBe("@backend-architect ".length);
+    await expect(box).toBeFocused();
+  }
+  expect(sent).toEqual([]);
+});
+
 test("an anonymous visitor reaches the name gate", async ({ page }) => {
   const faults = watch(page);
   const response = await page.goto("/");

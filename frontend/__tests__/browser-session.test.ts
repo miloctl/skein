@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const person = (user = "ava", csrf = "csrf-ava") => ({
   authenticated: true, user, strong: true, auth_method: "api-key", csrf_token: csrf,
 });
-const anonymous = { authenticated: false, user: "anonymous", strong: false, auth_method: "", csrf_token: "" };
+const anonymous = { authenticated: false, user: "anonymous", strong: false, auth_method: null, csrf_token: "" };
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
-let served = anonymous;
+let served: typeof anonymous | ReturnType<typeof person>;
 let calls: { url: string; init?: RequestInit }[];
 
 beforeEach(() => {
@@ -213,13 +213,66 @@ describe("server-held browser identity", () => {
     window.removeEventListener("storage", heard);
   });
 
-  it("blocks shared-token fallback for an invalid cookie", async () => {
+  it("recovers an invalid cookie once without weak fallback, then accepts a changed session", async () => {
     served = { ...anonymous, csrf_token: "expired-cookie-csrf" };
     vi.stubEnv("NEXT_PUBLIC_API_TOKEN", "shared-token");
-    const { authenticatedFetch } = await import("@/lib/api");
-    await authenticatedFetch("/api/tasks");
-    const headers = new Headers(calls.at(-1)?.init?.headers);
-    expect(headers.has("Authorization")).toBe(false);
-    expect(headers.get("X-Skein-CSRF")).toBe("expired-cookie-csrf");
+    localStorage.setItem("skein-user", "marcus");
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    let code = "SESSION_INVALID";
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      if (String(input).endsWith("/api/tasks")) {
+        calls.push({ url: String(input), init });
+        return Promise.resolve(response({ code, detail: "Sign in." }, code === "SESSION_INVALID" ? 401 : 403));
+      }
+      return original(input, init);
+    });
+    const auth = await import("@/lib/auth");
+    const { api } = await import("@/lib/api");
+    await auth.bootstrapSession();
+    await expect(api("/api/tasks")).rejects.toThrow("Sign in.");
+    expect(calls.filter((c) => c.url.endsWith("/auth/session"))).toHaveLength(2);
+    expect(auth.sessionSnapshot()).toMatchObject({ status: "ready", authenticated: false });
+    expect(auth.sessionEnd()).toBe("expired");
+    const recovered = auth.sessionSnapshot();
+    const heard = vi.fn();
+    const unsubscribe = auth.subscribeSession(heard);
+    try {
+      await expect(api("/api/tasks")).rejects.toThrow("Sign in.");
+      await expect(api("/api/tasks")).rejects.toThrow("Sign in.");
+      expect(calls.filter((c) => c.url.endsWith("/auth/session"))).toHaveLength(2);
+      expect(auth.sessionSnapshot()).toBe(recovered);
+      expect(heard).not.toHaveBeenCalled();
+      for (const call of calls.filter((c) => c.url.endsWith("/api/tasks"))) {
+        const headers = new Headers(call.init?.headers);
+        expect(headers.has("Authorization")).toBe(false);
+        expect(headers.has("X-User")).toBe(false);
+        expect(headers.get("X-Skein-CSRF")).toBe("expired-cookie-csrf");
+      }
+      code = "SESSION_CHANGED";
+      served = person();
+      await expect(api("/api/tasks")).rejects.toThrow("Sign in.");
+      expect(calls.filter((c) => c.url.endsWith("/auth/session"))).toHaveLength(3);
+      expect(auth.signedInUser()).toBe("ava");
+      expect(auth.sessionEnd()).toBe("");
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("adopts the team theme for a cookie-free trusted-header visitor", async () => {
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => String(input).endsWith("/api/users/theme")
+      ? Promise.resolve(response({ theme: "", team_default: JSON.stringify({ pack: "ledger", colorway: "madder", appearance: "dark" }) }))
+      : original(input, init));
+    const auth = await import("@/lib/auth");
+    await auth.bootstrapSession();
+    expect(auth.isSignedIn()).toBe(false);
+    expect(auth.trustedHeaderIdentity()).toBe(true);
+    const theme = await import("@/lib/theme");
+    expect(await theme.adoptServerTheme()).toBe("team");
+    expect(theme.getPack()).toBe("ledger");
+    expect(theme.getColorway()).toBe("madder");
+    expect(theme.getAppearance()).toBe("dark");
+    expect(document.documentElement.dataset.pack).toBe("ledger");
   });
 });

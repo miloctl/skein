@@ -228,6 +228,15 @@ D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped, without the proposed
   own proposal.
 - **F6** CLI argument grammar normalization. The commands that take an
   action word still validate their own combinations by hand in `main()`.
+- Assess assistant-ui and Strands SDK updates in separate changes. Check
+  release and migration notes, chat streaming, persisted sessions, governed
+  tools, and cancellation. Test source and installed workplace builds. Keep
+  the `@assistant-ui/tap` 0.9.4 compatibility pin until the updated SDK passes
+  the package-built chat snapshot checks.
+- Use HTTPS for the browser stage in
+  `examples/workplace-extension/scripts/local-contract.sh`. Playwright's API
+  client omits Secure cookies on HTTP loopback. Reuse the TLS approach in
+  `scripts/reference-frontend-contract.sh`.
 
 ## Ops (from the 2026-07-24 architecture review)
 

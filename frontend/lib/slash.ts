@@ -25,8 +25,8 @@ export function argQuery(
 }
 
 /**
- * The `@token` being typed at the end of the composer, and whether it opens
- * the message. Null when the caret is not inside an @token.
+ * The `@token` prefix at the caret, its full replacement bounds, and whether
+ * it opens the message. Null outside an @token or with text selected.
  *
  * STRICTER than the backend on purpose. services/mentions.py excludes only
  * `[a-z0-9]` before the `@`, so it matches `(@mira`; this needs whitespace.
@@ -42,9 +42,18 @@ export function argQuery(
  */
 export function mentionQuery(
   text: string,
-): { token: string; atStart: boolean } | null {
-  const hit = /(^|\s)@([a-z0-9._-]*)$/i.exec(text);
+  caret = text.length,
+  selectionEnd = caret,
+): { token: string; atStart: boolean; start: number; end: number } | null {
+  if (caret !== selectionEnd) return null;
+  const hit = /(^|\s)@([a-z0-9._-]*)$/i.exec(text.slice(0, caret));
   if (!hit) return null;
-  const before = text.slice(0, hit.index + hit[1].length);
-  return { token: hit[2].toLowerCase(), atStart: before.trim() === "" };
+  const start = hit.index + hit[1].length;
+  const end = caret + /^[a-z0-9._-]*/i.exec(text.slice(caret))![0].length;
+  return {
+    token: hit[2].toLowerCase(),
+    atStart: text.slice(0, start).trim() === "",
+    start,
+    end,
+  };
 }

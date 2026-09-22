@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /** The @ picker offers two different actions behind one symbol: naming a
  *  PERSON files something they can open, naming a SPECIALIST answers you in
@@ -16,31 +16,46 @@ class NoopResizeObserver {
 }
 vi.stubGlobal("ResizeObserver", NoopResizeObserver);
 
+const { bench, specialist, catalog } = vi.hoisted(() => ({
+  bench: [
+    { slug: "growth-mentor", name: "Growth Mentor", description: "coaching", emoji: "🌱" },
+    {
+      slug: "backend-architect",
+      name: "Backend Architect",
+      description: "Design consultations — schemas, APIs, tradeoffs — biased to boring technology and reversible choices",
+      emoji: "🏛️",
+    },
+  ],
+  specialist: {
+    slug: "acme.workplace.delivery",
+    name: "Acme Delivery Specialist",
+    description: "Reviews delivery risk and Atlas synchronization.",
+    emoji: "🧩",
+  },
+  catalog: { permitted: true, failed: false, requests: [] as (RequestInit | undefined)[] },
+}));
+
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...real,
-    api: (path: string) =>
-      path === "/api/users"
-        ? Promise.resolve([
-            { name: "mira", kind: "human" },
-            { name: "backend-architect", kind: "agent" },
-            { name: "ada lovelace", kind: "human" },
-            { name: "O'Brien", kind: "human" },
-            { name: "José", kind: "human" },
-          ])
-        : path === "/api/personas"
-          ? Promise.resolve([
-              {
-                slug: "growth-mentor",
-                name: "Growth Mentor",
-                description: "coaching",
-                emoji: "🌱",
-              },
-            ])
-          : path === "/api/agents/status"
-            ? Promise.resolve({ provider: "ollama" })
-            : Promise.resolve([]),
+    api: (path: string, init?: RequestInit) => {
+      if (path === "/api/chat/specialists") {
+        catalog.requests.push(init);
+        return catalog.failed ? Promise.reject(new Error("Catalog unavailable"))
+          : Promise.resolve(catalog.permitted ? [...bench, specialist] : bench);
+      }
+      if (path === "/api/personas") return Promise.resolve(bench);
+      if (path === "/api/users") return Promise.resolve([
+        { name: "mira", kind: "human" },
+        { name: "backend-architect", kind: "agent" },
+        { name: "ada lovelace", kind: "human" },
+        { name: "O'Brien", kind: "human" },
+        { name: "José", kind: "human" },
+      ]);
+      if (path === "/api/agents/status") return Promise.resolve({ provider: "ollama" });
+      return Promise.resolve([]);
+    },
     getUser: () => "tester",
   };
 });
@@ -49,12 +64,16 @@ import { AssistantRuntimeProvider, useLocalRuntime } from "@assistant-ui/react";
 
 import { Thread } from "@/components/thread";
 
+const run = vi.fn(async () => ({ content: [{ type: "text" as const, text: "ok" }] }));
+beforeEach(() => {
+  run.mockClear();
+  catalog.permitted = true;
+  catalog.failed = false;
+  catalog.requests = [];
+});
+
 function Harness() {
-  const runtime = useLocalRuntime({
-    async run() {
-      return { content: [{ type: "text" as const, text: "ok" }] };
-    },
-  });
+  const runtime = useLocalRuntime({ run });
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <Thread />
@@ -86,6 +105,109 @@ async function type(value: string) {
 }
 
 describe("the @ picker", () => {
+  it.each(["Enter", "Tab"])("completes a permitted workplace specialist with %s without sending", async (key) => {
+    render(<Harness />);
+    const prefix = "@acme.workplace.del";
+    const box = await type(`${prefix} check delivery`);
+    box.focus();
+    fireEvent.select(box, { target: { selectionStart: prefix.length, selectionEnd: prefix.length } });
+    await screen.findByRole("option", { name: /@acme.workplace.delivery/ });
+    fireEvent.keyDown(box, { key });
+    await waitFor(() => expect(box.value).toBe("@acme.workplace.delivery check delivery"));
+    expect(box.selectionStart).toBe("@acme.workplace.delivery ".length);
+    expect(document.activeElement).toBe(box);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("offers permitted workplace specialists mid-sentence only in the mention roster", async () => {
+    render(<Harness />);
+    await type("ask @acme");
+    await screen.findByRole("option", { name: /@acme.workplace.delivery/ });
+    await type("/as ");
+    await screen.findByRole("option", { name: /as backend-architect/ });
+    expect(screen.queryByRole("option", { name: /acme.workplace.delivery/ })).toBeNull();
+  });
+
+  it("reads the permitted roster again after the composer remounts", async () => {
+    const first = render(<Harness />);
+    await type("@acme");
+    await screen.findByRole("option", { name: /@acme.workplace.delivery/ });
+    first.unmount();
+    catalog.permitted = false;
+    render(<Harness />);
+    await type("@");
+    await screen.findByRole("option", { name: /@backend-architect/ });
+    expect(screen.queryByRole("option", { name: /acme.workplace.delivery/ })).toBeNull();
+    expect(catalog.requests).toEqual([{ cache: "no-store" }, { cache: "no-store" }]);
+  });
+
+  it("still sends ordinary text when the specialist catalog is unavailable", async () => {
+    catalog.failed = true;
+    render(<Harness />);
+    await waitFor(() => expect(catalog.requests).toHaveLength(1));
+    const box = await type("hello");
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+  });
+
+  it.each(["Enter", "Tab", "click"])("completes before existing text with %s without sending", async (key) => {
+    render(<Harness />);
+    const box = await type("@bac plan it");
+    box.focus();
+    fireEvent.select(box, { target: { selectionStart: 4, selectionEnd: 4 } });
+    const option = await screen.findByRole("option", { name: /@backend-architect/ });
+    if (key === "click") fireEvent.click(option);
+    else fireEvent.keyDown(box, { key });
+    await waitFor(() => expect(box.value).toBe("@backend-architect plan it"));
+    expect(document.activeElement).toBe(box);
+    await waitFor(() => expect(box.selectionStart).toBe("@backend-architect ".length));
+    expect(box.selectionEnd).toBe(box.selectionStart);
+    expect(run).not.toHaveBeenCalled();
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("moves the caret past an existing full mention when completion leaves the text unchanged", async () => {
+    render(<Harness />);
+    const box = await type("@backend-architect plan it");
+    box.focus();
+    fireEvent.select(box, { target: { selectionStart: 4, selectionEnd: 4 } });
+    await screen.findByRole("option", { name: /@backend-architect/ });
+    fireEvent.keyDown(box, { key: "Tab" });
+    expect(box.value).toBe("@backend-architect plan it");
+    await waitFor(() => expect(box.selectionStart).toBe("@backend-architect ".length));
+    expect(box.selectionEnd).toBe(box.selectionStart);
+    expect(document.activeElement).toBe(box);
+    expect(run).not.toHaveBeenCalled();
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("replaces the whole mention when the caret is inside the token", async () => {
+    render(<Harness />);
+    const box = await type("ask @bac-old plan it");
+    box.focus();
+    fireEvent.select(box, { target: { selectionStart: 8, selectionEnd: 8 } });
+    await screen.findByRole("option", { name: /@backend-architect/ });
+    fireEvent.keyDown(box, { key: "Tab" });
+    await waitFor(() => expect(box.value).toBe("ask @backend-architect plan it"));
+    await waitFor(() => expect(box.selectionStart).toBe("ask @backend-architect ".length));
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("closes for a selection and follows cursor movement without changing the draft", async () => {
+    render(<Harness />);
+    const box = await type("@bac");
+    await screen.findByRole("option", { name: /@backend-architect/ });
+    box.focus();
+    fireEvent.select(box, { target: { selectionStart: 1, selectionEnd: 4 } });
+    expect(screen.queryByRole("listbox")).toBeNull();
+    fireEvent.keyDown(box, { key: "Tab" });
+    expect(box.value).toBe("@bac");
+    fireEvent.select(box, { target: { selectionStart: 0, selectionEnd: 0 } });
+    expect(screen.queryByRole("listbox")).toBeNull();
+    fireEvent.select(box, { target: { selectionStart: 4, selectionEnd: 4 } });
+    await screen.findByRole("option", { name: /@backend-architect/ });
+  });
+
   it("offers people and specialists at the start of a message", async () => {
     render(<Harness />);
     const box = await type("@");

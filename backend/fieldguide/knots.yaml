@@ -412,7 +412,7 @@ knots:
     # `forge` accepts ties: never.
     ties: mark
     pitch: Keep talking to the Chief of Staff, and let it fetch the specialist who actually knows.
-    how: "In Chat, name a specialist inside the sentence: ask @code-reviewer about tomorrow's plan. To call one directly, start the message with @ and the slug."
+    how: "In Chat, name a specialist inside the sentence: ask @code-reviewer about tomorrow's plan. To call one directly, start the message with @. Type the first letters of its slug, then press Enter or Tab. The list includes workplace specialists that your permissions allow."
     link: /chat
     since: 2026-08-07
 

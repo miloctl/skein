@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { PersonInput } from "@/components/person-input";
 import { actionError, api } from "@/lib/api";
@@ -189,6 +189,23 @@ export function SharedChat({
   const confirmRef = useRef<HTMLButtonElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const retryKey = useRef<{ message: string; key: string } | null>(null);
+  const pendingCaret = useRef<{ text: string; position: number } | null>(null);
+  const [selection, setSelection] = useState({ text: draft, start: draft.length, end: draft.length });
+  if (selection.text !== draft) {
+    setSelection({ text: draft, start: draft.length, end: draft.length });
+  }
+  const trackSelection = (event: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    const input = event.currentTarget;
+    setSelection({ text: input.value, start: input.selectionStart, end: input.selectionEnd });
+  };
+
+  useLayoutEffect(() => {
+    const pending = pendingCaret.current;
+    pendingCaret.current = null;
+    if (pending?.text !== draft || !composerRef.current) return;
+    composerRef.current.focus();
+    composerRef.current.setSelectionRange(pending.position, pending.position);
+  }, [draft]);
 
   useHashTarget(messages);
 
@@ -764,17 +781,26 @@ export function SharedChat({
   // the backend's leading-mention check). A mid-message mention silently
   // does nothing — surface that before the send, not after.
   const agentSlugs = agents.map((member) => member.person);
-  // "@bac" at the end of the draft: the chips row narrows to the agents that
-  // match, and Enter or Tab completes the picked one. Without it, Enter
-  // sends "@bac", which calls nobody (the backend wants the full slug).
-  const at = mentionQuery(draft);
+  // Enter on a partial slug must complete instead of sending "@bac", which
+  // calls nobody (the backend wants the full slug).
+  const at = mentionQuery(draft, selection.start, selection.end);
   const suggested = at ? agentSlugs.filter((slug) => slug.startsWith(at.token)) : [];
   const pick = suggested[Math.min(sel, Math.max(0, suggested.length - 1))];
   const complete = (slug: string) => {
+    if (!at) return;
     retryKey.current = null;
-    setDraft((current) =>
-      current.replace(/(^|\s)@[a-z0-9._-]*$/i, (_m, lead) => `${lead}@${slug} `),
-    );
+    const suffix = draft.slice(at.end);
+    const prefix = `${draft.slice(0, at.start)}@${slug}`;
+    const next = prefix + (/^\s/.test(suffix) ? "" : " ") + suffix;
+    const position = prefix.length + 1;
+    setSelection({ text: next, start: position, end: position });
+    if (next === draft) {
+      composerRef.current?.focus();
+      composerRef.current?.setSelectionRange(position, position);
+    } else {
+      pendingCaret.current = { text: next, position };
+      setDraft(next);
+    }
     setSel(0);
   };
   const calledNow = invokedAgents(draft, agentSlugs);
@@ -1331,7 +1357,6 @@ export function SharedChat({
                     onClick={() => {
                       if (suggested.length) {
                         complete(member.person);
-                        setTimeout(() => composerRef.current?.focus(), 0);
                         return;
                       }
                       retryKey.current = null;
@@ -1372,7 +1397,9 @@ export function SharedChat({
                 id="shared-chat-composer"
                 name="shared-chat-message"
                 value={draft}
+                onSelect={trackSelection}
                 onChange={(event) => {
+                  trackSelection(event);
                   const value = event.target.value;
                   if (retryKey.current && value.trim() !== retryKey.current.message) {
                     retryKey.current = null;

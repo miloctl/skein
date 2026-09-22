@@ -11,7 +11,7 @@
 // (lib/theme-boot.ts) and the contrast checker PARSES them out of this file,
 // so there is nothing left to keep in sync by hand.
 
-import { sessionRevision } from "./auth";
+import { sessionLocked, sessionRevision } from "./auth";
 
 export const THEME_KEY = "skein-theme";
 export const APPEARANCE_KEY = "skein-appearance";
@@ -416,7 +416,7 @@ function browserHasOpinion(): boolean {
 
 export async function adoptServerTheme(): Promise<"profile" | "team" | null> {
   const { api } = await import("./api");
-  if (browserHasOpinion()) return null;
+  if (browserHasOpinion() || sessionLocked()) return null;
   try {
     // anonymous browsers still adopt the team default (TP3)
     const r = await api<{ theme: string; team_default: string }>(

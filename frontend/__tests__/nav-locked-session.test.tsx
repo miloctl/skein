@@ -1,22 +1,16 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-/** A stale session cookie used to loop the app: Nav is AuthGate's sibling in
- *  app/layout.tsx and mounts first, so its attention poll fired before the
- *  gate's effect could publish `gated`. The 401 sent the session store back
- *  to "loading", SessionBoundary unmounted the shell, the re-read came back
- *  anonymous, the shell remounted, and Nav polled again — one request per
- *  round trip, forever, with the sign-in gate flickering behind it.
- *
- *  This mounts the two in layout order with the REAL api and auth modules,
- *  so the only thing between Nav and the request is the check under test. */
+/** Keep the shell in app/layout.tsx order. With real auth and API modules,
+ *  a protected request here can restart session recovery and remount the
+ *  shell, repeating the same request on every mount. */
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/dashboard" }));
 vi.mock("@/lib/extensions/context", () => ({
   useFrontendExtensions: () => ({ navigation: [] }),
 }));
 
-const calls = { attention: 0, session: 0 };
+const calls = { attention: 0, theme: 0, session: 0 };
 const anonymous = {
   authenticated: false,
   user: "anonymous",
@@ -45,32 +39,37 @@ vi.stubGlobal(
       return Response.json(anonymous);
     }
     if (url.includes("/api/attention")) calls.attention += 1;
+    if (url.endsWith("/api/users/theme")) calls.theme += 1;
     return Response.json({ detail: "Sign in.", code: "SESSION_INVALID" }, { status: 401 });
   }),
 );
 
 import { AuthGate, SessionBoundary } from "@/components/auth-gate";
 import { Nav } from "@/components/nav";
+import { ThemeSync } from "@/components/theme-sync";
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("a stale session cookie", () => {
-  it("reaches the sign-in gate once, without polling attention", async () => {
+  it("keeps the sign-in gate stable without requesting attention or theme", async () => {
     render(
       <SessionBoundary>
-        <Nav />
-        <AuthGate>
-          <div data-testid="page" />
-        </AuthGate>
+        <ThemeSync />
+        <Nav>
+          <AuthGate>
+            <div data-testid="page" />
+          </AuthGate>
+        </Nav>
       </SessionBoundary>,
     );
-    await screen.findByRole("button", { name: "Sign in" });
-    // let any poll the mount started come back and re-bootstrap
+    const signIn = await screen.findByRole("button", { name: "Sign in" });
+    // A delayed 401 must settle before checking for a recovery remount.
     await act(async () => {
+      await vi.dynamicImportSettled();
       await new Promise((r) => setTimeout(r, 50));
     });
     await waitFor(() => expect(screen.queryByTestId("page")).toBeNull());
-    expect(calls.attention).toBe(0);
-    expect(calls.session).toBe(1);
+    expect(calls).toEqual({ attention: 0, theme: 0, session: 1 });
+    expect(screen.getByRole("button", { name: "Sign in" })).toBe(signIn);
   });
 });

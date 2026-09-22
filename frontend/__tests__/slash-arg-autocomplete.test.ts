@@ -47,9 +47,29 @@ describe("argQuery", () => {
 
 describe("mentionQuery", () => {
   it("opens on an @token being typed", () => {
-    expect(mentionQuery("@")).toEqual({ token: "", atStart: true });
-    expect(mentionQuery("@mi")).toEqual({ token: "mi", atStart: true });
-    expect(mentionQuery("can @mi")).toEqual({ token: "mi", atStart: false });
+    expect(mentionQuery("@")).toEqual({ token: "", atStart: true, start: 0, end: 1 });
+    expect(mentionQuery("@mi")).toEqual({ token: "mi", atStart: true, start: 0, end: 3 });
+    expect(mentionQuery("can @mi")).toEqual({ token: "mi", atStart: false, start: 4, end: 7 });
+  });
+
+  it("finds the token at the caret before existing text", () => {
+    expect(mentionQuery("@bac plan it", 4)).toEqual({
+      token: "bac", atStart: true, start: 0, end: 4,
+    });
+  });
+
+  it("includes the rest of a partially edited token in the replacement bounds", () => {
+    expect(mentionQuery("ask @bac-old plan it", 8)).toEqual({
+      token: "bac", atStart: false, start: 4, end: 12,
+    });
+  });
+
+  it("does not complete selected text or a caret outside a mention", () => {
+    expect(mentionQuery("@bac", 1, 4)).toBeNull();
+    expect(mentionQuery("@bac plan it", 0)).toBeNull();
+    expect(mentionQuery("@bac plan it", 5)).toBeNull();
+    expect(mentionQuery("mail ava@example today", 12)).toBeNull();
+    expect(mentionQuery("(@bac plan it", 5)).toBeNull();
   });
 
   it("marks only a leading @ as atStart, because only that invokes", () => {
