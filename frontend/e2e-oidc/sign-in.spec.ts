@@ -14,17 +14,15 @@ async function signIn(page: Page) {
   await page.goto("/");
   const origin = new URL(page.url()).origin;
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
-  // The exchange body is captured in a route, never read off the Response after
-  // the click. Signing in navigates, and Chromium frees a response body along
-  // with the page it belonged to ("No resource with given identifier found"),
-  // so whichever test lost that race failed on response.json(). Fulfilling with
-  // the fetched response forwards Set-Cookie unchanged, so the session cookie
-  // asserted below is still the backend's own.
+  // Capture the body before navigation frees it. Forward the fetched response
+  // so Set-Cookie remains the backend's own.
   let exchanged: { status: number; body: string } | null = null;
   await page.route("**/api/auth/token", async (route) => {
     const res = await route.fetch();
-    exchanged = { status: res.status(), body: await res.text() };
-    await route.fulfill({ response: res, body: exchanged.body });
+    const result = { status: res.status(), body: await res.text() };
+    await route.fulfill({ response: res, body: result.body });
+    // Removing interception before fulfillment can replay the already-spent code.
+    exchanged = result;
   });
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect.poll(() => exchanged?.status, { timeout: 15_000 }).toBe(200);
