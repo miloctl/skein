@@ -1071,14 +1071,14 @@ The protected GitHub `main` workflow publishes these packages when `.github/rele
 - `@miloctl/skein-extension-api` to private GitHub Packages.
 - `@miloctl/skein-frontend-host` to private GitHub Packages.
 
-This revision declares package line `0.6.4`. Registry pull-back and annotated tag `v0.6.4` are the authority for completed publication.
+This revision declares package line `0.6.5`. Registry pull-back and annotated tag `v0.6.5` are the authority for completed publication.
 
 The command that follows installs the contract for this revision. Run it only when the registry package and matching tag exist. It does not install later working-tree changes.
 
 Install `skein-agents` from PyPI or a controlled mirror:
 
 ```sh
-pip install skein-agents==0.6.4 \
+pip install skein-agents==0.6.5 \
   --index-url https://pypi.org/simple
 ```
 
@@ -1123,7 +1123,7 @@ Use Node 22. Pin the frontend host, its peers, and Next directly in the workplac
   },
   "dependencies": {
     "@miloctl/skein-extension-api": "1.0.0",
-    "@miloctl/skein-frontend-host": "0.6.4",
+    "@miloctl/skein-frontend-host": "0.6.5",
     "next": "16.3.4",
     "react": "19.2.4",
     "react-dom": "19.2.4"
@@ -1276,7 +1276,7 @@ sets `SKEIN_DATABASE_URL`. The backend script also requires a safe
 The script builds and installs separate wheels in a normal virtual environment.
 It starts Skein 0.2.3 with Atlas 1.x and writes upgrade data.
 
-It removes both old distributions. Then it installs `skein-agents` 0.6.4 and
+It removes both old distributions. Then it installs `skein-agents` 0.6.5 and
 Atlas 2.0 against the same database. This current-source wheel is a local test
 artifact and can differ from the registry wheel with the same version. Do not
 publish or distribute it.
