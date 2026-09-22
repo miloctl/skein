@@ -191,6 +191,20 @@ describe("@ completion", () => {
     expect(composer().value).toBe("@backend-architect ");
   });
 
+  it("completes the whole token when the matching prefix ends before a suffix", async () => {
+    await open();
+    const box = composer();
+    fireEvent.change(box, { target: { value: "@backend-architect-old plan it" } });
+    box.focus();
+    const caret = "@backend-architect".length;
+    fireEvent.select(box, { target: { selectionStart: caret, selectionEnd: caret } });
+    expect(screen.getByRole("option", { name: "Insert @backend-architect" })).toBeTruthy();
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(posts()).toHaveLength(0);
+    expect(box.value).toBe("@backend-architect plan it");
+    expect(box.selectionStart).toBe("@backend-architect ".length);
+  });
+
   it("sends a slug typed in full on the first Enter", async () => {
     await open();
     fireEvent.change(composer(), { target: { value: "@backend-architect" } });
