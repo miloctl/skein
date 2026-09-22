@@ -68,8 +68,21 @@ class FakeClient:
 
 @pytest.fixture
 def sealed(monkeypatch):
+    import socket
+
     from app.agents import mcp_tools
 
+    getaddrinfo = socket.getaddrinfo
+
+    def resolve(host, port, *args, **kwargs):
+        if isinstance(host, str) and host.endswith(".example"):
+            return [
+                (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.5", port))
+            ]
+        return getaddrinfo(host, port, *args, **kwargs)
+
+    # URL checks run before fake clients. Real DNS can exhaust the discovery wait.
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
     monkeypatch.setattr(config, "CREDENTIAL_KEY", Fernet.generate_key().decode())
     monkeypatch.setattr("strands.tools.mcp.MCPClient", FakeClient)
     SEEN.clear()
