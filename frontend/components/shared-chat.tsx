@@ -1420,13 +1420,14 @@ export function SharedChat({
                     setSel((s) => (s + step) % suggested.length);
                     return;
                   }
-                  // Enter on a slug already typed in full SENDS: completing it
-                  // again only adds a space, and the first Enter looks ignored.
+                  // Only a complete slug makes Enter send. mentionQuery.token stops
+                  // at the caret, so matching that prefix can send an unfinished mention.
                   // Tab always completes. Shift+Tab is focus movement.
                   const completes =
-                    pick &&
+                    pick && at &&
                     ((event.key === "Tab" && !event.shiftKey) ||
-                      (event.key === "Enter" && !event.shiftKey && pick !== at?.token));
+                      (event.key === "Enter" && !event.shiftKey &&
+                        pick !== draft.slice(at.start + 1, at.end).toLowerCase()));
                   if (completes) {
                     event.preventDefault();
                     complete(pick);
