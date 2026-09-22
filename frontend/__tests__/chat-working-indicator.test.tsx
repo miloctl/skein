@@ -17,10 +17,9 @@ vi.mock("@assistant-ui/react", () => ({
   MessagePrimitive: { Root: () => null, Parts: () => null, Attachments: () => null },
   AttachmentPrimitive: { Root: () => null, Name: () => null, Remove: () => null },
   ComposerPrimitive: { Root: () => null, Input: () => null, Send: () => null, Cancel: () => null },
-  useComposer: () => ({}),
-  useComposerRuntime: () => ({}),
-  useThread: (selector: (t: { messages: unknown[]; isRunning: boolean }) => unknown) =>
-    selector({ messages: mocks.messages, isRunning: mocks.isRunning }),
+  useAui: () => ({ composer: {} }),
+  useAuiState: (selector: (s: { thread: { messages: unknown[]; isRunning: boolean } }) => unknown) =>
+    selector({ thread: { messages: mocks.messages, isRunning: mocks.isRunning } }),
   unstable_useComposerInputHistory: () => ({}),
   unstable_useThreadMessageIds: () => [],
 }));

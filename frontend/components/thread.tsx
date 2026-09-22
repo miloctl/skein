@@ -14,10 +14,8 @@ import {
   MessagePrimitive,
   AttachmentPrimitive,
   ComposerPrimitive,
-  useAttachment,
-  useComposer,
-  useComposerRuntime,
-  useThread,
+  useAui,
+  useAuiState,
   unstable_useComposerInputHistory,
   unstable_useThreadMessageIds,
 } from "@assistant-ui/react";
@@ -107,7 +105,7 @@ export const MarkdownText = () => (
 const AttachmentChip = () => {
   // the NAME in the label: with two files staged, "Remove this file" on both
   // leaves a screen-reader user unable to tell which one they are removing
-  const name = useAttachment((a) => a.name);
+  const name = useAuiState((s) => s.attachment.name);
   return (
   <AttachmentPrimitive.Root className="mb-1.5 mr-1.5 inline-flex max-w-full items-center gap-1.5 rounded-lg border border-line-strong bg-raised py-1 pl-2 pr-1 text-xs text-ink-2">
     <span className="truncate">
@@ -171,8 +169,8 @@ export const WorkingIndicator = ({
 }: {
   status?: { type: string; error?: unknown };
 }) => {
-  const readingFile = useThread((t) => {
-    const last = [...t.messages].reverse().find((m) => m.role === "user");
+  const readingFile = useAuiState((s) => {
+    const last = [...s.thread.messages].reverse().find((m) => m.role === "user");
     return (last?.attachments?.length ?? 0) > 0;
   });
   const [long, setLong] = useState(false);
@@ -421,9 +419,9 @@ function flockList(): Promise<Flock[]> {
 }
 
 const Composer = () => {
-  const text = useComposer((s) => s.text);
-  const composer = useComposerRuntime();
-  const running = useThread((t) => t.isRunning);
+  const text = useAuiState((s) => s.composer.text);
+  const composer = useAui().composer;
+  const running = useAuiState((s) => s.thread.isRunning);
   const [commands, setCommands] = useState<SlashCommand[]>(FALLBACK_COMMANDS);
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [specialists, setSpecialists] = useState<Persona[]>([]);
@@ -947,9 +945,9 @@ export function Thread() {
   const anchor = useRef<{ element: HTMLElement; top: number; firstId: string | undefined } | null>(null);
   const initializedScroll = useRef(false);
   const previousRun = useRef(false);
-  const isRunning = useThread((t) => t.isRunning);
-  const replyStatus = useThread((t) => {
-    const last = t.messages.at(-1);
+  const isRunning = useAuiState((s) => s.thread.isRunning);
+  const replyStatus = useAuiState((s) => {
+    const last = s.thread.messages.at(-1);
     return last?.role === "assistant" ? last.status.type : undefined;
   });
   const wasRunning = useRef(false);

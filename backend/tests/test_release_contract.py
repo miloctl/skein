@@ -182,18 +182,29 @@ def test_reference_extension_metadata_uses_owned_compatibility_literals():
         assert f'"{literal}"' in frontend_source
 
 
-def test_chat_snapshot_dependency_is_pinned_in_both_builds():
-    # The current thread-list adapter allocates a fresh snapshot on unchanged reads.
-    # tap 0.9.14 loops on it. docs/EXTENSIONS.md records the compatibility pin.
+def test_chat_sdk_graph_is_pinned_in_both_builds():
+    # Divergent snapshot/store implementations can loop on every chat update.
+    # Both roots must resolve the graph exercised by the installed-package check.
+    expected = {
+        "@assistant-ui/react": "0.15.21",
+        "@assistant-ui/react-markdown": "0.14.16",
+        "@assistant-ui/core": "0.3.20",
+        "@assistant-ui/store": "0.3.14",
+        "@assistant-ui/tap": "0.9.18",
+    }
     for root in ("frontend", "examples/workplace-extension"):
-        assert _json(f"{root}/package.json")["overrides"]["@assistant-ui/tap"] == "0.9.4"
+        assert (
+            _json(f"{root}/package.json")["overrides"]["@assistant-ui/tap"]
+            == expected["@assistant-ui/tap"]
+        )
         packages = _json(f"{root}/package-lock.json")["packages"]
-        versions = {
-            entry["version"]
-            for name, entry in packages.items()
-            if name.endswith("/@assistant-ui/tap")
-        }
-        assert versions == {"0.9.4"}
+        for name, version in expected.items():
+            versions = {
+                entry["version"]
+                for path, entry in packages.items()
+                if path.endswith(f"/node_modules/{name}") or path == f"node_modules/{name}"
+            }
+            assert versions == {version}, f"{root}: {name}"
 
 
 def test_extension_api_one_exports_exactly_the_documented_surface():

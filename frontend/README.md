@@ -57,14 +57,14 @@ Add these exact root overrides:
 ```json
 {
   "overrides": {
-    "@assistant-ui/tap": "0.9.4",
+    "@assistant-ui/tap": "0.9.18",
     "postcss": "8.5.23",
     "sharp": "0.35.4"
   }
 }
 ```
 
-Overrides from an installed package have no effect. The host command refuses a root that omits these pins or overrides. The tap pin avoids a state-update loop in the current assistant-ui thread-list adapter. Keep it until an SDK update passes the package-built chat checks.
+Overrides from an installed package have no effect. The host command refuses a root that omits these pins or overrides. The tap pin matches the tested assistant-ui 0.15 dependency graph, whose core fixes thread-list snapshot updates. Do not retain the old 0.9.4 override when upgrading this host.
 
 The workplace project owns its npm lock. It compiles each extension before it runs the host command.
 

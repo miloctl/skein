@@ -39,6 +39,12 @@ the extension API from exact local artifacts. It owns both dependency locks,
 its PostgreSQL schema, final images, content, and deployment. See
 `docs/EXTENSIONS.md`.
 
+Chat uses assistant-ui 0.15 scope hooks while retaining the local runtime,
+streaming adapter, history, identity guards, and controlled composer. Source
+and workplace locks resolve one tested SDK graph. The release contract checks
+both graphs, including nested copies, and browser checks cover the installed
+host as well as the source build.
+
 The template includes a consumer-owned unpublished contract. It accepts current
 Skein source or one prebuilt artifact set. It reuses exact package bytes through
 locks, installed-package tests, final images, an isolated PostgreSQL role,
