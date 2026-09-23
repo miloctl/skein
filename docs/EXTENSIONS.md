@@ -1065,11 +1065,11 @@ An installed deployment sets at least:
 - `SKEIN_PLAYBOOKS_DIR`, `SKEIN_PERSONAS_DIR`, and `SKEIN_FLOCKS_DIR` mount
   deployment content overlays.
 
-The protected GitHub `main` workflow publishes these packages when `.github/release-version` changes:
+The GitHub `publish-release` workflow publishes these packages from a green `ci` run on protected `main` whose `.github/release-version` names the version. A push alone publishes nothing:
 
 - `skein-agents` to public PyPI through Trusted Publishing.
-- `@miloctl/skein-extension-api` to private GitHub Packages.
-- `@miloctl/skein-frontend-host` to private GitHub Packages.
+- `@miloctl/skein-extension-api` to public npmjs.com through Trusted Publishing.
+- `@miloctl/skein-frontend-host` to public npmjs.com through Trusted Publishing.
 
 This revision declares package line `0.6.5`. Registry pull-back and annotated tag `v0.6.5` are the authority for completed publication.
 

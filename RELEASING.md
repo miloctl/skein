@@ -7,10 +7,10 @@ The release marker names the package line for this revision. Registry pull-back 
 The package identities are:
 
 - `skein-agents` on public PyPI.
-- `@miloctl/skein-extension-api` on GitHub Packages.
-- `@miloctl/skein-frontend-host` on GitHub Packages.
+- `@miloctl/skein-extension-api` on public npmjs.com.
+- `@miloctl/skein-frontend-host` on public npmjs.com.
 
-The npm packages are private. The release workflow does not publish images. Workplace repositories build and own their final images.
+The npm packages install with no token. The release workflow does not publish images. Workplace repositories build and own their final images.
 
 ## Configure the accounts
 
@@ -19,7 +19,7 @@ Keep these account settings for each release pull request.
 ### GitHub
 
 1. Enable Actions for `miloctl/skein`.
-2. Confirm that repository policy permits job-level `packages: write`.
+2. Confirm that repository policy permits job-level `id-token: write`. Both publishers use it for OIDC Trusted Publishing.
 3. Protect `main` with pull requests and the required GitHub CI checks.
 4. Restrict direct pushes and force pushes to `main`.
 5. Create GitHub environments named `pypi`, `npm`, and `release-finalization`.
@@ -222,7 +222,7 @@ Do not treat a successful upload as completed publication. Open the GitHub `fina
 
 The workflow validates the original gated run and downloads its immutable artifact ID. It inspects the three package identities and versions without extracting them.
 
-The workflow pulls the matching PyPI wheel and both GitHub npm tarballs with bounded retries. It compares each registry file with the original artifact: the wheel with SHA-256, each npm tarball with SHA-512. That comparison is the proof of publication. No job status stands in for it.
+The workflow pulls the matching PyPI wheel and both npm tarballs from npmjs.com with bounded retries. It compares each registry file with the original artifact: the wheel with SHA-256, each npm tarball with SHA-512. That comparison is the proof of publication. No job status stands in for it.
 
 After the registry bytes match, approve the protected `release-finalization` environment. The tag job creates annotated tag `vX.Y.Z` at the original release SHA.
 
