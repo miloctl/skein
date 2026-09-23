@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ save: vi.fn(), strong: true }));
+const state = vi.hoisted(() => ({ save: vi.fn(), strong: true, notes: "ok" as "ok" | "pending" | "fail" }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/people" }));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/api")>(),
@@ -11,6 +11,9 @@ vi.mock("@/lib/api", async (importOriginal) => ({
       { name: "alice", kind: "human" }, { name: "bob", kind: "human" },
     ]);
     if (init?.method === "POST") return state.save(JSON.parse(String(init.body)));
+    if (path.startsWith("/api/private/notes") && state.notes === "pending") return new Promise(() => {});
+    if (path.startsWith("/api/private/notes") && state.notes === "fail")
+      return Promise.reject(new Error("Cannot reach the backend."));
     if (path.startsWith("/api/private/notes")) return Promise.resolve([{
       id: 1, person: path.split("=")[1], kind: "note",
       body: `Saved for ${path.split("=")[1]}`, created_at: "2026-09-04",
@@ -24,7 +27,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 }));
 import PeoplePage from "@/app/people/page";
 
-beforeEach(() => { state.strong = true; state.save.mockReset().mockResolvedValue({}); });
+beforeEach(() => { state.strong = true; state.notes = "ok"; state.save.mockReset().mockResolvedValue({}); });
 
 it("keeps each teammate's draft separate and clears drafts on identity change", async () => {
   render(<PeoplePage />);
@@ -63,4 +66,14 @@ it("keeps visible labels for private note type and body", async () => {
     expect(field.labels?.length).toBe(1);
     expect(field.labels?.[0].classList.contains("sr-only")).toBe(false);
   }
+});
+
+it.each(["pending", "fail"] as const)("claims no empty notes list while the read is %s", async (mode) => {
+  state.notes = mode;
+  render(<PeoplePage />);
+  fireEvent.click(await screen.findByRole("button", { name: "alice" }));
+  await act(async () => {});
+  expect(screen.queryByText(/No notes for alice yet/)).toBeNull();
+  if (mode === "fail") expect(screen.getByText(/Cannot reach the backend/)).toBeTruthy();
+  else expect(screen.getByText("Loading…")).toBeTruthy();
 });
