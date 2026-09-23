@@ -9,7 +9,7 @@ from datetime import date, timedelta
 import pytest
 
 from app import db
-from app.services import collab, delta, insights, promises, scope, users
+from app.services import collab, delta, fieldguide, insights, promises, scope, users, wording
 
 
 def _questions(count, monkeypatch):
@@ -356,6 +356,49 @@ def test_changed_batch_and_stale_revision_do_not_write(client):
     assert _ack(client, stale).status_code == 409
     assert _ack(client, third).status_code == 200
     assert _ack(client, second).status_code == 409
+
+
+def test_feature_adoption_findings_fold_into_one_row_outside_the_cap(client):
+    """The adoption rule files one finding for each unused field-guide card, all
+    at once on a new install. Each one spent a slot of the 50-row cap, so the
+    first week's summary was incomplete and could not be marked reviewed."""
+    users.ensure_user("ava")
+    collab.ask_question("Who owns the rollback?", asked_by="ava", actor="ava")
+    db.execute(
+        "UPDATE questions SET created_at = ?",
+        (db.local_midnight_utc(db.today() - timedelta(days=8)),),
+    )
+    minted = insights.run_findings(actor="ava")["findings"]
+    adoption = sorted(
+        (f for f in minted if f["rule_id"] == "feature_unadopted"), key=lambda f: f["id"]
+    )
+    assert len(adoption) >= 2, "the field guide has cards past their grace window"
+
+    summary = _preview(client)
+    rows = [i for i in summary["items"] if i.get("rule_id") == "feature_unadopted"]
+    assert len(rows) == 1
+    assert rows[0]["severity"] == "low"
+    assert rows[0]["headline"] == (
+        f"{len(adoption)} field-guide features have no team-wide first use"
+        " 30 days after they entered the field guide."
+    )
+    features = {k["id"]: k["feature"] for k in fieldguide.registry()}
+    assert [r["message"] for r in rows[0]["receipts"]] == [
+        f"finding #{f['id']} (low): {wording.quoted(features[f['subject']])}" for f in adoption
+    ]
+    assert all(
+        r["refs"] == [{"entity": "finding", "id": f["id"]}]
+        for r, f in zip(rows[0]["receipts"], adoption, strict=True)
+    )
+    assert any(i.get("rule_id") == "question_aging" for i in summary["items"])
+    assert not summary["truncated"]
+    assert _ack(client, summary).status_code == 200
+
+    # The row speaks for its set, so a changed set is a new batch to review.
+    insights.disposition_finding(adoption[0]["id"], "dismissed", actor="ava")
+    changed = _preview(client)
+    assert changed["snapshot_id"] != summary["snapshot_id"]
+    assert not changed["reviewed"]
 
 
 def test_incomplete_summary_cannot_be_reviewed(client, monkeypatch):
