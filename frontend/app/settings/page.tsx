@@ -21,6 +21,7 @@ import {
 } from "@/lib/api";
 import { authConfig, sessionEnd, sessionSnapshot, signInWithKey, signOut, subscribeSession, trustedHeaderIdentity } from "@/lib/auth";
 import { startFirstWatch } from "@/lib/first-watch";
+import { isIdentityEvent } from "@/lib/shared-chats";
 import { reportStatus } from "@/lib/status";
 import { timeAgo } from "@/lib/time";
 import { copyText } from "@/lib/clipboard";
@@ -50,6 +51,21 @@ import {
 function subscribeStorage(cb: () => void) {
   window.addEventListener("storage", cb);
   return () => window.removeEventListener("storage", cb);
+}
+
+// lib/theme.ts dispatches a synthetic storage event on every paint. Treated
+// as an identity change, one hue drag blanked the identity panel, cleared the
+// status lines keyed on identityRevision, and refetched their endpoints.
+function subscribeIdentity(cb: () => void) {
+  const changed = (event: Event) => {
+    if (isIdentityEvent(event)) cb();
+  };
+  window.addEventListener("storage", changed);
+  window.addEventListener("skein-identity-change", changed);
+  return () => {
+    window.removeEventListener("storage", changed);
+    window.removeEventListener("skein-identity-change", changed);
+  };
 }
 
 const WRITE_TIMEOUT_MS = 30_000;
@@ -934,7 +950,7 @@ export default function SettingsPage() {
     queueMicrotask(() => {
       if (!cancelled) refresh();
     });
-    const unsubscribe = subscribeStorage(refresh);
+    const unsubscribe = subscribeIdentity(refresh);
     return () => {
       cancelled = true;
       unsubscribe();

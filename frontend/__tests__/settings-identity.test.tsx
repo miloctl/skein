@@ -289,7 +289,7 @@ describe("Settings identity states", () => {
       strong: false,
       can_administer: false,
     };
-    window.dispatchEvent(new Event("storage"));
+    window.dispatchEvent(new Event("skein-identity-change"));
 
     expect(
       (
@@ -337,7 +337,7 @@ describe("Settings identity states", () => {
       strong: false,
       can_administer: false,
     };
-    window.dispatchEvent(new Event("storage"));
+    window.dispatchEvent(new Event("skein-identity-change"));
 
     // the receipt is a value the section says only an administrator can
     // read — it must not survive into the next identity's page
@@ -383,7 +383,7 @@ describe("Settings identity states", () => {
 
     state.identity = { ...state.identity, user: "next-operator" };
     state.automationEnabled = false;
-    window.dispatchEvent(new Event("storage"));
+    window.dispatchEvent(new Event("skein-identity-change"));
 
     expect(
       await screen.findByRole("button", { name: "Resume unattended runs" }),
@@ -414,7 +414,7 @@ describe("Settings identity states", () => {
       strong: false,
       can_administer: false,
     };
-    window.dispatchEvent(new Event("storage"));
+    window.dispatchEvent(new Event("skein-identity-change"));
     await waitFor(() =>
       expect(state.calls.filter((path) => path === "/api/whoami")).toHaveLength(
         2,
@@ -449,6 +449,24 @@ describe("Settings identity states", () => {
     expect(
       state.calls.filter((path) => path === "/api/settings/model"),
     ).toHaveLength(1);
+  });
+
+  it("keeps the identity through a theme paint and rereads it on an identity change", async () => {
+    render(<SettingsPage />);
+    await screen.findByText(/as operator/);
+    const whoami = () => state.calls.filter((path) => path === "/api/whoami").length;
+    const before = whoami();
+
+    // lib/theme.ts dispatches this form on every paint, a hue drag included
+    act(() => window.dispatchEvent(new Event("storage")));
+    await act(async () => {});
+    expect(whoami()).toBe(before);
+    expect(screen.queryByText("Checking identity…")).toBeNull();
+
+    act(() => window.dispatchEvent(new Event("skein-identity-change")));
+    await waitFor(() => expect(whoami()).toBe(before + 1));
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key: "skein-user" })));
+    await waitFor(() => expect(whoami()).toBe(before + 2));
   });
 
   it("shows an identity failure instead of checking forever", async () => {
