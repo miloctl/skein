@@ -953,3 +953,58 @@ def test_a_verdict_on_a_persons_proposal_stays_between_proposer_and_reviewer(
     fired = insights._r_rejection_spike()
     assert fired and "agent note" in str(fired)
     assert "ZZHARSHZZ" not in str(fired)
+
+
+def test_an_agents_proposal_is_the_requesters_to_judge_first(client, fresh_db, monkeypatch):
+    """A proposal from a person's chat went to the team queue: every teammate
+    read its payload, the words of that chat, and got a notice quoting it."""
+    from app import config
+    from app.agents import identity
+    from app.extensions import PolicyDecision, PolicyEffect
+    from app.extensions.policy import PolicyEngine, reset_policy_engine, set_policy_engine
+    from app.services import scope, users
+    from app.tools._gate import gated_write
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    for name in ("ava", "bob"):
+        users.ensure_user(name)
+
+    def filed(text, *, strong=True):
+        requester = identity.set_requester_identity("ava")
+        viewer = identity.set_requester_viewer(scope.Viewer("ava", strong))
+        try:
+            payload = {"question": text, "asked_by": "ava"}
+            out = gated_write("question", "create", payload, lambda: {"id": 0})
+        finally:
+            identity.reset_requester_viewer(viewer)
+            identity.reset_requester_identity(requester)
+        return fresh_db.query_one(
+            "SELECT id, review_visibility, review_owner FROM pending_changes WHERE id = ?",
+            (json.loads(out)["id"],),
+        )
+
+    mine = filed("ZZMINEZZ")
+    assert (mine["review_visibility"], mine["review_owner"]) == ("private", "ava")
+    assert "ZZMINEZZ" not in json.dumps(fresh_db.query("SELECT message FROM notifications"))
+    seen_by = {
+        name: [row["id"] for row in client.get("/api/review", headers=_strong(client, name)).json()]
+        for name in ("ava", "bob")
+    }
+    assert mine["id"] in seen_by["ava"] and mine["id"] not in seen_by["bob"]
+    approved = client.post(
+        f"/api/review/{mine['id']}/approve", json={}, headers=_strong(client, "ava")
+    )
+    assert approved.status_code == 200
+    # a trusted-header name with no key reads no private row
+    assert filed("weak", strong=False)["review_visibility"] == "workspace"
+    token = set_policy_engine(
+        PolicyEngine(
+            (lambda request: PolicyDecision(PolicyEffect.REVIEW, approver_groups=("leads",)),)
+        )
+    )
+    try:
+        assert filed("grouped")["review_visibility"] == "workspace"
+    finally:
+        reset_policy_engine(token)
+    monkeypatch.setattr(config, "REVIEW_SEPARATION", True)
+    assert filed("separated")["review_visibility"] == "workspace"

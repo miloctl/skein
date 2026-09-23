@@ -17,7 +17,12 @@ import json
 
 from .. import db, ratelimit
 from ..agents import receipts
-from ..agents.identity import agent_identity, requester_identity, workspace_only_tools
+from ..agents.identity import (
+    agent_identity,
+    requester_identity,
+    requester_viewer,
+    workspace_only_tools,
+)
 from ..extensions.policy import (
     PolicyEffect,
     PolicyInput,
@@ -279,7 +284,15 @@ def _gated_write_locked(
 
     addressee = str(payload.get("user") or "") if entity == "memory" and action == "create" else ""
     review_owner = addressee if addressee and not is_agent(addressee) else ""
-    private_review = workspace_only_tools() or bool(review_owner)
+    private_review = (
+        workspace_only_tools()
+        or bool(review_owner)
+        or review.requester_judges(
+            getattr(requester_viewer(), "name", ""),
+            decision.approver_groups,
+            decision.approver_capabilities,
+        )
+    )
     review_owner = (review_owner or requester_identity()) if private_review else ""
     try:
         # Same reason as the direct() savepoint above: this catch RETURNS, so

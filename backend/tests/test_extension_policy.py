@@ -6662,3 +6662,68 @@ def test_a_personal_call_that_policy_sends_to_approvers_stays_readable_to_them(
         reset_policy_engine(policy_token)
     row = fresh_db.query_one("SELECT review_visibility FROM pending_changes")
     assert row["review_visibility"] == "workspace"
+
+
+def test_a_strong_requesters_governed_calls_are_theirs_to_judge_first(fresh_db):
+    """Governed tool calls from a person's chat went to the team queue, where
+    every teammate read the call's input, taken from that chat."""
+    from app.agents.core_tools import GovernedCoreTool
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.agents.mcp_tools import GovernedMCPTool
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+
+    module = replace(
+        _module(),
+        policies=(
+            PolicyContribution(
+                "acme.workplace.policy", lambda request: PolicyDecision(PolicyEffect.REVIEW)
+            ),
+        ),
+    )
+    registry = ExtensionRegistry.build((module,))
+
+    def filed(name, strong):
+        subject = PolicySubject(name, strong=strong)
+        asyncio.run(
+            execute_tool(
+                registry.tool("acme.workplace.atlas-update"),
+                {"external_id": "A-7"},
+                ToolCallContext(subject, "acme.workplace.delivery"),
+                registry.policy_engine,
+            )
+        )
+        core = GovernedCoreTool(_RemoteTool(), effect="write", risk="high")
+        remote = GovernedMCPTool(
+            _RemoteTool(),
+            _mcp_metadata(effect="write", risk="high", policy_action="mcp:write"),
+            "atlas-server",
+        )
+        tokens = (
+            set_policy_engine(registry.policy_engine),
+            set_policy_subject(subject),
+            set_agent_identity("agent"),
+        )
+
+        async def run():
+            use = {"toolUseId": "core", "input": {}}
+            [event async for event in core._stream(use, {}, subject, "agent", "")]
+            use = {"toolUseId": "mcp", "name": "atlas_remote", "input": {}}
+            [event async for event in remote.stream(use, {})]
+
+        try:
+            asyncio.run(run())
+        finally:
+            reset_agent_identity(tokens[2])
+            reset_policy_subject(tokens[1])
+            reset_policy_engine(tokens[0])
+        rows = fresh_db.query(
+            "SELECT entity, review_visibility, review_owner FROM pending_changes"
+            " WHERE requested_by = ? ORDER BY id",
+            (subject.name,),
+        )
+        return {row["entity"]: (row["review_visibility"], row["review_owner"]) for row in rows}
+
+    kinds = ("extension_tool", "extension_core_tool", "extension_mcp_tool")
+    assert filed("mira", True) == dict.fromkeys(kinds, ("private", "mira"))
+    # a weak identity reads no private row, so the team reviews its calls
+    assert filed("guest", False) == dict.fromkeys(kinds, ("workspace", "guest"))

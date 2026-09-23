@@ -129,6 +129,32 @@ def unappliable(entity: str, payload: dict, action: str = "create", *, entity_id
     return ""
 
 
+def requester_judges(
+    requester: str,
+    approver_groups: tuple[str, ...] = (),
+    approver_capabilities: tuple[str, ...] = (),
+) -> bool:
+    """Whether an agent's proposal is private to the person who drove the turn.
+
+    `requester` is that person's name when their identity is strong, else
+    "": a weak viewer reads no private row (scope.Viewer), so a proposal
+    private to a trusted-header name with no key reached nobody. An
+    unattended run has no requester.
+
+    Its payload is their chat: their words, their own crew and private rows,
+    the files they attached. Reviewed at the workspace tier, every teammate
+    read it and got a notice quoting it. The requester's approval is what
+    shares it. The team reviews instead when separated duties are on (the
+    requester cannot approve, _check_separation) or when policy names
+    approvers (only they can, _check_policy_approver)."""
+    return (
+        bool(requester)
+        and not config.REVIEW_SEPARATION
+        and not approver_groups
+        and not approver_capabilities
+    )
+
+
 def propose_change(
     entity: str,
     action: str,

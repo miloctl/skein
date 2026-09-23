@@ -50,6 +50,10 @@ type Change = {
   summary: string;
   proposed_by: string;
   requested_by: string | null;
+  // "private" when the proposal reaches its owner alone: an agent's
+  // proposal from their chat, a memory addressed to them
+  // (services/review.py::requester_judges)
+  review_visibility?: string;
   origin: string;
   created_at: string;
   label: string; // services/lexicon.py — what this write is called
@@ -825,6 +829,12 @@ export default function ReviewPage() {
             {c.summary && (
               <p className="mb-2 text-sm text-ink-2">{c.summary}</p>
             )}
+            {c.review_visibility === "private" ? (
+              <p className="mb-2 text-xs text-ink-3">
+                Only you can see this proposal. Nobody else sees the change
+                unless you approve it.
+              </p>
+            ) : null}
             {c.evidence ? <AcceptanceEvidence evidence={c.evidence} /> : null}
             <details className="mb-3">
               <summary className="cursor-pointer text-xs font-medium text-thread underline">
