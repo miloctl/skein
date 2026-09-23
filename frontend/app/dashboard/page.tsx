@@ -1,11 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { VisibilityBadge } from "@/components/visibility-picker";
 import { PeekLink } from "@/components/task-peek";
-import { actionError, api, loadError } from "@/lib/api";
+import { actionError, api, getUser, loadError, subscribeUser } from "@/lib/api";
+import { useRememberedAudience } from "@/lib/audience";
 import { HASH_TARGET, useHashTarget } from "@/lib/hash-target";
 import { reportStatus } from "@/lib/status";
 import { PersonInput } from "@/components/person-input";
@@ -386,18 +394,40 @@ function EditRow({
 
 /** The draft lives here (EditRow idiom): keystrokes re-render this form,
  *  not the thirteen-section page around it. */
+type TeamSees = "nothing" | "dates" | "details";
+const TEAM_SEES: TeamSees[] = ["nothing", "dates", "details"];
+
 function AbsenceForm({
   onAdd,
 }: {
-  onAdd: (draft: Record<string, string>) => Promise<void>;
+  onAdd: (draft: Record<string, unknown>) => Promise<void>;
 }) {
   const empty = { person: "", starts_on: "", ends_on: "", kind: "pto" };
   const [draft, setDraft] = useState(empty);
   const [adding, setAdding] = useState(false);
+  const [sees, setSees] = useRememberedAudience<TeamSees>(
+    "absence",
+    "nothing",
+    (v) => TEAM_SEES.includes(v as TeamSees),
+  );
+  const me = useSyncExternalStore(subscribeUser, getUser, () => "");
+  // A window about somebody else cannot be private (scope.assert_readable_by),
+  // so the three choices are for your own time away only. The server picks
+  // the roster for a teammate's when the request names no tier.
+  const own =
+    !draft.person.trim() ||
+    draft.person.trim().toLowerCase() === me.toLowerCase();
   const add = async () => {
     setAdding(true);
     try {
-      await onAdd(draft);
+      await onAdd({
+        ...draft,
+        ...(own
+          ? sees === "details"
+            ? { visibility: "workspace" }
+            : { visibility: "private", share_dates: sees === "dates" }
+          : {}),
+      });
       setDraft(empty);
     } catch (e) {
       reportStatus(actionError(e));
@@ -461,6 +491,26 @@ function AbsenceForm({
         <option value="focus">focus</option>
       </select>
 </label>
+      {own ? (
+        <label className="flex min-w-0 flex-col gap-0.5 text-xs text-ink-3">
+          <span>Who sees this</span>
+          <select
+            aria-label="Who sees this time away"
+            name="team_sees"
+            value={sees}
+            onChange={(e) => setSees(e.target.value as TeamSees)}
+            className="rounded-lg border border-line-strong bg-card px-1.5 py-1"
+          >
+            <option value="nothing">Only me</option>
+            <option value="dates">The team sees that I am away</option>
+            <option value="details">The team sees the details</option>
+          </select>
+        </label>
+      ) : (
+        <span className="self-center text-xs text-ink-3">
+          Visible to everyone on the roster
+        </span>
+      )}
       <button
         disabled={
           adding ||
@@ -730,10 +780,28 @@ export default function Dashboard() {
   const refocusEdit = (kind: string, id: number) =>
     setTimeout(() => focusVisible(document.getElementById(`edit-${kind}-${id}`)), 0);
 
-  const addAbsence = async (draft: Record<string, string>) => {
+  const addAbsence = async (draft: Record<string, unknown>) => {
     // absences feed capacity's "away" markers — both must refresh together
     await api("/api/absences", { method: "POST", body: JSON.stringify(draft) });
     refresh(["absences", "capacity", "activity"]);
+  };
+
+  const shareAbsence = async (id: number, teamSees: "dates" | "details") => {
+    try {
+      await api(`/api/absences/${id}/share`, {
+        method: "POST",
+        body: JSON.stringify({ team_sees: teamSees }),
+      });
+      reportStatus(
+        teamSees === "dates"
+          ? "The team now sees the dates of this time away."
+          : "Everyone on the roster now sees this time away.",
+        "confirmation",
+      );
+      refresh(["absences", "capacity", "activity"]);
+    } catch (e) {
+      reportStatus(actionError(e));
+    }
   };
 
   const deleteAbsence = async (id: number) => {
@@ -1400,8 +1468,9 @@ export default function Dashboard() {
             Time away
           </h2>
           <p className="mb-2 text-xs text-ink-3">
-            PTO zeroes someone out of capacity and the weekly plan. On-call and
-            focus are advisory context for staffing calls.
+            PTO zeroes someone out of capacity and the weekly plan when the team
+            sees its dates. On-call and focus are advisory context for staffing
+            calls.
           </p>
           <details className="mb-3"><summary className="cursor-pointer text-sm font-medium">Add time away</summary><AbsenceForm onAdd={addAbsence} /></details>
           {(data.absences ?? []).length === 0 ? (
@@ -1419,10 +1488,35 @@ export default function Dashboard() {
                       visibility={a.visibility as string}
                       crewId={a.crew_id as number}
                     />
+                    {a.visibility === "private" && a.dates_shared ? (
+                      <span className="ml-1.5 text-xs text-ink-3">
+                        (the team sees the dates)
+                      </span>
+                    ) : null}
                     <span className="ml-2 text-xs text-ink-3">
                       {a.kind} · {a.starts_on} → {a.ends_on}
                       {a.note ? ` · ${a.note}` : ""}
                     </span>
+                    {/* a private window is readable by the person away
+                        alone, so every one listed here is the viewer's */}
+                    {a.visibility === "private" ? (
+                      <span className="ml-2 inline-flex gap-1">
+                        {!a.dates_shared ? (
+                          <button
+                            onClick={() => shareAbsence(Number(a.id), "dates")}
+                            className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                          >
+                            share the dates
+                          </button>
+                        ) : null}
+                        <button
+                          onClick={() => shareAbsence(Number(a.id), "details")}
+                          className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                        >
+                          share with the team
+                        </button>
+                      </span>
+                    ) : null}
                   </span>
                   {deletingAbsence === a.id ? (
                     <span

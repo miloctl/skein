@@ -109,7 +109,8 @@ def unappliable(entity: str, payload: dict, action: str = "create", *, entity_id
     # handler resets the row to pending and the proposal boomerangs in the
     # queue forever. extension_* payloads are never splatted (their apply uses
     # the stored invocation); their fixed public keys just never collide.
-    for reserved in ("actor", "origin") + (("requester",) if entity == "memory_forget" else ()):
+    requester_bound = entity in ("memory_forget", "absence")
+    for reserved in ("actor", "origin") + (("requester",) if requester_bound else ()):
         if reserved in payload:
             return f"the payload cannot carry '{reserved}' — the review records it"
     if entity == "task":
@@ -738,10 +739,11 @@ def _approve_change_locked(
                 # the scheduler as the granter of a human-authorized elevation.
                 if change["entity"] == "authority":
                     author = actor
-                if change["entity"] == "memory_forget":
+                if change["entity"] in ("memory_forget", "absence"):
                     # The proposer owns the provenance, not the targeted memory.
                     # Overwrite even a legacy payload's requester: model-authored
-                    # arguments cannot authorize removal of somebody else's row.
+                    # arguments cannot authorize removal of somebody else's row,
+                    # or make a private window about somebody else.
                     payload["requester"] = change.get("requested_by") or author
                 if change["action"] == "update":
                     result = fn(

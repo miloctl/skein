@@ -442,6 +442,11 @@ _EXEMPT_FILES = {
 # name -> why the guard does not belong. An absence with no reason reads as an
 # oversight to the next reader (CLAUDE.md).
 _EXEMPT_FUNCTIONS = {
+    "absences.py::share_absence": (
+        "widens one window by id only where its person is the actor, the one"
+        " reader of a private window; the refusal is scope.missing, the same"
+        " sentence an absent row gets"
+    ),
     "memory.py::remember": (
         "an approved share deletes the SOURCE memory only where its addressee"
         " is the actor, the one person who can read it; the actor is the"
@@ -666,6 +671,10 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
 
 # file::function -> why this read needs no tier filter.
 _UNFILTERED_READS = {
+    "absences.py::share_absence": (
+        "locks one window by id and refuses it unless its person is the actor;"
+        " returns the id and the setting, never the window"
+    ),
     "memory.py::remember": (
         "the share's DELETE matches the source memory by id and by an addressee"
         " equal to the actor, so it touches only the actor's own row"

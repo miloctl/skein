@@ -177,7 +177,7 @@ knots:
     knot: Honda Knot
     set: loops
     pitch: PTO and focus windows the weekly draft and staffing projections respect.
-    how: "On Work → Browse, select Time away. Open Add time away and enter the dates."
+    how: "On Work → Browse, select Time away. Open Add time away and enter the dates. For your own time away, pick who sees it: only you, the team sees that you are away, or the team sees the details. If the team sees the dates, planning counts it."
     link: /dashboard#browse-time-away
     since: 2026-07-31
 

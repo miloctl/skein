@@ -730,8 +730,16 @@ class AbsenceIn(BaseModel):
     note: str = Field("", max_length=200)
     # `person` is checked as a READER (absences.add_absence).
     # the tier the writer picked, checked in the service: crew membership only.
-    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    # None is the narrowest tier the service allows for this person.
+    visibility: str | None = Field(None, max_length=16)
     crew_id: int = 0
+    # a private window counts in capacity and planning only with this
+    share_dates: bool = False
+
+
+class AbsenceShareIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    team_sees: Literal["dates", "details"]
 
 
 @router.get("/absences")
@@ -752,7 +760,20 @@ def post_absence(body: AbsenceIn, user: CurrentUser):
             actor=user,
             visibility=body.visibility,
             crew_id=body.crew_id,
+            dates_shared=body.share_dates,
         )
+    except db.NotFound:
+        raise
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.post("/absences/{absence_id}/share")
+def share_absence(absence_id: int, body: AbsenceShareIn, user: StrongUser):
+    """StrongUser: a weak name reads no private row, and must not widen one."""
+    ratelimit.check("write", user)
+    try:
+        return absences.share_absence(absence_id, body.team_sees, actor=user)
     except db.NotFound:
         raise
     except ValueError as e:

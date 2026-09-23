@@ -100,6 +100,7 @@ def test_a_private_absence_reason_never_leaves_the_workspace_tier(fresh_db):
         kind="oncall",
         actor="ava",
         visibility="private",
+        dates_shared=True,
     )
     absences.add_absence(
         "mira",
@@ -107,6 +108,7 @@ def test_a_private_absence_reason_never_leaves_the_workspace_tier(fresh_db):
         (monday + timedelta(days=3)).isoformat(),
         kind="pto",
         actor="mira",
+        visibility="workspace",
     )
 
     weeks = portfolio.capacity_ahead(1, scope.Viewer.for_actor("someone-else"))

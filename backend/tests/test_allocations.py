@@ -1,5 +1,6 @@
 """Capacity: allocations, absences, window awareness, and the what-if projection."""
 
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -200,3 +201,94 @@ def test_what_if_ignores_expired_allocations(client):
     ).json()
     zoe = out["projection"][0]
     assert zoe["current_percent"] == 0 and not zoe["overcommitted"]
+
+
+def _viewer(name):
+    from app.services import scope
+
+    return scope.Viewer(name, True)
+
+
+def test_time_away_reaches_the_team_as_far_as_its_person_chose(client, fresh_db, monkeypatch):
+    """A private window's dates reached capacity, planning, the weekly draft
+    and staffing what-ifs although nobody chose to share them."""
+    from datetime import timedelta
+
+    from conftest import _strong
+
+    from app import config, db
+    from app.agents import identity
+    from app.services import absences, intake, portfolio, users, weekly, work
+    from app.tools.portfolio import add_absence as absence_tool
+
+    for name in ("ava", "bob", "cy", "mira"):
+        users.ensure_user(name)
+    monday = db.today() - timedelta(days=db.today().weekday())
+    window = {"starts_on": monday.isoformat(), "ends_on": (monday + timedelta(days=6)).isoformat()}
+    headers = {name: _strong(client, name) for name in ("ava", "bob", "cy")}
+    for name, extra in (
+        ("ava", {}),
+        ("bob", {"share_dates": True}),
+        ("cy", {"visibility": "workspace"}),
+    ):
+        body = {"person": name, **window, "note": f"ZZ{name}ZZ", **extra}
+        assert client.post("/api/absences", json=body, headers=headers[name]).status_code == 200
+        work.create_task(title=f"work for {name}", assignee=name, actor="mira")
+    # a teammate's window takes no tier from the form: the roster sees it
+    body = {"person": "mira", **window}
+    teammate = client.post("/api/absences", json=body, headers=headers["ava"]).json()
+    assert (
+        fresh_db.query_one("SELECT visibility FROM absences WHERE id = ?", (teammate["id"],))[
+            "visibility"
+        ]
+        == "workspace"
+    )
+
+    assert absences.away_today() == {"bob": "away", "cy": "pto", "mira": "pto"}
+    week = f"{monday.isocalendar().year}-W{monday.isocalendar().week:02d}"
+    skipped = {s["person"] for s in weekly.draft_plan(week)["skipped_absent"]}
+    assert skipped == {"bob", "cy", "mira"}
+    away = {a["person"]: a["kind"] for a in portfolio.capacity_ahead(1, _viewer("dana"))[0]["away"]}
+    assert away == {"bob": "away", "cy": "pto", "mira": "pto"}
+    request = intake.submit_request("Need hands", actor="mira")
+    projection = {
+        p["person"]: p["upcoming_absence"]
+        for p in portfolio.what_if(request["id"], ["ava", "bob", "cy"], 20)["projection"]
+    }
+    assert projection["ava"] == "" and projection["bob"].startswith("away ")
+    assert projection["cy"].startswith("pto ")
+    assert "ZZavaZZ" not in client.get("/api/absences", headers=headers["bob"]).text
+
+    # only the person away widens a window, and never twice to the same place
+    mine = fresh_db.query_one("SELECT id FROM absences WHERE person = 'ava'")["id"]
+    share = f"/api/absences/{mine}/share"
+    assert (
+        client.post(share, json={"team_sees": "dates"}, headers=headers["bob"]).status_code == 404
+    )
+    assert (
+        client.post(share, json={"team_sees": "dates"}, headers=headers["ava"]).status_code == 200
+    )
+    assert (
+        client.post(share, json={"team_sees": "dates"}, headers=headers["ava"]).status_code == 400
+    )
+    assert absences.away_today()["ava"] == "away"
+    assert (
+        client.post(share, json={"team_sees": "details"}, headers=headers["ava"]).status_code == 200
+    )
+    assert absences.away_today()["ava"] == "pto"
+
+    # the agent tool files the requester's own window at the narrowest tier
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    tokens = (
+        identity.set_requester_identity("bob"),
+        identity.set_requester_viewer(_viewer("bob")),
+    )
+    try:
+        filed = json.loads(absence_tool(person="bob", **window, kind="focus"))
+    finally:
+        identity.reset_requester_viewer(tokens[1])
+        identity.reset_requester_identity(tokens[0])
+    approved = client.post(f"/api/review/{filed['id']}/approve", json={}, headers=headers["bob"])
+    assert approved.status_code == 200
+    row = fresh_db.query_one("SELECT visibility, dates_shared FROM absences WHERE kind = 'focus'")
+    assert row == {"visibility": "private", "dates_shared": False}

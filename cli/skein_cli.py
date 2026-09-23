@@ -20,6 +20,7 @@ Examples:
     skein week draft          # weekly commitment line
     skein promises         # open promises; settle: skein promises settle 3 kept
     skein absences add mira 2026-08-10 2026-08-14   # PTO by default
+    skein absences add <you> 2026-08-10 2026-08-14 --team-sees dates
     skein review              # pending proposals; approve/reject by id
     skein review approve 12 -m "looks right"
     skein worklog 22          # a delegated task's progress log
@@ -804,6 +805,15 @@ def cmd_absences(args):
                 "ends_on": args.ends_on,
                 "kind": args.kind,
                 "note": args.note,
+                # no flag: the server picks the narrowest tier (only the
+                # person away, for your own window)
+                **(
+                    {"visibility": "workspace"}
+                    if args.team_sees == "details"
+                    else {"share_dates": True}
+                    if args.team_sees == "dates"
+                    else {}
+                ),
             },
         )
         print(f"absence #{out['id']}: {out['person']} {out['kind']}")
@@ -1186,6 +1196,12 @@ def main():
     c.add_argument("ends_on", nargs="?", help="YYYY-MM-DD")
     c.add_argument("--kind", default="pto", choices=["pto", "oncall", "focus"])
     c.add_argument("--note", default="")
+    c.add_argument(
+        "--team-sees",
+        choices=["dates", "details"],
+        help="for your own time away: let the team plan around the dates, or see"
+        " the details too (default: only you, and planning ignores it)",
+    )
     c.set_defaults(fn=cmd_absences)
 
     c = sub.add_parser("review", help="pending proposals: list / approve / reject")
