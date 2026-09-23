@@ -1087,7 +1087,7 @@ pip install skein-agents==0.6.6 \
 
 A hash-verified wheelhouse with `--no-index` is also permitted. The production lock excludes `skein-agents` and the private workplace package.
 
-The image installs both exact first-party wheels with `--no-deps` after the locked public closure.
+The image installs both exact first-party wheels with `--no-deps` after the locked public closure. The Skein wheel installs only through its published digest in `skein-agents.lock` (`docs/SETUP.md`).
 
 Keep test tools in a separate hash-locked `requirements-test.lock`. Install this lock before the same first-party wheels in a test environment.
 

@@ -44,6 +44,7 @@ RELEASE_FILES = (
     "examples/workplace-extension/requirements-test.lock",
     "examples/workplace-extension/requirements.in",
     "examples/workplace-extension/requirements.lock",
+    "examples/workplace-extension/skein-agents.lock",
     "frontend/README.md",
     "frontend/package-lock.json",
     "frontend/package.json",
