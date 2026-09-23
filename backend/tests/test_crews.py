@@ -549,7 +549,7 @@ def test_a_removed_member_cannot_scope_a_row_into_the_crew(fresh_db):
 
 def test_who_is_in_a_crew_is_shared_inside_it(client, fresh_db, monkeypatch):
     """Every teammate read every crew's member list, and a crew's name plus
-    its members can say more than either alone (privacy decision 2.6)."""
+    its members can say more than either alone."""
     from conftest import _strong
 
     from app import config

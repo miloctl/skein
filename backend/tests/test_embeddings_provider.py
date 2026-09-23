@@ -176,6 +176,18 @@ def _fake_openai(log, raise_on_create=False):
     return FakeOpenAI
 
 
+def _workspace_notes(*ids: int) -> None:
+    """The source rows these ids stand for. Only a workspace row with no
+    addressee may go to the embeddings service (search._embeddable), and a
+    row that does not exist cannot be tier-checked, so it is never sent."""
+    for eid in ids:
+        db.execute(
+            "INSERT INTO notes (id, topic, content, author, created_at)"
+            " OVERRIDING SYSTEM VALUE VALUES (?, 't', 'c', 'mira', ?)",
+            (eid, db.now()),
+        )
+
+
 def _embed_ready(monkeypatch, **over):
     # the client is cached per (base_url, key); reset so each test gets its own fake
     monkeypatch.setattr(search, "_embed_client", None)
@@ -205,6 +217,7 @@ def test_vectors_are_tagged_and_reads_filter_by_model(monkeypatch, fresh_db):
     calls: list[dict] = []
     monkeypatch.setattr("openai.OpenAI", _fake_openai(calls))
     _embed_ready(monkeypatch, model="model-A")
+    _workspace_notes(90001)
     search._maybe_embed("note", 90001, "some text")
     row = db.query_one("SELECT model FROM embeddings WHERE entity='note' AND entity_id=90001")
     assert row and row["model"] == "model-A"
@@ -242,6 +255,7 @@ def test_deindex_removes_the_vector_too(monkeypatch, fresh_db):
     calls: list[dict] = []
     monkeypatch.setattr("openai.OpenAI", _fake_openai(calls))
     _embed_ready(monkeypatch, model="model-A")
+    _workspace_notes(90003)
     search.index_record("note", 90003, "title", "body")
     assert db.query_one("SELECT 1 AS x FROM embeddings WHERE entity_id = 90003")
     search.deindex_record("note", 90003)
@@ -256,13 +270,12 @@ def test_service_write_survives_a_dead_endpoint(monkeypatch, fresh_db, caplog):
     calls: list[dict] = []
     monkeypatch.setattr("openai.OpenAI", _fake_openai(calls, raise_on_create=True))
     _embed_ready(monkeypatch)
+    _workspace_notes(90004, 90005)
     with caplog.at_level("WARNING", logger="skein"):
         search.index_record("note", 90004, "resilient title", "resilient body")
         search.index_record("note", 90005, "second title", "second body")
-    # asserted on search_index, not through search(): these ids have no row in
-    # `notes`, and search.visible_hits now refuses a hit whose source row is
-    # gone (it cannot be tier-checked). What this test pins is that
-    # index_record LANDS the row when embeddings are down.
+    # asserted on search_index, not through search(): what this test pins is
+    # that index_record LANDS the row when embeddings are down.
     indexed = db.query(
         "SELECT entity_id FROM search_index WHERE entity = 'note' ORDER BY entity_id"
     )
@@ -310,6 +323,7 @@ def test_backfill_embeds_only_missing_rows(monkeypatch, fresh_db, capsys):
     # go in directly, because index_record would embed them and defeat the
     # setup. No twin row to maintain any more: search_index carries its own
     # identity id, so there is nothing for a freed rowid to clobber.
+    _workspace_notes(90010, 90011, 90012)
     search.index_record("note", 90010, "already covered", "body")  # embeds as model-A
     for eid, title, body in ((90011, "bare", "no vector"), (90012, "stale", "old model")):
         db.execute(
@@ -377,6 +391,7 @@ def test_a_corrupt_vector_costs_one_result_not_the_search(monkeypatch, fresh_db,
     calls: list[dict] = []
     monkeypatch.setattr("openai.OpenAI", _fake_openai(calls))
     _embed_ready(monkeypatch, model="model-A")
+    _workspace_notes(90020, 90021)
     search.index_record("note", 90020, "healthy", "body")
     db.execute(
         "INSERT INTO embeddings (entity, entity_id, model, vector)"

@@ -149,7 +149,7 @@ def test_a_key_minted_at_the_server_says_so_in_its_owners_feed(fresh_db, monkeyp
 
 def test_a_key_request_reaches_the_named_administrators_only(client, fresh_db, monkeypatch):
     """The request went to the whole team, and who asked for a key is only
-    the business of whoever mints one (privacy decision 2.12)."""
+    the business of whoever mints one."""
     from app import config
 
     monkeypatch.setattr(config, "ADMINS", frozenset({"ops", "lee"}))

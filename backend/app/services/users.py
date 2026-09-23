@@ -1217,6 +1217,21 @@ def rename_user(
         db.log_activity(actor, "repair_identity_ownership", detail)
     else:
         db.log_activity(actor, "rename_user", detail)
+        # the ledger row is the actor's, and nobody else's feed shows it: the
+        # person whose account changed hears it here
+        from .scope import is_machine
+
+        if actor != old and not is_machine(actor):
+            from .notifications import notify
+
+            notify(
+                new,
+                f"{actor} merged the account {old} into your account."
+                if target
+                else f"{actor} renamed your account from {old} to {new}.",
+                tier="immediate",
+                link="/settings",
+            )
     # the old owner's cached MCP connections hold unsealed tokens under ids
     # the roster no longer names; the new name reconnects on its next turn
     from ..agents.mcp_tools import forget_owner
@@ -1424,4 +1439,18 @@ def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
             f"{name} -> {'active' if active else 'inactive'}"
             + (f" ({revoked} key(s) revoked)" if revoked else ""),
         )
+        # seen at once on reactivation, or on the next sign-in after it. A
+        # machine actor (a script, the scheduler) is no person acting on
+        # them, and names nobody.
+        from .scope import is_machine
+
+        if actor != name and not is_machine(actor):
+            from .notifications import notify
+
+            notify(
+                name,
+                f"{actor} {'reactivated' if active else 'deactivated'} your account.",
+                tier="immediate",
+                link="/settings",
+            )
     return {"name": name, "active": bool(active), "keys_revoked": revoked}

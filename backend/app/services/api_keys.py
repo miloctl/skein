@@ -49,8 +49,8 @@ def request_key(user: str) -> dict:
     """Self-serve ask: a key can only be minted at the server, but requesting
     one must not require finding the operator — this files a nudge with the
     exact command to the named administrators (SKEIN_ADMINS), or to the team
-    when none are named: who asked for a key is nobody else's business
-    (privacy decision 2.12). Idempotent per requester while one is still
+    when none are named: who asked for a key is nobody else's business.
+    Idempotent per requester while one is still
     unread. The name is validated and quoted because the message is designed
     to be copy-pasted into a root shell — the one place spoofable X-User text
     must never smuggle shell metacharacters."""
@@ -170,6 +170,11 @@ def revoke_all_keys(*, actor: str) -> dict:
     token, so a leaked token can't have left durable access behind)."""
     n = db.execute_rowcount("UPDATE api_keys SET active = 0 WHERE active = 1")
     db.log_activity(actor, "revoke_all_api_keys", f"{n} keys")
+    # every key holder just lost access; the ledger row reaches the actor's
+    # feed alone
+    from .notifications import notify
+
+    notify("team", f"{actor} revoked every API key. Ask for a new key.", tier="immediate")
     return {"revoked": n}
 
 

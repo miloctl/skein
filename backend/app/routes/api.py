@@ -1155,7 +1155,7 @@ def _crew_admin_override(user: str, request: Request) -> bool:
 
 def _crew_for(crew: dict, reader: str, admin: bool) -> dict:
     """Who is in a crew is shared inside it: members and named administrators
-    read the list, everyone else the name and a count (privacy decision 2.6).
+    read the list, everyone else the name and a count.
     `reader` is the strong viewer's name, as for crew-tier rows."""
     crew["member_count"] = len(crew["members"])
     if not admin and not any(m["person"] == reader for m in crew["members"]):
@@ -2099,7 +2099,7 @@ def delete_feedback(feedback_id: int, user: CurrentUser):
 
 
 # AdminUser: the replay quotes the captured text of every teammate's
-# misclassified captures, the operator's evaluation work (privacy decision 2.5)
+# misclassified captures, the operator's evaluation work
 @router.get("/eval/capture")
 def get_eval_capture(user: AdminUser):
     return feedback.eval_capture()

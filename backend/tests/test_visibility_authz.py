@@ -661,6 +661,10 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
 
 # file::function -> why this read needs no tier filter.
 _UNFILTERED_READS = {
+    "search.py::_embeddable": (
+        "decides which indexed rows may go to the embeddings service: reads the"
+        " tier and author columns and returns ids, never content"
+    ),
     "users.py::_holds_personal_data": (
         "asks whether a person owns private-tier rows so a merge can be REFUSED;"
         " returns a boolean and no content, like private_notes.author_has_notes"

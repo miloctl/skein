@@ -772,6 +772,11 @@ def _make_export(*, keep: int, actor: str, open_file: bool, max_bytes: int = 0):
             old.unlink(missing_ok=True)
         if actor:
             db.log_activity(actor, "export", path.name)
+            # every workspace row the export carries is the team's, and the
+            # ledger row reaches the exporting admin's feed alone
+            from .notifications import notify
+
+            notify("team", f"{actor} exported the workspace data.", tier="immediate")
         return path, counts, opened
 
 

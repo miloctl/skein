@@ -56,7 +56,7 @@ def list_feedback(kind: str = "", *, reader: str = "", admin: bool = False) -> l
 
     A feedback row stores the chat input and the model's output it judged:
     served to every teammate, one person's chat excerpt reached everyone.
-    The corpus exists for whoever improves the agent (privacy decision 2.5).
+    The corpus exists for whoever improves the agent.
     A pulse vote stores no author, so only an administrator reads its note."""
     where, params = ("", []) if admin else (" WHERE created_by = ?", [reader])
     if kind:

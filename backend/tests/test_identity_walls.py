@@ -296,3 +296,31 @@ def test_a_person_agent_is_not_proposed_for_authority_or_listed_to_the_team(fres
     delegation.review_authority()
     assert fresh_db.query("SELECT * FROM pending_changes WHERE entity = 'authority'") == []
     assert "alice-mcp" not in context_pack.build_pack()
+
+
+def test_the_people_an_administrator_acts_on_hear_about_it(fresh_db):
+    """Rename, merge, deactivation, export and revoke-all were logged under
+    the administrator's name only, and the activity feed never shows one
+    person another's rows, so the people affected never learned of them."""
+    from app.services import admin, api_keys, users
+
+    for name in ("ops", "alice", "bob", "dana", "dana-alt"):
+        users.ensure_user(name)
+    users.set_active("alice", False, actor="ops")
+    users.set_active("alice", True, actor="ops")
+    users.rename_user("bob", "bobby", actor="ops")
+    users.rename_user("dana", "dana-alt", actor="ops", expected_merge=True)
+    admin.export(actor="ops")
+    api_keys.revoke_all_keys(actor="ops")
+
+    def heard(user):
+        rows = fresh_db.query('SELECT message FROM notifications WHERE "user" = ?', (user,))
+        return [row["message"] for row in rows]
+
+    assert heard("alice") == ["ops deactivated your account.", "ops reactivated your account."]
+    assert heard("bobby") == ["ops renamed your account from bob to bobby."]
+    assert heard("dana-alt") == ["ops merged the account dana into your account."]
+    assert heard("team") == [
+        "ops exported the workspace data.",
+        "ops revoked every API key. Ask for a new key.",
+    ]
