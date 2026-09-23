@@ -33,7 +33,9 @@ from ..extensions.policy import (
     current_policy_engine,
     current_policy_subject,
 )
+from ..services import scope
 from ..services.mcp_servers import LIMIT as _PERSONAL_CONNECT_LIMIT
+from .core_tools import portable_state
 
 log = logging.getLogger(__name__)
 
@@ -271,7 +273,7 @@ class GovernedMCPTool(AgentTool):
                     "server": self.server_id,
                     "version": self.metadata.version,
                     "tool_use": _json_mapping(tool_use),
-                    "invocation_state": _json_mapping(invocation_state),
+                    "invocation_state": _json_mapping(portable_state(invocation_state)),
                     "subject": _subject_data(subject),
                     "agent": actor,
                     "approval_fingerprint": fingerprint,
@@ -292,6 +294,10 @@ class GovernedMCPTool(AgentTool):
                     policy_obligations=decision.obligations,
                     approver_groups=decision.approver_groups,
                     approver_capabilities=decision.approver_capabilities,
+                    # a personal server runs on its owner's credential and
+                    # returns their data: reviewed at the workspace tier, any
+                    # teammate could approve the call and read the result
+                    review_visibility=scope.PRIVATE if self.tier == PERSONAL else scope.WORKSPACE,
                     review_owner=subject.name,
                     policy_input=policy_input,
                 )

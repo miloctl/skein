@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 from collections.abc import Iterable
 from typing import Any, cast
 
@@ -79,6 +80,23 @@ def _error(tool_use: dict[str, Any], detail: str, status: str = "failed") -> dic
         "completionStatus": status,
         "content": [{"text": detail}],
     }
+
+
+def portable_state(state: dict[str, Any]) -> dict[str, Any]:
+    """The part of a strands invocation_state a review can store and replay.
+
+    Strands puts the live Agent (and span and cycle objects) in it. Stored
+    whole, json.dumps raised on every review-path call in a real agent loop,
+    so no stock or remote tool call ever reached the review queue. A resumed
+    call runs without that agent, so the live objects are dropped."""
+    kept: dict[str, Any] = {}
+    for key, value in state.items():
+        try:
+            json.dumps(value)
+        except (TypeError, ValueError):
+            continue
+        kept[key] = value
+    return kept
 
 
 class GovernedCoreTool(AgentTool):
@@ -204,7 +222,7 @@ class GovernedCoreTool(AgentTool):
                 {
                     "tool": self.tool_name,
                     "tool_use": tool_use,
-                    "invocation_state": invocation_state,
+                    "invocation_state": portable_state(invocation_state),
                     "subject": policy_subject_data(subject),
                     "agent": actor,
                     "approval_fingerprint": fingerprint,

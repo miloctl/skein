@@ -353,10 +353,11 @@ def _check_separation(change: dict, actor: str) -> None:
     originators = {
         fold_identity(str(change.get(column) or "")) for column in ("requested_by", "proposed_by")
     }
-    # An addressed memory steers only its addressee's conversations, and
-    # only the addressee may read its proposal (_addressed): refused here, it
+    # An addressed memory steers only its addressee's conversations, and a
+    # personal MCP call runs on its owner's own credential. Only that person
+    # may read either proposal (_addressed, mcp_tools.py): refused here, it
     # waits for an approver who cannot exist.
-    if change["entity"] in ("memory", "memory_forget"):
+    if change["entity"] in ("memory", "memory_forget", "extension_mcp_tool"):
         tier = _governing_tier(change)
         if (
             isinstance(tier, tuple)

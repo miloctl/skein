@@ -12,6 +12,7 @@ from fastapi import APIRouter
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
+from app import db
 from app.extensions import (
     AppSettings,
     ContextContribution,
@@ -37,7 +38,7 @@ from app.extensions.registry import ExtensionRegistry
 from app.extensions.tools import ToolCallContext, execute_tool
 from app.main import create_app
 from app.public import CreateTaskCommand, PublicError
-from app.services import wording
+from app.services import scope, wording
 from app.tools._gate import gated_write
 
 
@@ -6501,10 +6502,12 @@ def test_a_personal_remote_write_needs_a_human_even_under_permit(fresh_db, monke
     agent_token = set_agent_identity("agent")
 
     async def run(tool):
+        # a real strands loop puts the live Agent in invocation_state
         return [
             event
             async for event in tool.stream(
-                {"toolUseId": "mcp-1", "name": "atlas_remote", "input": {"k": 1}}, {}
+                {"toolUseId": "mcp-1", "name": "atlas_remote", "input": {"k": 1}},
+                {"agent": object(), "request_state": {}},
             )
         ]
 
@@ -6523,6 +6526,7 @@ def test_a_personal_remote_write_needs_a_human_even_under_permit(fresh_db, monke
     )
     assert pending is not None
     users.ensure_user("manager")
+    users.ensure_user("requester")
     # the approval path reads the connection cache and never connects
     mcp_module._connections["personal:requester:atlas"] = mcp_module._MCPConnection(
         "personal:requester:atlas", object(), (personal_tool,), 1, "personal"
@@ -6531,8 +6535,22 @@ def test_a_personal_remote_write_needs_a_human_even_under_permit(fresh_db, monke
     def resume(invocation, _change_id):
         return asyncio.run(execute_reviewed_mcp(invocation, registry))
 
+    # the call runs on the owner's credential and returns their data, so a
+    # teammate can neither read nor approve it
+    with pytest.raises(db.NotFound):
+        review.approve_change(
+            pending["id"],
+            actor="manager",
+            viewer=scope.Viewer("manager", True),
+            extension_executor=resume,
+            policy_registry=registry,
+        )
     approved = review.approve_change(
-        pending["id"], actor="manager", extension_executor=resume, policy_registry=registry
+        pending["id"],
+        actor="requester",
+        viewer=scope.Viewer("requester", True),
+        extension_executor=resume,
+        policy_registry=registry,
     )
     assert approved["result"]["status"] == "completed"
     assert personal_remote.called is True
@@ -6582,13 +6600,17 @@ def test_a_personal_read_runs_under_policy_only_after_one_approval(fresh_db, mon
         "SELECT id FROM pending_changes WHERE entity = 'extension_mcp_tool' AND status = 'pending'"
     )
     assert pending is not None
-    users.ensure_user("manager")
+    users.ensure_user("requester")
 
     def resume(invocation, _change_id):
         return asyncio.run(execute_reviewed_mcp(invocation, registry))
 
     approved = review.approve_change(
-        pending["id"], actor="manager", extension_executor=resume, policy_registry=registry
+        pending["id"],
+        actor="requester",
+        viewer=scope.Viewer("requester", True),
+        extension_executor=resume,
+        policy_registry=registry,
     )
     assert approved["result"]["status"] == "completed"
     assert remote.called is True
