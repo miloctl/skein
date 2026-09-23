@@ -102,15 +102,41 @@ function markEnded(reason: "signed-out" | "expired" | "") {
   } catch {}
 }
 
+// Session requests run under withSessionLock, and one that never answered held
+// the lock until reload: every tab stayed at "Checking your browser session"
+// and could not sign in or out. The server bounds its own answer: a request
+// waits up to 30 seconds for a database connection before its busy reply
+// (backend/app/db.py pool), and the sign-in exchange then makes identity-
+// provider calls capped at 5 seconds each (backend/app/oidc.py FETCH_TIMEOUT).
+// The deadline sits above both, so a slow answer or a busy reply still arrives.
+const SESSION_REQUEST_MS = 60_000;
+
+async function sessionRequest<T>(path: string, init: RequestInit, read: (res: Response) => Promise<T>): Promise<T> {
+  const deadline = new AbortController();
+  const timer = setTimeout(() => deadline.abort(), SESSION_REQUEST_MS);
+  try {
+    // The body read shares the signal: a server can send headers, then stall.
+    return await read(await fetch(`${API_URL}${path}`, { ...init, credentials: "include", signal: deadline.signal }));
+  } catch (error) {
+    // A TypeError is what fetch throws when the transport fails. isUnreachable
+    // (lib/api.ts) and errorMessage here classify on it, so a stalled server
+    // reads the same as a refused connection on every surface.
+    if (deadline.signal.aborted)
+      throw new TypeError(`The server did not answer in ${SESSION_REQUEST_MS / 1000} seconds.`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function authConfig(): Promise<AuthConfig> {
   if (!configCache) {
-    const attempt = fetch(`${API_URL}/api/auth/config`, { credentials: "include", cache: "no-store" })
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const config = await r.json() as AuthConfig;
-        mode = config.mode;
-        return config;
-      })
+    const attempt = sessionRequest("/api/auth/config", { cache: "no-store" }, async (r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const config = await r.json() as AuthConfig;
+      mode = config.mode;
+      return config;
+    })
       .catch((error) => {
         if (configCache === attempt) configCache = null;
         return { mode: "unknown", error: String(error) };
@@ -134,10 +160,11 @@ async function responseError(res: Response): Promise<Error> {
   try { const body = await res.json(); if (typeof body.detail === "string") detail = body.detail; } catch {}
   return new Error(detail);
 }
-async function readSession(): Promise<BrowserSession> {
-  const res = await fetch(`${API_URL}/api/auth/session`, { credentials: "include", cache: "no-store" });
-  if (!res.ok) throw await responseError(res);
-  return metadata(await res.json());
+function readSession(): Promise<BrowserSession> {
+  return sessionRequest("/api/auth/session", { cache: "no-store" }, async (res) => {
+    if (!res.ok) throw await responseError(res);
+    return metadata(await res.json());
+  });
 }
 
 export function bootstrapSession(force = false): Promise<SessionState> {
@@ -243,10 +270,11 @@ function localPath(returnTo: string): string {
 async function establishSession(path: string, body: Record<string, string>, expected: string) {
   await withSessionLock(async () => {
     checkGeneration(expected);
-    const res = await fetch(`${API_URL}${path}`, { method: "POST", credentials: "include",
-      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if (!res.ok) throw await responseError(res);
-    const issued = metadata(await res.json());
+    const issued = await sessionRequest(path, { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, async (res) => {
+      if (!res.ok) throw await responseError(res);
+      return metadata(await res.json());
+    });
     checkGeneration(expected);
     const accepted = await readSession();
     checkGeneration(expected);
@@ -301,9 +329,10 @@ export async function signOut(): Promise<void> {
       checkGeneration(expected);
       const current = await readSession();
       checkGeneration(expected);
-      const res = await fetch(`${API_URL}/api/auth/session`, { method: "DELETE", credentials: "include",
-        headers: current.csrf_token ? { "X-Skein-CSRF": current.csrf_token } : {} });
-      if (!res.ok) throw await responseError(res);
+      await sessionRequest("/api/auth/session", { method: "DELETE",
+        headers: current.csrf_token ? { "X-Skein-CSRF": current.csrf_token } : {} }, async (res) => {
+        if (!res.ok) throw await responseError(res);
+      });
       checkGeneration(expected);
       blockWeakFallback = false;
       markEnded("signed-out");
