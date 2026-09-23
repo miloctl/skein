@@ -256,6 +256,9 @@ export function NavSearch() {
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // With embeddings on, the search terms go to a third-party service, and a
+  // person searching must know that before they send one (privacy 2.9).
+  const [semantic, setSemantic] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const focusPrefill = useRef(false);
@@ -371,7 +374,7 @@ export function NavSearch() {
   const commands = matchCommands(q);
   const hasResults = busy || Boolean(error) || answer !== null || hits !== null;
   useEffect(() => {
-    canOpen.current = hasResults || commands.length > 0;
+    canOpen.current = hasResults || commands.length > 0 || semantic;
   });
   const reference = exactReference(q);
   const exactHit =
@@ -405,6 +408,14 @@ export function NavSearch() {
         onKeyDown={(e) => e.key === "Enter" && run()}
         onFocus={() => {
           window.dispatchEvent(new Event("skein-search-focus"));
+          api<{ semantic_search?: boolean }>("/api/health")
+            .then((health) => {
+              setSemantic(Boolean(health.semantic_search));
+              // the notice has to be seen before a term is sent
+              if (health.semantic_search && document.activeElement === inputRef.current)
+                setOpen(true);
+            })
+            .catch(() => {});
           if (!focusPrefill.current && canOpen.current) setOpen(true);
         }}
         enterKeyHint="search"
@@ -427,7 +438,7 @@ export function NavSearch() {
       >
         {q.trim() ? "Enter" : <Shortcut />}
       </span>
-      {open && (commands.length > 0 || hasResults) && (
+      {open && (commands.length > 0 || hasResults || semantic) && (
         <div className="fixed inset-x-4 top-[calc(var(--nav-h)+var(--selvage-h,2px)+0.25rem)] z-50 max-h-96 w-auto overflow-y-auto rounded-xl border border-line bg-card p-3 shadow-card sm:absolute sm:inset-x-auto sm:left-0 sm:right-auto sm:top-full sm:mt-1 sm:w-96 sm:max-w-[calc(100vw-2rem)]">
           {/* outside the live region below: the list changes on every
               keystroke, and a polite region would read it out each time */}
@@ -535,6 +546,11 @@ export function NavSearch() {
                 </>
               )}
             </div>
+          )}
+          {semantic && (
+            <p className="mt-2 font-mono text-[10px] text-ink-3">
+              Search terms go to the embeddings service.
+            </p>
           )}
         </div>
       )}

@@ -1129,6 +1129,9 @@ def health(specs: Sequence[JobSpec] = JOBS, settings: AppSettings | None = None)
         # SKEIN_MODELS is env and CI shares no env
         "model_warnings": unlisted_model_warnings() + config.menu_warnings(),
         "embeddings_error": config.EMBEDDINGS_ERROR,
+        # the search box says "Search terms go to the embeddings service"
+        # when this is on (frontend/components/nav-search.tsx)
+        "semantic_search": bool(config.EMBED_READY),
         "overlay_errors": config.overlay_errors(),
         # a database superuser is a standing privilege fault, not a config
         # typo — db.privilege_warnings says what it costs and how to fix it
