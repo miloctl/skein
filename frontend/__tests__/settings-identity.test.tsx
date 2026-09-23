@@ -479,6 +479,23 @@ describe("Settings identity states", () => {
     await waitFor(() => expect(whoami()).toBe(before + 2));
   });
 
+  it("keys each identity-bound section apart from its siblings", async () => {
+    // two sections keyed on the same `${user}:${revision}` string share one
+    // key under one parent, and React may drop or duplicate one of them
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      render(<SettingsPage />);
+      await screen.findByText(/strong identity active as operator/);
+      await new Promise((r) => setTimeout(r, 50));
+      const duplicate = errors.mock.calls.some((call) =>
+        String(call[0]).includes("two children with the same key"),
+      );
+      expect(duplicate).toBe(false);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
   it("says every teammate got a key request when no administrator is named", async () => {
     const saved = state.identity;
     state.identity = { ...saved, strong: false, keys_minted: 0 };
