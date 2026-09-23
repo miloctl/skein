@@ -220,12 +220,16 @@ export default function Portfolio() {
   // blurs it, and re-enabling never brings focus back — a keyboard reader was
   // dropped to the top of the document on every action. The guard moved into
   // the handlers, and the buttons carry aria-busy instead.
+  // A thunk, never a started promise: a promise argument has already sent
+  // its request by the time this guard reads busyRef. The ref is set here,
+  // not only by the effect above, which runs one render after the first click.
   const mutate = useCallback(
-    (p: Promise<unknown>) => {
+    (write: () => Promise<unknown>) => {
       if (busyRef.current) return Promise.resolve();
+      busyRef.current = true;
       setBusy(true);
       dismissStatus();
-      return p
+      return write()
         .catch((e) => reportStatus(actionError(e)))
         .finally(() => {
           setBusy(false);
@@ -404,7 +408,7 @@ export default function Portfolio() {
                           key={s}
                           aria-busy={busy}
                           onClick={() =>
-                            mutate(
+                            mutate(() =>
                               api(`/api/promises/${c.id}/status`, {
                                 method: "POST",
                                 body: JSON.stringify({ status: s }),
@@ -575,6 +579,7 @@ export default function Portfolio() {
                 aria-busy={busy}
                 onClick={() => {
                   if (busyRef.current) return;
+                  busyRef.current = true;
                   dismissStatus();
                   setBusy(true);
                   api<{ artifact_id: number | null; skipped?: string }>(`/api/rituals/${r}`, {
@@ -629,6 +634,7 @@ export default function Portfolio() {
             aria-busy={busy}
             onClick={() => {
               if (busyRef.current) return;
+              busyRef.current = true;
               dismissStatus();
               setBusy(true);
               api<{ artifact_id: number }>("/api/portfolio/readout", { method: "POST" })
