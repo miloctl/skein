@@ -503,6 +503,11 @@ def list_decisions(
     )
 
 
+# What people type in the blockers field to say there are none. Filed as a
+# blocker, "None" became an open escalation with that title.
+NO_BLOCKERS = frozenset({"none", "n/a", "na", "no", "nope", "nothing", "no blockers", "-"})
+
+
 def post_standup(
     author: str,
     yesterday: str = "",
@@ -524,7 +529,7 @@ def post_standup(
         )
         index_record("standup", sid, f"{author}'s standup", f"{yesterday} {today} {blockers}")
         db.log_activity(actor or author, "post_standup", f"#{sid}")
-        if blockers.strip():
+        if blockers.strip() and blockers.strip().rstrip(".!").lower() not in NO_BLOCKERS:
             from .blockers import raise_blocker
 
             # the child takes the standup's tier. Without it a crew standup's

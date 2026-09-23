@@ -1486,6 +1486,7 @@ def get_attention(
             viewer,
             permits_review,
             briefing_policy.allows_unclassified() and review_policy.allows_unclassified(),
+            row_filter=briefing_policy.filter_rows,
         )
         return {"count": counts["yours"], **counts}
 
@@ -1680,7 +1681,9 @@ def get_memories(
     # steering every conversation about that work from a row no human could
     # reach (services/memory.py::recall names the three states).
     with db.read_transaction():
-        rows = memory.recall(q, user=user, viewer=viewer, engagement_id=None)
+        rows = memory.recall(
+            q, user=user, viewer=viewer, engagement_id=None, limit=memory.BROWSE_LIMIT
+        )
         contexts = policy_context.engagement_linked_collection_contexts("memory", rows, viewer)
         return _permitted_collection(
             request,

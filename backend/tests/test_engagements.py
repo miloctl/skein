@@ -160,3 +160,18 @@ def test_case_variant_engagement_name_is_refused_by_the_schema(fresh_db):
             "INSERT INTO engagements (name, created_at, updated_at) VALUES (?, ?, ?)",
             ("alpha", db.now(), db.now()),
         )
+
+
+def test_closing_again_after_a_reopen_does_not_repeat_the_close(fresh_db):
+    """Reopening an experiment and closing it again wrote a second lesson and
+    a second Ship It notice."""
+    from app.services import engagements
+
+    e = engagements.create_engagement("Probe", kind="experiment", timebox_end="2026-12-01")
+    engagements.update_engagement(e["id"], status="closed", conclusion="invalidated")
+    engagements.update_engagement(e["id"], status="active")
+    engagements.update_engagement(e["id"], status="closed", conclusion="invalidated")
+    lessons = fresh_db.query("SELECT id FROM lessons WHERE engagement_id = ?", (e["id"],))
+    ship = fresh_db.query("SELECT id FROM notifications WHERE message LIKE '%Probe%shipped%'")
+    assert len(lessons) == 1
+    assert len(ship) <= 1

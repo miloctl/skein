@@ -152,3 +152,17 @@ def test_an_edited_engagement_keeps_every_indexed_field(fresh_db):
     assert search.search("warehouse cutover")
     engagements.update_engagement(e["id"], name="Atlas Two")
     assert search.search("migration")
+
+
+def test_semantic_matches_fill_every_free_slot(fresh_db, monkeypatch):
+    """The semantic pass asked for only as many rows as there were free
+    slots, then skipped the ones FTS had already found, so hybrid search
+    returned fewer rows than it could."""
+    from app.services import search, work
+
+    a = work.create_task("alpha plan")["id"]
+    b = work.create_task("bravo")["id"]
+    c = work.create_task("charlie")["id"]
+    ranked = [{"entity": "task", "entity_id": i, "score": 0.9} for i in (a, b, c)]
+    monkeypatch.setattr(search, "semantic_search", lambda q, limit=10, entity="": ranked[:limit])
+    assert [h["entity_id"] for h in search.search("alpha", limit=3)] == [a, b, c]

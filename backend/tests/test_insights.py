@@ -370,3 +370,77 @@ def test_a_converted_finding_keeps_its_label_when_it_fires_again(client, fresh_d
     insights.run_findings(actor="tester")
     stale = next(f for f in insights.list_findings() if f["rule_id"] == "job_stale")
     assert stale["disposition"] == "converted"
+
+
+def test_the_digest_keeps_team_findings_ahead_of_field_guide_adoption(client, fresh_db):
+    """One adoption row per unused card, all low: filed first, they took all
+    three digest slots and the aging question never reached the digest."""
+    from app import db
+    from app.services import insights
+
+    week = insights._week()
+    for card in ("capture", "model_pick", "chat_model"):
+        fresh_db.execute(
+            "INSERT INTO findings (rule_id, subject, severity, message, week, created_at)"
+            " VALUES (?, ?, 'low', ?, ?, ?)",
+            (insights.ADOPTION_RULE, card, f"{card} has zero first-uses", week, db.now()),
+        )
+    fresh_db.execute(
+        "INSERT INTO findings (rule_id, subject, severity, message, week, created_at)"
+        " VALUES ('question_aging', 'q1', 'low', 'question #1 has waited 6 days', ?, ?)",
+        (week, db.now()),
+    )
+    assert insights.digest_findings()[0]["rule_id"] == "question_aging"
+
+
+def test_a_runaway_turn_is_reported_once_across_a_week_boundary(client, fresh_db, monkeypatch):
+    """The subject is one turn, but the dedupe keys on the ISO week, so the
+    same turn filed again the next week while it stayed in the 7-day window."""
+    from app import db
+    from app.services import insights
+
+    fresh_db.execute(
+        "INSERT INTO usage_log (thread_id, agent_name, model_id, input_tokens,"
+        " output_tokens, cycles, latency_ms, created_at) VALUES ('t', 'bot', 'm', 1, 1, ?, 5, ?)",
+        (insights.TURN_CYCLE_ALARM + 5, db.now()),
+    )
+    insights.run_findings(actor="tester")
+    monkeypatch.setattr(insights, "_week", lambda *a: "2099-W01")
+    insights.run_findings(actor="tester")
+    rows = fresh_db.query("SELECT week FROM findings WHERE rule_id = 'turn_runaway'")
+    assert len(rows) == 1
+
+
+def test_a_ledger_adoption_is_reported_once_across_a_week_boundary(client, fresh_db, monkeypatch):
+    from app import db
+    from app.services import insights
+
+    db.log_activity("system", "adopt_unchained", "adopted 1 row (1 expected)")
+    insights.run_findings(actor="tester")
+    monkeypatch.setattr(insights, "_week", lambda *a: "2099-W01")
+    insights.run_findings(actor="tester")
+    rows = fresh_db.query("SELECT week FROM findings WHERE rule_id = 'ledger_rows_adopted'")
+    assert len(rows) == 1
+
+
+def test_a_standup_that_says_none_files_no_blocker(client, fresh_db):
+    for text in ("None", "none.", "N/A", "nothing", "-"):
+        client.post("/api/standups", json={"yesterday": "a", "today": "b", "blockers": text})
+    assert fresh_db.query("SELECT id FROM blockers") == []
+
+
+def test_the_oldest_token_week_is_a_whole_week(client, fresh_db, monkeypatch):
+    """The window started 8 weeks back to the day, so the oldest bar counted
+    only the days after that weekday and read as a drop in spend."""
+    from datetime import date
+
+    from app.services import insights
+
+    monkeypatch.setattr(insights, "_today", lambda: date(2026, 9, 23))  # a Wednesday
+    fresh_db.execute(
+        "INSERT INTO usage_log (thread_id, agent_name, model_id, input_tokens,"
+        " output_tokens, cycles, latency_ms, created_at) VALUES"
+        " ('t', 'bot', 'm', 5, 5, 1, 5, '2026-07-27T12:00:00+00:00')"  # Monday of the oldest week
+    )
+    weeks = insights.token_spend_weekly()
+    assert weeks and weeks[0]["tokens"] == 10

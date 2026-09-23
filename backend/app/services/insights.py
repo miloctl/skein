@@ -300,7 +300,10 @@ def forecast_calibration(window_days: int = 180) -> dict:
 
 
 def token_spend_weekly(weeks: int = 8) -> list[dict]:
-    since = _iso(_today() - timedelta(weeks=weeks))
+    # from the Monday of the oldest week: counted from the same weekday eight
+    # weeks back, the oldest bar held part of a week and read as a drop
+    start = _today() - timedelta(weeks=weeks)
+    since = _iso(start - timedelta(days=start.weekday()))
     rows = db.query(
         "SELECT created_at, input_tokens, output_tokens FROM usage_log WHERE created_at >= ?",
         (since,),
@@ -827,9 +830,15 @@ def _r_turn_runaway() -> list[dict]:
     failure an unattended run makes expensive. Absolute, not a ratio: there is
     no honest baseline for "normal cycles" until a deployment has months of
     turns, and a ratio over a tiny sample fires on the second turn ever."""
+    # minus the turns an earlier finding already listed: the dedupe keys on
+    # the ISO week, and a turn still inside this 7-day window filed again the
+    # week after
     rows = db.query(
         "SELECT id, agent_name, model_id, cycles, input_tokens + output_tokens AS tokens,"
         " created_at FROM usage_log WHERE cycles >= ? AND created_at >= ?"
+        " AND NOT EXISTS (SELECT 1 FROM findings f,"
+        "  jsonb_array_elements(f.receipt::jsonb -> 'turns') AS t"
+        "  WHERE f.rule_id = 'turn_runaway' AND (t ->> 'id')::bigint = usage_log.id)"
         " ORDER BY cycles DESC LIMIT 5",
         (TURN_CYCLE_ALARM, db.local_midnight_utc(_today() - timedelta(days=7))),
     )
@@ -1112,15 +1121,19 @@ def _r_ledger_adoptions() -> list[dict]:
     the chain instead of alarming forever (activity.adopt_unchained), so the
     smuggled-row case no longer keeps verify_chain failing — this finding is
     the push signal that replaces that permanent alarm. One finding per
-    receipt: the subject is the receipt's seq, so the dedupe on
-    (rule_id, subject, week) fires each adoption exactly once and a benign
+    receipt: the subject is the receipt's seq, and a receipt already filed in
+    any week is skipped, so each adoption fires exactly once and a benign
     fallback does not nag beyond its day.
 
     Two-day window, not one: the findings job can miss a morning, and the
     week-scoped dedupe absorbs the overlap when it does not."""
+    # minus receipts already filed: the dedupe keys on the ISO week, and a
+    # receipt inside the two-day window filed again when the week turned
     receipts = db.query(
         "SELECT seq, detail, created_at FROM activity WHERE action = 'adopt_unchained'"
-        " AND created_at > ? ORDER BY seq",
+        " AND created_at > ? AND NOT EXISTS (SELECT 1 FROM findings"
+        "  WHERE rule_id = 'ledger_rows_adopted' AND subject = 'adopt:' || activity.seq)"
+        " ORDER BY seq",
         (_iso(_today() - timedelta(days=2)),),
     )
     return [
@@ -1513,10 +1526,10 @@ def list_findings(weeks: int = 4, limit: int = 50) -> list[dict]:
         # that fired again after a dismissal aged out, a deferral passed, or a
         # fix is new signal (_suppressed lets it fire), and a label keeps it
         # out of Needs a call (intervention.py keeps unlabelled rows only)
-        applies = d and (
+        applies = d is not None and (
             d["finding_id"] >= r["id"] or d["disposition"] == "converted" or _still_quiets(d)
         )
-        r["disposition"] = d["disposition"] if applies else ""
+        r["disposition"] = d["disposition"] if d is not None and applies else ""
         r["audience"] = finding_audience(str(r["rule_id"]))
         r["label"] = finding_label(str(r["rule_id"]))
     return rows
@@ -1527,12 +1540,15 @@ def digest_findings(limit: int = 3) -> list[dict]:
     Dispositioned findings are excluded: acted-on means stop nagging.
     job_stale findings collapse to one line — infra noise must not spend
     the whole team-facing budget."""
+    # ADOPTION_RULE last, the list_findings rule: one low row per unused
+    # field-guide card, filed first, took every slot from team findings
     rows = db.query(
         "SELECT * FROM findings WHERE week = ?"
         " AND id NOT IN (SELECT finding_id FROM finding_dispositions)"
-        " ORDER BY CASE severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1"
+        " ORDER BY CASE WHEN rule_id = ? THEN 1 ELSE 0 END,"
+        " CASE severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1"
         " WHEN 'low' THEN 2 ELSE 3 END, id LIMIT ?",
-        (_week(), limit * 4),
+        (_week(), ADOPTION_RULE, limit * 4),
     )
     for r in rows:
         r["receipt"] = json.loads(r["receipt"])
@@ -1564,7 +1580,7 @@ def _suppressed(rule_id: str, subject: str) -> bool:
     date. resolved/converted do NOT suppress — a re-fire after a fix is
     signal, not noise."""
     d = _latest_disposition(rule_id, subject)
-    return bool(d) and _still_quiets(d)
+    return d is not None and _still_quiets(d)
 
 
 def _still_quiets(d: dict) -> bool:

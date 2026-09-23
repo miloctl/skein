@@ -565,6 +565,7 @@ def attention_count(
     viewer: scope.Viewer = scope.NOBODY,
     review_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
     review_allow_unclassified: bool = True,
+    row_filter: Callable[[str, list[dict]], list[dict]] | None = None,
 ) -> dict:
     """Two numbers, because two readers ask two different questions.
 
@@ -595,6 +596,10 @@ def attention_count(
 
     `inbox` counts the readable FIFO queue behind Approvals. My Day uses the
     same count, so denied rows cannot make the badge promise work the page omits.
+
+    `row_filter` is the policy filter my_day applies to questions, blockers
+    and intake. The rows it can hide are counted as rows, not as COUNT(*),
+    or the tab counts what the page withholds.
     """
     local_today = db.today()
     week = (local_today + timedelta(days=7)).isoformat()
@@ -607,11 +612,36 @@ def attention_count(
         allow_unclassified=review_allow_unclassified,
     )
     requested_reviews = sum(1 for row in pending if row.get("requested_by") == user)
+    keep = row_filter or (lambda _entity, rows: rows)
+    filtered = len(
+        keep(
+            "question",
+            db.query(
+                f"SELECT * FROM questions WHERE status = 'open' AND assigned_to = ? AND {q_f}",  # noqa: S608 — scope.visible_filter emits only bound marks
+                (user, *q_p),
+            ),
+        )
+    ) + len(
+        keep(
+            "blocker",
+            db.query(
+                f"SELECT * FROM blockers WHERE status != 'resolved' AND owner = ? AND {b_f}",  # noqa: S608 — scope.visible_filter emits only bound marks
+                (user, *b_p),
+            ),
+        )
+    )
+    intake = len(
+        keep(
+            "intake",
+            db.query(
+                "SELECT id, title, requester, status, score FROM intake_requests"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+                f" WHERE {WORKSPACE_ONLY} AND status IN ('submitted', 'scored')"
+                " ORDER BY score DESC LIMIT 10"
+            ),
+        )
+    )
     row = db.query_one(
         "SELECT"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-        f" (SELECT LEAST(COUNT(*), 10) FROM intake_requests"
-        f"    WHERE {WORKSPACE_ONLY} AND status IN ('submitted', 'scored'))"
-        " AS inbox_other,"
         # Notifications are counted by NEITHER arm, and that is the whole
         # reason this returns the same number My Day prints. `_attention` files
         # every notification under `notice` — "worth knowing", not "waiting on
@@ -620,9 +650,7 @@ def attention_count(
         # split exists to fix, one surface further out. The notifications that
         # DO carry an obligation raise this count through the row behind them:
         # an assigned question, an owned blocker, a sponsor's acceptance ask.
-        f" (SELECT COUNT(*) FROM questions WHERE status = 'open' AND assigned_to = ? AND {q_f})"
-        f" + (SELECT COUNT(*) FROM blockers WHERE status != 'resolved' AND owner = ? AND {b_f})"
-        f" + (SELECT COUNT(*) FROM promises WHERE status = 'open' AND direction = 'given'"
+        " (SELECT COUNT(*) FROM promises WHERE status = 'open' AND direction = 'given'"
         f"    AND {WORKSPACE_ONLY} AND created_by = ?"
         "     AND due_date IS NOT NULL AND due_date <= ?)"
         # LEAST(…, 5) mirrors `_attention`'s LIMIT 5 on the same query. Without
@@ -630,10 +658,7 @@ def attention_count(
         f" + (SELECT LEAST(COUNT(*), 5) FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"
         "     AND decided_by = ?)"
         " AS yours",
-        # mark order, not argument order: the questions filter binds inside the
-        # first subselect and the blockers filter inside the second, so each
-        # scope tuple follows the `?` it qualifies
-        (user, *q_p, user, *b_p, user, week, user),
+        (user, week, user),
     )
     # `chats` is a third number with its own reader: the Chat nav badge.
     # It counts unread private shared-chat messages plus pending invitations
@@ -643,7 +668,7 @@ def attention_count(
     # weak identity, so its badge reads 0 (weak identities cannot open
     # shared chats at all).
     return {
-        "inbox": pending_total + (row["inbox_other"] if row else 0),
-        "yours": requested_reviews + (row["yours"] if row else 0),
+        "inbox": pending_total + intake,
+        "yours": requested_reviews + filtered + (row["yours"] if row else 0),
         "chats": chat_threads.unread_shared_count(viewer.name),
     }

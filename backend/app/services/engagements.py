@@ -273,10 +273,15 @@ def _update_engagement_locked(
                 f"{row['summary']} {row['project_class']} {row['lead']}",
             )
     if freshly_closed:
-        _ship_it(engagement_id, actor=actor, origin=origin)
-        if current["kind"] == "experiment":
-            _experiment_lesson(engagement_id, actor=actor, origin=origin)
-        lesson_proposal = _playbook_lesson(engagement_id, actor=actor)
+        # the recap, the lesson and the playbook proposal belong to the FIRST
+        # close: closed_at survives a reopen, and a second close wrote a
+        # second lesson and a second Ship It notice
+        lesson_proposal = None
+        if not current["closed_at"]:
+            _ship_it(engagement_id, actor=actor, origin=origin)
+            if current["kind"] == "experiment":
+                _experiment_lesson(engagement_id, actor=actor, origin=origin)
+            lesson_proposal = _playbook_lesson(engagement_id, actor=actor)
         # closing over live work must be loud, not blocking: orphaned tasks
         # silently stop counting anywhere once their engagement is closed
         open_tasks = db.query_one(

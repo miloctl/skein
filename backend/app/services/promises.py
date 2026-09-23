@@ -221,7 +221,7 @@ def _edit_promise_locked(
     if "promise" in fields or "to_whom" in fields:
         # the same title and body add_promise indexes: unchanged, search and
         # /ask keep citing the old wording
-        edited = db.query_one("SELECT promise, to_whom FROM promises WHERE id = ?", (promise_id,))
+        edited = db.query_row("SELECT promise, to_whom FROM promises WHERE id = ?", (promise_id,))
         index_record(
             "promise",
             promise_id,

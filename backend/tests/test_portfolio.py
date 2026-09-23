@@ -172,3 +172,22 @@ def test_a_void_task_is_not_open_work(client, fresh_db):
     fresh_db.execute("UPDATE tasks SET updated_at = '2026-01-01T00:00:00+00:00'")
     quiet = next(h for h in client.get("/api/portfolio/health").json() if h["name"] == "Quiet")
     assert quiet["health"] == "green", quiet["receipts"]
+
+
+def test_slip_counts_team_days(client, fresh_db, monkeypatch):
+    """A milestone finished at 21:00 in New York on its due date is on time.
+    date_trunc ran in UTC, where it was already the next day, so it counted
+    one day late, and disagreed with the insights rule that uses local_day."""
+    from zoneinfo import ZoneInfo
+
+    from app import config
+    from app.services import portfolio
+
+    monkeypatch.setattr(config, "TZ", ZoneInfo("America/New_York"))
+    m = _engagement_with_milestone(client, "OnTime", due="2026-09-10")
+    fresh_db.execute(
+        "UPDATE milestones SET status = 'done', completed_at = '2026-09-11T01:00:00+00:00'"
+        " WHERE id = ?",
+        (m["id"],),
+    )
+    assert portfolio.slip_forecast()["basis"]["median_slip_days"] == 0.0
