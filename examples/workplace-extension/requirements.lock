@@ -1821,9 +1821,9 @@ strands-agents==1.56.0 \
     # via
     #   skein-agents
     #   strands-agents-tools
-strands-agents-tools==0.8.6 \
-    --hash=sha256:3cdafd706909be6e8cab5411067cdc5af269bec29f1903788629e3f092d9e8aa \
-    --hash=sha256:ed87ef1c405c635164e7e85e1cb0a1560bd30156b54b3c6cb11574e67d111d5c
+strands-agents-tools==0.8.9 \
+    --hash=sha256:858a8e17c6f807541524d10fa108b2bc7776c23666c7ecda966a327a752a9372 \
+    --hash=sha256:a9020d13c6ad24575ad9985e86ace0879c9e9279344399262c35cb9a7395528a
     # via skein-agents
 sympy==1.14.0 \
     --hash=sha256:d3d3fe8df1e5a0b42f0e7bdf50541697dbe7d23746e894990c030e2b05e72517 \

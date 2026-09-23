@@ -101,7 +101,7 @@ def test_locked_mcp_dependencies_match_the_runtime_contract(path):
             Requirement, _toml("backend/pyproject.toml")["project"]["dependencies"]
         )
     }
-    for name in ("mcp", "strands-agents", "httpx2", "httpx"):
+    for name in ("mcp", "strands-agents", "strands-agents-tools", "httpx2", "httpx"):
         assert locked[name] in requirements[name].specifier, (path, name, locked[name])
     assert locked["mcp-types"] == locked["mcp"]
 

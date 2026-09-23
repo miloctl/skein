@@ -206,7 +206,7 @@ keys remain supported. See [Browser sessions](docs/BROWSER-SESSIONS.md).
 |---|---|---|
 | MCP tools | `SKEIN_MCP_SERVERS` (JSON) | GitHub/Linear/etc. tools attached to the real agent |
 | Personal MCP servers | `SKEIN_CREDENTIAL_KEY` (Fernet key) | seals the tokens people store for their own MCP servers on Settings → Connections; unset, personal servers can be added without a token only |
-| Prebuilt tools | `SKEIN_EXTRA_TOOLS` | Allowlisted [strands-agents-tools](https://github.com/strands-agents/tools) for the real agent: `calculator,current_time,think,batch,sleep,rss` (keyless). Shell/file/exec tools **and** `http_request`/`use_agent`/`workflow` are deliberately not loadable — see `app/agents/extra_tools.py` for the security rationale |
+| Prebuilt tools | `SKEIN_EXTRA_TOOLS` | Allowlisted [strands-agents-tools](https://github.com/strands-agents/tools) for the real agent: `calculator,current_time,batch,sleep,rss` (keyless). Shell/file/exec tools **and** `http_request`/`use_agent`/`think`/`workflow` are deliberately not loadable — see `app/agents/extra_tools.py` for the security rationale |
 | Semantic search | `SKEIN_EMBEDDINGS=1` + `SKEIN_EMBED_PROVIDER` | openai (key) · openai_compatible (base URL) · ollama (keyless) — vectors tagged per model |
 | OpenTelemetry | `SKEIN_OTEL_ENDPOINT` | Agent traces to Jaeger/Langfuse |
 | API auth | `SKEIN_AUTH_MODE` | `api-key` (default — a personal key on every request) · `trusted-header` (`X-User` name picker for dev / trusted networks; the dev entry points set it) · `oidc` (IdP tokens validated in-process). Admin surfaces are held to `SKEIN_ADMINS` / `SKEIN_OIDC_ADMIN_GROUP` |

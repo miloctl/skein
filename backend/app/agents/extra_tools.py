@@ -12,6 +12,9 @@ Excluded on security review, not oversight:
   SSRF egress filter).
 - use_agent/use_llm — the model chooses provider + client_args (base_url),
   which allows exfiltrating context to an attacker-controlled endpoint.
+- think — the model supplies model_provider and model_settings (still in
+  strands-agents-tools 0.8.9), which runs a model call outside
+  agents/team_agent.py::_model(), the one place that may choose a provider.
 - workflow/diagram — model-controlled file paths (traversal) / subprocess.
 """
 
@@ -22,11 +25,12 @@ log = logging.getLogger(__name__)
 
 # name -> (module under strands_tools, attribute)
 ALLOWED = {
-    # keyless; verified side-effect-free (calculator sandboxes its evaluator,
-    # batch can only call tools already in the registry — still gated)
+    # keyless; verified side-effect-free (batch can only call tools already in
+    # the registry — still gated). calculator's sandbox needs 0.8.7 or later:
+    # before it, symbols("...", cls=N) ran the string with full builtins, and
+    # the pyproject.toml floor is what keeps a workplace resolve off it.
     "calculator": ("calculator", "calculator"),
     "current_time": ("current_time", "current_time"),
-    "think": ("think", "think"),
     "batch": ("batch", "batch"),
     "sleep": ("sleep", "sleep"),
     # external feed reader (has its own storage traversal guard)
