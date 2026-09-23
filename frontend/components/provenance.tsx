@@ -48,12 +48,20 @@ const MADE_BY: Record<string, string> = {
 export function Provenance({
   entity,
   entityId,
+  revision = 0,
 }: {
   entity: string;
   entityId: number;
+  /** Bumped by the owner after every reload of the row. An answer for an
+   *  older revision is shown until the new one arrives, then replaced: a
+   *  chain read once and kept never showed the edit the reader just made.
+   *  Not a React key: task-peek.tsx bumps it every 2 s while a wake is
+   *  pending, and a remount collapsed the chain under the reader. */
+  revision?: number;
 }) {
   const [open, setOpen] = useState(false);
-  const [d, setD] = useState<Lineage | null>(null);
+  const [answer, setAnswer] = useState<{ revision: number; lineage: Lineage } | null>(null);
+  const d = answer?.lineage ?? null;
   // the message, never a boolean. `loadError` is the app's one wording for a
   // failed read, and a backend that cannot be reached must say the same
   // sentence here as on every other surface (docs/LEXICON.md). A bespoke
@@ -61,19 +69,19 @@ export function Provenance({
   const [err, setErr] = useState("");
 
   useEffect(() => {
-    if (!open || d || err) return;
+    if (!open || answer?.revision === revision || err) return;
     // `live` guards the two writes against a reader who collapses mid-flight.
     // Without it a late failure sets `err` behind a closed panel, and the next
     // expand shows a stale error it will not retry — the guard above treats a
     // set `err` as "already answered".
     let live = true;
     api<Lineage>(`/api/provenance/${entity}/${entityId}`)
-      .then((r) => live && setD(r))
+      .then((lineage) => live && setAnswer({ revision, lineage }))
       .catch((e) => live && setErr(loadError(e)));
     return () => {
       live = false;
     };
-  }, [open, d, err, entity, entityId]);
+  }, [open, answer, err, entity, entityId, revision]);
 
   return (
     <div className="space-y-1 text-xs text-ink-3">

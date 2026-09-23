@@ -594,7 +594,7 @@ export function TaskPeek() {
                 `origin` was a label on the row and the rest of the chain lived
                 in three other tables (services/provenance.py). */}
             <div className="mt-2 border-t border-line pt-2">
-              <Provenance entity="task" entityId={task.id} />
+              <Provenance entity="task" entityId={task.id} revision={nonce} />
             </div>
 
             {/* The worklog is readable BEFORE the sponsor's verdict by
