@@ -213,6 +213,19 @@ def local_moment(ts: str) -> str:
     return f"{local.strftime('%d %b')} at {local.strftime('%H:%M')}"
 
 
+def local_wall(ts: str) -> str:
+    """A stored timestamp as the team's wall time, "YYYY-MM-DDTHH:MM": the
+    shape a person typed it in. A naive value is UTC by the storage contract,
+    so showing it unconverted puts a 09:00 New York meeting at 13:00. A
+    date-only value passes through."""
+    if len(ts) <= 10:
+        return ts[:10]
+    parsed = datetime.fromisoformat(ts)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(config.TZ).strftime("%Y-%m-%dT%H:%M")
+
+
 def _pretty_date(day: str) -> str:
     try:
         return date.fromisoformat(day).strftime("%d %b")

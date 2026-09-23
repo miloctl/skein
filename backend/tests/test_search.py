@@ -130,3 +130,25 @@ def test_ask_tries_the_one_meaningful_word_left_in_a_question(fresh_db):
     # skipped the fallback entirely, so a three-word question answered nothing.
     answer = search.ask("what is skein")
     assert [c["ref"] for c in answer["citations"]] == ["note #1"]
+
+
+def test_an_edited_promise_is_found_by_its_new_words(fresh_db):
+    from app.services import promises, search
+
+    p = promises.add_promise("send the vendor draft", to_whom="mira")
+    promises.edit_promise(p["id"], promise="signed vendor contract")
+    assert [(h["entity"], h["entity_id"]) for h in search.search("signed vendor contract")] == [
+        ("promise", p["id"])
+    ]
+
+
+def test_an_edited_engagement_keeps_every_indexed_field(fresh_db):
+    """Only a rename re-indexed, and its body dropped project_class, so a
+    summary edit stayed invisible and a rename lost the class words."""
+    from app.services import engagements, search
+
+    e = engagements.create_engagement("Atlas", project_class="migration", summary="old words")
+    engagements.update_engagement(e["id"], summary="warehouse cutover")
+    assert search.search("warehouse cutover")
+    engagements.update_engagement(e["id"], name="Atlas Two")
+    assert search.search("migration")

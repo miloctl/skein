@@ -791,7 +791,8 @@ export default function MyDay() {
         {b.team.todays_events.map((e) => (
           <li key={e.id} className="flex items-baseline gap-2">
             <span className="font-mono text-xs text-ink-3">
-              {String(e.starts_at).slice(11, 16)}
+              {/* starts_local: the team clock. starts_at is UTC */}
+              {String(e.starts_local ?? e.starts_at).slice(11, 16)}
             </span>
             <div className="min-w-0">
               {e.title}

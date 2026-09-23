@@ -218,6 +218,16 @@ def _edit_promise_locked(
         )
     else:
         db.log_activity(actor, "edit_promise", f"#{promise_id} {' '.join(fields)}")
+    if "promise" in fields or "to_whom" in fields:
+        # the same title and body add_promise indexes: unchanged, search and
+        # /ask keep citing the old wording
+        edited = db.query_one("SELECT promise, to_whom FROM promises WHERE id = ?", (promise_id,))
+        index_record(
+            "promise",
+            promise_id,
+            edited["promise"][:120],
+            f"{edited['promise']} {edited['to_whom']}",
+        )
     _emit_promise_event(
         "skein.promise.updated",
         promise_id,

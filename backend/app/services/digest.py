@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from .. import config, db
-from . import artifact_files, wording
+from . import artifact_files, schedule, wording
 from .scope import WORKSPACE_ONLY
 from .slas import DIGEST_STALLED_DAYS
 
@@ -112,11 +112,7 @@ def build_digest() -> str:
         lines.append("")
 
     pending = db.query_one("SELECT COUNT(*) AS n FROM pending_changes WHERE status = 'pending'")
-    events = db.query(
-        f"SELECT * FROM events WHERE starts_at >= ? AND starts_at < ? AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-        " ORDER BY starts_at",
-        db.local_event_window(_today()),
-    )
+    events = schedule.team_day_events(_today())
     if _today().weekday() == 0:  # Monday: the one-question pulse
         lines.append(
             "## 🌡️ Weekly pulse\n"
@@ -127,7 +123,7 @@ def build_digest() -> str:
     lines.append("## 📋 Today")
     lines.append(f"- Pending reviews awaiting a human: {pending['n'] if pending else 0}")
     lines += [
-        f"- 📅 {e['starts_at'][11:16] if len(e['starts_at']) > 10 else ''} {wording.quoted(e['title'])}"
+        f"- 📅 {e['starts_local'][11:16] if len(e['starts_local']) > 10 else ''} {wording.quoted(e['title'])}"
         for e in events
     ]
     all_clear = not (esc or stalled or open_q or due)

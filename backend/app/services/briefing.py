@@ -10,6 +10,7 @@ from typing import Any
 
 from .. import db
 from . import chat_threads, notifications, review, scope
+from .schedule import team_day_events
 from .scope import WORKSPACE_ONLY
 
 
@@ -508,11 +509,7 @@ def my_day(
                 f" AND {WORKSPACE_ONLY} ORDER BY created_at",
                 (user,),
             ),
-            "todays_events": db.query(
-                f"SELECT * FROM events WHERE starts_at >= ? AND starts_at < ?"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-                f" AND {WORKSPACE_ONLY} ORDER BY starts_at",
-                db.local_event_window(local_today),
-            ),
+            "todays_events": team_day_events(local_today),
             # scoped like /activity: your own strand plus agents and system —
             # My Day must not be the surface where colleagues watch each other
             "recent_activity": _human_digest(_scoped_recent(user, yesterday)),

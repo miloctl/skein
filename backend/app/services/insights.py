@@ -64,7 +64,7 @@ def _iso(d: date) -> str:
     counts stay comparable with each other.
 
     Where a boundary is a CLAIM rather than a window, it is converted instead:
-    the month boundary below (db.today().replace(day=1)) and the day and week
+    the month boundary (usage.month_start) and the day and week
     keys the dedupe uses. A rule that starts asserting something about a
     single day must take db.local_midnight_utc, not this."""
     return d.isoformat()
@@ -1146,7 +1146,7 @@ def _r_budget() -> list[dict]:
     price, the rule says the budget cannot be measured — silence there would
     read as "under budget" while nothing was being counted."""
     from .. import config
-    from .usage import engagement_costs, month_to_date
+    from .usage import engagement_costs, month_start, month_to_date
 
     if not config.MONTHLY_BUDGET_USD:
         return []
@@ -1170,10 +1170,9 @@ def _r_budget() -> list[dict]:
     # bounded to the CALENDAR month, same bound month_to_date uses — a finding
     # that says August is over budget must not name July's biggest spender as
     # its evidence, and timedelta arithmetic drifts at month edges
-    month_start = db.today().replace(day=1).isoformat()
     top = [
         {"engagement": e["engagement"], "cost_usd": e["cost_usd"]}
-        for e in engagement_costs(since=month_start)[:3]
+        for e in engagement_costs(since=month_start())[:3]
     ]
     n_unpriced = month["unpriced_calls"]
     unpriced = (
@@ -1499,16 +1498,25 @@ def list_findings(weeks: int = 4, limit: int = 50) -> list[dict]:
     # Keyed by id, converting W33's row left W34's badge blank and the queue
     # asked about work that was already converted.
     dispo = {
-        (d["rule_id"], d["subject"]): d["disposition"]
+        (d["rule_id"], d["subject"]): d
         for d in db.query(
-            "SELECT rule_id, subject, disposition FROM finding_dispositions ORDER BY id"
+            "SELECT finding_id, rule_id, subject, disposition, deferred_until, created_at"
+            " FROM finding_dispositions ORDER BY id"
         )
     }
     from .intervention import finding_audience, finding_label
 
     for r in rows:
         r["receipt"] = json.loads(r["receipt"])
-        r["disposition"] = dispo.get((r["rule_id"], r["subject"]), "")
+        d = dispo.get((r["rule_id"], r["subject"]))
+        # A verdict carries to a newer row only while it still holds: a row
+        # that fired again after a dismissal aged out, a deferral passed, or a
+        # fix is new signal (_suppressed lets it fire), and a label keeps it
+        # out of Needs a call (intervention.py keeps unlabelled rows only)
+        applies = d and (
+            d["finding_id"] >= r["id"] or d["disposition"] == "converted" or _still_quiets(d)
+        )
+        r["disposition"] = d["disposition"] if applies else ""
         r["audience"] = finding_audience(str(r["rule_id"]))
         r["label"] = finding_label(str(r["rule_id"]))
     return rows
@@ -1556,8 +1564,10 @@ def _suppressed(rule_id: str, subject: str) -> bool:
     date. resolved/converted do NOT suppress — a re-fire after a fix is
     signal, not noise."""
     d = _latest_disposition(rule_id, subject)
-    if not d:
-        return False
+    return bool(d) and _still_quiets(d)
+
+
+def _still_quiets(d: dict) -> bool:
     if d["disposition"] == "dismissed":
         return d["created_at"] >= _iso(_today() - timedelta(days=28))
     if d["disposition"] == "deferred" and d["deferred_until"]:

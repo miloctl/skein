@@ -122,3 +122,27 @@ def test_accept_degrades_when_the_engagement_name_collides_in_a_race(fresh_db, m
     assert "no new engagement" in out["note"]
     # the request itself still settled — the verdict is not lost
     assert intake.list_requests()[0]["status"] == "accepted"
+
+
+def test_an_experiment_without_a_timebox_is_refused_before_it_is_accepted(fresh_db):
+    """The status write came first and the name-collision catch swallowed the
+    validation error: the request was accepted for good with no engagement,
+    and the corrected retry was refused as already dispositioned."""
+    import pytest
+
+    from app.services import intake
+
+    r = intake.submit_request("Try a new tool", requester="mira", actor="mira")
+    with pytest.raises(ValueError, match="timebox_end"):
+        intake.disposition_request(
+            r["id"], "accepted", "worth a try", kind="experiment", actor="mira"
+        )
+    retry = intake.disposition_request(
+        r["id"],
+        "accepted",
+        "worth a try",
+        kind="experiment",
+        timebox_end="2026-12-01",
+        actor="mira",
+    )
+    assert retry["engagement_created"] is True
