@@ -17,6 +17,12 @@ import { mentionQuery } from "@/lib/slash";
 import { timeAgo } from "@/lib/time";
 
 const POLL_MS = 2_000;
+// Every Nth poll rereads the loaded window instead of only the rows after the
+// cursor. A deletion rewrites an OLD row as a tombstone, and an after= cursor
+// never returns that row to a room that is already open.
+// ponytail: whole-window reread every 10 s; a backend changed-since cursor
+// replaces it if rooms grow large enough for the reread to cost.
+const WINDOW_POLL_EVERY = 5;
 const DETAIL_POLL_MS = 5_000;
 const PAGE_SIZE = 1_000;
 
@@ -181,7 +187,15 @@ export function SharedChat({
     trigger: HTMLButtonElement;
   } | null>(null);
   const deleteConfirmRef = useRef<HTMLButtonElement>(null);
+  // The poll's cursor: the newest id the POLL has delivered. A send never
+  // moves it, or the poll skips rows other people posted before the send and
+  // markRead passes them unseen.
   const latestId = useRef(0);
+  // ids this tab's own POSTs stored and already showed. The poll delivers
+  // them again, and must not announce them as someone's new message.
+  const ownSent = useRef(new Set<number>());
+  // the first id of the loaded window the poll rereads (WINDOW_POLL_EVERY)
+  const windowStart = useRef(0);
   const generation = useRef(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const participantsHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -243,6 +257,7 @@ export function SharedChat({
   useEffect(() => {
     const current = ++generation.current;
     latestId.current = 0;
+    ownSent.current.clear();
     const target = window.location.hash.match(/^#shared-message-(\d+)$/);
     const afterStart = target ? Math.max(0, Number(target[1]) - 1) : 0;
     const messagePath = afterStart
@@ -320,6 +335,7 @@ export function SharedChat({
       cleared = true;
       generation.current += 1;
       latestId.current = 0;
+      ownSent.current.clear();
       retryKey.current = null;
       setDetail(null);
       setMessages([]);
@@ -383,17 +399,28 @@ export function SharedChat({
   }, [loadDetail, manageOpen, onUnavailable]);
 
   useEffect(() => {
+    const stored = messages.filter((m) => !m.pending);
+    windowStart.current = (stored.at(-PAGE_SIZE) ?? stored[0])?.id ?? 0;
+  }, [messages]);
+
+  useEffect(() => {
     let live = true;
     let active = false;
+    let tick = 0;
     const poll = async () => {
       // Hidden tabs skip the fetch; onVisibility below catches up with one
       // poll plus a markRead when the tab returns.
       if (!live || active || document.visibilityState === "hidden") return;
       active = true;
+      tick += 1;
+      const from =
+        tick % WINDOW_POLL_EVERY === 0 && windowStart.current
+          ? windowStart.current - 1
+          : latestId.current;
       try {
         const [rows, runs] = await Promise.all([
           api<SharedChatMessage[]>(
-            `/api/shared-chats/${threadId}/messages?after=${latestId.current}`,
+            `/api/shared-chats/${threadId}/messages?after=${from}`,
             { cache: "no-store" },
           ),
           api<SharedChatAgentRun[]>(
@@ -403,20 +430,24 @@ export function SharedChat({
         ]);
         if (!live) return;
         setAgentRuns(runs);
+        const fresh = rows.filter((row) => row.id > latestId.current);
         if (rows.length > 0) {
-          const newest = rows.at(-1);
-          latestId.current = Math.max(latestId.current, newest?.id ?? 0);
           // a slow POST can lose the race to this poll: the stored row
           // arrives here first, and its pending twin must not stay beside it
           setMessages((current) =>
             mergeMessages(
               current.filter(
                 (m) =>
-                  !(m.pending && rows.some((r) => r.author === m.author && r.content === m.content)),
+                  !(m.pending && fresh.some((r) => r.author === m.author && r.content === m.content)),
               ),
               rows,
             ),
           );
+        }
+        if (fresh.length > 0) {
+          latestId.current = fresh[fresh.length - 1].id;
+          const newest = fresh.filter((row) => !ownSent.current.has(row.id)).at(-1);
+          for (const id of ownSent.current) if (id <= latestId.current) ownSent.current.delete(id);
           // The message id keeps consecutive same-author strings distinct —
           // identical state makes React skip the DOM write, and a live
           // region that does not mutate announces nothing.
@@ -473,7 +504,7 @@ export function SharedChat({
     // +0.5 sorts the row after the newest stored id and before any later one.
     // It cannot collide only because `busy` serialises sends: one pending
     // row exists at a time.
-    const pendingId = latestId.current + 0.5;
+    const pendingId = Math.max(latestId.current, ...ownSent.current) + 0.5;
     setMessages((current) =>
       mergeMessages(current, [
         {
@@ -506,7 +537,7 @@ export function SharedChat({
           }),
         },
       );
-      latestId.current = Math.max(latestId.current, stored.id);
+      ownSent.current.add(stored.id);
       setMessages((current) =>
         mergeMessages(
           current.filter((m) => m.id !== pendingId),
@@ -514,7 +545,6 @@ export function SharedChat({
         ),
       );
       retryKey.current = null;
-      markRead(stored.id);
       if (calledAgents.length) loadAgentRuns().catch(() => {});
       announceSharedChatActivity();
     } catch (caught) {
