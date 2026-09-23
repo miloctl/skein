@@ -1,9 +1,10 @@
 """Bridge slash-command exchanges into a thread's model session.
 
-Commands are deterministic and never reach a model, but their output is part
-of the conversation the user sees — a follow-up like "more details on this
+Commands are deterministic and run no model, but their output is part of the
+conversation the user sees — a follow-up like "more details on this
 briefing?" must find the briefing in the agent's history, not open with a
-blank slate. Writes use the same session store build_agent restores from,
+blank slate. So the output DOES reach the provider, on the next agent turn,
+with every row the command read for the caller. Writes use the same session store build_agent restores from,
 via the SDK's own repository API, so the next agent turn replays the
 exchange as ordinary history. Best-effort by contract: the command reply has
 already streamed, so a session write failure only logs.

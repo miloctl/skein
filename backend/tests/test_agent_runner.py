@@ -1266,3 +1266,21 @@ def test_a_runs_sub_agent_spend_counts_toward_its_daily_ceiling(fresh_db):
             (thread, name, db.now()),
         )
     assert usage.spent_today("research-agent")["tokens"] == 30
+
+
+def test_the_daily_run_holds_only_the_wake_contract(fresh_db, monkeypatch):
+    """Built without allowed_tools, an unattended daily turn held every
+    system MCP tool, and a read-effect remote call needs no review: inbox crew
+    titles and reviewer notes could reach a third-party server unwatched."""
+    from app import config
+    from app.services import agent_runner, users
+    from app.services.agent_wakeups import WAKE_TOOLS
+
+    users.ensure_user("scout", kind="agent")
+    seen = []
+    monkeypatch.setattr(config, "AGENT_RUNNER", ("scout",))
+    monkeypatch.setattr(
+        agent_runner, "run_one", lambda agent, **kw: seen.append(kw) or {"ran": False}
+    )
+    agent_runner.run()
+    assert [kw.get("allowed_tools") for kw in seen] == [WAKE_TOOLS]
