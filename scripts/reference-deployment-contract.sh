@@ -98,6 +98,7 @@ for overlay in example-prod example-dev; do
   if [ "$overlay" = example-prod ]; then
     grep -Fq 'image: registry.example.com/skein/skein:0.6.6@sha256:' "$rendered"
     grep -Fq 'image: registry.example.com/skein/skein-frontend:0.6.6-prod@sha256:' "$rendered"
+    grep -q "port: 5353" "$rendered"  # OpenShift DNS pods; 53 alone breaks every lookup
   fi
   grep -q "type: Recreate" "$rendered"          # backend pods never overlap
   grep -q "replicas: 1" "$rendered"             # scheduler, rate caps, _inflight
