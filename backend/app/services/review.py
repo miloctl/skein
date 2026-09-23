@@ -1373,11 +1373,7 @@ def review_stats(viewer: scope.Viewer = scope.NOBODY, *, admin: bool = False) ->
         ),
         viewer,
     )
-    rejection_reasons = [
-        row
-        for row in rejection_reasons
-        if users.person_agent_visible(row["proposed_by"], viewer.name, admin=admin)
-    ]
+    rejection_reasons = settled_visible(rejection_reasons, viewer.name, admin=admin)
     minutes = sorted(
         r["m"]
         for r in db.query(
@@ -1633,6 +1629,30 @@ def _governing_tiers(rows: list[dict]) -> list[tuple[str, int | None, str] | str
         for index in indexes:
             resolved[index] = tier
     return [resolved[index] for index in range(len(rows))]
+
+
+def settled_visible(rows: list[dict], reader: str, *, admin: bool = False) -> list[dict]:
+    """Drop the settled rows whose verdict is a judgment of a person the
+    reader may not see.
+
+    A person's own proposal (bulk ingest files them): its verdict and the
+    reviewer's note belong to the proposer and the reviewer, and a rejected
+    one was never shared (privacy decision 2.10). Another person's
+    `<name>-mcp` agent: users.person_agent_visible. An agent's verdicts stay
+    team-visible, the record trust grows from. Rows must carry proposed_by
+    and reviewed_by."""
+    from .users import fold, person_agent_visible
+
+    humans = {fold(r["name"]) for r in db.query("SELECT name FROM users WHERE kind = 'human'")}
+    out = []
+    for row in rows:
+        proposer = str(row["proposed_by"] or "")
+        if fold(proposer) in humans and reader not in (proposer, row["reviewed_by"]):
+            continue
+        if not person_agent_visible(proposer, reader, admin=admin):
+            continue
+        out.append(row)
+    return out
 
 
 def _readable(rows: list[dict], viewer: scope.Viewer) -> list[dict]:
@@ -1925,22 +1945,12 @@ def list_changes(
             allow_unclassified=allow_unclassified,
         )
     else:
-        from .users import person_agent_visible as _visible_agent
-
-        # a settled verdict on another person's `<name>-mcp` proposal, and its
-        # reviewer note, is judgment of that person. Pending ones stay: the
-        # team reviews them (docs/VISIBILITY.md).
-        rows = [
-            row
-            for row in _settled_changes_page(
-                status,
-                viewer,
-                limit,
-                resource_filter,
-                allow_unclassified,
-            )
-            if _visible_agent(row["proposed_by"], viewer.name)
-        ]
+        # a settled verdict and its note can be judgment of a person
+        # (settled_visible). Pending rows stay: the review flow decides those.
+        rows = settled_visible(
+            _settled_changes_page(status, viewer, limit, resource_filter, allow_unclassified),
+            viewer.name,
+        )
     invocation_ids = [
         int(row["id"]) for row in rows if (row["entity"], row["action"]) in lexicon.REVIEW_ONLY
     ]
