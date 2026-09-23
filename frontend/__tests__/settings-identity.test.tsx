@@ -28,6 +28,7 @@ const state = vi.hoisted(() => ({
   keyExchange: vi.fn(),
   logout: vi.fn(),
   tunables: [] as unknown[],
+  interestsFail: false,
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -42,8 +43,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
         return state.identityError
           ? Promise.reject(new Error(state.identityError))
           : Promise.resolve(state.identity);
-      if (path === "/api/users/growth-interests")
-        return Promise.resolve({ interests: "" });
+      if (path === "/api/users/growth-interests" && !init?.method)
+        return state.interestsFail
+          ? Promise.reject(new Error("growth interests are unavailable"))
+          : Promise.resolve({ interests: "" });
       if (path === "/api/agents/status")
         return Promise.resolve({ review_gate: true });
       if (path === "/api/settings/agent-automation") {
@@ -159,6 +162,7 @@ beforeEach(() => {
   state.automationWritePromise = null;
   state.automationReadFailsAfterWrite = false;
   state.tunables = [];
+  state.interestsFail = false;
   state.authMode = "trusted-header";
   state.session = { authenticated: false, user: "anonymous", strong: false, auth_method: "", csrf_token: "", status: "ready", error: "" };
   state.keyExchange.mockReset();
@@ -468,6 +472,17 @@ describe("Settings identity states", () => {
     await waitFor(() => expect(whoami()).toBe(before + 1));
     act(() => window.dispatchEvent(new StorageEvent("storage", { key: "skein-user" })));
     await waitFor(() => expect(whoami()).toBe(before + 2));
+  });
+
+  it("locks the growth interests field when its stored value cannot be read", async () => {
+    state.interestsFail = true;
+    render(<SettingsPage />);
+    expect(await screen.findByText("Could not load this page: growth interests are unavailable")).toBeTruthy();
+    const field = screen.getByLabelText("Growth interests") as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "incident command" } });
+    expect(
+      (screen.getByRole("button", { name: "Save growth interests" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it("shows an identity failure instead of checking forever", async () => {
