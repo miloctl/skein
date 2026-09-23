@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -31,8 +37,16 @@ vi.mock("@/lib/api", async (importOriginal) => {
   };
 });
 
+vi.mock("@/lib/auth", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/auth")>();
+  return { ...real, sessionSnapshot: () => ({ ...real.sessionSnapshot(), strong: true }) };
+});
+
 import { CapturePalette } from "@/components/capture-palette";
-import { VisibilityBadge, VisibilityPicker } from "@/components/visibility-picker";
+import {
+  VisibilityBadge,
+  VisibilityPicker,
+} from "@/components/visibility-picker";
 
 beforeEach(() => {
   calls.length = 0;
@@ -41,7 +55,11 @@ beforeEach(() => {
   failCrews = false;
 });
 
-function Harness({ initial }: { initial: { visibility: string; crew_id: number } }) {
+function Harness({
+  initial,
+}: {
+  initial: { visibility: string; crew_id: number };
+}) {
   const [tier, setTier] = useState(initial);
   return (
     <>
@@ -65,19 +83,22 @@ describe("the picker never describes a tier it is not sending", () => {
     expect(screen.queryByText("Design only")).toBeNull();
   });
 
-  it("resets the parent when the selected crew leaves the list", async () => {
-    // the state after an identity change: the parent still holds crew 1, and
-    // this caller is in no crew at all
+  it("narrows the parent to only you when the selected crew leaves the list", async () => {
+    // the state after an identity change, or a remembered crew the person
+    // left: the parent still holds crew 1, and this caller is in no crew.
+    // The roster would be the one direction that costs a reader privacy.
     mine = [];
     render(<Harness initial={{ visibility: "crew", crew_id: 1 }} />);
     await waitFor(() =>
       expect(screen.getByTestId("sent").textContent).toBe(
-        JSON.stringify({ visibility: "workspace", crew_id: 0 }),
+        JSON.stringify({ visibility: "private", crew_id: 0 }),
       ),
     );
     // and the label agrees with what would now be sent
-    const select = screen.getByLabelText("Who can see this task") as HTMLSelectElement;
-    expect(select.value).toBe("workspace");
+    const select = screen.getByLabelText(
+      "Who can see this task",
+    ) as HTMLSelectElement;
+    expect(select.value).toBe("private");
     expect(select.name).toBe("task-visibility");
   });
 
@@ -105,7 +126,8 @@ describe("a failed crew fetch never widens the audience", () => {
     // and the select still shows a crew rather than falling back to the
     // roster option, so the label agrees with what would be submitted
     expect(
-      (screen.getByLabelText("Who can see this task") as HTMLSelectElement).value,
+      (screen.getByLabelText("Who can see this task") as HTMLSelectElement)
+        .value,
     ).toBe("crew:1");
   });
 
@@ -122,8 +144,9 @@ describe("a failed crew fetch never widens the audience", () => {
   });
 });
 
-describe("the tier does not survive a capture", () => {
-  it("files the next unrelated thought at the workspace tier", async () => {
+describe("quick capture starts at only you and remembers the choice", () => {
+  it("files the first capture privately and the next at the tier last picked", async () => {
+    localStorage.clear();
     render(<CapturePalette />);
     act(() => {
       window.dispatchEvent(new Event("skein-capture-open"));
@@ -131,20 +154,36 @@ describe("the tier does not survive a capture", () => {
     await screen.findByText("Platform only");
 
     const input = screen.getByLabelText("What to capture");
+    fireEvent.change(input, { target: { value: "todo: first thought" } });
+    fireEvent.click(screen.getByRole("button", { name: /capture/i }));
+    await waitFor(() =>
+      expect(bodyOf(calls.at(-1))).toMatchObject({
+        visibility: "private",
+        crew_id: 0,
+      }),
+    );
+
     fireEvent.change(screen.getByLabelText("Who can see this capture"), {
       target: { value: "crew:1" },
     });
     fireEvent.change(input, { target: { value: "todo: crew work" } });
     fireEvent.click(screen.getByRole("button", { name: /capture/i }));
+    await waitFor(() =>
+      expect(bodyOf(calls.at(-1))).toMatchObject({ crew_id: 1 }),
+    );
 
-    await waitFor(() => expect(bodyOf(calls.at(-1))).toMatchObject({ crew_id: 1 }));
-
-    fireEvent.change(input, { target: { value: "todo: unrelated thought" } });
+    // the picker still shows the remembered crew, so the next capture's
+    // audience is on screen before it is filed
+    fireEvent.change(input, { target: { value: "todo: next thought" } });
+    expect(
+      (screen.getByLabelText("Who can see this capture") as HTMLSelectElement)
+        .value,
+    ).toBe("crew:1");
     fireEvent.click(screen.getByRole("button", { name: /capture/i }));
     await waitFor(() =>
       expect(bodyOf(calls.at(-1))).toMatchObject({
-        visibility: "workspace",
-        crew_id: 0,
+        visibility: "crew",
+        crew_id: 1,
       }),
     );
   });
@@ -190,22 +229,58 @@ describe("the fb: path states the tier it actually uses", () => {
     const input = await screen.findByLabelText("What to capture");
     await screen.findByText("Platform only");
 
-    fireEvent.change(input, { target: { value: "fb: ada — clearer specs please" } });
+    fireEvent.change(input, {
+      target: { value: "fb: ada — clearer specs please" },
+    });
     // services/capture.py routes this into private.db before it reads a tier,
     // so a picker offering "Platform only" here would name one that is dropped
     expect(screen.queryByLabelText("Who can see this capture")).toBeNull();
-    expect(screen.getByText(/feedback is kept out of the shared record/)).toBeTruthy();
+    expect(
+      screen.getByText(/feedback is kept out of the shared record/),
+    ).toBeTruthy();
 
-    fireEvent.change(input, { target: { value: "todo: back to a normal capture" } });
+    fireEvent.change(input, {
+      target: { value: "todo: back to a normal capture" },
+    });
     // awaited: the picker remounts and refetches, so it renders null for a tick
-    expect(await screen.findByLabelText("Who can see this capture")).toBeTruthy();
+    expect(
+      await screen.findByLabelText("Who can see this capture"),
+    ).toBeTruthy();
   });
 });
 
 describe("the badge", () => {
-  it("renders nothing for the workspace tier", () => {
-    const { container } = render(<VisibilityBadge visibility="workspace" />);
-    expect(container.textContent).toBe("");
+  it("marks the workspace tier as shared with the roster", () => {
+    render(<VisibilityBadge visibility="workspace" />);
+    expect(screen.getByText("everyone on the roster")).toBeTruthy();
+  });
+
+  it("offers the one-way share on a private row only", async () => {
+    const onShared = vi.fn();
+    const { rerender } = render(
+      <VisibilityBadge
+        visibility="private"
+        share={{ kind: "notes", id: 9, onShared }}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "share with the team" }),
+    );
+    await waitFor(() => expect(onShared).toHaveBeenCalled());
+    expect(calls.at(-1)).toMatchObject({
+      url: "/api/share/notes/9",
+      init: { method: "POST" },
+    });
+    rerender(
+      <VisibilityBadge
+        visibility="crew"
+        crewId={1}
+        share={{ kind: "notes", id: 9 }}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "share with the team" }),
+    ).toBeNull();
   });
 
   it("names the crew, so it matches the picker that set it", async () => {

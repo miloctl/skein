@@ -182,6 +182,9 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # a memory proposal filed under the person's own name: a share, a
     # `/remember team:`, or an engagement memory (an agent's logs as the agent)
     "team_memory": lambda u: _act(u, "propose_change", "% create memory"),
+    "share_record": lambda u: (
+        _act(u, "share_with_team") or _act(u, "share_absence") or _act(u, "share_growth_interests")
+    ),
     "chat_attachment": lambda u: _act(u, "upload_file"),
     # mark-only: the document write is signed by the AGENT, so the ledger
     # carries no per-person row. routes/api.py::get_artifact marks it when

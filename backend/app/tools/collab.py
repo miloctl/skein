@@ -126,21 +126,31 @@ def list_decisions(limit: int = 20) -> str:
 
 
 @tool
-def post_standup(author: str, yesterday: str = "", today: str = "", blockers: str = "") -> str:
-    """Post an async standup update for a team member. Any blockers mentioned
-    are automatically filed in the blocker register.
+def post_standup(
+    author: str,
+    yesterday: str = "",
+    today: str = "",
+    blockers: str = "",
+    share_with_team: bool = False,
+) -> str:
+    """Post an async standup update for a team member. On a standup shared
+    with the team, any blockers mentioned are filed in the blocker register.
 
     Args:
         author: Whose update this is.
         yesterday: What was accomplished since the last update.
         today: What's planned next.
         blockers: Anything blocking progress.
+        share_with_team: True makes it visible to everyone on the roster.
+            Keep False (only the author sees it) unless the author asked the
+            team to see it.
     """
     payload: dict[str, Any] = {
         "author": author,
         "yesterday": yesterday,
         "today": today,
         "blockers": blockers,
+        "visibility": scope.WORKSPACE if share_with_team else scope.PRIVATE,
     }
     return gated_write(
         "standup",

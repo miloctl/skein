@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { VisibilityPicker } from "@/components/visibility-picker";
+import {
+  isTierChoice,
+  ONLY_YOU,
+  ROSTER,
+  useRememberedAudience,
+  useStrongIdentity,
+} from "@/lib/audience";
 import { actionError, api, getUser, isUnreachable, subscribeUser } from "@/lib/api";
 import { notifyAttentionChange } from "@/lib/attention";
 import { isGated, subscribeGated } from "@/lib/gated";
@@ -82,7 +89,11 @@ export function CapturePalette() {
   const [text, setText] = useState("");
   const [generatedDraft, setGeneratedDraft] = useState("");
   const [result, setResult] = useState<string | null>(null);
-  const [tier, setTier] = useState({ visibility: "workspace", crew_id: 0 });
+  const [tier, setTier] = useRememberedAudience(
+    "capture",
+    useStrongIdentity() ? ONLY_YOU : ROSTER,
+    isTierChoice,
+  );
   const [busy, setBusy] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -229,10 +240,9 @@ export function CapturePalette() {
       generatedDraftRef.current = "";
           setGeneratedDraft("");
       setText("");
-      // the tier resets with the text. The dialog closes after each capture,
-      // so a tier left behind is a tier nobody can see — the next unrelated
-      // thought was filed to the crew the last one chose.
-      setTier({ visibility: "workspace", crew_id: 0 });
+      // the tier is remembered (lib/audience.ts), not reset: the picker in
+      // this dialog shows it each time the dialog opens, and a person who
+      // shares every capture does not pick the roster each time
       // long enough for the live region to announce before the dialog goes
       closeTimer.current = setTimeout(() => setOpen(false), 1400);
     } catch (err) {

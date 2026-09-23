@@ -24,6 +24,14 @@ vi.mock("@/lib/api", async (importOriginal) => {
         return Promise.resolve([
           { ...base, id: 1, summary: "from my chat", review_visibility: "private" },
           { ...base, id: 2, summary: "from the team", review_visibility: "workspace" },
+          {
+            ...base,
+            id: 3,
+            entity: "absence",
+            summary: "time away",
+            payload: { person: "mira", visibility: "private", dates_shared: true },
+            review_visibility: "private",
+          },
         ]);
       return Promise.resolve([]);
     },
@@ -38,7 +46,17 @@ describe("private proposals", () => {
     render(<ReviewPage />);
     await screen.findByText("from the team");
     const notes = screen.getAllByText(/Only you can see this proposal/);
-    expect(notes).toHaveLength(1);
+    expect(notes).toHaveLength(2);
     expect(notes[0].closest("li, article, section")?.textContent).toContain("from my chat");
+  });
+
+  it("states who reads the row a create makes before the verdict", async () => {
+    render(<ReviewPage />);
+    await screen.findByText("from the team");
+    // the task payload names no tier: it lands at the workspace default
+    expect(screen.getAllByText("everyone on the roster").length).toBeGreaterThan(0);
+    expect(
+      screen.getByText("Visible to only mira, and the team sees the dates"),
+    ).toBeTruthy();
   });
 });

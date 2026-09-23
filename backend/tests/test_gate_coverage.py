@@ -33,7 +33,10 @@ _KINDS = {"wrote", "queued", "refused", "failed"}  # literal, not imported
 # own activity row at the service layer (context_pack.publish_pack), and a
 # "wrote" receipt on a read tool would tell the user their question mutated
 # the workspace. Every entry here needs that justification to hold.
-DERIVED_TABLES = {"context_packs"}
+# Rebuilt from source rows. search_index and embeddings take a DELETE when a
+# private row is created (search._is_private deindexes it), which removes
+# nothing a person wrote: a reindex puts it back.
+DERIVED_TABLES = {"context_packs", "search_index", "embeddings"}
 
 # per-tool args where the name/type heuristics below are not enough.
 # This list feeds ARGUMENTS only — inclusion always comes from ALL_TOOLS.

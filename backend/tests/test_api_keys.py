@@ -28,7 +28,8 @@ def test_api_key_lifecycle_and_attribution(client):
         json={"text": "todo: via key"},
         headers={"Authorization": f"Bearer {key}", "X-User": "someone-else"},
     ).json()
-    tasks = client.get("/api/tasks").json()
+    # read with the key: a keyed capture starts at "only you"
+    tasks = client.get("/api/tasks", headers={"Authorization": f"Bearer {key}"}).json()
     assert tasks[0]["created_by"] == "tester"
 
     # listing needs strong identity too: a bare X-User names anyone, so a weak

@@ -469,6 +469,9 @@ def cmd_capture(args):
     # which closes D5: a crash between the server's accept and the outbox
     # rewrite re-sends the row and files nothing twice.
     body = {"text": " ".join(args.text), "capture_key": uuid.uuid4().hex}
+    # no tier: the server files it for you alone
+    if args.team:
+        body["visibility"] = "workspace"
     connection = _connection()
     got = api_quiet("POST", "/api/capture", body, connection=connection)
     if isinstance(got, urllib.error.HTTPError):
@@ -508,7 +511,12 @@ def cmd_standup(args):
     api(
         "POST",
         "/api/standups",
-        {"yesterday": yesterday, "today": args.today, "blockers": args.blockers},
+        {
+            "yesterday": yesterday,
+            "today": args.today,
+            "blockers": args.blockers,
+            **({"visibility": "workspace"} if args.team else {}),
+        },
     )
     print("standup posted" + (" (blocker auto-filed)" if args.blockers else ""))
 
@@ -1128,9 +1136,15 @@ def main():
 
     c = sub.add_parser("capture", help="quick-capture text (auto-routed)")
     c.add_argument("text", nargs="+")
+    c.add_argument(
+        "--team", action="store_true", help="visible to everyone on the roster (default: only you)"
+    )
     c.set_defaults(fn=cmd_capture)
 
     c = sub.add_parser("standup", help="post a standup")
+    c.add_argument(
+        "--team", action="store_true", help="visible to everyone on the roster (default: only you)"
+    )
     c.add_argument("--yesterday", default="")
     c.add_argument("--today", default="")
     c.add_argument("--blockers", default="")

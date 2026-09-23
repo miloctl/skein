@@ -351,7 +351,6 @@ def test_approve_bad_payload_returns_to_pending(fresh_db):
 
 def test_review_gate_covers_all_mutating_tools(fresh_db, monkeypatch):
     from app import config
-    from app.services import review
     from app.tools import collab as tc
     from app.tools import platform as tp
     from app.tools import schedule as ts
@@ -378,7 +377,10 @@ def test_review_gate_covers_all_mutating_tools(fresh_db, monkeypatch):
         out = json.loads(call())
         assert out.get("status") == "pending", out
 
-    assert len(review.list_changes("pending")) == len(calls)
+    # counted in the table, not through list_changes: an agent's standup is
+    # private by default, and its proposal is its author's to read
+    pending = db.query("SELECT id FROM pending_changes WHERE status = 'pending'")
+    assert len(pending) == len(calls)
     # nothing actually written
     assert fresh_db.query("SELECT * FROM tasks") == []
     assert fresh_db.query("SELECT * FROM engagements") == []

@@ -15,6 +15,7 @@ import { EmptyState } from "@/components/card";
 import { PeekLink } from "@/components/task-peek";
 import { timeAgo } from "@/lib/time";
 import { emptyState } from "@/lib/whimsy";
+import { VisibilityBadge } from "@/components/visibility-picker";
 
 function cell(v: unknown): string {
   if (v === null || v === undefined || v === "") return "—";
@@ -39,6 +40,45 @@ function reviewIdFromUrl(): number | null {
   const raw = new URLSearchParams(window.location.search).get("id");
   const id = Number(raw);
   return raw && Number.isInteger(id) && id > 0 ? id : null;
+}
+
+/** Kinds whose create lands at a tier the payload names (or the workspace
+ *  default when it names none). A memory is left out: who reads it is its
+ *  addressee, not a tier (services/review.py::_addressed). */
+const TIERED = new Set([
+  "task",
+  "milestone",
+  "question",
+  "decision",
+  "blocker",
+  "note",
+  "standup",
+  "promise",
+  "intake",
+  "event",
+  "lesson",
+  "absence",
+]);
+
+/** Who reads the row this create makes, stated before the verdict: approving
+ *  it is what shares it. A private create names its person, because the
+ *  reviewer is not always that person (an agent can file one for somebody). */
+function CreateAudience({ payload }: { payload: Record<string, unknown> }) {
+  const tier = String(payload.visibility ?? "workspace");
+  const subject = String(payload.person ?? payload.author ?? "");
+  if (tier === "private")
+    return (
+      <>
+        Visible to {subject ? `only ${subject}` : "only its author"}
+        {payload.dates_shared ? ", and the team sees the dates" : ""}
+      </>
+    );
+  return (
+    <>
+      Visible to{" "}
+      <VisibilityBadge visibility={tier} crewId={Number(payload.crew_id ?? 0)} />
+    </>
+  );
 }
 
 type Change = {
@@ -829,6 +869,11 @@ export default function ReviewPage() {
             {c.summary && (
               <p className="mb-2 text-sm text-ink-2">{c.summary}</p>
             )}
+            {c.action === "create" && TIERED.has(c.entity) ? (
+              <p className="mb-2 text-xs text-ink-3">
+                <CreateAudience payload={c.payload} />
+              </p>
+            ) : null}
             {c.review_visibility === "private" ? (
               <p className="mb-2 text-xs text-ink-3">
                 Only you can see this proposal. Nobody else sees the change
