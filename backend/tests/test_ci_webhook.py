@@ -155,12 +155,15 @@ def test_ci_webhook_rejects_an_unvalidated_repository_shape(client, fresh_db):
     }
     response = client.post("/api/webhooks/ci", headers=_strong(client), json=payload)
     assert response.status_code == 400
+    assert "nested" not in response.text
     assert fresh_db.query_one("SELECT id FROM blockers") is None
 
+    # the rejected value never comes back: pydantic's own message carries it
     oversized = {
         **payload,
-        "repository": {"full_name": "A" * 100_000},
+        "repository": {"full_name": "secret-" + "A" * 100_000},
     }
-    assert (
-        client.post("/api/webhooks/ci", headers=_strong(client), json=oversized).status_code == 400
-    )
+    refused = client.post("/api/webhooks/ci", headers=_strong(client), json=oversized)
+    assert refused.status_code == 400
+    assert "secret-" not in refused.text
+    assert refused.json()["detail"].startswith("repo:")

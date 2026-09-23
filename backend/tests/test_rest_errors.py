@@ -54,6 +54,18 @@ def test_nul_text_is_refused_without_echo_or_partial_write(client, fresh_db, pat
     assert fresh_db.query_one(f"SELECT COUNT(*) AS n FROM {path}")["n"] == 0  # noqa: S608 -- closed parametrized table list
 
 
+def test_nul_in_a_locked_name_is_an_input_error(client, fresh_db):
+    """A crew name is taken under db.name_lock before any other statement
+    reads it, and the lock skipped the NUL check every other statement has."""
+    from conftest import _strong
+
+    response = client.post(
+        "/api/crews", json={"name": "secret-prefix\x00suffix"}, headers=_strong()
+    )
+    assert response.status_code == 400, response.text
+    assert "secret-prefix" not in response.text
+
+
 def test_nul_search_is_an_input_error(client):
     response = client.get("/api/search", params={"q": "secret-prefix\x00suffix"})
     assert response.status_code == 400, response.text
@@ -232,3 +244,27 @@ def test_semantic_permission_refusal_stays_forbidden():
     )
     assert response.status_code == 403
     assert response.body == b'{"detail":"Only a steward can do this."}'
+
+
+def test_a_refusal_does_not_quote_the_rejected_value(client, fresh_db):
+    """An error response never echoes what the caller sent (CLAUDE.md). Each
+    of these quoted it: a path segment, a date string, or a duplicate name."""
+    from conftest import _strong
+
+    strong = _strong()
+    marker = "zq-echo-probe"
+    refusals = [
+        client.get(f"/api/provenance/{marker}/1"),
+        client.get(f"/api/personas/{marker} x"),
+        client.post(f"/api/users/{marker}/rename", json={"new_name": "someone"}, headers=strong),
+        client.post(
+            "/api/playbooks/instantiate",
+            json={"playbook": "prototype", "engagement_name": "e1", "start_date": "zq-echo-pr"},
+        ),
+    ]
+    for path, body in (("/api/crews", {"name": marker}), ("/api/engagements", {"name": marker})):
+        assert client.post(path, json=body, headers=strong).status_code == 200
+        refusals.append(client.post(path, json=body, headers=strong))
+    for response in refusals:
+        assert 400 <= response.status_code < 500, response.text
+        assert "zq-echo-pr" not in response.text, response.text

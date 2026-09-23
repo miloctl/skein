@@ -59,7 +59,7 @@ def create_engagement(
         # Closed names stay reserved too, or usage rollups split across
         # near-identical engagements that the open-list picker cannot see.
         if db.query_one("SELECT id FROM engagements WHERE lower(name) = lower(?)", (name,)):
-            raise ValueError(f"engagement '{name}' already exists")
+            raise ValueError("An engagement with that name already exists. Pick another name.")
         tier, crew = scope.resolve_write(visibility, crew_id, actor=actor)
         eid = db.execute(
             "INSERT INTO engagements (name, project_class, summary, lead, started_at,"
@@ -203,7 +203,7 @@ def _update_engagement_locked(
         "SELECT id FROM engagements WHERE lower(name) = lower(?) AND id != ?",
         (name, engagement_id),
     ):
-        raise ValueError(f"engagement '{name}' already exists")
+        raise ValueError("An engagement with that name already exists. Pick another name.")
     freshly_closed = status == "closed" and current["status"] != "closed"
     if freshly_closed and not (conclusion or current["conclusion"]):
         raise ValueError(

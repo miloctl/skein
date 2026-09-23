@@ -812,7 +812,7 @@ def rename_user(
     # human/agent boundary that trust scores and authority assume
     row = db.query_one("SELECT * FROM users WHERE name = ?", (old,))
     if not row:
-        raise db.NotFound(f"no user named '{old}'")
+        raise db.NotFound("no user has that name")
     # A third-party rename of an author WITH private notes is refused outright
     # rather than half-completed, and refused BEFORE any row moves. There is
     # no self-repair afterwards: this function deletes the `old` roster row,
@@ -853,7 +853,7 @@ def rename_user(
         # above but before this one begins.
         current = db.query_one("SELECT * FROM users WHERE name = ?", (old,))
         if not current:
-            raise db.NotFound(f"no user named '{old}'")
+            raise db.NotFound("no user has that name")
         target = _validate_rename_target(old, new, current, identity_repair=_identity_repair)
         if expected_merge is not None and bool(target) != expected_merge:
             raise db.Conflict(

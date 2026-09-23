@@ -12,6 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 
@@ -586,6 +587,57 @@ async def lifespan(app: FastAPI):
             deactivate_runtime_machine_subjects(runtime_subject_token)
 
 
+# The largest field any JSON model takes is IngestIn.text, 70,000 characters:
+# at most about 420 KB escaped. The body is buffered and parsed BEFORE the
+# models' max_length checks run, so without this any caller, signed in or
+# not, can make the process hold a body of any size. Multipart is left to the
+# upload route, which has its own limit (services/uploads.py).
+MAX_JSON_BODY = 1024 * 1024
+_TOO_LARGE = "The request body is too large. Send less than 1 MB."
+
+
+class BodyCap:
+    """Refuse an /api body over MAX_JSON_BODY, declared or streamed."""
+
+    def __init__(self, app, exempt: frozenset[str] = frozenset()):
+        self.app, self.exempt = app, exempt
+
+    async def __call__(self, scope, receive, send):
+        if (
+            scope["type"] != "http"
+            or not scope["path"].startswith("/api/")
+            or scope["path"] in self.exempt
+        ):
+            return await self.app(scope, receive, send)
+        headers = dict(scope["headers"])
+        if headers.get(b"content-type", b"").startswith(b"multipart/form-data"):
+            return await self.app(scope, receive, send)
+        too_large = JSONResponse(status_code=413, content={"detail": _TOO_LARGE})
+        declared = headers.get(b"content-length", b"")
+        if declared.isdigit() and int(declared) > MAX_JSON_BODY:
+            return await too_large(scope, receive, send)
+        # A chunked body declares no length, so it is read here, up to the
+        # cap, and replayed. Refusing from inside the app's own read does not
+        # work: FastAPI turns any exception there into a 400.
+        messages, seen = [], 0
+        while True:
+            message = await receive()
+            messages.append(message)
+            if message["type"] != "http.request":
+                break
+            seen += len(message.get("body", b""))
+            if seen > MAX_JSON_BODY:
+                return await too_large(scope, receive, send)
+            if not message.get("more_body"):
+                break
+        replay = iter(messages)
+
+        async def replayed():
+            return next(replay, None) or await receive()
+
+        await self.app(scope, replayed, send)
+
+
 async def perimeter_auth(request: Request, call_next):
     # Authentication runs outside FastAPI's route exception middleware. A
     # pooled socket lost during a restart must have the same retry contract here.
@@ -833,6 +885,15 @@ async def conflict_error_handler(request: Request, exc: db.Conflict):
 
 
 async def value_error_handler(request: Request, exc: ValueError):
+    if isinstance(exc, ValidationError):
+        # A model validated inside a route (not by FastAPI) raises pydantic's
+        # ValidationError, a ValueError whose str() carries the rejected
+        # input. Only where it failed and why go back, as in
+        # validation_error_handler.
+        first: dict[str, Any] = dict(next(iter(exc.errors()), {}))
+        loc = ".".join(str(p) for p in first.get("loc", ())) or "request body"
+        detail = f"{loc}: {str(first.get('msg', 'is not valid'))[:300]}"
+        return JSONResponse(status_code=400, content={"detail": detail})
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
@@ -1134,6 +1195,11 @@ def create_app(
     application.add_route(REMOTE_PATH, remote_app(registry))
 
     application.middleware("http")(perimeter_auth)
+    # outside perimeter_auth: an unsigned caller must not get a body buffered.
+    # The exempt routes stream their own body under a smaller cap, and the
+    # forge webhook must refuse BEFORE it reads one when it is switched off:
+    # a read here would come first (tests/test_forge.py, test_mcp_remote.py).
+    application.add_middleware(BodyCap, exempt=frozenset({"/api/webhooks/forge", REMOTE_PATH}))
     # JSON payloads compress well at any level. Add gzip before CORS so CORS
     # stays outermost and also decorates perimeter-auth refusals.
     application.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=1)

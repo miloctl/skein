@@ -42,6 +42,8 @@ def ci_webhook(
     request: Request,
     subject: PolicySubjectDep,
 ):
+    # a new run_url files a new blocker, so the caller sets the growth rate
+    ratelimit.check("write", user)
     # Resolve the repository the write will actually target BEFORE policy: a
     # GitHub Actions payload carries `repository.full_name` beside the generic
     # `repo` field, and authorizing one while mutating the other lets a caller

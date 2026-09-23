@@ -78,7 +78,7 @@ def _clean_name(name: str, crew_id: int = 0) -> str:
     db.name_lock(db.LOCK_CREW, folded)
     for row in db.query("SELECT id, name FROM crews"):
         if row["id"] != crew_id and users.fold(row["name"]) == folded:
-            raise ValueError(f"a crew named '{row['name']}' already exists")
+            raise ValueError("A crew with that name already exists. Pick another name.")
     return name
 
 

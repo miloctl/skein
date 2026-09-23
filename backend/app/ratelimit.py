@@ -78,6 +78,10 @@ LIMITS = {
     # manager who spends the write budget planning a week must still be able
     # to record a 1:1 note. Same reasoning that gave `forge` its own bucket.
     "private": 20,
+    # a brief pull files a private audit row. Its own bucket, larger than
+    # `private`: People pulls one per click, and clicking through the team
+    # must not spend the budget for writing 1:1 notes
+    "brief": 60,
     "chat": 20,
     # every MCP tool call, reads included: bodies share the thread pool with
     # the sync REST handlers, and a client looping on list_tasks starves them

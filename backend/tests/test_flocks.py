@@ -128,7 +128,10 @@ def test_persona_slug_collision_is_refused(overlay):
 
 def test_missing_overlay_dir_surfaces_on_health(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "FLOCKS_OVERLAY", tmp_path / "gone")
-    assert any("SKEIN_FLOCKS_DIR" in e for e in config.overlay_errors())
+    errors = config.overlay_errors()
+    assert any("SKEIN_FLOCKS_DIR" in e for e in errors)
+    # /api/health reaches every signed-in user: the variable, never its path
+    assert not any(str(tmp_path) in e for e in errors)
 
 
 @pytest.mark.parametrize("slug", ["agent", "anonymous", "ci", "mcp", "system", "team"])

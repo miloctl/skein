@@ -664,9 +664,11 @@ def name_lock(namespace: int, name: str) -> None:
     # Scoped to this database like every other advisory lock (_DB_KEY). The
     # namespace and the folded name are combined into the second key, because
     # the first is spent on the database identity.
+    # Through _prepare: the name is caller text (a person, a thread, a key
+    # request), and a NUL in it is a 400 there but a driver error, so a 500,
+    # here.
     conn.execute(
-        f"SELECT pg_advisory_xact_lock({_DB_KEY}, hashtext(%s))",
-        (f"{namespace}:{name}",),
+        *_prepare(f"SELECT pg_advisory_xact_lock({_DB_KEY}, hashtext(?))", (f"{namespace}:{name}",))
     )
 
 
