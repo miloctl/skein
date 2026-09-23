@@ -1032,7 +1032,6 @@ def accept_shared_chat_invitation(invitation_id: int, person: str) -> dict:
         _hold_identities(person)
         thread_id = _invitation_thread(invitation_id, person)
         thread = _lock_shared(thread_id)
-        _require_open(thread)
         invitation = db.query_one(
             "SELECT * FROM chat_invitations WHERE id = ? AND person = ? FOR UPDATE",
             (invitation_id, person),
@@ -1043,6 +1042,10 @@ def accept_shared_chat_invitation(invitation_id: int, person: str) -> dict:
             return _shared_details(thread_id, person)
         if invitation["status"] != "pending":
             raise db.Conflict("This invitation is no longer pending.")
+        # After the status checks: a revoked invitee or a removed member is no
+        # longer in the room, and an archive refusal first told them whether
+        # it was archived.
+        _require_open(thread)
         db.execute(
             "INSERT INTO chat_members"
             " (thread_id, person, role, joined_at, left_at, added_by, last_read_message_id)"

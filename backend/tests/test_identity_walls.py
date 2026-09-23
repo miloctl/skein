@@ -42,6 +42,26 @@ def test_an_author_with_no_private_notes_is_still_renameable_by_an_admin(fresh_d
     assert out["new"] == "Mira" and out["private_notes_moved"] is False
 
 
+def test_a_rename_that_cannot_move_the_journal_keeps_the_old_name(fresh_db, monkeypatch):
+    """The roster and the private journal move in one transaction. Committed
+    apart, a failure between them left the author's notes under a name no
+    roster row holds, readable by the next person to claim it."""
+    from app import db
+    from app.services import private_notes, users
+
+    users.ensure_user("alice")
+    private_notes.add_note("alice", "bob", "my own note", kind="note")
+
+    def fail(old, new):
+        raise RuntimeError("private schema unavailable")
+
+    monkeypatch.setattr(private_notes, "rename_author", fail)
+    with pytest.raises(RuntimeError):
+        users.rename_user("alice", "alicia", actor="alice")
+    assert db.query_one("SELECT 1 FROM users WHERE name = 'alice'") is not None
+    assert db.query_one("SELECT 1 FROM users WHERE name = 'alicia'") is None
+
+
 def test_the_author_renaming_themselves_does_move_it(fresh_db):
     from app.services import private_notes, users
 

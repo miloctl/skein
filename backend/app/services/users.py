@@ -1074,25 +1074,29 @@ def rename_user(
             db.execute("DELETE FROM users WHERE name = ?", (old,))
         else:
             db.execute("UPDATE users SET name = ? WHERE name = ?", (new, old))
-    from . import private_notes
-
-    # The private journal follows the person ONLY when the person is doing the
-    # renaming. Every keyholder can rename any roster row (the trusted-network
-    # model makes them all admins over TEAM data) — but a rename that also
-    # moved the private half would let anyone merge someone else's row into
-    # their own name and inherit their 1:1 notes and fb: journal, the one
-    # dataset the product promises teammates cannot read.
-    # ALWAYS move the subject reference: notes other people keep ABOUT this
-    # person carry no ownership, so moving them leaks nothing — and NOT moving
-    # them stranded every teammate's 1:1 journal about the renamed person
-    # under a name with no roster row (empty brief, feedback-gap reset).
-    private_notes.rename_subject(old, new)
-    # Ownership (the person's OWN notes and audit) moves only when they are
-    # the one renaming — the guard above refuses a third-party rename that
-    # would need this, so reaching here with actor != old means nothing to move.
-    private_moved = actor == old
-    if private_moved:
-        private_notes.rename_author(old, new)
+        # The private journal follows the person ONLY when the person is doing
+        # the renaming. Every keyholder can rename any roster row (the
+        # trusted-network model makes them all admins over TEAM data) — but a
+        # rename that also moved the private half would let anyone merge
+        # someone else's row into their own name and inherit their 1:1 notes
+        # and fb: journal, the one dataset the product promises teammates
+        # cannot read.
+        # ALWAYS move the subject reference: notes other people keep ABOUT
+        # this person carry no ownership, so moving them leaks nothing — and
+        # NOT moving them stranded every teammate's 1:1 journal about the
+        # renamed person under a name with no roster row (empty brief,
+        # feedback-gap reset).
+        # Both moves join THIS transaction. Committed after the roster, a
+        # failure between the two left the author's notes under a name no
+        # roster row holds, readable by the next person to claim that name.
+        _pn.rename_subject(old, new)
+        # Ownership (the person's OWN notes and audit) moves only when they
+        # are the one renaming — the guard above refuses a third-party rename
+        # that would need this, so reaching here with actor != old means
+        # nothing to move.
+        private_moved = actor == old
+        if private_moved:
+            _pn.rename_author(old, new)
     detail = f"{old} -> {new} ({'merged' if target else 'renamed'}, {sum(moved.values())} rows)"
     if _identity_repair:
         db.log_activity(actor, "repair_identity_ownership", detail)

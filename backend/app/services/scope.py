@@ -388,7 +388,7 @@ def assert_editable(table: str, row: dict, actor: str, *, verb: str = "") -> Non
     tier = row["visibility"]
     if tier == WORKSPACE:
         return
-    if tier == CREW and is_machine(actor):
+    if tier == CREW and actor != "anonymous" and is_machine(actor):
         # A crew is a set of PEOPLE, and this check answers "may this person
         # read it". A machine actor is the mechanism, not a reader: the forge
         # webhook moves a task on a push, review.approve_change applies with
@@ -396,6 +396,11 @@ def assert_editable(table: str, row: dict, actor: str, *, verb: str = "") -> Non
         # the delegation trio runs as the agent. Refusing them turned every
         # agent proposal against a crew row into a permanent auto-reject that
         # told the reviewer the row had vanished, while it sat on their screen.
+        #
+        # `anonymous` is excluded: it is the trusted-header caller who sent no
+        # X-User (routes/deps.py), a person who picked no name, not a
+        # mechanism. Counted as a machine, any caller edited every crew row by
+        # leaving the header out.
         #
         # PRIVATE deliberately falls through to the checks below. Nothing ever
         # hands an agent private work — assert_readable_by refuses a private

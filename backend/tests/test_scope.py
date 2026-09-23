@@ -237,6 +237,22 @@ def test_document_audience_narrows_readable_content(fresh_db, tier, removed, exp
     assert {row["title"] for row in work.list_tasks(viewer=audience)} == expected
 
 
+def test_a_caller_with_no_name_cannot_edit_a_crew_row(fresh_db):
+    """The trusted-header caller who sends no X-User writes as `anonymous`.
+    Counted as a machine, that caller edited every crew row by leaving the
+    header out, while a named outsider was refused."""
+    for name in ("ava", "bo"):
+        users.ensure_user(name)
+    cid = crews.create_crew("Platform", actor="ava")["id"]
+    task = work.create_task("crew work", actor="ava", visibility="crew", crew_id=cid)
+    row = db.query_one("SELECT * FROM tasks WHERE id = ?", (task["id"],))
+    for outsider in ("anonymous", "bo"):
+        with pytest.raises(db.NotFound):
+            scope.assert_editable("tasks", row, outsider)
+    users.ensure_user("scout", kind="agent")
+    scope.assert_editable("tasks", row, "scout")
+
+
 def test_the_tiers_match_the_documented_three():
     assert scope.TIERS == ("private", "crew", "workspace")
     assert scope.WORKSPACE == "workspace", "the migration default — changing it changes every row"

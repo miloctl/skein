@@ -2,6 +2,7 @@
 alongside agent tools — both go through app.services)."""
 
 import asyncio
+import secrets
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
 from uuid import uuid4
@@ -1575,7 +1576,7 @@ def delete_mcp_server(server_id: int, user: StrongUser):
 
 
 @router.post("/mcp/servers/{server_id}/sign-in")
-def post_mcp_sign_in(server_id: int, request: Request, user: StrongUser):
+def post_mcp_sign_in(server_id: int, request: Request, response: Response, user: StrongUser):
     """Begin the OAuth grant for one of the caller's servers. The reply
     carries the authorization URL the browser must open; the authorization
     server sends the code to the callback below."""
@@ -1593,20 +1594,40 @@ def post_mcp_sign_in(server_id: int, request: Request, user: StrongUser):
         base = base.replace(scheme=request.headers["x-forwarded-proto"].split(",")[0].strip())
     redirect_uri = f"{base}api/mcp/oauth/callback"
     server["oauth_redirect_uri"] = redirect_uri
-    return {"authorization_url": mcp_oauth.start(sid, server)}
+    # The callback accepts only the browser that holds this cookie
+    # (mcp_servers.oauth_browser_matches).
+    browser = secrets.token_urlsafe(32)
+    server["oauth_browser"] = browser
+    url = mcp_oauth.start(sid, server)
+    response.set_cookie(
+        f"{mcp_oauth.BROWSER_COOKIE}{server['id']}",
+        browser,
+        max_age=int(mcp_oauth.FLOW_SECONDS),
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="lax",
+    )
+    return {"authorization_url": url}
 
 
 @router.get("/mcp/oauth/callback", response_class=HTMLResponse)
 def get_mcp_oauth_callback(
-    state: str = "", code: str = "", error: str = "", iss: str | None = None
+    request: Request, state: str = "", code: str = "", error: str = "", iss: str | None = None
 ):
     """Where the authorization server sends the browser back. Open on the
     perimeter (main.py open_paths): the browser arrives from the IdP with
-    no Skein credential. The state is the provider's 256-bit nonce and the
-    only key; nothing here is echoed, and an unknown state learns nothing."""
+    no Skein credential. The state is the provider's 256-bit nonce, and the
+    browser must also hold the cookie the sign-in set. Nothing here is
+    echoed, and an unknown state or browser learns nothing."""
     from ..agents import mcp_oauth
 
-    if not state or not mcp_oauth.complete(state, code, error or "", iss=iss):
+    held = [v for k, v in request.cookies.items() if k.startswith(mcp_oauth.BROWSER_COOKIE)]
+    if (
+        not state
+        or not mcp_servers.oauth_browser_matches(state, held)
+        or not mcp_oauth.complete(state, code, error or "", iss=iss)
+    ):
         return HTMLResponse(
             "<p>This sign-in is not known. Start it again from Skein Settings.</p>",
             status_code=404,
