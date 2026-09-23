@@ -20,10 +20,14 @@ export function VisibilityPicker({
   value,
   onChange,
   label,
+  allowPrivate = true,
 }: {
   value: Tier;
   onChange: (t: Tier) => void;
   label: string;
+  // false for a weak identity: it reads no private row (scope.Viewer), so
+  // "only you" would file a record its own author cannot open
+  allowPrivate?: boolean;
 }) {
   // Three states, and they are three because two lost information:
   //   null  — still loading
@@ -130,7 +134,7 @@ export function VisibilityPicker({
         {crews === false && value.visibility === "crew" && (
           <option value={`crew:${value.crew_id}`}>one crew only</option>
         )}
-        <option value="private">only you</option>
+        {allowPrivate && <option value="private">only you</option>}
       </select>
     </label>
   );
@@ -213,7 +217,9 @@ export function VisibilityBadge({
   visibility?: string;
   crewId?: number;
   crewName?: string;
-  share?: { kind: string; id: number; onShared?: () => void };
+  // `label` names the record in the button, so a list of them is not a list
+  // of identical one-way buttons to a screen reader
+  share?: { kind: string; id: number; label?: string; onShared?: () => void };
 }) {
   const resolved = useCrewName(crewName ? undefined : crewId);
   const [sharing, setSharing] = useState(false);
@@ -240,20 +246,31 @@ export function VisibilityBadge({
       </span>
       {own && share ? (
         <button
-          disabled={sharing}
-          onClick={async () => {
+          // aria-disabled, not disabled: Chrome blurs a focused element the
+          // moment it is disabled (components/crews-card.tsx)
+          aria-disabled={sharing}
+          aria-label={share.label ? `Share with the team: ${share.label}` : undefined}
+          onClick={async (e) => {
+            if (sharing) return;
+            // this button unmounts once the row is shared, so focus goes to
+            // the row rather than falling to the page
+            const row = e.currentTarget.closest("li, section") as HTMLElement | null;
             setSharing(true);
             try {
               await api(`/api/share/${share.kind}/${share.id}`, { method: "POST" });
               reportStatus("Everyone on the roster now sees this.", "confirmation");
               share.onShared?.();
-            } catch (e) {
-              reportStatus(actionError(e));
+              if (row) {
+                row.tabIndex = -1;
+                setTimeout(() => row.focus(), 0);
+              }
+            } catch (err) {
+              reportStatus(actionError(err));
             } finally {
               setSharing(false);
             }
           }}
-          className="ml-1.5 rounded bg-raised px-1.5 py-px text-[10px] text-ink-2 hover:bg-line disabled:opacity-40"
+          className="ml-1.5 rounded bg-raised px-1.5 py-px text-[10px] text-ink-2 hover:bg-line aria-disabled:opacity-40"
         >
           share with the team
         </button>

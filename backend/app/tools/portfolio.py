@@ -28,6 +28,7 @@ from ..services import (
     projection_policy,
     promises,
     scope,
+    users,
 )
 from ._gate import gated_write
 
@@ -478,7 +479,7 @@ def add_absence(
     ends_on: str,
     kind: str = "pto",
     note: str = "",
-    team_sees: str = "nothing",
+    team_sees: str = "",
 ) -> str:
     """Record time away (pto / oncall / focus). Capacity, the weekly plan, and
     staffing what-ifs respect it only when the team sees its dates.
@@ -489,13 +490,28 @@ def add_absence(
         ends_on: Last day (YYYY-MM-DD).
         kind: pto (zeroes planning), oncall, or focus (advisory).
         note: Optional context.
-        team_sees: "nothing" (only the person away sees it, and planning
-            ignores it), "dates" (planning counts it, the kind and note stay
-            hidden), or "details" (everyone on the roster sees it). Keep
-            "nothing" unless the person asked the team to see it.
+        team_sees: For the time away of the person you help: "nothing" (only
+            they see it, and planning ignores it), "dates" (planning counts
+            it, the kind and note stay hidden), or "details" (everyone on
+            the roster sees it). Leave it empty to use the narrowest choice.
+            A teammate's time away is always "details".
     """
-    if team_sees not in ("nothing", "dates", "details"):
+    if team_sees not in ("", "nothing", "dates", "details"):
         return json.dumps({"error": 'team_sees must be "nothing", "dates" or "details"'})
+    # Only the person away can keep a window from the team, and only with a
+    # strong identity: a weak viewer reads no private row, and a private
+    # window about somebody else is refused at apply
+    # (scope.assert_readable_by), where the proposal would wait forever.
+    strong = getattr(requester_viewer(), "name", "")
+    own = bool(strong) and users.fold(person) == users.fold(strong)
+    team_sees = team_sees or ("nothing" if own else "details")
+    if team_sees != "details" and not own:
+        return json.dumps(
+            {
+                "error": "Only the person away, with a key or a sign-in, can keep time away"
+                ' from the team. Use team_sees "details" for this window.'
+            }
+        )
     payload: dict[str, Any] = {
         "person": person,
         "starts_on": starts_on,
@@ -515,7 +531,12 @@ def add_absence(
             origin="agent",
             requester=requester_identity(),
         ),
-        summary=f"absence: {person} {kind} {starts_on}..{ends_on}",
+        # the kind and dates only where the team sees them
+        summary=(
+            f"absence: {person} {kind} {starts_on}..{ends_on}"
+            if team_sees == "details"
+            else f"time away for {person}"
+        ),
     )
 
 

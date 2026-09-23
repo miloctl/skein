@@ -257,8 +257,11 @@ export function NavSearch() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   // With embeddings on, the search terms go to a third-party service, and a
-  // person searching must know that before they send one (privacy 2.9).
+  // person searching must know that before they send one (docs/VISIBILITY.md,
+  // the sinks table). `health` is the answer in flight: run() waits for it,
+  // so an Enter pressed before it lands cannot send a term unannounced.
   const [semantic, setSemantic] = useState(false);
+  const health = useRef<Promise<boolean> | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const focusPrefill = useRef(false);
@@ -347,6 +350,7 @@ export function NavSearch() {
   const run = async () => {
     const query = q.trim();
     if (!query) return;
+    if (health.current) await health.current;
     const current = ++requestGeneration.current;
     setBusy(true);
     setError("");
@@ -408,17 +412,19 @@ export function NavSearch() {
         onKeyDown={(e) => e.key === "Enter" && run()}
         onFocus={() => {
           window.dispatchEvent(new Event("skein-search-focus"));
-          api<{ semantic_search?: boolean }>("/api/health")
-            .then((health) => {
-              setSemantic(Boolean(health.semantic_search));
+          health.current = api<{ semantic_search?: boolean }>("/api/health")
+            .then((answer) => {
+              const on = Boolean(answer.semantic_search);
+              setSemantic(on);
               // the notice has to be seen before a term is sent
-              if (health.semantic_search && document.activeElement === inputRef.current)
-                setOpen(true);
+              if (on && document.activeElement === inputRef.current) setOpen(true);
+              return on;
             })
-            .catch(() => {});
+            .catch(() => false);
           if (!focusPrefill.current && canOpen.current) setOpen(true);
         }}
         enterKeyHint="search"
+        aria-describedby={semantic ? "nav-search-semantic" : undefined}
         // "or ? to ask" promised a question-answerer and delivered a second
         // pass over the same keyword index. Once semantic hits blend into
         // search() itself, the two return the SAME rows for a natural
@@ -548,11 +554,18 @@ export function NavSearch() {
             </div>
           )}
           {semantic && (
-            <p className="mt-2 font-mono text-[10px] text-ink-3">
+            // aria-hidden: a screen reader hears the copy below, through the
+            // input's aria-describedby, before a term is sent
+            <p aria-hidden className="mt-2 font-mono text-[10px] text-ink-3">
               Search terms go to the embeddings service.
             </p>
           )}
         </div>
+      )}
+      {semantic && (
+        <span id="nav-search-semantic" className="sr-only">
+          Search terms go to the embeddings service.
+        </span>
       )}
     </div>
   );

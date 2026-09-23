@@ -228,8 +228,12 @@ export function CrewsCard({
                 <p className="mt-1 text-xs text-ink-3">{crew.summary}</p>
               )}
               {crew.members.length === 0 && crew.member_count > 0 && (
+                // a weak identity reads no member list even for its own
+                // crew: routes/api.py::_crew_for checks the strong name
                 <p className="mt-1 text-xs text-ink-3">
-                  Only crew members can see who is in this crew.
+                  {strong
+                    ? "Only crew members can see who is in this crew."
+                    : "Sign in with a key to see who is in your crews."}
                 </p>
               )}
 

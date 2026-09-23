@@ -49,21 +49,39 @@ def test_an_agents_standup_starts_private_and_forks_no_unreadable_blocker(fresh_
     from app.tools.collab import post_standup
 
     monkeypatch.setattr(config, "AGENT_REVIEW", False)
-    users.ensure_user("ava")
+    for name in ("ava", "bob"):
+        users.ensure_user(name)
     users.ensure_user("scout", kind="agent")
     token = identity.set_agent_identity("scout")
     try:
-        private = json.loads(post_standup(author="ava", today="ZZ1ZZ", blockers="vendor"))
-        shared = json.loads(
-            post_standup(author="ava", today="ZZ2ZZ", blockers="vendor", share_with_team=True)
+        # no requester (an unattended run): nobody asked for "only me"
+        unattended = json.loads(post_standup(author="ava", today="ZZ0ZZ"))
+        tokens = (
+            identity.set_requester_identity("ava"),
+            identity.set_requester_viewer(scope.Viewer("ava", True)),
         )
+        try:
+            private = json.loads(post_standup(author="ava", today="ZZ1ZZ", blockers="vendor"))
+            shared = json.loads(
+                post_standup(author="ava", today="ZZ2ZZ", blockers="vendor", share_with_team=True)
+            )
+            # a standup about somebody else never goes to them unasked
+            other = json.loads(post_standup(author="bob", today="ZZ3ZZ"))
+        finally:
+            identity.reset_requester_viewer(tokens[1])
+            identity.reset_requester_identity(tokens[0])
     finally:
         identity.reset_agent_identity(token)
     tiers = {
         row["id"]: row["visibility"]
         for row in fresh_db.query("SELECT id, visibility FROM standups")
     }
-    assert tiers == {private["id"]: "private", shared["id"]: "workspace"}
+    assert tiers == {
+        unattended["id"]: "workspace",
+        private["id"]: "private",
+        shared["id"]: "workspace",
+        other["id"]: "workspace",
+    }
     blockers = fresh_db.query("SELECT source, visibility FROM blockers")
     assert blockers == [{"source": f"standup:{shared['id']}", "visibility": "workspace"}]
 
@@ -80,3 +98,36 @@ def test_every_shareable_index_format_names_real_columns(fresh_db):
         row = {c["column_name"]: None for c in columns}
         title, body = text(row)
         assert isinstance(title, str) and isinstance(body, str), table
+
+
+def test_a_share_refuses_what_readers_would_still_hide(client, fresh_db):
+    """A void task went back into search, and a task under a private
+    milestone reported success while every reader still hid it."""
+    from app.services import work
+
+    users.ensure_user("ava")
+    ava = _strong(client, "ava")
+    void = work.create_task("ZZVOIDZZ", actor="ava", visibility="private")
+    work.update_task(void["id"], status="void", actor="ava")
+    assert client.post(f"/api/share/tasks/{void['id']}", headers=ava).status_code == 200
+    assert not fresh_db.query("SELECT 1 FROM search_index WHERE title = 'ZZVOIDZZ'")
+    milestone = work.create_milestone("Quiet", actor="ava", visibility="private")
+    child = work.create_task(
+        "ZZCHILDZZ", milestone_id=milestone["id"], actor="ava", visibility="private"
+    )
+    refused = client.post(f"/api/share/tasks/{child['id']}", headers=ava)
+    assert refused.status_code == 400
+    assert "Share that work with the team first" in refused.json()["detail"]
+
+
+def test_a_strong_capture_that_asks_a_teammate_goes_to_the_roster(client, fresh_db):
+    """A question assigned to a teammate cannot be private, so a keyed capture
+    of one was refused, and the CLI outbox dropped it for good."""
+    for name in ("ava", "bob"):
+        users.ensure_user(name)
+    out = client.post(
+        "/api/capture", json={"text": "q: bob: when is the demo?"}, headers=_strong(client, "ava")
+    )
+    assert out.status_code == 200
+    row = fresh_db.query_one("SELECT visibility FROM questions WHERE id = ?", (out.json()["id"],))
+    assert row["visibility"] == "workspace"

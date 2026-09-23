@@ -67,49 +67,64 @@ function fill(person: string) {
 describe("time away audience", () => {
   it("starts at only me, sends the choice, and remembers it", async () => {
     await openTimeAway();
-    const sees = await screen.findByRole("combobox", { name: "Who sees this time away" });
+    const sees = await screen.findByRole("combobox", { name: "Who can see this time away" });
     expect((sees as HTMLSelectElement).value).toBe("nothing");
     fill("ava");
     fireEvent.change(sees, { target: { value: "dates" } });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     await waitFor(() => expect(posted()).toHaveLength(1));
     expect(posted()[0]).toMatchObject({ visibility: "private", share_dates: true });
+    expect(localStorage.getItem("skein-audience-absence-ava")).toBe(JSON.stringify("dates"));
   });
 
-  it("starts a weak identity at the details, which it can read back", async () => {
-    // a trusted-header name with no key reads no private row
+  it("offers a weak identity only the roster, which it can read back", async () => {
+    // a trusted-header name with no key reads no private row, so a
+    // remembered "only me" from a signed-in session does not apply
     mocks.strong = false;
+    localStorage.setItem("skein-audience-absence-ava", JSON.stringify("nothing"));
     await openTimeAway();
-    const sees = await screen.findByRole("combobox", { name: "Who sees this time away" });
-    expect((sees as HTMLSelectElement).value).toBe("details");
+    await screen.findByText("Visible to everyone on the roster");
+    expect(screen.queryByRole("combobox", { name: "Who can see this time away" })).toBeNull();
+    fill("ava");
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(posted()).toHaveLength(1));
+    expect(posted()[0]).not.toHaveProperty("visibility");
   });
 
   it("keeps the last choice for the next time", async () => {
     localStorage.setItem("skein-audience-absence-ava", JSON.stringify("details"));
     await openTimeAway();
-    const sees = await screen.findByRole("combobox", { name: "Who sees this time away" });
+    const sees = await screen.findByRole("combobox", { name: "Who can see this time away" });
     await waitFor(() => expect((sees as HTMLSelectElement).value).toBe("details"));
   });
 
   it("names no tier for a teammate's window", async () => {
     await openTimeAway();
-    await screen.findByRole("combobox", { name: "Who sees this time away" });
+    await screen.findByRole("combobox", { name: "Who can see this time away" });
     fill("bob");
-    expect(screen.queryByRole("combobox", { name: "Who sees this time away" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Who can see this time away" })).toBeNull();
     expect(screen.getByText("Visible to everyone on the roster")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     await waitFor(() => expect(posted()).toHaveLength(1));
     expect(posted()[0]).not.toHaveProperty("visibility");
   });
 
-  it("widens one of your own windows", async () => {
+  it("widens one of your own windows and keeps focus on its row", async () => {
     await openTimeAway();
-    fireEvent.click(await screen.findByRole("button", { name: "share the dates" }));
+    const share = await screen.findByRole("button", {
+      name: "Share the dates of ava's pto 2026-08-20",
+    });
+    const row = share.closest("li");
+    fireEvent.click(share);
+    fireEvent.click(share);
     await waitFor(() =>
       expect(mocks.api).toHaveBeenCalledWith("/api/absences/7/share", {
         method: "POST",
         body: JSON.stringify({ team_sees: "dates" }),
       }),
     );
+    // one request: the second click lands while the first is in flight
+    expect(mocks.api.mock.calls.filter(([p]) => p === "/api/absences/7/share")).toHaveLength(1);
+    await waitFor(() => expect(document.activeElement).toBe(row));
   });
 });

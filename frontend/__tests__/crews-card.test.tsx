@@ -149,6 +149,15 @@ describe("CrewsCard", () => {
     expect(screen.getByText("Only crew members can see who is in this crew.")).toBeTruthy();
   });
 
+  it("tells a weak identity what hides the list, not that it is outside", async () => {
+    // _crew_for reads the strong name, so a trusted-header member sees no
+    // list for their own crew either
+    mode.answer = () => [{ ...CREW, members: [], member_count: 3 }];
+    render(card({ me: "cy", strong: false }));
+    await waitFor(() => expect(screen.getByText(/3 members$/)).toBeTruthy());
+    expect(screen.getByText("Sign in with a key to see who is in your crews.")).toBeTruthy();
+  });
+
   it("states the existing and future access granted by membership", async () => {
     mode.answer = () => [CREW];
     render(card());

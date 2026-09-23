@@ -27,10 +27,13 @@ export function StandupComposer({
   const [blockers, setBlockers] = useState("");
   const [posted, setPosted] = useState(false);
   const [busy, setBusy] = useState(false);
+  const strong = useStrongIdentity();
+  // a weak identity reads no private row: a remembered "only you" from a
+  // signed-in session on this browser does not apply to it
   const [tier, setTier] = useRememberedAudience(
     "standup",
-    useStrongIdentity() ? ONLY_YOU : ROSTER,
-    isTierChoice,
+    strong ? ONLY_YOU : ROSTER,
+    (v) => isTierChoice(v) && (strong || (v as { visibility: string }).visibility !== "private"),
   );
 
   const post = async () => {
@@ -110,7 +113,12 @@ export function StandupComposer({
           className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
         />
         </label>
-        <VisibilityPicker value={tier} onChange={setTier} label="standup" />
+        <VisibilityPicker
+          value={tier}
+          onChange={setTier}
+          label="standup"
+          allowPrivate={strong}
+        />
         <button
           onClick={post}
           disabled={!today.trim() || busy}

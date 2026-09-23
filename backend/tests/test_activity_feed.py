@@ -275,7 +275,10 @@ def test_edits_and_deletes_keep_no_text_in_the_activity_log(fresh_db):
     promises.edit_promise(promise["id"], promise="ZZPROMISE", actor="ava")
     request = intake.submit_request("i", requester="ava", actor="ava")
     intake.edit_request(request["id"], title="ZZINTAKE", actor="ava")
-    away = absences.add_absence("ava", "2026-12-07", "2026-12-08", kind="focus", actor="ava")
+    # workspace: a private window logs the id only anyway (scope.detail)
+    away = absences.add_absence(
+        "ava", "2026-12-07", "2026-12-08", kind="focus", actor="ava", visibility="workspace"
+    )
     absences.delete_absence(away["id"], actor="ava")
     users.set_growth_interests("ava", "ZZGROWTH", actor="ava")
     edits = fresh_db.query(

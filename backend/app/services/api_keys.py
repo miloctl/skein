@@ -66,7 +66,13 @@ def request_key(user: str) -> dict:
     )
     from .. import config
 
-    recipients = sorted(config.ADMINS) or ["team"]
+    # the roster's spelling: SKEIN_ADMINS=Casey names roster `casey`
+    # (deps.is_named_admin folds), and a notice to the literal spelling
+    # reaches nobody
+    from .users import fold, list_users
+
+    roster = {fold(u["name"]): u["name"] for u in list_users()}
+    recipients = sorted({roster.get(fold(name), name) for name in config.ADMINS}) or ["team"]
     marks = ", ".join("?" for _ in recipients)
     with db.transaction():
         db.name_lock(db.LOCK_KEY_REQUEST, user)
@@ -81,14 +87,17 @@ def request_key(user: str) -> dict:
             " AND id NOT IN (SELECT notification_id FROM notification_reads)",
             (*recipients, prefix + "%"),
         )
+        # to_team: no administrator is named, so every teammate got the
+        # nudge, and the confirmation says so rather than "whoever runs it"
+        to_team = recipients == ["team"]
         if pending:
-            return {"requested": True, "already_pending": True}
+            return {"requested": True, "already_pending": True, "to_team": to_team}
         from . import notifications
 
         for recipient in recipients:
             notifications.notify(recipient, message, tier="immediate", link="/settings")
         db.log_activity(user, "request_key", "asked for a personal API key")
-    return {"requested": True, "already_pending": False}
+    return {"requested": True, "already_pending": False, "to_team": to_team}
 
 
 def verify_key(key: str) -> str | None:

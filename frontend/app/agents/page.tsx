@@ -173,6 +173,10 @@ export default function Agents() {
     { id: number; topic: string; content: string; user: string }[] | null
   >(null);
   const [forgetting, setForgetting] = useState<number | null>(null);
+  // memories with a team proposal filed from this page: the share waits for
+  // a teammate, and a second click would only be refused
+  const [sharedMemories, setSharedMemories] = useState<number[]>([]);
+  const [sharingMemory, setSharingMemory] = useState<number | null>(null);
   const [status, setStatus] = useState<{
     provider: string;
     model: string;
@@ -1071,7 +1075,7 @@ export default function Agents() {
               {memories.map((m) => (
                 <li
                   key={m.id}
-                  className="flex items-start justify-between gap-2"
+                  className="flex flex-wrap items-start justify-between gap-2"
                 >
                   <span className="min-w-0">
                     {m.topic && (
@@ -1175,24 +1179,42 @@ export default function Agents() {
                     <span className="flex shrink-0 gap-1">
                       {/* the route is StrongUser: the proposal quotes the
                           memory to the whole team */}
-                      {m.user && identity?.strong ? (
+                      {m.user && identity?.strong && sharedMemories.includes(m.id) ? (
+                        <span
+                          id={`shared-memory-${m.id}`}
+                          tabIndex={-1}
+                          className="self-center text-xs text-ink-3"
+                        >
+                          waiting for a teammate
+                        </span>
+                      ) : m.user && identity?.strong ? (
                         <button
+                          aria-disabled={sharingMemory === m.id}
                           onClick={async () => {
+                            if (sharingMemory !== null) return;
+                            setSharingMemory(m.id);
                             try {
                               const p = await api<{ id: number }>(
                                 `/api/memories/${m.id}/share`,
                                 { method: "POST" },
                               );
+                              setSharedMemories((ids) => [...ids, m.id]);
+                              setTimeout(
+                                () => document.getElementById(`shared-memory-${m.id}`)?.focus(),
+                                0,
+                              );
                               reportStatus(
-                                `Filed as proposal #${p.id}. Your teammates can read it in Review, and another teammate approves it before it steers the agent for everyone.`,
+                                `Filed as proposal #${p.id}. Your teammates can read it in Inbox → Approvals, and another teammate approves it before it steers the agent for everyone.`,
                                 "confirmation",
                               );
                             } catch (e) {
                               reportStatus(actionError(e));
+                            } finally {
+                              setSharingMemory(null);
                             }
                           }}
                           aria-label={`Share memory with the team: ${m.topic || m.content.slice(0, 40)}`}
-                          className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                          className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line aria-disabled:opacity-40"
                         >
                           share with the team
                         </button>

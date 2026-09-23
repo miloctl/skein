@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
 import { actionError, api } from "@/lib/api";
+import { VisibilityBadge } from "@/components/visibility-picker";
 import { HASH_TARGET, useHashTarget } from "@/lib/hash-target";
 import { dismissStatus, reportStatus } from "@/lib/status";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
@@ -58,6 +59,8 @@ type PromiseRow = {
   due_date: string | null;
   status: string;
   audience: "external" | "team";
+  visibility?: string;
+  crew_id?: number;
 };
 
 const HEALTH_TONE = { red: "bg-danger", yellow: "bg-weld", green: "bg-ok" };
@@ -395,6 +398,12 @@ export default function Portfolio() {
                 <span className={c.status !== "open" ? "text-ink-3 line-through" : ""}>
                   {c.audience === "team" ? "🤝 " : ""}
                   {c.promise}
+                  {/* a private capture (`promised:`, `awaiting:`) lands here */}
+                  <VisibilityBadge
+                    visibility={c.visibility}
+                    crewId={c.crew_id}
+                    share={{ kind: "promises", id: c.id, label: c.promise, onShared: load }}
+                  />
                   <span className="ml-2 text-xs text-ink-3">
                     {c.audience === "team" && "promise to the team · "}
                     {c.to_whom && `to ${c.to_whom}`} {c.due_date && `· due ${c.due_date}`}

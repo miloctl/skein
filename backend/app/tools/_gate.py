@@ -162,6 +162,23 @@ def _gated_write_locked(
             detail = "No workspace-visible record was found."
             receipts.record("refused", entity, detail, actor=actor)
             return json.dumps({"error": detail})
+    # The agent acts for this person, so it changes only rows they can read.
+    # Its writes apply as the agent, which assert_editable lets work a crew
+    # row, so without this a person in no crew had their agent edit a crew
+    # note, and a proposal private to them (review.requester_judges) was
+    # theirs to approve. A weak viewer has no name and reads the workspace
+    # tier only, which every service already enforces.
+    requester = requester_viewer()
+    if (
+        entity_id
+        and isinstance(requester, scope.Viewer)
+        and requester.name
+        and domain_policy.supports_resource(entity)
+        and not domain_policy.existing_scoped(entity, entity_id, requester)
+    ):
+        detail = "No record you can read was found."
+        receipts.record("refused", entity, detail, actor=actor)
+        return json.dumps({"error": detail})
 
     try:
         if entity == "task":
@@ -274,16 +291,13 @@ def _gated_write_locked(
                 source_id=int(result.get("id") or entity_id or 0),
             )
         return json.dumps(result)
-    # A memory addressed to a person is that person's alone
-    # (review._addressed), whichever tool filed it: the agent tool, the MCP
-    # server, a future one. Reviewed at the workspace tier, every teammate
-    # got a "Review needed" notice quoting it. That holds when policy names
-    # approver groups too: they govern team memories only, and the addressee
-    # judges it (review._check_policy_approver).
-    from ..services.users import is_agent
-
-    addressee = str(payload.get("user") or "") if entity == "memory" and action == "create" else ""
-    review_owner = addressee if addressee and not is_agent(addressee) else ""
+    # A personal row (an addressed memory, "only me" time away, a private
+    # standup) is its person's alone, whichever tool filed it. Reviewed at
+    # the workspace tier, nobody could approve it and every teammate got a
+    # "Review needed" notice quoting it. That holds under separated duties
+    # and approver groups too (review._check_separation,
+    # review._check_policy_approver).
+    review_owner = review.personal_owner(entity, action, payload, entity_id)
     private_review = (
         workspace_only_tools()
         or bool(review_owner)

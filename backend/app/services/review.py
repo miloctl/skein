@@ -130,6 +130,46 @@ def unappliable(entity: str, payload: dict, action: str = "create", *, entity_id
     return ""
 
 
+def personal_owner(entity: str, action: str, payload: dict, entity_id: int = 0) -> str:
+    """The one person a proposal's row belongs to, or "".
+
+    A memory addressed to a person, a forget of one, and a create that
+    declares the private tier (a standup, time away) are readable by that
+    person alone. So they alone can judge the proposal: in the team review
+    nobody could approve it, and the "Review needed" notice quoted it to
+    everyone. Read from the payload or the target row, never from
+    review_visibility: a proposal reviewed privately for its requester
+    (requester_judges) is not therefore a personal row, and exempting it
+    from separation or approver groups would let the requester bypass both.
+    A memory addressed to an agent is no person's (_addressed)."""
+    from .users import is_agent
+
+    owner = ""
+    if entity == "memory" and action == "create":
+        owner = str(payload.get("user") or "")
+    elif entity == "memory_forget" and entity_id:
+        row = db.query_one('SELECT "user" FROM memories WHERE id = ?', (entity_id,))
+        owner = str((row or {}).get("user") or "")
+    elif action == "create":
+        table = _TARGET_TABLE.get(entity)
+        if table in scope.CLASSIFIED and table != "memories":
+            tier = _declared_tier(table, payload)
+            owner = tier[2] if tier[0] == scope.PRIVATE else ""
+    return owner if owner and not is_agent(owner) else ""
+
+
+def _personal_owner_of(change: dict) -> str:
+    try:
+        payload = json.loads(change.get("payload") or "{}")
+    except ValueError:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    return personal_owner(
+        change["entity"], change["action"], payload, int(change.get("entity_id") or 0)
+    )
+
+
 def requester_judges(
     requester: str,
     approver_groups: tuple[str, ...] = (),
@@ -278,8 +318,27 @@ def _propose_change_locked(
         db.log_activity(actor, "propose_change", f"#{pid} {action} {entity}")
     # a private proposal notifies nobody: the notice quotes its summary, and
     # its owner finds it in their own queue. Every producer inherits this,
-    # propose_extension_invocation included.
-    if notify_team and review_visibility == scope.WORKSPACE:  # bulk producers send ONE summary
+    # propose_extension_invocation included. The ROW's tier decides too, so a
+    # proposal reviewed at the workspace tier about a crew or private row
+    # (a separated-duties review of an agent's "only me" time away) does not
+    # quote that row's summary to everyone.
+    governing = _governing_tier(
+        {
+            "entity": entity,
+            "action": action,
+            "payload": json.dumps(payload),
+            "entity_id": entity_id,
+            "result_id": None,
+            "review_visibility": review_visibility,
+            "review_crew_id": review_crew_id or None,
+            "review_owner": review_owner,
+            "requested_by": requested_by,
+        }
+    )
+    team_readable = governing is None or (
+        isinstance(governing, tuple) and governing[0] == scope.WORKSPACE
+    )
+    if notify_team and team_readable:  # bulk producers send ONE summary
         from .notifications import notify
 
         notify(
@@ -383,11 +442,14 @@ def _check_separation(change: dict, actor: str) -> None:
     originators = {
         fold_identity(str(change.get(column) or "")) for column in ("requested_by", "proposed_by")
     }
-    # An addressed memory steers only its addressee's conversations, and a
-    # personal MCP call runs on its owner's own credential. Only that person
-    # may read either proposal (_addressed, mcp_tools.py): refused here, it
-    # waits for an approver who cannot exist.
-    if change["entity"] in ("memory", "memory_forget", "extension_mcp_tool"):
+    # A personal row (personal_owner) and a personal MCP call, which runs on
+    # its owner's own credential, are readable by that one person
+    # (_addressed, mcp_tools.py): refused here, the proposal waits for an
+    # approver who cannot exist.
+    owner = _personal_owner_of(change)
+    if owner and fold_identity(owner) == folded:
+        return
+    if change["entity"] == "extension_mcp_tool":
         tier = _governing_tier(change)
         if (
             isinstance(tier, tuple)
@@ -434,15 +496,12 @@ def _check_policy_approver(
     groups: tuple[str, ...],
     capabilities: tuple[str, ...],
 ) -> dict[str, list[str]]:
-    # A memory addressed to a person reaches that person alone (_addressed),
-    # so no policy-named approver can read its proposal, and with the
-    # requirement kept it waited for a verdict nobody could give. The
-    # addressee judges it: approver groups govern team memories only
-    # (docs/EXTENSIONS.md, review decisions).
-    if change["entity"] in ("memory", "memory_forget"):
-        tier = _governing_tier(change)
-        if isinstance(tier, tuple) and tier[0] == scope.PRIVATE and tier[2]:
-            return {"matched_groups": [], "matched_capabilities": []}
+    # A personal row reaches its person alone (personal_owner), so no
+    # policy-named approver can read its proposal, and with the requirement
+    # kept it waited for a verdict nobody could give. Its person judges it:
+    # approver groups govern shared rows only (docs/EXTENSIONS.md).
+    if _personal_owner_of(change):
+        return {"matched_groups": [], "matched_capabilities": []}
     required_groups = set(json.loads(change.get("approver_groups") or "[]"))
     required_capabilities = set(json.loads(change.get("approver_capabilities") or "[]"))
     missing_groups = required_groups - set(groups)
@@ -745,6 +804,11 @@ def _approve_change_locked(
                     # arguments cannot authorize removal of somebody else's row,
                     # or make a private window about somebody else.
                     payload["requester"] = change.get("requested_by") or author
+                if change["entity"] == "absence":
+                    # a proposal filed before the tool named a tier meant the
+                    # roster, and absences.add_absence now reads no tier as
+                    # "only the person away"
+                    payload.setdefault("visibility", scope.WORKSPACE)
                 if change["action"] == "update":
                     result = fn(
                         change["entity_id"], **payload, actor=author, origin="agent_verified"
@@ -1593,17 +1657,39 @@ def _governing_tier(change: dict) -> tuple[str, int | None, str] | str | None:
     list after the row it made was deleted.
     """
     if str(change.get("review_visibility") or scope.WORKSPACE) != scope.WORKSPACE:
-        return (
-            str(change["review_visibility"]),
-            change.get("review_crew_id"),
-            str(change.get("review_owner") or change.get("requested_by") or ""),
-        )
+        return _private_review_tier(change)
     if any(change["entity"] == entity for entity, _action in lexicon.REVIEW_ONLY):
         return (
             str(change.get("review_visibility") or scope.WORKSPACE),
             change.get("review_crew_id"),
             str(change.get("review_owner") or change.get("requested_by") or ""),
         )
+    return _target_tier(change)
+
+
+def _private_review_tier(change: dict) -> tuple[str, int | None, str]:
+    """The review tier of a proposal reviewed below the workspace tier, AND
+    the row it changes: its owner judges it only while they can read that
+    row. A private review alone let a person in no crew approve, by id, their
+    agent's edit to a crew note (the apply runs as the agent, which
+    assert_editable lets work a crew row). An owner who cannot read the row
+    leaves nobody who may judge it: the empty author reads as no reader
+    (scope.can_read)."""
+    review = (
+        str(change["review_visibility"]),
+        change.get("review_crew_id"),
+        str(change.get("review_owner") or change.get("requested_by") or ""),
+    )
+    if review[0] == scope.PRIVATE and change.get("entity_id"):
+        target = _target_tier(change)
+        if isinstance(target, tuple) and not scope.can_read(
+            target[0], target[1], scope.Viewer(review[2], True), target[2]
+        ):
+            return (scope.PRIVATE, None, "")
+    return review
+
+
+def _target_tier(change: dict) -> tuple[str, int | None, str] | str | None:
     table = _TARGET_TABLE.get(change["entity"])
     if table not in scope.CLASSIFIED:
         return None
@@ -1643,11 +1729,8 @@ def _governing_tiers(rows: list[dict]) -> list[tuple[str, int | None, str] | str
     waiting: dict[tuple[str, int], list[int]] = {}
     for index, change in enumerate(rows):
         if str(change.get("review_visibility") or scope.WORKSPACE) != scope.WORKSPACE:
-            resolved[index] = (
-                str(change["review_visibility"]),
-                change.get("review_crew_id"),
-                str(change.get("review_owner") or change.get("requested_by") or ""),
-            )
+            # one row at a time: private reviews are the requester's own few
+            resolved[index] = _private_review_tier(change)
             continue
         if any(change["entity"] == entity for entity, _action in lexicon.REVIEW_ONLY):
             resolved[index] = (

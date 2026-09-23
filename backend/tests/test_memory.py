@@ -619,3 +619,41 @@ def test_a_team_memory_is_shared_on_purpose_and_a_teammate_admits_it(client, fre
     from app.services.fieldguide import PREDICATES
 
     assert PREDICATES["team_memory"]("ava") and not PREDICATES["team_memory"]("bob")
+
+
+def test_a_privately_reviewed_forget_of_a_team_memory_keeps_its_approvers(fresh_db):
+    """The approver-group exemption read the REVIEW tier, so a forget of a
+    team memory, reviewed privately for its requester, skipped the groups a
+    policy names: the requester deleted a team memory alone."""
+    from app.services import memory, review, scope, users
+
+    users.ensure_user("ava")
+    team = memory.remember("ZZTEAMFACTZZ", actor="mira")["id"]
+    change = review.propose_change(
+        "memory_forget",
+        "update",
+        {},
+        entity_id=team,
+        actor="agent",
+        requested_by="ava",
+        approver_groups=("leads",),
+        review_visibility=scope.PRIVATE,
+        review_owner="ava",
+    )
+    row = fresh_db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change["id"],))
+    with pytest.raises(PermissionError, match="configured workplace approver"):
+        review._check_policy_approver(row, (), ())
+    mine = memory.remember("ZZMINEZZ", user="ava", actor="ava")["id"]
+    change = review.propose_change(
+        "memory_forget",
+        "update",
+        {},
+        entity_id=mine,
+        actor="agent",
+        requested_by="ava",
+        approver_groups=("leads",),
+        review_visibility=scope.PRIVATE,
+        review_owner="ava",
+    )
+    row = fresh_db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change["id"],))
+    assert review._check_policy_approver(row, (), ())["matched_groups"] == []

@@ -562,7 +562,12 @@ def share_growth_interests(name: str) -> dict:
         (name,),
     )
     if not n:
-        raise ValueError("There are no unshared growth interests. Save them first.")
+        row = db.query_one("SELECT growth_shared FROM users WHERE name = ?", (name,))
+        raise ValueError(
+            "Everyone on the roster already sees your growth interests."
+            if row and row["growth_shared"]
+            else "You have no saved growth interests. Save them first."
+        )
     db.log_activity(name, "share_growth_interests", name)
     return {"name": name, "shared": True}
 
@@ -1246,7 +1251,8 @@ def rename_user(
         # person whose account changed hears it here
         from .scope import is_machine
 
-        if actor != old and not is_machine(actor):
+        # not to a person's `<name>-mcp` agent, which follows every rename
+        if actor != old and not is_machine(actor) and not is_agent(new):
             from .notifications import notify
 
             notify(

@@ -5,8 +5,8 @@ from typing import Any
 
 from strands import tool
 
-from ..agents.identity import agent_identity
-from ..services import collab, scope
+from ..agents.identity import agent_identity, requester_viewer
+from ..services import collab, scope, users
 from ._gate import gated_write
 
 
@@ -143,14 +143,20 @@ def post_standup(
         blockers: Anything blocking progress.
         share_with_team: True makes it visible to everyone on the roster.
             Keep False (only the author sees it) unless the author asked the
-            team to see it.
+            team to see it. A standup for anybody but the person you help
+            is visible to everyone on the roster.
     """
+    # "only the author" only where the author is the strong requester: a
+    # weak viewer reads no private row, and a private standup about
+    # somebody else reaches a person who never asked for it
+    strong = getattr(requester_viewer(), "name", "")
+    private = not share_with_team and bool(strong) and users.fold(author) == users.fold(strong)
     payload: dict[str, Any] = {
         "author": author,
         "yesterday": yesterday,
         "today": today,
         "blockers": blockers,
-        "visibility": scope.WORKSPACE if share_with_team else scope.PRIVATE,
+        "visibility": scope.PRIVATE if private else scope.WORKSPACE,
     }
     return gated_write(
         "standup",

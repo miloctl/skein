@@ -40,6 +40,20 @@ SHAREABLE: dict[str, tuple[str, Callable[[dict], tuple[str, str]]]] = {
 }
 
 
+# the links each create path checks with scope.assert_relationship_contains
+# (work.py, blockers.py, engagements.py)
+_PARENTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "tasks": (("milestones", "milestone_id"), ("engagements", "engagement_id")),
+    "blockers": (("tasks", "task_id"),),
+    "promises": (("engagements", "engagement_id"),),
+}
+
+
+def _parent_is_workspace(table: str, row_id: int) -> bool:
+    row = db.query_one(f"SELECT visibility FROM {table} WHERE id = ?", (row_id,))  # noqa: S608 — table from _PARENTS
+    return row is not None and row["visibility"] == scope.WORKSPACE
+
+
 def _join(row: dict, *columns: str) -> str:
     return " ".join(str(row[column] or "") for column in columns)
 
@@ -47,7 +61,7 @@ def _join(row: dict, *columns: str) -> str:
 def share_with_team(table: str, row_id: int, *, actor: str) -> dict:
     """Make one row the actor wrote visible to everyone on the roster."""
     if table not in SHAREABLE:
-        raise ValueError("This kind of record cannot be shared from here.")
+        raise ValueError("This kind of record cannot be shared.")
     author = scope.CLASSIFIED[table]
     with db.transaction():
         # FOR UPDATE: an edit landing between the check and the write would
@@ -62,11 +76,22 @@ def share_with_team(table: str, row_id: int, *, actor: str) -> dict:
             raise scope.missing(table, row_id)
         if row["visibility"] == scope.WORKSPACE:
             raise ValueError("Everyone on the roster already sees this.")
+        # a workspace row under a narrower parent is hidden by every reader
+        # (work.consistent_task_rows), so the share would report success for
+        # a row nobody else can open
+        for parent, column in _PARENTS.get(table, ()):
+            if row.get(column) and not _parent_is_workspace(parent, int(row[column])):
+                raise ValueError(
+                    "This record belongs to work that fewer people can see."
+                    " Share that work with the team first."
+                )
         db.execute(
             f"UPDATE {table} SET visibility = ?, crew_id = NULL WHERE id = ?",  # noqa: S608 — table from SHAREABLE
             (scope.WORKSPACE, row_id),
         )
         entity, text = SHAREABLE[table]
-        index_record(entity, row_id, *text(row))
+        # a void task stays out of search (work.update_task deindexes it)
+        if not (table == "tasks" and row["status"] == "void"):
+            index_record(entity, row_id, *text(row))
         db.log_activity(actor, "share_with_team", f"#{row_id} {scope.NOUN[table]}")
     return {"id": row_id, "visibility": scope.WORKSPACE}

@@ -908,9 +908,17 @@ _UNFILTERED_READS = {
         " the trust loop actually carried. A private task cannot be"
         " delegated at all (delegation.delegate_task refuses it)"
     ),
-    "review.py::_governing_tier": (
+    "review.py::_target_tier": (
         "reads the tier that decides who may see or judge a proposal. It IS"
         " the filter for pending_changes, which carries no tier of its own"
+    ),
+    "review.py::personal_owner": (
+        "reads the addressee of the memory a forget names, to route the"
+        " proposal to that one person; returns a name, never content"
+    ),
+    "sharing.py::_parent_is_workspace": (
+        "reads a parent row's tier to refuse a share the parent would hide;"
+        " returns a boolean, never content"
     ),
     "review.py::_governing_tiers": (
         "the batched collection form of _governing_tier. It reads only tier"
