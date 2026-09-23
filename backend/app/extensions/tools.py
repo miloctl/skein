@@ -161,7 +161,15 @@ async def execute_tool(
             approver_groups=decision.approver_groups,
             approver_capabilities=decision.approver_capabilities,
             review_visibility=(
-                resource.classification
+                visibility_scope.PRIVATE
+                if review.requester_judges(
+                    context.subject.name
+                    if context.subject.kind == "human" and context.subject.strong
+                    else "",
+                    decision.approver_groups,
+                    decision.approver_capabilities,
+                )
+                else resource.classification
                 if resource.classification in visibility_scope.TIERS
                 else visibility_scope.WORKSPACE
             ),

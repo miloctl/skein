@@ -243,7 +243,13 @@ class GovernedCoreTool(AgentTool):
                 approver_groups=decision.approver_groups,
                 approver_capabilities=decision.approver_capabilities,
                 review_visibility=(
-                    request.resource.classification
+                    visibility_scope.PRIVATE
+                    if review.requester_judges(
+                        subject.name if subject.kind == "human" and subject.strong else "",
+                        decision.approver_groups,
+                        decision.approver_capabilities,
+                    )
+                    else request.resource.classification
                     if request.resource.classification in visibility_scope.TIERS
                     else visibility_scope.WORKSPACE
                 ),

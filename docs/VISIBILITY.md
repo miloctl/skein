@@ -393,6 +393,18 @@ proposal, and that person approves or rejects it
 (`review._check_policy_approver`). A fact meant for the team is a memory
 addressed to nobody.
 
+**An agent's proposal is its requester's first.** A proposal that an agent
+files during a person's turn carries that turn: their words, their own crew
+and private rows, the files they attached. When the person has a strong
+identity, the proposal is private to them and sends no team notice, and
+their approval is what shares the result. `review.requester_judges` is the
+one rule, and the gate, the stock and extension tools, and remote MCP tools
+all call it. The team reviews instead when the run is unattended, when the
+identity is weak (a weak viewer reads no private row), when
+`SKEIN_REVIEW_SEPARATION=1` is on, or when policy names approvers. The
+proposal record stays private after the verdict. The row it made has its
+own tier.
+
 **Administrator actions.** The activity log shows an actor's rows to that
 actor alone, so an action an administrator takes on someone else also sends a
 notice. A rename, a merge into an account, and a deactivation or reactivation

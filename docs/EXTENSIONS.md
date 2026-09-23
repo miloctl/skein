@@ -589,7 +589,11 @@ proposals. `POST /api/review/{change_id}/approve` and
 JSON body with a `note` string.
 
 Approval requires a human reviewer. It does not require a second person by
-default: the person who asked an agent to act can approve the result. If a
+default: the person who asked an agent to act can approve the result. When
+that person's identity is strong, a proposal from their chat turn is private
+to them. Its payload is their chat, and only their approval shares the
+result. An unattended run, a weak identity, separated duties, and
+policy-named approvers keep the proposal in the team review. If a
 workplace needs separated duties, return `approver_groups` or
 `approver_capabilities` on the review decision. Skein then refuses every
 approver outside that set.
