@@ -96,6 +96,10 @@ if (typeof window !== "undefined") {
   // not api(), so the non-GET clear below never sees it — this event is
   // that write's only signal.
   window.addEventListener("skein-chat-activity", () => getCache.clear());
+  // lib/attention.ts relays another tab's write as this event. That write
+  // never passed through this tab's api(), so without the clear the refresh
+  // it triggers (nav badge, My Day) reads the pre-write body for 15 s.
+  window.addEventListener("skein-attention-change", () => getCache.clear());
 }
 
 export async function authenticatedFetch(
