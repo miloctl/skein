@@ -1471,12 +1471,17 @@ def list_findings(weeks: int = 4, limit: int = 50) -> list[dict]:
     # W34 "fresh" — and a reader counted two problems where there is one.
     # first_week says how long it has been firing; id stays the newest row's,
     # so the disposition and convert endpoints still target a real row.
+    # feature_unadopted sorts last whatever its week. It files one low row per
+    # unadopted field-guide card, after every team rule, so newest-id-first let
+    # 50 of them fill the LIMIT: /api/findings and the Planning queue
+    # (intervention.py keeps 30) lost the team's aging question.
     rows = db.query(
         "SELECT f.*, g.first_week, g.weeks_firing FROM findings f JOIN ("
         "  SELECT rule_id, subject, MAX(id) AS id, MIN(week) AS first_week,"
         "         COUNT(*) AS weeks_firing"
         "  FROM findings WHERE week >= ? GROUP BY rule_id, subject"
-        ") g ON g.id = f.id ORDER BY f.week DESC, "
+        ") g ON g.id = f.id"
+        " ORDER BY CASE f.rule_id WHEN 'feature_unadopted' THEN 1 ELSE 0 END, f.week DESC, "
         " CASE f.severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1"
         " WHEN 'low' THEN 2 ELSE 3 END, f.id DESC LIMIT ?",
         (since_week, limit),
