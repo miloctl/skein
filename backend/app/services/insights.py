@@ -795,14 +795,22 @@ def _r_token_anomaly() -> list[dict]:
     prior = [w["tokens"] for w in weekly if w["week"] != this_week]
     med = _median([float(p) for p in prior])
     if med and current >= 2 * med and current >= 500_000:
+        # Only the agent runner's and the digest's own ids are shown. A solo
+        # chat's default id is derived from its owner's name
+        # (chat_threads.default_thread_id), and a persona session id carries
+        # it, so a raw id in this team-visible receipt named whose chat spent.
+        label = (
+            "CASE WHEN thread.kind = 'shared' THEN '(private shared chat)'"
+            " WHEN usage.thread_id LIKE 'run:%' OR usage.thread_id LIKE 'wake:%'"
+            " OR usage.thread_id = 'digest' THEN usage.thread_id"
+            " ELSE '(private chat)' END"
+        )
         top = db.query(
-            "SELECT CASE WHEN thread.kind = 'shared' THEN '(private shared chat)'"
-            " ELSE usage.thread_id END AS thread_id, usage.model_id,"
+            f"SELECT {label} AS thread_id, usage.model_id,"  # noqa: S608 — label is a constant expression
             " SUM(usage.input_tokens + usage.output_tokens) AS tokens"
             " FROM usage_log usage LEFT JOIN chat_threads thread"
             " ON thread.id = usage.thread_id WHERE usage.created_at >= ?"
-            " GROUP BY CASE WHEN thread.kind = 'shared' THEN '(private shared chat)'"
-            " ELSE usage.thread_id END, usage.model_id"
+            f" GROUP BY {label}, usage.model_id"
             " ORDER BY tokens DESC LIMIT 3",
             (_iso(_today() - timedelta(days=7)),),
         )

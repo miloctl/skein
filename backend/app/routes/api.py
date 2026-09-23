@@ -85,11 +85,16 @@ def _permitted_collection(
     action: str,
     resource_type: str,
 ) -> list[dict]:
-    """Filter visible rows through their authoritative workplace policy context."""
+    """Filter visible rows through their authoritative workplace policy context.
+
+    A row with no context is withheld: policy_context drops the context of a
+    row under a parent the viewer cannot read, and indexing it raised
+    KeyError, a 500 that told the caller the hidden parent exists."""
     return [
         row
         for row in rows
-        if decide(
+        if int(row["id"]) in contexts
+        and decide(
             request,
             subject,
             action,

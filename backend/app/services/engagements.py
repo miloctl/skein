@@ -440,15 +440,19 @@ def _ship_it_locked(engagement_id: int, *, actor: str, origin: str) -> None:
         ).get("d")
         # same-day closes skip the duration — "— 0 days" reads as a bug
         days = f"{int(delta)} days" if delta else ""
+    # workspace rows only: the recap is one line for the whole team, and a
+    # crew or private row counted here is a row its readers cannot open
+    ws = f"'{scope.WORKSPACE}'"
     stats = {
         "milestones": db.query_row(
-            "SELECT COUNT(*) AS n FROM milestones WHERE engagement_id = ?", (engagement_id,)
+            f"SELECT COUNT(*) AS n FROM milestones WHERE visibility = {ws} AND engagement_id = ?",  # noqa: S608 — scope constant
+            (engagement_id,),
         ),
         # BOTH link paths — direct tasks.engagement_id and via milestones —
         # the same predicate the open-task warning above uses; an engagement
         # worked without milestones must not recap as zero
         "tasks_done": db.query_row(
-            "SELECT COUNT(*) AS n FROM tasks t WHERE t.status = 'done'"
+            f"SELECT COUNT(*) AS n FROM tasks t WHERE t.visibility = {ws} AND t.status = 'done'"  # noqa: S608 — scope constant
             " AND (t.engagement_id = ? OR t.milestone_id IN"
             " (SELECT id FROM milestones WHERE engagement_id = ?))",
             (engagement_id, engagement_id),
@@ -456,8 +460,8 @@ def _ship_it_locked(engagement_id: int, *, actor: str, origin: str) -> None:
         # scoped to THIS engagement's linked blockers — the recap must be honest
         # (a time-window count silently absorbed unrelated blockers)
         "blockers_survived": db.query_row(
-            "SELECT COUNT(*) AS n FROM blockers b JOIN tasks t ON t.id = b.task_id"
-            " WHERE b.status = 'resolved' AND (t.engagement_id = ? OR t.milestone_id IN"
+            "SELECT COUNT(*) AS n FROM blockers b JOIN tasks t ON t.id = b.task_id"  # noqa: S608 — scope constant
+            f" WHERE b.visibility = {ws} AND b.status = 'resolved' AND (t.engagement_id = ? OR t.milestone_id IN"
             " (SELECT id FROM milestones WHERE engagement_id = ?))",
             (engagement_id, engagement_id),
         ),
@@ -624,20 +628,28 @@ def list_allocations(
 ) -> list[dict]:
     """An allocation is a person and a percent, and `allocations` carries no
     tier of its own (scope.UNSCOPED). The engagement NAME it joins to does —
-    so the rows all stay and the name is masked (scope.visible_name)."""
+    so the rows all stay and the name is masked (scope.visible_name). The id
+    is masked with it: beside "other work", the raw engagement_id named the
+    hidden engagement anyway."""
     name, np = scope.visible_name(viewer, "engagements", "e.name", alias="e")
+    frag, fp = scope.visible_filter(viewer, "engagements", alias="e")
+    columns = (
+        f"a.id, a.person, CASE WHEN {frag} THEN a.engagement_id END AS engagement_id,"
+        " a.percent, a.starts_on, a.ends_on, a.created_at, a.origin, a.created_by,"
+        f" {name} AS engagement"
+    )
     if engagement_id:
         return db.query(
-            f"SELECT a.*, {name} AS engagement FROM allocations a"  # noqa: S608 — scope.visible_name emits only bound marks
+            f"SELECT {columns} FROM allocations a"  # noqa: S608 — scope fragments emit only bound marks
             " JOIN engagements e ON e.id = a.engagement_id WHERE a.engagement_id = ?"
             " ORDER BY a.id DESC LIMIT ?",
-            (*np, engagement_id, limit),
+            (*fp, *np, engagement_id, limit),
         )
     return db.query(
-        f"SELECT a.*, {name} AS engagement FROM allocations a"  # noqa: S608 — scope.visible_name emits only bound marks
+        f"SELECT {columns} FROM allocations a"  # noqa: S608 — scope fragments emit only bound marks
         " JOIN engagements e ON e.id = a.engagement_id WHERE e.status != 'closed'"
         " ORDER BY a.id DESC LIMIT ?",
-        (*np, limit),
+        (*fp, *np, limit),
     )
 
 
