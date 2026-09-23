@@ -230,7 +230,10 @@ def engagement_health(
         engs = {t["t_eng"], t["m_eng"]} - {None}
         if not engs:
             continue
-        is_wait = t["status"] != "done" and t["waiting_on_type"] is not None
+        # void is finished too: counted as open, dropped work kept an engagement
+        # yellow for silence forever
+        finished = t["status"] in ("done", "void")
+        is_wait = not finished and t["waiting_on_type"] is not None
         if is_wait:
             all_waits.append(t)
         for eng_id in engs:
@@ -240,7 +243,7 @@ def engagement_health(
                 waits_by.setdefault(eng_id, []).append(t)
             if t["updated_at"] and t["updated_at"] > last_by.get(eng_id, ""):
                 last_by[eng_id] = t["updated_at"]
-            if t["status"] != "done":
+            if not finished:
                 open_by[eng_id] = open_by.get(eng_id, 0) + 1
     satisfied = _satisfied_targets(all_waits)
     out = []

@@ -272,10 +272,17 @@ def engagement_costs(
     )
 
 
+def month_start() -> str:
+    """The first instant of this team month, as a bound for created_at (UTC).
+    A bare local date anchors it to UTC midnight: in Tokyo a call at 03:00 on
+    the 1st lands in the month before."""
+    return db.local_midnight_utc(db.today().replace(day=1))
+
+
 def month_to_date() -> dict:
     """This calendar month's estimated spend, with the unpriced count that
     says how much of it the estimate cannot see."""
-    start = db.today().replace(day=1).isoformat()
+    start = month_start()
     row = db.query_row(
         "SELECT ROUND(SUM(cost_usd)::numeric, 4) AS cost_usd,"
         " COUNT(*) - COUNT(cost_usd) AS unpriced_calls, COUNT(*) AS calls"

@@ -177,6 +177,10 @@ def disposition_request(
         raise ValueError(f"disposition must be one of {DISPOSITIONS}")
     if not reason.strip():
         raise ValueError("a reason is required — requesters see it")
+    if disposition == "accepted":
+        from .engagements import check_kind
+
+        check_kind(kind, timebox_end)
     with db.transaction():
         return _disposition(
             request_id,

@@ -135,3 +135,27 @@ def test_edit_blocker_refuses_an_unknown_impact(client, fresh_db):
     r = client.patch(f"/api/blockers/{bid}", json={"impact": "urgent"})
     assert r.status_code == 400
     assert "urgent" not in r.json()["detail"]  # errors never echo the rejected value
+
+
+def test_a_task_stays_blocked_while_another_blocker_holds_it(fresh_db):
+    from app.services import blockers, work
+
+    t = work.create_task("build it")
+    first = blockers.raise_blocker("vendor", task_id=t["id"])
+    blockers.raise_blocker("legal", task_id=t["id"])
+    blockers.resolve_blocker(first["id"])
+    assert work.get_task(t["id"])["status"] == "blocked"
+
+
+@pytest.mark.parametrize("status", ["done", "void"])
+def test_a_blocker_on_a_finished_task_leaves_the_task_finished(fresh_db, status):
+    """Flipping it to blocked cleared completed_at, so flow metrics lost the
+    completion, and a void task came back into search."""
+    from app.services import blockers, work
+
+    t = work.create_task("shipped")
+    work.update_task(t["id"], status=status)
+    before = work.get_task(t["id"])
+    blockers.raise_blocker("found late", task_id=t["id"])
+    after = work.get_task(t["id"])
+    assert (after["status"], after["completed_at"]) == (status, before["completed_at"])

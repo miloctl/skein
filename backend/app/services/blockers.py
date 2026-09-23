@@ -153,7 +153,9 @@ def raise_blocker(
                 cid,
             ),
         )
-        if task_id:
+        # a finished task stays finished: flipping it clears completed_at (flow
+        # metrics lose the completion) and brings a void task back into search
+        if task_id and task["status"] not in ("done", "void"):
             from .work import update_task
 
             update_task(task_id, status="blocked", actor=actor, origin=origin)
@@ -293,11 +295,13 @@ def resolve_blocker(
             raise ValueError(f"blocker #{blocker_id} is already resolved")
         task_unblocked = 0
         if row["task_id"]:
-            # un-block the linked task that raise_blocker flipped
+            # un-block the linked task that raise_blocker flipped, unless
+            # another blocker still holds it
             task_unblocked = db.execute_rowcount(
                 "UPDATE tasks SET status = 'in_progress', updated_at = ?"
-                " WHERE id = ? AND status = 'blocked'",
-                (db.now(), row["task_id"]),
+                " WHERE id = ? AND status = 'blocked' AND NOT EXISTS ("
+                "  SELECT 1 FROM blockers WHERE task_id = ? AND status != 'resolved')",
+                (db.now(), row["task_id"], row["task_id"]),
             )
             if task_unblocked:
                 from .work import _emit_task_event

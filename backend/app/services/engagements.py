@@ -21,6 +21,17 @@ def _hold_name(name: str) -> None:
     db.name_lock(db.LOCK_ENGAGEMENT, folded)
 
 
+def check_kind(kind: str, timebox_end: str) -> None:
+    """The engagement fields a caller can get wrong, checked before any write.
+    intake.py calls it before it marks a request accepted: afterwards, a
+    refusal leaves the request accepted with no engagement."""
+    if kind not in KINDS:
+        raise ValueError(f"kind must be one of {KINDS}")
+    if kind == "experiment" and not timebox_end:
+        raise ValueError("experiments need a timebox_end date (YYYY-MM-DD)")
+    db.validate_date("timebox_end", timebox_end, allow_clear=False)
+
+
 def create_engagement(
     name: str,
     project_class: str = "general",
@@ -39,11 +50,7 @@ def create_engagement(
     name = name.strip()
     if not name:
         raise ValueError("engagement name is required")
-    if kind not in KINDS:
-        raise ValueError(f"kind must be one of {KINDS}")
-    if kind == "experiment" and not timebox_end:
-        raise ValueError("experiments need a timebox_end date (YYYY-MM-DD)")
-    db.validate_date("timebox_end", timebox_end, allow_clear=False)
+    check_kind(kind, timebox_end)
     ts = db.now()
     # one transaction: scope.resolve_write's membership check must not be able
     # to pass and then have the author leave the crew before the INSERT lands
@@ -254,11 +261,16 @@ def _update_engagement_locked(
             (*fields.values(), db.now(), engagement_id),
         )
     db.log_activity(actor, "update_engagement", f"#{engagement_id} {status or 'edited'}")
-    if "name" in fields:
+    if fields.keys() & {"name", "summary", "lead", "project_class"}:
         row = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
         if row:
+            # the same body create_engagement indexes, or an edit drops words
+            # that search found before it
             index_record(
-                "engagement", engagement_id, row["name"], f"{row['summary']} {row['lead']}"
+                "engagement",
+                engagement_id,
+                row["name"],
+                f"{row['summary']} {row['project_class']} {row['lead']}",
             )
     if freshly_closed:
         _ship_it(engagement_id, actor=actor, origin=origin)

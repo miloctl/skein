@@ -3,7 +3,7 @@
 import re
 from datetime import UTC, date, datetime, timedelta
 
-from .. import db
+from .. import config, db
 from . import scope
 from .scope import WORKSPACE_ONLY
 
@@ -43,7 +43,7 @@ def schedule_event(
     def _canon(label: str, value: str) -> str:
         # normalize at write time: fromisoformat accepts space separators and
         # offsets, but the ICS builder (and string comparisons) only survive
-        # the plain YYYY-MM-DDTHH:MM shape — store exactly that
+        # the plain YYYY-MM-DDTHH:MM shape — store exactly that, in UTC
         try:
             dt = datetime.fromisoformat(value)
         except (TypeError, ValueError):
@@ -52,12 +52,19 @@ def schedule_event(
             ) from None
         if len(value) == 10:
             return value  # date-only stays a date: an all-day VEVENT, not midnight
-        if dt.tzinfo is not None:
-            dt = dt.astimezone(UTC).replace(tzinfo=None)
-        return dt.strftime("%Y-%m-%dT%H:%M")
+        # no offset means the TEAM's clock: the dashboard's datetime-local
+        # field, playbook rituals and the agent tool all send one. Stored as
+        # typed, it reads as UTC in every reader that converts (db.local_wall)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=config.TZ)
+        return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M")
 
     starts_at = _canon("starts_at", starts_at)
     ends_at = _canon("ends_at", ends_at) if ends_at else ""
+    # an ICS client drops or misplaces an event whose DTEND precedes DTSTART,
+    # or whose start is a date and whose end is a time
+    if ends_at and (len(ends_at) != len(starts_at) or ends_at <= starts_at):
+        raise ValueError("ends_at must be after starts_at, and of the same kind (date or time)")
     from .search import index_record
 
     with db.transaction():
@@ -106,14 +113,40 @@ def list_events(
             raise ValueError("from_date must be a real date (YYYY-MM-DD)") from exc
     frag, vp = scope.visible_filter(viewer, "events")
     if from_date:
-        return db.query(
+        rows = db.query(
             f"SELECT * FROM events WHERE starts_at >= ? AND {frag} ORDER BY starts_at LIMIT ?",  # noqa: S608 — scope.visible_filter emits only bound marks
             (from_date, *vp, limit),
         )
-    return db.query(
-        f"SELECT * FROM events WHERE {frag} ORDER BY starts_at LIMIT ?",  # noqa: S608 — scope.visible_filter emits only bound marks
-        (*vp, limit),
+    else:
+        rows = db.query(
+            f"SELECT * FROM events WHERE {frag} ORDER BY starts_at LIMIT ?",  # noqa: S608 — scope.visible_filter emits only bound marks
+            (*vp, limit),
+        )
+    return [with_local(r) for r in rows]
+
+
+def with_local(row: dict) -> dict:
+    """An event row plus its times on the team clock, the shape a person
+    typed. starts_at stays UTC for anything that compares or converts."""
+    return {
+        **row,
+        "starts_local": db.local_wall(row["starts_at"]),
+        "ends_local": db.local_wall(row["ends_at"]) if row.get("ends_at") else None,
+    }
+
+
+def team_day_events(d: date) -> list[dict]:
+    """Workspace events on team-day d. A date-only row sorts before every
+    timestamp of its own day, so a window of timestamps alone drops it at and
+    west of UTC, and admits tomorrow's all-day row in the west."""
+    start, end = db.local_event_window(d)
+    rows = db.query(
+        f"SELECT * FROM events WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " AND ((length(starts_at) > 10 AND starts_at >= ? AND starts_at < ?) OR starts_at = ?)"
+        " ORDER BY starts_at",
+        (start, end, d.isoformat()),
     )
+    return [with_local(r) for r in rows]
 
 
 def get_event(event_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict | None:
@@ -175,8 +208,16 @@ def _ics_dt_lines(prop: str, iso: str) -> list[str]:
     if re.fullmatch(r"\d{8}", value):
         return [f"{prop};VALUE=DATE:{value}"]
     if re.fullmatch(r"\d{8}T\d{6}", value):
-        return [f"{prop}:{value}"]
+        # Z: stored times are UTC. Without it the time floats, and each
+        # calendar client shows it at that wall time in its own zone
+        return [f"{prop}:{value}Z"]
     return []  # malformed stored timestamp: drop the property, not the feed
+
+
+# How far back the feed reaches. The table keeps every event, and an
+# unbounded ORDER BY starts_at LIMIT fills the feed with the oldest ones, so
+# new meetings stop appearing once the history is long.
+ICS_LOOKBACK_DAYS = 90
 
 
 def ics_feed() -> str:
@@ -189,17 +230,27 @@ def ics_feed() -> str:
         "PRODID:-//Skein//calendar//EN",
         "X-WR-CALNAME:Skein",
     ]
+    # RFC 5545 requires DTSTAMP on every VEVENT: the moment this feed was made
+    stamp = f"DTSTAMP:{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}Z"
+    floor = (db.today() - timedelta(days=ICS_LOOKBACK_DAYS)).isoformat()
     for e in db.query(
-        f"SELECT * FROM events WHERE {WORKSPACE_ONLY} ORDER BY starts_at LIMIT 500"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM events WHERE starts_at >= ? AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " ORDER BY starts_at LIMIT 500",
+        (floor,),
     ):
         start = _ics_dt_lines("DTSTART", e["starts_at"])
         if not start:
             continue
+        # rows written before the write path checked the end can still hold
+        # one before the start, or of the other kind: leave DTEND out
+        end = e["ends_at"] or ""
+        valid_end = len(end) == len(e["starts_at"]) and end > e["starts_at"]
         lines += [
             "BEGIN:VEVENT",
             f"UID:event-{e['id']}@skein",
+            stamp,
             *start,
-            *(_ics_dt_lines("DTEND", e["ends_at"]) if e["ends_at"] else []),
+            *(_ics_dt_lines("DTEND", end) if valid_end else []),
             f"SUMMARY:{_ics_escape(e['title'])}",
             *([f"DESCRIPTION:{_ics_escape(e['description'])}"] if e["description"] else []),
             "END:VEVENT",
@@ -214,6 +265,7 @@ def ics_feed() -> str:
         lines += [
             "BEGIN:VEVENT",
             f"UID:milestone-{m['id']}@skein",
+            stamp,
             *start,
             f"SUMMARY:{_ics_escape('due: ' + m['title'])}",
             "END:VEVENT",
@@ -228,6 +280,7 @@ def ics_feed() -> str:
         lines += [
             "BEGIN:VEVENT",
             f"UID:promise-{c['id']}@skein",
+            stamp,
             *start,
             # the direction is in the WORD: a received promise on a calendar
             # labelled "promised:" reads as the reader's own commitment, and
@@ -305,10 +358,11 @@ def meetings_awaiting_outcome(viewer: scope.Viewer = scope.NOBODY) -> list[dict]
     # out of it. Writing a meeting down after the fact is the other case, and
     # it needs no ask either: whoever types it in knows what it produced.
     floor = (now - timedelta(days=OUTCOME_ASK_LOOKBACK_DAYS)).strftime("%Y-%m-%dT%H:%M")
-    return db.query(
+    rows = db.query(
         f"SELECT * FROM events WHERE outcome_status = 'pending'"  # noqa: S608 — scope.visible_filter emits only bound marks
         f" AND starts_at < ? AND starts_at >= ? AND created_at <= starts_at"
         f" AND (length(starts_at) > 10 OR starts_at < ?)"
         f" AND {frag} ORDER BY starts_at DESC LIMIT 20",
         (cutoff, floor, today_local, *vp),
     )
+    return [with_local(r) for r in rows]

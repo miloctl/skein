@@ -468,3 +468,27 @@ def test_the_spend_card_answers_for_one_window(client, fresh_db):
     assert month == 1
     assert sum(m["calls"] for m in out["models"]) == month
     assert sum(e["calls"] for e in out["engagements"]) == month
+
+
+def test_the_spend_month_starts_at_the_team_midnight(client, fresh_db, monkeypatch):
+    """A bare local date against UTC created_at anchored the month to UTC
+    midnight: in Tokyo, a call at 03:00 on the 1st counted in the month
+    before, and the budget finding named the wrong month's spend."""
+    from datetime import date
+    from zoneinfo import ZoneInfo
+
+    from app import config, db
+    from app.services import usage
+
+    monkeypatch.setattr(config, "TZ", ZoneInfo("Asia/Tokyo"))
+    monkeypatch.setattr(db, "today", lambda: date(2026, 9, 15))
+    fresh_db.execute(
+        "INSERT INTO usage_log (thread_id, agent_name, model_id, input_tokens,"
+        " output_tokens, cycles, latency_ms, created_at, cost_usd) VALUES"
+        " ('t1', 'agent', 'm', 10, 10, 1, 5, '2026-08-31T18:00:00+00:00', 42),"
+        " ('t2', 'agent', 'm', 10, 10, 1, 5, '2026-08-31T14:00:00+00:00', 7)"
+    )
+    month = usage.month_to_date()
+    assert (month["calls"], float(month["cost_usd"])) == (1, 42.0)
+    out = client.get("/api/usage", headers={"X-User": "tester"}).json()
+    assert sum(m["calls"] for m in out["models"]) == 1

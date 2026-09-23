@@ -158,3 +158,17 @@ def test_the_team_flow_numbers_count_only_what_the_team_can_see(client):
 
     flow = portfolio.flow_metrics()
     assert flow["cycle_time"]["tasks_done"] == 1
+
+
+def test_a_void_task_is_not_open_work(client, fresh_db):
+    """A voided task counted as open, so an engagement whose work is done or
+    dropped stayed yellow for silence, in the daily health snapshot, the exec
+    readout, and Needs a call."""
+    m = _engagement_with_milestone(client, "Quiet", due=_days_ahead(30))
+    done = client.post("/api/tasks", json={"title": "shipped", "milestone_id": m["id"]}).json()
+    void = client.post("/api/tasks", json={"title": "dropped", "milestone_id": m["id"]}).json()
+    client.patch(f"/api/tasks/{done['id']}", json={"status": "done"})
+    client.patch(f"/api/tasks/{void['id']}", json={"status": "void"})
+    fresh_db.execute("UPDATE tasks SET updated_at = '2026-01-01T00:00:00+00:00'")
+    quiet = next(h for h in client.get("/api/portfolio/health").json() if h["name"] == "Quiet")
+    assert quiet["health"] == "green", quiet["receipts"]

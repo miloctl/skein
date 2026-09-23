@@ -2588,7 +2588,7 @@ def get_usage(user: CurrentUser, viewer: ViewerDep):
     # every section answers for it. Unbounded by-model rows and a trailing-30d
     # engagement split under that header were three call counts nobody could
     # reconcile.
-    month_start = db.today().replace(day=1).isoformat()
+    month_start = usage.month_start()
     return {
         "models": usage.usage_summary(since=month_start),
         "engagements": usage.engagement_costs(since=month_start, viewer=viewer),

@@ -26,8 +26,9 @@ def schedule_event(
 
     Args:
         title: Event name.
-        starts_at: Start time, ISO format (YYYY-MM-DDTHH:MM).
-        ends_at: End time, ISO format, or empty.
+        starts_at: Start time, ISO format (YYYY-MM-DDTHH:MM) on the team's
+            clock, or with an explicit UTC offset. A date alone is all day.
+        ends_at: End time in the same form, after starts_at, or empty.
         description: What the event is for.
         attendees: Comma-separated attendee names.
     """

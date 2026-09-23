@@ -318,3 +318,55 @@ def test_task_abandoned_fires_on_spike_then_silence_only(client, fresh_db):
     # one author working alone is aging_wip's territory, not a walk-away
     fresh_db.execute("UPDATE task_worklog SET author = 'sponsor' WHERE task_id = ?", (t["id"],))
     assert insights._r_task_abandoned() == []
+
+
+def test_a_finding_that_fires_again_after_its_disposition_lapses_is_unlabelled(
+    client, fresh_db, monkeypatch
+):
+    """_suppressed() lets a finding fire again once a dismissal is 28 days old
+    or a deferral has passed. Labelled with the old verdict, the new row never
+    reached Needs a call (intervention.py keeps unlabelled rows only), and
+    /insights hid the buttons that would act on it."""
+    from datetime import timedelta
+
+    from app import config
+    from app.services import insights
+
+    monkeypatch.setattr(config, "SCHEDULER_ENABLED", True)
+    fresh_db.execute(
+        "INSERT INTO job_outcomes (job, status, detail, duration_ms, created_at)"
+        " VALUES ('daily-digest', 'ok', '', 0, '2020-01-01T00:00:00+00:00')"
+    )
+    first = next(
+        f for f in insights.run_findings(actor="tester")["findings"] if f["rule_id"] == "job_stale"
+    )
+    insights.disposition_finding(first["id"], "dismissed", actor="tester")
+    fresh_db.execute("UPDATE finding_dispositions SET created_at = '2020-01-01T00:00:00+00:00'")
+    later = insights._today() + timedelta(weeks=5)
+    monkeypatch.setattr(insights, "_today", lambda: later)
+    insights.run_findings(actor="tester")
+    stale = next(f for f in insights.list_findings() if f["rule_id"] == "job_stale")
+    assert stale["id"] != first["id"]
+    assert stale["disposition"] == ""
+
+
+def test_a_converted_finding_keeps_its_label_when_it_fires_again(client, fresh_db, monkeypatch):
+    from datetime import timedelta
+
+    from app import config
+    from app.services import insights
+
+    monkeypatch.setattr(config, "SCHEDULER_ENABLED", True)
+    fresh_db.execute(
+        "INSERT INTO job_outcomes (job, status, detail, duration_ms, created_at)"
+        " VALUES ('daily-digest', 'ok', '', 0, '2020-01-01T00:00:00+00:00')"
+    )
+    first = next(
+        f for f in insights.run_findings(actor="tester")["findings"] if f["rule_id"] == "job_stale"
+    )
+    insights.disposition_finding(first["id"], "converted", actor="tester")
+    later = insights._today() + timedelta(weeks=1)
+    monkeypatch.setattr(insights, "_today", lambda: later)
+    insights.run_findings(actor="tester")
+    stale = next(f for f in insights.list_findings() if f["rule_id"] == "job_stale")
+    assert stale["disposition"] == "converted"
