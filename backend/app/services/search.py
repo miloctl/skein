@@ -388,9 +388,41 @@ _embed_client_key: tuple = ()
 _embed_warned = False
 
 
+def _embeddable(pairs: list[tuple[str, int]]) -> set[tuple[str, int]]:
+    """The indexed rows whose text may go to the embeddings endpoint: the
+    workspace tier, and no memory addressed to a person.
+
+    The endpoint is a third party, possibly not the chat model's provider,
+    and it is the rule every other egress already follows (docs/
+    VISIBILITY.md, the sinks table). A crew row or someone's memory sent
+    there cannot be taken back (privacy decision 2.9). One query per table."""
+    want: dict[str, set[int]] = {}
+    out: set[tuple[str, int]] = set()
+    for entity, entity_id in pairs:
+        table = _ENTITY_TABLE.get(entity)
+        if table in scope.CLASSIFIED:
+            want.setdefault(table, set()).add(int(entity_id))
+        else:
+            out.add((entity, entity_id))  # the entity carries no tier at all
+    entity_of = {table: entity for entity, table in _ENTITY_TABLE.items()}
+    for table, ids in want.items():
+        marks = ", ".join("?" for _ in ids)
+        author = scope.CLASSIFIED[table]
+        for r in db.query(
+            f'SELECT id, visibility, "{author}" AS author FROM {table} WHERE id IN ({marks})',  # noqa: S608 — constant maps; ids are bound marks
+            tuple(ids),
+        ):
+            addressed = table == "memories" and bool(r["author"])
+            if r["visibility"] == scope.WORKSPACE and not addressed:
+                out.add((entity_of[table], int(r["id"])))
+    return out
+
+
 def _maybe_embed(entity: str, entity_id: int, text: str) -> None:
     global _embed_warned
     if not config.EMBED_READY:
+        return
+    if (entity, entity_id) not in _embeddable([(entity, entity_id)]):
         return
     try:
         vec = _embed(text)
@@ -446,8 +478,8 @@ def _embed(text: str) -> list[float]:
 
 
 def missing_embeddings_count() -> int:
-    """How many indexed rows lack a current-model vector — the queue depth
-    embed_missing works through."""
+    """How many indexed rows lack a current-model vector. It counts rows
+    embed_missing never sends too (_embeddable), so it is an upper bound."""
     return db.query_row(
         "SELECT COUNT(*) AS n FROM search_index s"
         " WHERE NOT EXISTS (SELECT 1 FROM embeddings e"
@@ -464,34 +496,48 @@ def embed_missing(limit: int = 0, on_error=None) -> tuple[int, int]:
     independent and the upsert idempotent, so a concurrent run (job beside a
     manual backfill) double-embeds at worst. Shared by the embed-reconcile
     job (bounded batch) and `python -m app.backfill_embeddings` (unbounded).
+
+    Pages by a (entity, entity_id) cursor: rows _embeddable refuses never get
+    a vector, so a plain LIMIT would fetch the same refused rows every hour
+    and never reach the ones after them.
     """
     global _embed_warned
-    rows = db.query(
-        "SELECT s.entity, s.entity_id, s.title, s.body FROM search_index s"
-        " WHERE NOT EXISTS (SELECT 1 FROM embeddings e"
-        "   WHERE e.entity = s.entity AND e.entity_id = s.entity_id AND e.model = ?)"
-        # LIMIT NULL is LIMIT ALL, so limit=0 means unbounded
-        " ORDER BY s.entity, s.entity_id LIMIT ?",
-        (config.EMBED_MODEL, limit or None),
-    )
+    page = limit or 500
+    after: tuple[str, int] = ("", 0)
     done = failed = 0
-    for r in rows:
-        try:
-            vec = _embed(f"{r['title']}\n{r['body']}")
-            db.execute(
-                "INSERT INTO embeddings (entity, entity_id, model, vector)"
-                " VALUES (?, ?, ?, ?)"
-                " ON CONFLICT (entity, entity_id) DO UPDATE SET"
-                " model = excluded.model, vector = excluded.vector",
-                (r["entity"], r["entity_id"], config.EMBED_MODEL, json.dumps(vec)),
-            )
-            done += 1
-            _embed_warned = False
-        except Exception as exc:
-            failed += 1
-            if on_error is not None:
-                on_error(r["entity"], r["entity_id"], exc)
-    return done, failed
+    while True:
+        rows = db.query(
+            "SELECT s.entity, s.entity_id, s.title, s.body FROM search_index s"
+            " WHERE NOT EXISTS (SELECT 1 FROM embeddings e"
+            "   WHERE e.entity = s.entity AND e.entity_id = s.entity_id AND e.model = ?)"
+            " AND (s.entity, s.entity_id) > (?, ?)"
+            " ORDER BY s.entity, s.entity_id LIMIT ?",
+            (config.EMBED_MODEL, after[0], after[1], page),
+        )
+        if not rows:
+            return done, failed
+        allowed = _embeddable([(r["entity"], int(r["entity_id"])) for r in rows])
+        for r in rows:
+            after = (r["entity"], int(r["entity_id"]))
+            if after not in allowed:
+                continue  # never sent: see _embeddable
+            try:
+                vec = _embed(f"{r['title']}\n{r['body']}")
+                db.execute(
+                    "INSERT INTO embeddings (entity, entity_id, model, vector)"
+                    " VALUES (?, ?, ?, ?)"
+                    " ON CONFLICT (entity, entity_id) DO UPDATE SET"
+                    " model = excluded.model, vector = excluded.vector",
+                    (r["entity"], r["entity_id"], config.EMBED_MODEL, json.dumps(vec)),
+                )
+                done += 1
+                _embed_warned = False
+            except Exception as exc:
+                failed += 1
+                if on_error is not None:
+                    on_error(r["entity"], r["entity_id"], exc)
+            if limit and done + failed >= limit:
+                return done, failed
 
 
 def semantic_search(q: str, limit: int = 10, entity: str = "") -> list[dict]:

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 /** The nav search box. GET /api/search and GET /api/ask both shipped working
@@ -11,12 +11,14 @@ import { describe, expect, it, vi } from "vitest";
  *  would be a stored-XSS sink reachable by any teammate. */
 
 const calls: string[] = [];
+const health = vi.hoisted(() => ({ semantic_search: false }));
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...real,
     api: (path: string) => {
       calls.push(path);
+      if (path === "/api/health") return Promise.resolve({ ...health });
       if (path.startsWith("/api/ask"))
         return Promise.resolve({
           question: "q",
@@ -72,7 +74,9 @@ describe("the nav search box", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(document.activeElement).toBe(input);
     fireEvent.keyDown(input, { key: "Enter" });
-    await waitFor(() => expect(calls).toEqual(["/api/search?q=dark"]));
+    await waitFor(() =>
+      expect(calls.filter((path) => path !== "/api/health")).toEqual(["/api/search?q=dark"]),
+    );
     delete document.documentElement.dataset.appearance;
     window.localStorage.clear();
   });
@@ -148,3 +152,18 @@ describe("the nav search box", () => {
     expect(region.textContent).toContain('<img src=x onerror="alert(1)">');
   });
 });
+
+describe("search terms that leave Skein", () => {
+  it("says so before the reader searches when embeddings are on", async () => {
+    health.semantic_search = true;
+    try {
+      render(<NavSearch />);
+      // a real focus: the box opens for the notice only while the input holds it
+      act(() => (screen.getByLabelText("Search Skein") as HTMLInputElement).focus());
+      expect(await screen.findByText("Search terms go to the embeddings service.")).toBeTruthy();
+    } finally {
+      health.semantic_search = false;
+    }
+  });
+});
+

@@ -65,3 +65,27 @@ def test_job_health_matches_reconcile_failures(fresh_db, monkeypatch, counts, de
 
 def test_the_job_noops_keyless(fresh_db):
     assert jobs._embed_reconcile() == "embeddings off"
+
+
+def test_only_workspace_rows_with_no_addressee_are_sent(fresh_db, monkeypatch):
+    """The endpoint is a third party. Crew rows and memories addressed to a
+    person went to it, and a sent text cannot be taken back (decision 2.9).
+    The repair job must also get past the rows it refuses, or a plain LIMIT
+    fetches the same refused rows every hour."""
+    from app import config
+    from app.services import crews, memory, users
+
+    monkeypatch.setattr(config, "EMBED_READY", True)
+    sent: list[str] = []
+    monkeypatch.setattr(search, "_embed", lambda text: sent.append(text) or [1.0, 0.0])
+    users.ensure_user("mira")
+    crew = crews.create_crew("Platform", actor="mira")
+    collab.save_note("ZZCREWZZ", "crew body", author="mira", visibility="crew", crew_id=crew["id"])
+    memory.remember("ZZADDRESSEDZZ", user="mira", actor="mira")
+    collab.save_note("ZZSHAREDZZ", "shared body", author="mira")
+    assert any("ZZSHAREDZZ" in text for text in sent)
+    assert not any("ZZCREWZZ" in text or "ZZADDRESSEDZZ" in text for text in sent)
+    fresh_db.execute("DELETE FROM embeddings")
+    sent.clear()
+    assert search.embed_missing(limit=1) == (1, 0)
+    assert len(sent) == 1 and "ZZSHAREDZZ" in sent[0]
