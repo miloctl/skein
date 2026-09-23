@@ -920,3 +920,36 @@ def test_a_proposal_for_an_addressed_memory_is_the_addressees_alone(client, fres
     refused = client.post(f"/api/review/{proposal['id']}/approve", json={}, headers=_strong(client))
     assert refused.status_code == 404
     assert "ZZAVAONLYZZ" in client.get("/api/review", headers=_strong(client, "ava")).text
+
+
+def test_a_verdict_on_a_persons_proposal_stays_between_proposer_and_reviewer(
+    client, fresh_db, monkeypatch
+):
+    """Settled lists rebuilt a teammate's rejection record with the reviewer's
+    notes, the person-level judgment trust_scores withholds (decision 2.10)."""
+    from app import config
+    from app.services import insights, review, scope, users
+
+    monkeypatch.setattr(config, "ADMINS", frozenset({"ops"}))
+    for name in ("alice", "bob", "carol"):
+        users.ensure_user(name)
+    change = review.propose_change(
+        "note", "create", {"topic": "t", "content": "c"}, "note", actor="alice", origin="human"
+    )
+    review.reject_change(change["id"], "ZZHARSHZZ", actor="bob", viewer=scope.Viewer("bob", True))
+    for who, sees in (("alice", True), ("bob", True), ("carol", False)):
+        for path in ("/api/review?status=rejected", "/api/review/stats"):
+            text = client.get(path, headers=_strong(client, who)).text
+            assert ("ZZHARSHZZ" in text) is sees, (who, path)
+    # nine more rejections so the spike rule fires; its receipt quotes notes
+    users.ensure_user("scribe", kind="agent")
+    for i in range(9):
+        other = review.propose_change(
+            "note", "create", {"topic": "t", "content": f"c{i}"}, "note", actor="scribe"
+        )
+        review.reject_change(
+            other["id"], "agent note", actor="bob", viewer=scope.Viewer("bob", True)
+        )
+    fired = insights._r_rejection_spike()
+    assert fired and "agent note" in str(fired)
+    assert "ZZHARSHZZ" not in str(fired)

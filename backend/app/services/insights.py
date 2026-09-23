@@ -671,6 +671,7 @@ def _r_rejection_spike() -> list[dict]:
     notes = _readable(
         db.query(
             "SELECT entity, entity_id, summary, review_note, payload, result_id,"
+            " proposed_by, reviewed_by,"
             " review_visibility, review_crew_id, review_owner FROM pending_changes"
             " WHERE status = 'rejected' AND reviewed_at >= ? AND review_note != ''"
             " ORDER BY id DESC LIMIT 10",
@@ -678,6 +679,10 @@ def _r_rejection_spike() -> list[dict]:
         ),
         scope.NOBODY,
     )
+    # the receipt is team-visible and permanent: no note that judges a person
+    from .review import settled_visible
+
+    notes = settled_visible(notes, "")
     return [
         _finding(
             "rejection_spike",
