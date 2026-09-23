@@ -22,11 +22,19 @@ spec:
   egress:
     # cluster DNS. OpenShift serves it from openshift-dns; a vanilla
     # cluster uses kube-system with the k8s-app=kube-dns pod label.
+    # OpenShift evaluates egress after the Service DNAT, so the port that
+    # matches is the CoreDNS pod port 5353, not the Service port 53. Without
+    # 5353 every name lookup times out on OpenShift. Port 53 stays for a
+    # cluster whose DNS pods listen on 53.
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: openshift-dns
       ports:
+        - protocol: UDP
+          port: 5353
+        - protocol: TCP
+          port: 5353
         - protocol: UDP
           port: 53
         - protocol: TCP
