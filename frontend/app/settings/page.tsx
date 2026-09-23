@@ -1460,8 +1460,8 @@ export default function SettingsPage() {
                               setKeyError(false);
                               setKeyStatus(
                                 r.already_pending
-                                  ? "Already asked — the request is still on the team's My Day."
-                                  : "Asked — the request (with the exact command) is now on the team's My Day.",
+                                  ? "Already asked. The request is still waiting for whoever runs the server."
+                                  : "Asked. Whoever runs the server now has the request and the exact command.",
                               );
                             } catch (e) {
                               setKeyError(true);
