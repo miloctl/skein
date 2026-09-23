@@ -391,6 +391,14 @@ names approver groups for the memory, the proposal stays hidden and waits for
 the addressee to reject it. A fact meant for the team is a memory addressed
 to nobody.
 
+**Edits and deletes.** The activity log can never be edited or pruned, so a
+row that carries text keeps it past every later delete. An edit or delete of
+a note, blocker, promise, intake request, absence or growth interest records
+the id and the changed field names only. A deleted note used to keep its
+first 300 characters for recovery, and an edit its old and new wording;
+recovery is now the backups' job, and backups expire. Rows written before
+this rule keep their text: the chain cannot be rewritten.
+
 The tier check quotes the author column. Unquoted, memories' `user` is
 CURRENT_USER: the check compared the database role name, so an addressee never
 read their own private memory and a person named like the role read all of

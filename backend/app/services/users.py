@@ -535,10 +535,12 @@ def set_growth_interests(name: str, interests: str, *, actor: str = "system") ->
     """Self-declared growth interests — person-level data used to plan the
     future (staffing fit), never to judge the past. Display-only: no
     matching logic, no scores."""
-    prev = ensure_user(name).get("growth_interests", "")
+    ensure_user(name)
     db.execute("UPDATE users SET growth_interests = ? WHERE name = ?", (interests.strip(), name))
-    # old→new in the ledger: a spoofed overwrite must be visible + recoverable
-    db.log_activity(actor, "set_growth_interests", f"{name}: '{prev}' -> '{interests.strip()}'")
+    # the fact of the change, never the text: the ledger can never be
+    # edited, and growth interests are personal (docs/VISIBILITY.md). An
+    # overwrite made under someone else's name still shows in the ledger.
+    db.log_activity(actor, "set_growth_interests", name)
     return {"name": name, "growth_interests": interests.strip()}
 
 
