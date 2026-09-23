@@ -476,7 +476,7 @@ async def _remember(
     args: str, user: str, viewer: scope.Viewer, access: CommandAccess | None
 ) -> AsyncIterator[Event]:
     if not args:
-        yield {"data": "Usage: `/remember <fact>`"}
+        yield {"data": "Usage: `/remember <fact>` or `/remember team: <fact>`"}
         return
     if args.lower().startswith("fb:"):
         yield {"data": wording.private_feedback_agent_refusal()}
@@ -493,6 +493,15 @@ async def _remember(
         return
     yield _tool_event("remember")
     try:
+        if args.lower().startswith("team:"):
+            p = await run_in_threadpool(
+                lambda: memory.propose_team_memory(args[5:], actor=user),
+            )
+            yield {
+                "data": f"Filed as proposal #{p['id']}. Another teammate approves it in"
+                " Inbox → Approvals before it steers the agent for everyone."
+            }
+            return
         # In a thread linked to an engagement, the fact files AGAINST that
         # engagement — this was the loop the sidebar promised ("Filing one
         # back is a proposal a person approves") with no path that entered
@@ -577,8 +586,8 @@ COMMANDS: list[dict] = [
     },
     {
         "name": "remember",
-        "args": "<fact>",
-        "description": "Save a durable cross-thread memory",
+        "args": "[team:] <fact>",
+        "description": "Save a memory for you, or propose one for the team",
         "handler": _remember,
     },
     {

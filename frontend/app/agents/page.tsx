@@ -1078,9 +1078,11 @@ export default function Agents() {
                       <span className="mr-1.5 font-medium">[{m.topic}]</span>
                     )}
                     {m.content}
+                    {/* recall returns the viewer's own and the team's, so
+                        an addressed row is always the viewer's */}
                     {m.user && (
                       <span className="ml-1.5 text-xs text-ink-3">
-                        ({m.user} only)
+                        (only you)
                       </span>
                     )}
                   </span>
@@ -1170,14 +1172,40 @@ export default function Agents() {
                       </span>
                     </span>
                   ) : (
-                    <button
-                      id={`forget-memory-${m.id}`}
-                      onClick={() => setForgetting(m.id)}
-                      aria-label={`Forget memory: ${m.topic || m.content.slice(0, 40)}`}
-                      className="shrink-0 rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
-                    >
-                      forget…
-                    </button>
+                    <span className="flex shrink-0 gap-1">
+                      {/* the route is StrongUser: the proposal quotes the
+                          memory to the whole team */}
+                      {m.user && identity?.strong ? (
+                        <button
+                          onClick={async () => {
+                            try {
+                              const p = await api<{ id: number }>(
+                                `/api/memories/${m.id}/share`,
+                                { method: "POST" },
+                              );
+                              reportStatus(
+                                `Filed as proposal #${p.id}. Your teammates can read it in Review, and another teammate approves it before it steers the agent for everyone.`,
+                                "confirmation",
+                              );
+                            } catch (e) {
+                              reportStatus(actionError(e));
+                            }
+                          }}
+                          aria-label={`Share memory with the team: ${m.topic || m.content.slice(0, 40)}`}
+                          className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                        >
+                          share with the team
+                        </button>
+                      ) : null}
+                      <button
+                        id={`forget-memory-${m.id}`}
+                        onClick={() => setForgetting(m.id)}
+                        aria-label={`Forget memory: ${m.topic || m.content.slice(0, 40)}`}
+                        className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                      >
+                        forget…
+                      </button>
+                    </span>
                   )}
                 </li>
               ))}

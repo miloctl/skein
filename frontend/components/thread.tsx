@@ -282,8 +282,8 @@ const FALLBACK_COMMANDS: SlashCommand[] = [
   },
   {
     name: "remember",
-    args: "<fact>",
-    description: "Save a durable cross-thread memory",
+    args: "[team:] <fact>",
+    description: "Save a memory for you, or propose one for the team",
   },
   {
     name: "personas",

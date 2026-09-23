@@ -391,7 +391,12 @@ groups that a workplace policy names govern team memories only: under such a
 policy, a memory addressed to a person is still that person's private
 proposal, and that person approves or rejects it
 (`review._check_policy_approver`). A fact meant for the team is a memory
-addressed to nobody.
+addressed to nobody, and it reaches the team only by a deliberate share: "share
+with the team" on the memory list, or `/remember team: <fact>` in chat. Both
+file a team-visible proposal (`memory.propose_team_memory`), and a teammate
+other than the author approves it (`review._check_team_memory_approver`). An
+approved share moves the memory, so the author's own copy is deleted. An
+engagement memory follows the same approval rule.
 
 **An agent's proposal is its requester's first.** A proposal that an agent
 files during a person's turn carries that turn: their words, their own crew

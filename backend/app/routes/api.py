@@ -1752,6 +1752,14 @@ def delete_memory(memory_id: int, user: CurrentUser):
         raise HTTPException(404, str(e)) from e
 
 
+@router.post("/memories/{memory_id}/share")
+def share_memory(memory_id: int, user: StrongUser):
+    """StrongUser: the memory is addressed to the caller, and the proposal
+    quotes it to the whole team."""
+    ratelimit.check("memory", user)
+    return memory.propose_team_memory(actor=user, memory_id=memory_id)
+
+
 @router.get("/pulse")
 def get_pulse(
     user: CurrentUser,

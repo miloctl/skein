@@ -401,6 +401,33 @@ def _check_separation(change: dict, actor: str) -> None:
         )
 
 
+def _check_team_memory_approver(change: dict, actor: str) -> None:
+    """Refuse the person who filed a memory for the team as its approver.
+
+    A memory addressed to nobody steers every teammate's agent, so another
+    teammate admits it: memory.propose_team_memory and
+    memory.propose_engagement_memory file these. Approval only: the author's
+    rejection withdraws the proposal. An agent's team memory has a human
+    judge already."""
+    if change["entity"] != "memory" or change.get("origin") != "human":
+        return
+    try:
+        payload = json.loads(change.get("payload") or "{}")
+    except ValueError:
+        payload = {}
+    if isinstance(payload, dict) and payload.get("user"):
+        return
+    from ..identity_names import fold_identity
+
+    authors = {
+        fold_identity(str(change.get(column) or "")) for column in ("requested_by", "proposed_by")
+    }
+    if fold_identity(actor) in authors:
+        raise PermissionError(
+            "You filed this memory for the team. Another teammate must approve it."
+        )
+
+
 def _check_policy_approver(
     change: dict,
     groups: tuple[str, ...],
@@ -620,6 +647,7 @@ def _approve_change_locked(
         reviewer_capabilities,
     )
     _check_separation(change, actor)
+    _check_team_memory_approver(change, actor)
     qualifications: dict[str, Any] = _check_policy_approver(
         change,
         reviewer_groups,

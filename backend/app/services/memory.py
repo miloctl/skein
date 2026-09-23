@@ -77,6 +77,15 @@ def remember(
             scope.detail(scope.PRIVATE if user else tier, f"#{mid}", topic or content[:60]),
         )
         index_record("memory", mid, topic or content[:60], content)
+        if source_kind == "memory" and source_id.isdigit() and not user:
+            # an approved share (propose_team_memory) moves the sharer's own
+            # memory to the team: kept, their agent recalled the fact twice
+            from .search import deindex_record
+
+            if db.execute_rowcount(
+                'DELETE FROM memories WHERE id = ? AND "user" = ?', (int(source_id), actor)
+            ):
+                deindex_record("memory", int(source_id))
     return {"id": mid, "topic": topic}
 
 
@@ -222,6 +231,52 @@ def memory_prompt(
         f"- [{m['topic']}] {m['content']}" if m["topic"] else f"- {m['content']}" for m in rows
     ]
     return "\n\nTeam memory (from prior conversations):\n" + "\n".join(lines)
+
+
+def propose_team_memory(
+    content: str = "", topic: str = "", *, actor: str, memory_id: int = 0
+) -> dict:
+    """File a fact for the whole team. A memory addressed to nobody steers every
+    teammate's agent, so it is always a proposal, and another teammate
+    approves it (review._check_team_memory_approver).
+
+    With `memory_id` the fact is one of the actor's own memories, and the
+    approval moves it (remember deletes the source row)."""
+    from .review import propose_change
+
+    source = {}
+    with db.transaction():
+        if memory_id:
+            # FOR UPDATE: two shares of one memory both read "none pending"
+            row = db.query_one(
+                'SELECT content, topic, "user" FROM memories WHERE id = ? FOR UPDATE',
+                (memory_id,),
+            )
+            if not row or row["user"] != actor:
+                raise scope.missing("memories", memory_id)
+            if db.query_one(
+                "SELECT id FROM pending_changes WHERE entity = 'memory' AND status = 'pending'"
+                " AND payload::jsonb ->> 'source_kind' = 'memory'"
+                " AND payload::jsonb ->> 'source_id' = ?",
+                (str(memory_id),),
+            ):
+                raise ValueError("This memory already waits for a teammate to approve it.")
+            content, topic = row["content"], row["topic"]
+            source = {"source_kind": "memory", "source_id": str(memory_id)}
+        content, topic = content.strip(), topic.strip()
+        if not content:
+            raise ValueError("nothing to remember")
+        if len(content) > 2000 or len(topic) > 100:
+            raise ValueError("keep memories under 2000 characters and topics under 100")
+        return propose_change(
+            "memory",
+            "create",
+            {"content": content, "topic": topic, **source},
+            summary=f"remember for the team: {content[:80]}",
+            actor=actor,
+            origin="human",
+            requested_by=actor,
+        )
 
 
 def propose_engagement_memory(
