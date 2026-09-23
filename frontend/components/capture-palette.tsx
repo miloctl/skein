@@ -174,9 +174,12 @@ export function CapturePalette() {
 
   useEffect(() => {
     if (!open || gated) return;
+    // the status nodes stay live (status-region.tsx)
     const changed = [...document.body.children].filter(
       (element) =>
-        !element.contains(dialogRef.current) && !element.hasAttribute("inert"),
+        !element.contains(dialogRef.current) &&
+        !element.hasAttribute("inert") &&
+        !element.hasAttribute("data-status-region"),
     ) as HTMLElement[];
     changed.forEach((element) => element.setAttribute("inert", ""));
     return () => changed.forEach((element) => element.removeAttribute("inert"));
