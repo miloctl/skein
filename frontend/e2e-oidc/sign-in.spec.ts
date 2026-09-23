@@ -15,18 +15,17 @@ async function signIn(page: Page) {
   const origin = new URL(page.url()).origin;
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
   // Capture the body before navigation frees it. Forward the fetched response
-  // so Set-Cookie remains the backend's own.
+  // so Set-Cookie remains the backend's own. The route stays for the page's
+  // life, because removing it can strand the next page's requests.
   let exchanged: { status: number; body: string } | null = null;
   await page.route("**/api/auth/token", async (route) => {
     const res = await route.fetch();
     const result = { status: res.status(), body: await res.text() };
     await route.fulfill({ response: res, body: result.body });
-    // Removing interception before fulfillment can replay the already-spent code.
     exchanged = result;
   });
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect.poll(() => exchanged?.status, { timeout: 15_000 }).toBe(200);
-  await page.unroute("**/api/auth/token");
   const metadata = JSON.parse(exchanged!.body);
   expect(metadata.authenticated).toBe(true);
   expect(metadata).not.toHaveProperty("access_token");

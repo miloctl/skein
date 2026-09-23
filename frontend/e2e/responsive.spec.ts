@@ -645,7 +645,6 @@ test("extreme content does not break the shell", async ({ page }) => {
       what: "badge",
       detail: "9999 never rendered",
     });
-  await page.unroute("**/api/attention");
   expect(problems, JSON.stringify(problems, null, 2)).toEqual([]);
 });
 
@@ -690,7 +689,6 @@ test("a dead backend says so, and claims nothing", async ({ page }) => {
         detail: `said "${claimed[0]}" with no data`,
       });
   }
-  await page.unroute("**/api/**");
   expect(problems, JSON.stringify(problems, null, 2)).toEqual([]);
 });
 
@@ -726,7 +724,6 @@ test("a page that is still loading claims nothing yet", async ({ page }) => {
         detail: "unreachable while loading",
       });
   }
-  await page.unroute("**/api/**");
   expect(problems, JSON.stringify(problems, null, 2)).toEqual([]);
 });
 
@@ -793,7 +790,6 @@ test("a truly empty workspace says so without breaking", async ({ page }) => {
         detail: "unreachable on a 200",
       });
   }
-  await page.unroute("**/api/**");
   expect(problems, JSON.stringify(problems, null, 2)).toEqual([]);
 });
 

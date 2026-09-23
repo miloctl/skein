@@ -30,12 +30,9 @@ async function signedInPage(browser: Browser, user: string) {
   expect(session?.csrf_token).toBeTruthy();
   expect(session).not.toHaveProperty("access_token");
   expect(session).not.toHaveProperty("refresh_token");
-  // The API client does not wait for browser bootstrap. Removing interception
-  // during that bootstrap can leave the browser's auth requests pending.
   await expect(page.getByRole("button", { name: new RegExp(user, "i") })).toBeVisible({
     timeout: 15_000,
   });
-  await page.unroute(`${IDP}/authorize**`);
   return { context, page, csrf: String(session.csrf_token) };
 }
 
@@ -113,12 +110,17 @@ test("the package-built workplace keeps core writes and extension policy togethe
     `response: 503 ${metricsUrl}`,
     "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
   ]);
+  // Removing the last route turns interception off, and a request the page
+  // starts during that switch stays pending forever. A flag ends the outage.
+  let metricsDown = true;
   await manager.page.route(metricsUrl, (route) =>
-    route.fulfill({
-      status: 503,
-      contentType: "application/json",
-      body: JSON.stringify({ detail: "unavailable" }),
-    }),
+    metricsDown
+      ? route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ detail: "unavailable" }),
+        })
+      : route.fallback(),
   );
   await manager.page.goto("/dashboard#atlas-delivery");
   await expect(manager.page.getByRole("link", { name: "Atlas" })).toBeVisible({
@@ -135,7 +137,7 @@ test("the package-built workplace keeps core writes and extension policy togethe
   await expect(unavailable).toHaveAttribute("aria-live", "polite");
   await expect(manager.page.getByText("0 linked items · 0 sync runs")).toHaveCount(0);
   await expect(manager.page.getByText("Loading Atlas delivery indicators…")).toHaveCount(0);
-  await manager.page.unroute(metricsUrl);
+  metricsDown = false;
   await manager.page.getByRole("button", { name: "Try again" }).click();
   const recovered = manager.page.getByText("0 linked items · 1 sync run");
   await expect(recovered).toBeVisible();
