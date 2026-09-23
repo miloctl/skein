@@ -32,9 +32,11 @@ def test_theme_survives_rename_but_merge_keeps_target(fresh_db):
     users.rename_user("Mira", "Mira K")
     assert users.get_theme("Mira K") == '{"pack":"atelier"}'
     # merge: the target row's theme wins; the source row (and its theme) is deleted
-    users.ensure_user("mira")
-    users.set_theme("mira", '{"pack":"ledger"}')
-    out = users.rename_user("Mira K", "mira")
+    # a new target name: "mira" was freed by the rename above
+    # (users.refuse_released_name)
+    users.ensure_user("mira-l")
+    users.set_theme("mira-l", '{"pack":"ledger"}')
+    out = users.rename_user("Mira K", "mira-l")
     assert out["merged"] is True
-    assert users.get_theme("mira") == '{"pack":"ledger"}'  # atelier is gone (documented loss)
+    assert users.get_theme("mira-l") == '{"pack":"ledger"}'  # atelier is gone (documented loss)
     assert users.get_theme("Mira K") == ""

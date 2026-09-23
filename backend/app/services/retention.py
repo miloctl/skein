@@ -43,6 +43,7 @@ KEPT = {
     "tool_usage": "one row per day/user/surface; the adoption trend is the read",
     "schema_version": "migration receipts the boot depends on",
     "users": "the roster: deactivation, never deletion, keeps provenance resolvable",
+    "released_names": "freed names stay refused as long as the ledger names them, which is forever",
     "oidc_identities": "stable sign-in bindings; removal would let a subject claim a new user",
     "api_keys": "credential audit rows: revocation deactivates in place",
     "mcp_servers": "owner-deleted personal servers, never age-pruned",

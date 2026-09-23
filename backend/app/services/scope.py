@@ -705,6 +705,7 @@ UNSCOPED: dict[str, str] = {
         " expires in minutes, pruned on the lease sweep, excluded from export and backups"
     ),
     "mention_log": "a dedupe key, not content",
+    "released_names": "a folded name and a time, no content",
     "notification_reads": (
         "a dismissal stamp, not content. The notification it points at carries"
         " the tier — this row holds a reader's name, a row id and a time."
