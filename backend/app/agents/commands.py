@@ -1,8 +1,11 @@
 """Deterministic slash-command engine shared by every chat surface.
 
-Commands never reach a model: the chat route dispatches here before building
-an agent, so `/briefing` behaves identically (and costs zero tokens) whether
-the provider is mock or a live model. The same registry feeds
+A command runs no model: the chat route dispatches here before building an
+agent, so `/briefing` behaves identically (and costs zero tokens) whether the
+provider is mock or a live model. Its output is not kept from one: on a live
+provider, agents/session_log.py bridges the exchange into the chat's model
+session, and the next agent turn sends it to the provider, including the
+private and crew rows `/briefing`, `/delta` and `/search` read for the caller. The same registry feeds
 GET /api/chat/commands, which drives the composer autocomplete — the UI can
 never drift from what the backend actually accepts.
 """

@@ -647,9 +647,17 @@ def run(
     """The scheduled entry point: the deterministic sweep, then one bounded
     turn per allowlisted agent. The sweep runs FIRST and unconditionally, so
     a sponsor still hears about quiet work on a day every run refuses."""
+    from .agent_wakeups import WAKE_TOOLS
+
     swept = sweep(policy)
+    # The wake contract, as the wake path uses (agent_wakeups.py): _WAKE asks
+    # for no other tool. Built without it, the turn held every system MCP
+    # tool with nobody watching, and a read-effect remote call needs no
+    # review, so inbox crew titles and reviewer notes could reach an
+    # operator's third-party server.
     runs = [
-        run_one(a, actor=actor, extensions=extensions, policy=policy) for a in config.AGENT_RUNNER
+        run_one(a, actor=actor, extensions=extensions, policy=policy, allowed_tools=WAKE_TOOLS)
+        for a in config.AGENT_RUNNER
     ]
     ran = sum(1 for r in runs if r["ran"])
     faults = [r for r in runs if r.get("fault")]
