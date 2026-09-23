@@ -649,20 +649,10 @@ def update_note(
             f"UPDATE notes SET {sets} WHERE id = ?",  # noqa: S608 — keys hardcoded
             (*fields.values(), note_id),
         )
-        if topic and topic != row["topic"]:
-            # both topics are the note's own text, so a scoped rename logs
-            # the identifier only
-            db.log_activity(
-                actor or "system",
-                "update_note",
-                scope.detail(row["visibility"], f"#{note_id}", f"'{row['topic']}' -> '{topic}'"),
-            )
-        else:
-            db.log_activity(
-                actor or "system",
-                "update_note",
-                scope.detail(row["visibility"], f"#{note_id}", row["topic"]),
-            )
+        # the id and the field names, never the text: the ledger can never
+        # be edited, so an edit's old wording outlived every later delete
+        # (docs/VISIBILITY.md, "Edits and deletes")
+        db.log_activity(actor or "system", "update_note", f"#{note_id} {' '.join(fields)}")
         new = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
         if new:
             index_record("note", note_id, new["topic"], new["content"])
@@ -685,9 +675,7 @@ def delete_note(note_id: int, *, actor: str = "", origin: str = "human") -> dict
     # lands without the other. What keeps a concurrent update_note from
     # re-indexing the body after this deindex is that function's re-read
     # before it indexes, not a lock either side takes. Without it the FULL
-    # body of a deleted note stays queryable through search forever — a path
-    # that also outlives the 300-char ledger snapshot below, which is
-    # deliberately bounded.
+    # body of a deleted note stays queryable through search forever.
     with db.transaction():
         row = db.query_one("SELECT * FROM notes WHERE id = ?", (note_id,))
         if not row:
@@ -695,17 +683,9 @@ def delete_note(note_id: int, *, actor: str = "", origin: str = "human") -> dict
         scope.assert_editable("notes", row, actor, verb="delete")
         db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
         deindex_record("note", note_id)
-        # bounded content snapshot: a workspace note deleted between backups
-        # must be reviewable (and partially recoverable) from the ledger. A
-        # scoped one gets the identifier only — the chain is append-only, so
-        # the snapshot outlives every tier change and every later delete.
-        db.log_activity(
-            actor or "system",
-            "delete_note",
-            scope.detail(
-                row["visibility"], f"#{note_id}", f"{row['topic']}: {row['content'][:300]}"
-            ),
-        )
+        # the id only: deleting a note must delete its text, and a ledger row
+        # can never be removed. Recovery is the backups' job, which expire.
+        db.log_activity(actor or "system", "delete_note", f"#{note_id}")
     return {"id": note_id, "deleted": True}
 
 

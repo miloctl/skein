@@ -208,16 +208,8 @@ def _edit_promise_locked(
         f"UPDATE promises SET {sets}{reset}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded
         (*fields.values(), db.now(), promise_id),
     )
-    if promise and promise != row["promise"]:
-        # both strings are the promise's own text, so a scoped rewording logs
-        # the identifier only (services/scope.py::detail)
-        db.log_activity(
-            actor,
-            "edit_promise",
-            scope.detail(row["visibility"], f"#{promise_id}", f"'{row['promise']}' -> '{promise}'"),
-        )
-    else:
-        db.log_activity(actor, "edit_promise", f"#{promise_id} {' '.join(fields)}")
+    # the id and the field names, never the text (collab.update_note)
+    db.log_activity(actor, "edit_promise", f"#{promise_id} {' '.join(fields)}")
     if "promise" in fields or "to_whom" in fields:
         # the same title and body add_promise indexes: unchanged, search and
         # /ask keep citing the old wording

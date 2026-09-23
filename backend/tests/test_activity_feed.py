@@ -257,3 +257,33 @@ def test_rename_carries_the_field_guide_state(fresh_db):
     users.rename_user("benjamin", "cara", actor="ava")
     tied = [k for k in fieldguide.guide("cara")["cards"] if k["tied"]]
     assert any(k["id"] == "capture" for k in tied)
+
+
+def test_edits_and_deletes_keep_no_text_in_the_activity_log(fresh_db):
+    """The ledger can never be edited, so an edit's old wording, a deleted
+    note's first 300 characters, and a deleted absence's dates outlived the
+    delete that was meant to remove them."""
+    from app.services import absences, blockers, collab, intake, promises, users
+
+    users.ensure_user("ava")
+    note = collab.save_note("t", "body", author="ava", actor="ava")
+    collab.update_note(note["id"], topic="ZZEDITEDTOPIC", actor="ava")
+    collab.delete_note(note["id"], actor="ava")
+    blocker = blockers.raise_blocker("b", actor="ava")
+    blockers.edit_blocker(blocker["id"], title="ZZBLOCKER", actor="ava")
+    promise = promises.add_promise("p", to_whom="bo", due_date="2026-12-01", actor="ava")
+    promises.edit_promise(promise["id"], promise="ZZPROMISE", actor="ava")
+    request = intake.submit_request("i", requester="ava", actor="ava")
+    intake.edit_request(request["id"], title="ZZINTAKE", actor="ava")
+    away = absences.add_absence("ava", "2026-12-07", "2026-12-08", kind="focus", actor="ava")
+    absences.delete_absence(away["id"], actor="ava")
+    users.set_growth_interests("ava", "ZZGROWTH", actor="ava")
+    edits = fresh_db.query(
+        "SELECT detail FROM activity WHERE action IN ('update_note', 'delete_note',"
+        " 'edit_blocker', 'edit_promise', 'edit_intake', 'delete_absence',"
+        " 'set_growth_interests')"
+    )
+    assert len(edits) == 7
+    text = " ".join(row["detail"] for row in edits)
+    for leaked in ("ZZ", "body", "focus", "2026-12-07"):
+        assert leaked not in text, leaked

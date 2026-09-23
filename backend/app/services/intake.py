@@ -105,16 +105,8 @@ def edit_request(
         f"UPDATE intake_requests SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded, id is a bound mark
         (*fields.values(), db.now(), request_id),
     )
-    if title.strip() and title.strip() != row["title"]:
-        db.log_activity(
-            actor or "system",
-            "edit_intake",
-            scope.detail(
-                row["visibility"], f"#{request_id}", f"'{row['title']}' -> '{title.strip()}'"
-            ),
-        )
-    else:
-        db.log_activity(actor or "system", "edit_intake", f"#{request_id} {' '.join(fields)}")
+    # the id and the field names, never the text (collab.update_note)
+    db.log_activity(actor or "system", "edit_intake", f"#{request_id} {' '.join(fields)}")
     new = db.query_one("SELECT * FROM intake_requests WHERE id = ?", (request_id,))
     if new:
         index_record("intake", request_id, new["title"], f"{new['detail']} {new['requester']}")

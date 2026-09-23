@@ -72,15 +72,8 @@ def delete_absence(absence_id: int, *, actor: str = "system") -> dict:
         raise scope.missing("absences", absence_id)
     scope.assert_editable("absences", row, actor, verb="delete")
     db.execute("DELETE FROM absences WHERE id = ?", (absence_id,))
-    db.log_activity(
-        actor,
-        "delete_absence",
-        scope.detail(
-            row["visibility"],
-            f"#{absence_id}",
-            f"{row['person']} {row['kind']} {row['starts_on']}..{row['ends_on']}",
-        ),
-    )
+    # the id only: who was away, why and when is gone with the row
+    db.log_activity(actor, "delete_absence", f"#{absence_id}")
     return {
         "id": absence_id,
         "deleted": True,

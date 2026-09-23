@@ -246,16 +246,8 @@ def _edit_blocker_locked(
         f"UPDATE blockers SET {sets} WHERE id = ?",  # noqa: S608 — keys hardcoded
         (*fields.values(), blocker_id),
     )
-    if title and title != row["title"]:
-        # both titles are the blocker's own text, so a scoped rename logs the
-        # identifier only — the chain is append-only (services/scope.py::detail)
-        db.log_activity(
-            actor,
-            "edit_blocker",
-            scope.detail(row["visibility"], f"#{blocker_id}", f"'{row['title']}' -> '{title}'"),
-        )
-    else:
-        db.log_activity(actor, "edit_blocker", f"#{blocker_id} {' '.join(fields)}")
+    # the id and the field names, never the text (collab.update_note)
+    db.log_activity(actor, "edit_blocker", f"#{blocker_id} {' '.join(fields)}")
     new = db.query_one("SELECT title, detail, owner FROM blockers WHERE id = ?", (blocker_id,))
     if new:
         index_record("blocker", blocker_id, new["title"], f"{new['detail']} {new['owner']}")
