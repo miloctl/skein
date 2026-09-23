@@ -96,9 +96,11 @@ shopt -u nullglob
 # refuses every wheel. This copy pins the wheel it staged, as the npm update
 # above pins the staged host tarball.
 core_digest="$(sha256sum "${core_wheels[0]}" | cut -d' ' -f1)"
+# $extension IS $tmp: a redirect to $tmp/skein-agents.lock truncates the
+# file sed is reading, so the pinned copy takes its own name first.
 sed "s/--hash=sha256:[0-9a-f]\{64\}/--hash=sha256:$core_digest/" \
-    "$extension/skein-agents.lock" >"$tmp/skein-agents.lock"
-mv "$tmp/skein-agents.lock" "$extension/skein-agents.lock"
+    "$extension/skein-agents.lock" >"$tmp/skein-agents.lock.pinned"
+mv "$tmp/skein-agents.lock.pinned" "$extension/skein-agents.lock"
 [ "$(grep -c "sha256:$core_digest" "$extension/skein-agents.lock")" -eq 1 ]
 
 build_image() {
