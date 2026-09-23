@@ -1321,7 +1321,7 @@ def mark_seen(
     return {"seen": n}
 
 
-def review_stats(viewer: scope.Viewer = scope.NOBODY) -> dict:
+def review_stats(viewer: scope.Viewer = scope.NOBODY, *, admin: bool = False) -> dict:
     """The review inbox as a flywheel: every verdict is a labeled example.
     These stats show which proposal types earn trust and which waste reviewer
     time — the input to authority-matrix decisions."""
@@ -1350,7 +1350,12 @@ def review_stats(viewer: scope.Viewer = scope.NOBODY) -> dict:
     # which owns no users row, so the whole authority entity disappears from
     # this table while the entity aggregate above still counts it, and the two
     # tables then disagree about one queue.
-    by_proposer = [row for row in by_proposer if not users.is_human(row["proposed_by"])]
+    by_proposer = [
+        row
+        for row in by_proposer
+        if not users.is_human(row["proposed_by"])
+        and users.person_agent_visible(row["proposed_by"], viewer.name, admin=admin)
+    ]
     # the only list here that carries row TEXT. The aggregates above count
     # rows per entity and per proposer, which discloses nothing; `summary` is
     # built by the producer out of the target row's own title, so a rejected
@@ -1386,7 +1391,7 @@ def review_stats(viewer: scope.Viewer = scope.NOBODY) -> dict:
     }
 
 
-def season_readout() -> dict:
+def season_readout(viewer: str = "", *, admin: bool = False) -> dict:
     """The agent pillar's season, as one read.
 
     The posture note's exit trigger (docs/ROADMAP.md) ends the dogfooding
@@ -1403,7 +1408,7 @@ def season_readout() -> dict:
     the trust page honestly shows none, and both must be visible at once.
     """
     from .pulse import season as pulse_season
-    from .users import is_human
+    from .users import is_human, person_agent_visible
 
     s = pulse_season()
     since = s["start_ts"]
@@ -1448,6 +1453,7 @@ def season_readout() -> dict:
         # people out, system actors in — review_stats states why is_agent
         # would be the wrong filter here
         if not is_human(r["proposed_by"])
+        and person_agent_visible(r["proposed_by"], viewer, admin=admin)
     ]
     return {
         "season": s["label"],
@@ -1927,6 +1933,8 @@ def list_changes(
     # only the pairs on THIS page: trust_scores computes for every pair in
     # the settled history, and a queue of 200 rows from one proposer would
     # otherwise pay for every agent the deployment has ever had.
+    from .users import person_agent_visible
+
     record = _trust_by_pair({(r["proposed_by"], r["entity"]) for r in rows}) if rows else {}
     evidence_rows: list[dict] = []
     for r in rows:
@@ -1958,7 +1966,12 @@ def list_changes(
             if evidence:
                 r["evidence"] = evidence
                 evidence_rows.append(evidence)
-        r["record"] = record.get((r["proposed_by"], r["entity"]))
+        # a person agent's approval record is that person's judgment
+        r["record"] = (
+            record.get((r["proposed_by"], r["entity"]))
+            if person_agent_visible(r["proposed_by"], viewer.name)
+            else None
+        )
     resolved = _criteria_refs(
         [str(evidence["acceptance_criteria"] or "") for evidence in evidence_rows],
         viewer,

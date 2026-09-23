@@ -1160,7 +1160,15 @@ def visible_actor_filter(viewer: str) -> tuple[str, list]:
     """SQL fragment limiting rows to the viewer's own strand: their actor,
     agent identities, and the known system processes. Default-CLOSED — an
     actor this cannot classify is hidden, never shown as system."""
-    agents = [r["name"] for r in db.query("SELECT name FROM users WHERE kind = 'agent'")]
+    from .users import person_agent_visible
+
+    # another person's `<name>-mcp` agent is that person acting, and their
+    # rows never appear here (feed, the anti-surveillance rule)
+    agents = [
+        r["name"]
+        for r in db.query("SELECT name FROM users WHERE kind = 'agent'")
+        if person_agent_visible(r["name"], viewer)
+    ]
     allowed = [viewer, *agents, *SYSTEM_ACTORS]
     marks = ", ".join("?" for _ in allowed)
     return f"actor IN ({marks})", allowed

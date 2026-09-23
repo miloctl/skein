@@ -189,3 +189,35 @@ def test_a_freed_name_cannot_be_claimed_by_a_new_person(client, fresh_db):
         "SELECT review_owner FROM pending_changes WHERE id = ?", (proposal["id"],)
     )
     assert owner["review_owner"] == "ava.smith"
+
+
+def test_a_person_agent_record_is_its_owners(client, fresh_db, monkeypatch):
+    """`<person>-mcp` is one person acting. Its actions, verdicts, reviewer
+    notes and last-seen time reached every teammate on five surfaces while
+    the trust page already withheld them."""
+    from conftest import _strong
+
+    from app import config
+    from app.services import review, users
+
+    # with no administrator named, trusted-header makes every key holder one
+    monkeypatch.setattr(config, "ADMINS", frozenset({"ops"}))
+
+    for name in ("alice", "bob"):
+        users.ensure_user(name)
+    users.ensure_agent_identity("alice-mcp", owner="mcp")
+    change = review.propose_change(
+        "note", "create", {"topic": "t", "content": "c"}, actor="alice-mcp"
+    )
+    review.reject_change(change["id"], "ZZNOTEZZ sloppy again", actor="bob")
+    bob, alice = _strong(client, "bob"), _strong(client, "alice")
+
+    def mentions(path, headers):
+        return "alice-mcp" in client.get(path, headers=headers).text
+
+    for path in ("/api/activity/feed", "/api/agents", "/api/review/stats", "/api/review/season"):
+        assert not mentions(path, bob), path
+    assert mentions("/api/agents", alice)
+    assert mentions("/api/activity/feed", alice)
+    assert client.get("/api/agents/alice-mcp/inbox", headers=bob).status_code == 404
+    assert client.get("/api/agents/alice-mcp/inbox", headers=alice).status_code == 200
