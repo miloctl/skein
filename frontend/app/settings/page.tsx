@@ -1039,8 +1039,14 @@ export default function SettingsPage() {
     try {
       setKeyDraft("");
       await signInWithKey(candidate);
+      // The new session re-keys SessionBoundary (components/auth-gate.tsx),
+      // which remounts this page before the await returns. A setKeyStatus
+      // here lands on the unmounted page, and focus drops to <body>. The
+      // store survives the remount, and #content exists again after it.
       setKeyError(false);
-      setKeyStatus("Signed in. This browser does not store your personal key.");
+      setKeyStatus("");
+      reportStatus("Signed in. This browser does not store your personal key.", "confirmation");
+      setTimeout(() => document.getElementById("content")?.focus(), 0);
     } catch (e) {
       setKeyError(true);
       setKeyStatus(actionError(e));

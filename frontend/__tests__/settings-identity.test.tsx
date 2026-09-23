@@ -137,6 +137,7 @@ vi.mock("@/lib/auth", async (importOriginal) => {
 vi.mock("next/navigation", () => ({ usePathname: () => "/settings" }));
 
 import SettingsPage from "@/app/settings/page";
+import { dismissStatus, getStatus } from "@/lib/status";
 
 function openSettingsSection(name: "You" | "Connections" | "AI runtime" | "Team") {
   fireEvent.click(screen.getByRole("link", { name }));
@@ -512,9 +513,34 @@ describe("Settings identity states", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign in with key" }));
     await waitFor(() => expect(state.keyExchange).toHaveBeenCalledWith("sk-skein-other-owner"));
     expect(input.value).toBe("");
-    expect(await screen.findByText("Signed in. This browser does not store your personal key.")).toBeTruthy();
+    await waitFor(() =>
+      expect(getStatus()?.message).toBe("Signed in. This browser does not store your personal key."),
+    );
+    act(() => dismissStatus());
     expect(localStorage.getItem("skein-key")).toBeNull();
     expect(screen.queryByText(/takes effect after you sign out/)).toBeNull();
+  });
+
+  it("confirms a key sign-in that remounts the page, and moves focus to the content", async () => {
+    // a new session re-keys SessionBoundary (components/auth-gate.tsx), which
+    // remounts this page while the sign-in is still in flight
+    let rerender!: (ui: React.ReactElement) => void;
+    state.keyExchange.mockImplementation(async () => {
+      rerender(<SettingsPage key="signed-in" />);
+    });
+    ({ rerender } = render(<SettingsPage key="anonymous" />));
+    const input = await screen.findByLabelText("Personal API key");
+    fireEvent.change(input, { target: { value: "sk-skein-owner" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with key" }));
+
+    await waitFor(() =>
+      expect(getStatus()).toMatchObject({
+        message: "Signed in. This browser does not store your personal key.",
+        tone: "confirmation",
+      }),
+    );
+    await waitFor(() => expect(document.activeElement?.id).toBe("content"));
+    act(() => dismissStatus());
   });
 
   it("does not offer browser key minting to a strong identity without keys", async () => {
