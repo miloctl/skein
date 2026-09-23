@@ -664,7 +664,7 @@ function EditControls({ task, onSaved }: { task: PeekTask; onSaved: () => void }
         method: "PATCH",
         body: JSON.stringify(changes),
       });
-      reportStatus(said);
+      reportStatus(said, "confirmation");
       setEditing(false);
       onSaved();
     } catch (e) {
@@ -971,7 +971,10 @@ function Delegate({ taskId, onDone }: { taskId: number; onDone: () => void }) {
                 check_in_at: checkIn,
               }),
             });
-            reportStatus(`Task #${taskId} delegated to ${picked}. You are the sponsor.`);
+            reportStatus(
+              `Task #${taskId} delegated to ${picked}. You are the sponsor.`,
+              "confirmation",
+            );
             onDone();
           } catch (e) {
             reportStatus(actionError(e));
