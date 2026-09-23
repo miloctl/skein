@@ -529,8 +529,8 @@ async def _remember(
             )
             yield {
                 "data": f"Filed as proposal #{p['id']} for this thread's engagement."
-                " A person approves it in Inbox → Approvals before it steers"
-                " future conversations."
+                " A teammate other than you approves it in Inbox → Approvals"
+                " before it steers future conversations."
             }
             return
         m = await run_in_threadpool(memory.remember, args, user=user, actor=user)

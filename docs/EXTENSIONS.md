@@ -598,10 +598,12 @@ workplace needs separated duties, return `approver_groups` or
 `approver_capabilities` on the review decision. Skein then refuses every
 approver outside that set.
 
-Approver groups and capabilities do not apply to a memory addressed to a
-person, or to a forget of one. Only that person can read the memory, so the
-proposal is private to them and they approve or reject it. The rule still
-governs every memory that is addressed to nobody.
+Approver groups and capabilities do not apply to a personal row: a memory
+addressed to a person, a forget of one, or a create that declares the
+private tier (a standup or time away). Only that person can read it, so the
+proposal is private to them and they approve or reject it, under
+`SKEIN_REVIEW_SEPARATION=1` too. The rule still governs every shared row,
+including every memory that is addressed to nobody.
 
 `SKEIN_REVIEW_SEPARATION=1` applies the same rule to every proposal without a
 policy rule: the person a proposal came from cannot approve it. The two

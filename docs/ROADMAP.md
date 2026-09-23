@@ -505,7 +505,8 @@ history center, so each surface keeps its own bound.
 - **Task-panel editing, the second half** [S] — the panel edits status,
   priority, assignee, due date and `waiting_on`. Description, commitment
   week and visibility still have no path there, and visibility needs a
-  transition rule before it gets one.
+  transition rule before it gets one. The one-way widening shipped
+  (`services/sharing.py`, "share with the team"); narrowing is still open.
 - **Browse task pagination** [M] — each loaded task list still renders at
   once, with no cursor to reach rows beyond its bound.
   The local filter and compact task projection shipped, but neither adds pagination.

@@ -3,7 +3,11 @@
 from conftest import _strong
 
 
-def test_eval_capture_freetext_correction_is_unscored(client):
+def test_eval_capture_freetext_correction_is_unscored(client, monkeypatch):
+    from app import config
+
+    # the replay is for administrators named in SKEIN_ADMINS (routes/api.py)
+    monkeypatch.setattr(config, "ADMINS", frozenset({"tester"}))
     client.post(
         "/api/feedback",
         json={
@@ -28,7 +32,11 @@ def test_eval_capture_freetext_correction_is_unscored(client):
     assert len(out["unscored"]) == 1
 
 
-def test_feedback_and_eval_capture(client):
+def test_feedback_and_eval_capture(client, monkeypatch):
+    from app import config
+
+    # the replay is for administrators named in SKEIN_ADMINS (routes/api.py)
+    monkeypatch.setattr(config, "ADMINS", frozenset({"tester"}))
     # correct classification, thumbs up
     client.post(
         "/api/feedback",
@@ -78,3 +86,19 @@ def test_feedback_reaches_its_author_and_administrators_only(client, fresh_db, m
         == 200
     )
     assert fresh_db.query("SELECT * FROM feedback") == []
+
+
+def test_the_fallback_administrator_reads_no_teammates_feedback(client, fresh_db, monkeypatch):
+    """With SKEIN_ADMINS unset, trusted-header makes every key holder an
+    administrator, and each of them read every teammate's chat excerpts."""
+    from app import config
+
+    monkeypatch.setattr(config, "ADMINS", frozenset())
+    client.post(
+        "/api/feedback",
+        json={"kind": "chat", "input_text": "ZZEXCERPTZZ", "output": "o", "verdict": "down"},
+        headers={"X-User": "alice"},
+    )
+    keyed = _strong(client, "ops")
+    assert "ZZEXCERPTZZ" not in client.get("/api/feedback", headers=keyed).text
+    assert client.get("/api/eval/capture", headers=keyed).status_code == 403

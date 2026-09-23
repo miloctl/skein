@@ -1216,7 +1216,10 @@ def _crew_for(crew: dict, reader: str, admin: bool) -> dict:
     return crew
 
 
-def _crew_admin_reader(user: str, request: Request) -> bool:
+def _named_admin_reader(user: str, request: Request) -> bool:
+    """A strong administrator named in SKEIN_ADMINS or the OIDC group, never
+    the trusted-header fallback that makes every key holder one: crew member
+    lists and teammates' feedback are things a person READS (deps.is_named_admin)."""
     from .deps import is_named_admin
 
     return bool(getattr(request.state, "strong_auth", False)) and is_named_admin(
@@ -1226,7 +1229,7 @@ def _crew_admin_reader(user: str, request: Request) -> bool:
 
 @router.get("/crews")
 def get_crews(user: CurrentUser, viewer: ViewerDep, request: Request, all: bool = False):
-    admin = _crew_admin_reader(user, request)
+    admin = _named_admin_reader(user, request)
     return [_crew_for(c, viewer.name, admin) for c in crews.list_crews(active_only=not all)]
 
 
@@ -1239,7 +1242,7 @@ def get_my_crews(user: CurrentUser):
 
 @router.get("/crews/{crew_id}")
 def get_crew(crew_id: int, user: CurrentUser, viewer: ViewerDep, request: Request):
-    return _crew_for(crews.get_crew(crew_id), viewer.name, _crew_admin_reader(user, request))
+    return _crew_for(crews.get_crew(crew_id), viewer.name, _named_admin_reader(user, request))
 
 
 @router.post("/crews")
@@ -2160,7 +2163,7 @@ def post_feedback(body: FeedbackIn, user: CurrentUser):
 
 @router.get("/feedback")
 def get_feedback(user: CurrentUser, request: Request, kind: str = ""):
-    return feedback.list_feedback(kind, reader=user, admin=is_administrator(user, request))
+    return feedback.list_feedback(kind, reader=user, admin=_named_admin_reader(user, request))
 
 
 @router.delete("/feedback/{feedback_id}")
@@ -2172,7 +2175,9 @@ def delete_feedback(feedback_id: int, user: CurrentUser):
 # AdminUser: the replay quotes the captured text of every teammate's
 # misclassified captures, the operator's evaluation work
 @router.get("/eval/capture")
-def get_eval_capture(user: AdminUser):
+def get_eval_capture(user: AdminUser, request: Request):
+    if not _named_admin_reader(user, request):
+        raise HTTPException(403, wording.not_administrator(user))
     return feedback.eval_capture()
 
 
@@ -3651,6 +3656,11 @@ def post_capture(
             return {"kind": "duplicate", "capture_key": body.capture_key}
         if not capture.is_private_feedback(body.text):
             _kind, entity, payload = capture.plan(body.text, actor=user)
+            # a question assigned to a teammate cannot be private
+            # (scope.assert_readable_by), and a refused capture from the CLI
+            # outbox is dropped for good: with no tier sent, the roster
+            if not body.visibility and str(payload.get("assigned_to") or user) != user:
+                visibility = scope.WORKSPACE
             payload.update({"visibility": visibility, "crew_id": body.crew_id})
             attributes = policy_context.for_change(entity, 0, payload, actor=user)
             enforce_decision(

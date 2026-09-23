@@ -89,3 +89,13 @@ def test_only_workspace_rows_with_no_addressee_are_sent(fresh_db, monkeypatch):
     sent.clear()
     assert search.embed_missing(limit=1) == (1, 0)
     assert len(sent) == 1 and "ZZSHAREDZZ" in sent[0]
+
+
+def test_health_says_whether_search_terms_go_to_the_embeddings_service(client, monkeypatch):
+    """The search box warns that terms leave the server only while embeddings
+    are on, and it learns that from /api/health (components/nav-search.tsx)."""
+    from app import config
+
+    for ready in (True, False):
+        monkeypatch.setattr(config, "EMBED_READY", ready)
+        assert client.get("/api/health").json()["semantic_search"] is ready

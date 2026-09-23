@@ -1010,3 +1010,52 @@ def test_an_agents_proposal_is_the_requesters_to_judge_first(client, fresh_db, m
         reset_policy_engine(token)
     monkeypatch.setattr(config, "REVIEW_SEPARATION", True)
     assert filed("separated")["review_visibility"] == "workspace"
+
+
+def test_an_agent_changes_only_rows_its_requester_can_read(client, fresh_db, monkeypatch):
+    """A proposal private to its requester was judged on the review tier
+    alone: a person in no crew approved, by id, their agent's edit to a crew
+    note, applied as the agent, which assert_editable lets work a crew row."""
+    from app import config
+    from app.agents import identity
+    from app.services import collab, crews, review, scope, users
+    from app.tools._gate import gated_write
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    for name in ("alice", "bob"):
+        users.ensure_user(name)
+    crew = crews.create_crew("ops", actor="bob")
+    note = collab.save_note(
+        "plan", "ZZCREWZZ", author="bob", actor="bob", visibility="crew", crew_id=crew["id"]
+    )
+    tokens = (
+        identity.set_requester_identity("alice"),
+        identity.set_requester_viewer(scope.Viewer("alice", True)),
+    )
+    try:
+        out = json.loads(
+            gated_write("note_edit", "update", {"content": "OVERWRITTEN"}, lambda: {}, note["id"])
+        )
+    finally:
+        identity.reset_requester_viewer(tokens[1])
+        identity.reset_requester_identity(tokens[0])
+    assert out == {"error": "No record you can read was found."}
+    # a private review filed before the gate check, or by another door:
+    # its owner cannot read the row, so nobody may judge it
+    filed = review.propose_change(
+        "note_edit",
+        "update",
+        {"content": "OVERWRITTEN"},
+        entity_id=note["id"],
+        actor="agent",
+        requested_by="alice",
+        review_visibility=scope.PRIVATE,
+        review_owner="alice",
+    )
+    approved = client.post(
+        f"/api/review/{filed['id']}/approve", json={}, headers=_strong(client, "alice")
+    )
+    assert approved.status_code == 404
+    assert db.query_one("SELECT content FROM notes WHERE id = ?", (note["id"],))["content"] == (
+        "ZZCREWZZ"
+    )

@@ -50,6 +50,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
           : Promise.resolve(state.interests);
       if (path === "/api/users/growth-interests/share")
         return Promise.resolve({ shared: true });
+      if (path === "/api/keys/request")
+        return Promise.resolve({ requested: true, already_pending: false, to_team: true });
       if (path === "/api/agents/status")
         return Promise.resolve({ review_gate: true });
       if (path === "/api/settings/agent-automation") {
@@ -475,6 +477,22 @@ describe("Settings identity states", () => {
     await waitFor(() => expect(whoami()).toBe(before + 1));
     act(() => window.dispatchEvent(new StorageEvent("storage", { key: "skein-user" })));
     await waitFor(() => expect(whoami()).toBe(before + 2));
+  });
+
+  it("says every teammate got a key request when no administrator is named", async () => {
+    const saved = state.identity;
+    state.identity = { ...saved, strong: false, keys_minted: 0 };
+    try {
+      render(<SettingsPage />);
+      fireEvent.click(await screen.findByRole("button", { name: "Request a key" }));
+      expect(
+        await screen.findByText(
+          "Asked. No administrator is named, so every teammate now has the request and the exact command.",
+        ),
+      ).toBeTruthy();
+    } finally {
+      state.identity = saved;
+    }
   });
 
   it("keeps growth interests to you until you share them", async () => {

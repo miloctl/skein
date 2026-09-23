@@ -172,14 +172,17 @@ export default function PeoplePage() {
                 // ignoring it claimed a fresh request every time, so clicking
                 // twice reported two requests where the backend filed one.
                 // Same wording as Settings — one condition, one wording.
-                const r = await api<{ already_pending: boolean }>("/api/keys/request", {
-                  method: "POST",
-                });
+                const r = await api<{ already_pending: boolean; to_team?: boolean }>(
+                  "/api/keys/request",
+                  { method: "POST" },
+                );
                 setError(null);
                 reportStatus(
                   r.already_pending
                     ? "Already asked. The request is still waiting for whoever runs the server."
-                    : "Asked. Whoever runs the server now has the request and the exact command.",
+                    : r.to_team
+                      ? "Asked. No administrator is named, so every teammate now has the request and the exact command."
+                      : "Asked. Whoever runs the server now has the request and the exact command.",
                   "confirmation",
                 );
               } catch (e) {

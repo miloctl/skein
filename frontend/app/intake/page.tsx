@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { actionError, api, loadError } from "@/lib/api";
+import { VisibilityBadge } from "@/components/visibility-picker";
 import { reportStatus } from "@/lib/status";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
 import { EmptyState } from "@/components/card";
@@ -21,6 +22,8 @@ type Req = {
   score: number;
   status: string;
   disposition_reason: string;
+  visibility?: string;
+  crew_id?: number;
 };
 
 /** A number input the reader can empty while typing. Clamping every keystroke
@@ -464,6 +467,13 @@ export default function IntakePage() {
             <div className="flex items-center justify-between gap-2">
               <span className="text-sm font-semibold">
                 #{r.id} {r.title}
+                {/* a private capture (`req:`) lands here: its audience and the
+                    one-way share belong beside it (services/sharing.py) */}
+                <VisibilityBadge
+                  visibility={r.visibility}
+                  crewId={r.crew_id}
+                  share={{ kind: "requests", id: r.id, label: r.title, onShared: load }}
+                />
                 {r.project_class && (
                   <span className="ml-2 text-xs font-normal text-ink-3">
                     [{r.project_class}]

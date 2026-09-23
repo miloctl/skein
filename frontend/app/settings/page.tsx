@@ -552,6 +552,10 @@ export default function SettingsPage() {
   const [interestsBusy, setInterestsBusy] = useState(false);
   // null until the GET answers: no mark describes a state not yet known
   const [interestsShared, setInterestsShared] = useState<boolean | null>(null);
+  // what the server holds: the mark and the share describe the SAVED
+  // interests, never the draft in the field
+  const [savedInterests, setSavedInterests] = useState("");
+  const [sharingInterests, setSharingInterests] = useState(false);
   const [ctx, setCtx] = useState<{
     strategy: string;
     override: string;
@@ -674,6 +678,7 @@ export default function SettingsPage() {
     api<{ interests: string; shared: boolean }>("/api/users/growth-interests")
       .then((r) => {
         setInterests(r.interests);
+        setSavedInterests(r.interests);
         setInterestsShared(r.shared);
         setInterestsLoaded(true);
         setInterestsError("");
@@ -1454,7 +1459,10 @@ export default function SettingsPage() {
                         <button
                           onClick={async () => {
                             try {
-                              const r = await api<{ already_pending: boolean }>(
+                              const r = await api<{
+                                already_pending: boolean;
+                                to_team?: boolean;
+                              }>(
                                 "/api/keys/request",
                                 {
                                   method: "POST",
@@ -1464,7 +1472,9 @@ export default function SettingsPage() {
                               setKeyStatus(
                                 r.already_pending
                                   ? "Already asked. The request is still waiting for whoever runs the server."
-                                  : "Asked. Whoever runs the server now has the request and the exact command.",
+                                  : r.to_team
+                                    ? "Asked. No administrator is named, so every teammate now has the request and the exact command."
+                                    : "Asked. Whoever runs the server now has the request and the exact command.",
                               );
                             } catch (e) {
                               setKeyError(true);
@@ -1550,8 +1560,8 @@ export default function SettingsPage() {
 
               <Section title="Growth interests (optional)" headingLevel={3}>
                 <p className="mb-2 text-sm text-ink-3">
-                  You declare these yourself. Only you can see them until you
-                  share them. Shared interests appear on the roster and in
+                  You declare these yourself. Until you share them, only you can
+                  see them. Shared interests appear on the roster and in
                   staffing what-ifs, so interesting work finds you. They are
                   never scored or matched automatically.
                 </p>
@@ -1577,6 +1587,7 @@ export default function SettingsPage() {
                           method: "POST",
                           body: JSON.stringify({ interests }),
                         });
+                        setSavedInterests(interests);
                         setInterestsSaved(
                           interests.trim() ? "Saved." : "Cleared.",
                         );
@@ -1604,30 +1615,47 @@ export default function SettingsPage() {
                   <p className="mt-1 text-xs text-danger">{interestsError}</p>
                 ) : null}
                 {interestsShared === true ? (
-                  <p className="mt-1 text-xs text-ink-3">
+                  <p
+                    id="growth-interests-audience"
+                    tabIndex={-1}
+                    className="mt-1 text-xs text-ink-3"
+                  >
                     Visible to everyone on the roster. They also see each
                     change you save.
                   </p>
-                ) : interestsShared === false && interests.trim() ? (
+                ) : interestsShared === false && savedInterests.trim() ? (
                   <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-3">
                     <span>Visible to only you.</span>
                     {strong ? (
                       <button
+                        aria-disabled={sharingInterests}
                         onClick={async () => {
+                          if (sharingInterests) return;
+                          setSharingInterests(true);
                           try {
                             await api("/api/users/growth-interests/share", {
                               method: "POST",
                             });
                             setInterestsShared(true);
+                            // the button unmounts: focus goes to the new mark
+                            setTimeout(
+                              () =>
+                                document
+                                  .getElementById("growth-interests-audience")
+                                  ?.focus(),
+                              0,
+                            );
                             reportStatus(
                               "Everyone on the roster now sees your saved growth interests.",
                               "confirmation",
                             );
                           } catch (e) {
                             reportStatus(actionError(e));
+                          } finally {
+                            setSharingInterests(false);
                           }
                         }}
-                        className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                        className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line aria-disabled:opacity-40"
                       >
                         share with the team
                       </button>

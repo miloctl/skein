@@ -82,7 +82,10 @@ forgotten sink predicate has already written to the FTS index, the
 immutable ledger, a `UNIQUE`-keyed findings row, a file on disk, and a
 vector at a third party. That is the argument for doing the sinks as
 phase 4 rather than alongside phase 3, and for `private` never becoming
-the default.
+the column's default. Personal records (standups, captures, your own time
+away) now start at "only you" for a strong identity, by the request's
+default rather than the column's (see "Personal records start at only
+you" below).
 
 The `private` schema does not move. It is the strongest confidentiality the
 product has, and the journal stays in it.
@@ -410,12 +413,25 @@ identity is weak (a weak viewer reads no private row), when
 proposal record stays private after the verdict. The row it made has its
 own tier.
 
+The agent changes only rows its requester can read: the gate refuses a
+write to a row a strong requester cannot open, because the apply runs as
+the agent, which `assert_editable` lets work a crew row. For the same
+reason a private review holds only while its owner can read the target row
+(`review._private_review_tier`); otherwise nobody may judge it. A personal
+row, meaning a memory addressed to a person, a forget of one, or a create
+that declares the private tier (a standup or time away), is judged by its
+person alone (`review.personal_owner`), under separated duties and approver
+groups too, because nobody else can read it. The team "Review needed" notice
+goes out only when the proposal's row is at the workspace tier.
+
 **Time away counts for the team only as far as its person chose.** A window
 has three settings: only the person away (no team effect at all), the team
 sees the dates (private, `dates_shared`), and the team sees the details
 (workspace). Capacity, planning, the weekly draft and its summary, and
 staffing what-ifs all read `absences.TEAM_SEES_DATES`, and a window below
-the workspace tier shows "away", never its kind or note. A private window
+the workspace tier shows "away", never its kind or note. The weekly draft and
+what-ifs count PTO only, so comparing them with capacity tells PTO from
+on-call or focus for a dates-only window. A private window
 about somebody else is refused, so a teammate's window defaults to the
 workspace tier. An agent files the requester's own window through
 `requester`, which the review sets from the proposal, never from the payload.
@@ -441,8 +457,12 @@ names a person (`author`, `person`). In a table keyed on `created_by`, a
 private row an agent makes is readable by no human, so those agent tools
 keep the workspace tier. An agent's private standup forks no blocker, for
 the same reason. The author widens a row later with "share with the team"
-(`services/sharing.py`): it becomes workspace, is indexed for search, and
-its child rows keep their own tier. Nothing here narrows a row.
+(`services/sharing.py`): it becomes workspace, is indexed for search (a
+void task stays out), and its child rows keep their own tier. A share is
+refused while a linked parent is narrower, because every reader would still
+hide the row. A capture that assigns a question to a teammate goes to the
+roster when no tier is sent, because that question cannot be private.
+Nothing here narrows a row.
 
 **Administrator actions.** The activity log shows an actor's rows to that
 actor alone, so an action an administrator takes on someone else also sends a
@@ -457,7 +477,9 @@ a note, blocker, promise, intake request, absence or growth interest records
 the id and the changed field names only. A deleted note used to keep its
 first 300 characters for recovery, and an edit its old and new wording;
 recovery is now the backups' job, and backups expire. Rows written before
-this rule keep their text: the chain cannot be rewritten.
+this rule keep their text: the chain cannot be rewritten. The row that
+records a workspace record's creation still carries its title or topic
+(`scope.detail`), because the team could already read it.
 
 The tier check quotes the author column. Unquoted, memories' `user` is
 CURRENT_USER: the check compared the database role name, so an addressee never

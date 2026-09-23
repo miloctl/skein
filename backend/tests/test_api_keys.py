@@ -101,7 +101,12 @@ def test_key_request_rejects_anonymous(client):
 
 
 def test_key_request_refiles_after_notification_read(client):
-    assert client.post("/api/keys/request").json() == {"requested": True, "already_pending": False}
+    # no SKEIN_ADMINS in the test config: the team gets it, and the reply says so
+    assert client.post("/api/keys/request").json() == {
+        "requested": True,
+        "already_pending": False,
+        "to_team": True,
+    }
     assert client.post("/api/keys/request").json()["already_pending"] is True
     notes = client.get("/api/notifications").json()
     assert any("requests a personal API key" in n["message"] for n in notes)

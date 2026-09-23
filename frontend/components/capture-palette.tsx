@@ -89,10 +89,13 @@ export function CapturePalette() {
   const [text, setText] = useState("");
   const [generatedDraft, setGeneratedDraft] = useState("");
   const [result, setResult] = useState<string | null>(null);
+  const strong = useStrongIdentity();
+  // a weak identity reads no private row: a remembered "only you" from a
+  // signed-in session on this browser does not apply to it
   const [tier, setTier] = useRememberedAudience(
     "capture",
-    useStrongIdentity() ? ONLY_YOU : ROSTER,
-    isTierChoice,
+    strong ? ONLY_YOU : ROSTER,
+    (v) => isTierChoice(v) && (strong || (v as { visibility: string }).visibility !== "private"),
   );
   const [busy, setBusy] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -412,7 +415,12 @@ export function CapturePalette() {
               is kept out of the shared record, so it takes no other choice.
             </p>
           ) : (
-            <VisibilityPicker value={tier} onChange={setTier} label="capture" />
+            <VisibilityPicker
+          value={tier}
+          onChange={setTier}
+          label="capture"
+          allowPrivate={strong}
+        />
           )}
         </div>
         <div className="mt-3 border-t border-line pt-2 text-[11px] leading-relaxed text-ink-3">

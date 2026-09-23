@@ -875,9 +875,10 @@ export default function ReviewPage() {
               </p>
             ) : null}
             {c.review_visibility === "private" ? (
+              // a create says who reads its row on the line above
+              // (CreateAudience); approving a private one shares nothing
               <p className="mb-2 text-xs text-ink-3">
-                Only you can see this proposal. Nobody else sees the change
-                unless you approve it.
+                Only you can see this proposal.
               </p>
             ) : null}
             {c.evidence ? <AcceptanceEvidence evidence={c.evidence} /> : null}

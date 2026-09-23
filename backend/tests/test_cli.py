@@ -1003,3 +1003,44 @@ def test_attention_has_one_deadline_for_the_whole_call(monkeypatch, capsys, tmp_
         release.set()
     assert time.monotonic() - started < 2 * cli.ATTENTION_TIMEOUT_S
     assert capsys.readouterr().out == ""
+
+
+def test_team_flags_name_the_roster_and_no_flag_names_no_tier(monkeypatch, tmp_path):
+    """Without a flag the server picks: only you for a keyed caller. A flag the
+    CLI dropped would file a person's standup where they did not ask."""
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
+    sent = []
+    monkeypatch.setattr(
+        cli,
+        "api",
+        lambda m, p, b=None, **k: sent.append((p, b)) or {"id": 1, "person": "x", "kind": "pto"},
+    )
+    monkeypatch.setattr(
+        cli, "api_quiet", lambda m, p, b=None, **k: sent.append((p, b)) or {"kind": "task", "id": 1}
+    )
+    for team in (False, True):
+        cli.cmd_capture(Namespace(text=["todo:", "x"], team=team))
+        cli.cmd_standup(Namespace(team=team, yesterday="", today="t", blockers="", draft=False))
+    absence = {
+        "person": "ava",
+        "starts_on": "2026-10-05",
+        "ends_on": "2026-10-06",
+        "kind": "pto",
+        "note": "",
+    }
+    for sees in (None, "dates", "details"):
+        cli.cmd_absences(Namespace(action="add", team_sees=sees, **absence))
+    tiers = [
+        (path, {k: v for k, v in body.items() if k in ("visibility", "share_dates")})
+        for path, body in sent
+    ]
+    assert tiers == [
+        ("/api/capture", {}),
+        ("/api/standups", {}),
+        ("/api/capture", {"visibility": "workspace"}),
+        ("/api/standups", {"visibility": "workspace"}),
+        ("/api/absences", {}),
+        ("/api/absences", {"share_dates": True}),
+        ("/api/absences", {"visibility": "workspace"}),
+    ]

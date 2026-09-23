@@ -310,7 +310,7 @@ function StandupCard({
               <VisibilityBadge
                 visibility={s.visibility as string}
                 crewId={s.crew_id as number}
-                share={{ kind: "standups", id: Number(s.id), onShared }}
+                share={{ kind: "standups", id: Number(s.id), label: `${s.author}'s standup`, onShared }}
               />
               <p className="text-xs text-ink-3">
                 {s.today}
@@ -414,18 +414,21 @@ function AbsenceForm({
   const empty = { person: "", starts_on: "", ends_on: "", kind: "pto" };
   const [draft, setDraft] = useState(empty);
   const [adding, setAdding] = useState(false);
+  // a weak identity reads no private row, so both narrower choices would
+  // file a window its own person cannot open
+  const strong = useStrongIdentity();
   const [sees, setSees] = useRememberedAudience<TeamSees>(
     "absence",
-    useStrongIdentity() ? "nothing" : "details",
-    (v) => TEAM_SEES.includes(v as TeamSees),
+    strong ? "nothing" : "details",
+    (v) => TEAM_SEES.includes(v as TeamSees) && (strong || v === "details"),
   );
   const me = useSyncExternalStore(subscribeUser, getUser, () => "");
   // A window about somebody else cannot be private (scope.assert_readable_by),
   // so the three choices are for your own time away only. The server picks
   // the roster for a teammate's when the request names no tier.
   const own =
-    !draft.person.trim() ||
-    draft.person.trim().toLowerCase() === me.toLowerCase();
+    strong &&
+    (!draft.person.trim() || draft.person.trim().toLowerCase() === me.toLowerCase());
   const add = async () => {
     setAdding(true);
     try {
@@ -502,9 +505,9 @@ function AbsenceForm({
 </label>
       {own ? (
         <label className="flex min-w-0 flex-col gap-0.5 text-xs text-ink-3">
-          <span>Who sees this</span>
+          <span>Visible to</span>
           <select
-            aria-label="Who sees this time away"
+            aria-label="Who can see this time away"
             name="team_sees"
             value={sees}
             onChange={(e) => setSees(e.target.value as TeamSees)}
@@ -719,6 +722,7 @@ export default function Dashboard() {
   const [editingNote, setEditingNote] = useState<number | null>(null);
   const [deletingNote, setDeletingNote] = useState<number | null>(null);
   const [deletingAbsence, setDeletingAbsence] = useState<number | null>(null);
+  const [sharingAbsence, setSharingAbsence] = useState<number | null>(null);
   const [deletingEvent, setDeletingEvent] = useState<number | null>(null);
   // the two create drafts. Both cards listed rows nothing on the page could
   // create — the empty states sent the reader to Chat, where the default
@@ -795,7 +799,15 @@ export default function Dashboard() {
     refresh(["absences", "capacity", "activity"]);
   };
 
-  const shareAbsence = async (id: number, teamSees: "dates" | "details") => {
+  const shareAbsence = async (
+    id: number,
+    teamSees: "dates" | "details",
+    button: HTMLElement,
+  ) => {
+    if (sharingAbsence !== null) return;
+    // the buttons unmount once the window is shared: focus goes to its row
+    const row = button.closest("li") as HTMLElement | null;
+    setSharingAbsence(id);
     try {
       await api(`/api/absences/${id}/share`, {
         method: "POST",
@@ -808,8 +820,14 @@ export default function Dashboard() {
         "confirmation",
       );
       refresh(["absences", "capacity", "activity"]);
+      if (row) {
+        row.tabIndex = -1;
+        setTimeout(() => row.focus(), 0);
+      }
     } catch (e) {
       reportStatus(actionError(e));
+    } finally {
+      setSharingAbsence(null);
     }
   };
 
@@ -1204,7 +1222,7 @@ export default function Dashboard() {
                   <VisibilityBadge
                     visibility={b.visibility as string}
                     crewId={b.crew_id as number}
-                    share={{ kind: "blockers", id: Number(b.id), onShared: () => refresh(["blockers", "activity"]) }}
+                    share={{ kind: "blockers", id: Number(b.id), label: String(b.title), onShared: () => refresh(["blockers", "activity"]) }}
                   />
                   <span className="ml-2 text-xs text-ink-3">
                     {b.owner ? `@${b.owner}` : "unowned"} · {b.impact}
@@ -1478,8 +1496,8 @@ export default function Dashboard() {
             Time away
           </h2>
           <p className="mb-2 text-xs text-ink-3">
-            PTO zeroes someone out of capacity and the weekly plan when the team
-            sees its dates. On-call and focus are advisory context for staffing
+            If the team sees its dates, PTO zeroes someone out of capacity and
+            the weekly plan. On-call and focus are advisory context for staffing
             calls.
           </p>
           <details className="mb-3"><summary className="cursor-pointer text-sm font-medium">Add time away</summary><AbsenceForm onAdd={addAbsence} /></details>
@@ -1510,18 +1528,22 @@ export default function Dashboard() {
                     {/* a private window is readable by the person away
                         alone, so every one listed here is the viewer's */}
                     {a.visibility === "private" ? (
-                      <span className="ml-2 inline-flex gap-1">
+                      <span className="ml-2 inline-flex flex-wrap gap-1">
                         {!a.dates_shared ? (
                           <button
-                            onClick={() => shareAbsence(Number(a.id), "dates")}
-                            className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                            aria-disabled={sharingAbsence === a.id}
+                            aria-label={`Share the dates of ${a.person}'s ${a.kind} ${a.starts_on}`}
+                            onClick={(e) => shareAbsence(Number(a.id), "dates", e.currentTarget)}
+                            className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line aria-disabled:opacity-40"
                           >
                             share the dates
                           </button>
                         ) : null}
                         <button
-                          onClick={() => shareAbsence(Number(a.id), "details")}
-                          className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                          aria-disabled={sharingAbsence === a.id}
+                          aria-label={`Share with the team: ${a.person}'s ${a.kind} ${a.starts_on}`}
+                          onClick={(e) => shareAbsence(Number(a.id), "details", e.currentTarget)}
+                          className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line aria-disabled:opacity-40"
                         >
                           share with the team
                         </button>
@@ -1751,7 +1773,7 @@ export default function Dashboard() {
                   <VisibilityBadge
                     visibility={t.visibility as string}
                     crewId={t.crew_id as number}
-                    share={{ kind: "tasks", id: Number(t.id), onShared: () => refresh(["tasks", "activity"]) }}
+                    share={{ kind: "tasks", id: Number(t.id), label: String(t.title), onShared: () => refresh(["tasks", "activity"]) }}
                   />
                   {t.assignee ? (
                     <span className="ml-2 text-xs text-ink-3">
@@ -1814,7 +1836,7 @@ export default function Dashboard() {
                 <VisibilityBadge
                   visibility={t.visibility as string}
                   crewId={t.crew_id as number}
-                  share={{ kind: "tasks", id: Number(t.id), onShared: () => refresh(["tasks", "activity"]) }}
+                  share={{ kind: "tasks", id: Number(t.id), label: String(t.title), onShared: () => refresh(["tasks", "activity"]) }}
                 />
                 {t.forge_url ? (
                   // same bare-href reasoning as the Tasks section above
@@ -1853,7 +1875,7 @@ export default function Dashboard() {
                   <VisibilityBadge
                     visibility={q.visibility as string}
                     crewId={q.crew_id as number}
-                    share={{ kind: "questions", id: Number(q.id), onShared: () => refresh(["questions", "activity"]) }}
+                    share={{ kind: "questions", id: Number(q.id), label: String(q.question), onShared: () => refresh(["questions", "activity"]) }}
                   />
                 </span>
                 <Badge value={String(q.status)} />
@@ -1987,7 +2009,7 @@ export default function Dashboard() {
               <VisibilityBadge
                 visibility={d.visibility as string}
                 crewId={d.crew_id as number}
-                share={{ kind: "decisions", id: Number(d.id), onShared: () => refresh(["decisions", "activity"]) }}
+                share={{ kind: "decisions", id: Number(d.id), label: String(d.title), onShared: () => refresh(["decisions", "activity"]) }}
               />
               {d.decision !== d.title && (
                 <p className="text-xs text-ink-3">{d.decision}</p>
@@ -2153,7 +2175,7 @@ export default function Dashboard() {
                     <VisibilityBadge
                       visibility={n.visibility as string}
                       crewId={n.crew_id as number}
-                      share={{ kind: "notes", id: Number(n.id), onShared: () => refresh(["notes", "activity"]) }}
+                      share={{ kind: "notes", id: Number(n.id), label: String(n.topic), onShared: () => refresh(["notes", "activity"]) }}
                     />
                   </span>
                   <span className="flex shrink-0 gap-1">

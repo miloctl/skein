@@ -292,3 +292,104 @@ def test_time_away_reaches_the_team_as_far_as_its_person_chose(client, fresh_db,
     assert approved.status_code == 200
     row = fresh_db.query_one("SELECT visibility, dates_shared FROM absences WHERE kind = 'focus'")
     assert row == {"visibility": "private", "dates_shared": False}
+
+
+def test_an_agents_only_me_window_is_its_persons_to_judge(client, fresh_db, monkeypatch):
+    """Under separated duties, approver groups or a weak requester, an "only
+    me" window went to the team review: nobody could approve it, and every
+    teammate's notice quoted its kind and dates."""
+    from conftest import _strong
+
+    from app import config
+    from app.agents import identity
+    from app.extensions import PolicyDecision, PolicyEffect
+    from app.extensions.policy import PolicyEngine, reset_policy_engine, set_policy_engine
+    from app.services import review, users
+    from app.tools.portfolio import add_absence as absence_tool
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    monkeypatch.setattr(config, "REVIEW_SEPARATION", True)
+    for name in ("ava", "bob"):
+        users.ensure_user(name)
+    window = {"starts_on": "2026-10-05", "ends_on": "2026-10-09"}
+
+    def filed(person, strong=True, **args):
+        tokens = (
+            identity.set_requester_identity("ava"),
+            identity.set_requester_viewer(_viewer("ava") if strong else _weak()),
+        )
+        try:
+            return json.loads(absence_tool(person=person, kind="focus", **window, **args))
+        finally:
+            identity.reset_requester_viewer(tokens[1])
+            identity.reset_requester_identity(tokens[0])
+
+    engine = set_policy_engine(
+        PolicyEngine(
+            (lambda request: PolicyDecision(PolicyEffect.REVIEW, approver_groups=("leads",)),)
+        )
+    )
+    try:
+        own = filed("ava")
+    finally:
+        reset_policy_engine(engine)
+    row = fresh_db.query_one("SELECT * FROM pending_changes WHERE id = ?", (own["id"],))
+    assert (row["review_visibility"], row["review_owner"]) == ("private", "ava")
+    assert "focus" not in json.dumps(fresh_db.query("SELECT message FROM notifications"))
+    approved = client.post(
+        f"/api/review/{own['id']}/approve", json={}, headers=_strong(client, "ava")
+    )
+    assert approved.status_code == 200
+    # a teammate's window is the roster's, and "only me" for it is refused here,
+    # not left pending forever at apply
+    assert "error" in filed("bob", team_sees="nothing")
+    teammate = filed("bob")
+    assert (
+        json.loads(
+            fresh_db.query_one(
+                "SELECT payload FROM pending_changes WHERE id = ?", (teammate["id"],)
+            )["payload"]
+        )["visibility"]
+        == "workspace"
+    )
+    # a weak requester reads no private row
+    weak = filed("ava", strong=False)
+    assert (
+        json.loads(
+            fresh_db.query_one("SELECT payload FROM pending_changes WHERE id = ?", (weak["id"],))[
+                "payload"
+            ]
+        )["visibility"]
+        == "workspace"
+    )
+    # a workspace review of a private window (another producer, or one filed
+    # before the gate routed these) quotes its summary to nobody
+    review.propose_change(
+        "absence",
+        "create",
+        {"person": "ava", **window, "kind": "oncall", "visibility": "private"},
+        summary="ZZNOTICEZZ",
+        actor="scout",
+        requested_by="ava",
+    )
+    assert "ZZNOTICEZZ" not in json.dumps(fresh_db.query("SELECT message FROM notifications"))
+    # a proposal filed before the tool named a tier keeps the roster default
+    legacy = review.propose_change(
+        "absence",
+        "create",
+        {"person": "ava", **window, "kind": "pto"},
+        actor="scout",
+        requested_by="ava",
+    )
+    monkeypatch.setattr(config, "REVIEW_SEPARATION", False)
+    client.post(f"/api/review/{legacy['id']}/approve", json={}, headers=_strong(client, "bob"))
+    assert (
+        fresh_db.query_one("SELECT visibility FROM absences WHERE kind = 'pto'")["visibility"]
+        == "workspace"
+    )
+
+
+def _weak():
+    from app.services import scope
+
+    return scope.Viewer("ava", False)

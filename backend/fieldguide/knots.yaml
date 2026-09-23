@@ -177,7 +177,7 @@ knots:
     knot: Honda Knot
     set: loops
     pitch: PTO and focus windows the weekly draft and staffing projections respect.
-    how: "On Work → Browse, select Time away. Open Add time away and enter the dates. For your own time away, pick who sees it: only you, the team sees that you are away, or the team sees the details. If the team sees the dates, planning counts it."
+    how: "On Work → Browse, select Time away. Open Add time away and enter the dates. For your own time away, pick who sees it: \"Only me\", \"The team sees that I am away\", or \"The team sees the details\". If the team sees the dates, planning counts it."
     link: /dashboard#browse-time-away
     since: 2026-07-31
 
@@ -629,7 +629,7 @@ knots:
     set: bends
     role: any
     pitch: A fact that holds for everyone, and a second person reads it before it steers anyone's agent.
-    how: "Your memories are yours alone. To give one to the team, open Agents, select Memory, then select \"share with the team\" beside it. In chat, type `/remember team: <fact>`. Your teammates read the proposal in Review, and a teammate other than you approves it."
+    how: "Your memories are yours alone. To give one to the team, open Agents, select Memory, then select \"share with the team\" beside it. In chat, type `/remember team: <fact>`. Your teammates read the proposal in Inbox → Approvals, and a teammate other than you approves it."
     link: /agents
     since: 2026-09-23
 

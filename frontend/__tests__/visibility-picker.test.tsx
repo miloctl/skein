@@ -293,4 +293,37 @@ describe("the badge", () => {
     render(<VisibilityBadge visibility="private" />);
     expect(screen.getByText("only you")).toBeTruthy();
   });
+
+  it("names the record in the share button and keeps focus on its row", async () => {
+    render(
+      <ul>
+        <li>
+          <VisibilityBadge
+            visibility="private"
+            share={{ kind: "notes", id: 3, label: "Launch notes" }}
+          />
+        </li>
+      </ul>,
+    );
+    const button = screen.getByRole("button", { name: "Share with the team: Launch notes" });
+    const row = button.closest("li");
+    fireEvent.click(button);
+    await waitFor(() => expect(document.activeElement).toBe(row));
+  });
 });
+
+describe("a weak identity", () => {
+  it("is not offered only you, which it could not read back", async () => {
+    render(
+      <VisibilityPicker
+        value={{ visibility: "workspace", crew_id: 0 }}
+        onChange={() => {}}
+        label="standup"
+        allowPrivate={false}
+      />,
+    );
+    const select = (await screen.findByLabelText("Who can see this standup")) as HTMLSelectElement;
+    expect([...select.options].map((o) => o.value)).not.toContain("private");
+  });
+});
+

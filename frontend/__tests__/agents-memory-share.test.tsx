@@ -43,6 +43,11 @@ describe("sharing a memory with the team", () => {
       expect(mocks.api).toHaveBeenCalledWith("/api/memories/7/share", { method: "POST" }),
     );
     await waitFor(() => expect(getStatus()?.message).toMatch(/^Filed as proposal #12\./));
+    // the share waits for a teammate: no second button to click, and focus
+    // lands on the line that says so
+    const waiting = await screen.findByText("waiting for a teammate");
+    expect(screen.queryByRole("button", { name: "Share memory with the team: focus" })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(waiting));
   });
 
   it("does not offer it to a weak identity, which the route refuses", async () => {

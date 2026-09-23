@@ -324,3 +324,24 @@ def test_the_people_an_administrator_acts_on_hear_about_it(fresh_db):
         "ops exported the workspace data.",
         "ops revoked every API key. Ask for a new key.",
     ]
+
+
+def test_notices_about_an_account_reach_its_person_only(fresh_db, monkeypatch):
+    """A rename cascades to the person's `<name>-mcp` agent, whose inbox reads
+    notifications, and a machine actor names nobody who acted."""
+    from app import config
+    from app.services import api_keys, users
+
+    users.ensure_user("ava")
+    users.ensure_user("ava-mcp", kind="agent")
+    users.rename_user("ava", "ava2", actor="ops")
+    users.set_active("ava2", False, actor="system")
+    rows = fresh_db.query('SELECT "user", message FROM notifications')
+    assert [row["user"] for row in rows] == ["ava2"]
+    # SKEIN_ADMINS spelled differently from the roster still reaches them
+    users.ensure_user("casey")
+    monkeypatch.setattr(config, "ADMINS", frozenset({"Casey"}))
+    api_keys.request_key("dana")
+    assert fresh_db.query_one(
+        "SELECT \"user\" FROM notifications WHERE message LIKE 'dana requests%'"
+    ) == {"user": "casey"}

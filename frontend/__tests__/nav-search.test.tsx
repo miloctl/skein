@@ -11,14 +11,20 @@ import { describe, expect, it, vi } from "vitest";
  *  would be a stored-XSS sink reachable by any teammate. */
 
 const calls: string[] = [];
-const health = vi.hoisted(() => ({ semantic_search: false }));
+const health = vi.hoisted(() => ({
+  semantic_search: false,
+  gate: null as Promise<void> | null,
+}));
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...real,
     api: (path: string) => {
       calls.push(path);
-      if (path === "/api/health") return Promise.resolve({ ...health });
+      if (path === "/api/health")
+        return (health.gate ?? Promise.resolve()).then(() => ({
+          semantic_search: health.semantic_search,
+        }));
       if (path.startsWith("/api/ask"))
         return Promise.resolve({
           question: "q",
@@ -159,10 +165,37 @@ describe("search terms that leave Skein", () => {
     try {
       render(<NavSearch />);
       // a real focus: the box opens for the notice only while the input holds it
-      act(() => (screen.getByLabelText("Search Skein") as HTMLInputElement).focus());
-      expect(await screen.findByText("Search terms go to the embeddings service.")).toBeTruthy();
+      const input = screen.getByLabelText("Search Skein") as HTMLInputElement;
+      act(() => input.focus());
+      // on screen, and in the input's description for a screen reader
+      expect(
+        await screen.findAllByText("Search terms go to the embeddings service."),
+      ).toHaveLength(2);
+      const described = document.getElementById(input.getAttribute("aria-describedby") ?? "");
+      expect(described?.textContent).toBe("Search terms go to the embeddings service.");
     } finally {
       health.semantic_search = false;
+    }
+  });
+
+  it("sends no term before it knows whether the notice applies", async () => {
+    health.semantic_search = true;
+    let open = () => {};
+    health.gate = new Promise((resolve) => (open = resolve));
+    try {
+      calls.length = 0;
+      render(<NavSearch />);
+      const input = screen.getByLabelText("Search Skein") as HTMLInputElement;
+      act(() => input.focus());
+      fireEvent.change(input, { target: { value: "salary" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(calls.some((c) => c.startsWith("/api/search"))).toBe(false);
+      await act(async () => open());
+      await waitFor(() => expect(calls.some((c) => c.startsWith("/api/search"))).toBe(true));
+    } finally {
+      health.semantic_search = false;
+      health.gate = null;
     }
   });
 });

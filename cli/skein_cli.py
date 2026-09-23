@@ -469,7 +469,8 @@ def cmd_capture(args):
     # which closes D5: a crash between the server's accept and the outbox
     # rewrite re-sends the row and files nothing twice.
     body = {"text": " ".join(args.text), "capture_key": uuid.uuid4().hex}
-    # no tier: the server files it for you alone
+    # no tier: the server files it for you alone with a key, and for the
+    # roster with a bare name, which reads no private row
     if args.team:
         body["visibility"] = "workspace"
     connection = _connection()
@@ -813,8 +814,8 @@ def cmd_absences(args):
                 "ends_on": args.ends_on,
                 "kind": args.kind,
                 "note": args.note,
-                # no flag: the server picks the narrowest tier (only the
-                # person away, for your own window)
+                # no flag: the server picks the narrowest tier this caller
+                # can read (only you, for your own window with a key)
                 **(
                     {"visibility": "workspace"}
                     if args.team_sees == "details"
@@ -1137,13 +1138,17 @@ def main():
     c = sub.add_parser("capture", help="quick-capture text (auto-routed)")
     c.add_argument("text", nargs="+")
     c.add_argument(
-        "--team", action="store_true", help="visible to everyone on the roster (default: only you)"
+        "--team",
+        action="store_true",
+        help="visible to everyone on the roster (default with a key: only you)",
     )
     c.set_defaults(fn=cmd_capture)
 
     c = sub.add_parser("standup", help="post a standup")
     c.add_argument(
-        "--team", action="store_true", help="visible to everyone on the roster (default: only you)"
+        "--team",
+        action="store_true",
+        help="visible to everyone on the roster (default with a key: only you)",
     )
     c.add_argument("--yesterday", default="")
     c.add_argument("--today", default="")
@@ -1214,7 +1219,7 @@ def main():
         "--team-sees",
         choices=["dates", "details"],
         help="for your own time away: let the team plan around the dates, or see"
-        " the details too (default: only you, and planning ignores it)",
+        " the details too (default with a key: only you, and planning ignores it)",
     )
     c.set_defaults(fn=cmd_absences)
 
