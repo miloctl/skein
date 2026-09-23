@@ -1637,7 +1637,7 @@ def settled_visible(rows: list[dict], reader: str, *, admin: bool = False) -> li
 
     A person's own proposal (bulk ingest files them): its verdict and the
     reviewer's note belong to the proposer and the reviewer, and a rejected
-    one was never shared (privacy decision 2.10). Another person's
+    one was never shared. Another person's
     `<name>-mcp` agent: users.person_agent_visible. An agent's verdicts stay
     team-visible, the record trust grows from. Rows must carry proposed_by
     and reviewed_by."""

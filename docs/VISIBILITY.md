@@ -391,6 +391,13 @@ names approver groups for the memory, the proposal stays hidden and waits for
 the addressee to reject it. A fact meant for the team is a memory addressed
 to nobody.
 
+**Administrator actions.** The activity log shows an actor's rows to that
+actor alone, so an action an administrator takes on someone else also sends a
+notice. A rename, a merge into an account, and a deactivation or reactivation
+notify the person whose account changed. An export of the workspace data and
+the revocation of every API key notify the team. A machine actor (a script,
+the scheduler) sends no notice.
+
 **Edits and deletes.** The activity log can never be edited or pruned, so a
 row that carries text keeps it past every later delete. An edit or delete of
 a note, blocker, promise, intake request, absence or growth interest records

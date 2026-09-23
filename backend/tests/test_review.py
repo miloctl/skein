@@ -926,7 +926,7 @@ def test_a_verdict_on_a_persons_proposal_stays_between_proposer_and_reviewer(
     client, fresh_db, monkeypatch
 ):
     """Settled lists rebuilt a teammate's rejection record with the reviewer's
-    notes, the person-level judgment trust_scores withholds (decision 2.10)."""
+    notes, the person-level judgment trust_scores withholds."""
     from app import config
     from app.services import insights, review, scope, users
 

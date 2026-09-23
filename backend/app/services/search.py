@@ -395,7 +395,7 @@ def _embeddable(pairs: list[tuple[str, int]]) -> set[tuple[str, int]]:
     The endpoint is a third party, possibly not the chat model's provider,
     and it is the rule every other egress already follows (docs/
     VISIBILITY.md, the sinks table). A crew row or someone's memory sent
-    there cannot be taken back (privacy decision 2.9). One query per table."""
+    there cannot be taken back. One query per table."""
     want: dict[str, set[int]] = {}
     out: set[tuple[str, int]] = set()
     for entity, entity_id in pairs:

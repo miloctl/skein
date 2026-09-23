@@ -69,7 +69,7 @@ def test_the_job_noops_keyless(fresh_db):
 
 def test_only_workspace_rows_with_no_addressee_are_sent(fresh_db, monkeypatch):
     """The endpoint is a third party. Crew rows and memories addressed to a
-    person went to it, and a sent text cannot be taken back (decision 2.9).
+    person went to it, and a sent text cannot be taken back.
     The repair job must also get past the rows it refuses, or a plain LIMIT
     fetches the same refused rows every hour."""
     from app import config
