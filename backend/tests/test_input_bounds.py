@@ -203,3 +203,24 @@ def test_an_oversized_body_is_refused_before_it_is_parsed(client):
     assert streamed.status_code == 413
     ok = client.post("/api/ingest", json={"text": "note: fine"})
     assert ok.status_code != 413
+
+
+def test_the_access_log_keeps_no_search_terms(client):
+    """Search terms and 1:1 note lookups travel in the query string, and the
+    access log kept them with the cluster's retention and readers."""
+    import logging
+
+    access = logging.getLogger("uvicorn.access")
+    record = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        __file__,
+        0,
+        '%s - "%s %s HTTP/%s" %d',
+        ("10.0.0.1:5", "GET", "/api/search?q=secret+diagnosis", "1.1", 200),
+        None,
+    )
+    for keep in access.filters:
+        keep.filter(record)
+    assert "secret" not in record.getMessage()
+    assert "/api/search" in record.getMessage()

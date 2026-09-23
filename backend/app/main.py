@@ -271,8 +271,34 @@ def _start_scheduler(
     return scheduler
 
 
+class AccessLogWithoutQuery(logging.Filter):
+    """Drop the query string from uvicorn's access line.
+
+    Search terms, /ask questions, memory searches and 1:1 note lookups travel
+    as `?q=` and `?person=`, and the access log kept them with whatever
+    retention and readers the cluster's logging has. The path, status and
+    timing are what an operator debugs with."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        # uvicorn: (client_addr, method, full_path, http_version, status_code)
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str):
+            record.args = (*args[:2], args[2].split("?", 1)[0], *args[3:])
+        return True
+
+
+def install_access_log_filter() -> None:
+    """Idempotent: a second app in one process (the test suite) adds none."""
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, AccessLogWithoutQuery) for f in access.filters):
+        access.addFilter(AccessLogWithoutQuery())
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # at startup, not import: uvicorn configures its loggers before it imports
+    # the application, and this must land after that
+    install_access_log_filter()
     settings: AppSettings = app.state.skein_settings
     registry: ExtensionRegistry = app.state.skein_registry
     specs = _job_specs(registry, settings)
