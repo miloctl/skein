@@ -68,7 +68,14 @@ def remember(
                 source_id[:80],
             ),
         )
-        db.log_activity(actor, "remember", scope.detail(tier, f"#{mid}", topic or content[:60]))
+        # an addressed memory keeps its text out of the ledger whatever its
+        # tier: the ledger feeds every teammate's activity view for agent
+        # actors, and a ledger row can never be removed
+        db.log_activity(
+            actor,
+            "remember",
+            scope.detail(scope.PRIVATE if user else tier, f"#{mid}", topic or content[:60]),
+        )
         index_record("memory", mid, topic or content[:60], content)
     return {"id": mid, "topic": topic}
 

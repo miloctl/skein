@@ -90,6 +90,7 @@ def gated_write(
     entity_id: int = 0,
     summary: str = "",
     actor: str = "",
+    review_owner: str = "",
 ) -> str:
     # One transaction over context resolution, the workplace decision, and the
     # resulting local mutation, so nested service transactions join it and the
@@ -110,6 +111,7 @@ def gated_write(
             entity_id,
             summary,
             actor,
+            review_owner,
         )
 
 
@@ -121,6 +123,7 @@ def _gated_write_locked(
     entity_id: int = 0,
     summary: str = "",
     actor: str = "",
+    review_owner: str = "",
 ) -> str:
     """One gate for every agent write path (chat tools AND the MCP server) —
     per-agent authority and the review inbox see all agent traffic, so trust
@@ -269,8 +272,11 @@ def _gated_write_locked(
                 source_id=int(result.get("id") or entity_id or 0),
             )
         return json.dumps(result)
-    private_review = workspace_only_tools()
-    review_owner = requester_identity() if private_review else ""
+    # `review_owner` names the one person a proposal belongs to whatever the
+    # turn (an addressed memory, tools/memory.py): reviewed at the workspace
+    # tier, every teammate read its text and got a "Review needed" notice.
+    private_review = workspace_only_tools() or bool(review_owner)
+    review_owner = (review_owner or requester_identity()) if private_review else ""
     try:
         # Same reason as the direct() savepoint above: this catch RETURNS, so
         # the gate's transaction commits whatever propose_change wrote before

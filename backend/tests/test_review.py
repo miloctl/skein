@@ -887,3 +887,36 @@ def test_approving_a_change_holds_the_row_it_is_about(fresh_db, monkeypatch):
     p = review.propose_change("task", "update", {"title": "renamed"}, entity_id=tid, actor="scout")
     review.approve_change(p["id"], actor="tester")
     assert ("task", tid) in held
+
+
+def test_an_approved_create_follows_the_row_it_made(client, fresh_db):
+    """Resolved by its payload alone, an approved create kept the body of a
+    note readable in the approved list after the note was deleted."""
+    from app.services import collab, review, users
+
+    users.ensure_user("scribe", kind="agent")
+    users.ensure_user("ava")
+    proposal = review.propose_change(
+        "note", "create", {"topic": "t", "content": "ZZGONEBODYZZ"}, "note", actor="scribe"
+    )
+    note = review.approve_change(proposal["id"], actor="ava", strong=True)["result"]
+    collab.delete_note(note["id"], actor="ava")
+    settled = client.get("/api/review", params={"status": "approved"}, headers=_strong(client))
+    assert "ZZGONEBODYZZ" not in settled.text
+
+
+def test_a_proposal_for_an_addressed_memory_is_the_addressees_alone(client, fresh_db):
+    """The create branch read payload["author"], and a memory's author is its
+    `user`: a proposal addressed to ava was readable and approvable by all."""
+    from app.services import review, users
+
+    users.ensure_user("scribe", kind="agent")
+    users.ensure_user("ava")
+    proposal = review.propose_change(
+        "memory", "create", {"content": "ZZAVAONLYZZ", "user": "ava"}, "memory", actor="scribe"
+    )
+    queue = client.get("/api/review", headers=_strong(client)).text
+    assert "ZZAVAONLYZZ" not in queue
+    refused = client.post(f"/api/review/{proposal['id']}/approve", json={}, headers=_strong(client))
+    assert refused.status_code == 404
+    assert "ZZAVAONLYZZ" in client.get("/api/review", headers=_strong(client, "ava")).text

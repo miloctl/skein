@@ -683,6 +683,11 @@ def _make_export(*, keep: int, actor: str, open_file: bool, max_bytes: int = 0):
                             if table in scope.CLASSIFIED
                             else ""
                         )
+                        # an addressed memory is its addressee's alone
+                        # (search.visible_hits), and the exporting admin is
+                        # somebody else
+                        if table == "memories":
+                            where += " AND \"user\" = ''"
                         sql = f"SELECT * FROM {table}{where}"  # noqa: S608 — closed table set and private literal
                         params = ()
                     if index:

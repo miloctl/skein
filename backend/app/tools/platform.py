@@ -6,7 +6,7 @@ from typing import Any
 from strands import tool
 
 from .. import db
-from ..agents.identity import agent_identity, requester_identity
+from ..agents.identity import agent_identity, requester_identity, workspace_only_tools
 from ..extensions.policy import (
     PolicyEffect,
     PolicyInput,
@@ -355,10 +355,11 @@ def search_workspace(query: str) -> str:
     )
     with db.read_transaction():
         # the person behind the turn reads their own addressed memories;
-        # with no requester, none (services/search.py::visible_hits)
-        return json.dumps(
-            search.search(query, row_filter=policy.filter_resources, reader=requester_identity())
-        )
+        # with no requester, none (services/search.py::visible_hits). A
+        # shared-chat agent answers the whole room, so it reads none either:
+        # the requester's memory would be repeated to every member.
+        reader = "" if workspace_only_tools() else requester_identity()
+        return json.dumps(search.search(query, row_filter=policy.filter_resources, reader=reader))
 
 
 @tool

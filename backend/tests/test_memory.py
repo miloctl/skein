@@ -1,6 +1,7 @@
 """Cross-thread agent memory: forget removes it everywhere, and the agent path is gated, capped, and carries provenance."""
 
 import json
+from pathlib import Path
 
 import pytest
 from conftest import _strong
@@ -124,8 +125,9 @@ def test_targeted_forget_approval_uses_requester_and_preserves_agent_provenance(
         identity.reset_requester_identity(requester_token)
         identity.reset_agent_identity(agent_token)
     assert proposal["status"] == "pending"
+    # only the addressee reads or judges a proposal about her memory
     response = client.post(
-        f"/api/review/{proposal['id']}/approve", json={}, headers=_strong(client)
+        f"/api/review/{proposal['id']}/approve", json={}, headers=_strong(client, "ava")
     )
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "approved"
@@ -134,7 +136,7 @@ def test_targeted_forget_approval_uses_requester_and_preserves_agent_provenance(
     assert (row["proposed_by"], row["requested_by"], row["reviewed_by"]) == (
         "scribe",
         "ava",
-        "tester",
+        "ava",
     )
     assert row["reviewed_strong"] == 1
     egress = json.dumps(
@@ -351,3 +353,94 @@ def test_a_private_memory_reaches_its_addressee_and_not_the_database_role(fresh_
     assert [m["id"] for m in memory.recall(user="ava", viewer=ava)] == [mid]
     stranger = scope.Viewer(role, True)
     assert memory.recall(user=role, viewer=stranger) == []
+
+
+def test_an_agent_memory_from_a_turn_stays_with_the_person_who_drove_it(
+    client, fresh_db, monkeypatch
+):
+    """The agent tool filed a memory for whoever the model named, or for the
+    whole team, and its text went to a team notice, the shared review queue
+    and the activity log, which outlives `forget`."""
+    from app import config
+    from app.agents import identity
+    from app.services import admin, memory, users
+    from app.tools.memory import remember
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+
+    users.ensure_user("scribe", kind="agent")
+    for name in ("alice", "bob"):
+        users.ensure_user(name)
+    agent = identity.set_agent_identity("scribe")
+    requester = identity.set_requester_identity("alice")
+    try:
+        proposal = json.loads(remember(content="ZZHEALTHZZ note", about_user="bob"))
+    finally:
+        identity.reset_requester_identity(requester)
+        identity.reset_agent_identity(agent)
+    assert proposal["note"] == "queued for human review"
+    bob = _strong(client, "bob")
+    assert all(
+        "ZZHEALTHZZ" not in json.dumps(r) for r in client.get("/api/review", headers=bob).json()
+    )
+    assert "ZZHEALTHZZ" not in json.dumps(fresh_db.query("SELECT * FROM notifications"))
+    approved = client.post(
+        f"/api/review/{proposal['id']}/approve", json={}, headers=_strong(client, "alice")
+    )
+    assert approved.status_code == 200, approved.text
+    assert fresh_db.query_one('SELECT "user" FROM memories')["user"] == "alice"
+    assert "ZZHEALTHZZ" not in memory.memory_prompt("bob")
+    assert "ZZHEALTHZZ" not in json.dumps(fresh_db.query("SELECT detail FROM activity"))
+    settled = client.get("/api/review", params={"status": "approved"}, headers=bob).json()
+    assert all("ZZHEALTHZZ" not in json.dumps(r) for r in settled)
+    exported = admin.export(actor="ops")
+    assert "ZZHEALTHZZ" not in Path(exported["path"]).read_text()
+
+
+def test_a_room_agent_search_reads_no_addressed_memory(fresh_db):
+    """A room turn runs as the member who called the agent, and the agent's
+    answer goes to every member: reading that member's addressed memories
+    repeated them to the room."""
+    from app.agents import identity
+    from app.services import memory, users
+    from app.tools.platform import search_workspace
+
+    memory.remember("ZZROOMZZ therapy on thursdays", user="alice", actor="alice")
+    requester = identity.set_requester_identity("alice")
+    room = identity.set_workspace_only_tools(True)
+    try:
+        hits = json.loads(search_workspace(query="ZZROOMZZ"))
+    finally:
+        identity._workspace_only_tools.reset(room)
+        identity.reset_requester_identity(requester)
+    assert [h for h in hits if h["entity"] == "memory"] == []
+    # the room prompt recalls under this name, so nobody may hold it
+    with pytest.raises(ValueError):
+        users.ensure_human_identity("shared-chat")
+
+
+def test_the_addressee_approves_her_own_memory_under_separated_review(
+    client, fresh_db, monkeypatch
+):
+    """Only the addressee may read an addressed memory's proposal, so with
+    SKEIN_REVIEW_SEPARATION refusing her approval it waited forever."""
+    from app import config
+    from app.agents import identity
+    from app.services import users
+    from app.tools.memory import remember
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    monkeypatch.setattr(config, "REVIEW_SEPARATION", True)
+    users.ensure_user("scribe", kind="agent")
+    users.ensure_user("ava")
+    agent = identity.set_agent_identity("scribe")
+    requester = identity.set_requester_identity("ava")
+    try:
+        proposal = json.loads(remember(content="ZZSEPARATEDZZ"))
+    finally:
+        identity.reset_requester_identity(requester)
+        identity.reset_agent_identity(agent)
+    approved = client.post(
+        f"/api/review/{proposal['id']}/approve", json={}, headers=_strong(client, "ava")
+    )
+    assert approved.status_code == 200, approved.text

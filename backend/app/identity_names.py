@@ -9,8 +9,11 @@ from collections import Counter
 from dataclasses import dataclass
 from threading import RLock
 
+# `shared-chat` is the recall key a room agent's prompt reads memories under
+# (services/shared_chat_agents.py): a person holding that name would address
+# memories into every room agent's system prompt.
 CORE_MACHINE_SUBJECTS = frozenset(
-    {"agent", "anonymous", "ci", "forge", "mcp", "scheduler", "system", "team"}
+    {"agent", "anonymous", "ci", "forge", "mcp", "scheduler", "shared-chat", "system", "team"}
 )
 SYNTHETIC_COMPAT_SUBJECTS = frozenset({"anonymous"})
 HUMAN_RESERVED_SUBJECTS = CORE_MACHINE_SUBJECTS - SYNTHETIC_COMPAT_SUBJECTS

@@ -245,11 +245,10 @@ def _propose_change_locked(
     if review_visibility == scope.PRIVATE and review_owner:
         db.log_activity(review_owner, "propose_private_change", f"#{pid}")
     else:
-        db.log_activity(
-            actor,
-            "propose_change",
-            f"#{pid} {action} {entity}" + (f" (asked by {requested_by})" if requested_by else ""),
-        )
+        # the requester stays on the proposal row (requested_by): written
+        # into the ledger, every agent row named the person behind it to
+        # every teammate's feed, forever
+        db.log_activity(actor, "propose_change", f"#{pid} {action} {entity}")
     if notify_team:  # bulk producers (ingestion) send ONE summary instead
         from .notifications import notify
 
@@ -354,6 +353,17 @@ def _check_separation(change: dict, actor: str) -> None:
     originators = {
         fold_identity(str(change.get(column) or "")) for column in ("requested_by", "proposed_by")
     }
+    # An addressed memory steers only its addressee's conversations, and
+    # only the addressee may read its proposal (_addressed): refused here, it
+    # waits for an approver who cannot exist.
+    if change["entity"] in ("memory", "memory_forget"):
+        tier = _governing_tier(change)
+        if (
+            isinstance(tier, tuple)
+            and tier[0] == scope.PRIVATE
+            and fold_identity(tier[2]) == folded
+        ):
+            return
     if folded and folded in originators:
         raise PermissionError(
             "This proposal came from you. Separated review duties are on,"
@@ -1452,6 +1462,40 @@ def season_readout() -> dict:
     }
 
 
+def _declared_tier(table: str, payload: dict) -> tuple[str, int | None, str]:
+    """The tier a create WOULD land at, read from its payload.
+
+    The author is the table's own author column (scope.CLASSIFIED), not a
+    fixed `author` key: memories' is `user`, and an addressed memory reaches
+    its addressee alone on every surface (search.visible_hits), its proposal
+    included. Absent tier means workspace, the tier the create lands at.
+    """
+    crew = payload.get("crew_id")
+    return _addressed(
+        table,
+        (
+            str(payload.get("visibility") or scope.WORKSPACE),
+            crew if isinstance(crew, int) else None,
+            str(payload.get(scope.CLASSIFIED.get(table, "author")) or ""),
+        ),
+    )
+
+
+def _addressed(table: str, tier: tuple[str, int | None, str]) -> tuple[str, int | None, str]:
+    """A memory addressed to one person is that person's alone, whatever the
+    row's tier says (services/search.py::visible_hits holds the same rule).
+
+    A memory addressed to an agent (the MCP server over stdio addresses the
+    agent itself) keeps its tier: no person could read, so none could judge,
+    its proposal."""
+    if table == "memories" and tier[2]:
+        from .users import is_agent
+
+        if not is_agent(tier[2]):
+            return (scope.PRIVATE, None, tier[2])
+    return tier
+
+
 def _governing_tier(change: dict) -> tuple[str, int | None, str] | str | None:
     """The tier that decides who may see or judge one proposal.
 
@@ -1464,8 +1508,11 @@ def _governing_tier(change: dict) -> tuple[str, int | None, str] | str | None:
     applied it. A proposal that is invisible must not be approvable, and the
     only way to keep that true is for both to ask the same question.
 
-    Three sources, in order: the row `entity_id` names (updates), the row the
-    payload names (_CREATE_PARENT), then the tier the payload declares.
+    Four sources, in order: the row `entity_id` names (updates), the row an
+    approved create made (`result_id`), the row the payload names
+    (_CREATE_PARENT), then the tier the payload declares. Resolved by the
+    payload alone, an approved create kept its body readable in the approved
+    list after the row it made was deleted.
     """
     if str(change.get("review_visibility") or scope.WORKSPACE) != scope.WORKSPACE:
         return (
@@ -1487,7 +1534,7 @@ def _governing_tier(change: dict) -> tuple[str, int | None, str] | str | None:
     except (TypeError, ValueError):
         payload = {}
 
-    row_id = change["entity_id"]
+    row_id = change["entity_id"] or change.get("result_id")
     if not row_id and change["entity"] in _CREATE_PARENT:
         table, key = _CREATE_PARENT[change["entity"]]
         row_id = payload.get(key)
@@ -1497,18 +1544,17 @@ def _governing_tier(change: dict) -> tuple[str, int | None, str] | str | None:
             f'SELECT visibility, crew_id, "{author}" AS author FROM {table} WHERE id = ?',  # noqa: S608 — table and column from constant maps; quoted because memories' `user` is CURRENT_USER unquoted
             (row_id,),
         )
-        return (row["visibility"], row["crew_id"], row["author"] or "") if row else "gone"
+        return (
+            _addressed(table, (row["visibility"], row["crew_id"], row["author"] or ""))
+            if row
+            else "gone"
+        )
 
     # a create with no parent row: the tier it WOULD land at is declared here.
     # Absent because the caller chose none, and absent because the caller never
     # selected the payload column — both mean workspace, and neither can
     # disclose a body the reader is not already being shown.
-    crew = payload.get("crew_id")
-    return (
-        str(payload.get("visibility") or scope.WORKSPACE),
-        crew if isinstance(crew, int) else None,
-        str(payload.get("author") or ""),
-    )
+    return _declared_tier(table, payload)
 
 
 def _governing_tiers(rows: list[dict]) -> list[tuple[str, int | None, str] | str | None]:
@@ -1538,19 +1584,14 @@ def _governing_tiers(rows: list[dict]) -> list[tuple[str, int | None, str] | str
             payload = json.loads(change["payload"]) if change.get("payload") else {}
         except (TypeError, ValueError):
             payload = {}
-        row_id = change["entity_id"]
+        row_id = change["entity_id"] or change.get("result_id")
         if not row_id and change["entity"] in _CREATE_PARENT:
             table, parent_key = _CREATE_PARENT[change["entity"]]
             row_id = payload.get(parent_key)
         if row_id:
             waiting.setdefault((table, int(row_id)), []).append(index)
             continue
-        crew = payload.get("crew_id")
-        resolved[index] = (
-            str(payload.get("visibility") or scope.WORKSPACE),
-            crew if isinstance(crew, int) else None,
-            str(payload.get("author") or ""),
-        )
+        resolved[index] = _declared_tier(table, payload)
 
     by_table: dict[str, set[int]] = {}
     for table, row_id in waiting:
@@ -1564,10 +1605,8 @@ def _governing_tiers(rows: list[dict]) -> list[tuple[str, int | None, str] | str
             f" WHERE id IN ({marks})",
             tuple(ids),
         ):
-            found[(table, int(row["id"]))] = (
-                row["visibility"],
-                row["crew_id"],
-                row["author"] or "",
+            found[(table, int(row["id"]))] = _addressed(
+                table, (row["visibility"], row["crew_id"], row["author"] or "")
             )
     for waiting_key, indexes in waiting.items():
         tier: tuple[str, int | None, str] | str = found.get(waiting_key, "gone")
