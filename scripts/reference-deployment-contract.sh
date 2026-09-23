@@ -100,6 +100,10 @@ for overlay in example-prod example-dev; do
     grep -Fq 'image: registry.example.com/skein/skein-frontend:0.6.6-prod@sha256:' "$rendered"
     grep -q "port: 5353" "$rendered"  # OpenShift DNS pods; 53 alone breaks every lookup
   fi
+  if [ "$overlay" = example-dev ]; then
+    # trusted-header believes any X-User; the router allowlist fronts both Routes
+    [ "$(grep -c "haproxy.router.openshift.io/ip_whitelist:" "$rendered")" -eq 2 ]
+  fi
   grep -q "type: Recreate" "$rendered"          # backend pods never overlap
   grep -q "replicas: 1" "$rendered"             # scheduler, rate caps, _inflight
   grep -q "ReadWriteOnce" "$rendered"           # block storage stays on one node

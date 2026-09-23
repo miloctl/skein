@@ -44,3 +44,17 @@ patches:
       - op: add
         path: /spec/host
         value: skein-api-dev.example.com
+  # trusted-header accepts any name in X-User from any caller, so on a public
+  # Route anyone on the internet can act as any team member. The router
+  # allowlist is the only control in front of it. 192.0.2.0/24 is a
+  # documentation range that admits nobody: replace it with your office or
+  # VPN ranges, separated by spaces. Keep it on both Routes.
+  - target:
+      kind: Route
+    patch: |
+      apiVersion: route.openshift.io/v1
+      kind: Route
+      metadata:
+        name: any-route
+        annotations:
+          haproxy.router.openshift.io/ip_whitelist: 192.0.2.0/24
