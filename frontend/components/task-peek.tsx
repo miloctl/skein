@@ -331,9 +331,10 @@ export function TaskPeek() {
     // browser's Tab order. Without inert, three Tabs walk out of the panel
     // into content the reader has just been told does not exist — a focus
     // black hole, which is worse than claiming no modality at all.
-    // Siblings, because the panel is a body child too.
+    // Siblings, because the panel is a body child too. The status nodes stay
+    // live (status-region.tsx).
     const others = [...document.body.children].filter(
-      (el) => !el.contains(closeRef.current),
+      (el) => !el.contains(closeRef.current) && !el.hasAttribute("data-status-region"),
     ) as HTMLElement[];
     others.forEach((el) => el.setAttribute("inert", ""));
     closeRef.current?.focus();
