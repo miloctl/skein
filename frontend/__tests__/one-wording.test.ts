@@ -45,8 +45,8 @@ describe("one condition, one wording across surfaces", () => {
     // every click, ignoring already_pending — two behaviors for one
     // condition, then two wordings for one outcome
     const strings = [
-      "Already asked — the request is still on the team's My Day.",
-      "Asked — the request (with the exact command) is now on the team's My Day.",
+      "Already asked. The request is still waiting for whoever runs the server.",
+      "Asked. Whoever runs the server now has the request and the exact command.",
     ];
     for (const page of ["app/settings/page.tsx", "app/people/page.tsx"]) {
       const source = readFileSync(join(ROOT, page), "utf8");

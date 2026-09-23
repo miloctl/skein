@@ -145,3 +145,15 @@ def test_a_key_minted_at_the_server_says_so_in_its_owners_feed(fresh_db, monkeyp
     bootstrap_key.main()
     row = fresh_db.query_one("SELECT actor, detail FROM activity WHERE action = 'create_api_key'")
     assert row["actor"] == "ava" and "minted at the server" in row["detail"]
+
+
+def test_a_key_request_reaches_the_named_administrators_only(client, fresh_db, monkeypatch):
+    """The request went to the whole team, and who asked for a key is only
+    the business of whoever mints one (privacy decision 2.12)."""
+    from app import config
+
+    monkeypatch.setattr(config, "ADMINS", frozenset({"ops", "lee"}))
+    client.post("/api/keys/request", headers={"X-User": "dana"})
+    notes = fresh_db.query('SELECT "user", message FROM notifications')
+    assert sorted(n["user"] for n in notes) == ["lee", "ops"]
+    assert client.post("/api/keys/request", headers={"X-User": "dana"}).json()["already_pending"]

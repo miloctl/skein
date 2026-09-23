@@ -47,8 +47,10 @@ _SAFE_NAME = re.compile(r"[\w .\-]{1,64}")
 
 def request_key(user: str) -> dict:
     """Self-serve ask: a key can only be minted at the server, but requesting
-    one must not require finding the operator — this files a team-visible
-    nudge with the exact command. Idempotent per requester while one is still
+    one must not require finding the operator — this files a nudge with the
+    exact command to the named administrators (SKEIN_ADMINS), or to the team
+    when none are named: who asked for a key is nobody else's business
+    (privacy decision 2.12). Idempotent per requester while one is still
     unread. The name is validated and quoted because the message is designed
     to be copy-pasted into a root shell — the one place spoofable X-User text
     must never smuggle shell metacharacters."""
@@ -62,6 +64,10 @@ def request_key(user: str) -> dict:
         f" them, then deliver the key out-of-band)"
         f" — mint: python -m app.bootstrap_key {shlex.quote(user)}"
     )
+    from .. import config
+
+    recipients = sorted(config.ADMINS) or ["team"]
+    marks = ", ".join("?" for _ in recipients)
     with db.transaction():
         db.name_lock(db.LOCK_KEY_REQUEST, user)
         # "Unread by ANYONE", not notifications.UNREAD_FOR. This nudge asks a
@@ -70,16 +76,17 @@ def request_key(user: str) -> dict:
         # requester may ask again. The per-person read (009) governs whose FEED
         # shows it; this governs whether a second request is a duplicate.
         pending = db.query_one(
-            "SELECT id FROM notifications WHERE \"user\" = 'team' AND message LIKE ?"
+            f'SELECT id FROM notifications WHERE "user" IN ({marks}) AND message LIKE ?'  # noqa: S608 — marks built above
             " AND read_at IS NULL"
             " AND id NOT IN (SELECT notification_id FROM notification_reads)",
-            (prefix + "%",),
+            (*recipients, prefix + "%"),
         )
         if pending:
             return {"requested": True, "already_pending": True}
         from . import notifications
 
-        notifications.notify("team", message, tier="immediate", link="/settings")
+        for recipient in recipients:
+            notifications.notify(recipient, message, tier="immediate", link="/settings")
         db.log_activity(user, "request_key", "asked for a personal API key")
     return {"requested": True, "already_pending": False}
 
