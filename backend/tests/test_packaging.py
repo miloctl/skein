@@ -101,7 +101,7 @@ def test_runtime_images_are_pinned_by_digest():
     assert "node:22-alpine@sha256:" in (ROOT / "scripts/reference-images-contract.sh").read_text()
     for relative, count in (
         (".github/workflows/ci.yml", 3),
-        (".gitea/workflows/ci.yml", 2),
+        (".gitea/workflows/ci.yml", 3),
         (".gitea/workflows/weekly.yml", 1),
     ):
         text = (ROOT / relative).read_text()

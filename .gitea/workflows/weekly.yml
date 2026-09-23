@@ -20,6 +20,9 @@
 # - A mutation sweep. TODO.md records suite-wide mutation testing as decided
 #   against; scripts/mutation-test.sh is the on-demand form the record
 #   prefers, and RELEASING.md says when to run it.
+#
+# The Checkout steps pass the credential as ci.yml does, in a header per git
+# command, never in the remote URL (ci.yml explains why).
 name: weekly
 on:
   schedule:
@@ -48,14 +51,18 @@ jobs:
           --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - name: Checkout
+        env:
+          CHECKOUT_AUTH: ${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}
         run: |
-          base="${{ github.server_url }}"
-          git clone --depth 50 "${base%%://*}://${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}@${base#*://}/${{ github.repository }}.git" .
+          auth="Authorization: Basic $(printf %s "$CHECKOUT_AUTH" | base64 -w0)"
+          git -c http.extraHeader="$auth" clone --depth 50 "${{ github.server_url }}/${{ github.repository }}.git" .
           git checkout "$GITHUB_SHA"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.11.11"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
@@ -100,9 +107,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
+        env:
+          CHECKOUT_AUTH: ${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}
         run: |
-          base="${{ github.server_url }}"
-          git clone --depth 50 "${base%%://*}://${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}@${base#*://}/${{ github.repository }}.git" .
+          auth="Authorization: Basic $(printf %s "$CHECKOUT_AUTH" | base64 -w0)"
+          git -c http.extraHeader="$auth" clone --depth 50 "${{ github.server_url }}/${{ github.repository }}.git" .
           git checkout "$GITHUB_SHA"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
