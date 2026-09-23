@@ -143,6 +143,7 @@ def main() -> None:
         kind="pto",
         note="offsite week",
         actor="ava",
+        dates_shared=True,
     )
     collab.record_decision(
         "Weekly plan is approved, never imposed",

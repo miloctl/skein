@@ -7,6 +7,7 @@ from datetime import date, timedelta
 
 from .. import db
 from . import refs, scope, wording
+from .absences import TEAM_SEES_DATES
 from .scope import WORKSPACE_ONLY
 from .slas import SILENCE_DAYS, STALE_WIP_DAYS, VERDICT_FLOOR_N
 from .stats import median as _median
@@ -387,7 +388,8 @@ def capacity_ahead(weeks: int = 6, viewer: scope.Viewer = scope.NOBODY) -> list[
         # that rule exists to stop. Unmasked here it reached every CurrentUser
         # through GET /api/planning.
         away = db.query(
-            "SELECT person, kind, visibility FROM absences WHERE starts_on <= ? AND ends_on >= ?",
+            "SELECT person, kind, visibility FROM absences"  # noqa: S608 — TEAM_SEES_DATES is a module constant
+            f" WHERE starts_on <= ? AND ends_on >= ? AND {TEAM_SEES_DATES}",
             (end.isoformat(), start.isoformat()),
         )
         iso = start.isocalendar()
@@ -690,12 +692,16 @@ def what_if(
         r["name"]: r["growth_interests"]
         for r in db.query("SELECT name, growth_interests FROM users WHERE growth_interests != ''")
     }
-    from .absences import list_absences
-
     away: dict[str, str] = {}
-    for a in list_absences():  # ordered by starts_on — keep the NEAREST window
-        if a["kind"] == "pto":
-            away.setdefault(a["person"], f"{a['kind']} {a['starts_on']}..{a['ends_on']}")
+    # ordered by starts_on: keep the NEAREST window. The kind shows at the
+    # workspace tier only, the rule absences.away_today states.
+    for a in db.query(
+        "SELECT person, visibility, starts_on, ends_on FROM absences"  # noqa: S608 — TEAM_SEES_DATES is a module constant
+        f" WHERE kind = 'pto' AND ends_on >= ? AND {TEAM_SEES_DATES} ORDER BY starts_on, person",
+        (today,),
+    ):
+        shown = "pto" if a["visibility"] == scope.WORKSPACE else "away"
+        away.setdefault(a["person"], f"{shown} {a['starts_on']}..{a['ends_on']}")
     projection = []
     for p in people:
         total = current.get(p, 0) + percent

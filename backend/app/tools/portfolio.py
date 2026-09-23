@@ -8,7 +8,7 @@ from strands import tool
 
 from .. import db
 from ..agents import receipts
-from ..agents.identity import agent_identity, requester_viewer
+from ..agents.identity import agent_identity, requester_identity, requester_viewer
 from ..extensions.policy import (
     PolicyEffect,
     PolicyInput,
@@ -473,10 +473,15 @@ def submit_for_acceptance(task_id: int, summary: str) -> str:
 
 @tool
 def add_absence(
-    person: str, starts_on: str, ends_on: str, kind: str = "pto", note: str = ""
+    person: str,
+    starts_on: str,
+    ends_on: str,
+    kind: str = "pto",
+    note: str = "",
+    team_sees: str = "nothing",
 ) -> str:
-    """Record time away (pto / oncall / focus) so capacity, the weekly plan,
-    and staffing what-ifs respect it.
+    """Record time away (pto / oncall / focus). Capacity, the weekly plan, and
+    staffing what-ifs respect it only when the team sees its dates.
 
     Args:
         person: Who is away.
@@ -484,19 +489,32 @@ def add_absence(
         ends_on: Last day (YYYY-MM-DD).
         kind: pto (zeroes planning), oncall, or focus (advisory).
         note: Optional context.
+        team_sees: "nothing" (only the person away sees it, and planning
+            ignores it), "dates" (planning counts it, the kind and note stay
+            hidden), or "details" (everyone on the roster sees it). Keep
+            "nothing" unless the person asked the team to see it.
     """
+    if team_sees not in ("nothing", "dates", "details"):
+        return json.dumps({"error": 'team_sees must be "nothing", "dates" or "details"'})
     payload: dict[str, Any] = {
         "person": person,
         "starts_on": starts_on,
         "ends_on": ends_on,
         "kind": kind,
         "note": note,
+        "visibility": scope.WORKSPACE if team_sees == "details" else scope.PRIVATE,
+        "dates_shared": team_sees != "nothing",
     }
     return gated_write(
         "absence",
         "create",
         payload,
-        lambda: absences.add_absence(**payload, actor=agent_identity(), origin="agent"),
+        lambda: absences.add_absence(
+            **payload,
+            actor=agent_identity(),
+            origin="agent",
+            requester=requester_identity(),
+        ),
         summary=f"absence: {person} {kind} {starts_on}..{ends_on}",
     )
 

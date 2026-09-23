@@ -410,6 +410,16 @@ identity is weak (a weak viewer reads no private row), when
 proposal record stays private after the verdict. The row it made has its
 own tier.
 
+**Time away counts for the team only as far as its person chose.** A window
+has three settings: only the person away (no team effect at all), the team
+sees the dates (private, `dates_shared`), and the team sees the details
+(workspace). Capacity, planning, the weekly draft and its summary, and
+staffing what-ifs all read `absences.TEAM_SEES_DATES`, and a window below
+the workspace tier shows "away", never its kind or note. A private window
+about somebody else is refused, so a teammate's window defaults to the
+workspace tier. An agent files the requester's own window through
+`requester`, which the review sets from the proposal, never from the payload.
+
 **Administrator actions.** The activity log shows an actor's rows to that
 actor alone, so an action an administrator takes on someone else also sends a
 notice. A rename, a merge into an account, and a deactivation or reactivation

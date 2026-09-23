@@ -39,7 +39,7 @@ def test_export_covers_the_newer_tables(fresh_db):
     from app.services import absences, admin, users
 
     users.ensure_user("mira")
-    absences.add_absence("mira", "2026-08-03", "2026-08-04", actor="mira")
+    absences.add_absence("mira", "2026-08-03", "2026-08-04", actor="mira", visibility="workspace")
     dump = _dump(admin.export())
     assert len(dump["absences"]) == 1
     assert "task_worklog" in dump
