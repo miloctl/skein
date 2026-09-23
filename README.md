@@ -337,24 +337,26 @@ reject `max_tokens` in favour of `max_completion_tokens`. Sending it would turn
 a working provider into a hard 400, so cap OpenAI output through
 `SKEIN_MODEL_PARAMS={"max_completion_tokens": 2000}` instead.
 
-**Reasoning levels.** A `SKEIN_MODELS` entry can offer named levels (`off`,
+**Reasoning levels.** A `SKEIN_MODELS` entry can offer named levels (`none`,
 `minimal`, `low`, `medium`, `high`, `xhigh`, `max`), each with the exact
 request params it sends. An administrator sets the team level on
 **Settings → AI runtime → Reasoning (team)**. A person can use another level
 in one solo chat with `/reasoning <level>`. The level of the chat wins over
 the team level. If the model does not declare that level, the next layer
 applies, then the default of the model. Only chat turns use a level. Titles,
-plans, summaries, consults and flocks run without one, because nobody reads
-that reasoning. The right params differ per model, not per provider, so the
-operator writes them:
+plans, summaries, consults, flocks, the unattended runner, and agent turns in
+shared chats run without one, because nobody reads that reasoning. The right
+params differ per model, not per provider, so the operator writes them:
 
 ```yaml
-# Anthropic, Claude 4.6 and later: adaptive thinking with an effort. These
-# models refuse budget_tokens, and several refuse a custom temperature. A
-# null removes a key that SKEIN_MODEL_PARAMS or a persona sends.
+# Anthropic, Claude 4.6 and later: adaptive thinking with an effort.
+# budget_tokens is deprecated on 4.6, and 4.7 and later refuse it. Thinking
+# refuses a custom temperature on every Claude model, so each thinking level
+# removes the temperature that SKEIN_MODEL_PARAMS or a persona sends.
+# Some newer models cannot turn thinking off. Leave `none` out for them.
 - id: claude-sonnet-4-6
   reasoning:
-    off:  {thinking: {type: disabled}}
+    none: {thinking: {type: disabled}}
     low:  {thinking: {type: adaptive}, output_config: {effort: low}, temperature: null}
     high: {thinking: {type: adaptive}, output_config: {effort: high}, temperature: null}
 
@@ -362,7 +364,7 @@ operator writes them:
 - id: claude-haiku-4-5
   max_tokens: 16000
   reasoning:
-    medium: {thinking: {type: enabled, budget_tokens: 8000}}
+    medium: {thinking: {type: enabled, budget_tokens: 8000}, temperature: null}
 
 # OpenAI: reasoning_effort. The values it accepts depend on the model.
 - id: gpt-5
@@ -371,12 +373,12 @@ operator writes them:
     high:    {reasoning_effort: high}
 
 # OpenRouter through openai_compatible: its reasoning object, in extra_body.
-- id: deepseek/deepseek-r1
+- id: openai/gpt-5
   reasoning:
     low:  {extra_body: {reasoning: {effort: low}}}
     high: {extra_body: {reasoning: {effort: high}}}
 
-# Ollama: think. `ollama show <model>` lists the values a model accepts.
+# Ollama: think. /api/show lists the values a model accepts (thinking.values).
 - id: gpt-oss:120b-cloud
   reasoning:
     low:  {additional_args: {think: low}}
@@ -386,15 +388,25 @@ operator writes them:
 - id: us.anthropic.claude-haiku-4-5-20251001-v1:0
   max_tokens: 16000
   reasoning:
-    medium: {additional_request_fields: {thinking: {type: enabled, budget_tokens: 8000}}}
+    medium:
+      additional_request_fields: {thinking: {type: enabled, budget_tokens: 8000}}
+      temperature: null
 ```
 
 Things to know before you turn it on:
 
-- A `budget_tokens` at or above the output limit of its level voids the menu
+- A level merges over the entry `params` and `SKEIN_MODEL_PARAMS`. Inside
+  `extra_body`, `extra_query`, `additional_args`, `additional_request_fields`
+  and `options`, it merges one level deep, so the other fields there stay.
+  Every other key it sets replaces the key below it. A `null` removes the key
+  it names, at either depth.
+- A `budget_tokens` at or above the output cap of the request voids the menu
   at startup, and `/api/health` names the level. Anthropic and Bedrock refuse
-  that request every time. The limit is the `max_tokens` of the level, then
-  of the entry `params`, then of the entry, then `SKEIN_MAX_TOKENS`.
+  that request unless interleaved thinking is on. The cap is the `max_tokens`
+  that the level, the entry `params`, the entry, `SKEIN_MODEL_PARAMS`, and
+  `SKEIN_MAX_TOKENS` set, in that order. On `openai` and `openai_compatible`
+  the cap is `max_completion_tokens` or `max_tokens` in params, and the check
+  runs only when one of them is set.
 - Providers bill reasoning as output tokens, and the usage row counts what
   the provider reports. A higher level costs more per turn and takes longer.
 - The chat shows the answer, not the reasoning. Skein keeps the reasoning in

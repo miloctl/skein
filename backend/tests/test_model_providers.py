@@ -619,3 +619,70 @@ def test_a_level_merges_over_the_entry_params(monkeypatch):
     wire = _request(team_agent._model(reasoning="high"))
     assert wire["thinking"] == {"type": "enabled", "budget_tokens": 4000}
     assert wire["max_tokens"] == 8000
+
+
+def test_a_level_merges_into_a_transport_envelope_instead_of_replacing_it(monkeypatch):
+    """A level that adds extra_body.reasoning must keep the entry's other
+    extra_body fields. Replaced whole, they vanish only on the turns that
+    use a level."""
+    _configure(monkeypatch, "openai")
+    monkeypatch.setattr(
+        config,
+        "MODELS",
+        {
+            "test-model": _entry(
+                params={"extra_body": {"top_k": 20, "usage": {"include": True}}},
+                high={"extra_body": {"reasoning": {"effort": "high"}}},
+            )
+        },
+    )
+    wire = _request(team_agent._model(reasoning="high"))
+    assert wire["extra_body"] == {
+        "top_k": 20,
+        "usage": {"include": True},
+        "reasoning": {"effort": "high"},
+    }
+
+
+def test_a_level_keeps_the_bedrock_fields_it_does_not_name(monkeypatch):
+    _configure(monkeypatch, "bedrock")
+    beta = {"anthropic_beta": ["context-1m-2025-08-07"]}
+    monkeypatch.setattr(
+        config,
+        "MODELS",
+        {
+            "test-model": _entry(
+                params={"additional_request_fields": beta},
+                high={"additional_request_fields": {"thinking": {"type": "adaptive"}}},
+            )
+        },
+    )
+    wire = _request(team_agent._model(reasoning="high"))
+    assert wire["additionalModelRequestFields"] == {**beta, "thinking": {"type": "adaptive"}}
+
+
+def test_a_null_inside_an_envelope_removes_only_that_field(monkeypatch):
+    _configure(monkeypatch, "openai")
+    monkeypatch.setattr(
+        config,
+        "MODELS",
+        {
+            "test-model": _entry(
+                params={"extra_body": {"top_k": 20, "reasoning": {"effort": "low"}}},
+                none={"extra_body": {"reasoning": None}},
+            )
+        },
+    )
+    assert _request(team_agent._model(reasoning="none"))["extra_body"] == {"top_k": 20}
+
+
+def test_the_level_outranks_a_persona_temperature(monkeypatch):
+    """Bedrock requires temperature 1 while Claude thinks. A persona that
+    sets its own temperature must not win over the level that says so."""
+    _configure(monkeypatch, "anthropic")
+    monkeypatch.setattr(
+        config,
+        "MODELS",
+        {"test-model": _entry(high={"thinking": {"type": "adaptive"}, "temperature": 1})},
+    )
+    assert _request(team_agent._model(temperature=0.3, reasoning="high"))["temperature"] == 1

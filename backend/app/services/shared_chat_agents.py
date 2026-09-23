@@ -623,6 +623,8 @@ def _run_claim(
                 policy_subject=subject,
                 allowed_tools=set(SHARED_CHAT_TOOLS),
                 review_forced=True,
+                # no reasoning=: a level applies to solo chat turns only, and
+                # the docs and Settings copy say so (README "Reasoning levels")
             )
             box["invoked"] = True
             # build_agent passes callback_handler=None (the null handler); the

@@ -221,7 +221,12 @@ def model_configuration_summary(pick: dict | None = None) -> dict:
     effective_global = {
         key: value for key, value in global_params.items() if key not in shadowed_global
     }
-    merged_params = {**effective_global, **entry_params}
+    # the team level is the top layer of every team-model turn: a level that
+    # sets max_tokens changes the cap, so reporting the entry cap alone names
+    # a number no turn sends
+    team_level = reasoning_level_state(model_id)["level"]
+    level_params = (entry.get("reasoning") or {}).get(team_level, {})
+    merged_params = config.merge_level({**effective_global, **entry_params}, level_params)
 
     def document_source(source: str) -> str:
         return "inline_env" if source == "inline" else source
@@ -232,7 +237,11 @@ def model_configuration_summary(pick: dict | None = None) -> dict:
         param_sources.append(document_source(config.MODEL_PARAMS_SOURCE))
     if entry_params:
         param_sources.append("model_menu")
+    if level_params:
+        param_sources.append("reasoning_level")
     cap_sources = []
+    if any(level_params.get(key) is not None for key in cap_keys):
+        cap_sources.append("reasoning_level")
     for key in cap_keys:
         if key in entry_params and "model_menu" not in cap_sources:
             cap_sources.append("model_menu")
@@ -277,9 +286,6 @@ def model_configuration_summary(pick: dict | None = None) -> dict:
     else:
         image_mode = "unavailable"
 
-    # from the pick this summary was given: re-reading it can name a level
-    # for a different model than the Team-default model row
-    team_level = reasoning_level_state(model_id)["level"]
     strategy_override = context_strategy_override()
     strategy_source = "admin" if strategy_override else config.CONTEXT_STRATEGY_SOURCE
     price, price_source = usage.model_price(model_id)
@@ -300,14 +306,18 @@ def model_configuration_summary(pick: dict | None = None) -> dict:
 
     def source_name(row_id: str, source: str) -> str:
         if source == "admin":
-            section = {"long_chat": "Long chats", "reasoning": "Reasoning"}.get(row_id, "Model")
-            return f"Settings → AI runtime → {section} (team)"
+            return (
+                "Settings → AI runtime → Long chats (team)"
+                if row_id == "long_chat"
+                else "Settings → AI runtime → Model (team)"
+            )
         fixed = {
             "provider_default": "provider default",
             "default": "built-in default",
             "fallback": "safe fallback",
             "provider": "provider capability",
             "model_menu": "selected model entry",
+            "reasoning_level": "Settings → AI runtime → Reasoning (team)",
             "both": "both forms (fault)",
         }
         if source in fixed:
@@ -412,7 +422,7 @@ def model_configuration_summary(pick: dict | None = None) -> dict:
                 "reasoning",
                 "Reasoning",
                 f"{team_level or 'Model default'}{' (not in use)' if not model_active else ''}",
-                ["admin"] if team_level else [],
+                ["reasoning_level"] if team_level else [],
             ),
             row(
                 "model_menu",

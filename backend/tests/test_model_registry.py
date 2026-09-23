@@ -15,15 +15,43 @@ SCHEMA_PATH = Path(config.BASE_DIR) / "schemas" / "skein_models.schema.json"
 SCHEMA = json.loads(SCHEMA_PATH.read_text())
 
 
-def _reload(monkeypatch, models):
+def _reload(monkeypatch, models, **env):
     value = models if isinstance(models, str) else json.dumps(models)
     monkeypatch.setenv("SKEIN_MODELS", value)
+    for key, setting in env.items():
+        monkeypatch.setenv(key, setting)
     return importlib.reload(config)
+
+
+# The budget check reads the output cap the provider sends, so it needs a real
+# provider: a typed-cap one (ollama) and one of the openai family.
+TYPED_CAP = {"SKEIN_MODEL_PROVIDER": "ollama", "SKEIN_MODEL_BASE_URL": ""}
+OPENAI_FAMILY = {
+    "SKEIN_MODEL_PROVIDER": "openai_compatible",
+    "SKEIN_MODEL_BASE_URL": "http://gateway.test/v1",
+    "SKEIN_MODEL_ID": "m",
+}
+# restored, not popped: config's load_dotenv() re-fills an absent variable
+# from backend/.env, which would bake a developer's provider into the suite
+_PROVIDER_ENV = (
+    "SKEIN_MODEL_PROVIDER",
+    "SKEIN_MODEL_BASE_URL",
+    "SKEIN_MODEL_ID",
+    "SKEIN_MODEL_PARAMS",
+    "SKEIN_MAX_TOKENS",
+    "SKEIN_MODELS_FILE",
+)
 
 
 @pytest.fixture(autouse=True)
 def _restore_config():
+    saved = {key: os.environ.get(key) for key in _PROVIDER_ENV}
     yield
+    for key, value in saved.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
     # scrub BEFORE reloading, the test_context_strategy.py rule: fixture
     # finalization can run while a test's env is still live, and reloading
     # then bakes that test's registry into the module for the next test
@@ -53,7 +81,7 @@ VALID = [
         "id": "claude-sonnet-4-6",
         "reasoning": {
             "high": {"thinking": {"type": "adaptive"}, "output_config": {"effort": "high"}},
-            "off": {"thinking": {"type": "disabled"}},
+            "none": {"thinking": {"type": "disabled"}},
             "low": {
                 "thinking": {"type": "adaptive"},
                 "output_config": {"effort": "low"},
@@ -147,6 +175,9 @@ INVALID = [
     [{"id": "m", "reasoning": "high"}],
     [{"id": "m", "reasoning": {}}],
     [{"id": "m", "reasoning": {"extreme": {}}}],
+    # the name is `none`: an unquoted `off` is a YAML 1.1 boolean, and a menu
+    # file with it fails to load
+    [{"id": "m", "reasoning": {"off": {}}}],
     [{"id": "m", "reasoning": {"high": "fast"}}],
     [{"id": "m", "reasoning": {"high": {"model": "other"}}}],
     [{"id": "m", "reasoning": {"high": {"tool_choice": {"type": "any"}}}}],
@@ -341,7 +372,7 @@ def test_reasoning_levels_parse_in_vocabulary_order(monkeypatch):
     cfg = _reload(monkeypatch, VALID)
     assert cfg.MODELS_ERROR == ""
     levels = cfg.MODELS["claude-sonnet-4-6"]["reasoning"]
-    assert list(levels) == ["off", "low", "high"]
+    assert list(levels) == ["none", "low", "high"]
     assert levels["low"]["temperature"] is None
     assert cfg.MODELS["gpt-oss:120b-cloud"]["reasoning"] == {}
 
@@ -372,7 +403,7 @@ def test_reasoning_levels_parse_in_vocabulary_order(monkeypatch):
 def test_a_thinking_budget_at_or_above_the_output_limit_is_refused_at_startup(monkeypatch, entry):
     """Anthropic refuses budget_tokens >= max_tokens on every request. Unchecked,
     the level loads and every chat turn that uses it fails."""
-    cfg = _reload(monkeypatch, [entry])
+    cfg = _reload(monkeypatch, [entry], **TYPED_CAP)
     assert cfg.MODELS == {}
     assert "budget_tokens" in cfg.MODELS_ERROR and "high" in cfg.MODELS_ERROR
     assert "4096" not in cfg.MODELS_ERROR and "8000" not in cfg.MODELS_ERROR
@@ -395,3 +426,70 @@ def test_a_level_can_raise_its_own_output_limit_above_its_budget(monkeypatch):
     )
     assert cfg.MODELS_ERROR == ""
     assert cfg.MODELS["m"]["reasoning"]["high"]["max_tokens"] == 20000
+
+
+@pytest.mark.parametrize(
+    "env, entry",
+    [
+        # a budget in the entry params meets the smaller cap a level sets
+        (
+            {},
+            {
+                "id": "m",
+                "max_tokens": 16000,
+                "params": {"thinking": {"type": "enabled", "budget_tokens": 8000}},
+                "reasoning": {"high": {"max_tokens": 4000}},
+            },
+        ),
+        # the entry params cap outranks the entry's typed cap
+        (
+            {},
+            {
+                "id": "m",
+                "max_tokens": 32000,
+                "params": {"max_tokens": 4000},
+                "reasoning": {"high": {"thinking": {"type": "enabled", "budget_tokens": 8000}}},
+            },
+        ),
+        # SKEIN_MODEL_PARAMS outranks SKEIN_MAX_TOKENS
+        (
+            {"SKEIN_MODEL_PARAMS": '{"max_tokens": 2000}', "SKEIN_MAX_TOKENS": "16000"},
+            {
+                "id": "m",
+                "reasoning": {"high": {"thinking": {"type": "enabled", "budget_tokens": 8000}}},
+            },
+        ),
+    ],
+)
+def test_the_budget_check_reads_the_request_the_level_builds(monkeypatch, env, entry):
+    """The check must see what reaches the wire: every layer merged under the
+    level, and the cap that wins among them."""
+    cfg = _reload(monkeypatch, [entry], **TYPED_CAP, **env)
+    assert cfg.MODELS == {}
+    assert "budget_tokens" in cfg.MODELS_ERROR
+
+
+def test_the_openai_family_checks_the_cap_it_sends(monkeypatch):
+    """The openai family sends no typed cap: its limit is max_completion_tokens
+    or max_tokens in params. Checked against SKEIN_MAX_TOKENS instead, a valid
+    level voids the whole menu, and the fault advises a key gpt-5 refuses."""
+    level = {"max_completion_tokens": 20000, "extra_body": {"thinking": {"budget_tokens": 10000}}}
+    cfg = _reload(monkeypatch, [{"id": "m", "reasoning": {"high": level}}], **OPENAI_FAMILY)
+    assert cfg.MODELS_ERROR == ""
+    small = {"max_completion_tokens": 4000, "extra_body": {"thinking": {"budget_tokens": 8000}}}
+    cfg = _reload(monkeypatch, [{"id": "m", "reasoning": {"high": small}}], **OPENAI_FAMILY)
+    assert "budget_tokens" in cfg.MODELS_ERROR
+
+
+def test_the_readme_recipes_load_from_a_menu_file(monkeypatch, tmp_path):
+    """Operators copy these into SKEIN_MODELS_FILE. A recipe that fails to
+    load voids the whole menu."""
+    readme = (Path(config.BASE_DIR).parent / "README.md").read_text()
+    section = readme.split("**Reasoning levels.**", 1)[1]
+    recipes = section.split("```yaml\n", 1)[1].split("```", 1)[0]
+    menu = tmp_path / "models.yaml"
+    menu.write_text(recipes)
+    cfg = _reload(monkeypatch, "", SKEIN_MODELS_FILE=str(menu), **TYPED_CAP)
+    assert cfg.MODELS_ERROR == ""
+    assert all(entry["reasoning"] for entry in cfg.MODELS.values())
+    assert len(cfg.MODELS) >= 5

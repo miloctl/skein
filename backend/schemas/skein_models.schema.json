@@ -181,7 +181,7 @@
         "type": "object",
         "minProperties": 1,
         "propertyNames": {
-          "enum": ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
+          "enum": ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
         },
         "additionalProperties": {
           "allOf": [
@@ -189,7 +189,7 @@
             { "properties": { "max_tokens": { "type": "integer", "minimum": 1 } } }
           ]
         },
-        "description": "The reasoning levels this model offers, and the exact params each level sends. An administrator picks a level for the team in Settings, and a person picks one for a solo chat with /reasoning. A level applies to chat turns only, never to titles, planning, or summaries. Its params merge last, over params and any persona temperature. A top-level null removes that key from the request - thinking models refuse a custom temperature, so a level can send \"temperature\": null. Any budget_tokens must be below the level's output limit (the level's max_tokens, then params.max_tokens, then this entry's max_tokens, then SKEIN_MAX_TOKENS), or the server refuses the list at startup. Level names reach the UI, level params never do."
+        "description": "The reasoning levels this model offers, and the exact params each level sends. An administrator picks a level for the team in Settings, and a person picks one for a solo chat with /reasoning. A level applies to chat turns only, never to titles, planning, summaries, or agent turns in shared chats. Its params merge last, over params and any persona temperature. Inside extra_body, extra_query, additional_args, additional_request_fields and options it merges one level deep, so the other fields stay. A null removes the key it names - thinking models refuse a custom temperature, so a level can send \"temperature\": null. Any budget_tokens must be below the output cap that the request sends (max_tokens from the level, then params, then this entry, then SKEIN_MODEL_PARAMS, then SKEIN_MAX_TOKENS; on the openai family, max_completion_tokens or max_tokens in params), or the server refuses the list at startup. Level names reach the UI, level params never do."
       }
     }
   }

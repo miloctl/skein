@@ -244,3 +244,53 @@ def test_a_level_the_turn_model_does_not_declare_defers_to_the_next_layer(
     chat_threads.set_thread_model("t", "tester", "plain")
     _read_chat(client, "hello again")
     assert builds[-1]["reasoning"] == ""
+
+
+def test_an_anonymous_caller_cannot_read_the_team_level(client, fresh_db, menu):
+    """The same rule as GET /api/settings/model: a named identity reads it."""
+    r = client.get("/api/settings/reasoning", headers={"X-User": ""})
+    assert r.status_code == 403
+
+
+def test_the_chat_level_of_another_person_is_not_found(client, fresh_db, menu):
+    """Ownership comes first: a refusal that names levels describes the
+    model of a chat the caller does not own."""
+    chat_threads.claim_thread("t", "tester")
+    with pytest.raises(db.NotFound):
+        chat_threads.set_thread_reasoning("t", "mallory", "xhigh")
+    assert chat_threads.thread_reasoning("t") == ""
+
+
+def test_the_summary_reports_a_team_level_that_sets_the_output_cap(fresh_db, menu, monkeypatch):
+    """A level that sets max_tokens changes the cap every turn sends. The
+    summary must not keep naming the entry cap as the one in force."""
+    thinker = {
+        **config.MODELS["thinker"],
+        "max_tokens": 8192,
+        "reasoning": {"high": {"max_tokens": 32000, "reasoning_effort": "high"}},
+    }
+    monkeypatch.setattr(config, "MODELS", {**config.MODELS, "thinker": thinker})
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "anthropic")
+    settings.set_reasoning_level("high", actor="operator")
+    rows = {r["id"]: r for r in settings.model_configuration_summary()["rows"]}
+    assert rows["output_cap"]["value"] == "Set in parameters (value hidden)"
+    assert "Reasoning (team)" in rows["output_cap"]["source"]
+    assert rows["parameters"]["value"] == "2 parameters"
+    assert "32000" not in str(rows)
+
+
+def test_a_persona_turn_resolves_the_level_against_the_persona_model(
+    client, fresh_db, menu, builds, monkeypatch
+):
+    from app.services import personas
+
+    settings.set_reasoning_level("low", actor="operator")
+    real = personas.behavior
+
+    def with_model(slug):
+        return {**real(slug), "model": "plain"}
+
+    monkeypatch.setattr("app.routes.chat.personas.behavior", with_model)
+    _read_chat(client, "/as code-reviewer hello")
+    assert builds[-1]["resolved_model"] == "plain"
+    assert builds[-1]["reasoning"] == ""

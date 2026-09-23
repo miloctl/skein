@@ -153,9 +153,9 @@ def _model(model_id: str = "", temperature: float | None = None, reasoning: str 
     `reasoning` names a level from the winning entry's `reasoning` map
     (config.REASONING_LEVELS). A level the entry does not declare sends
     nothing. Only the main chat turn passes one (routes/chat.py): a helper
-    call that inherits it pays for reasoning nobody reads. A level's null
-    REMOVES that key from every lower layer, because thinking models refuse
-    the temperature a persona or SKEIN_MODEL_PARAMS injects.
+    call that inherits it pays for reasoning nobody reads. The level merges
+    through config.merge_level, the same merge the startup budget check
+    reads, so a null REMOVES that key from every lower layer.
 
     Raises on a bad provider rather than falling through to a default. The
     caller (routes/chat.py) turns that into an SSE error frame the operator
@@ -169,11 +169,9 @@ def _model(model_id: str = "", temperature: float | None = None, reasoning: str 
     mid = model_in_force(model_id)
     entry = config.MODELS.get(mid) or {}
     level = (entry.get("reasoning") or {}).get(reasoning, {}) if reasoning else {}
-    drop = frozenset(k for k, v in level.items() if v is None)
     extra = {
         **entry.get("params", {}),
         **({"temperature": temperature} if temperature is not None else {}),
-        **level,
     }
     # entries validate max_tokens >= 1 and context_tokens >= 1024, so `or`
     # cannot swallow a legal 0 here
@@ -218,7 +216,7 @@ def _model(model_id: str = "", temperature: float | None = None, reasoning: str 
         # SKEIN_MODEL_PARAMS or the entry's params, under the provider's own
         # key name (schemas/skein_models.schema.json says so on max_tokens).
         return OpenAIModel(
-            client_args=client_args, model_id=mid, **_request_params(extra, drop), **ctx_kw
+            client_args=client_args, model_id=mid, **_request_params(extra, level), **ctx_kw
         )
 
     if provider == "ollama":
@@ -237,7 +235,7 @@ def _model(model_id: str = "", temperature: float | None = None, reasoning: str 
             # duplicate-kwarg TypeError _model_config's docstring exists to
             # prevent. It merges in extra's layer so the per-model cap beats
             # the global knob.
-            **_model_config(mid, {**entry_kw, **extra}, drop, max_tokens=config.MAX_TOKENS),
+            **_model_config(mid, {**entry_kw, **extra}, level, max_tokens=config.MAX_TOKENS),
         )
 
     if provider == "bedrock":
@@ -249,7 +247,7 @@ def _model(model_id: str = "", temperature: float | None = None, reasoning: str 
         # Bedrock is already bounded; hand-rolling a config here to say so
         # would unbound it the first time someone edits it and forgets.
         return BedrockModel(
-            **_model_config(mid, {**entry_kw, **extra}, drop, max_tokens=config.MAX_TOKENS)
+            **_model_config(mid, {**entry_kw, **extra}, level, max_tokens=config.MAX_TOKENS)
         )
 
     if provider == "anthropic":
@@ -270,7 +268,7 @@ def _model(model_id: str = "", temperature: float | None = None, reasoning: str 
                     **({"max_tokens": entry["max_tokens"]} if entry.get("max_tokens") else {}),
                     **extra,
                 },
-                drop,
+                level,
             ),
             **ctx_kw,
         )
@@ -278,28 +276,24 @@ def _model(model_id: str = "", temperature: float | None = None, reasoning: str 
     raise ValueError(f"no model builder for provider {provider!r}")
 
 
-def _behavior_params(extra: dict | None = None, drop: frozenset[str] = frozenset()) -> dict:
-    merged = {**config.MODEL_PARAMS, **(extra or {})}
-    for key in drop:
-        merged.pop(key, None)
+def _behavior_params(extra: dict | None = None, level: dict | None = None) -> dict:
+    merged = config.merge_level({**config.MODEL_PARAMS, **(extra or {})}, level or {})
     # Tests and legacy process state can bypass config.py's import validator.
     # Keep the request boundary safe even when that earlier check did not run.
     sanitized, _ = config.sanitize_model_params(merged)
     return sanitized
 
 
-def _request_params(extra: dict | None = None, drop: frozenset[str] = frozenset()) -> dict:
+def _request_params(extra: dict | None = None, level: dict | None = None) -> dict:
     """SKEIN_MODEL_PARAMS as a nested `params=` dict, for the providers that
     forward it to the request body (openai family, anthropic). Persona
     overrides, then the reasoning level, merge last — the more specific
-    operator intent wins. `drop` names the keys a level set to null."""
-    merged = _behavior_params(extra, drop)
+    operator intent wins."""
+    merged = _behavior_params(extra, level)
     return {"params": merged} if merged else {}
 
 
-def _model_config(
-    mid: str, extra: dict | None = None, drop: frozenset[str] = frozenset(), **base
-) -> dict:
+def _model_config(mid: str, extra: dict | None = None, level: dict | None = None, **base) -> dict:
     """SKEIN_MODEL_PARAMS merged as top-level model config, for providers whose
     knobs are constructor kwargs (ollama, bedrock).
 
@@ -312,7 +306,7 @@ def _model_config(
     entry means different things per provider. Persona overrides, then the
     reasoning level, merge last of all.
     """
-    return {"model_id": mid, **base, **_behavior_params(extra, drop)}
+    return {"model_id": mid, **base, **_behavior_params(extra, level)}
 
 
 PLANNER_PROMPT = """You are the planning specialist for an AI team platform.
@@ -536,6 +530,17 @@ class _PlainSummaries(SummarizingConversationManager):
         if not content:
             raise RuntimeError("the summary carried reasoning only")
         return {**summary, "content": content}
+
+    def restore_from_session(self, state):
+        # a stored summary replays on every turn, and one an older release
+        # wrote can carry a reasoning block
+        restored = super().restore_from_session(state)
+        if not restored:
+            return restored
+        content = [b for b in restored[0]["content"] if "reasoningContent" not in b]
+        # reasoning only: no summary beats a user message the provider refuses
+        self._summary_message = {**restored[0], "content": content} if content else None
+        return [self._summary_message] if self._summary_message else None
 
 
 # Strands stores the class name in the session and refuses to restore under

@@ -200,57 +200,80 @@ type ReasoningState = {
   applies: boolean;
 };
 
+// A write can outlive the section that started it: an identity change
+// remounts the section while the POST is open. The next load waits for that
+// write, or it reads the level from before it. Module functions, because the
+// React compiler refuses a component that writes module state.
+let reasoningWrite: Promise<unknown> = Promise.resolve();
+
+function writeReasoning(level: string): Promise<unknown> {
+  reasoningWrite = boundedWrite("/api/settings/reasoning", {
+    method: "POST",
+    body: JSON.stringify({ level }),
+  });
+  return reasoningWrite;
+}
+
+function readReasoning(): Promise<ReasoningState> {
+  return reasoningWrite
+    .catch(() => undefined)
+    .then(() => api<ReasoningState>("/api/settings/reasoning"));
+}
+
 function ReasoningSection({
   canAdminister,
   adminAccessMessage,
+  model,
   onSaved,
 }: {
   canAdminister: boolean;
   adminAccessMessage: string;
+  model: string;
   onSaved: () => void;
 }) {
-  // Remounted on every identity revision and team-model change (the parent
-  // keys it), because the levels on offer belong to the team model. The
-  // mounted guard stops a late write from reporting under the next identity.
+  // Keyed on identity only: a remount drops the status line and the write
+  // guard while a POST is open, so a second write can start. A new `model`
+  // reloads the levels instead.
   const mounted = useRef(true);
   const writing = useRef(false);
+  const generation = useRef(0);
   const [state, setState] = useState<ReasoningState | null>(null);
   const [status, setStatus] = useState("");
-  const [busy, setBusy] = useState(false);
-  const load = useCallback(
-    () =>
-      api<ReasoningState>("/api/settings/reasoning")
-        .then((r) => {
-          if (mounted.current) setState(r);
-        })
-        .catch((e) => {
-          if (mounted.current) setStatus(loadError(e));
-        }),
-    [],
-  );
+  const [pending, setPending] = useState<string | null>(null);
+  const load = useCallback(() => {
+    const current = ++generation.current;
+    return readReasoning()
+      .then((r) => {
+        if (mounted.current && current === generation.current) setState(r);
+      })
+      .catch((e) => {
+        if (mounted.current && current === generation.current) setStatus(loadError(e));
+      });
+  }, []);
   useEffect(() => {
     mounted.current = true;
-    void load();
     return () => {
       mounted.current = false;
     };
-  }, [load]);
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load, model]);
   const write = async (level: string) => {
-    if (writing.current) return;
+    if (writing.current || !canAdminister) return;
     writing.current = true;
-    setBusy(true);
+    setPending(level);
     setStatus("Saving…");
     try {
-      const saved = (await boundedWrite("/api/settings/reasoning", {
-        method: "POST",
-        body: JSON.stringify({ level }),
-      })) as ReasoningState;
+      const saved = (await writeReasoning(level)) as ReasoningState;
       if (!mounted.current) return;
+      // a load that started before this write carries the old level
+      generation.current++;
       setState(saved);
       setStatus(
         level
-          ? "Saved. It applies from the next message in each chat."
-          : "Cleared. Each chat uses the default of its model from its next message.",
+          ? "Saved. Each chat with no level of its own uses it from its next message."
+          : "Cleared. Each chat with no level of its own uses the default of its model from its next message.",
       );
       onSaved();
     } catch (e) {
@@ -269,35 +292,44 @@ function ReasoningSection({
       );
     } finally {
       writing.current = false;
-      if (mounted.current) setBusy(false);
+      if (mounted.current) setPending(null);
     }
   };
   return (
     <Section title="Reasoning (team)" headingLevel={3}>
       <p className="mb-3 text-sm text-ink-3">
-        How much the team model reasons before it answers a chat message. More
-        reasoning costs more tokens and time. Titles, plans, and summaries do
-        not use it. A person can use a different level in one chat with{" "}
-        <code>/reasoning</code>. Only an administrator with strong identity can
-        change the team level.
+        The reasoning level for chat messages. It applies to every model that
+        offers it, in each chat that has no level of its own. More reasoning
+        costs more tokens and time. Titles, plans, summaries, and agent turns in
+        shared chats do not use it. A person can use a different level in one
+        chat with <code>/reasoning</code>. Only an administrator with strong
+        identity can change the team level.
         {state && !state.applies && (
           <> No model is connected. This setting is not in use.</>
         )}
       </p>
       {state?.applies && state.levels.length === 0 && (
-        <p className="text-sm text-ink-3">
+        <p className="mb-2 text-sm text-ink-3">
           The team model has no reasoning levels. Whoever runs the server can
           add them to the entry of the model in SKEIN_MODELS.
         </p>
       )}
-      {state?.applies && state.levels.length > 0 && (
-        <div className="space-y-2" aria-busy={busy}>
+      {state?.applies && (state.levels.length > 0 || state.override) && (
+        <div
+          role="radiogroup"
+          aria-label="Team reasoning level"
+          className="space-y-2"
+          aria-busy={pending !== null}
+        >
+          {/* checked against the SAVED level: when the team model stops
+              offering it, "Model default" is the only way to clear it, and a
+              radio that is already checked fires no change */}
           {["", ...state.levels].map((level) => (
             <label
               key={level || "default"}
               className={
                 "flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 " +
-                (state.level === level
+                (state.override === level
                   ? "border-thread-solid bg-thread-solid/5"
                   : "border-line hover:border-line-strong")
               }
@@ -305,8 +337,8 @@ function ReasoningSection({
               <input
                 type="radio"
                 name="reasoning-level"
-                disabled={!canAdminister || busy}
-                checked={state.level === level}
+                disabled={!canAdminister || (pending !== null && pending !== level)}
+                checked={state.override === level}
                 onChange={() => void write(level)}
               />
               <span className="text-sm font-medium text-ink">
@@ -318,8 +350,9 @@ function ReasoningSection({
       )}
       {state?.ignored && (
         <p className="mt-2 text-xs text-ink-3">
-          The saved level is {state.override}. {state.ignored} Chats use the
-          default of the model.
+          The saved level is {state.override}. {state.ignored} Chats on the team
+          model use its default. Chats on a model that offers{" "}
+          {state.override} still use it. Select Model default to clear it.
         </p>
       )}
       <p role="status" aria-live="polite" className="min-h-4 text-xs text-ink-3">
@@ -2286,11 +2319,14 @@ export default function SettingsPage() {
                 )}
               </Section>
 
-              {who?.user && who.user !== "anonymous" && (
+              {/* after the pick settles: mounted before it, the section reads
+                  the levels twice, once for no model and once for the team model */}
+              {who?.user && who.user !== "anonymous" && pickLoaded && (
                 <ReasoningSection
-                  key={`${who.user}:${identityRevision}:${pick?.model ?? ""}`}
+                  key={`${who.user}:${identityRevision}`}
                   canAdminister={canAdminister}
                   adminAccessMessage={adminAccessMessage}
+                  model={pick?.model ?? ""}
                   onSaved={() => void loadPick()}
                 />
               )}

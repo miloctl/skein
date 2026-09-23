@@ -612,13 +612,44 @@ _MODEL_ATTACHMENT_KINDS = ("image", "document")
 # carries cache-read tokens — a price nothing multiplies is a believed number
 # not in effect.
 _MODEL_PRICE_FIELDS = frozenset({"input", "output"})
-# Skein's reasoning vocabulary, in display order: the union of OpenAI's
-# reasoning_effort and Anthropic's effort names. An entry declares the subset
-# its model accepts and the exact params each one sends, because the right
-# request differs per MODEL, not per provider (Claude 4.6+ refuse the
-# budget_tokens that Haiku 4.5 requires) — a built-in mapping would be wrong
-# on some model the day it ships.
-REASONING_LEVELS = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
+# Skein's reasoning vocabulary, in display order: OpenAI's reasoning_effort
+# values plus Anthropic's `max`. An entry declares the subset its model
+# accepts and the exact params each one sends, because the right request
+# differs per MODEL, not per provider (Claude 4.7+ refuse the budget_tokens
+# that Haiku 4.5 requires) — a built-in mapping would be wrong on some model
+# the day it ships. No name may be a YAML 1.1 boolean: an unquoted `off` key
+# loads as False, and _StructuredLoader refuses the whole menu file.
+REASONING_LEVELS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+# Provider transport envelopes. A level merges INTO these one level deep
+# instead of replacing them: replaced whole, a level that adds
+# extra_body.reasoning drops the fields the entry set there (Bedrock's
+# anthropic_beta, ollama's keep_alive) on exactly the turns that use a level.
+# `thinking` is NOT one: a level's thinking object must replace the entry's,
+# or an adaptive level inherits a budget_tokens that Claude 4.7+ refuse.
+_LEVEL_MERGED_PARAMS = frozenset(
+    {"extra_body", "extra_query", "additional_args", "additional_request_fields", "options"}
+)
+
+
+def merge_level(base: dict, level: dict) -> dict:
+    """`base` with a reasoning level's params on top (_LEVEL_MERGED_PARAMS
+    one level deep). A null removes the key it names, at either depth: thinking
+    models refuse the temperature a persona or SKEIN_MODEL_PARAMS sends."""
+    out = dict(base)
+    for key, value in level.items():
+        if value is None:
+            out.pop(key, None)
+        elif key in _LEVEL_MERGED_PARAMS and isinstance(value, dict):
+            inner = dict(out[key]) if isinstance(out.get(key), dict) else {}
+            for field, setting in value.items():
+                if setting is None:
+                    inner.pop(field, None)
+                else:
+                    inner[field] = setting
+            out[key] = inner
+        else:
+            out[key] = value
+    return out
 
 
 def _as_whole(v) -> int | None:
@@ -672,33 +703,39 @@ def _reasoning_faults(tag: str, raw, entry_cap: int | None, params: dict) -> tup
                 " Configure model routing and provider clients outside params."
             )
             continue
-        # a null here would REMOVE the output cap (team_agent._behavior_params
-        # drops a level's null keys), and each provider then falls back to a
-        # different cap, so the budget check below could not know the limit
-        cap = None
-        if "max_tokens" in level:
-            cap = _as_whole(level["max_tokens"])
-            if cap is None or cap < 1:
-                faults.append(
-                    f"{tag}: reasoning.{name}.max_tokens must be a whole number of 1 or more."
-                )
-                continue
-        # the order every provider branch of team_agent._model merges in:
-        # level > entry params > entry cap > SKEIN_MODEL_PARAMS > SKEIN_MAX_TOKENS.
+        # a null here REMOVES the output cap (merge_level), and each provider
+        # then falls back to a different cap, so the check below could not
+        # know the limit
+        if "max_tokens" in level and (_as_whole(level["max_tokens"]) or 0) < 1:
+            faults.append(
+                f"{tag}: reasoning.{name}.max_tokens must be a whole number of 1 or more."
+            )
+            continue
         # Anthropic refuses budget_tokens >= max_tokens on every request, so
-        # unchecked the level loads and every turn that uses it fails.
-        limit = (
-            cap
-            or _as_whole(params.get("max_tokens"))
-            or entry_cap
-            or _as_whole(MODEL_PARAMS.get("max_tokens"))
-            or MAX_TOKENS
+        # unchecked the level loads and every turn that uses it fails. The
+        # check reads the request team_agent._model builds: every layer merged
+        # under the level, and the cap the provider actually sends. A typed-cap
+        # provider always sends one (SKEIN_MAX_TOKENS by default). The openai
+        # family sends only what params name, so with none the gateway's own
+        # default applies and there is nothing to check against.
+        caps = PROVIDERS[EFFECTIVE_PROVIDER]
+        typed = caps["typed_output_cap"]
+        request = merge_level(
+            {
+                **MODEL_PARAMS,
+                **({"max_tokens": entry_cap} if typed and entry_cap else {}),
+                **params,
+            },
+            safe,
         )
-        budgets = [_as_whole(b) for b in _budgets(safe)]
-        if any(b is None or b >= limit for b in budgets):
+        sent = [_as_whole(request[k]) for k in caps["output_cap_params"] if k in request]
+        limit = next((cap for cap in sent if cap), MAX_TOKENS if typed else None)
+        budgets = [_as_whole(b) for b in _budgets(request)]
+        if limit is not None and any(b is None or b >= limit for b in budgets):
             faults.append(
                 f"{tag}: reasoning.{name}: budget_tokens must be a whole number below the"
-                " output limit. Set a smaller budget, or set a larger max_tokens in the level."
+                " output cap that the request sends. Set a smaller budget, or raise the output"
+                " cap in the level."
             )
             continue
         levels[name] = safe
@@ -801,6 +838,23 @@ def _model_entry_faults(tag: str, mid: str | None, entry: dict, out: dict[str, d
     return faults
 
 
+# What the agent layer actually runs. Degrades to mock on any fault above so
+# the app boots and every deterministic surface keeps working. Set before the
+# menu loader below, whose budget check reads this provider's output cap.
+EFFECTIVE_PROVIDER = "mock" if MODEL_PROVIDER_ERROR else MODEL_PROVIDER
+_default_model = PROVIDERS[EFFECTIVE_PROVIDER]["default_model"]
+_raw_model_id = os.getenv("SKEIN_MODEL_ID", "")
+MODEL_ID_SOURCE = "env" if _raw_model_id else "provider_default"
+MODEL_ID = _raw_model_id or _default_model or ""
+if EFFECTIVE_PROVIDER != "mock" and not MODEL_ID:
+    MODEL_PROVIDER_ERROR = (
+        f"SKEIN_MODEL_PROVIDER={MODEL_PROVIDER} has no default model —"
+        " set SKEIN_MODEL_ID to whatever the endpoint serves"
+    )
+    EFFECTIVE_PROVIDER, MODEL_ID = "mock", "mock"
+    MODEL_ID_SOURCE = "fallback"
+
+
 MODELS: dict[str, dict] = {}
 _raw_models, MODELS_ERROR, MODELS_SOURCE = _structured("SKEIN_MODELS")
 if _raw_models:
@@ -839,21 +893,6 @@ if _raw_models:
         MODELS_ERROR = (
             "SKEIN_MODELS is unusable: " + " ".join(_model_faults) + " The model menu is off."
         )
-
-# What the agent layer actually runs. Degrades to mock on any fault above so
-# the app boots and every deterministic surface keeps working.
-EFFECTIVE_PROVIDER = "mock" if MODEL_PROVIDER_ERROR else MODEL_PROVIDER
-_default_model = PROVIDERS[EFFECTIVE_PROVIDER]["default_model"]
-_raw_model_id = os.getenv("SKEIN_MODEL_ID", "")
-MODEL_ID_SOURCE = "env" if _raw_model_id else "provider_default"
-MODEL_ID = _raw_model_id or _default_model or ""
-if EFFECTIVE_PROVIDER != "mock" and not MODEL_ID:
-    MODEL_PROVIDER_ERROR = (
-        f"SKEIN_MODEL_PROVIDER={MODEL_PROVIDER} has no default model —"
-        " set SKEIN_MODEL_ID to whatever the endpoint serves"
-    )
-    EFFECTIVE_PROVIDER, MODEL_ID = "mock", "mock"
-    MODEL_ID_SOURCE = "fallback"
 
 
 # Which DOCUMENT formats a provider's own API accepts, where that is narrower

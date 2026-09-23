@@ -537,7 +537,7 @@ knots:
     set: manager
     role: manager
     pitch: A friction hitch for thinking. It holds wherever you set it, and it slides back just as easily.
-    how: Open Settings → AI runtime → Reasoning (team) and select a level. More reasoning costs more tokens. If no levels show, add a `reasoning` map to the SKEIN_MODELS entry of the team model.
+    how: Open Settings → AI runtime → Reasoning (team) and select a level. More reasoning costs more tokens. If no levels show, the team model has none. Whoever runs the server can add them in SKEIN_MODELS.
     link: /settings
     since: 2026-09-23
 
