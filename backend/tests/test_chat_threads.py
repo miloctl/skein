@@ -555,3 +555,103 @@ def test_a_held_turn_answers_with_its_own_sentence(client, fresh_db):
     assert response.json()["detail"] == (
         "The model session is in use. Wait for the current turn to finish."
     )
+
+
+def test_a_disconnect_before_the_first_frame_releases_the_turn(client, fresh_db):
+    """A client that leaves while the agent is built never starts the stream,
+    so no finally inside it runs. The turn lock stayed held until its lease
+    ran out, and every resend in that time got a 503."""
+    import json
+
+    import anyio
+
+    from app.main import app
+    from app.services import chat_threads
+
+    body = json.dumps({"thread_id": "t-drop", "message": "hello"}).encode()
+    inbox = [
+        {"type": "http.request", "body": body, "more_body": False},
+        {"type": "http.disconnect"},
+    ]
+
+    async def receive():
+        if inbox:
+            return inbox.pop(0)
+        await anyio.sleep_forever()
+
+    async def send(_message):
+        return None
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/api/chat",
+        "raw_path": b"/api/chat",
+        "query_string": b"",
+        "root_path": "",
+        "headers": [
+            (b"content-type", b"application/json"),
+            (b"x-user", b"tester"),
+            (b"host", b"testserver"),
+        ],
+        "client": ("127.0.0.1", 1234),
+        "server": ("testserver", 80),
+    }
+    client.portal.call(app, scope, receive, send)
+    assert not chat_threads.model_turn_active("t-drop")
+    assert (
+        client.post("/api/chat", json={"thread_id": "t-drop", "message": "again"}).status_code
+        == 200
+    )
+
+
+def test_a_chat_cannot_be_deleted_while_a_turn_answers_it(client, fresh_db):
+    """The turn closes by logging its reply, which recreated the deleted
+    thread with one orphan message."""
+    from app.services import chat_threads
+
+    chat_threads.claim_thread("t-busy", "tester")
+    chat_threads.log_message("t-busy", "tester", "user", "hello")
+    key = chat_threads.start_model_turn("t-busy")
+    assert client.delete("/api/chats/t-busy").status_code == 409
+    chat_threads.finish_model_turn("t-busy", key)
+    assert client.delete("/api/chats/t-busy").status_code == 200
+
+
+def test_a_late_reply_does_not_recreate_a_deleted_chat(client, fresh_db):
+    """Flock and command turns hold no turn lease, so the reply they log after
+    a delete must not bring the chat back."""
+    from app.services import chat_threads
+
+    chat_threads.claim_thread("t-late", "tester")
+    chat_threads.log_message("t-late", "tester", "user", "hello")
+    assert client.delete("/api/chats/t-late").status_code == 200
+    chat_threads.log_message("t-late", "tester", "assistant", "the reply")
+    assert fresh_db.query_one("SELECT id FROM chat_threads WHERE id = 't-late'") is None
+    assert fresh_db.query("SELECT id FROM chat_messages WHERE thread_id = 't-late'") == []
+
+
+def test_a_refused_persona_command_cannot_squat_a_teammates_default_chat(client, fresh_db):
+    """The /as and /flock refusals logged the exchange before claim_thread, so
+    one POST to a teammate's derived default id took it for good."""
+    from app.services import chat_threads
+
+    theirs = chat_threads.default_thread_id("tester")
+    r = client.post(
+        "/api/chat", json={"thread_id": theirs, "message": "/as"}, headers={"X-User": "mallory"}
+    )
+    assert r.status_code == 404
+    assert fresh_db.query_one("SELECT id FROM chat_threads WHERE id = ?", (theirs,)) is None
+
+
+def test_a_refused_persona_command_never_stores_a_private_line(client, fresh_db):
+    for message in ("/as nosuch fb: mira — ZZPRIVATEZZ", "/flock nosuch fb: mira — ZZPRIVATEZZ"):
+        with client.stream(
+            "POST", "/api/chat", json={"thread_id": "t-fb", "message": message}
+        ) as r:
+            assert r.status_code == 200
+            r.read()
+    assert fresh_db.query("SELECT id FROM chat_messages WHERE content LIKE '%ZZPRIVATEZZ%'") == []

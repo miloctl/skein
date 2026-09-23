@@ -354,3 +354,21 @@ def test_the_chat_pick_reaches_the_agent_build(client, fresh_db, monkeypatch):
     monkeypatch.setattr("app.routes.chat.build_agent", build)
     _read_chat(client, "hello")
     assert seen["resolved_model"] == "mini"
+
+
+def test_a_failing_command_never_shows_the_raw_server_error(client, monkeypatch):
+    """A database error's text names the host, the port, and the role."""
+    import psycopg
+
+    entry = next(c for c in commands.COMMANDS if c["name"] == "help")
+
+    async def broken(*_args, **_kwargs):
+        raise psycopg.OperationalError(
+            "connection to server at 10.0.0.5 port 5432 failed: role skein"
+        )
+        yield {}  # pragma: no cover — makes this an async generator
+
+    monkeypatch.setitem(entry, "handler", broken)
+    out = _read_chat(client, "/help")
+    assert '"type": "error"' in out
+    assert "10.0.0.5" not in out and "skein" not in out.split('"error"', 1)[1]
