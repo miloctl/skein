@@ -90,6 +90,7 @@ export function McpServersCard({
   const [signInUrl, setSignInUrl] = useState("");
   const [busy, setBusy] = useState("");
   const restoreTo = useRef<HTMLElement | null>(null);
+  const nameInput = useRef<HTMLInputElement>(null);
   const introId = useId();
   const gen = useRef(0);
 
@@ -304,13 +305,26 @@ export function McpServersCard({
                           aria-label={`Confirm: delete server ${s.name}`}
                           aria-describedby={`delete-mcp-${s.id}-consequence`}
                           disabled={!!busy}
-                          onClick={async () => {
+                          onClick={async (e) => {
+                            const confirm = e.currentTarget;
+                            const rows = data.personal;
+                            const at = rows.indexOf(s);
+                            const next = rows[at + 1] ?? rows[at - 1];
                             const ok = await act(
                               `d${s.id}`,
                               () => api(`/api/mcp/servers/${s.id}`, { method: "DELETE" }),
                               () => `Server "${s.name}" deleted.`,
                             );
                             if (ok) setDeleting(null);
+                            // restoreTo holds the delete… button this confirm
+                            // replaced, which is unmounted, so act's restore
+                            // found nothing and focus fell to <body>. Before
+                            // act's requestAnimationFrame reads it.
+                            restoreTo.current = ok
+                              ? next
+                                ? document.getElementById(`delete-mcp-${next.id}`)
+                                : nameInput.current
+                              : confirm;
                           }}
                           className="rounded bg-danger-solid px-2 py-0.5 font-medium text-white hover:opacity-90 disabled:opacity-50"
                         >
@@ -373,6 +387,7 @@ export function McpServersCard({
             }}
           >
             <input
+              ref={nameInput}
               name="mcp-name"
               aria-label="Server name"
               placeholder="name (a-z, 0-9, - or _)"
