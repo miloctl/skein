@@ -136,7 +136,7 @@ function QueueActions({ q, onDone }: { q: Intervention; onDone: () => void }) {
     setBusy(true);
     try {
       await p;
-      reportStatus(said);
+      reportStatus(said, "confirmation");
       onDone();
     } catch (e) {
       reportStatus(actionError(e));
