@@ -386,10 +386,12 @@ agent itself, and a memory addressed to an agent is no one's private data.
 The rule covers the copies too: the review gate files every memory create
 addressed to a person as a proposal private to them (tools/_gate.py), a
 private proposal sends no team notice, the activity row carries the id only,
-and the portable export leaves memories addressed to people out. When policy
-names approver groups for the memory, the proposal stays hidden and waits for
-the addressee to reject it. A fact meant for the team is a memory addressed
-to nobody.
+and the portable export leaves memories addressed to people out. Approver
+groups that a workplace policy names govern team memories only: under such a
+policy, a memory addressed to a person is still that person's private
+proposal, and that person approves or rejects it
+(`review._check_policy_approver`). A fact meant for the team is a memory
+addressed to nobody.
 
 **Administrator actions.** The activity log shows an actor's rows to that
 actor alone, so an action an administrator takes on someone else also sends a
