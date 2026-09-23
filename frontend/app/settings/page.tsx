@@ -2399,8 +2399,10 @@ export default function SettingsPage() {
               {/* after the pick settles: mounted before it, the section reads
                   the levels twice, once for no model and once for the team model */}
               {who?.user && who.user !== "anonymous" && pickLoaded && (
+                // prefixed: siblings under one parent need distinct keys, and
+                // a shared one lets React drop or duplicate a section
                 <ReasoningSection
-                  key={`${who.user}:${identityRevision}`}
+                  key={`reasoning:${who.user}:${identityRevision}`}
                   canAdminister={canAdminister}
                   adminAccessMessage={adminAccessMessage}
                   model={pick?.model ?? ""}
@@ -2410,7 +2412,7 @@ export default function SettingsPage() {
 
               {who?.user && who.user !== "anonymous" && (
                 <AgentAutomationSection
-                  key={`${who.user}:${identityRevision}`}
+                  key={`automation:${who.user}:${identityRevision}`}
                   canAdminister={canAdminister}
                   adminAccessMessage={adminAccessMessage}
                 />
