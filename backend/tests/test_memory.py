@@ -576,3 +576,46 @@ def test_approver_groups_govern_team_memories_and_an_addressee_judges_their_own(
     assert approved["status"] == "approved"
     with pytest.raises(PermissionError, match="configured workplace approver"):
         review.approve_change(team, actor="ava", viewer=ava, policy_registry=registry)
+
+
+def test_a_team_memory_is_shared_on_purpose_and_a_teammate_admits_it(client, fresh_db):
+    """Nothing let a person put a fact before the whole team once `/remember`
+    and the agent tool addressed memories to the speaker, and the only team
+    path (an engagement memory) let its author approve it alone."""
+    from app.services import memory, users
+
+    for name in ("ava", "bob"):
+        users.ensure_user(name)
+    ava, bob = _strong(client, "ava"), _strong(client, "bob")
+    mine = memory.remember("ZZMINEZZ reviews after lunch", user="ava", actor="ava")["id"]
+    assert client.post(f"/api/memories/{mine}/share", headers=bob).status_code == 404
+    assert client.post(f"/api/memories/{mine}/share").status_code in (401, 403)
+    shared = client.post(f"/api/memories/{mine}/share", headers=ava)
+    assert shared.status_code == 200
+    again = client.post(f"/api/memories/{mine}/share", headers=ava)
+    assert again.status_code == 400 and "already waits" in again.json()["detail"]
+    pid = shared.json()["id"]
+    assert pid in [row["id"] for row in client.get("/api/review", headers=bob).json()]
+    refused = client.post(f"/api/review/{pid}/approve", json={}, headers=ava)
+    assert refused.status_code == 403
+    assert client.post(f"/api/review/{pid}/approve", json={}, headers=bob).status_code == 200
+    rows = fresh_db.query("SELECT id, \"user\" FROM memories WHERE content LIKE 'ZZMINEZZ%'")
+    assert [row["user"] for row in rows] == [""] and rows[0]["id"] != mine
+    assert "ZZMINEZZ" in json.dumps(client.get("/api/memories", headers=bob).json())
+
+    with client.stream(
+        "POST",
+        "/api/chat",
+        json={"thread_id": "t", "message": "/remember team: ZZTEAMZZ demos on Friday"},
+        headers=ava,
+    ) as resp:
+        out = resp.read().decode()
+    assert "Another teammate approves it" in out
+    proposal = fresh_db.query_one(
+        "SELECT review_visibility, requested_by FROM pending_changes WHERE payload LIKE '%ZZTEAMZZ%'"
+    )
+    assert proposal == {"review_visibility": "workspace", "requested_by": "ava"}
+    assert not fresh_db.query("SELECT id FROM memories WHERE content LIKE '%ZZTEAMZZ%'")
+    from app.services.fieldguide import PREDICATES
+
+    assert PREDICATES["team_memory"]("ava") and not PREDICATES["team_memory"]("bob")

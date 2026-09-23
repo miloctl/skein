@@ -619,9 +619,19 @@ knots:
     set: bends
     role: any
     pitch: A fact learned on one piece of work, recalled in chats about that work and nowhere else.
-    how: Link a chat to an engagement from the sidebar menu. That chat then recalls the engagement's own memories on top of the team's. Filing one back is a proposal a person approves.
+    how: Link a chat to an engagement from the sidebar menu. That chat then recalls the engagement's own memories on top of the team's. Filing one back is a proposal that a teammate other than you approves.
     link: /chat
     since: 2026-08-10
+
+  - id: team_memory
+    feature: Share a memory with the team
+    knot: Ring Bend
+    set: bends
+    role: any
+    pitch: A fact that holds for everyone, and a second person reads it before it steers anyone's agent.
+    how: "Your memories are yours alone. To give one to the team, open Agents, select Memory, then select \"share with the team\" beside it. In chat, type `/remember team: <fact>`. Your teammates read the proposal in Review, and a teammate other than you approves it."
+    link: /agents
+    since: 2026-09-23
 
   - id: chat_attachment
     feature: Attach a file to a question

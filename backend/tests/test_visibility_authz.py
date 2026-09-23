@@ -442,6 +442,11 @@ _EXEMPT_FILES = {
 # name -> why the guard does not belong. An absence with no reason reads as an
 # oversight to the next reader (CLAUDE.md).
 _EXEMPT_FUNCTIONS = {
+    "memory.py::remember": (
+        "an approved share deletes the SOURCE memory only where its addressee"
+        " is the actor, the one person who can read it; the actor is the"
+        " proposer, never the reviewer (review._approve_change_locked)"
+    ),
     # An upload is owned like a CHAT THREAD, not like a scoped content row:
     # services/uploads.py keys every read and write on created_by against the
     # resolved name, which is the one filter that works in trusted-header mode
@@ -661,6 +666,14 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
 
 # file::function -> why this read needs no tier filter.
 _UNFILTERED_READS = {
+    "memory.py::remember": (
+        "the share's DELETE matches the source memory by id and by an addressee"
+        " equal to the actor, so it touches only the actor's own row"
+    ),
+    "memory.py::propose_team_memory": (
+        "locks the source memory by id and refuses it unless its addressee is"
+        " the actor, who alone can read an addressed memory (review._addressed)"
+    ),
     "search.py::_embeddable": (
         "decides which indexed rows may go to the embeddings service: reads the"
         " tier and author columns and returns ids, never content"

@@ -88,13 +88,15 @@ def test_an_approved_outcome_carries_its_source(client, fresh_db):
     from app.services import engagements, review, users
 
     users.ensure_user("tester")
+    users.ensure_user("reviewer")
     eng = engagements.create_engagement("Atlas", project_class="migration", actor="tester")
     p = client.post(
         f"/api/engagements/{eng['id']}/memory",
         json={"content": "read replica first", "thread_id": "chat-77"},
         headers=_strong(client, "tester"),
     ).json()
-    review.approve_change(p["id"], actor="tester", strong=True)
+    # a teammate other than the author (review._check_team_memory_approver)
+    review.approve_change(p["id"], actor="reviewer", strong=True)
 
     row = db.query_one("SELECT * FROM memories ORDER BY id DESC LIMIT 1")
     assert row["engagement_id"] == eng["id"]
@@ -110,9 +112,10 @@ def test_a_crew_engagements_memory_keeps_the_crew_tier(client, fresh_db):
     from app import db
     from app.services import crews, engagements, review, users
 
-    for n in ("insider", "outsider"):
+    for n in ("insider", "mate", "outsider"):
         users.ensure_user(n)
     crew = crews.create_crew("ops", actor="insider")
+    crews.add_member(crew["id"], "mate", actor="insider")
     eng = engagements.create_engagement(
         "Nightshade",
         project_class="migration",
@@ -132,9 +135,7 @@ def test_a_crew_engagements_memory_keeps_the_crew_tier(client, fresh_db):
 
     # the viewer is required: a crew proposal is judgeable only by somebody who
     # can read its target, and that is resolved from the Viewer, not the name
-    review.approve_change(
-        p["id"], actor="insider", strong=True, viewer=scope.Viewer("insider", True)
-    )
+    review.approve_change(p["id"], actor="mate", strong=True, viewer=scope.Viewer("mate", True))
     row = db.query_one("SELECT * FROM memories ORDER BY id DESC LIMIT 1")
     assert row["visibility"] == scope.CREW and row["crew_id"] == crew["id"]
     # and it is not recalled by anyone outside the crew
