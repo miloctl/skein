@@ -2129,7 +2129,7 @@ export default function Dashboard() {
           render={(a) => (
             <li key={a.id} className="break-words text-xs text-ink-3">
               <span className="font-medium text-ink-2">{a.actor}</span>{" "}
-              {String(a.action).replace("_", " ")} {a.detail}
+              {String(a.action).replace(/_/g, " ")} {a.detail}
               <time
                 dateTime={String(a.created_at)}
                 title={String(a.created_at)}
@@ -2147,7 +2147,8 @@ export default function Dashboard() {
               {/* a real space, not just the margin: CSS gaps separate pixels,
                 not text, so "S5" + "0 days left" was read as "S50 days left" */}{" "}
               <span className="ml-2 font-normal normal-case text-ink-3">
-                {pulse.season.days_left} days left
+                {pulse.season.days_left}{" "}
+                {pulse.season.days_left === 1 ? "day" : "days"} left
               </span>
             </summary>
             <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
