@@ -118,6 +118,26 @@ def test_a_skipped_finding_does_not_spend_the_findings_budget(client, fresh_db, 
     )
 
 
+def test_adoption_findings_do_not_spend_the_findings_budget(client, fresh_db):
+    """The findings arm keeps the first 30 listed findings. Listed newest-id
+    first, the field guide's unadopted-card findings filled all 30 and the
+    team's aging question never reached the meeting."""
+    from conftest import _ago
+
+    from app.services import insights
+
+    q = client.post("/api/questions", json={"question": "who owns the rollback?"}).json()
+    fresh_db.execute("UPDATE questions SET created_at = ? WHERE id = ?", (_ago(6), q["id"]))
+    insights.run_findings()
+    listed = insights.list_findings(limit=200)
+    adoption = [f for f in listed if f["rule_id"] == "feature_unadopted"]
+    assert len(adoption) >= 30, "enough field-guide cards are past grace to fill the arm"
+    question = next(f for f in listed if f["rule_id"] == "question_aging")
+
+    rows = intervention.interventions(scope.Viewer("tester", True), limit=100)
+    assert question["id"] in [r["entity_id"] for r in rows]
+
+
 def test_a_cleared_condition_leaves_the_queue_before_the_week_does(client, fresh_db):
     """Findings mint once per ISO week, so a review stall that settles on
     Tuesday sat in the Monday order until Sunday, naming proposals that no

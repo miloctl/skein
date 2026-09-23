@@ -33,6 +33,7 @@ keeps its existing `minimum_core` and needs no change.
 - An expired browser session no longer causes repeated session and theme requests. After recovery confirms an anonymous session, repeated invalid responses do not restart recovery. Theme adoption skips locked sessions. Cookie-free trusted-header visitors still receive the team theme.
 - Enter, Tab, and picker clicks complete the mention at the caret in solo and shared chat without deleting the rest of the draft. Completion replaces the whole token, including text after the caret, and returns the caret after the name. In shared chat, Enter sends immediately only when the whole token is already the selected agent name.
 - The solo chat picker includes eligible workplace specialists. The list is fetched for the current identity, and restricted specialists are not carried across sign-in changes.
+- The findings list, the Insights summary, and the Planning queue put feature-adoption findings after team findings. The adoption rule files one finding for each unused field-guide card. When 50 cards passed their grace period, these rows used up the 50-row list and the Planning queue's 30 finding slots, and team findings such as an aging question disappeared.
 - Chat uses the tested assistant-ui `0.15` dependency set. This removes the snapshot subscription defect that caused repeated updates in installed workplace frontends. Local chat history, streaming, Stop, attachments, and inert Markdown images retain their existing behavior.
 
 ### Operations

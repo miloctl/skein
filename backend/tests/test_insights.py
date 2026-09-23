@@ -198,6 +198,25 @@ def test_run_findings_dedupes_within_week(client, fresh_db):
     assert question["label"] == "Question aging"
 
 
+def test_adoption_findings_cannot_crowd_a_team_finding_out_of_the_list(client, fresh_db):
+    """feature_unadopted files one low finding per unadopted field-guide card,
+    after every team rule. Newest-id-first let those rows fill the cap, so the
+    list dropped the team's aging question once 50 cards were past grace."""
+    from app.services import insights
+
+    q = client.post("/api/questions", json={"question": "still open?"}).json()
+    fresh_db.execute("UPDATE questions SET created_at = ? WHERE id = ?", (_ago(6), q["id"]))
+    minted = insights.run_findings()["findings"]
+    adoption = [f for f in minted if f["rule_id"] == "feature_unadopted"]
+    assert adoption, "the field guide has cards past their grace window"
+
+    capped = insights.list_findings(limit=len(adoption))
+    assert "question_aging" in [f["rule_id"] for f in capped]
+    everything = insights.list_findings(limit=len(minted))
+    adoption_order = [f["rule_id"] == "feature_unadopted" for f in everything]
+    assert adoption_order == sorted(adoption_order)
+
+
 def test_digest_carries_top_findings(client, fresh_db):
     from app.services import digest, insights
 
