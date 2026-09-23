@@ -444,3 +444,69 @@ def test_the_addressee_approves_her_own_memory_under_separated_review(
         f"/api/review/{proposal['id']}/approve", json={}, headers=_strong(client, "ava")
     )
     assert approved.status_code == 200, approved.text
+
+
+def test_every_producer_files_an_addressed_memory_privately(client, fresh_db, monkeypatch):
+    """The MCP server's remember passed no owner, so its proposal was reviewed
+    at the workspace tier with a team "Review needed" notice quoting it, and
+    readers that selected neither payload nor result_id showed its rejection."""
+    from app import config
+    from app.agents import identity
+    from app.services import review, scope, users
+    from app.tools._gate import gated_write
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    users.ensure_user("scribe", kind="agent")
+    users.ensure_user("ava")
+    agent = identity.set_agent_identity("scribe")
+    try:
+        # the shape mcp_server.remember files: no requester, user named
+        out = json.loads(
+            gated_write(
+                "memory",
+                "create",
+                {"content": "ZZMCPZZ diagnosis", "user": "ava"},
+                lambda: {"id": 0},
+                summary="remember: ZZMCPZZ diagnosis",
+            )
+        )
+        # addressed to an agent: no person to own it, the team reviews it
+        to_agent = json.loads(
+            gated_write(
+                "memory",
+                "create",
+                {"content": "agent note", "user": "scribe"},
+                lambda: {"id": 0},
+                summary="remember: agent note",
+            )
+        )
+    finally:
+        identity.reset_agent_identity(agent)
+    row = fresh_db.query_one("SELECT * FROM pending_changes WHERE id = ?", (out["id"],))
+    assert (row["review_visibility"], row["review_owner"]) == ("private", "ava")
+    assert "ZZMCPZZ" not in json.dumps(fresh_db.query("SELECT * FROM notifications"))
+    other = fresh_db.query_one("SELECT * FROM pending_changes WHERE id = ?", (to_agent["id"],))
+    assert other["review_visibility"] == "workspace"
+    # filed at the workspace tier the way the MCP server filed it before
+    legacy = review.propose_change(
+        "memory",
+        "create",
+        {"content": "ZZMCPZZ older", "user": "ava"},
+        "remember: ZZMCPZZ older",
+        actor="scribe",
+    )
+    review.reject_change(legacy["id"], "ZZREASONZZ", actor="ava", viewer=scope.Viewer("ava", True))
+    stats = client.get("/api/review/stats", headers=_strong(client, "bob")).text
+    assert "ZZMCPZZ" not in stats and "ZZREASONZZ" not in stats
+
+
+def test_the_export_keeps_an_agents_own_memories(fresh_db):
+    """Over stdio the MCP server addresses a memory to the agent itself. That
+    is no person's private data, and an export that dropped it lost it."""
+    from app.services import admin, memory, users
+
+    users.ensure_user("scout", kind="agent")
+    memory.remember("ZZAGENTNOTEZZ", user="scout", actor="scout")
+    memory.remember("ZZPERSONZZ", user="ava", actor="ava")
+    exported = Path(admin.export(actor="ops")["path"]).read_text()
+    assert "ZZAGENTNOTEZZ" in exported and "ZZPERSONZZ" not in exported

@@ -621,7 +621,7 @@ def _r_review_stall() -> list[dict]:
 
     pending = _readable(
         db.query(
-            "SELECT id, entity, entity_id, summary, proposed_by,"
+            "SELECT id, entity, entity_id, summary, proposed_by, payload, result_id,"
             " review_visibility, review_crew_id, review_owner,"
             " ROUND((EXTRACT(epoch FROM now() - created_at::timestamptz) / 86400.0) * 24) AS hours"
             " FROM pending_changes WHERE status = 'pending' ORDER BY created_at"
@@ -670,7 +670,7 @@ def _r_rejection_spike() -> list[dict]:
 
     notes = _readable(
         db.query(
-            "SELECT entity, entity_id, summary, review_note,"
+            "SELECT entity, entity_id, summary, review_note, payload, result_id,"
             " review_visibility, review_crew_id, review_owner FROM pending_changes"
             " WHERE status = 'rejected' AND reviewed_at >= ? AND review_note != ''"
             " ORDER BY id DESC LIMIT 10",

@@ -356,8 +356,8 @@ def identity_ownership_error() -> str:
     return f"{count} conflicting identity {noun}. Run 'python -m app.identity_audit' on the server."
 
 
-def refuse_released_name(name: str) -> None:
-    """Refuse a new human row for a name a rename or merge freed.
+def refuse_released_name(name: str, *, holder: int = 0) -> None:
+    """Refuse a name a rename or merge freed, to anyone but its `holder`.
 
     `activity.actor` is never rewritten (the hash chain covers it), so the
     next person to claim a freed name would read the earlier owner's ledger
@@ -365,8 +365,14 @@ def refuse_released_name(name: str) -> None:
     (released_names, migration 035) rather than inferred from the ledger: a
     ledger row can name someone who never had a roster row, and a refusal
     there would lock a real person out of their first sign-in.
+
+    Every kind: a freed name claimed as an agent put the earlier owner's
+    rows in every teammate's feed (activity.visible_actor_filter shows all
+    agent actors). `holder` is the account renaming INTO the name; the one
+    whose history it is (released_names.user_id) may take it back.
     """
-    if db.query_one("SELECT 1 FROM released_names WHERE folded = ?", (fold(name),)):
+    row = db.query_one("SELECT user_id FROM released_names WHERE folded = ?", (fold(name),))
+    if row and int(row["user_id"]) != holder:
         raise ValueError("That name has history from an earlier account. Pick another name.")
 
 
@@ -402,7 +408,7 @@ def ensure_user(name: str, kind: str = "human", *, _owner: str = "") -> dict:
         # would silently absorb the persona's trust/authority history (and
         # vice versa)
         existing = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
-        if existing is None and effective_kind == "human":
+        if existing is None:
             refuse_released_name(name)
         refuse_fold_collision(name)
         if kind == "human" and _is_bench_slug(name):
@@ -794,8 +800,8 @@ def _validate_rename_target(old: str, new: str, row: dict, *, identity_repair: b
     if _is_bench_slug(new):
         raise ValueError("the new name is reserved for a bench persona")
     target = db.query_one("SELECT * FROM users WHERE name = ?", (new,))
-    if target is None and row["kind"] == "human" and not identity_repair:
-        refuse_released_name(new)
+    if target is None and not identity_repair:
+        refuse_released_name(new, holder=int(row["id"]))
     if target and identity_repair:
         raise ValueError("identity ownership repair cannot merge roster rows")
     if target and target["kind"] != row["kind"]:
@@ -823,7 +829,8 @@ def _rename_names(old: str, new: str) -> tuple[str, str]:
 
 def _holds_personal_data(name: str) -> bool:
     """Whether `name` holds data that only they can read: private-tier rows,
-    solo chats, addressed memories, attached files, or MCP servers. A merge
+    solo chats, addressed memories, private review proposals, attached files,
+    or MCP servers. A merge
     moves all of it to the target account, so a merge run by anyone else
     hands it to a person the owner never chose. Returns a boolean and no
     content.
@@ -843,6 +850,12 @@ def _holds_personal_data(name: str) -> bool:
     probes += [
         ("SELECT 1 FROM chat_threads WHERE owner = ? AND kind = 'solo' LIMIT 1", (name,)),
         ('SELECT 1 FROM memories WHERE "user" = ? LIMIT 1', (name,)),
+        # a proposal private to them: chat text, their own rows (_gate.py)
+        (
+            "SELECT 1 FROM pending_changes WHERE review_owner = ?"
+            " AND review_visibility != 'workspace' LIMIT 1",
+            (name,),
+        ),
         ("SELECT 1 FROM artifacts WHERE kind = 'upload' AND created_by = ? LIMIT 1", (name,)),
         ("SELECT 1 FROM mcp_servers WHERE owner = ? LIMIT 1", (name,)),
     ]
@@ -970,12 +983,15 @@ def rename_user(
                     "These users have different OIDC subjects from the same issuer."
                     " Do not merge them."
                 )
-            # The binding points at the stable user id. Move it before the old
-            # roster row is deleted, or the foreign key aborts an otherwise safe merge.
-            db.execute(
-                "UPDATE oidc_identities SET user_id = ? WHERE user_id = ?",
-                (target["id"], current["id"]),
-            )
+            # Deleted, not moved, and before the old roster row goes (the
+            # foreign key). Moved, the source's IdP subject signed in as the
+            # target and read everything the target holds. The same person
+            # signs in again, and whoever runs the server binds the subject
+            # with app.bind_oidc.
+            db.execute("DELETE FROM oidc_identities WHERE user_id = ?", (current["id"],))
+            # The source's notifications quote rows the source could read. A
+            # merge that moved them handed them to the target's reader.
+            db.execute('DELETE FROM notifications WHERE "user" = ?', (old,))
         # unique-keyed tables first: fold rather than collide
         # tool_usage (day, user, surface): sum counts into the target's rows
         db.execute(
@@ -1155,11 +1171,21 @@ def rename_user(
             db.execute("DELETE FROM users WHERE name = ?", (old,))
         else:
             db.execute("UPDATE users SET name = ? WHERE name = ?", (new, old))
-        if current["kind"] == "human" and fold(old) != fold(new):
+        # A human's name only: an agent's ledger rows are every teammate's
+        # to read already (activity.visible_actor_filter), and a person must
+        # be able to claim a name an agent was given by mistake
+        # (tests/test_identity_walls.py, SKEIN_MCP_USER). Not on an identity
+        # repair either: it exists to hand a reserved machine name to its
+        # machine, which then shows the legacy row's ledger history to the
+        # team. That is the operator's explicit repair, run from the shell.
+        if current["kind"] == "human" and not _identity_repair and fold(old) != fold(new):
+            # the history is the renamed row's, or on a merge the target's
+            holder = int(target["id"]) if target else int(current["id"])
             db.execute(
-                "INSERT INTO released_names (folded, released_at) VALUES (?, ?)"
-                " ON CONFLICT DO NOTHING",
-                (fold(old), db.now()),
+                "INSERT INTO released_names (folded, user_id, released_at) VALUES (?, ?, ?)"
+                " ON CONFLICT (folded) DO UPDATE SET user_id = EXCLUDED.user_id,"
+                " released_at = EXCLUDED.released_at",
+                (fold(old), holder, db.now()),
             )
         # The private journal follows the person ONLY when the person is doing
         # the renaming. Every keyholder can rename any roster row (the

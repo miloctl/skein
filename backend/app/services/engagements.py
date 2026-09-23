@@ -627,10 +627,12 @@ def list_allocations(
     engagement_id: int = 0, limit: int = 500, viewer: scope.Viewer = scope.NOBODY
 ) -> list[dict]:
     """An allocation is a person and a percent, and `allocations` carries no
-    tier of its own (scope.UNSCOPED). The engagement NAME it joins to does —
-    so the rows all stay and the name is masked (scope.visible_name). The id
-    is masked with it: beside "other work", the raw engagement_id named the
-    hidden engagement anyway."""
+    tier of its own (scope.UNSCOPED). The engagement it joins to does, so the
+    name and the id come back masked for a reader who cannot open it
+    (scope.visible_name): beside "other work", a raw engagement_id named the
+    hidden engagement anyway. GET /api/allocations then withholds those rows
+    (routes/api.py::_permitted_collection has no policy context for them);
+    /api/capacity is where their percent still counts."""
     name, np = scope.visible_name(viewer, "engagements", "e.name", alias="e")
     frag, fp = scope.visible_filter(viewer, "engagements", alias="e")
     columns = (

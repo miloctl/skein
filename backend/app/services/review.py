@@ -249,7 +249,10 @@ def _propose_change_locked(
         # into the ledger, every agent row named the person behind it to
         # every teammate's feed, forever
         db.log_activity(actor, "propose_change", f"#{pid} {action} {entity}")
-    if notify_team:  # bulk producers (ingestion) send ONE summary instead
+    # a private proposal notifies nobody: the notice quotes its summary, and
+    # its owner finds it in their own queue. Every producer inherits this,
+    # propose_extension_invocation included.
+    if notify_team and review_visibility == scope.WORKSPACE:  # bulk producers send ONE summary
         from .notifications import notify
 
         notify(
@@ -1348,8 +1351,9 @@ def review_stats(viewer: scope.Viewer = scope.NOBODY, *, admin: bool = False) ->
     # people out, everything else in — NOT `is_agent`, which drops the system
     # actors as well: review_authority files every promotion under `scheduler`,
     # which owns no users row, so the whole authority entity disappears from
-    # this table while the entity aggregate above still counts it, and the two
-    # tables then disagree about one queue.
+    # this table. Another person's `<name>-mcp` is left out on purpose, so
+    # this table counts fewer rows than by_entity above: its verdicts are
+    # that person's judgment (users.person_agent_visible).
     by_proposer = [
         row
         for row in by_proposer
@@ -1362,12 +1366,18 @@ def review_stats(viewer: scope.Viewer = scope.NOBODY, *, admin: bool = False) ->
     # proposal against a crew note republished it to the whole roster.
     rejection_reasons = _readable(
         db.query(
-            "SELECT entity, entity_id, summary, review_note, reviewed_by,"
-            " review_visibility, review_crew_id, review_owner FROM pending_changes"
+            "SELECT entity, entity_id, summary, review_note, reviewed_by, proposed_by,"
+            " payload, result_id, review_visibility, review_crew_id, review_owner"
+            " FROM pending_changes"
             " WHERE status = 'rejected' AND review_note != '' ORDER BY id DESC LIMIT 20"
         ),
         viewer,
     )
+    rejection_reasons = [
+        row
+        for row in rejection_reasons
+        if users.person_agent_visible(row["proposed_by"], viewer.name, admin=admin)
+    ]
     minutes = sorted(
         r["m"]
         for r in db.query(
@@ -1537,11 +1547,13 @@ def _governing_tier(change: dict) -> tuple[str, int | None, str] | str | None:
     if table not in scope.CLASSIFIED:
         return None
     try:
-        payload = json.loads(change["payload"]) if change.get("payload") else {}
+        # indexed, not .get(): a reader that selected neither column resolved
+        # every create as workspace and published it (_readable's callers)
+        payload = json.loads(change["payload"]) if change["payload"] else {}
     except (TypeError, ValueError):
         payload = {}
 
-    row_id = change["entity_id"] or change.get("result_id")
+    row_id = change["entity_id"] or change["result_id"]
     if not row_id and change["entity"] in _CREATE_PARENT:
         table, key = _CREATE_PARENT[change["entity"]]
         row_id = payload.get(key)
@@ -1588,10 +1600,11 @@ def _governing_tiers(rows: list[dict]) -> list[tuple[str, int | None, str] | str
             resolved[index] = None
             continue
         try:
-            payload = json.loads(change["payload"]) if change.get("payload") else {}
+            # indexed, not .get(): see _governing_tier
+            payload = json.loads(change["payload"]) if change["payload"] else {}
         except (TypeError, ValueError):
             payload = {}
-        row_id = change["entity_id"] or change.get("result_id")
+        row_id = change["entity_id"] or change["result_id"]
         if not row_id and change["entity"] in _CREATE_PARENT:
             table, parent_key = _CREATE_PARENT[change["entity"]]
             row_id = payload.get(parent_key)
@@ -1912,13 +1925,22 @@ def list_changes(
             allow_unclassified=allow_unclassified,
         )
     else:
-        rows = _settled_changes_page(
-            status,
-            viewer,
-            limit,
-            resource_filter,
-            allow_unclassified,
-        )
+        from .users import person_agent_visible as _visible_agent
+
+        # a settled verdict on another person's `<name>-mcp` proposal, and its
+        # reviewer note, is judgment of that person. Pending ones stay: the
+        # team reviews them (docs/VISIBILITY.md).
+        rows = [
+            row
+            for row in _settled_changes_page(
+                status,
+                viewer,
+                limit,
+                resource_filter,
+                allow_unclassified,
+            )
+            if _visible_agent(row["proposed_by"], viewer.name)
+        ]
     invocation_ids = [
         int(row["id"]) for row in rows if (row["entity"], row["action"]) in lexicon.REVIEW_ONLY
     ]

@@ -261,7 +261,9 @@ def engagement_costs(
         "SELECT CASE WHEN COALESCE(u.engagement_id, t.engagement_id) IS NULL THEN '(unlinked)'"  # noqa: S608 — scope.visible_filter emits only bound marks
         f" WHEN {frag} THEN e.name ELSE ? END AS engagement,"
         # the id is masked with the name: beside "other work" it named the
-        # hidden engagement and its spend anyway
+        # hidden engagement and its spend anyway. GROUP BY 1, 2 below folds
+        # every hidden engagement into ONE "other work" row, so their number
+        # and each one's spend do not show either.
         f" CASE WHEN {frag} THEN COALESCE(u.engagement_id, t.engagement_id) END AS engagement_id,"
         " COUNT(*) AS calls,"
         " SUM(u.input_tokens) AS input_tokens, SUM(u.output_tokens) AS output_tokens,"
@@ -271,11 +273,8 @@ def engagement_costs(
         " LEFT JOIN chat_threads t ON t.id = u.thread_id"
         " LEFT JOIN engagements e ON e.id = COALESCE(u.engagement_id, t.engagement_id)"
         " WHERE u.created_at >= ?"
-        # e.id as well as the COALESCE: the CASE above reads e.name and the
-        # tier columns inside `frag`, and grouping by the engagement's PRIMARY
-        # KEY is what makes every other e.* column legal here (functional
-        # dependency). Grouping by the COALESCE alone is a grouping error.
-        " GROUP BY COALESCE(u.engagement_id, t.engagement_id), e.id"
+        # by the two output columns: the masked label and the masked id
+        " GROUP BY 1, 2"
         " ORDER BY cost_usd DESC NULLS LAST",
         (*fp, scope.OTHER_WORK, *fp, since),
     )

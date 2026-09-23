@@ -516,8 +516,13 @@ def cmd_my_day(args):
     if args.cached:
         cached = CONFIG_PATH.parent / "my-day.cache"
         try:
-            raw = cached.read_text()
+            owner, _, raw = cached.read_text().partition("\n")
         except OSError:
+            owner, raw = "", ""
+        # The first line names the identity that fetched it. SKEIN_API_KEY and
+        # SKEIN_URL change the identity without `skein config`, which is the
+        # only place that deletes the cache.
+        if owner != _queue_owner(_connection()):
             sys.exit("no cached briefing yet — run `skein my-day` once with the server up")
         age = int((time.time() - cached.stat().st_mtime) // 60)
         # the age is the point: a cached briefing is yesterday's decisions
@@ -571,7 +576,7 @@ def cmd_my_day(args):
         cache.parent.mkdir(parents=True, exist_ok=True)
         fd = os.open(cache, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
-            f.write(body)
+            f.write(f"{_queue_owner(_connection())}\n{body}")
     except OSError:
         pass  # a briefing that printed is not a failure because it did not cache
 

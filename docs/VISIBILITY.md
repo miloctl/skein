@@ -378,13 +378,18 @@ a recall filter: the memory list, recall, forget, `get_memory`, and search
 agent and MCP `search_workspace` tools) all serve it to that person alone,
 whatever its tier. `search.visible_hits` takes the reader by name and reads no
 addressed memory when it names nobody. The reason is consent: `/remember` and
-the MCP tool address a memory to the speaker, and the agent tool addresses it
-to the person who drove the turn, all at the workspace tier with no tier to
-pick, so a teammate reading it through search was sharing that nobody chose.
-The rule covers the copies too: an addressed memory's proposal is private to
-its addressee, who judges it, and its activity row carries the id only. The
-portable export leaves addressed memories out. A fact meant for the team is a
-memory addressed to nobody.
+the remote MCP tool address a memory to the speaker, and the agent tool to the
+person who drove the turn (with no person, to whoever the model names), all
+at the workspace tier with no tier to pick, so a teammate reading it through
+search was sharing that nobody chose. Over stdio the MCP tool addresses the
+agent itself, and a memory addressed to an agent is no one's private data.
+The rule covers the copies too: the review gate files every memory create
+addressed to a person as a proposal private to them (tools/_gate.py), a
+private proposal sends no team notice, the activity row carries the id only,
+and the portable export leaves memories addressed to people out. When policy
+names approver groups for the memory, the proposal stays hidden and waits for
+the addressee to reject it. A fact meant for the team is a memory addressed
+to nobody.
 
 The tier check quotes the author column. Unquoted, memories' `user` is
 CURRENT_USER: the check compared the database role name, so an addressee never

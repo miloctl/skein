@@ -496,7 +496,7 @@ export default function Portfolio() {
             </h3>
             <ul className="space-y-1 text-sm">
               {usage.engagements.map((e) => (
-                <li key={e.engagement_id ?? "unlinked"}>
+                <li key={e.engagement_id ?? e.engagement}>
                   {e.engagement}: {e.calls.toLocaleString()} call
                   {e.calls === 1 ? "" : "s"} ·{" "}
                   {(e.input_tokens + e.output_tokens).toLocaleString()} tokens

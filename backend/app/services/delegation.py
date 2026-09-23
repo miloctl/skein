@@ -884,7 +884,14 @@ def review_authority(*, actor: str = "scheduler") -> dict:
     # the meta entities in NO_AUTHORITY would mint nonsense agent rows if
     # proposed. `trust_scores` is agents-only in the service now, so no
     # is_agent filter is needed here.
+    from .users import is_person_agent
+
     for r in trust_scores():
+        # a person agent's streak is that person's judgment, and an authority
+        # proposal is workspace-visible to the whole team (get_agents_trust
+        # withholds it). Its level stays for an administrator to set by hand.
+        if is_person_agent(r["agent"]):
+            continue
         target = None
         why = ""
         if r["recent_streak"] >= TRUST_STREAK and not promotion_blocked(
@@ -989,7 +996,8 @@ def agent_inbox(
     loss easy to miss).
 
     GET /api/agents/{agent}/inbox is the other door. It takes the agent name
-    off the URL and answers any CurrentUser, so it passes the CALLER's viewer
+    off the URL and answers any CurrentUser (another person's `<name>-mcp`
+    inbox only its owner and administrators), so it passes the CALLER's viewer
     — without one, a human read every crew task title delegated to any agent
     by walking the roster of agent names.
     """
@@ -1057,14 +1065,16 @@ def agent_inbox(
     # through _readable on the REST door for the same reason the two queries
     # above take a filter: `summary` and `review_note` quote the target row's
     # own text, and GET /api/agents/{agent}/inbox answers any CurrentUser with
-    # the agent name off the URL. The agent's own doors (viewer is None) keep
-    # everything — a rejection it cannot read is a correction it cannot act on.
+    # the agent name off the URL. The agent's own doors (viewer is None) read
+    # the workspace tier: an unattended turn nobody attends must not carry a
+    # proposal private to one person into rows the team reads.
     from .review import _readable
 
     # Keep the rejected verdict for trust, but remove resolved completion rework
     # from this action list. A later generic task update is not acceptance.
     rejected = db.query(
         "SELECT p.id, p.entity, p.entity_id, p.summary, p.review_note, p.reviewed_by,"
+        " p.payload, p.result_id,"
         " p.review_visibility, p.review_crew_id, p.review_owner, p.policy_context"
         " FROM pending_changes p"
         " WHERE p.proposed_by = ? AND p.status = 'rejected'"
@@ -1076,8 +1086,10 @@ def agent_inbox(
         " ORDER BY p.id DESC LIMIT 10",
         (agent,),
     )
-    if viewer is not None:
-        rejected = _readable(rejected, viewer)
+    # With no viewer (an unattended turn nobody attends), the workspace tier:
+    # skipped, a proposal private to one person reached the turn, whose
+    # raise_blocker and report_progress write where the team reads.
+    rejected = _readable(rejected, viewer if viewer is not None else scope.NOBODY)
     if resource_filter is not None:
         from .review import filter_policy_resources
 
