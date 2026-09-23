@@ -1274,7 +1274,17 @@ def post_growth_interests(body: GrowthIn, user: CurrentUser):
 @router.get("/users/growth-interests")
 def get_growth_interests(user: CurrentUser):
     # write-only fields can't be reviewed or cleared — prefill needs this
-    return {"interests": users.get_growth_interests(user)}
+    return users.get_growth_interests(user)
+
+
+@router.post("/users/growth-interests/share")
+def share_growth_interests(user: StrongUser):
+    """StrongUser: a weak name must not publish somebody's interests."""
+    ratelimit.check("write", user)
+    try:
+        return users.share_growth_interests(user)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 class ThemeIn(BaseModel):

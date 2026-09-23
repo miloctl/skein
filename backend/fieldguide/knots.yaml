@@ -209,7 +209,7 @@ knots:
     knot: Directional Figure Eight
     set: loops
     pitch: What you want to grow into, visible when staffing decisions happen.
-    how: Declare yours under Settings → You. They show up in what-if staffing.
+    how: Declare yours under Settings → You. Only you see them until you select "share with the team". Then they show on the roster and in what-if staffing.
     link: /settings
     since: 2026-07-31
 

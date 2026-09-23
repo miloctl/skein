@@ -1,6 +1,8 @@
 """The roster: rename, merge, deactivate, growth interests, the anonymous
 exclusion, and the attribution map that must match the schema."""
 
+from pathlib import Path
+
 
 def test_merge_backfills_profile_fields_target_never_set(fresh_db):
     from app.services import users
@@ -290,6 +292,7 @@ def test_roster_exposes_shared_profile_but_not_other_peoples_theme(client, fresh
     users.set_theme("tester", '{"pack":"atelier"}')
     users.set_theme("ava", '{"pack":"ledger"}')
     users.set_growth_interests("ava", "incident command", actor="ava")
+    users.share_growth_interests("ava")
     for path in ("/api/users", "/api/users?all=1"):
         response = client.get(path)
         assert response.status_code == 200
@@ -317,6 +320,9 @@ def test_growth_interests_self_declared_and_in_what_if(client, fresh_db):
         json={"interests": "RAG evaluation, incident command"},
         headers={"X-User": "chen"},
     )
+    from app.services import users
+
+    users.share_growth_interests("chen")
     req = client.post("/api/intake", json={"title": "RAG revamp"}).json()
     out = client.post(
         f"/api/intake/{req['id']}/what-if", json={"people": ["chen", "dana"], "percent": 40}
@@ -414,3 +420,47 @@ def test_concurrent_replica_boots_reserve_content_identities_once(fresh_db):
         "SELECT count(*) AS n FROM users WHERE identity_owner = ?", (users.CONTENT_OWNER,)
     )
     assert row is not None and row["n"] == len(slugs)
+
+
+def test_growth_interests_stay_with_their_person_until_shared(client, fresh_db):
+    """Growth interests reached every caller through the roster, staffing
+    what-ifs and the export, while Settings said only "staffing what-ifs"."""
+    import json
+
+    from conftest import _strong
+
+    from app.services import admin, intake, portfolio, users
+
+    for name in ("ava", "bob", "cy", "dup"):
+        users.ensure_user(name)
+    ava, bob = _strong(client, "ava"), _strong(client, "bob")
+    share = "/api/users/growth-interests/share"
+    assert client.post(share, headers=ava).status_code == 400
+    users.set_growth_interests("ava", "ZZRAGZZ", actor="ava")
+
+    def seen(headers):
+        rows = client.get("/api/users", headers=headers).json()
+        return next(row["growth_interests"] for row in rows if row["name"] == "ava")
+
+    request = intake.submit_request("Need hands", actor="bob")
+
+    def projected():
+        return portfolio.what_if(request["id"], ["ava"], 20)["projection"][0]["growth_interests"]
+
+    exported = lambda: "ZZRAGZZ" in Path(admin.export(actor="ops")["path"]).read_text()  # noqa: E731
+    assert (seen(ava), seen(bob), projected(), exported()) == ("ZZRAGZZ", "", "", False)
+    assert client.get("/api/users/growth-interests", headers=ava).json() == {
+        "interests": "ZZRAGZZ",
+        "shared": False,
+    }
+    assert client.post(share, headers={"X-User": "ava"}).status_code in (401, 403)
+    assert client.post(share, headers=ava).status_code == 200
+    assert client.post(share, headers=ava).status_code == 400
+    assert (seen(bob), projected(), exported()) == ("ZZRAGZZ", "ZZRAGZZ", True)
+
+    # a merge brings the flag with the text it backfills
+    users.set_growth_interests("dup", "ZZDUPZZ", actor="dup")
+    users.share_growth_interests("dup")
+    users.rename_user("dup", "cy", actor="ops", expected_merge=True)
+    assert users.get_growth_interests("cy") == {"interests": "ZZDUPZZ", "shared": True}
+    assert json.dumps(client.get("/api/users", headers=bob).json()).count("ZZDUPZZ") == 1

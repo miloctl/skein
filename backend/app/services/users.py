@@ -544,9 +544,27 @@ def set_growth_interests(name: str, interests: str, *, actor: str = "system") ->
     return {"name": name, "growth_interests": interests.strip()}
 
 
-def get_growth_interests(name: str) -> str:
-    row = db.query_one("SELECT growth_interests FROM users WHERE name = ?", (name,))
-    return (row or {}).get("growth_interests") or ""
+def get_growth_interests(name: str) -> dict:
+    row = db.query_one("SELECT growth_interests, growth_shared FROM users WHERE name = ?", (name,))
+    return {
+        "interests": (row or {}).get("growth_interests") or "",
+        "shared": bool((row or {}).get("growth_shared")),
+    }
+
+
+def share_growth_interests(name: str) -> dict:
+    """Let teammates read `name`'s own growth interests: the roster and
+    staffing what-ifs. One way: a teammate may already have planned around
+    them."""
+    n = db.execute_rowcount(
+        "UPDATE users SET growth_shared = TRUE WHERE name = ? AND growth_interests != ''"
+        " AND NOT growth_shared",
+        (name,),
+    )
+    if not n:
+        raise ValueError("There are no unshared growth interests. Save them first.")
+    db.log_activity(name, "share_growth_interests", name)
+    return {"name": name, "shared": True}
 
 
 def _validate_theme(theme: str) -> str:
@@ -712,13 +730,16 @@ def list_users(active_only: bool = True) -> list[dict]:
 
 
 def public_users(requester: str, active_only: bool = True) -> list[dict]:
-    # Growth interests are shared staffing context. Theme preferences are
-    # self-visible, and identity_owner belongs to machine identity claims.
-    fields = ("id", "name", "kind", "active", "created_at", "growth_interests")
+    # Growth interests reach a teammate once their person shares them
+    # (share_growth_interests). Theme preferences are self-visible, and
+    # identity_owner belongs to machine identity claims.
+    fields = ("id", "name", "kind", "active", "created_at")
     result = []
     for row in list_users(active_only=active_only):
         profile = {field: row[field] for field in fields}
-        if row["name"] == requester:
+        own = row["name"] == requester
+        profile["growth_interests"] = row["growth_interests"] if own or row["growth_shared"] else ""
+        if own:
             profile["theme"] = row["theme"]
         result.append(profile)
     return result
@@ -1166,9 +1187,13 @@ def rename_user(
                 " theme = CASE WHEN theme = '' THEN"
                 "   (SELECT theme FROM users WHERE name = ?) ELSE theme END,"
                 " growth_interests = CASE WHEN growth_interests = '' THEN"
-                "   (SELECT growth_interests FROM users WHERE name = ?) ELSE growth_interests END"
+                "   (SELECT growth_interests FROM users WHERE name = ?) ELSE growth_interests END,"
+                # with the text it describes: both CASEs read the target's
+                # OLD growth_interests, so a backfilled text brings its flag
+                " growth_shared = CASE WHEN growth_interests = '' THEN"
+                "   (SELECT growth_shared FROM users WHERE name = ?) ELSE growth_shared END"
                 " WHERE name = ?",
-                (old, old, new),
+                (old, old, old, new),
             )
             db.execute("DELETE FROM users WHERE name = ?", (old,))
         else:

@@ -1107,6 +1107,7 @@ VERBS: dict[str, tuple[str, str]] = {
     "set_tuning": ("changed a deployment limit", "loud"),
     "set_team_theme": ("set the team default theme", "quiet"),
     "set_growth_interests": ("updated growth interests", "quiet"),
+    "share_growth_interests": ("shared growth interests with the team", "quiet"),
     "record_lesson": ("recorded a lesson", "normal"),
     "record_feedback": ("recorded feedback", "quiet"),
     "delete_feedback": ("deleted feedback", "quiet"),

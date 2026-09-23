@@ -726,6 +726,11 @@ def _make_export(*, keep: int, actor: str, open_file: bool, max_bytes: int = 0):
                                 for row in rows:
                                     if int(row.get("task_id") or 0) not in visible_tasks:
                                         row["task_id"] = None
+                            if table == "users":
+                                # the exporting admin is somebody else
+                                for row in rows:
+                                    if not row.get("growth_shared"):
+                                        row["growth_interests"] = ""
                             if table == "memories":
                                 for row in rows:
                                     row["thread_id"] = ""

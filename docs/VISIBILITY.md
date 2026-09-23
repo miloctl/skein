@@ -420,6 +420,12 @@ about somebody else is refused, so a teammate's window defaults to the
 workspace tier. An agent files the requester's own window through
 `requester`, which the review sets from the proposal, never from the payload.
 
+**Growth interests are their person's until shared.** `users.growth_shared`
+starts false (migration 037 sets it false for every existing row). The roster
+(`users.public_users`), staffing what-ifs and the portable export show another
+person's interests only after that person shares them. The share is one way,
+and a merge carries the flag with the text it backfills.
+
 **Administrator actions.** The activity log shows an actor's rows to that
 actor alone, so an action an administrator takes on someone else also sends a
 notice. A rename, a merge into an account, and a deactivation or reactivation
