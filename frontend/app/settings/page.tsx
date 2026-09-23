@@ -563,6 +563,7 @@ export default function SettingsPage() {
   const [interests, setInterests] = useState("");
   const [interestsSaved, setInterestsSaved] = useState("");
   const [interestsLoaded, setInterestsLoaded] = useState(false);
+  const [interestsError, setInterestsError] = useState("");
   const [interestsBusy, setInterestsBusy] = useState(false);
   const [ctx, setCtx] = useState<{
     strategy: string;
@@ -681,14 +682,18 @@ export default function SettingsPage() {
   }, []);
   useEffect(() => {
     // prefill: a write-only field can neither be reviewed nor cleared. If
-    // the GET fails, the empty field must NOT be saveable — an empty save
-    // clears the stored value, and a blank-from-failure would erase it.
+    // the GET fails, the field must NOT be saveable — any save replaces the
+    // stored value, which the reader never saw.
     api<{ interests: string }>("/api/users/growth-interests")
       .then((r) => {
         setInterests(r.interests);
         setInterestsLoaded(true);
+        setInterestsError("");
       })
-      .catch(() => setInterestsLoaded(false));
+      .catch((e) => {
+        setInterestsLoaded(false);
+        setInterestsError(loadError(e));
+      });
   }, [currentUser]);
 
   const loadCtx = useCallback(() => {
@@ -1568,6 +1573,7 @@ export default function SettingsPage() {
                     name="growth-interests"
                     value={interests}
                     onChange={(e) => setInterests(e.target.value)}
+                    disabled={!interestsLoaded}
                     aria-label="Growth interests"
                     placeholder="for example: RAG evaluation, incident command, design reviews"
                     className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
@@ -1592,9 +1598,7 @@ export default function SettingsPage() {
                         setInterestsBusy(false);
                       }
                     }}
-                    disabled={
-                      interestsBusy || (!interests.trim() && !interestsLoaded)
-                    }
+                    disabled={interestsBusy || !interestsLoaded}
                     className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
                   >
                     Save
@@ -1607,6 +1611,9 @@ export default function SettingsPage() {
                 >
                   {interestsSaved}
                 </p>
+                {interestsError ? (
+                  <p className="mt-1 text-xs text-danger">{interestsError}</p>
+                ) : null}
               </Section>
 
               <Section title="Appearance" headingLevel={3}>
