@@ -35,11 +35,13 @@ Examples:
 import argparse
 import fcntl
 import hashlib
+import http.client
 import json
 import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -61,18 +63,50 @@ ATTENTION_TTL_S = 60
 ATTENTION_TIMEOUT_S = 1.0
 
 
+class ConfigError(Exception):
+    """config.json exists and cannot be used. main() prints it as one line."""
+
+
 def load_config() -> dict:
-    if CONFIG_PATH.exists():
-        return json.loads(CONFIG_PATH.read_text())
-    return {}
+    try:
+        cfg = json.loads(CONFIG_PATH.read_text())
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        cfg = None
+    if not isinstance(cfg, dict):
+        raise ConfigError(
+            f"{CONFIG_PATH} is not a valid Skein config. "
+            "Run `skein config --url <url> --key` to write a new one."
+        )
+    return cfg
 
 
 def save_config(cfg: dict) -> None:
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    # 0600 from the first byte — no world-readable window
     fd = os.open(CONFIG_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    # open() applies 0600 only when it CREATES the file. A config that already
+    # exists at 0644 keeps that mode, and the key written below is then
+    # readable by every local user.
+    os.fchmod(fd, 0o600)
     with os.fdopen(fd, "w") as f:
         f.write(json.dumps(cfg, indent=1))
+
+
+# C0 and C1 control characters except tab and newline. Server text reaches the
+# terminal through print(), and an ESC or CSI in a task title can clear the
+# screen, retitle the window, or write the clipboard (OSC 52).
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def _printable(value):
+    if isinstance(value, str):
+        return _CONTROL.sub("", value)
+    if isinstance(value, list):
+        return [_printable(item) for item in value]
+    if isinstance(value, dict):
+        return {_printable(key): _printable(item) for key, item in value.items()}
+    return value
 
 
 def base_url(cfg: dict | None = None) -> str:
@@ -124,12 +158,15 @@ def _request(
         data=json.dumps(body).encode() if body is not None else None,
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read())
+        # every caller prints fields of this, so it is cleaned once, here
+        return _printable(json.loads(resp.read()))
 
 
 def api(
     method: str, path: str, body: dict | None = None, *, connection: dict | None = None
 ) -> dict | list:
+    connection = _connection() if connection is None else connection
+    url = connection["url"]
     try:
         return _request(method, path, body, connection=connection)
     except urllib.error.HTTPError as exc:
@@ -142,10 +179,26 @@ def api(
                 )
         except Exception:
             detail = str(exc)
-        sys.exit(f"error: {detail}")
-    except urllib.error.URLError as exc:
+        sys.exit(_printable(f"error: {detail}"))
+    # Order matters: HTTPError is a URLError, and URLError is an OSError.
+    # RemoteDisconnected is both an OSError and an HTTPException.
+    except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
         _mark_unreachable()
-        sys.exit(f"error: cannot reach {base_url()} ({exc.reason}) — run `skein config --url ...`")
+        reason = getattr(exc, "reason", None) or exc
+        sys.exit(_printable(f"error: cannot reach {url} ({reason}) — run `skein config --url ...`"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        # A proxy login page or the frontend URL answers 200 with HTML.
+        sys.exit(
+            _printable(
+                f"error: {url} did not send a Skein API response. "
+                "Set the API URL with `skein config --url ...`."
+            )
+        )
+    except ValueError:
+        # urllib refuses a URL with no scheme or host before it connects
+        sys.exit(
+            _printable(f"error: {url} is not a valid URL. Set it with `skein config --url ...`.")
+        )
 
 
 def api_quiet(
@@ -380,7 +433,12 @@ def cmd_model(_args):
 
 
 def cmd_config(args):
-    cfg = load_config()
+    try:
+        cfg = load_config()
+    except ConfigError:
+        # This command is the repair that the ConfigError message names, so it
+        # starts from nothing instead of refusing the broken file.
+        cfg = {}
     if args.key == "-":  # prompt: keeps the key out of argv/shell history
         import getpass
 
@@ -389,7 +447,10 @@ def cmd_config(args):
         value = getattr(args, field)
         if value:
             cfg[field] = value
-    save_config(cfg)
+    try:
+        save_config(cfg)
+    except OSError as exc:
+        sys.exit(f"error: cannot write {CONFIG_PATH} ({exc.strerror}). Check its permissions.")
     shown = {**cfg, "key": (cfg.get("key", "")[:16] + "…") if cfg.get("key") else ""}
     print(json.dumps(shown, indent=1))
 
@@ -455,7 +516,7 @@ def cmd_my_day(args):
         # the age is the point: a cached briefing is yesterday's decisions
         # unless it says otherwise
         print(f"(cached {age} minute{'' if age == 1 else 's'} ago)")
-        print(raw)
+        print(_printable(raw))  # a cache written before _request cleaned responses
         return
     b = api("GET", "/api/briefing")
     attention = b.get("attention", [])
@@ -593,7 +654,20 @@ def cmd_attention(args):
     except OSError:
         pass  # absent or unreadable: ask, then stamp whatever comes back
 
-    got = api_quiet("GET", "/api/attention", timeout=ATTENTION_TIMEOUT_S)
+    # timeout= bounds each socket operation, not the call: name resolution has
+    # no timeout at all, and a server that sends one byte a second never trips
+    # it. The join is the deadline. A worker still running is abandoned, and
+    # as a daemon thread it does not hold the process open.
+    answer: list = []
+    worker = threading.Thread(
+        target=lambda: answer.append(
+            api_quiet("GET", "/api/attention", timeout=ATTENTION_TIMEOUT_S)
+        ),
+        daemon=True,
+    )
+    worker.start()
+    worker.join(ATTENTION_TIMEOUT_S)
+    got = answer[0] if answer else None
     count = str(got.get("count", "")) if isinstance(got, dict) else ""
     try:
         cache.parent.mkdir(parents=True, exist_ok=True)
@@ -1192,15 +1266,18 @@ def main():
         p.error(f"review {args.action} requires a proposal id")
     if args.cmd == "review" and args.action == "reject" and not args.note:
         p.error("review reject requires -m — the proposer reads the reason")
-    args.fn(args)
-    # AFTER the command, not before: the command itself is the proof the
-    # server is reachable, and flushing first would make every offline
-    # command pay a failed round trip. `attention` is excluded because it
-    # runs on every shell prompt and must stay silent and instant.
-    if args.cmd != "attention":
-        sent = flush_outbox()
-        if sent:
-            print(f"filed {sent} capture{'' if sent == 1 else 's'} saved earlier")
+    try:
+        args.fn(args)
+        # AFTER the command, not before: the command itself is the proof the
+        # server is reachable, and flushing first would make every offline
+        # command pay a failed round trip. `attention` is excluded because it
+        # runs on every shell prompt and must stay silent and instant.
+        if args.cmd != "attention":
+            sent = flush_outbox()
+            if sent:
+                print(f"filed {sent} capture{'' if sent == 1 else 's'} saved earlier")
+    except ConfigError as exc:
+        sys.exit(f"error: {exc}")
 
 
 if __name__ == "__main__":

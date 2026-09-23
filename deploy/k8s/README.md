@@ -627,6 +627,12 @@ exact frontend origin — scheme and host, no trailing slash),
 `SKEIN_ADMINS`, `SKEIN_TZ`, the model provider, and the CA mount. Dev
 stays keyless: mock provider, trusted-header auth, no Secret.
 
+Trusted-header auth accepts any name in the `X-User` header. On a public
+Route, any caller can act as any team member. The example-dev overlay
+therefore sets `haproxy.router.openshift.io/ip_whitelist` on both Routes.
+Its value `192.0.2.0/24` is a documentation range that admits nobody.
+Replace it with your office or VPN ranges before you apply the overlay.
+
 Persona, playbook, and flock overlays translate from the compose pattern
 to one `configMapGenerator` per directory, mounted at
 `/overlay/<kind>` with the matching `SKEIN_*_DIR` variable. The

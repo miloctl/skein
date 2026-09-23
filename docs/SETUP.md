@@ -70,7 +70,8 @@ workplace-skein/
 ├── requirements.in
 ├── requirements.lock
 ├── requirements-test.in
-└── requirements-test.lock
+├── requirements-test.lock
+└── skein-agents.lock
 ```
 
 Ignore these generated paths:
@@ -139,7 +140,7 @@ Use this order:
 
 1. Rename the manifests, source packages, content, tests, and deployment files.
 2. Build the private extension wheel.
-3. Download the Skein wheel and repack the two Skein npm packages into `dist/`.
+3. Pin the published Skein wheel digest in `skein-agents.lock`, download the wheel through it, and repack the two Skein npm packages into `dist/`.
 4. Use Node 22 to regenerate `package-lock.json` from the renamed manifests and exact npm tarballs.
 5. Regenerate `requirements.lock` when the Python production graph changes.
 6. Regenerate `requirements-test.lock` when the Python production or test graph changes.
@@ -162,12 +163,19 @@ Keep `replace-registry-host=npmjs`. The `always` value rewrites local `file:` ta
 
 ## 3. Stage the exact Skein packages
 
-Download the backend wheel without its dependencies:
+Pin the backend wheel by its digest in `skein-agents.lock`. Copy the SHA256 value of the `py3-none-any` wheel from the **Download files** list of the `skein-agents` release on pypi.org. Do not copy it from a pip error. The `finalize-release` workflow compared those PyPI bytes with the tested release artifact before it created the release tag.
+
+```text
+skein-agents==0.6.6 \
+    --hash=sha256:<published wheel sha256>
+```
+
+Download the backend wheel without its dependencies. The download refuses any other bytes:
 
 ```sh
 mkdir -p dist
-python -m pip download --no-deps --dest dist \
-  skein-agents==0.6.6 \
+python -m pip download --no-deps --require-hashes --dest dist \
+  -r skein-agents.lock \
   --index-url https://pypi.org/simple
 ```
 
@@ -471,7 +479,7 @@ The workplace owns both final images. Do not inherit a Skein application image.
 The backend image must do these operations:
 
 1. Install `requirements.lock` with `--require-hashes`.
-2. Install both first-party wheels with `--no-deps`.
+2. Install the Skein wheel through `skein-agents.lock` with `--require-hashes`, and the workplace wheel with `--no-deps`.
 3. Run `pip check`.
 4. Copy only workplace content.
 5. Run the workplace ASGI application as a non-root user.

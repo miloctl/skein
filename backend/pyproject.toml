@@ -83,7 +83,11 @@ packages = { find = { include = ["app*"] } }
 "skein_stock/schemas" = ["schemas/*.json"]
 
 [build-system]
-requires = ["setuptools>=77"]
+# Exact, not a range: the backend writes the published wheel's metadata and
+# layout, so a range builds different wheels from the same commit whenever
+# setuptools releases. A bump must stay at 77 or later, which the PEP 639
+# license-files above need.
+requires = ["setuptools==84.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.mutmut]

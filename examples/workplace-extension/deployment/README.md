@@ -21,6 +21,8 @@ npm pack --pack-destination examples/workplace-extension/dist ./frontend
 
 These commands build the source artifacts for the local reference contracts.
 
+A local Skein wheel does not have the published digest. The reference contracts pin the staged wheel in their own copy of `skein-agents.lock`. If you build the images from a Skein checkout by hand, write the local digest into `skein-agents.lock` first, and do not commit it.
+
 ## Stage packages from a copied consumer root
 
 Configure PyPI or your controlled Python mirror before you run these commands. Keep registry credentials outside the repository.
@@ -29,14 +31,22 @@ Configure PyPI or your controlled Python mirror before you run these commands. K
 rm -rf dist
 mkdir -p dist
 uv build --wheel --out-dir dist .
-python -m pip download --no-deps --dest dist \
-  skein-agents==0.6.6 \
+python -m pip download --no-deps --require-hashes --dest dist \
+  -r skein-agents.lock \
   --index-url https://pypi.org/simple
 npm pack @miloctl/skein-extension-api@1.0.0 --pack-destination dist
 npm pack @miloctl/skein-frontend-host@0.6.6 --pack-destination dist
 ```
 
 The `@miloctl` npm packages are public on npmjs.com. No registry token is needed.
+
+`skein-agents.lock` pins the Skein wheel by its SHA-256 digest. The download above and the backend image build refuse any other bytes. The template digest is zero, so the first download fails until you pin the release:
+
+1. Open the `skein-agents` release page on pypi.org and select **Download files**.
+2. Copy the SHA256 value of the `py3-none-any` wheel. The `finalize-release` workflow compared these PyPI bytes with the tested release artifact before it created the release tag.
+3. Write that value into `skein-agents.lock` and commit it with the version change.
+
+Do not copy the digest from the pip error. The error shows the digest of the file that pip received, not the digest that the release published.
 
 The Dockerfiles require the exact `0.6.6`, `1.0.0`, and `2.0.0` artifact names. A clean `dist` directory prevents an old artifact from entering the build. The Dockerfiles pin each base image by digest. Before deployment, replace each zero application-image digest with the digest from the reviewed registry image.
 
@@ -102,7 +112,7 @@ docker build \
   .
 ```
 
-The backend image installs `requirements.lock`. It then installs the Skein and Atlas wheels with `--no-deps`.
+The backend image installs `requirements.lock`. It then installs the Skein wheel through `skein-agents.lock` with `--require-hashes`, and the Atlas wheel with `--no-deps`.
 
 The frontend image runs `npm ci` from the workplace lock. It compiles Atlas and runs `skein-frontend-build`.
 

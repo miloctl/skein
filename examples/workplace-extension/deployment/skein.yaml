@@ -85,6 +85,15 @@ spec:
               port: http
             periodSeconds: 30
             timeoutSeconds: 5
+          # Starting sizes copied from deploy/k8s/base/backend.yaml, not
+          # measured ones. Without a memory limit a leak takes the node's
+          # memory before the pod restarts.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
           volumeMounts:
             - name: data
               mountPath: /data
@@ -165,6 +174,14 @@ spec:
               port: http
             periodSeconds: 30
             timeoutSeconds: 5
+          # Copied from deploy/k8s/base/frontend.yaml, which explains the
+          # Node heap rule that goes with this limit.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
           volumeMounts:
             - name: tmp
               mountPath: /tmp
