@@ -13,6 +13,7 @@ from importlib.metadata import requires
 from pathlib import Path
 
 import pytest
+import yaml
 from conftest import authored_repo_root
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
@@ -184,3 +185,39 @@ def test_public_python_contract_is_marked_as_typed():
     ]
     assert (BACKEND / "app" / "py.typed").is_file()
     assert "py.typed" in package_data["app"]
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "backend/Dockerfile",
+        "frontend/Dockerfile",
+        "examples/workplace-extension/deployment/Dockerfile",
+        "examples/workplace-extension/deployment/Frontend.Dockerfile",
+    ],
+)
+def test_the_runtime_user_can_write_only_its_data_volume(relative):
+    body = (ROOT / relative).read_text().replace("\\\n", " ")
+    grants = re.findall(r"\b(?:chown|chgrp|chmod)\s+(?:-\S+\s+)*\S+((?:\s+/\S+)+)", body)
+    # a group-0 grant on code lets OpenShift's arbitrary UID rewrite it
+    assert {path for grant in grants for path in grant.split()} <= {"/data"}
+
+
+def _containers(relative: str) -> dict[str, dict]:
+    return {
+        container["name"]: container
+        for document in yaml.safe_load_all((ROOT / relative).read_text())
+        if document and document.get("kind") == "Deployment"
+        for container in document["spec"]["template"]["spec"]["containers"]
+    }
+
+
+def test_workplace_containers_carry_the_core_resource_budget():
+    core = {
+        **_containers("deploy/k8s/base/backend.yaml"),
+        **_containers("deploy/k8s/base/frontend.yaml"),
+    }
+    workplace = _containers("examples/workplace-extension/deployment/skein.yaml")
+    # with no memory limit, one leaking pod takes the node's memory
+    assert workplace["skein"].get("resources") == core["backend"]["resources"]
+    assert workplace["frontend"].get("resources") == core["frontend"]["resources"]

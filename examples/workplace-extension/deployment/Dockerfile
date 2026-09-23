@@ -40,10 +40,13 @@ RUN pip install --no-cache-dir --no-deps --no-index --find-links /tmp/skein \
     && rm -r /tmp/skein /tmp/skein-agents.lock /tmp/*.whl
 
 COPY content /opt/atlas/content
+# Only /data is writable. Code and content stay root's, so a compromised
+# process cannot rewrite them. g=u gives OpenShift's arbitrary UID, which runs
+# in group 0, the owner's access to /data.
 RUN useradd --create-home appuser \
     && mkdir -p /data \
-    && chgrp -R 0 /app /data /opt/atlas/content \
-    && chmod -R g=u /app /data /opt/atlas/content
+    && chgrp -R 0 /data \
+    && chmod -R g=u /data
 
 USER appuser:0
 VOLUME /data

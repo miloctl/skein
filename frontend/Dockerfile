@@ -20,7 +20,9 @@ ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 HOME=/tmp
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
-RUN chown -R node:0 /app && chmod -R g=u /app
+# /app stays root's and read-only to the server, as it is under
+# readOnlyRootFilesystem (deploy/k8s/base/frontend.yaml). A writable /app lets
+# a compromised server rewrite the code it serves.
 USER node:0
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \
