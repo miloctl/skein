@@ -163,7 +163,8 @@ describe("the 1:1 identity boundary", () => {
     expect(await screen.findByText("private launch note")).toBeTruthy();
 
     identity.strong = false;
-    window.dispatchEvent(new Event("storage"));
+    // what lib/auth.ts::publish dispatches when `strong` changes
+    window.dispatchEvent(new Event("skein-identity-change"));
 
     expect(
       await screen.findByText(/Private notes require strong identity/),

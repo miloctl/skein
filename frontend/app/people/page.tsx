@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { actionError, api, loadError, subscribeUser } from "@/lib/api";
+import { actionError, api, loadError } from "@/lib/api";
+import { subscribeIdentity } from "@/lib/shared-chats";
 import { reportStatus } from "@/lib/status";
 import { Card, EmptyState } from "@/components/card";
 
@@ -81,7 +82,7 @@ export default function PeoplePage() {
         setPeople(null);
         setPeopleError(loadError(e));
       });
-    return subscribeUser(refreshIdentity);
+    return subscribeIdentity(refreshIdentity);
   }, []);
   const load = useCallback((p: string) => {
     if (!p) return;

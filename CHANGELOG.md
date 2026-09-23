@@ -18,9 +18,34 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- The REST create models refuse an unknown field with a 422: tasks, notes, questions, decisions, standups, events, blockers, intake, capture, engagements, lessons, promises, milestones, absences, private notes, `POST /api/notifications/read`, `POST /api/users/{name}/rename`, and `POST /api/week/plan`. An unknown field was dropped, so a misspelled `visibility` filed a row at the workspace tier. A client that sends extra fields to these routes must stop sending them.
+- An `/api` request body over 1 MB returns 413 before it is parsed, with or without a Content-Length. Multipart uploads, the forge webhook, and the remote MCP endpoint keep their own limits.
+- Event rows from `/api/events`, the digest, and My Day carry `starts_local` and `ends_local`, the times on the team clock. `starts_at` and `ends_at` are UTC.
+- Extension API `1.0.0` is unchanged.
+
 ### Behavior
 
+- Event times without an offset are the team's clock, stored as UTC. The calendar feed writes UTC times with `Z` and a `DTSTAMP`, keeps 90 days of past events, and skips an event whose end is before its start. All-day events reach the digest and My Day at and west of UTC.
+- Findings, blockers, intake, portfolio, and spend: a re-fired finding loses the disposition of the older one. Resolving one blocker no longer unblocks a task that another blocker still holds, and a blocker on a done or void task leaves it closed. An experiment cannot be accepted without an engagement. Void work counts as finished. Monthly spend and budgets use the team's month, and the weekly spend chart starts on Monday.
+- Search filters by kind before it cuts the result list, and memory recall reads past the first 20 matches. Promise and engagement edits reach the search index. Adoption findings take the last digest slots.
+- A disconnect before the first chat frame releases the turn lock. A deleted shared-chat message leaves the agent sessions that copied it. A solo chat deleted during a turn stays deleted, and a delete during a turn is refused. `/as` accepts an attachment with no text. A slash command or `/flock` with an attachment is refused with a message that says the file was not read. A refusal no longer starts a thread, and a failed command no longer shows the server error text.
+- Agents: an unattended run respects the consult cap, and the daily token ceiling counts consults and planners on the run. Governed tools do their database work off the event loop. The image describer, the digest narrator, and long-chat summaries record their token use.
+- Personal MCP tools: the tool version is a SHA-256 of the whole tool contract, so every personal MCP tool asks for first-use approval once after this release, and again when its description, schema, or annotations change. An OAuth sign-in completes only in the browser that started it.
+- Auth and visibility: an API key cannot be minted for a deactivated account. A rename moves the private journal in the same transaction as the roster. A trusted-header caller with no X-User cannot edit crew rows. Accepting a revoked invitation does not tell the caller whether the room is archived.
+- Rate caps: supersede, milestone and blocker edits, and the CI webhook take the write cap. A 1:1 brief pull takes its own cap. Refusals no longer quote the rejected value for provenance kinds, renames, personas, playbook start dates, and duplicate crew or engagement names.
+- Frontend: status messages stay live under the task panel and the capture dialog, and success messages use the confirmation tone. Review verdicts settle against the current queue. Settings and People reload on identity changes only, so a theme paint or a write in another tab no longer clears an unsaved 1:1 note draft. Shared chat keeps its read cursor behind sends and removes deleted messages from open rooms. A chat reply that ends without a done frame is marked as cut. Focus moves to the next row after a delete. Intake number fields can be emptied while typing.
+- CLI: server text reaches the terminal without control characters, a failed request prints one line instead of a traceback, `skein config` repairs a corrupt file and keeps it at mode 0600, and `skein attention` never waits more than its timeout.
+
 ### Operations
+
+- Migration `033_chat_message_reference_indexes.sql` indexes the foreign keys to `chat_messages`. Migration `034_mcp_oauth_browser_binding.sql` adds a column to `mcp_oauth_flows`. Neither rewrites rows.
+- Events filed before this release in a zone other than UTC were stored as typed, and now read as UTC. Each shows shifted by the zone offset. Delete those events and add them again.
+- `rss` left the `SKEIN_EXTRA_TOOLS` allowlist: the model chose its URL and request headers with no egress filter, and feedparser opens a local path. A deployment that lists it logs a refusal and loads the other tools.
+- `backend/requirements.lock` carries hashes, and the backend image installs it with `--require-hashes`. `scripts/audit-deps.sh` audits that lock. The build backend is pinned to `setuptools==84.0.0`.
+- The workplace template installs `skein-agents` through `skein-agents.lock` with `--require-hashes`. The template digest is zeros and fails the build until the consumer pins the digest of the published wheel.
+- The example production egress policy allows DNS on port 5353, the CoreDNS pod port that OpenShift matches after the Service rewrite. The example dev Routes carry an IP allowlist annotation with a placeholder range that admits nobody until an operator sets it. The images keep code read-only to the runtime user, and the workplace Deployments carry resource requests and limits.
+- The Gitea CI checkout token no longer lands in `.git/config`, and the Gitea e2e job has the postgres service the GitHub job has.
+- Same-day backup retries mirror the partial backup instead of dumping again. The nightly chain check streams the ledger in batches. Retention prunes interval-job receipts.
 
 ## 0.6.6 — 2026-09-23
 
