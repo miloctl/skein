@@ -75,6 +75,49 @@ def persona_session_id(thread_id: str, persona: str) -> str:
     return f"{thread_id}{PERSONA_SEP}{persona}"
 
 
+def transcript_header(author_kind: str, author: str, message_id: int) -> str:
+    """How a room agent's prompt labels one shared message
+    (shared_chat_agents._prompt). delete_shared_message finds the copies in
+    agent sessions by this header, so the two must stay one function."""
+    return f"[{author_kind} {author or 'Skein'} | message {message_id}]\n"
+
+
+def _replace_text(value, old: str, new: str):
+    if isinstance(value, str):
+        return value.replace(old, new)
+    if isinstance(value, list):
+        return [_replace_text(item, old, new) for item in value]
+    if isinstance(value, dict):
+        return {key: _replace_text(item, old, new) for key, item in value.items()}
+    return value
+
+
+def _redact_agent_copies(thread_id: str, row: dict) -> None:
+    """A room agent's model session keeps the transcript it was given and
+    replays it on every later turn, so a deleted message's text stayed with
+    the provider. The delete promise, that the text leaves the database,
+    covers those copies."""
+    if not row["content"]:
+        return
+    header = transcript_header(row["author_kind"], row["author"], row["id"])
+    prefix = f"{thread_id}{PERSONA_SEP}"
+    for stored in db.query(
+        "SELECT session_id, agent_id, message_id, payload FROM session_messages"
+        " WHERE left(session_id, ?) = ? AND strpos(payload, ?) > 0",
+        (len(prefix), prefix, f"| message {row['id']}]"),
+    ):
+        payload = _replace_text(
+            json.loads(stored["payload"]),
+            header + row["content"],
+            header + "[deleted by its author]",
+        )
+        db.execute(
+            "UPDATE session_messages SET payload = ?"
+            " WHERE session_id = ? AND agent_id = ? AND message_id = ?",
+            (json.dumps(payload), stored["session_id"], stored["agent_id"], stored["message_id"]),
+        )
+
+
 def default_thread_id(owner: str) -> str:
     """The thread a caller that names none gets — one per person.
 
@@ -228,14 +271,19 @@ def log_message(thread_id: str, owner: str, role: str, content: str) -> None:
     if not content.strip():
         return
     now = db.now()
-    db.execute(
-        "INSERT INTO chat_threads"
-        " (id, owner, title, created_at, updated_at, kind, created_by)"
-        " VALUES (?, ?, 'New chat', ?, ?, 'solo', ?)"
-        " ON CONFLICT DO NOTHING",
-        (thread_id, owner, now, now, owner),
-    )
+    # Only a USER message starts a chat. A reply logged after the chat was
+    # deleted (a flock or command turn holds no turn lease) recreated it.
+    if role == "user":
+        db.execute(
+            "INSERT INTO chat_threads"
+            " (id, owner, title, created_at, updated_at, kind, created_by)"
+            " VALUES (?, ?, 'New chat', ?, ?, 'solo', ?)"
+            " ON CONFLICT DO NOTHING",
+            (thread_id, owner, now, now, owner),
+        )
     row = db.query_one("SELECT owner, kind FROM chat_threads WHERE id = ?", (thread_id,))
+    if row is None:
+        return
     if row and (row["owner"] != owner or row["kind"] != "solo"):
         # id collision with another owner or a private group: never cross-file
         # a solo conversation into a transcript this route does not own
@@ -561,6 +609,20 @@ def delete_thread(thread_id: str, owner: str) -> dict:
     from ..agents.session_store import delete_thread_sessions
 
     _own(thread_id, owner)
+    # A turn in flight closes by logging its reply and its session. Deleted
+    # under it, the chat came back with one orphan message, and the orphan
+    # session replayed on the next chat with the same id (default- ids are
+    # derived from the name).
+    if db.query_one(
+        "SELECT 1 FROM job_runs WHERE (job = ? OR left(job, ?) = ?)"
+        " AND NULLIF(lease_until, '')::timestamptz > clock_timestamp() LIMIT 1",
+        (
+            f"chat-turn:{thread_id}",
+            len(f"chat-turn:{thread_id}{PERSONA_SEP}"),
+            f"chat-turn:{thread_id}{PERSONA_SEP}",
+        ),
+    ):
+        raise db.Conflict("This chat is answering a message. Wait for the reply, then delete it.")
     db.execute("DELETE FROM chat_messages WHERE thread_id = ?", (thread_id,))
     db.execute("DELETE FROM chat_threads WHERE id = ?", (thread_id,))
     # a trace names the person, the thread, every member and what each spent,
@@ -1062,10 +1124,14 @@ def _invited_agent(thread_id: str, agent: str) -> bool:
     )
 
 
-def _leading_agent_mentions(content: str) -> list[str]:
+def _leading_agent_mentions(content: str, called: set[str]) -> list[str]:
+    """The called agents at the head of the message, stopping at the first
+    @token that is not one of them: the rule components/shared-chat.tsx
+    invokedAgents applies. Reading every leading @token refused "@agent @dana
+    please" whatever the client sent."""
     mentions: list[str] = []
     rest = content.lstrip()
-    while match := _LEADING_AGENT.match(rest):
+    while (match := _LEADING_AGENT.match(rest)) and match[1] in called:
         if match[1] not in mentions:
             mentions.append(match[1])
         rest = rest[match.end() :]
@@ -1095,7 +1161,7 @@ def post_shared_message(
         raise ValueError("one message can call at most four agents")
     if any(not _AGENT_SLUG.fullmatch(agent) for agent in agents):
         raise ValueError("agent is not available in this shared chat")
-    if agents and set(_leading_agent_mentions(content)) != set(agents):
+    if agents and set(_leading_agent_mentions(content, set(agents))) != set(agents):
         raise ValueError("agent calls must match the leading @mentions in the message")
     from . import mentions
 
@@ -1230,6 +1296,7 @@ def delete_shared_message(thread_id: str, person: str, message_id: int) -> dict:
             "UPDATE chat_messages SET content = '', deleted_at = ? WHERE id = ? RETURNING *",
             (db.now(), message_id),
         )
+        _redact_agent_copies(thread_id, row)
         db.log_activity(
             person,
             "delete_shared_chat_message",

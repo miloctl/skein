@@ -2394,3 +2394,67 @@ def test_a_kept_execution_keeps_its_lease_until_released(client):
     shared_chat_agents._release_execution("held-lease", "held-token")
     assert _held_state()["execution_active"] is False
     assert _held_state()["lease_owner"] == ""
+
+
+def test_a_deleted_message_leaves_the_room_agent_sessions(client):
+    """A room agent's model session keeps the transcript it was given and
+    replays it on every later turn. The delete promise, that the text leaves
+    the database, covers those copies too."""
+    from strands.types.content import Message
+    from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
+
+    from app.agents.session_store import DatabaseSessionRepository
+    from app.services import chat_threads
+
+    agent = sorted(personas.bench_slugs())[0]
+    room, mira = create_room(client)
+    add_agent(client, room["id"], mira, agent)
+    sent = post_message(client, room["id"], mira, "the vault code is 4471", "k-secret")
+    session_id = chat_threads.persona_session_id(room["id"], agent)
+    header = chat_threads.transcript_header("human", "mira", sent["id"])
+    repo = DatabaseSessionRepository()
+    repo.create_session(Session(session_id=session_id, session_type=SessionType.AGENT))
+    repo.create_agent(
+        session_id, SessionAgent(agent_id="default", state={}, conversation_manager_state={})
+    )
+    prompt: Message = {
+        "role": "user",
+        "content": [{"text": f"<t>\n{header}the vault code is 4471\n</t>"}],
+    }
+    repo.create_message(session_id, "default", SessionMessage.from_message(prompt, 0))
+
+    deleted = client.delete(f"/api/shared-chats/{room['id']}/messages/{sent['id']}", headers=mira)
+    assert deleted.status_code == 200, deleted.text
+    payloads = [
+        r["payload"]
+        for r in db.query(
+            "SELECT payload FROM session_messages WHERE session_id = ?", (session_id,)
+        )
+    ]
+    assert payloads and not any("4471" in p for p in payloads)
+
+
+def test_an_agent_call_can_be_followed_by_a_person_mention(client):
+    """The client stops at the first leading token that is not an invited
+    agent. The server read every leading @token, so "@agent @dana please"
+    was refused whatever the client sent, and no payload could send it."""
+    agent = sorted(personas.bench_slugs())[0]
+    room, mira = create_room(client)
+    add_agent(client, room["id"], mira, agent)
+    response = client.post(
+        f"/api/shared-chats/{room['id']}/messages",
+        json={
+            "message": f"@{agent} @dana please check",
+            "client_key": "k-mixed",
+            "invoke_agent": agent,
+        },
+        headers=mira,
+    )
+    assert response.status_code == 200, response.text
+    # an agent call must still LEAD: a person first is refused
+    refused = client.post(
+        f"/api/shared-chats/{room['id']}/messages",
+        json={"message": f"@dana @{agent} please", "client_key": "k-late", "invoke_agent": agent},
+        headers=mira,
+    )
+    assert refused.status_code == 400

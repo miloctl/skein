@@ -414,3 +414,30 @@ def test_the_stored_session_keeps_the_name_and_drops_the_bytes():
 def test_an_ordinary_message_passes_through_the_session_store_unchanged():
     payload = {"message": {"role": "user", "content": [{"text": "hello"}]}}
     assert session_store._without_attachment_bytes(payload) is payload
+
+
+@pytest.mark.parametrize("message", ["/flock engineering what does the file say", "/help"])
+def test_a_text_only_command_says_it_did_not_read_the_file(client, message):
+    """The file uploaded and used quota, and the command ignored it: the
+    members answered from the text alone, and nothing said so."""
+    fid = _upload(client, "notes.md", b"# the plan")
+    r = client.post(
+        "/api/chat", json={"thread_id": "t-cmd-file", "message": message, "attachments": [fid]}
+    )
+    assert r.status_code == 200
+    assert "The attached file was not read." in r.text
+
+
+def test_a_file_only_message_to_a_persona_reaches_the_persona(client, monkeypatch):
+    """Sticky persona mode sends "/as <slug> " with the file; the missing text
+    made it a usage error and dropped the file."""
+    from app.services import personas
+
+    slug = sorted(personas.bench_slugs())[0]
+    fid = _upload(client, "notes.md", b"# the plan")
+    r = client.post(
+        "/api/chat",
+        json={"thread_id": "t-as-file", "message": f"/as {slug} ", "attachments": [fid]},
+    )
+    assert r.status_code == 200
+    assert "Usage:" not in r.text

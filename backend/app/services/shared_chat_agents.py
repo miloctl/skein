@@ -430,6 +430,8 @@ def _receipt_text(rows: list[dict]) -> str:
 
 
 def _prompt(run: dict) -> str:
+    from . import chat_threads
+
     previous = db.query_one(
         "SELECT trigger_message_id FROM chat_agent_runs"
         " WHERE thread_id = ? AND agent = ? AND status = 'completed'"
@@ -457,8 +459,8 @@ def _prompt(run: dict) -> str:
         stopped = False
         for index, row in enumerate(page):
             item = (
-                f"[{row['author_kind']} {row['author'] or 'Skein'} | message {row['id']}]\n"
-                f"{row['content']}"
+                chat_threads.transcript_header(row["author_kind"], row["author"], row["id"])
+                + row["content"]
             )
             addition = len(item) + (len(separator) if kept else 0)
             if kept and len(marker) + size + addition > _MAX_TRANSCRIPT_CHARS:
