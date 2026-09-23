@@ -2028,7 +2028,7 @@ def get_review_stats(
 ):
     with db.read_transaction():
         _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.review.stats")
-        return review.review_stats(viewer)
+        return review.review_stats(viewer, admin=is_administrator(user, request))
 
 
 @router.get("/review/season")
@@ -2040,7 +2040,7 @@ def get_review_season(
 ):
     with db.read_transaction():
         _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.review.season")
-        return review.season_readout()
+        return review.season_readout(user, admin=is_administrator(user, request))
 
 
 class FeedbackIn(BaseModel):
@@ -2093,8 +2093,13 @@ def post_week_close(user: CurrentUser, force: bool = False):
 
 
 @router.get("/agents")
-def get_agents(user: CurrentUser):
-    return delegation.mission_control()
+def get_agents(user: CurrentUser, request: Request):
+    admin = is_administrator(user, request)
+    return [
+        row
+        for row in delegation.mission_control()
+        if users.person_agent_visible(row["agent"], user, admin=admin)
+    ]
 
 
 @router.get("/agents/status")
@@ -2389,7 +2394,11 @@ def get_agent_inbox(
     request: Request,
     subject: PolicySubjectDep,
 ):
-    if not users.is_agent(agent):
+    # another person's `<name>-mcp` inbox holds their rejected proposals and
+    # reviewer notes: it answers as an absent agent does, so it names nobody
+    if not users.is_agent(agent) or not users.person_agent_visible(
+        agent, user, admin=is_administrator(user, request)
+    ):
         # names no name: an error never echoes a rejected value back (CLAUDE.md)
         raise HTTPException(status_code=404, detail="no such agent. Check the name.")
     policy = projection_policy.ProjectionPolicy(

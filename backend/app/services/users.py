@@ -75,6 +75,22 @@ def refuse_mcp_suffix(name: str) -> None:
         raise ValueError("a name that ends in -mcp is reserved for MCP agent identities")
 
 
+def is_person_agent(name: str) -> bool:
+    """`<person>-mcp`: the agent a person's own MCP calls act through
+    (refuse_mcp_suffix reserves the suffix for it)."""
+    return str(name).strip().lower().endswith(MCP_SUFFIX)
+
+
+def person_agent_visible(agent: str, viewer: str, *, admin: bool = False) -> bool:
+    """Whether `viewer` may see this agent's activity, verdicts and inbox.
+
+    A person agent's record is that person's: its rejection streak is their
+    judgment, and its actions are their actions. The owner sees it, like
+    their own rows, and an administrator sees it where the trust page
+    already lets one (routes/api.py::get_agents_trust). Nobody else does."""
+    return not is_person_agent(agent) or admin or agent == f"{viewer}{MCP_SUFFIX}"
+
+
 def refuse_reserved_name(name: str) -> None:
     """One predicate for every identity entry point — ensure_user, rename, and
     the credential doors in routes/deps.py.
