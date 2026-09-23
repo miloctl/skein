@@ -33,6 +33,15 @@ class _FakeModel:
         self.config.update(kwargs)
 
 
+@pytest.fixture(autouse=True)
+def _open_consult_budget():
+    """These tests call the consult tool as if inside a chat turn, where the
+    route opens the budget first (routes/chat.py start_consults). An unopened
+    budget refuses (identity.take_consult). conftest resets it after each
+    test, so a spent box never reaches the next one."""
+    identity.start_consults()
+
+
 @pytest.fixture
 def real_provider(fresh_db, monkeypatch):
     """A build_agent that constructs a genuine Agent. build_agent returns
@@ -1095,6 +1104,7 @@ def test_the_slug_survives_composer_shaped_input(real_provider, monkeypatch):
     consult = _consult_tool(agent)
     monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: _Answering())
     for shape in ("@code-reviewer", "Code-Reviewer", " code-reviewer ", "code-reviewer,"):
+        identity.start_consults()  # each shape is its own turn
         out = json.loads(asyncio.run(_drain(consult(shape, "q")))[-1])
         assert out.get("specialist") == "code-reviewer", f"rejected the shape {shape!r}"
 

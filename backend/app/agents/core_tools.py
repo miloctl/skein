@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from collections.abc import Iterable
 from typing import Any, cast
@@ -129,34 +130,28 @@ class GovernedCoreTool(AgentTool):
         approved_decision: PolicyDecision | None = None,
         **kwargs: Any,
     ):
-        if self.effect == "write":
+        async def collect() -> list:
+            events = self._run(
+                tool_use,
+                invocation_state,
+                subject,
+                actor,
+                approved_fingerprint,
+                approved_decision,
+                **kwargs,
+            )
+            if self.effect != "write":
+                return [event async for event in events]
             # Strands stops after the terminal tool event. Yielding it inside
             # this transaction closes the generator and rolls the write back.
             with db.transaction():
-                events = [
-                    event
-                    async for event in self._run(
-                        tool_use,
-                        invocation_state,
-                        subject,
-                        actor,
-                        approved_fingerprint,
-                        approved_decision,
-                        **kwargs,
-                    )
-                ]
-            for event in events:
-                yield event
-            return
-        async for event in self._run(
-            tool_use,
-            invocation_state,
-            subject,
-            actor,
-            approved_fingerprint,
-            approved_decision,
-            **kwargs,
-        ):
+                return [event async for event in events]
+
+        # On a worker thread with its own loop (asyncio.to_thread copies the
+        # context: identity, policy engine, receipts). The pool wait, the
+        # policy hold and the ledger flush are blocking I/O, and on the event
+        # loop a held row freezes every open chat stream in the process.
+        for event in await asyncio.to_thread(lambda: asyncio.run(collect())):
             yield event
 
     async def _run(

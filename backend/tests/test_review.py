@@ -869,3 +869,21 @@ def test_separated_duties_still_let_the_requester_reject(fresh_db, monkeypatch):
     monkeypatch.setattr(config, "REVIEW_SEPARATION", True)
 
     assert review.reject_change(proposal["id"], actor="mira")["status"] == "rejected"
+
+
+def test_approving_a_change_holds_the_row_it_is_about(fresh_db, monkeypatch):
+    """The hold read a source_id column pending_changes does not have, so it
+    never ran: a relink committed between the policy re-check and the apply
+    settled the proposal under the old project's rule."""
+    from app.services import policy_context, review, users, work
+
+    users.ensure_user("scout", kind="agent")
+    tid = work.create_task(title="probe", actor="tester")["id"]
+    held: list[tuple[str, int]] = []
+    real = policy_context.hold_resource
+    monkeypatch.setattr(
+        policy_context, "hold_resource", lambda e, i: (held.append((e, i)), real(e, i))[1]
+    )
+    p = review.propose_change("task", "update", {"title": "renamed"}, entity_id=tid, actor="scout")
+    review.approve_change(p["id"], actor="tester")
+    assert ("task", tid) in held

@@ -155,18 +155,18 @@ def reset_consults() -> None:
 def take_consult() -> bool:
     """Claim one consult, or False when the turn's budget is spent.
 
-    An unopened budget opens ITSELF at the default rather than waving the call
-    through. Fails closed on purpose: the depth cap is structural, but this cap
-    lives at a call site, so a future build_agent caller with persona == "" —
-    a scheduled digest, a CLI turn — would otherwise get an unbounded
-    model-chosen fan-out and no test would fail.
+    An unopened budget REFUSES. Fails closed on purpose: the depth cap is
+    structural, but this cap lives at a call site, so a build_agent caller
+    with persona == "" that forgets start_consults must get no consult rather
+    than an unbounded one. Opening a box here does not bind either: each
+    strands tool call runs in a COPIED context, so each call would open its
+    own box and the cap would never count past one.
 
     The ContextVar default stays None because a mutable default is ONE list
     shared by every context in the process."""
     box = _consults.get()
     if box is None:
-        box = [0, MAX_CONSULTS_PER_TURN]
-        _consults.set(box)
+        return False
     if box[0] >= box[1]:
         return False
     box[0] += 1

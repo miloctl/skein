@@ -468,3 +468,43 @@ def test_numeric_string_ids_resolve_the_typed_policy_resource(fresh_db):
         assert resource.type == "task"
         assert resource.id == str(tid)
         assert resource.project_type == "regulated"
+
+
+def test_a_governed_write_keeps_its_database_work_off_the_event_loop(fresh_db):
+    """The transaction, the policy hold (up to a 5 s lock wait) and the ledger
+    flush ran on the event loop: with the task row held elsewhere, every chat
+    stream in the process froze (1.85 s measured)."""
+    import threading
+
+    from app.services import work
+
+    task = work.create_task("Off the loop")["id"]
+    seen: dict[str, int] = {}
+
+    def policy_rule(request):
+        if request.action == "skein.tool.report_progress":
+            seen["policy"] = threading.get_ident()
+        return None
+
+    wrapper = GovernedCoreTool(_Delegate("report_progress"), effect="write", risk="high")
+    token = set_policy_engine(PolicyEngine((policy_rule,)))
+
+    async def run():
+        seen["loop"] = threading.get_ident()
+        return [
+            event
+            async for event in wrapper._stream(
+                {"toolUseId": "off-loop", "input": {"task_id": task, "note": "n"}},
+                {},
+                PolicySubject("mira"),
+                "delivery-agent",
+                "",
+            )
+        ]
+
+    try:
+        events = asyncio.run(run())
+    finally:
+        reset_policy_engine(token)
+    assert events[-1]["status"] == "success"
+    assert seen["policy"] != seen["loop"]

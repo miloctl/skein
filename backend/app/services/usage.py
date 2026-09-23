@@ -103,12 +103,19 @@ def spent_today(agent: str) -> dict:
     Tokens, not dollars: an unpriced model costs NULL, and a ceiling that only
     binds on priced models is no ceiling at all on the deployment most likely
     to need one (keyless local or subscription cloud). Cost rides along for
-    the report."""
+    the report.
+
+    Counts the rows on this agent's own run and wake threads too
+    (agent_runner.run_one names them run:<agent>:… and wake:<agent>:…): a
+    consult or planner turn records under its own name there, and counted by
+    name alone it escapes the daily ceiling."""
     row = (
         db.query_one(
             "SELECT COUNT(*) AS calls, COALESCE(SUM(input_tokens + output_tokens), 0) AS tokens,"
-            " SUM(cost_usd) AS cost FROM usage_log WHERE agent_name = ? AND created_at >= ?",
-            (agent, db.local_midnight_utc(db.today())),
+            " SUM(cost_usd) AS cost FROM usage_log WHERE created_at >= ? AND ("
+            " agent_name = ? OR (split_part(thread_id, ':', 1) IN ('run', 'wake')"
+            " AND split_part(thread_id, ':', 2) = ?))",
+            (db.local_midnight_utc(db.today()), agent, agent),
         )
         or {}
     )

@@ -1213,3 +1213,56 @@ def test_a_deactivated_agent_gets_no_unattended_turn(fresh_db, monkeypatch):
     monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: pytest.fail("built"))
     out = agent_runner.run_one("research-agent", explicit_key="1")
     assert out["ran"] is False and "deactivated" in out["reason"]
+
+
+def test_the_consult_cap_binds_in_an_unattended_run(fresh_db, monkeypatch):
+    """strands runs each tool call in its own task with a COPIED context. An
+    unopened budget opened a fresh box in every copy, so the cap of 2 never
+    bound, and a model fan-out ran as many specialist turns as it chose."""
+    import contextvars
+
+    from app.agents import identity, team_agent
+
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    taken: list[bool] = []
+
+    def build(thread, user="", persona="", stateless=False):
+        def turn(_message, **_kw):
+            for _ in range(4):
+                taken.append(contextvars.copy_context().run(identity.take_consult))
+            return "done"
+
+        return turn
+
+    monkeypatch.setattr(team_agent, "build_agent", build)
+    assert agent_runner.run_one("research-agent")["ran"] is True
+    assert taken == [True, True, False, False]
+
+
+def test_an_unopened_consult_budget_refuses(fresh_db):
+    """Fails closed: a caller that never opened a budget gets no consult."""
+    from app.agents import identity
+
+    identity.reset_consults()
+    assert identity.take_consult() is False
+
+
+def test_a_runs_sub_agent_spend_counts_toward_its_daily_ceiling(fresh_db):
+    """Consults and the planner record under their own names on the run's
+    thread, so the daily ceiling read only the outer agent's rows."""
+    from app import db
+    from app.services import usage
+
+    for name, thread in (
+        ("research-agent", "run:research-agent:2026-09-23"),
+        ("code-reviewer", "run:research-agent:2026-09-23"),
+        ("planner", "wake:research-agent:k1"),
+    ):
+        fresh_db.execute(
+            "INSERT INTO usage_log (thread_id, agent_name, model_id, input_tokens,"
+            " output_tokens, cycles, latency_ms, created_at) VALUES (?, ?, 'm', 10, 0, 1, 5, ?)",
+            (thread, name, db.now()),
+        )
+    assert usage.spent_today("research-agent")["tokens"] == 30
