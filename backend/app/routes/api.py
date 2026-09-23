@@ -2456,6 +2456,12 @@ def get_context_pack(
         "rest",
         viewer,
     )
+    if not engagement:
+        # before the snapshot: the first read publishes, and a ledger row
+        # inside db.read_transaction() is refused (db._txn)
+        context_pack.ensure_published(
+            actor=user, crew_id=crew, viewer=viewer, resource_filter=policy.permits
+        )
     with db.read_transaction():
         if engagement:
             attributes = policy_context.existing_scoped("engagement", engagement, viewer)

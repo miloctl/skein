@@ -161,10 +161,14 @@ def _shape_fault(since_seq: int) -> dict | None:
 
 
 def _verify_chain_snapshot(since_seq: int = 0, expected_prev: str = "") -> tuple[dict, int, str]:
-    """Walk one repeatable-read snapshot and return its exact live tip."""
-    rows = db.query(
-        "SELECT seq, hash, prev_hash, actor, action, detail, created_at FROM activity"
-        " WHERE seq IS NOT NULL AND seq > ? ORDER BY seq ASC",
+    """Walk one repeatable-read snapshot and return its exact live tip.
+
+    The walk STREAMS (db.query_batches) inside the caller's snapshot. The
+    ledger is never pruned, and fetched whole a million rows cost about
+    900 MB, which OOM-kills a 1Gi replica on the daily findings run."""
+    span = db.query_row(
+        "SELECT COUNT(*) AS n, MIN(seq) AS first, MAX(seq) AS last FROM activity"
+        " WHERE seq IS NOT NULL AND seq > ?",
         (since_seq,),
     )
     unchained = db.query_row("SELECT COUNT(*) AS n FROM activity WHERE seq IS NULL")["n"]
@@ -175,9 +179,9 @@ def _verify_chain_snapshot(since_seq: int = 0, expected_prev: str = "") -> tuple
     marks = _settings(HIGH_SEQ, HIGH_HASH, LEGACY_UNCHAINED)
     out: dict = {
         "ok": True,
-        "entries": len(rows),
-        "chained_from": rows[0]["seq"] if rows else None,
-        "chained_through": rows[-1]["seq"] if rows else None,
+        "entries": span["n"],
+        "chained_from": span["first"],
+        "chained_through": span["last"],
         "broken_at": None,
         "reason": "",
         "unchained_rows": unchained,
@@ -269,18 +273,27 @@ def _verify_chain_snapshot(since_seq: int = 0, expected_prev: str = "") -> tuple
                 reason="The row content does not match its digest.",
             )
             return out, latest, tail["hash"] if tail else ""
-    elif rows and rows[0]["seq"] != 1:
+    elif span["n"] and span["first"] != 1:
         out.update(
             ok=False,
-            broken_at=rows[0]["seq"],
+            broken_at=span["first"],
             reason=(
-                f"The chain starts at {rows[0]['seq']}, not 1. Compare the ledger"
+                f"The chain starts at {span['first']}, not 1. Compare the ledger"
                 " with the most recent backup."
             ),
         )
         return out, latest, tail["hash"] if tail else ""
 
     want = 1 if since_seq == 0 else since_seq + 1
+    rows = (
+        row
+        for batch in db.query_batches(
+            "SELECT seq, hash, prev_hash, actor, action, detail, created_at FROM activity"
+            " WHERE seq IS NOT NULL AND seq > ? ORDER BY seq ASC",
+            (since_seq,),
+        )
+        for row in batch
+    )
     for row in rows:
         seq = row["seq"]
         if seq != want:
@@ -648,8 +661,13 @@ def adopt_unchained(actor: str = "scheduler") -> dict:
             digest = db.activity_hash(
                 seq, row["created_at"], row["actor"], row["action"], row["detail"] or "", prev
             )
+            # COALESCE: a row from before migration 008 can hold a NULL
+            # detail, and PostgreSQL checks the NOT VALID
+            # activity_detail_present constraint on this UPDATE. The digest
+            # above already hashes it as "", so the stored row matches it.
             db.execute(
-                "UPDATE activity SET seq = ?, hash = ?, prev_hash = ? WHERE id = ?",
+                "UPDATE activity SET seq = ?, hash = ?, prev_hash = ?,"
+                " detail = COALESCE(detail, '') WHERE id = ?",
                 (seq, digest, None if prev == db.GENESIS_PREV else prev, row["id"]),
             )
             prev = digest

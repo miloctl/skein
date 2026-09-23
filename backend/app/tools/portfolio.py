@@ -249,6 +249,9 @@ def get_context_pack(engagement_id: int = 0) -> str:
         agent=agent_identity(),
         tool="get_context_pack",
     )
+    if not engagement_id:
+        # before the snapshot: the first read publishes (context_pack.ensure_published)
+        context_pack.ensure_published(actor=agent_identity(), resource_filter=policy.permits)
     with db.read_transaction():
         if engagement_id:
             attributes = policy_context.existing_scoped("engagement", engagement_id, scope.NOBODY)

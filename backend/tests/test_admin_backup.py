@@ -767,13 +767,11 @@ def test_backup_if_stale_retries_partial_without_erasing_the_dump(
     before = previous.read_bytes()
     retry = admin.backup_if_stale()
     assert retry["status"] == "ok"
+    # The dump was sound, so neither retry pays for a second pg_dump: the
+    # digest case appends its missing line, the mirror case copies again.
+    assert retry["database_path"] == str(previous)
     if failure == "digest":
-        # The dump was sound. Only its digest line was missing, so the retry
-        # appends that line instead of paying for a second pg_dump.
-        assert retry["database_path"] == str(previous)
         assert activity.recorded_backup_digests(previous.name) == {admin._sha256_file(previous)}
-    else:
-        assert retry["database_path"] != str(previous)
     assert previous.read_bytes() == before
     assert admin.backup_if_stale() == {"status": "noop"}
 
@@ -891,3 +889,15 @@ def test_backup_lock_reaches_another_connection(fresh_db, monkeypatch):
                 (f"{db.LOCK_JOB}:backup",),
             )
     assert admin.backup()["status"] in ("ok", "partial")
+
+
+def test_an_unavailable_mirror_does_not_redump_on_every_retry(fresh_db, tmp_path, monkeypatch):
+    """Each retry wrote a new recovery unit, and retention by count then
+    deleted the oldest: 14 restarts in one day with the mirror unmounted left
+    only that day's dumps."""
+    from app.services import admin
+
+    monkeypatch.setenv("SKEIN_BACKUP_MIRROR", str(tmp_path / "not-mounted"))
+    for _ in range(4):
+        assert admin.backup_if_stale()["status"] == "partial"
+    assert len(list(admin._backups_dir().glob("database-*.dump"))) == 1

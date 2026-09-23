@@ -464,6 +464,16 @@ def _txn(
                         with conn.lock:
                             conn.close()
                         raise
+                    # Under REPEATABLE READ the chain tail read after the
+                    # ledger lock sees this transaction's old snapshot, so a
+                    # row here reuses a sequence number whenever another
+                    # append committed first: an intermittent 500. Refused
+                    # every time instead, so the fault shows in tests.
+                    if queued and isolation == IsolationLevel.REPEATABLE_READ:
+                        raise RuntimeError(
+                            "a ledger row cannot be written inside a read snapshot"
+                            " (db.read_transaction). Write it in db.transaction()."
+                        )
                     # INSIDE the transaction, and LAST. A rollback still drops
                     # these rows with the write they describe.
                     _flush_activity(conn, queued)

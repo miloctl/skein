@@ -1579,3 +1579,44 @@ def test_adoption_holds_the_chain_lock_before_ordinary_appends(fresh_db, monkeyp
     assert activity.verify_chain()["ok"]
     rows = db.query("SELECT seq FROM activity WHERE seq IS NOT NULL ORDER BY seq")
     assert [row["seq"] for row in rows] == list(range(1, len(rows) + 1))
+
+
+def test_the_chain_walk_streams_the_ledger(fresh_db, monkeypatch):
+    """The ledger is never pruned. Fetched whole, a million rows cost about
+    900 MB and the daily findings run OOM-killed the only replica (1Gi)."""
+    from app import db
+    from app.services import activity
+
+    for i in range(3):
+        db.log_activity("tester", "probe", f"row {i}")
+    real = db.query
+
+    def guarded(sql, params=()):
+        assert "ORDER BY seq ASC" not in sql, "the chain walk must stream (db.query_batches)"
+        return real(sql, params)
+
+    monkeypatch.setattr(db, "query", guarded)
+    result = activity.verify_chain()
+    assert result["ok"] and result["entries"] >= 3
+
+
+def test_a_legacy_row_with_no_detail_is_adopted(fresh_db):
+    """Rows from before migration 008 can hold a NULL detail. PostgreSQL checks
+    the NOT VALID activity_detail_present constraint on UPDATE, so adoption
+    raised CheckViolation before verify_tail ran, and the anchor never moved
+    again."""
+    _log(1)
+    activity.nightly_verify()
+    db.execute("ALTER TABLE activity DROP CONSTRAINT activity_detail_present")
+    db.execute(
+        "INSERT INTO activity (actor, action, detail, created_at)"
+        " VALUES ('legacy', 'old', NULL, ?)",
+        (db.now(),),
+    )
+    db.execute(
+        "ALTER TABLE activity ADD CONSTRAINT activity_detail_present"
+        " CHECK (detail IS NOT NULL) NOT VALID"
+    )
+    activity._put({db.UNCHAINED_FALLBACKS: "1"})
+    assert activity.nightly_verify()["adopted"] == 1
+    assert activity.verify_chain()["ok"]

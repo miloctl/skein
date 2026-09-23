@@ -64,10 +64,14 @@ class OffLoopSessionManager(RepositorySessionManager):
 
         async def append(event) -> None:
             # LOCK_SESSION, the same lock session_log.py::log_exchange takes.
-            # The SDK derives message_id from its own message index, so a
-            # slash command bridged in while a model turn is appending derives
-            # the SAME id — and create_message's DO UPDATE then overwrites one
-            # message with the other, silently, with no row left to notice.
+            # It serializes the two writers and nothing more: the SDK derives
+            # message_id from its IN-MEMORY index, not from a read under this
+            # lock, so a slash command bridged in while a model turn appends
+            # still derives the same id, and create_message's DO UPDATE
+            # overwrites one message with the other. What prevents that is
+            # the chat-turn lease check in session_log._append_exchange,
+            # which skips the bridge while a model turn holds the thread. Do
+            # not drop that check on the belief that this lock covers it.
             def locked() -> None:
                 with db.transaction():
                     db.name_lock(db.LOCK_SESSION, self.session_id)
