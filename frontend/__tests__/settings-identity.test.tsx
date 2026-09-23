@@ -29,6 +29,7 @@ const state = vi.hoisted(() => ({
   logout: vi.fn(),
   tunables: [] as unknown[],
   interestsFail: false,
+  interests: { interests: "", shared: false },
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -46,7 +47,9 @@ vi.mock("@/lib/api", async (importOriginal) => {
       if (path === "/api/users/growth-interests" && !init?.method)
         return state.interestsFail
           ? Promise.reject(new Error("growth interests are unavailable"))
-          : Promise.resolve({ interests: "" });
+          : Promise.resolve(state.interests);
+      if (path === "/api/users/growth-interests/share")
+        return Promise.resolve({ shared: true });
       if (path === "/api/agents/status")
         return Promise.resolve({ review_gate: true });
       if (path === "/api/settings/agent-automation") {
@@ -472,6 +475,25 @@ describe("Settings identity states", () => {
     await waitFor(() => expect(whoami()).toBe(before + 1));
     act(() => window.dispatchEvent(new StorageEvent("storage", { key: "skein-user" })));
     await waitFor(() => expect(whoami()).toBe(before + 2));
+  });
+
+  it("keeps growth interests to you until you share them", async () => {
+    state.interests = { interests: "RAG evaluation", shared: false };
+    try {
+      render(<SettingsPage />);
+      expect(await screen.findByText("Visible to only you.")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "share with the team" }));
+      await waitFor(() =>
+        expect(
+          state.requests.some(
+            (r) => r.path === "/api/users/growth-interests/share" && r.init?.method === "POST",
+          ),
+        ).toBe(true),
+      );
+      expect(await screen.findByText(/Visible to everyone on the roster\./)).toBeTruthy();
+    } finally {
+      state.interests = { interests: "", shared: false };
+    }
   });
 
   it("locks the growth interests field when its stored value cannot be read", async () => {

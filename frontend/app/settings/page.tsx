@@ -550,6 +550,8 @@ export default function SettingsPage() {
   const [interestsLoaded, setInterestsLoaded] = useState(false);
   const [interestsError, setInterestsError] = useState("");
   const [interestsBusy, setInterestsBusy] = useState(false);
+  // null until the GET answers: no mark describes a state not yet known
+  const [interestsShared, setInterestsShared] = useState<boolean | null>(null);
   const [ctx, setCtx] = useState<{
     strategy: string;
     override: string;
@@ -669,9 +671,10 @@ export default function SettingsPage() {
     // prefill: a write-only field can neither be reviewed nor cleared. If
     // the GET fails, the field must NOT be saveable — any save replaces the
     // stored value, which the reader never saw.
-    api<{ interests: string }>("/api/users/growth-interests")
+    api<{ interests: string; shared: boolean }>("/api/users/growth-interests")
       .then((r) => {
         setInterests(r.interests);
+        setInterestsShared(r.shared);
         setInterestsLoaded(true);
         setInterestsError("");
       })
@@ -1547,9 +1550,10 @@ export default function SettingsPage() {
 
               <Section title="Growth interests (optional)" headingLevel={3}>
                 <p className="mb-2 text-sm text-ink-3">
-                  You declare these yourself. They appear in staffing what-ifs
-                  so interesting work finds you. Display-only — never scored,
-                  never matched automatically.
+                  You declare these yourself. Only you can see them until you
+                  share them. Shared interests appear on the roster and in
+                  staffing what-ifs, so interesting work finds you. They are
+                  never scored or matched automatically.
                 </p>
                 <label htmlFor="growth-interests" className="mb-1 block text-xs text-ink-3">Growth interests</label>
                 <div className="flex gap-2">
@@ -1598,6 +1602,37 @@ export default function SettingsPage() {
                 </p>
                 {interestsError ? (
                   <p className="mt-1 text-xs text-danger">{interestsError}</p>
+                ) : null}
+                {interestsShared === true ? (
+                  <p className="mt-1 text-xs text-ink-3">
+                    Visible to everyone on the roster. They also see each
+                    change you save.
+                  </p>
+                ) : interestsShared === false && interests.trim() ? (
+                  <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-3">
+                    <span>Visible to only you.</span>
+                    {strong ? (
+                      <button
+                        onClick={async () => {
+                          try {
+                            await api("/api/users/growth-interests/share", {
+                              method: "POST",
+                            });
+                            setInterestsShared(true);
+                            reportStatus(
+                              "Everyone on the roster now sees your saved growth interests.",
+                              "confirmation",
+                            );
+                          } catch (e) {
+                            reportStatus(actionError(e));
+                          }
+                        }}
+                        className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                      >
+                        share with the team
+                      </button>
+                    ) : null}
+                  </p>
                 ) : null}
               </Section>
 

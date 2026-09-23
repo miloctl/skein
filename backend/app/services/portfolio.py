@@ -690,7 +690,9 @@ def what_if(
     }
     interests = {
         r["name"]: r["growth_interests"]
-        for r in db.query("SELECT name, growth_interests FROM users WHERE growth_interests != ''")
+        for r in db.query(
+            "SELECT name, growth_interests FROM users WHERE growth_interests != '' AND growth_shared"
+        )
     }
     away: dict[str, str] = {}
     # ordered by starts_on: keep the NEAREST window. The kind shows at the
