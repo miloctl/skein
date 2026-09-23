@@ -443,6 +443,7 @@ def cmd_config(args):
         import getpass
 
         args.key = getpass.getpass("API key (sk-skein-…): ").strip()
+    before = {field: cfg.get(field) for field in ("url", "key", "user")}
     for field in ("url", "key", "user"):
         value = getattr(args, field)
         if value:
@@ -451,6 +452,12 @@ def cmd_config(args):
         save_config(cfg)
     except OSError as exc:
         sys.exit(f"error: cannot write {CONFIG_PATH} ({exc.strerror}). Check its permissions.")
+    # A cache belongs to the identity that fetched it. Kept across a new key,
+    # name or server, `skein my-day --cached` printed the previous person's
+    # briefing, private task titles included.
+    if any(cfg.get(field) != value for field, value in before.items()):
+        for name in ("my-day.cache", "attention.cache"):
+            (CONFIG_PATH.parent / name).unlink(missing_ok=True)
     shown = {**cfg, "key": (cfg.get("key", "")[:16] + "…") if cfg.get("key") else ""}
     print(json.dumps(shown, indent=1))
 

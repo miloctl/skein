@@ -336,6 +336,9 @@ export async function signOut(): Promise<void> {
       checkGeneration(expected);
       blockWeakFallback = false;
       markEnded("signed-out");
+      // The weak fallback reads the last picked name (lib/api.ts USER_KEY).
+      // Left in place, the next person on a shared browser acts as it.
+      try { window.localStorage.removeItem("skein-user"); } catch {}
       publish({ ...ANONYMOUS, status: "ready", error: "" });
       window.localStorage.setItem(SESSION_EVENT_KEY, randomString(16));
     });

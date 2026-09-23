@@ -291,6 +291,21 @@ def test_the_branch_slug_is_git_safe():
     assert cli._slug("a" * 3 + " b c d e f g h") == "aaa-b-c-d-e-f"  # capped at six words
 
 
+def test_a_new_identity_drops_the_previous_ones_caches(monkeypatch, capsys, tmp_path):
+    """`my-day --cached` printed the previous identity's briefing after a key
+    or name change, private task titles included."""
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
+    cli.cmd_config(Namespace(url="http://s", key="sk-skein-ava", user=""))
+    for name in ("my-day.cache", "attention.cache"):
+        (tmp_path / name).write_text("ava's private day")
+    cli.cmd_config(Namespace(url="", key="", user=""))  # no change keeps them
+    assert (tmp_path / "my-day.cache").exists()
+    cli.cmd_config(Namespace(url="", key="sk-skein-bo", user=""))
+    assert not (tmp_path / "my-day.cache").exists()
+    assert not (tmp_path / "attention.cache").exists()
+
+
 def test_attention_porcelain_says_nothing_when_nothing_waits(monkeypatch, capsys, tmp_path):
     """A prompt segment that renders "0" is noise on every line of a clean
     day, and one that raises ruins every line."""

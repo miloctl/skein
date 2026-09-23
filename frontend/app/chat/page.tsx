@@ -91,6 +91,10 @@ export default function ChatPage() {
   useEffect(() => {
     document.title =
       selection.kind === "shared" ? `${sharedTitle} — Skein` : "Chat — Skein";
+    // a private room's title must not outlive the page (thread-title.tsx)
+    return () => {
+      document.title = "Skein";
+    };
   }, [selection.kind, sharedTitle]);
 
   useEffect(() => {

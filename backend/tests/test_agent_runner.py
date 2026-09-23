@@ -539,7 +539,7 @@ def test_one_agent_failing_does_not_stop_the_fleet(fresh_db, monkeypatch):
     monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent", "planner-agent"])
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
 
-    def _explode(thread, user="", persona="", stateless=False):
+    def _explode(thread, user="", persona="", stateless=False, **_kw):
         if "research-agent" in thread:
             raise RuntimeError("provider exploded")
         return lambda _msg, **_kw: "fine"
@@ -562,7 +562,7 @@ def test_the_identity_is_restored_after_a_failure(fresh_db, monkeypatch):
     monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
 
-    def _explode(thread, user="", persona="", stateless=False):
+    def _explode(thread, user="", persona="", stateless=False, **_kw):
         raise RuntimeError("boom")
 
     monkeypatch.setattr("app.agents.team_agent.build_agent", _explode)
