@@ -75,10 +75,16 @@ export default function CharterPage() {
   // latched shut for the rest of the visit.
   const widenedFor = useRef(0);
 
+  // A slice switch starts a second fetch before the first settles. Without the
+  // generation check the later answer wins, and the Charter slice can show
+  // the general decisions of the slice the reader just left.
+  const generation = useRef(0);
   const load = useCallback(() => {
+    const current = ++generation.current;
     const q = showAll ? "" : "?category=charter";
     api<Decision[]>(`/api/decisions${q}`)
       .then((rows) => {
+        if (current !== generation.current) return;
         setDecisions(rows);
         setError(null); // a recovered backend must not leave the old banner above fresh data
         // A deep link naming a decision this slice does not hold widens the
@@ -91,6 +97,7 @@ export default function CharterPage() {
         }
       })
       .catch((e) => {
+        if (current !== generation.current) return;
         setDecisions([]); // settled, with the error shown below
         setError(loadError(e));
       });
