@@ -5,7 +5,7 @@ import json
 from datetime import timedelta
 
 from .. import db
-from . import refs, scope
+from . import refs, scope, wording
 
 FINDING_CAP = 50
 PROJECTION_VERSION = 1
@@ -61,10 +61,11 @@ def brief(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
 
     # Eligibility and subject deduplication precede the cap. Otherwise old or
     # system findings can hide every eligible row while the preview says quiet.
+    from .insights import ADOPTION_RULE
     from .intervention import _SYSTEM_AUDIENCE
 
-    findings = db.query(
-        "SELECT * FROM (SELECT DISTINCT ON (f.rule_id, f.subject)"
+    eligible = (
+        "(SELECT DISTINCT ON (f.rule_id, f.subject)"
         " f.id, f.rule_id, f.subject, f.severity, f.message, f.created_at"
         " FROM findings f WHERE f.created_at >= ? AND f.created_at < ?"
         " AND NOT (f.rule_id = ANY(?))"
@@ -75,9 +76,22 @@ def brief(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
         " AND NOT EXISTS (SELECT 1 FROM findings old WHERE old.rule_id = f.rule_id"
         " AND old.subject = f.subject AND old.created_at < ?)"
         " ORDER BY f.rule_id, f.subject, f.created_at, f.id) eligible"
+    )
+    window = (since, until, sorted(_SYSTEM_AUDIENCE), since)
+    findings = db.query(
+        "SELECT * FROM " + eligible + " WHERE rule_id <> ?"  # noqa: S608 — fixed SQL, values bound
         " ORDER BY CASE severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1"
         " WHEN 'low' THEN 2 ELSE 3 END, created_at, id LIMIT ?",
-        (since, until, sorted(_SYSTEM_AUDIENCE), since, FINDING_CAP + 1),
+        (*window, ADOPTION_RULE, FINDING_CAP + 1),
+    )
+    # Unused field-guide cards fold into one row outside the cap. A new install
+    # files one finding for every unused card at once, and as separate rows they
+    # made the first week's summary incomplete, which cannot be marked reviewed.
+    # One finding per card means the field guide's size bounds this read.
+    adoption = db.query(
+        "SELECT id, severity, subject FROM " + eligible + " WHERE rule_id = ?"  # noqa: S608 — fixed SQL, values bound
+        " ORDER BY created_at, id",
+        (*window, ADOPTION_RULE),
     )
     truncated = len(findings) > FINDING_CAP
     for f in findings[:FINDING_CAP]:
@@ -91,6 +105,38 @@ def brief(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
                 "severity": f["severity"],
                 "direction": "new",
                 "receipts": [refs.receipt(f"finding #{f['id']} ({f['severity']})")],
+                "link": "/insights",
+            }
+        )
+    if adoption:
+        from .fieldguide import UNADOPTED_GRACE_DAYS, registry
+
+        count = len(adoption)
+        one = count == 1
+        features = {k["id"]: k["feature"] for k in registry()}
+        items.append(
+            {
+                "kind": "finding_new",
+                "entity": "finding",
+                "entity_id": adoption[0]["id"],
+                "headline": (
+                    f"{count} field-guide feature{'' if one else 's'}"
+                    f" {'has' if one else 'have'} no team-wide first use"
+                    f" {UNADOPTED_GRACE_DAYS} days after {'it' if one else 'they'}"
+                    " entered the field guide."
+                ),
+                "rule_id": ADOPTION_RULE,
+                "severity": "low",
+                "direction": "new",
+                # The name keeps each line readable in chat /delta, which prints
+                # receipts alone. quoted() keeps refs from parsing it as a link.
+                "receipts": [
+                    refs.receipt(
+                        f"finding #{f['id']} ({f['severity']}):"
+                        f" {wording.quoted(features.get(f['subject'], f['subject']))}"
+                    )
+                    for f in adoption
+                ],
                 "link": "/insights",
             }
         )

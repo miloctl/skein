@@ -14,7 +14,8 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/" }));
 
 import { RecentChanges } from "@/components/recent-changes";
 
-// GET /api/delta as mario on the disposable seeded mock server at :8600.
+// GET /api/delta as mario on the disposable seeded mock server at :8600, after
+// six promises due yesterday, the health-snapshot job, and POST /api/findings/run.
 const acceptance = captured.items.find((item) => item.kind === "acceptance_waiting")!;
 const adoption = captured.items.filter((item) => item.rule_id === "feature_unadopted");
 const finding = captured.items.find((item) => item.rule_id === "promise_due")!;
@@ -68,16 +69,18 @@ describe("Recent changes", () => {
   });
 
   it("uses structured adoption metadata, not low severity or headline text", async () => {
+    // The server folds adoption into one row. Variants keep its headline and change only metadata.
+    const [folded] = adoption;
     mocks.read.mockResolvedValue({ ...captured, items: [
-      { ...adoption[0], severity: "high" },
-      { ...adoption[1], rule_id: "promise_due" },
+      { ...folded, entity_id: 1, severity: "high" },
+      { ...folded, entity_id: 2, rule_id: "promise_due" },
       { ...finding, severity: "low" },
-      adoption[2],
+      folded,
     ] });
     render(<RecentChanges />);
     await screen.findByText("4 changes in this summary");
     expect(screen.getByText("Feature adoption (1)")).toBeTruthy();
-    expect(primaryLinks().map((link) => link.textContent)).toEqual([adoption[0].headline, adoption[1].headline, finding.headline]);
+    expect(primaryLinks().map((link) => link.textContent)).toEqual([folded.headline, folded.headline, finding.headline]);
   });
 
   it("retains unknown and legacy rows without exposing unsupported review", async () => {
