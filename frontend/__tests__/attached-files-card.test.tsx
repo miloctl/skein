@@ -7,13 +7,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ api: vi.fn() }));
 
+const status = vi.hoisted(() => ({ reportStatus: vi.fn(), fetch: vi.fn() }));
 vi.mock("@/lib/api", () => ({
   API_URL: "http://backend.test",
   api: mocks.api,
-  authenticatedFetch: vi.fn(),
+  authenticatedFetch: status.fetch,
   actionError: (e: unknown) => (e as Error).message,
 }));
-vi.mock("@/lib/status", () => ({ reportStatus: vi.fn() }));
+vi.mock("@/lib/status", () => ({ reportStatus: status.reportStatus }));
 
 import { AttachedFilesCard } from "@/components/attached-files-card";
 
@@ -27,6 +28,8 @@ const LISTING = {
 };
 
 beforeEach(() => {
+  status.reportStatus.mockReset();
+  status.fetch.mockReset();
   mocks.api.mockReset();
   mocks.api.mockResolvedValue(LISTING);
 });
@@ -91,7 +94,23 @@ describe("the attached files card", () => {
     render(<AttachedFilesCard />);
     fireEvent.click(await screen.findByRole("button", { name: "Delete roof.md" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete for good" }));
-    expect(await screen.findByText(/limit for delete/)).toBeTruthy();
+    await waitFor(() =>
+      expect(status.reportStatus).toHaveBeenCalledWith(
+        "The limit for delete is 20 per minute per person.",
+      ),
+    );
     expect(screen.getByText("roof.md")).toBeTruthy();
+  });
+
+  it("announces a refused download with its fix, outside the card's load line", async () => {
+    status.fetch.mockResolvedValue(new Response("", { status: 403 }));
+    render(<AttachedFilesCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Download roof.md" }));
+    await waitFor(() =>
+      expect(status.reportStatus).toHaveBeenCalledWith(
+        "The file did not download (403). Reload the page, then try again.",
+      ),
+    );
+    expect(screen.queryByText(/did not download/)).toBeNull();
   });
 });
