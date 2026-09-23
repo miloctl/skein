@@ -18,6 +18,14 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+### Behavior
+
+### Operations
+
+## 0.6.6 — 2026-09-23
+
+### Contracts
+
 - `GET /api/settings/reasoning` returns the team reasoning level: `level`, `override`, `levels` (the names the team model declares), `ignored`, and `applies`. `POST /api/settings/reasoning` with `{"level": "<name>"}` sets it, and an empty `level` clears it. Each row of the `GET /api/settings/model` menu carries `reasoning`, the list of level names that model declares. Level params are never served. The GET requires a named identity, and the POST requires an administrator. These endpoints require core `0.6.6` or later. Extension API `1.0.0` is unchanged.
 
 ### Behavior
