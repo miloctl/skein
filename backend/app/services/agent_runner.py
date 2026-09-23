@@ -18,8 +18,9 @@ Two layers, and the split is the keyless rule:
   run()    — the LLM upgrade on top. One bounded turn per agent per day
              against its own inbox plus the per-engagement context pack,
              under the ceilings in config. Every write it makes still passes
-             the same gate a chat turn's writes pass, so an unattended run
-             produces proposals, never applied changes.
+             the same gate a chat turn's writes pass: the authority matrix
+             and SKEIN_AGENT_REVIEW decide whether it applies or waits for a
+             human, exactly as in chat.
 
 Bounds, because nobody is watching:
   * SKEIN_AGENT_RUNNER is an ALLOWLIST. A runner that discovered its own

@@ -23,20 +23,10 @@ def test_allowlisted_tools_load(monkeypatch):
     assert {"calculator", "current_time"} <= names
 
 
-def test_rss_loads_with_its_optional_dependencies(monkeypatch):
-    import pytest
-
-    pytest.importorskip("feedparser", reason="strands-agents-tools[rss] is not installed")
-    pytest.importorskip("html2text", reason="strands-agents-tools[rss] is not installed")
-    tools = _load(monkeypatch, ["rss"])
-    assert len(tools) == 1
-    assert tools[0].tool_name == "rss"
-
-
 def test_supported_extra_tool_inventory():
     from app.agents.extra_tools import ALLOWED
 
-    assert set(ALLOWED) == {"calculator", "current_time", "batch", "sleep", "rss"}
+    assert set(ALLOWED) == {"calculator", "current_time", "batch", "sleep"}
 
 
 def test_unlisted_research_tools_are_not_imported(monkeypatch):

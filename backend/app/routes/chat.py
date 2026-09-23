@@ -137,7 +137,7 @@ def _document_name(title: str, artifact_id: int) -> str:
 
 
 def _attachment_prompt(
-    message: str, ids: list[int], owner: str, model_id: str = ""
+    message: str, ids: list[int], owner: str, model_id: str = "", thread_id: str = ""
 ) -> tuple[Any, list[str]]:
     """The turn's prompt, and the titles of the files that reached it.
 
@@ -194,7 +194,7 @@ def _attachment_prompt(
             # a picture can carry text telling the reader what to do — so it
             # lands wrapped like every other attached document rather than as
             # something the turn itself observed.
-            described = describe_image(data, fmt)
+            described = describe_image(data, fmt, thread_id)
             if described:
                 # The instruction says ANSWER, not "here is what I was given".
                 # Told this was another model's description, the model opened
@@ -1521,7 +1521,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
         await run_in_threadpool(chat_threads.thread_reasoning, ui_thread),
     )
     prompt, attached = await run_in_threadpool(
-        _attachment_prompt, message, req.attachments, user, resolved_model
+        _attachment_prompt, message, req.attachments, user, resolved_model, thread_id
     )
     try:
         turn_key = await run_in_threadpool(chat_threads.start_model_turn, thread_id)

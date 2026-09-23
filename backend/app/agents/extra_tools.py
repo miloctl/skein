@@ -16,6 +16,9 @@ Excluded on security review, not oversight:
   strands-agents-tools 0.8.9), which runs a model call outside
   agents/team_agent.py::_model(), the one place that may choose a provider.
 - workflow/diagram — model-controlled file paths (traversal) / subprocess.
+- rss — the model chooses the URL and the request headers, with no egress
+  filter: a forged X-User reads this platform's own API as anyone under
+  trusted-header, and feedparser opens a local file path as a feed.
 """
 
 import logging
@@ -33,8 +36,6 @@ ALLOWED = {
     "current_time": ("current_time", "current_time"),
     "batch": ("batch", "batch"),
     "sleep": ("sleep", "sleep"),
-    # external feed reader (has its own storage traversal guard)
-    "rss": ("rss", "rss"),
 }
 
 

@@ -692,6 +692,23 @@ def test_a_summary_stores_no_reasoning_in_its_user_message(fresh_db, monkeypatch
     assert [list(block) for block in summary["content"]] == [["text"]]
 
 
+def test_a_summary_counts_toward_the_turn_that_made_it(fresh_db, monkeypatch):
+    """The SDK calls the model directly and drops the usage. A summary sends
+    the early chat again, and unrecorded it reached no budget or ceiling."""
+    from conftest import _SpendingModel
+    from strands.telemetry.metrics import EventLoopMetrics
+
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
+    agent = _long_chat()
+    agent.event_loop_metrics = EventLoopMetrics()
+    agent.event_loop_metrics.reset_usage_metrics()
+    team_agent._conversation_manager(summary_model=lambda: _SpendingModel()).reduce_context(agent)
+    usage = agent.event_loop_metrics.accumulated_usage
+    assert (usage["inputTokens"], usage["outputTokens"]) == (900, 40)
+
+
 def test_a_chat_with_a_reasoning_level_summarizes_with_the_model_without_it(fresh_db, monkeypatch):
     """A summary is a helper call. The level pays for reasoning nobody reads."""
     from app.agents import team_agent

@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import _strong
+from conftest import _SpendingModel, _strong
 
 from app import config, db
 from app.agents import session_store
@@ -333,6 +333,30 @@ def test_a_raising_vision_model_is_answered_with_silence(monkeypatch):
         team_agent, "_model", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no such model"))
     )
     assert team_agent.describe_image(_PNG, "png") == ""
+
+
+def test_the_sidecar_spend_is_recorded_on_the_chat(fresh_db, monkeypatch):
+    """A described image is a model call like a title. Unrecorded, it reached
+    no usage report, no monthly budget, and no daily ceiling."""
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "VISION_MODEL", "llava:13b")
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr(
+        team_agent, "_model", lambda *a, **k: _SpendingModel("llava:13b", "A red circle.")
+    )
+    assert team_agent.describe_image(_PNG, "png", "t-img") == "A red circle."
+    row = db.query_one(
+        "SELECT agent_name, model_id, input_tokens, output_tokens FROM usage_log"
+        " WHERE thread_id = 't-img'"
+    )
+    assert row == {
+        "agent_name": "vision",
+        "model_id": "llava:13b",
+        "input_tokens": 900,
+        "output_tokens": 40,
+    }
 
 
 def test_the_model_in_force_is_what_the_turn_is_judged_against(monkeypatch):
