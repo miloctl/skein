@@ -102,7 +102,7 @@ def test_the_filter_names_the_viewers_crews(fresh_db):
     b = crews.create_crew("Design", actor="ava")["id"]
     sql, params = scope.visible_filter(scope.Viewer("ava", True), "tasks", alias="t")
     assert "t.crew_id IN (?, ?)" in sql
-    assert "t.visibility = ?" in sql and "t.created_by = ?" in sql
+    assert "t.visibility = ?" in sql and 't."created_by" = ?' in sql
     assert params == [scope.WORKSPACE, "ava", scope.CREW, *sorted([a, b])]
     assert crews.crews_of("ava") == sorted([a, b]), "unordered ids make the SQL text vary"
 
@@ -323,10 +323,10 @@ def test_the_table_decides_the_author_column(fresh_db):
     """Four tables carry both their real author column and a `created_by`
     holding the agent slug. The mapping lives in CLASSIFIED and nowhere else."""
     v = scope.Viewer("ava", True)
-    assert "notes.author = ?" in scope.visible_filter(v, "notes", alias="notes")[0]
+    assert 'notes."author" = ?' in scope.visible_filter(v, "notes", alias="notes")[0]
     assert "created_by" not in scope.visible_filter(v, "notes", alias="notes")[0]
-    assert "m.user = ?" in scope.visible_filter(v, "memories", alias="m")[0]
-    assert "a.person = ?" in scope.visible_filter(v, "absences", alias="a")[0]
+    assert 'm."user" = ?' in scope.visible_filter(v, "memories", alias="m")[0]
+    assert 'a."person" = ?' in scope.visible_filter(v, "absences", alias="a")[0]
 
 
 def test_a_weak_or_shared_identity_is_not_a_viewer(fresh_db):

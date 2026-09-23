@@ -6,7 +6,7 @@ from typing import Any
 from strands import tool
 
 from .. import db
-from ..agents.identity import agent_identity
+from ..agents.identity import agent_identity, requester_identity
 from ..extensions.policy import (
     PolicyEffect,
     PolicyInput,
@@ -354,7 +354,11 @@ def search_workspace(query: str) -> str:
         tool="search_workspace",
     )
     with db.read_transaction():
-        return json.dumps(search.search(query, row_filter=policy.filter_resources))
+        # the person behind the turn reads their own addressed memories;
+        # with no requester, none (services/search.py::visible_hits)
+        return json.dumps(
+            search.search(query, row_filter=policy.filter_resources, reader=requester_identity())
+        )
 
 
 @tool

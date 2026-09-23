@@ -71,8 +71,14 @@ def _tier_of(entity: str, entity_id: int) -> tuple[str, int | None] | None:
     return (row["visibility"], row["crew_id"]) if row else None
 
 
-def visible_hits(hits: list[dict], viewer: "scope.Viewer") -> list[dict]:
+def visible_hits(hits: list[dict], viewer: "scope.Viewer", reader: str = "") -> list[dict]:
     """Drop the hits this viewer may not read.
+
+    A memory addressed to one person (its `user`) reaches only that person,
+    whatever its tier: `reader` is who is asking, by name. Recall, the memory
+    list and forget already held that rule, and search was the one surface
+    that served one person's memories to everybody. The default reads no
+    addressed memory, so a caller that names nobody fails closed.
 
     The index carries no tier of its own. Adding one would mean reindexing
     every row on any visibility change, and the tier would then be a second
@@ -96,7 +102,7 @@ def visible_hits(hits: list[dict], viewer: "scope.Viewer") -> list[dict]:
         marks = ", ".join("?" for _ in ids)
         author = scope.CLASSIFIED[table]
         for r in db.query(
-            f"SELECT id, visibility, crew_id, {author} AS author FROM {table}"  # noqa: S608 — table and column from constant maps, ids are bound marks
+            f'SELECT id, visibility, crew_id, "{author}" AS author FROM {table}'  # noqa: S608 — table and column from constant maps, ids are bound marks; quoted because memories' `user` is CURRENT_USER unquoted
             f" WHERE id IN ({marks})",
             tuple(ids),
         ):
@@ -114,6 +120,8 @@ def visible_hits(hits: list[dict], viewer: "scope.Viewer") -> list[dict]:
             # entities reach here — and a hit whose row cannot be tier-checked
             # must not be served.
             continue
+        if table == "memories" and row[2] and row[2] != reader:
+            continue  # scope.CLASSIFIED's author column for memories IS the addressee
         if scope.can_read(row[0], row[1], viewer, row[2]):
             out.append(h)
     return out
@@ -233,6 +241,7 @@ def ask(
     limit: int = 5,
     viewer: "scope.Viewer | None" = None,
     row_filter: Callable[[list[dict]], list[dict]] | None = None,
+    reader: str = "",
 ) -> dict:
     """Q&A with receipts: deterministic FTS answer where every snippet cites
     its row (entity #id), findings-style. Degrades honestly keyless — an LLM
@@ -242,7 +251,7 @@ def ask(
     # viewer forwarded to BOTH searches: taking the parameter and dropping it
     # left /ask serving every crew and private row through the one surface
     # whose whole job is to quote them back
-    hits = search(q, limit, viewer=viewer, row_filter=row_filter)
+    hits = search(q, limit, viewer=viewer, row_filter=row_filter, reader=reader)
     note = ""
     if not hits:
         # natural phrasing rarely matches as a phrase — fall back to OR of
@@ -260,6 +269,7 @@ def ask(
                 terms=words,
                 viewer=viewer,
                 row_filter=row_filter,
+                reader=reader,
             )
             if hits:
                 note = "no exact match — loosely related results (word overlap)"
@@ -286,6 +296,7 @@ def search(
     viewer: "scope.Viewer | None" = None,
     row_filter: Callable[[list[dict]], list[dict]] | None = None,
     entity: str = "",
+    reader: str = "",
 ) -> list[dict]:
     """`terms` matches ANY of the given words instead of q as a phrase —
     ask()'s fallback when the phrase itself found nothing. `entity` limits
@@ -319,11 +330,11 @@ def search(
         # hits that are all scoped would otherwise come back empty
         (*params, *([entity] if entity else []), limit * 4),
     )
-    hits = visible_hits(hits, viewer or scope.NOBODY)[:limit]
+    hits = visible_hits(hits, viewer or scope.NOBODY, reader)[:limit]
     # the by-id fetch is its own door: `note 4` resolves a row without
     # matching anything, so the tier has to be checked here too
     direct = None if terms or entity else _short_id_hit(q)
-    if direct and not visible_hits([direct], viewer or scope.NOBODY):
+    if direct and not visible_hits([direct], viewer or scope.NOBODY, reader):
         direct = None
     if direct:
         rest = [
@@ -347,7 +358,9 @@ def search(
                 (s["entity"], s["entity_id"]),
             )
             if row and not visible_hits(
-                [{"entity": s["entity"], "entity_id": s["entity_id"]}], viewer or scope.NOBODY
+                [{"entity": s["entity"], "entity_id": s["entity_id"]}],
+                viewer or scope.NOBODY,
+                reader,
             ):
                 continue
             if row:

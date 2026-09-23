@@ -1278,7 +1278,7 @@ def get_search(
         viewer,
     )
     with db.read_transaction():
-        return search.search(q, viewer=viewer, row_filter=policy.filter_resources)
+        return search.search(q, viewer=viewer, row_filter=policy.filter_resources, reader=user)
 
 
 @router.get("/ask")
@@ -1298,7 +1298,7 @@ def get_ask(
         viewer,
     )
     with db.read_transaction():
-        return search.ask(q, viewer=viewer, row_filter=policy.filter_resources)
+        return search.ask(q, viewer=viewer, row_filter=policy.filter_resources, reader=user)
 
 
 @router.get("/field-guide")

@@ -21,7 +21,7 @@ def test_forget_removes_memory_everywhere(client):
     from app.services import memory, search
 
     m = memory.remember("the staging DB password rotates on tuesdays", topic="ops", user="ava")
-    assert any(h["entity"] == "memory" for h in search.search("rotates"))
+    assert any(h["entity"] == "memory" for h in search.search("rotates", reader="ava"))
     assert "rotates" in memory.memory_prompt("ava")
 
     response = client.delete(f"/api/memories/{m['id']}", headers={"X-User": "ava"})
@@ -29,7 +29,7 @@ def test_forget_removes_memory_everywhere(client):
     assert response.json()["deleted"] is True
     assert memory.recall(user="ava") == []
     assert memory.memory_prompt("ava") == ""
-    assert [h for h in search.search("rotates") if h["entity"] == "memory"] == []
+    assert [h for h in search.search("rotates", reader="ava") if h["entity"] == "memory"] == []
 
 
 def test_forget_missing_memory_404_and_removal_is_logged(client):
@@ -80,8 +80,9 @@ def test_forget_refuses_another_persons_targeted_memory(client, fresh_db, surfac
     assert fresh_db.query_one("SELECT id FROM memories WHERE id = ?", (m["id"],))
     assert fresh_db.query("SELECT * FROM activity ORDER BY id") == before
     assert fresh_db.query("SELECT * FROM pending_changes") == []
-    # Addressing a workspace memory to someone is not a private visibility tier.
-    assert any(h["entity"] == "memory" for h in search.search("ZZTARGETBODYZZ"))
+    # An addressed memory reaches only its addressee, on search as on recall.
+    assert not any(h["entity"] == "memory" for h in search.search("ZZTARGETBODYZZ"))
+    assert any(h["entity"] == "memory" for h in search.search("ZZTARGETBODYZZ", reader="ava"))
     assert memory.recall(user="tester") == []
 
 
@@ -298,3 +299,55 @@ def test_the_memory_list_reaches_past_the_ten_newest(client, fresh_db):
             "INSERT INTO memories (content, created_at) VALUES (?, ?)", (f"fact {i}", db.now())
         )
     assert len(client.get("/api/memories").json()) == 12
+
+
+def test_an_addressed_memory_reaches_only_its_addressee_on_every_search(client, fresh_db):
+    """`/remember` and the MCP tool address each memory to the speaker at the
+    workspace tier, and no write path offers another tier. Search, /ask, the
+    short-id door and the agent search tool served those memories to every
+    teammate, while the memory list and recall showed them to the addressee
+    alone."""
+    from app.agents import identity
+    from app.services import memory
+    from app.tools.platform import search_workspace
+
+    mine = memory.remember("ZZADDRESSEDZZ appointment", user="ava", actor="ava")["id"]
+    team = memory.remember("ZZADDRESSEDZZ freeze", actor="ava")["id"]
+
+    def ids(hits):
+        return {h["entity_id"] for h in hits if h["entity"] == "memory"}
+
+    for who, expected in (("bo", {team}), ("ava", {mine, team})):
+        headers = {"X-User": who}
+        found = client.get("/api/search", params={"q": "ZZADDRESSEDZZ"}, headers=headers)
+        assert ids(found.json()) == expected, who
+        cited = client.get("/api/ask", params={"q": "ZZADDRESSEDZZ"}, headers=headers)
+        refs = {c["ref"] for c in cited.json()["citations"]}
+        assert {r for r in refs if r.startswith("memory")} == {f"memory #{i}" for i in expected}
+        direct = client.get("/api/search", params={"q": f"memory {mine}"}, headers=headers)
+        assert (mine in ids(direct.json())) is (who == "ava"), who
+
+    for requester, expected in (("bo", {team}), ("ava", {mine, team}), ("", {team})):
+        token = identity.set_requester_identity(requester)
+        try:
+            assert ids(json.loads(search_workspace(query="ZZADDRESSEDZZ"))) == expected
+        finally:
+            identity.reset_requester_identity(token)
+    assert {m["id"] for m in memory.recall("ZZADDRESSEDZZ", user="ava")} == {mine, team}
+
+
+def test_a_private_memory_reaches_its_addressee_and_not_the_database_role(fresh_db):
+    """memories' author column is `user`, which unquoted is CURRENT_USER: the
+    tier check compared the database role name, so the addressee never read
+    their own private memory and a person named like the role read all."""
+    from app.services import memory, scope, users
+
+    role = fresh_db.query_one("SELECT current_user AS name")["name"]
+    users.ensure_user("ava")
+    mid = memory.remember("ZZPRIVATEZZ note", user="ava", actor="ava", visibility=scope.PRIVATE)[
+        "id"
+    ]
+    ava = scope.Viewer("ava", True)
+    assert [m["id"] for m in memory.recall(user="ava", viewer=ava)] == [mid]
+    stranger = scope.Viewer(role, True)
+    assert memory.recall(user=role, viewer=stranger) == []
