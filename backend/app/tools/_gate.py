@@ -90,7 +90,6 @@ def gated_write(
     entity_id: int = 0,
     summary: str = "",
     actor: str = "",
-    review_owner: str = "",
 ) -> str:
     # One transaction over context resolution, the workplace decision, and the
     # resulting local mutation, so nested service transactions join it and the
@@ -111,7 +110,6 @@ def gated_write(
             entity_id,
             summary,
             actor,
-            review_owner,
         )
 
 
@@ -123,7 +121,6 @@ def _gated_write_locked(
     entity_id: int = 0,
     summary: str = "",
     actor: str = "",
-    review_owner: str = "",
 ) -> str:
     """One gate for every agent write path (chat tools AND the MCP server) —
     per-agent authority and the review inbox see all agent traffic, so trust
@@ -272,10 +269,20 @@ def _gated_write_locked(
                 source_id=int(result.get("id") or entity_id or 0),
             )
         return json.dumps(result)
-    # `review_owner` names the one person a proposal belongs to whatever the
-    # turn (an addressed memory, tools/memory.py): reviewed at the workspace
-    # tier, every teammate read its text and got a "Review needed" notice.
-    private_review = workspace_only_tools() or bool(review_owner)
+    # A memory addressed to a person is that person's alone
+    # (review._addressed), whichever tool filed it: the agent tool, the MCP
+    # server, a future one. Reviewed at the workspace tier, every teammate
+    # got a "Review needed" notice quoting it. Policy-named approvers keep the
+    # workspace review, or nobody qualified could read it; for an addressed
+    # memory _addressed still hides it, so it waits for the addressee to
+    # reject it rather than reach a reader she did not choose.
+    from ..services.users import is_agent
+
+    addressee = str(payload.get("user") or "") if entity == "memory" and action == "create" else ""
+    review_owner = addressee if addressee and not is_agent(addressee) else ""
+    private_review = workspace_only_tools() or (
+        bool(review_owner) and not decision.approver_groups and not decision.approver_capabilities
+    )
     review_owner = (review_owner or requester_identity()) if private_review else ""
     try:
         # Same reason as the direct() savepoint above: this catch RETURNS, so

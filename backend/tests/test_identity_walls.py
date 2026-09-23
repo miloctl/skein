@@ -217,7 +217,82 @@ def test_a_person_agent_record_is_its_owners(client, fresh_db, monkeypatch):
 
     for path in ("/api/activity/feed", "/api/agents", "/api/review/stats", "/api/review/season"):
         assert not mentions(path, bob), path
+    # the verdict and its reviewer note are that person's judgment
+    for path in ("/api/review/stats", "/api/review?status=rejected"):
+        assert "ZZNOTEZZ" not in client.get(path, headers=bob).text, path
+    assert "ZZNOTEZZ" in client.get("/api/review?status=rejected", headers=alice).text
     assert mentions("/api/agents", alice)
     assert mentions("/api/activity/feed", alice)
     assert client.get("/api/agents/alice-mcp/inbox", headers=bob).status_code == 404
     assert client.get("/api/agents/alice-mcp/inbox", headers=alice).status_code == 200
+
+
+def test_a_merge_leaves_no_sign_in_door_into_the_target(fresh_db):
+    """The merge moved the source's OIDC binding to the target, so whoever
+    holds the source's IdP subject signed in as the target."""
+    from app.services import oidc_identities, users
+
+    x = oidc_identities.resolve("https://idp.example", "sub-x", "x")
+    users.ensure_user("alice")
+    users.rename_user(x["name"], "alice", actor="ops", expected_merge=True)
+    again = oidc_identities.resolve("https://idp.example", "sub-x", "x2")
+    assert again["name"] != "alice"
+
+
+def test_a_freed_name_is_refused_to_agents_and_returned_to_its_holder(fresh_db):
+    """Claimed as an agent, a freed name put the earlier owner's ledger rows
+    in every teammate's feed. The owner renaming back was refused as if the
+    history were someone else's."""
+    from app.services import users
+
+    users.ensure_user("ava")
+    users.rename_user("ava", "ava.smith", actor="ops")
+    with pytest.raises(ValueError, match="history from an earlier account"):
+        users.ensure_user("ava", kind="agent")
+    users.rename_user("ava.smith", "ava", actor="ops")
+    assert users.is_active("ava") and not users.is_agent("ava")
+
+
+def test_a_merge_cannot_carry_private_proposals_or_notifications(fresh_db):
+    """_holds_personal_data missed a proposal private to the source, which the
+    merge then handed to the target, and the source's notifications moved too."""
+    from app.services import notifications, review, scope, users
+
+    for name in ("alice", "bob", "dana", "dana-alt"):
+        users.ensure_user(name)
+    review.propose_change(
+        "note",
+        "create",
+        {"topic": "t", "content": "alice only"},
+        actor="agent",
+        requested_by="alice",
+        review_visibility=scope.PRIVATE,
+        review_owner="alice",
+    )
+    with pytest.raises(ValueError, match="only its owner can read"):
+        users.rename_user("alice", "bob", actor="ops", expected_merge=True)
+    notifications.notify("dana", "ZZDANAZZ note for dana")
+    users.rename_user("dana", "dana-alt", actor="ops", expected_merge=True)
+    assert "ZZDANAZZ" not in str(
+        fresh_db.query('SELECT message FROM notifications WHERE "user" = ?', ("dana-alt",))
+    )
+
+
+def test_a_person_agent_is_not_proposed_for_authority_or_listed_to_the_team(fresh_db, monkeypatch):
+    """The authority job filed a person agent's verdict streak as a
+    workspace proposal, and the team context pack listed it as an agent."""
+    from app.services import context_pack, delegation, users
+
+    users.ensure_agent_identity("alice-mcp", owner="mcp")
+    streak = {
+        "agent": "alice-mcp",
+        "entity": "note",
+        "configured_level": "review",
+        "recent_streak": 99,
+        "rejection_streak": 0,
+    }
+    monkeypatch.setattr(delegation, "trust_scores", lambda *a, **k: [streak])
+    monkeypatch.setattr(delegation, "promotion_blocked", lambda *a, **k: False)
+    delegation.review_authority()
+    assert fresh_db.query("SELECT * FROM pending_changes WHERE entity = 'authority'") == []
+    assert "alice-mcp" not in context_pack.build_pack()

@@ -82,20 +82,29 @@ def _error(tool_use: dict[str, Any], detail: str, status: str = "failed") -> dic
     }
 
 
+# The one invocation_state entry a resumed call reads. An allowlist, never a
+# "keep what serializes" filter: strands also puts `messages` (the whole
+# chat) and `system_prompt` (the requester's addressed memories) there, and
+# extension_review_invocations keeps what it stores forever, past chat
+# delete and memory forget.
+_REPLAYED_STATE = ("request_state",)
+
+
 def portable_state(state: dict[str, Any]) -> dict[str, Any]:
     """The part of a strands invocation_state a review can store and replay.
 
     Strands puts the live Agent (and span and cycle objects) in it. Stored
     whole, json.dumps raised on every review-path call in a real agent loop,
-    so no stock or remote tool call ever reached the review queue. A resumed
-    call runs without that agent, so the live objects are dropped."""
+    so no stock or remote tool call ever reached the review queue."""
     kept: dict[str, Any] = {}
-    for key, value in state.items():
+    for key in _REPLAYED_STATE:
+        if key not in state:
+            continue
         try:
-            json.dumps(value)
+            json.dumps(state[key])
         except (TypeError, ValueError):
             continue
-        kept[key] = value
+        kept[key] = state[key]
     return kept
 
 

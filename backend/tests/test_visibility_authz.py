@@ -814,7 +814,6 @@ _UNFILTERED_READS = {
     ),
     # --- aggregates and counts: no row's own text leaves the function ---
     "delegation.py::mission_control": "COUNT per agent, plus a MAX(created_at)",
-    "pulse.py::standup_chain": "counts standup days, never their text",
     "onboarding.py::checklist": "COUNT per entity, to decide which step is done",
     "delegation.py::list_worklog": (
         "the `party` branch only, and it is gated per task on that task's own"
@@ -1266,3 +1265,41 @@ def test_hidden_engagements_leave_no_trace_in_derived_views(client, fresh_db):
     found = insights._r_token_anomaly()
     assert found, "the spend rule must fire for this check to mean anything"
     assert thread not in json.dumps(found)
+
+
+def test_an_unattended_inbox_reads_the_workspace_tier(fresh_db):
+    """With no viewer, the inbox skipped the tier check, and a rejected
+    proposal private to one person reached a turn nobody attends."""
+    from app.services import delegation, review, scope, users
+
+    users.ensure_user("scout", kind="agent")
+    users.ensure_user("alice")
+    change = review.propose_change(
+        "note",
+        "create",
+        {"topic": "t", "content": "ZZPRIVATEZZ"},
+        "note: ZZPRIVATEZZ",
+        actor="scout",
+        requested_by="alice",
+        review_visibility=scope.PRIVATE,
+        review_owner="alice",
+    )
+    review.reject_change(change["id"], "no", actor="alice", viewer=scope.Viewer("alice", True))
+    assert "ZZPRIVATEZZ" not in json.dumps(delegation.agent_inbox("scout", None), default=str)
+
+
+def test_the_strip_and_spend_count_only_what_every_reader_can_open(client, fresh_db):
+    """A person who posted only private standups joined the chain everyone
+    reads, and each hidden engagement kept its own "other work" spend row."""
+    from conftest import _strong
+
+    from app.services import collab, engagements, pulse, usage, users
+
+    users.ensure_user("alice")
+    collab.post_standup("alice", "y", "t", actor="alice", visibility="private")
+    assert pulse.standup_chain()["humans"] == 0
+    for name in ("ZZONE", "ZZTWO"):
+        hidden = engagements.create_engagement(name, actor="alice", visibility="private")["id"]
+        usage.record_chat_usage("run:scout:x", "scout", "m", 10, 5, engagement_id=hidden)
+    rows = client.get("/api/usage", headers=_strong(client, "bob")).json()["engagements"]
+    assert len([r for r in rows if r["engagement"] == "other work"]) == 1

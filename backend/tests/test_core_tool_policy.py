@@ -522,7 +522,14 @@ def test_a_review_stores_the_state_a_real_agent_loop_passes(fresh_db):
     async def run():
         stream = wrapper._stream(
             {"toolUseId": "write-1", "input": {"task_id": 42}},
-            {"agent": object(), "request_state": {"k": 1}},
+            {
+                "agent": object(),
+                "request_state": {"k": 1},
+                # strands adds these too: the whole chat and the system
+                # prompt, which carries the requester's addressed memories
+                "messages": [{"role": "user", "content": [{"text": "ZZCHATZZ"}]}],
+                "system_prompt": "ZZPROMPTZZ",
+            },
             PolicySubject("mira"),
             "agent",
             "",
@@ -539,3 +546,4 @@ def test_a_review_stores_the_state_a_real_agent_loop_passes(fresh_db):
     assert event["completionStatus"] == "review_required"
     stored = fresh_db.query_one("SELECT invocation FROM extension_review_invocations")
     assert '"request_state": {"k": 1}' in stored["invocation"]
+    assert "ZZCHATZZ" not in stored["invocation"] and "ZZPROMPTZZ" not in stored["invocation"]

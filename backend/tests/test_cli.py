@@ -306,6 +306,25 @@ def test_a_new_identity_drops_the_previous_ones_caches(monkeypatch, capsys, tmp_
     assert not (tmp_path / "attention.cache").exists()
 
 
+def test_a_cached_briefing_answers_only_the_identity_that_fetched_it(monkeypatch, capsys, tmp_path):
+    """SKEIN_API_KEY changes the identity without `skein config`, and
+    `my-day --cached` printed the previous person's briefing."""
+    import pytest
+
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
+    cli.cmd_config(Namespace(url="http://s", key="", user=""))
+    monkeypatch.setenv("SKEIN_API_KEY", "sk-skein-ava")
+    owner = cli._queue_owner(cli._connection())
+    (tmp_path / "my-day.cache").write_text(f"{owner}\nava private title")
+    cli.cmd_my_day(Namespace(cached=True))
+    assert "ava private title" in capsys.readouterr().out
+    monkeypatch.setenv("SKEIN_API_KEY", "sk-skein-bo")
+    with pytest.raises(SystemExit):
+        cli.cmd_my_day(Namespace(cached=True))
+    assert "ava private title" not in capsys.readouterr().out
+
+
 def test_attention_porcelain_says_nothing_when_nothing_waits(monkeypatch, capsys, tmp_path):
     """A prompt segment that renders "0" is noise on every line of a clean
     day, and one that raises ruins every line."""

@@ -6619,3 +6619,46 @@ def test_a_personal_read_runs_under_policy_only_after_one_approval(fresh_db, mon
     assert call({"q": "second, never reviewed"})[-1]["status"] == "success"
     assert remote.called is True
     assert fresh_db.query_one("SELECT 1 FROM pending_changes WHERE status = 'pending'") is None
+
+
+def test_a_personal_call_that_policy_sends_to_approvers_stays_readable_to_them(
+    fresh_db, monkeypatch
+):
+    """Private to the owner, a call whose policy names approver groups could
+    be approved by nobody: the owner is not in the group, and the group could
+    not read it."""
+    from app import config
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.agents.mcp_tools import GovernedMCPTool
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", False)
+    engine = PolicyEngine(
+        (
+            lambda request: PolicyDecision(
+                PolicyEffect.REVIEW, ("leads",), approver_groups=("leads",)
+            ),
+        )
+    )
+    metadata = _mcp_metadata(effect="write", risk="high", policy_action="mcp:write")
+    tool = GovernedMCPTool(_RemoteTool(), metadata, "personal:requester:atlas", "personal")
+    policy_token = set_policy_engine(engine)
+    subject_token = set_policy_subject(PolicySubject("requester"))
+    agent_token = set_agent_identity("agent")
+
+    async def run():
+        return [
+            event
+            async for event in tool.stream(
+                {"toolUseId": "mcp-1", "name": "atlas_remote", "input": {}}, {}
+            )
+        ]
+
+    try:
+        asyncio.run(run())
+    finally:
+        reset_agent_identity(agent_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+    row = fresh_db.query_one("SELECT review_visibility FROM pending_changes")
+    assert row["review_visibility"] == "workspace"

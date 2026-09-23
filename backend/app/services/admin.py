@@ -683,11 +683,15 @@ def _make_export(*, keep: int, actor: str, open_file: bool, max_bytes: int = 0):
                             if table in scope.CLASSIFIED
                             else ""
                         )
-                        # an addressed memory is its addressee's alone
-                        # (search.visible_hits), and the exporting admin is
-                        # somebody else
+                        # a memory addressed to a person is theirs alone
+                        # (review._addressed), and the exporting admin is
+                        # somebody else. One addressed to an agent (the MCP
+                        # server over stdio) is no one's private data.
                         if table == "memories":
-                            where += " AND \"user\" = ''"
+                            where += (
+                                ' AND ("user" = \'\' OR "user" IN'
+                                " (SELECT name FROM users WHERE kind = 'agent'))"
+                            )
                         sql = f"SELECT * FROM {table}{where}"  # noqa: S608 — closed table set and private literal
                         params = ()
                     if index:

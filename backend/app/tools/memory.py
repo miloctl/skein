@@ -47,8 +47,6 @@ def remember(content: str, topic: str = "", about_user: str = "") -> str:
         payload,
         lambda: memory.remember(content, topic, user=user, actor=agent_identity(), origin="agent"),
         summary=f"remember{f' [{topic}]' if topic else ''}: {content[:80]}",
-        # the addressee judges it, and nobody else reads it (_gate.py)
-        review_owner=user,
     )
 
 

@@ -296,8 +296,16 @@ class GovernedMCPTool(AgentTool):
                     approver_capabilities=decision.approver_capabilities,
                     # a personal server runs on its owner's credential and
                     # returns their data: reviewed at the workspace tier, any
-                    # teammate could approve the call and read the result
-                    review_visibility=scope.PRIVATE if self.tier == PERSONAL else scope.WORKSPACE,
+                    # teammate could approve the call and read the result.
+                    # Policy-named approvers keep the workspace review, or
+                    # nobody qualified could read it.
+                    review_visibility=(
+                        scope.PRIVATE
+                        if self.tier == PERSONAL
+                        and not decision.approver_groups
+                        and not decision.approver_capabilities
+                        else scope.WORKSPACE
+                    ),
                     review_owner=subject.name,
                     policy_input=policy_input,
                 )

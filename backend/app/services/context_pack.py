@@ -33,7 +33,16 @@ def build_pack(
         "SELECT name FROM users WHERE kind = 'human' AND active = 1"
         " AND name != 'anonymous' ORDER BY name"
     )
-    agents = db.query("SELECT name FROM users WHERE kind = 'agent' AND active = 1 ORDER BY name")
+    from .users import is_person_agent
+
+    # a `<person>-mcp` agent is one person acting, not a team member to cite
+    agents = [
+        row
+        for row in db.query(
+            "SELECT name FROM users WHERE kind = 'agent' AND active = 1 ORDER BY name"
+        )
+        if not is_person_agent(row["name"])
+    ]
     lines += [
         "## Team",
         "Humans: " + (", ".join(u["name"] for u in humans) or "none recorded"),

@@ -46,10 +46,10 @@ def standup_chain() -> dict:
     humans = [
         u["name"]
         for u in db.query(
-            "SELECT u.name FROM users u WHERE u.kind = 'human' AND u.active = 1"
+            "SELECT u.name FROM users u WHERE u.kind = 'human' AND u.active = 1"  # noqa: S608 — WORKSPACE_ONLY is a scope constant
             " AND u.name != 'anonymous'"
             " AND EXISTS (SELECT 1 FROM standups s WHERE s.author = u.name"
-            "             AND s.created_at >= ?)",
+            f"             AND s.{WORKSPACE_ONLY} AND s.created_at >= ?)",
             (cutoff,),
         )
     ]
@@ -68,8 +68,9 @@ def standup_chain() -> dict:
     # the day it was written on, and silently resets the team's whole chain.
     # Still one range scan on idx_standups_created: the GROUP BY moved into
     # the set, it did not become a per-day probe.
+    # workspace standups only, like every count on the strip (pulse below)
     for r in db.query(
-        "SELECT created_at, author FROM standups WHERE created_at >= ?",
+        f"SELECT created_at, author FROM standups WHERE {WORKSPACE_ONLY} AND created_at >= ?",  # noqa: S608 — scope constant
         (lookback,),
     ):
         by_day.setdefault(db.local_day(r["created_at"]), set()).add(r["author"])
