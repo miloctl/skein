@@ -469,7 +469,42 @@ def get_pack(
     if crew_id and crew_id not in viewer.crew_ids:
         raise db.NotFound(f"no context pack for crew #{crew_id}")
     last = latest_pack(crew_id)
-    if not last and resource_filter is not None:
+    if not last:
+        transient = _first_publish(actor, crew_id, viewer, resource_filter)
+        if transient is not None:
+            return transient
+        last = latest_pack(crew_id)
+        if last is None:
+            raise ValueError("context pack publish produced no pack — retry")
+    return _served(last, crew_id, viewer, resource_filter)
+
+
+def ensure_published(
+    *,
+    actor: str = "system",
+    crew_id: int = 0,
+    viewer: scope.Viewer = scope.NOBODY,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+) -> None:
+    """The first publish, in its own write transaction. Callers that read the
+    pack inside db.read_transaction() call this first: publishing writes a
+    ledger row, which a read snapshot refuses (db._txn)."""
+    if crew_id and crew_id not in viewer.crew_ids:
+        return  # get_pack refuses it with the NotFound the reader must see
+    with db.transaction():
+        if not latest_pack(crew_id):
+            _first_publish(actor, crew_id, viewer, resource_filter)
+
+
+def _first_publish(
+    actor: str,
+    crew_id: int,
+    viewer: scope.Viewer,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None,
+) -> dict | None:
+    """Publish v1, or return a transient version-0 pack when the policy hides
+    part of it (a filtered body is never stored)."""
+    if resource_filter is not None:
         body = build_pack(crew_id, resource_filter, viewer)
         if body != build_pack(crew_id, viewer=viewer):
             digest = hashlib.sha256(body.encode()).hexdigest()[:16]
@@ -486,15 +521,20 @@ def get_pack(
             }
         _assert_publishable(actor, crew_id, viewer)
         _store_pack(body, actor=actor, crew_id=crew_id)
-        last = latest_pack(crew_id)
-    if not last:
-        # the same viewer: this call publishes, and publish_pack now gates on
-        # it. Passing NOBODY here would refuse the member who just passed the
-        # check above, on their own crew's first read.
-        publish_pack(actor=actor, crew_id=crew_id, viewer=viewer)
-        last = latest_pack(crew_id)
-        if last is None:
-            raise ValueError("context pack publish produced no pack — retry")
+        return None
+    # the same viewer: this call publishes, and publish_pack now gates on
+    # it. Passing NOBODY here would refuse the member who just passed the
+    # check in get_pack, on their own crew's first read.
+    publish_pack(actor=actor, crew_id=crew_id, viewer=viewer)
+    return None
+
+
+def _served(
+    last: dict,
+    crew_id: int,
+    viewer: scope.Viewer,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None,
+) -> dict:
     content = last["content"]
     digest = last["content_hash"]
     if resource_filter is not None:

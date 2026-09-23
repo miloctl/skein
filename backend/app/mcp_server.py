@@ -627,6 +627,9 @@ def get_context_pack(engagement_id: int = 0) -> str:
         agent=_actor(),
         tool="skein.mcp.context.read",
     )
+    if not engagement_id:
+        # before the snapshot: the first read publishes (context_pack.ensure_published)
+        context_pack.ensure_published(actor=_actor(), resource_filter=policy.permits)
     with db.read_transaction():
         if engagement_id:
             attributes = domain_policy_context.existing_scoped(
@@ -841,6 +844,8 @@ def context_pack_resource() -> str:
         agent=_actor(),
         tool="skein.mcp.context.read",
     )
+    # before the snapshot: the first read publishes (context_pack.ensure_published)
+    context_pack.ensure_published(actor=_actor(), resource_filter=policy.permits)
     with db.read_transaction():
         return context_pack.get_pack(
             actor=_actor(),

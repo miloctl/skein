@@ -191,9 +191,13 @@ def prune(*, actor: str = "scheduler") -> dict:
         # Forge redeliveries and annual firings outlive the telemetry horizon.
         # Their small receipt rows grow permanently: pruning them permits an
         # old event or an uncertain external effect to run again.
+        # An INTERVAL firing's key is a window number (jobs.fire_key) that
+        # is never computed again once the window passes, so its receipt is
+        # safe to prune; kept, a per-minute job wrote ~525k rows a year. A
+        # cron key is a timestamp an annual job recomputes for two periods.
         "job_runs": db.execute_rowcount(
             "DELETE FROM job_runs WHERE created_at < ? AND job != 'forge-delivery'"
-            " AND job NOT LIKE 'fire:%'"
+            " AND (job NOT LIKE 'fire:%' OR run_key ~ '^[0-9]+$')"
             " AND (lease_until = '' OR NULLIF(lease_until, '')::timestamptz <= clock_timestamp())",
             (_cutoff(JOB_ROW_DAYS),),
         ),

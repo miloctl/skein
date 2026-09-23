@@ -184,3 +184,26 @@ def test_retention_accounts_for_every_table(fresh_db):
         assert (child, parent) in live_cascades, (
             f"{child} claims cascade cleanup from {parent}, but no ON DELETE CASCADE exists"
         )
+
+
+def test_retention_prunes_past_interval_firing_receipts(fresh_db):
+    """extension-events fires every minute, and each window left a permanent
+    receipt: about 525k rows a year. An interval key names one past window,
+    which fire_key never computes again, so it is safe to prune. A cron key
+    is not (the annual test above)."""
+    from app.services import retention
+
+    old = _iso_hours_ago(24 * 400)
+    for key in ("29000001", "29000002"):
+        fresh_db.execute(
+            "INSERT INTO job_runs (job, run_key, created_at) VALUES ('fire:extension-events', ?, ?)",
+            (key, old),
+        )
+    fresh_db.execute(
+        "INSERT INTO job_runs (job, run_key, created_at)"
+        " VALUES ('fire:annual', '2025-01-01T00:00+00:00', ?)",
+        (old,),
+    )
+    retention.prune(actor="tester")
+    left = {r["job"] for r in fresh_db.query("SELECT job FROM job_runs WHERE job LIKE 'fire:%'")}
+    assert left == {"fire:annual"}

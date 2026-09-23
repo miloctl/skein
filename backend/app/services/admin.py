@@ -557,9 +557,15 @@ def backup_if_stale() -> dict:
     with _held_backup_lock():
         today = _today()
         dumps = sorted(_backups_dir().glob(f"database-{today}*.dump"))
-        database_done = any(
-            activity.recorded_backup_digests(path.name) == {_sha256_file(path)} for path in dumps
+        done = next(
+            (
+                path
+                for path in reversed(dumps)
+                if activity.recorded_backup_digests(path.name) == {_sha256_file(path)}
+            ),
+            None,
         )
+        database_done = done is not None
         mirror_status, mirror = _mirror_target()
         mirror_done = mirror_status == "not_configured" or bool(
             mirror and any(mirror.glob(f"platform-{today}*.dump"))
@@ -581,9 +587,42 @@ def backup_if_stale() -> dict:
                     "digest_recorded": database_done,
                     "mirror_status": mirror_status,
                 }
+            done = newest
         if database_done and mirror_done:
             return {"status": "noop"}
+        if done is not None:
+            # The dump is sound and only the mirror copy is missing. A full
+            # _backup here wrote a new recovery unit per retry, and retention
+            # by count then deleted earlier days: a mirror left unmounted
+            # through a crash loop emptied the history.
+            return _mirror_existing(done, mirror_status, mirror)
         return _backup(keep=14, actor=None)
+
+
+def _mirror_existing(dump: Path, mirror_status: str, mirror: Path | None) -> dict:
+    """Mirror the public schema for a database dump that is already complete."""
+    result = {
+        "database_path": str(dump),
+        "database_sha256": _sha256_file(dump),
+        "digest_recorded": True,
+    }
+    if mirror is None:
+        return {**result, "status": "partial", "mirror_status": mirror_status}
+    match = _BACKUP_FILE.fullmatch(dump.name)
+    backup_id = match.group(2) if match else _today()
+    platform_dest = _backups_dir() / f"platform-{backup_id}.dump"
+    mirrored = None
+    try:
+        _backup_one(["--schema=public"], platform_dest, "platform")
+        mirrored = _mirror(platform_dest, mirror)
+    except Exception:
+        log.exception("public platform mirror dump failed")
+    return {
+        **result,
+        "status": "ok" if mirrored else "partial",
+        "mirror_status": "written" if mirrored else "unavailable",
+        "mirrored_platform_path": mirrored,
+    }
 
 
 def _make_export(*, keep: int, actor: str, open_file: bool, max_bytes: int = 0):

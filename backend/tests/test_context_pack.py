@@ -181,3 +181,12 @@ def test_a_filtered_reader_never_receives_the_stored_snapshot(fresh_db):
     filtered = context_pack.get_pack(actor="mira", viewer=viewer, resource_filter=deny_secret)
     assert "Buy NorthCo" not in filtered["content"]
     assert filtered["version"] == 0
+
+
+def test_the_first_context_pack_read_publishes_outside_the_read_snapshot(client, fresh_db):
+    from app import db
+
+    r = client.get("/api/context-pack")
+    assert r.status_code == 200, r.text
+    assert r.json()["version"] >= 1
+    assert db.query_one("SELECT id FROM activity WHERE action = 'publish_context_pack'")

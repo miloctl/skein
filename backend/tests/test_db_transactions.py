@@ -539,3 +539,16 @@ def test_nul_inside_a_list_parameter_is_an_input_error(fresh_db):
     with pytest.raises(ValueError, match="NUL"):
         fresh_db.query("SELECT 1 WHERE 'a' = ANY(?)", (["a", "secret\x00suffix"],))
     assert fresh_db.query("SELECT 1 AS n WHERE 'a' = ANY(?)", (["a", "b"],)) == [{"n": 1}]
+
+
+def test_a_ledger_row_is_refused_inside_a_read_snapshot(fresh_db):
+    """Under REPEATABLE READ the chain tail read after the ledger lock sees the
+    old snapshot. A row queued there reuses a sequence number whenever another
+    append commits first: a 500 an identical retry does not repeat."""
+    import pytest
+
+    from app import db
+
+    with pytest.raises(RuntimeError, match="read snapshot"), db.read_transaction():
+        db.log_activity("tester", "probe", "inside a read snapshot")
+    assert fresh_db.query("SELECT id FROM activity WHERE action = 'probe'") == []
