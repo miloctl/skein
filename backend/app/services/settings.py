@@ -1,8 +1,9 @@
 """Operator-set deployment settings held in app_settings.
 
-The long-chat strategy and the model pick live here. Both are TEAM settings
-rather than personal ones on purpose: they change what every chat costs,
-which is an operator decision, not a preference.
+The long-chat strategy, the model pick, and the reasoning level live here.
+All three are TEAM settings rather than personal ones on purpose: they
+change what every chat costs, which is an operator decision, not a
+preference.
 
 The stored value overrides the env default. Env stays the default so a fresh
 deployment behaves per its .env, and clearing the setting returns to it
@@ -276,6 +277,9 @@ def model_configuration_summary(pick: dict | None = None) -> dict:
     else:
         image_mode = "unavailable"
 
+    # from the pick this summary was given: re-reading it can name a level
+    # for a different model than the Team-default model row
+    team_level = reasoning_level_state(model_id)["level"]
     strategy_override = context_strategy_override()
     strategy_source = "admin" if strategy_override else config.CONTEXT_STRATEGY_SOURCE
     price, price_source = usage.model_price(model_id)
@@ -296,11 +300,8 @@ def model_configuration_summary(pick: dict | None = None) -> dict:
 
     def source_name(row_id: str, source: str) -> str:
         if source == "admin":
-            return (
-                "Settings → AI runtime → Long chats (team)"
-                if row_id == "long_chat"
-                else "Settings → AI runtime → Model (team)"
-            )
+            section = {"long_chat": "Long chats", "reasoning": "Reasoning"}.get(row_id, "Model")
+            return f"Settings → AI runtime → {section} (team)"
         fixed = {
             "provider_default": "provider default",
             "default": "built-in default",
@@ -408,6 +409,12 @@ def model_configuration_summary(pick: dict | None = None) -> dict:
                 [strategy_source],
             ),
             row(
+                "reasoning",
+                "Reasoning",
+                f"{team_level or 'Model default'}{' (not in use)' if not model_active else ''}",
+                ["admin"] if team_level else [],
+            ),
+            row(
                 "model_menu",
                 "Model menu",
                 f"{menu_count} {'model' if menu_count == 1 else 'models'}",
@@ -428,6 +435,86 @@ def model_configuration_summary(pick: dict | None = None) -> dict:
             ),
         ],
     }
+
+
+REASONING_LEVEL = "reasoning_level"
+
+
+def reasoning_levels(model_id: str) -> tuple[str, ...]:
+    """The level names a menu model declares, in config.REASONING_LEVELS order."""
+    return tuple((config.MODELS.get(model_id) or {}).get("reasoning") or {})
+
+
+def check_reasoning_level(level: str, model_id: str, subject: str) -> None:
+    """Refuse a level the model does not declare. Shared by the team level and
+    the per-chat /reasoning pick. Never echoes the submitted value."""
+    if config.EFFECTIVE_PROVIDER == "mock":
+        raise ValueError("The mock provider runs no real model. Configure a model provider first.")
+    levels = reasoning_levels(model_id)
+    if not levels:
+        raise ValueError(
+            f"{subject} has no reasoning levels. Levels come from its entry in SKEIN_MODELS."
+        )
+    if level not in levels:
+        raise ValueError(f"{subject} has no level with that name. Use one of: {', '.join(levels)}.")
+
+
+def _stored_reasoning_level() -> str:
+    row = db.query_one("SELECT value FROM app_settings WHERE key = ?", (REASONING_LEVEL,))
+    stored = (row["value"] if row else "") or ""
+    return stored if stored in config.REASONING_LEVELS else ""
+
+
+def set_reasoning_level(level: str, *, actor: str) -> dict:
+    """Empty clears the level and returns the team to each model's default."""
+    level = (level or "").strip().lower()
+    if level:
+        check_reasoning_level(level, model_pick_state()["model"], "The team model")
+    db.execute(
+        "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET value = excluded.value,"
+        " updated_at = excluded.updated_at",
+        (REASONING_LEVEL, level, db.now()),
+    )
+    db.log_activity(
+        actor,
+        "set_reasoning_level",
+        f"team reasoning level set to {level}"
+        if level
+        else "team reasoning level returned to the model default",
+    )
+    return reasoning_level_state()
+
+
+def reasoning_level_state(model_id: str | None = None) -> dict:
+    """The team level as the GET and the Settings section render it, for the
+    team model unless `model_id` names it. A stored level the team model
+    stopped offering is reported, never hidden (the model_pick_state
+    `ignored` rule)."""
+    if model_id is None:
+        model_id = model_pick_state()["model"]
+    levels = list(reasoning_levels(model_id))
+    stored = _stored_reasoning_level()
+    ignored = "The team model does not offer this level." if stored and stored not in levels else ""
+    return {
+        "level": "" if ignored else stored,
+        "override": stored,
+        "levels": levels,
+        "ignored": ignored,
+        "applies": config.EFFECTIVE_PROVIDER != "mock",
+    }
+
+
+def turn_reasoning(model_id: str, chat_level: str = "") -> tuple[str, str]:
+    """The level one chat turn on `model_id` runs with, and whose choice it is:
+    the chat's, then the team's. A level the model does not declare defers to
+    the next layer — a chat level picked on another model must not silently
+    switch reasoning off."""
+    levels = reasoning_levels(model_id)
+    for level, source in ((chat_level, "chat"), (_stored_reasoning_level(), "team")):
+        if level in levels:
+            return level, source
+    return "", "model"
 
 
 def picked_model() -> str:

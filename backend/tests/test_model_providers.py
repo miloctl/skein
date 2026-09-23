@@ -525,3 +525,97 @@ def test_real_clients_retry_once_not_twice(monkeypatch):
     _configure(monkeypatch, "anthropic", api_key="sk-ant")
     # anthropic builds its client in __init__ and keeps only that
     assert team_agent._model().client.max_retries == 1
+
+
+# ---- a reasoning level reaches the request of the model that won ----
+
+LEVEL_PARAMS = {
+    "anthropic": {"thinking": {"type": "adaptive"}, "output_config": {"effort": "high"}},
+    "openai": {"reasoning_effort": "high"},
+    "ollama": {"additional_args": {"think": "high"}},
+    "bedrock": {"additional_request_fields": {"thinking": {"type": "adaptive"}}},
+}
+
+
+def _entry(params=None, **levels):
+    return {"max_tokens": None, "context_tokens": None, "params": params or {}, "reasoning": levels}
+
+
+def _request(model) -> dict:
+    messages = [{"role": "user", "content": [{"text": "hi"}]}]
+    if type(model).__name__ == "BedrockModel":
+        return model.format_request(messages, system_prompt_content=[])
+    return model.format_request(messages)
+
+
+@pytest.mark.parametrize("provider", sorted(LEVEL_PARAMS))
+def test_a_declared_level_reaches_the_provider_request(monkeypatch, provider):
+    _configure(monkeypatch, provider)
+    monkeypatch.setattr(config, "MODELS", {"test-model": _entry(high=LEVEL_PARAMS[provider])})
+    plain = _request(team_agent._model())
+    wire = _request(team_agent._model(reasoning="high"))
+    assert wire != plain
+    if provider == "anthropic":
+        assert wire["thinking"] == {"type": "adaptive"}
+        assert wire["output_config"] == {"effort": "high"}
+    elif provider == "openai":
+        assert wire["reasoning_effort"] == "high"
+    elif provider == "ollama":
+        assert wire["think"] == "high"
+    else:
+        assert wire["additionalModelRequestFields"] == {"thinking": {"type": "adaptive"}}
+
+
+def test_a_level_the_model_does_not_declare_sends_nothing(monkeypatch):
+    _configure(monkeypatch, "anthropic")
+    monkeypatch.setattr(config, "MODELS", {"test-model": _entry(high=LEVEL_PARAMS["anthropic"])})
+    plain = _request(team_agent._model())
+    assert _request(team_agent._model(reasoning="low")) == plain
+    assert "thinking" not in plain
+
+
+def test_the_level_comes_from_the_entry_of_the_model_that_won(monkeypatch):
+    """A persona's model gets its own entry's level params, not the team model's."""
+    _configure(monkeypatch, "openai")
+    monkeypatch.setattr(
+        config,
+        "MODELS",
+        {
+            "test-model": _entry(high={"reasoning_effort": "high"}),
+            "persona-model": _entry(high={"reasoning_effort": "xhigh"}),
+        },
+    )
+    wire = _request(team_agent._model(model_id="persona-model", reasoning="high"))
+    assert wire["model"] == "persona-model"
+    assert wire["reasoning_effort"] == "xhigh"
+
+
+def test_a_level_null_removes_what_lower_layers_send(monkeypatch):
+    """Thinking models refuse a custom temperature. A persona temperature and
+    SKEIN_MODEL_PARAMS both inject one, so a level must be able to remove it."""
+    _configure(monkeypatch, "anthropic", params={"temperature": 0.2, "top_p": 0.9})
+    level = {"thinking": {"type": "adaptive"}, "temperature": None, "top_p": None}
+    monkeypatch.setattr(config, "MODELS", {"test-model": _entry(high=level)})
+    wire = _request(team_agent._model(temperature=0.7, reasoning="high"))
+    assert "temperature" not in wire and "top_p" not in wire
+    assert wire["thinking"] == {"type": "adaptive"}
+    # without the level the same model keeps both
+    plain = _request(team_agent._model(temperature=0.7))
+    assert plain["temperature"] == 0.7 and plain["top_p"] == 0.9
+
+
+def test_a_level_merges_over_the_entry_params(monkeypatch):
+    _configure(monkeypatch, "anthropic")
+    monkeypatch.setattr(
+        config,
+        "MODELS",
+        {
+            "test-model": _entry(
+                params={"thinking": {"type": "disabled"}, "max_tokens": 8000},
+                high={"thinking": {"type": "enabled", "budget_tokens": 4000}},
+            )
+        },
+    )
+    wire = _request(team_agent._model(reasoning="high"))
+    assert wire["thinking"] == {"type": "enabled", "budget_tokens": 4000}
+    assert wire["max_tokens"] == 8000

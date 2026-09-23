@@ -339,6 +339,7 @@ def test_the_summary_reports_the_team_default_from_one_state(fresh_db, real_prov
         "attachments",
         "vision_sidecar",
         "long_chat",
+        "reasoning",
         "model_menu",
         "prices",
         "parameters",
@@ -356,6 +357,12 @@ def test_the_summary_reports_the_team_default_from_one_state(fresh_db, real_prov
     assert _row(summary, "attachments")["value"] == "Direct: image, document. Images: direct."
     assert _row(summary, "vision_sidecar")["value"] == "Not set"
     assert _row(summary, "long_chat")["value"] == "sliding"
+    assert _row(summary, "reasoning") == {
+        "id": "reasoning",
+        "label": "Reasoning",
+        "value": "Model default",
+        "source": "",
+    }
     assert _row(summary, "model_menu")["value"] == "2 models"
     assert _row(summary, "model_menu")["source"] == "SKEIN_MODELS_FILE"
     assert _row(summary, "prices")["source"] == "selected model entry"

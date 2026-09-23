@@ -390,6 +390,68 @@ async def _model(
     yield {"data": f"{head}\n\nPick one with `/model <id>`, or `/model default`:\n\n{body}"}
 
 
+async def _reasoning(
+    args: str, user: str, viewer: scope.Viewer, access: CommandAccess | None
+) -> AsyncIterator[Event]:
+    """`/reasoning` lists the levels the model of this chat offers and names
+    the one in force; `/reasoning <level>` picks one for THIS chat;
+    `/reasoning default` returns it to the team level. Per chat, like /model."""
+    from ..agents.team_agent import model_in_force
+    from ..services import chat_threads, settings
+
+    yield _tool_event("chat_reasoning")
+    thread_id = access.thread_id if access else ""
+    if not thread_id:
+        yield {"data": "Run `/reasoning` inside a chat."}
+        return
+    if config.EFFECTIVE_PROVIDER == "mock":
+        yield {"data": "This deployment runs the mock provider, which has no reasoning levels."}
+        return
+    want = args.strip()
+    if want:
+        try:
+            picked = await run_in_threadpool(
+                chat_threads.set_thread_reasoning,
+                thread_id,
+                user,
+                "" if want.lower() == "default" else want,
+            )
+        except ValueError as exc:
+            yield {"data": f"The reasoning level was not changed. {exc}"}
+            return
+        if picked:
+            yield {
+                "data": f"This chat now uses the **{picked}** reasoning level."
+                " `/reasoning default` returns it to the team level."
+            }
+        else:
+            yield {"data": "This chat now uses the team reasoning level."}
+        return
+    model = await run_in_threadpool(chat_threads.thread_model, thread_id) or (
+        await run_in_threadpool(model_in_force)
+    )
+    levels = await run_in_threadpool(settings.reasoning_levels, model)
+    if not levels:
+        yield {
+            "data": f"The model of this chat, **{model}**, has no reasoning levels."
+            " Levels come from its entry in SKEIN_MODELS."
+        }
+        return
+    chat_level = await run_in_threadpool(chat_threads.thread_reasoning, thread_id)
+    level, source = await run_in_threadpool(settings.turn_reasoning, model, chat_level)
+    head = {
+        "chat": f"This chat uses the **{level}** level (picked here).",
+        "team": f"This chat uses the team level, **{level}**.",
+        "model": "This chat uses the default of its model.",
+    }[source]
+    if chat_level and source != "chat":
+        head += " The model of this chat does not offer the level picked here."
+    body = "\n".join(f"- **{name}**" if name == level else f"- {name}" for name in levels)
+    yield {
+        "data": f"{head}\n\nPick one with `/reasoning <level>`, or `/reasoning default`:\n\n{body}"
+    }
+
+
 async def _flocks(
     args: str, user: str, viewer: scope.Viewer, access: CommandAccess | None
 ) -> AsyncIterator[Event]:
@@ -534,6 +596,12 @@ COMMANDS: list[dict] = [
         "args": "[model]",
         "description": "Pick the model for this chat from the menu, or list the menu",
         "handler": _model,
+    },
+    {
+        "name": "reasoning",
+        "args": "[level]",
+        "description": "Pick how much the model reasons in this chat, or list the levels",
+        "handler": _reasoning,
     },
     # handler None: resolved by the chat route (needs the agent layer);
     # listed here so autocomplete and /help stay a single source of truth

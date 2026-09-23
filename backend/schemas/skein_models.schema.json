@@ -27,6 +27,99 @@
           "type": ["string", "number", "boolean", "null"]
         }
       ]
+    },
+    "params": {
+      "type": "object",
+      "propertyNames": {
+        "not": {
+          "enum": [
+            "model",
+            "model_id",
+            "modelId",
+            "endpoint_url",
+            "region_name",
+            "boto_session",
+            "boto_client_config",
+            "messages",
+            "tools",
+            "system",
+            "tool_choice",
+            "stream",
+            "stream_options",
+            "timeout",
+            "host",
+            "ollama_client_args"
+          ]
+        }
+      },
+      "properties": {
+        "extra_body": {
+          "type": ["object", "null"],
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "model",
+                "model_id",
+                "modelId",
+                "provider",
+                "models",
+                "route",
+                "messages",
+                "tools",
+                "system",
+                "tool_choice",
+                "stream",
+                "stream_options",
+                "timeout",
+                "max_tokens",
+                "max_completion_tokens"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/providerEscapeValue"
+          }
+        },
+        "extra_query": {
+          "type": ["object", "null"],
+          "propertyNames": {
+            "not": {
+              "enum": ["model", "model_id", "modelId", "provider"]
+            }
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/providerEscapeValue"
+          }
+        },
+        "additional_args": {
+          "type": ["object", "null"],
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "model",
+                "model_id",
+                "modelId",
+                "messages",
+                "tools",
+                "system",
+                "tool_choice",
+                "stream",
+                "stream_options",
+                "timeout",
+                "toolConfig",
+                "options",
+                "inferenceConfig",
+                "additionalModelRequestFields",
+                "max_tokens",
+                "max_completion_tokens"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/providerEscapeValue"
+          }
+        }
+      }
     }
   },
   "type": "array",
@@ -81,98 +174,22 @@
         "description": "USD per million tokens. Wins over SKEIN_MODEL_PRICES for this id. cached_input is deliberately absent: usage accounting multiplies input and output only, and a price nothing multiplies is a believed number not in effect."
       },
       "params": {
-        "type": "object",
-        "propertyNames": {
-          "not": {
-            "enum": [
-              "model",
-              "model_id",
-              "modelId",
-              "endpoint_url",
-              "region_name",
-              "boto_session",
-              "boto_client_config",
-              "messages",
-              "tools",
-              "system",
-              "tool_choice",
-              "stream",
-              "stream_options",
-              "timeout",
-              "host",
-              "ollama_client_args"
-            ]
-          }
-        },
-        "properties": {
-          "extra_body": {
-            "type": ["object", "null"],
-            "propertyNames": {
-              "not": {
-                "enum": [
-                  "model",
-                  "model_id",
-                  "modelId",
-                  "provider",
-                  "models",
-                  "route",
-                  "messages",
-                  "tools",
-                  "system",
-                  "tool_choice",
-                  "stream",
-                  "stream_options",
-                  "timeout",
-                  "max_tokens",
-                  "max_completion_tokens"
-                ]
-              }
-            },
-            "additionalProperties": {
-              "$ref": "#/$defs/providerEscapeValue"
-            }
-          },
-          "extra_query": {
-            "type": ["object", "null"],
-            "propertyNames": {
-              "not": {
-                "enum": ["model", "model_id", "modelId", "provider"]
-              }
-            },
-            "additionalProperties": {
-              "$ref": "#/$defs/providerEscapeValue"
-            }
-          },
-          "additional_args": {
-            "type": ["object", "null"],
-            "propertyNames": {
-              "not": {
-                "enum": [
-                  "model",
-                  "model_id",
-                  "modelId",
-                  "messages",
-                  "tools",
-                  "system",
-                  "tool_choice",
-                  "stream",
-                  "stream_options",
-                  "timeout",
-                  "toolConfig",
-                  "options",
-                  "inferenceConfig",
-                  "additionalModelRequestFields",
-                  "max_tokens",
-                  "max_completion_tokens"
-                ]
-              }
-            },
-            "additionalProperties": {
-              "$ref": "#/$defs/providerEscapeValue"
-            }
-          }
-        },
+        "$ref": "#/$defs/params",
         "description": "Provider pass-through (temperature, top_p, reasoning budgets, extra_headers, and provider extensions). Merged over SKEIN_MODEL_PARAMS - the per-model key wins. Model routing, app-owned request fields, and provider-client controls never belong in params."
+      },
+      "reasoning": {
+        "type": "object",
+        "minProperties": 1,
+        "propertyNames": {
+          "enum": ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
+        },
+        "additionalProperties": {
+          "allOf": [
+            { "$ref": "#/$defs/params" },
+            { "properties": { "max_tokens": { "type": "integer", "minimum": 1 } } }
+          ]
+        },
+        "description": "The reasoning levels this model offers, and the exact params each level sends. An administrator picks a level for the team in Settings, and a person picks one for a solo chat with /reasoning. A level applies to chat turns only, never to titles, planning, or summaries. Its params merge last, over params and any persona temperature. A top-level null removes that key from the request - thinking models refuse a custom temperature, so a level can send \"temperature\": null. Any budget_tokens must be below the level's output limit (the level's max_tokens, then params.max_tokens, then this entry's max_tokens, then SKEIN_MAX_TOKENS), or the server refuses the list at startup. Level names reach the UI, level params never do."
       }
     }
   }

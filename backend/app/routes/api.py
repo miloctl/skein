@@ -2135,6 +2135,31 @@ def post_context_strategy(body: ContextStrategyIn, user: AdminUser):
         raise HTTPException(400, str(e)) from e
 
 
+class ReasoningIn(BaseModel):
+    # extra=forbid + no default: same trap ContextStrategyIn names — a
+    # mistyped field falling through to "" is the CLEAR sentinel
+    model_config = ConfigDict(extra="forbid")
+    level: str = Field(max_length=20)
+
+
+@router.get("/settings/reasoning")
+def get_reasoning(user: CurrentUser):
+    """Reads for everyone; writing is operator-only."""
+    return settings.reasoning_level_state()
+
+
+@router.post("/settings/reasoning")
+def post_reasoning(body: ReasoningIn, user: AdminUser):
+    """AdminUser: a level changes what every chat turn costs for the whole
+    team. Rate-capped because each call appends to the activity ledger, which
+    is never pruned."""
+    ratelimit.check("write", user)
+    try:
+        return settings.set_reasoning_level(body.level, actor=user)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 class AgentAutomationIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool
@@ -2192,6 +2217,9 @@ def get_model_pick(user: CurrentUser):
                 # so the menu compares what accounting will actually charge —
                 # usage.model_price also nulls a (0,0) pair, on every surface.
                 "price": _menu_price(str(e["id"])),
+                # level NAMES only: level params are request bodies, served
+                # nowhere for the reason entry params are not
+                "reasoning": list(e.get("reasoning") or {}),
             }
             for e in config.MODELS.values()
         ],

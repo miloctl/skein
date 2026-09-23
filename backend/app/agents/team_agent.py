@@ -6,7 +6,10 @@ import contextlib
 import json
 import logging
 from contextvars import ContextVar, Token
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
+
+from strands.agent.conversation_manager import SummarizingConversationManager
 
 from .. import config, db, ratelimit
 from ..extensions.registry import ExtensionRegistry
@@ -119,7 +122,7 @@ def model_in_force(persona_model: str = "") -> str:
     return _picked_model() or config.MODEL_ID
 
 
-def _model(model_id: str = "", temperature: float | None = None):
+def _model(model_id: str = "", temperature: float | None = None, reasoning: str = ""):
     """Build the configured model provider. THE only place in the codebase
     that branches on a provider name — everything else reads a capability off
     config.PROVIDERS or asks config.EFFECTIVE_PROVIDER.
@@ -138,14 +141,21 @@ def _model(model_id: str = "", temperature: float | None = None):
     into config.MODEL_ID).
 
     Params precedence per key: SKEIN_MODEL_PARAMS < the registry entry
-    (typed fields AND params) < persona overrides — each layer is the more
-    specific operator intent, and the ordering must hold on every provider
-    branch: on the merge branches (ollama, bedrock) the entry's typed cap
-    must ride in extra's layer, because in base position it loses to a
-    global max_tokens in SKEIN_MODEL_PARAMS and one registry entry then
-    means different things per provider. Registry tuning is looked up BY ID
+    (typed fields AND params) < persona overrides < the reasoning level —
+    each layer is the more specific operator intent, and the ordering must
+    hold on every provider branch: on the merge branches (ollama, bedrock)
+    the entry's typed cap must ride in extra's layer, because in base
+    position it loses to a global max_tokens in SKEIN_MODEL_PARAMS and one
+    registry entry then means different things per provider. Registry tuning is looked up BY ID
     for whatever model won, so a persona's model gets its own entry's cap
     and context size, not the picked model's.
+
+    `reasoning` names a level from the winning entry's `reasoning` map
+    (config.REASONING_LEVELS). A level the entry does not declare sends
+    nothing. Only the main chat turn passes one (routes/chat.py): a helper
+    call that inherits it pays for reasoning nobody reads. A level's null
+    REMOVES that key from every lower layer, because thinking models refuse
+    the temperature a persona or SKEIN_MODEL_PARAMS injects.
 
     Raises on a bad provider rather than falling through to a default. The
     caller (routes/chat.py) turns that into an SSE error frame the operator
@@ -158,9 +168,12 @@ def _model(model_id: str = "", temperature: float | None = None):
     key = config.provider_key()
     mid = model_in_force(model_id)
     entry = config.MODELS.get(mid) or {}
+    level = (entry.get("reasoning") or {}).get(reasoning, {}) if reasoning else {}
+    drop = frozenset(k for k, v in level.items() if v is None)
     extra = {
         **entry.get("params", {}),
         **({"temperature": temperature} if temperature is not None else {}),
+        **level,
     }
     # entries validate max_tokens >= 1 and context_tokens >= 1024, so `or`
     # cannot swallow a legal 0 here
@@ -205,7 +218,7 @@ def _model(model_id: str = "", temperature: float | None = None):
         # SKEIN_MODEL_PARAMS or the entry's params, under the provider's own
         # key name (schemas/skein_models.schema.json says so on max_tokens).
         return OpenAIModel(
-            client_args=client_args, model_id=mid, **_request_params(extra), **ctx_kw
+            client_args=client_args, model_id=mid, **_request_params(extra, drop), **ctx_kw
         )
 
     if provider == "ollama":
@@ -224,7 +237,7 @@ def _model(model_id: str = "", temperature: float | None = None):
             # duplicate-kwarg TypeError _model_config's docstring exists to
             # prevent. It merges in extra's layer so the per-model cap beats
             # the global knob.
-            **_model_config(mid, {**entry_kw, **extra}, max_tokens=config.MAX_TOKENS),
+            **_model_config(mid, {**entry_kw, **extra}, drop, max_tokens=config.MAX_TOKENS),
         )
 
     if provider == "bedrock":
@@ -236,7 +249,7 @@ def _model(model_id: str = "", temperature: float | None = None):
         # Bedrock is already bounded; hand-rolling a config here to say so
         # would unbound it the first time someone edits it and forgets.
         return BedrockModel(
-            **_model_config(mid, {**entry_kw, **extra}, max_tokens=config.MAX_TOKENS)
+            **_model_config(mid, {**entry_kw, **extra}, drop, max_tokens=config.MAX_TOKENS)
         )
 
     if provider == "anthropic":
@@ -256,7 +269,8 @@ def _model(model_id: str = "", temperature: float | None = None):
                 {
                     **({"max_tokens": entry["max_tokens"]} if entry.get("max_tokens") else {}),
                     **extra,
-                }
+                },
+                drop,
             ),
             **ctx_kw,
         )
@@ -264,23 +278,28 @@ def _model(model_id: str = "", temperature: float | None = None):
     raise ValueError(f"no model builder for provider {provider!r}")
 
 
-def _behavior_params(extra: dict | None = None) -> dict:
+def _behavior_params(extra: dict | None = None, drop: frozenset[str] = frozenset()) -> dict:
     merged = {**config.MODEL_PARAMS, **(extra or {})}
+    for key in drop:
+        merged.pop(key, None)
     # Tests and legacy process state can bypass config.py's import validator.
     # Keep the request boundary safe even when that earlier check did not run.
     sanitized, _ = config.sanitize_model_params(merged)
     return sanitized
 
 
-def _request_params(extra: dict | None = None) -> dict:
+def _request_params(extra: dict | None = None, drop: frozenset[str] = frozenset()) -> dict:
     """SKEIN_MODEL_PARAMS as a nested `params=` dict, for the providers that
     forward it to the request body (openai family, anthropic). Persona
-    overrides merge last — the more specific operator intent wins."""
-    merged = _behavior_params(extra)
+    overrides, then the reasoning level, merge last — the more specific
+    operator intent wins. `drop` names the keys a level set to null."""
+    merged = _behavior_params(extra, drop)
     return {"params": merged} if merged else {}
 
 
-def _model_config(mid: str, extra: dict | None = None, **base) -> dict:
+def _model_config(
+    mid: str, extra: dict | None = None, drop: frozenset[str] = frozenset(), **base
+) -> dict:
     """SKEIN_MODEL_PARAMS merged as top-level model config, for providers whose
     knobs are constructor kwargs (ollama, bedrock).
 
@@ -290,10 +309,10 @@ def _model_config(mid: str, extra: dict | None = None, **base) -> dict:
     wins over the built-in GLOBAL kwargs in `base`; the registry entry's
     typed fields must arrive inside `extra` (the _model caller merges them
     there), or the per-model cap loses to the global knob and one registry
-    entry means different things per provider. Persona overrides merge last
-    of all.
+    entry means different things per provider. Persona overrides, then the
+    reasoning level, merge last of all.
     """
-    return {"model_id": mid, **base, **_behavior_params(extra)}
+    return {"model_id": mid, **base, **_behavior_params(extra, drop)}
 
 
 PLANNER_PROMPT = """You are the planning specialist for an AI team platform.
@@ -495,7 +514,37 @@ def _planner_tools(allowlist: list[str] | None) -> list:
     return govern_core_tools(tools)
 
 
-def _conversation_manager():
+class _PlainSummaries(SummarizingConversationManager):
+    """The SDK summarizer with two changes. It returns the summary as a USER
+    message with every block the model sent, and Anthropic and Bedrock refuse
+    a reasoning block there — the summary is stored in the session, so every
+    later turn of that chat fails. And it summarizes with the chat's own
+    model, so a reasoning level would pay for reasoning nobody reads:
+    `summary_model` builds the model without the level."""
+
+    def __init__(self, summary_model=None, **kwargs):
+        super().__init__(**kwargs)
+        self._summary_model = summary_model
+
+    def _generate_summary(self, messages, agent):
+        # the SDK's dispatch point; test_context_strategy.py fails if an
+        # upgrade renames it or reads more than .model from this agent
+        if self._summary_model is not None:
+            agent = SimpleNamespace(model=self._summary_model())
+        summary = super()._generate_summary(messages, agent)
+        content = [b for b in summary["content"] if "reasoningContent" not in b]
+        if not content:
+            raise RuntimeError("the summary carried reasoning only")
+        return {**summary, "content": content}
+
+
+# Strands stores the class name in the session and refuses to restore under
+# another one (ConversationManager.restore_from_session): a new name fails
+# every open summarize chat on its next turn.
+_PlainSummaries.__name__ = SummarizingConversationManager.__name__
+
+
+def _conversation_manager(summary_model=None):
     """How a long chat is kept inside the context window.
 
     Branches on the STRATEGY, never on the provider name — the provider branch
@@ -509,17 +558,15 @@ def _conversation_manager():
     after a compaction — that reasoning is void, and nothing currently keeps
     the top of a long chat alive across turns.
     """
-    from strands.agent.conversation_manager import (
-        SlidingWindowConversationManager,
-        SummarizingConversationManager,
-    )
+    from strands.agent.conversation_manager import SlidingWindowConversationManager
 
     from ..services.settings import effective_context_strategy
 
     pin = config.CONTEXT_PIN_FIRST or None
     proactive = config.CONTEXT_PROACTIVE or None
     if effective_context_strategy() == "summarize":
-        return SummarizingConversationManager(
+        return _PlainSummaries(
+            summary_model,
             summary_ratio=config.CONTEXT_SUMMARY_RATIO,
             preserve_recent_messages=config.CONTEXT_PRESERVE_RECENT,
             summarization_system_prompt=SUMMARIZER_PROMPT,
@@ -844,6 +891,7 @@ def build_agent(
     allowed_tools: set[str] | frozenset[str] | None = None,
     review_forced: bool = False,
     personal_tools_for: str = "",
+    reasoning: str = "",
 ):
     """One agent per chat thread. Mock provider needs no keys and no Strands
     session; real providers persist conversations in the session tables
@@ -856,6 +904,11 @@ def build_agent(
     allowed_tools applies one final structural cap after stock, extension, extra,
     and remote tools are assembled. The unattended wake runner uses it to keep
     unrelated writes and remote MCP calls out of an unobserved turn.
+
+    reasoning is the turn's level (config.REASONING_LEVELS), resolved by
+    routes/chat.py for the main chat turn only. Every other caller leaves it
+    empty: a planner, consult, or title call that inherits it pays for
+    reasoning nobody reads.
 
     review_forced tells a stateful caller the same truth that stateless carries:
     tools/_gate.py queues every write whatever the deployment review flag says.
@@ -1527,10 +1580,13 @@ def build_agent(
     # routes/chat.py resolves this before attachment preparation. Reading the
     # admin pick again here can send an image block to a text-only model when a
     # pick changes between those two steps.
-    manager = _conversation_manager()
+    model_kw = {"model_id": resolved_model or beh["model"], "temperature": beh["temperature"]}
+    manager = _conversation_manager(
+        summary_model=(lambda: _model(**model_kw)) if reasoning else None
+    )
     if stateless:
         return Agent(
-            model=_model(model_id=resolved_model or beh["model"], temperature=beh["temperature"]),
+            model=_model(**model_kw, reasoning=reasoning),
             conversation_manager=manager,
             system_prompt=system,
             tools=tools,
@@ -1538,7 +1594,7 @@ def build_agent(
         )
     _reconcile_session_strategy(thread_id, manager)
     return Agent(
-        model=_model(model_id=resolved_model or beh["model"], temperature=beh["temperature"]),
+        model=_model(**model_kw, reasoning=reasoning),
         conversation_manager=manager,
         system_prompt=system,
         tools=tools,

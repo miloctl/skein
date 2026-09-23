@@ -649,3 +649,86 @@ def test_the_pre_rename_window_name_faults_and_is_not_read(monkeypatch):
     assert cfg.CONTEXT_WINDOW_MESSAGES == 40
     assert "SKEIN_CONTEXT_WINDOW was renamed" in cfg.CONTEXT_STRATEGY_ERROR
     assert "SKEIN_CONTEXT_WINDOW_MESSAGES" in cfg.CONTEXT_STRATEGY_ERROR
+
+
+class _ThinkingModel:
+    """Answers the way a thinking model does: a signed reasoning block, then text."""
+
+    def __init__(self):
+        self.calls = 0
+
+    async def stream(self, messages, tool_specs=None, system_prompt=None, **_):
+        self.calls += 1
+        yield {"messageStart": {"role": "assistant"}}
+        yield {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "weighing"}}}}
+        yield {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "sig"}}}}
+        yield {"contentBlockStop": {}}
+        yield {"contentBlockDelta": {"delta": {"text": "the summary"}}}
+        yield {"contentBlockStop": {}}
+        yield {"messageStop": {"stopReason": "end_turn"}}
+
+
+def _long_chat():
+    from types import SimpleNamespace
+
+    roles = ["user", "assistant"] * 6
+    return SimpleNamespace(
+        model=_ThinkingModel(),
+        messages=[{"role": r, "content": [{"text": f"m{i}"}]} for i, r in enumerate(roles)],
+    )
+
+
+def test_a_summary_stores_no_reasoning_in_its_user_message(fresh_db, monkeypatch):
+    """The SDK returns the summary as a USER message with every block the
+    model sent. Anthropic and Bedrock refuse a reasoning block there, and the
+    summary is stored in the session, so every later turn of the chat fails."""
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
+    agent = _long_chat()
+    team_agent._conversation_manager().reduce_context(agent)
+    summary = next(m for m in agent.messages if m["content"][0].get("text") == "the summary")
+    assert summary["role"] == "user"
+    assert [list(block) for block in summary["content"]] == [["text"]]
+
+
+def test_a_chat_with_a_reasoning_level_summarizes_with_the_model_without_it(fresh_db, monkeypatch):
+    """A summary is a helper call. The level pays for reasoning nobody reads."""
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
+    agent, plain = _long_chat(), _ThinkingModel()
+    team_agent._conversation_manager(summary_model=lambda: plain).reduce_context(agent)
+    assert (agent.model.calls, plain.calls) == (0, 1)
+
+
+def test_session_state_keeps_the_name_open_chats_restore_under(fresh_db, monkeypatch):
+    """Strands refuses to restore a session under another manager class name,
+    so a renamed manager fails every open summarize chat on its next turn."""
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
+    state = team_agent._conversation_manager(summary_model=lambda: None).get_state()
+    assert state["__name__"] == "SummarizingConversationManager"
+    team_agent._conversation_manager().restore_from_session(state)
+
+
+def test_build_agent_gives_the_level_to_the_chat_model_and_not_to_its_summaries(
+    fresh_db, monkeypatch
+):
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
+    built: list[str] = []
+
+    def model(reasoning="", **_):
+        built.append(reasoning)
+        return _FakeModel()
+
+    monkeypatch.setattr(team_agent, "_model", model)
+    agent = team_agent.build_agent("t-level", reasoning="high")
+    assert built == ["high"]
+    agent.conversation_manager._summary_model()
+    assert built == ["high", ""]

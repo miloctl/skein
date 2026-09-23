@@ -192,6 +192,142 @@ function AgentAutomationSection({
   );
 }
 
+type ReasoningState = {
+  level: string;
+  override: string;
+  levels: string[];
+  ignored: string;
+  applies: boolean;
+};
+
+function ReasoningSection({
+  canAdminister,
+  adminAccessMessage,
+  onSaved,
+}: {
+  canAdminister: boolean;
+  adminAccessMessage: string;
+  onSaved: () => void;
+}) {
+  // Remounted on every identity revision and team-model change (the parent
+  // keys it), because the levels on offer belong to the team model. The
+  // mounted guard stops a late write from reporting under the next identity.
+  const mounted = useRef(true);
+  const writing = useRef(false);
+  const [state, setState] = useState<ReasoningState | null>(null);
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(
+    () =>
+      api<ReasoningState>("/api/settings/reasoning")
+        .then((r) => {
+          if (mounted.current) setState(r);
+        })
+        .catch((e) => {
+          if (mounted.current) setStatus(loadError(e));
+        }),
+    [],
+  );
+  useEffect(() => {
+    mounted.current = true;
+    void load();
+    return () => {
+      mounted.current = false;
+    };
+  }, [load]);
+  const write = async (level: string) => {
+    if (writing.current) return;
+    writing.current = true;
+    setBusy(true);
+    setStatus("Saving…");
+    try {
+      const saved = (await boundedWrite("/api/settings/reasoning", {
+        method: "POST",
+        body: JSON.stringify({ level }),
+      })) as ReasoningState;
+      if (!mounted.current) return;
+      setState(saved);
+      setStatus(
+        level
+          ? "Saved. It applies from the next message in each chat."
+          : "Cleared. Each chat uses the default of its model from its next message.",
+      );
+      onSaved();
+    } catch (e) {
+      if (!mounted.current) return;
+      if (isWriteTimeout(e)) {
+        setStatus(
+          "The save timed out. The result is unknown. Check the current setting before you try again.",
+        );
+        void load();
+        return;
+      }
+      setStatus(
+        isUnreachable(e)
+          ? backendUnreachable()
+          : `${level ? "Not saved" : "Not cleared"}. ${actionError(e)}`,
+      );
+    } finally {
+      writing.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  };
+  return (
+    <Section title="Reasoning (team)" headingLevel={3}>
+      <p className="mb-3 text-sm text-ink-3">
+        How much the team model reasons before it answers a chat message. More
+        reasoning costs more tokens and time. Titles, plans, and summaries do
+        not use it. A person can use a different level in one chat with{" "}
+        <code>/reasoning</code>. Only an administrator with strong identity can
+        change the team level.
+        {state && !state.applies && (
+          <> No model is connected. This setting is not in use.</>
+        )}
+      </p>
+      {state?.applies && state.levels.length === 0 && (
+        <p className="text-sm text-ink-3">
+          The team model has no reasoning levels. Whoever runs the server can
+          add them to the entry of the model in SKEIN_MODELS.
+        </p>
+      )}
+      {state?.applies && state.levels.length > 0 && (
+        <div className="space-y-2" aria-busy={busy}>
+          {["", ...state.levels].map((level) => (
+            <label
+              key={level || "default"}
+              className={
+                "flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 " +
+                (state.level === level
+                  ? "border-thread-solid bg-thread-solid/5"
+                  : "border-line hover:border-line-strong")
+              }
+            >
+              <input
+                type="radio"
+                name="reasoning-level"
+                disabled={!canAdminister || busy}
+                checked={state.level === level}
+                onChange={() => void write(level)}
+              />
+              <span className="text-sm font-medium text-ink">
+                {level || "Model default"}
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
+      {state?.ignored && (
+        <p className="mt-2 text-xs text-ink-3">
+          The saved level is {state.override}. {state.ignored} Chats use the
+          default of the model.
+        </p>
+      )}
+      <p role="status" aria-live="polite" className="min-h-4 text-xs text-ink-3">
+        {status || (canAdminister ? "" : adminAccessMessage)}
+      </p>
+    </Section>
+  );
+}
 
 function ModelSummaryBlock({ summary }: { summary: ModelSummary }) {
   return (
@@ -2149,6 +2285,15 @@ export default function SettingsPage() {
                   </div>
                 )}
               </Section>
+
+              {who?.user && who.user !== "anonymous" && (
+                <ReasoningSection
+                  key={`${who.user}:${identityRevision}:${pick?.model ?? ""}`}
+                  canAdminister={canAdminister}
+                  adminAccessMessage={adminAccessMessage}
+                  onSaved={() => void loadPick()}
+                />
+              )}
 
               {who?.user && who.user !== "anonymous" && (
                 <AgentAutomationSection

@@ -25,7 +25,7 @@ import remarkGfm from "remark-gfm";
 import { MermaidDiagram } from "@/components/mermaid-diagram";
 import { useTranscriptHistory } from "@/app/runtime-provider";
 import { api, getUser } from "@/lib/api";
-import { argQuery, mentionQuery, type ArgItem } from "@/lib/slash";
+import { argQuery, mentionQuery, reasoningRoster, type ArgItem } from "@/lib/slash";
 import { reportStatus } from "@/lib/status";
 import {
   findPersona,
@@ -276,6 +276,11 @@ const FALLBACK_COMMANDS: SlashCommand[] = [
     description: "Pick the model for this chat from the menu, or list the menu",
   },
   {
+    name: "reasoning",
+    args: "[level]",
+    description: "Pick how much the model reasons in this chat, or list the levels",
+  },
+  {
     name: "remember",
     args: "<fact>",
     description: "Save a durable cross-thread memory",
@@ -385,25 +390,21 @@ function peopleList(): Promise<Person[]> {
 type Flock = { slug: string; description: string; emoji: string };
 
 // the menu GET /api/settings/model serves every named person (the same
-// projection the Settings page renders); "/model <id>" completes from it
-type MenuModel = { id: string; label?: string; detail?: string };
-let modelsCache: Promise<ArgItem[]> | null = null;
-function modelList(): Promise<ArgItem[]> {
-  if (!modelsCache) {
+// projection the Settings page renders); "/model <id>" and
+// "/reasoning <level>" complete from it
+type MenuModel = { id: string; label?: string; detail?: string; reasoning?: string[] };
+let menuCache: Promise<MenuModel[]> | null = null;
+function modelMenu(): Promise<MenuModel[]> {
+  if (!menuCache) {
     const attempt = api<{ menu?: MenuModel[] }>("/api/settings/model")
-      .then((r) =>
-        (r.menu ?? []).map((m) => ({
-          slug: m.id,
-          description: [m.label !== m.id ? m.label : "", m.detail].filter(Boolean).join(" — "),
-        })),
-      )
+      .then((r) => r.menu ?? [])
       .catch((e) => {
-        if (modelsCache === attempt) modelsCache = null;
+        if (menuCache === attempt) menuCache = null;
         throw e;
       });
-    modelsCache = attempt;
+    menuCache = attempt;
   }
-  return modelsCache;
+  return menuCache;
 }
 
 let flocksCache: Promise<Flock[]> | null = null;
@@ -427,6 +428,7 @@ const Composer = () => {
   const [specialists, setSpecialists] = useState<Persona[]>([]);
   const [flocks, setFlocks] = useState<Flock[]>([]);
   const [models, setModels] = useState<ArgItem[]>([]);
+  const [levels, setLevels] = useState<ArgItem[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
   const [consultReady, setConsultReady] = useState(false);
   const [sel, setSel] = useState(0);
@@ -540,8 +542,16 @@ const Composer = () => {
       .then(setFlocks)
       .catch(() => {});
     if (getUser() !== "anonymous")
-      modelList()
-        .then(setModels)
+      modelMenu()
+        .then((menu) => {
+          setModels(
+            menu.map((m) => ({
+              slug: m.id,
+              description: [m.label !== m.id ? m.label : "", m.detail].filter(Boolean).join(" — "),
+            })),
+          );
+          setLevels(reasoningRoster(menu));
+        })
         .catch(() => {});
     peopleList()
       .then(setPeople)
@@ -572,7 +582,12 @@ const Composer = () => {
   // two popup modes: the command token ("/bri"), and the slug argument right
   // after a command that takes one — the hard-to-recall half of the
   // invocation. A command absent from argRosters gets no argument popup.
-  const argRosters: Record<string, ArgItem[]> = { as: personas, flock: flocks, model: models };
+  const argRosters: Record<string, ArgItem[]> = {
+    as: personas,
+    flock: flocks,
+    model: models,
+    reasoning: levels,
+  };
   const cmdToken = /^\/[a-z]*$/i.test(text)
     ? text.slice(1).toLowerCase()
     : null;

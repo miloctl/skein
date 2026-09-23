@@ -456,6 +456,39 @@ def set_thread_model(thread_id: str, owner: str, model_id: str) -> str:
     return model_id
 
 
+def thread_reasoning(thread_id: str) -> str:
+    """The /reasoning pick for a solo chat, or empty. The model may not offer
+    it: settings.turn_reasoning decides what a turn actually runs with."""
+    row = db.query_one("SELECT reasoning FROM chat_threads WHERE id = ?", (thread_id,))
+    return str(row["reasoning"]) if row else ""
+
+
+def set_thread_reasoning(thread_id: str, owner: str, level: str) -> str:
+    """Empty clears the pick. The level must be one the model of this chat
+    offers (settings.check_reasoning_level)."""
+    from . import settings
+
+    level = (level or "").strip().lower()
+    if level:
+        settings.check_reasoning_level(
+            level,
+            thread_model(thread_id) or settings.model_pick_state()["model"],
+            "The model of this chat",
+        )
+    with db.transaction():
+        _own(thread_id, owner)
+        # owner and kind in the UPDATE too, for the reason set_thread_model gives
+        changed = db.execute_rowcount(
+            "UPDATE chat_threads SET reasoning = ?, updated_at = ?"
+            " WHERE id = ? AND owner = ? AND kind = 'solo'",
+            (level, db.now(), thread_id, owner),
+        )
+        if not changed:
+            raise db.NotFound("No chat was found.")
+        db.log_activity(owner, "set_chat_reasoning", f"{thread_id}: {level or 'default'}")
+    return level
+
+
 def update_thread(
     thread_id: str,
     owner: str,
