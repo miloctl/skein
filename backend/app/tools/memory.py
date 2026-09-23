@@ -27,7 +27,8 @@ def remember(content: str, topic: str = "", about_user: str = "") -> str:
     Args:
         content: The fact to remember, written to be useful later.
         topic: Short slug for the memory.
-        about_user: Team member the memory concerns, if any.
+        about_user: Team member the memory is for. Used only when no person
+            drives this turn: in a person's chat, the memory is theirs.
     """
     # bounds checked BEFORE the gate: an oversized payload must fail on the
     # agent, not surface as an unapprovable proposal in a reviewer's queue
@@ -35,15 +36,19 @@ def remember(content: str, topic: str = "", about_user: str = "") -> str:
         return json.dumps({"error": "keep memories under 2000 characters"})
     if len(topic) > 100 or len(about_user) > 60:
         return json.dumps({"error": "topic is capped at 100 characters, about_user at 60"})
-    payload = {"content": content, "topic": topic, "user": about_user}
+    # A person's turn files the memory for that person. The model picks
+    # about_user, and "" is the whole team: a fact from one person's chat
+    # reached every teammate's system prompt, or the one the model named.
+    user = requester_identity() or about_user
+    payload = {"content": content, "topic": topic, "user": user}
     return gated_write(
         "memory",
         "create",
         payload,
-        lambda: memory.remember(
-            content, topic, user=about_user, actor=agent_identity(), origin="agent"
-        ),
+        lambda: memory.remember(content, topic, user=user, actor=agent_identity(), origin="agent"),
         summary=f"remember{f' [{topic}]' if topic else ''}: {content[:80]}",
+        # the addressee judges it, and nobody else reads it (_gate.py)
+        review_owner=user,
     )
 
 
