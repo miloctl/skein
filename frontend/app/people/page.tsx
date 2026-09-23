@@ -34,7 +34,8 @@ export default function PeoplePage() {
   const [people, setPeople] = useState<User[] | null>(null);
   const [peopleError, setPeopleError] = useState("");
   const [person, setPerson] = useState("");
-  const [notes, setNotes] = useState<Note[]>([]);
+  // null until the read settles: an empty list is the claim "no notes yet"
+  const [notes, setNotes] = useState<Note[] | null>(null);
   const [brief, setBrief] = useState<Brief | null>(null);
   const [briefError, setBriefError] = useState("");
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
@@ -56,7 +57,7 @@ export default function PeoplePage() {
       setPerson("");
       setDrafts({});
       setSaving(false);
-      setNotes([]);
+      setNotes(null);
       setBrief(null);
       setBriefError("");
       setError(null);
@@ -218,7 +219,8 @@ export default function PeoplePage() {
                 // clear before switching: stale content here would be another
                 // person's PRIVATE notes under the wrong name, and an errored
                 // fetch would leave them there indefinitely
-                setNotes([]);
+                setNotes(null);
+                setError(null);
                 setBrief(null);
                 setBriefError("");
                 setPerson(u.name);
@@ -324,7 +326,10 @@ export default function PeoplePage() {
               </button>
             </div>
             <ul className="space-y-2">
-              {notes.map((n) => (
+              {notes === null && !error && (
+                <li className="text-sm text-ink-3">Loading…</li>
+              )}
+              {notes?.map((n) => (
                 <li
                   key={n.id}
                   className="rounded-xl border border-line bg-card p-4 text-sm shadow-card"
@@ -336,7 +341,7 @@ export default function PeoplePage() {
                   {n.body}
                 </li>
               ))}
-              {notes.length === 0 && (
+              {notes?.length === 0 && (
                 <li><EmptyState>
                   No notes for {person} yet. <code>fb: {person} — …</code> in
                   quick capture works too.

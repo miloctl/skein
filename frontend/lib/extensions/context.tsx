@@ -11,6 +11,7 @@ import {
 
 import { api } from "@/lib/api";
 import { sessionRevision } from "@/lib/auth";
+import { isIdentityEvent } from "@/lib/shared-chats";
 import { compiledExtensions } from "@/extensions/generated";
 import type { FrontendExtension, FrontendExtensionRegistry } from "./contracts";
 import { registerFrontendExtensions } from "./registry";
@@ -26,7 +27,10 @@ const identitySnapshot = () => {
   return `${identityEventRevision}:${sessionRevision()}`;
 };
 const subscribeIdentity = (listener: () => void) => {
-  const changed = () => {
+  // lib/theme.ts dispatches a synthetic storage event on every paint, so an
+  // unfiltered listener refetched capabilities on every hue drag
+  const changed = (event: Event) => {
+    if (!isIdentityEvent(event)) return;
     identityEventRevision += 1;
     listener();
   };

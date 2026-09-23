@@ -622,4 +622,80 @@ describe("private shared chat", () => {
       ),
     ).toBe(true);
   });
+
+  it("keeps the poll cursor behind a send, so a row posted before it arrives and is read in turn", async () => {
+    vi.useFakeTimers();
+    render(<SharedChat threadId="shared-room" />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const reads = () =>
+      state.requests
+        .filter((request) => request.path.endsWith("/read"))
+        .map((request) => (request.body as { message_id: number }).message_id);
+
+    // dana posts between two polls, then mira sends before the next poll
+    state.messages.push({
+      id: 2,
+      thread_id: "shared-room",
+      role: "user",
+      author_kind: "human",
+      author: "dana",
+      content: "Posted between polls",
+      created_at: "2026-08-24T12:02:00+00:00",
+      turn_id: "",
+      reply_to_message_id: null,
+    });
+    fireEvent.change(screen.getByLabelText("Message Launch room"), {
+      target: { value: "My reply" },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText("My reply")).toBeTruthy();
+    // nothing marks message 3 read while message 2 is still unseen
+    expect(reads()).not.toContain(3);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+      await Promise.resolve();
+    });
+    expect(screen.getByText("Posted between polls")).toBeTruthy();
+    expect(reads()).toContain(3);
+    // the reader's own message is not announced back to them
+    expect(screen.getByRole("status").textContent).toBe("New message 2 from dana.");
+  });
+
+  it("shows a deletion made in another browser while the room is open", async () => {
+    vi.useFakeTimers();
+    state.messages.push({
+      id: 2,
+      thread_id: "shared-room",
+      role: "user",
+      author_kind: "human",
+      author: "dana",
+      content: "Deleted elsewhere",
+      created_at: "2026-08-24T12:02:00+00:00",
+      turn_id: "",
+      reply_to_message_id: null,
+    });
+    render(<SharedChat threadId="shared-room" />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText("Deleted elsewhere")).toBeTruthy();
+
+    // services/chat_threads.py::delete_shared_message keeps the row as a tombstone
+    state.messages[1] = { ...state.messages[1], content: "", deleted_at: "2026-08-24T12:05:00+00:00" };
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+      await Promise.resolve();
+    });
+    expect(screen.queryByText("Deleted elsewhere")).toBeNull();
+    expect(screen.getByText("The author deleted this message.")).toBeTruthy();
+  });
 });

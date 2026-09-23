@@ -1063,7 +1063,7 @@ export default function Agents() {
           ) : memories === null ? (
             <p className="text-sm text-ink-3">Loading…</p>
           ) : memories.length === 0 ? (
-            <p className="text-sm text-ink-3">
+            <p id="memories-empty" tabIndex={-1} className="text-sm text-ink-3">
               Nothing remembered yet — /remember in chat adds one.
             </p>
           ) : (
@@ -1114,10 +1114,29 @@ export default function Agents() {
                               await api(`/api/memories/${m.id}`, {
                                 method: "DELETE",
                               });
+                              // the row and its focused button unmount: the
+                              // row that takes its place gets focus, or the
+                              // empty-list line when none is left
+                              const rows = memories ?? [];
+                              const at = rows.findIndex((x) => x.id === m.id);
+                              const next = rows[at + 1] ?? rows[at - 1];
                               setMemories((ms) =>
                                 (ms ?? []).filter((x) => x.id !== m.id),
                               );
                               setForgetting(null);
+                              reportStatus(
+                                `Memory forgotten: ${m.topic || m.content.slice(0, 40)}.`,
+                                "confirmation",
+                              );
+                              setTimeout(
+                                () =>
+                                  document
+                                    .getElementById(
+                                      next ? `forget-memory-${next.id}` : "memories-empty",
+                                    )
+                                    ?.focus(),
+                                0,
+                              );
                             } catch (e) {
                               reportStatus(actionError(e));
                               setTimeout(

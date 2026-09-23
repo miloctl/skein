@@ -1180,7 +1180,11 @@ export default function MyDay() {
                                   className="min-h-6 min-w-6 rounded bg-ok/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ok hover:bg-ok/20"
                                   title="something came out of it — write it up on Capture"
                                 >
+                                  {/* sr-only, not aria-label: the visible
+                                      words must lead the accessible name, or
+                                      voice control cannot match them */}
                                   wrote it up
+                                  <span className="sr-only">: {a.label}</span>
                                 </button>
                                 <button
                                   onClick={() =>
@@ -1189,7 +1193,8 @@ export default function MyDay() {
                                   className="min-h-6 min-w-6 rounded bg-ink-3/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ink-2 hover:bg-ink-3/20"
                                   title="nothing came out of it — this is what the weekly finding counts"
                                 >
-                                  nothing
+                                  nothing{" "}
+                                  <span className="sr-only">came out of {a.label}</span>
                                 </button>
                               </span>
                             )}

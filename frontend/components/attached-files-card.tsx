@@ -72,7 +72,9 @@ export function AttachedFilesCard({
       const owner = sessionRevision();
       const res = await authenticatedFetch(`/api/files/${file.id}/download`);
       if (!res.ok)
-        throw new Error(`The file did not download (${res.status}).`);
+        throw new Error(
+          `The file did not download (${res.status}). Reload the page, then try again.`,
+        );
       const blob = await res.blob();
       checkSessionRevision(owner);
       const url = URL.createObjectURL(blob);
@@ -82,7 +84,9 @@ export function AttachedFilesCard({
       link.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      setError(actionError(e));
+      // the status region, not the card's error line: that line is the LOAD
+      // failure, which only a later load clears, and it is no live region
+      reportStatus(actionError(e));
     }
   };
 
@@ -98,7 +102,7 @@ export function AttachedFilesCard({
       setTimeout(() => heading.current?.focus(), 0);
       reportStatus(`${file.title} is deleted.`, "confirmation");
     } catch (e) {
-      setError(actionError(e));
+      reportStatus(actionError(e));
     } finally {
       setBusy(null);
     }
