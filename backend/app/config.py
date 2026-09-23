@@ -590,7 +590,17 @@ except (ValueError, OverflowError):
 # schemas/skein_models.schema.json is the same contract for ConfigMap
 # editors; tests/test_model_registry.py pins the two against each other.
 _MODEL_ENTRY_FIELDS = frozenset(
-    {"id", "label", "detail", "max_tokens", "context_tokens", "price", "params", "attachments"}
+    {
+        "id",
+        "label",
+        "detail",
+        "max_tokens",
+        "context_tokens",
+        "price",
+        "params",
+        "attachments",
+        "reasoning",
+    }
 )
 # What a chat attachment may become for this model (routes/chat.py). The
 # PROVIDER says what its formatter can express; only the operator knows what
@@ -602,6 +612,13 @@ _MODEL_ATTACHMENT_KINDS = ("image", "document")
 # carries cache-read tokens — a price nothing multiplies is a believed number
 # not in effect.
 _MODEL_PRICE_FIELDS = frozenset({"input", "output"})
+# Skein's reasoning vocabulary, in display order: the union of OpenAI's
+# reasoning_effort and Anthropic's effort names. An entry declares the subset
+# its model accepts and the exact params each one sends, because the right
+# request differs per MODEL, not per provider (Claude 4.6+ refuse the
+# budget_tokens that Haiku 4.5 requires) — a built-in mapping would be wrong
+# on some model the day it ships.
+REASONING_LEVELS = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
 
 
 def _as_whole(v) -> int | None:
@@ -616,6 +633,76 @@ def _as_whole(v) -> int | None:
     if isinstance(v, float) and v.is_integer():
         return int(v)
     return None
+
+
+def _budgets(value) -> list:
+    """Every budget_tokens value at any depth: Anthropic puts it under
+    thinking, Bedrock one level deeper under additional_request_fields."""
+    if isinstance(value, dict):
+        return [
+            found
+            for key, child in value.items()
+            for found in ([child] if key == "budget_tokens" else _budgets(child))
+        ]
+    if isinstance(value, list):
+        return [found for child in value for found in _budgets(child)]
+    return []
+
+
+def _reasoning_faults(tag: str, raw, entry_cap: int | None, params: dict) -> tuple[dict, list]:
+    """The entry's reasoning levels in vocabulary order, and their faults."""
+    if not isinstance(raw, dict) or not raw:
+        return {}, [f"{tag}: reasoning must be a JSON object with 1 or more levels."]
+    faults = []
+    if unknown := sorted(set(raw) - set(REASONING_LEVELS)):
+        faults.append(
+            f"{tag}: reasoning has unknown levels: {', '.join(unknown)}."
+            f" Use {', '.join(REASONING_LEVELS)}."
+        )
+    levels = {}
+    for name in (n for n in REASONING_LEVELS if n in raw):
+        level = raw[name]
+        if not isinstance(level, dict):
+            faults.append(f"{tag}: reasoning.{name} must be a JSON object.")
+            continue
+        safe, forbidden = sanitize_model_params(level)
+        if forbidden:
+            faults.append(
+                f"{tag}: reasoning.{name} contains forbidden fields: {', '.join(forbidden)}."
+                " Configure model routing and provider clients outside params."
+            )
+            continue
+        # a null here would REMOVE the output cap (team_agent._behavior_params
+        # drops a level's null keys), and each provider then falls back to a
+        # different cap, so the budget check below could not know the limit
+        cap = None
+        if "max_tokens" in level:
+            cap = _as_whole(level["max_tokens"])
+            if cap is None or cap < 1:
+                faults.append(
+                    f"{tag}: reasoning.{name}.max_tokens must be a whole number of 1 or more."
+                )
+                continue
+        # the order every provider branch of team_agent._model merges in:
+        # level > entry params > entry cap > SKEIN_MODEL_PARAMS > SKEIN_MAX_TOKENS.
+        # Anthropic refuses budget_tokens >= max_tokens on every request, so
+        # unchecked the level loads and every turn that uses it fails.
+        limit = (
+            cap
+            or _as_whole(params.get("max_tokens"))
+            or entry_cap
+            or _as_whole(MODEL_PARAMS.get("max_tokens"))
+            or MAX_TOKENS
+        )
+        budgets = [_as_whole(b) for b in _budgets(safe)]
+        if any(b is None or b >= limit for b in budgets):
+            faults.append(
+                f"{tag}: reasoning.{name}: budget_tokens must be a whole number below the"
+                " output limit. Set a smaller budget, or set a larger max_tokens in the level."
+            )
+            continue
+        levels[name] = safe
+    return levels, faults
 
 
 def _model_entry_faults(tag: str, mid: str | None, entry: dict, out: dict[str, dict]) -> list[str]:
@@ -693,6 +780,12 @@ def _model_entry_faults(tag: str, mid: str | None, entry: dict, out: dict[str, d
             )
         else:
             attachments = tuple(dict.fromkeys(raw_attachments))
+    reasoning: dict = {}
+    if "reasoning" in entry:
+        reasoning, level_faults = _reasoning_faults(
+            tag, entry["reasoning"], max_tokens, safe_params
+        )
+        faults.extend(level_faults)
     if not faults and mid:
         out[mid] = {
             "id": mid,
@@ -703,6 +796,7 @@ def _model_entry_faults(tag: str, mid: str | None, entry: dict, out: dict[str, d
             "price": pair,
             "params": safe_params,
             "attachments": attachments,
+            "reasoning": reasoning,
         }
     return faults
 

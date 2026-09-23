@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { argQuery, mentionQuery } from "@/lib/slash";
+import { argQuery, mentionQuery, reasoningRoster } from "@/lib/slash";
 
 const ROSTERS = ["as", "flock"];
 
@@ -90,5 +90,22 @@ describe("mentionQuery", () => {
     expect(mentionQuery("@mira ")).toBeNull();
     expect(mentionQuery("@mira please look")).toBeNull();
     expect(mentionQuery("no mention here")).toBeNull();
+  });
+});
+
+describe("reasoningRoster", () => {
+  it("offers each level the menu declares once, then default", () => {
+    expect(
+      reasoningRoster([
+        { reasoning: ["low", "high"] },
+        { reasoning: [] },
+        {},
+        { reasoning: ["off", "high"] },
+      ]).map((item) => item.slug),
+    ).toEqual(["low", "high", "off", "default"]);
+  });
+
+  it("offers nothing when no model declares a level", () => {
+    expect(reasoningRoster([{ reasoning: [] }, {}])).toEqual([]);
   });
 });

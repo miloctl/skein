@@ -47,6 +47,25 @@ VALID = [
     # zero-fraction floats: JSON Schema 2020-12 "integer" admits them, so the
     # code must too, or a green ConfigMap editor produces a red /health
     {"id": "float-tuned", "max_tokens": 4096.0, "context_tokens": 32768.0},
+    # reasoning levels: a subset of the vocabulary, each a params object; a
+    # level's null removes a key a persona or SKEIN_MODEL_PARAMS would send
+    {
+        "id": "claude-sonnet-4-6",
+        "reasoning": {
+            "high": {"thinking": {"type": "adaptive"}, "output_config": {"effort": "high"}},
+            "off": {"thinking": {"type": "disabled"}},
+            "low": {
+                "thinking": {"type": "adaptive"},
+                "output_config": {"effort": "low"},
+                "temperature": None,
+            },
+        },
+    },
+    {
+        "id": "claude-haiku-4-5",
+        "max_tokens": 16000,
+        "reasoning": {"medium": {"thinking": {"type": "enabled", "budget_tokens": 8000}}},
+    },
     {
         "id": "safe-escape-hatches",
         "params": {
@@ -125,6 +144,16 @@ INVALID = [
     [{"id": "m", "attachments": "image"}],
     [{"id": "m", "attachments": [1]}],
     [{"id": "m", "attachments": ["video"]}],
+    [{"id": "m", "reasoning": "high"}],
+    [{"id": "m", "reasoning": {}}],
+    [{"id": "m", "reasoning": {"extreme": {}}}],
+    [{"id": "m", "reasoning": {"high": "fast"}}],
+    [{"id": "m", "reasoning": {"high": {"model": "other"}}}],
+    [{"id": "m", "reasoning": {"high": {"tool_choice": {"type": "any"}}}}],
+    [{"id": "m", "reasoning": {"high": {"extra_body": {"provider": {"order": ["x"]}}}}}],
+    # removing the output cap leaves each provider on a different fallback,
+    # so no budget check could know the limit
+    [{"id": "m", "reasoning": {"high": {"max_tokens": None}}}],
     # pins the v1 decision: no cached_input until usage_log carries
     # cache-read tokens — a price nothing multiplies is a believed number
     # not in effect
@@ -140,6 +169,8 @@ def test_a_valid_registry_parses(monkeypatch):
         "gpt-oss:120b-cloud",
         "float-tuned",
         "safe-escape-hatches",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5",
     }
     full = cfg.MODELS["claude-opus-4-8"]
     assert full["price"] == (15.0, 75.0)
@@ -304,3 +335,63 @@ def test_schema_and_code_agree(monkeypatch):
         cfg = _reload(monkeypatch, bad)
         assert cfg.MODELS == {}, f"code accepted what the schema rejects: {bad}"
         assert cfg.MODELS_ERROR != ""
+
+
+def test_reasoning_levels_parse_in_vocabulary_order(monkeypatch):
+    cfg = _reload(monkeypatch, VALID)
+    assert cfg.MODELS_ERROR == ""
+    levels = cfg.MODELS["claude-sonnet-4-6"]["reasoning"]
+    assert list(levels) == ["off", "low", "high"]
+    assert levels["low"]["temperature"] is None
+    assert cfg.MODELS["gpt-oss:120b-cloud"]["reasoning"] == {}
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        # at the 4096 default output limit, a 4096 budget leaves nothing to answer with
+        {
+            "id": "m",
+            "reasoning": {"high": {"thinking": {"type": "enabled", "budget_tokens": 4096}}},
+        },
+        # Bedrock nests it one level deeper, and fails the same way
+        {
+            "id": "m",
+            "reasoning": {
+                "high": {"additional_request_fields": {"thinking": {"budget_tokens": 8192}}}
+            },
+        },
+        # the entry's own cap is the limit when the level sets none
+        {
+            "id": "m",
+            "max_tokens": 8000,
+            "reasoning": {"high": {"thinking": {"type": "enabled", "budget_tokens": 8000}}},
+        },
+    ],
+)
+def test_a_thinking_budget_at_or_above_the_output_limit_is_refused_at_startup(monkeypatch, entry):
+    """Anthropic refuses budget_tokens >= max_tokens on every request. Unchecked,
+    the level loads and every chat turn that uses it fails."""
+    cfg = _reload(monkeypatch, [entry])
+    assert cfg.MODELS == {}
+    assert "budget_tokens" in cfg.MODELS_ERROR and "high" in cfg.MODELS_ERROR
+    assert "4096" not in cfg.MODELS_ERROR and "8000" not in cfg.MODELS_ERROR
+
+
+def test_a_level_can_raise_its_own_output_limit_above_its_budget(monkeypatch):
+    cfg = _reload(
+        monkeypatch,
+        [
+            {
+                "id": "m",
+                "reasoning": {
+                    "high": {
+                        "max_tokens": 20000,
+                        "thinking": {"type": "enabled", "budget_tokens": 16000},
+                    }
+                },
+            }
+        ],
+    )
+    assert cfg.MODELS_ERROR == ""
+    assert cfg.MODELS["m"]["reasoning"]["high"]["max_tokens"] == 20000

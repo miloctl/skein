@@ -337,6 +337,72 @@ reject `max_tokens` in favour of `max_completion_tokens`. Sending it would turn
 a working provider into a hard 400, so cap OpenAI output through
 `SKEIN_MODEL_PARAMS={"max_completion_tokens": 2000}` instead.
 
+**Reasoning levels.** A `SKEIN_MODELS` entry can offer named levels (`off`,
+`minimal`, `low`, `medium`, `high`, `xhigh`, `max`), each with the exact
+request params it sends. An administrator sets the team level on
+**Settings → AI runtime → Reasoning (team)**. A person can use another level
+in one solo chat with `/reasoning <level>`. The level of the chat wins over
+the team level. If the model does not declare that level, the next layer
+applies, then the default of the model. Only chat turns use a level. Titles,
+plans, summaries, consults and flocks run without one, because nobody reads
+that reasoning. The right params differ per model, not per provider, so the
+operator writes them:
+
+```yaml
+# Anthropic, Claude 4.6 and later: adaptive thinking with an effort. These
+# models refuse budget_tokens, and several refuse a custom temperature. A
+# null removes a key that SKEIN_MODEL_PARAMS or a persona sends.
+- id: claude-sonnet-4-6
+  reasoning:
+    off:  {thinking: {type: disabled}}
+    low:  {thinking: {type: adaptive}, output_config: {effort: low}, temperature: null}
+    high: {thinking: {type: adaptive}, output_config: {effort: high}, temperature: null}
+
+# Anthropic, Claude Haiku 4.5: a token budget of 1024 or more, below max_tokens.
+- id: claude-haiku-4-5
+  max_tokens: 16000
+  reasoning:
+    medium: {thinking: {type: enabled, budget_tokens: 8000}}
+
+# OpenAI: reasoning_effort. The values it accepts depend on the model.
+- id: gpt-5
+  reasoning:
+    minimal: {reasoning_effort: minimal}
+    high:    {reasoning_effort: high}
+
+# OpenRouter through openai_compatible: its reasoning object, in extra_body.
+- id: deepseek/deepseek-r1
+  reasoning:
+    low:  {extra_body: {reasoning: {effort: low}}}
+    high: {extra_body: {reasoning: {effort: high}}}
+
+# Ollama: think. `ollama show <model>` lists the values a model accepts.
+- id: gpt-oss:120b-cloud
+  reasoning:
+    low:  {additional_args: {think: low}}
+    high: {additional_args: {think: high}}
+
+# Bedrock, Claude: the thinking object, in additional_request_fields.
+- id: us.anthropic.claude-haiku-4-5-20251001-v1:0
+  max_tokens: 16000
+  reasoning:
+    medium: {additional_request_fields: {thinking: {type: enabled, budget_tokens: 8000}}}
+```
+
+Things to know before you turn it on:
+
+- A `budget_tokens` at or above the output limit of its level voids the menu
+  at startup, and `/api/health` names the level. Anthropic and Bedrock refuse
+  that request every time. The limit is the `max_tokens` of the level, then
+  of the entry `params`, then of the entry, then `SKEIN_MAX_TOKENS`.
+- Providers bill reasoning as output tokens, and the usage row counts what
+  the provider reports. A higher level costs more per turn and takes longer.
+- The chat shows the answer, not the reasoning. Skein keeps the reasoning in
+  the chat session so that a thinking model can continue its tool calls. The
+  OpenAI formatter drops it on replay and logs a warning, which is expected.
+- Ollama does not return the thinking text through the SDK. The level still
+  changes how the model answers.
+
 A misconfigured provider never takes the app down: it degrades to the
 deterministic core, `/health` reports `provider_error`, and Team → Agents shows
 a red dot with the reason.

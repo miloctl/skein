@@ -1079,6 +1079,8 @@ VERBS: dict[str, tuple[str, str]] = {
     "set_model_pick": ("changed the team model", "loud"),
     # normal, not loud: one chat's cost changes, nobody else's
     "set_chat_model": ("picked a model for one chat", "normal"),
+    "set_reasoning_level": ("changed the team reasoning level", "loud"),
+    "set_chat_reasoning": ("picked a reasoning level for one chat", "normal"),
     "backup": ("took a manual backup", "normal"),
     # The portable file leaves Skein with workspace and crew work in it.
     "export": ("exported portable work data", "loud"),

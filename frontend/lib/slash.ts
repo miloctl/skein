@@ -57,3 +57,18 @@ export function mentionQuery(
     end,
   };
 }
+
+/**
+ * What "/reasoning <level>" offers: every level name the model menu declares,
+ * then `default`. The menu is the team menu, not the model of this chat, so
+ * the server still refuses a level the chat model does not offer
+ * (agents/commands.py `_reasoning`). Empty when no model declares a level.
+ */
+export function reasoningRoster(menu: { reasoning?: string[] }[]): ArgItem[] {
+  const levels = [...new Set(menu.flatMap((m) => m.reasoning ?? []))];
+  if (!levels.length) return [];
+  return [
+    ...levels.map((slug) => ({ slug, description: "" })),
+    { slug: "default", description: "Use the team level" },
+  ];
+}

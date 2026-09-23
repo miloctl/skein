@@ -18,9 +18,20 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- `GET /api/settings/reasoning` returns the team reasoning level: `level`, `override`, `levels` (the names the team model declares), `ignored`, and `applies`. `POST /api/settings/reasoning` with `{"level": "<name>"}` sets it, and an empty `level` clears it. The POST requires an administrator. Each row of the `GET /api/settings/model` menu carries `reasoning`, the list of level names that model declares. Level params are never served. These endpoints require core `0.6.6` or later. Extension API `1.0.0` is unchanged.
+
 ### Behavior
 
+- A `SKEIN_MODELS` entry can declare reasoning levels. An administrator sets the team level on **Settings → AI runtime → Reasoning (team)**, and a person sets a level for one solo chat with `/reasoning <level>`. `/reasoning` lists the levels of the model of the chat and names the level in force. `/reasoning default` returns the chat to the team level. A turn uses the level of the chat, then the team level, whichever the model of the turn declares, else the default of the model.
+- Only the main chat turn, including an `/as` persona turn, sends a level. Titles, planners, consults, flocks, the vision sidecar, the unattended runner, and long-chat summaries do not.
+- A long-chat summary now runs on the model without the reasoning level and keeps no reasoning block. The SDK stores a summary as a user message, and Anthropic and Bedrock refuse a reasoning block there, so every later turn of that chat failed.
+- The In force summary on Settings and `skein model` add a Reasoning row. The field guide adds two cards: **Pick how much the model reasons in one chat** and **Set the team reasoning level**.
+
 ### Operations
+
+- A `SKEIN_MODELS` entry accepts `reasoning`: a map from level names (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`) to the request params each level sends. Level params pass the same refusals as `params` and merge after them. A top-level `null` in a level removes that key from the request, because thinking models refuse the temperature a persona or `SKEIN_MODEL_PARAMS` can send. README "Reasoning levels" has one recipe per provider. Roll the image before or with the ConfigMap: an older server reads `reasoning` as an unknown field and voids the menu.
+- A level whose `budget_tokens` is at or above its output limit voids the menu at startup, and `/api/health` names the level. Anthropic and Bedrock refuse that request on every turn.
+- Migration `032_chat_thread_reasoning.sql` adds `chat_threads.reasoning`. It adds a column with a default and rewrites no rows.
 
 ## 0.6.5 — 2026-09-22
 

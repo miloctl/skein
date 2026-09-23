@@ -58,6 +58,7 @@ from ..services import (
     leases,
     mentions,
     personas,
+    settings,
     uploads,
     wording,
 )
@@ -1510,6 +1511,13 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
     # it is the one explicit choice in the ladder, and /model default undoes it
     thread_model = await run_in_threadpool(chat_threads.thread_model, ui_thread)
     resolved_model = thread_model or persona_model or team_model
+    # the main turn only: a planner, consult, summary, or title call that
+    # inherits a level pays for reasoning nobody reads (team_agent.build_agent)
+    reasoning, _ = await run_in_threadpool(
+        settings.turn_reasoning,
+        resolved_model,
+        await run_in_threadpool(chat_threads.thread_reasoning, ui_thread),
+    )
     prompt, attached = await run_in_threadpool(
         _attachment_prompt, message, req.attachments, user, resolved_model
     )
@@ -1534,6 +1542,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                 policy_subject=subject,
                 resolved_model=resolved_model,
                 personal_tools_for=user,
+                reasoning=reasoning,
             )
     except Exception as exc:
         with contextlib.suppress(Exception):

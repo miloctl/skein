@@ -219,8 +219,8 @@ morning sweep, which notifies each delegated task's sponsor rather than filing
   feature is off by default, and `backend/app/agents/extra_tools.py` is the
   only importer. Upstream's replacements, checked against Skein:
   `current_time` is covered by the system prompt's team date; `batch` adds
-  nothing, because the SDK runs tool calls concurrently by default; model
-  reasoning replaces `think` through the model settings; `sleep` and `rss`
+  nothing, because the SDK runs tool calls concurrently by default; the
+  `SKEIN_MODELS` reasoning levels replace `think`; `sleep` and `rss`
   have no Skein use case, and `rss` fetches model-chosen URLs. `calculator`'s
   suggested replacement is the vended `shell`, which Skein refuses. Build a
   small Skein-owned arithmetic tool only if a deployment needs exact math.
