@@ -152,14 +152,30 @@ describe("capability-aware contributions", () => {
     expect(await screen.findByText("Atlas")).toBeTruthy();
 
     capability.effect = "deny";
-    window.dispatchEvent(new Event("storage"));
+    window.dispatchEvent(new Event("skein-identity-change"));
     await waitFor(() => expect(screen.getByText("hidden")).toBeTruthy());
     expect(screen.queryByText("Atlas delivery indicators")).toBeNull();
 
     capability.effect = "permit";
-    window.dispatchEvent(new Event("storage"));
+    // another tab signed in as someone else
+    window.dispatchEvent(new StorageEvent("storage", { key: "skein-user" }));
     expect(await screen.findByText("Atlas")).toBeTruthy();
     expect(screen.getByText("Atlas delivery indicators")).toBeTruthy();
+  });
+
+  it("keeps its decisions through a same-tab theme paint", async () => {
+    render(
+      <ExtensionProvider extensions={[extension()]}>
+        <NavigationProbe />
+      </ExtensionProvider>,
+    );
+    expect(await screen.findByText("Atlas")).toBeTruthy();
+
+    capability.effect = "deny";
+    // lib/theme.ts dispatches this form on every paint, a hue drag included
+    act(() => window.dispatchEvent(new Event("storage")));
+    await act(async () => {});
+    expect(screen.getByText("Atlas")).toBeTruthy();
   });
 });
 
