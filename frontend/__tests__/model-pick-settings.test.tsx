@@ -504,7 +504,7 @@ describe("the model section", () => {
     ).toHaveLength(1);
 
     mode.who = { ...mode.who, user: "next-boss" };
-    window.dispatchEvent(new Event("storage"));
+    window.dispatchEvent(new Event("skein-identity-change"));
     await screen.findByText(/strong identity active as next-boss/);
     await waitFor(() =>
       expect(

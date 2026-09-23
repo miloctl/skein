@@ -539,11 +539,10 @@ describe("Settings identity states", () => {
   it("confirms a key sign-in that remounts the page, and moves focus to the content", async () => {
     // a new session re-keys SessionBoundary (components/auth-gate.tsx), which
     // remounts this page while the sign-in is still in flight
-    let rerender!: (ui: React.ReactElement) => void;
+    const { rerender } = render(<SettingsPage key="anonymous" />);
     state.keyExchange.mockImplementation(async () => {
       rerender(<SettingsPage key="signed-in" />);
     });
-    ({ rerender } = render(<SettingsPage key="anonymous" />));
     const input = await screen.findByLabelText("Personal API key");
     fireEvent.change(input, { target: { value: "sk-skein-owner" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in with key" }));
