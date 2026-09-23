@@ -371,7 +371,21 @@ def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
     # artifact-ids enters download-artifact's multi-artifact path even for one
     # ID. Flattening is load-bearing: without it the archives land under
     # dist/release-packages/, and the publishers' dist/*.tgz glob is literal.
-    assert publish.count("merge-multiple: true") == 2
+    # verify flattens a third copy for the template check, which inspects the
+    # directory with iterdir.
+    assert publish.count("merge-multiple: true") == 3
+    # The template ships from the release commit. Its lock must pin the exact
+    # tarballs this run publishes, checked before either publisher can start.
+    assert "artifact-ids: ${{ steps.release.outputs.artifact_id }}" in publish
+    assert "run-id: ${{ steps.release.outputs.artifact_run_id }}" in publish
+    template = 'git show "$RELEASE_SHA:examples/workplace-extension/package-lock.json"'
+    assert template in publish
+    assert "scripts/verify_release_packages.py template artifact" in publish
+    assert (
+        publish.index('git merge-base --is-ancestor "$RELEASE_SHA" origin/main')
+        < publish.index("scripts/verify_release_packages.py template")
+        < publish.index("publish-pypi:")
+    )
     assert "name: release-packages" not in publish
     assert publish.count("actions: read") == 3
     assert "uv publish --trusted-publishing always --check-url https://pypi.org/simple/" in publish

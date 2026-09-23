@@ -96,3 +96,60 @@ def test_registry_bytes_accept_exact_files(tmp_path):
     registry = _artifact(tmp_path / "registry")
     release = verify_release_packages.inspect_artifact(original)
     verify_release_packages.compare_registry_bytes(release, registry)
+
+
+def _template_lock(path: Path, release, **changed) -> Path:
+    """The two @miloctl entries as npm writes them in the Atlas template lock."""
+    import base64
+    import hashlib
+
+    def entry(tarball: Path, version: str) -> dict:
+        digest = base64.b64encode(hashlib.sha512(tarball.read_bytes()).digest()).decode()
+        return {
+            "version": version,
+            "resolved": f"file:dist/{tarball.name}",
+            "integrity": f"sha512-{digest}",
+        }
+
+    packages = {
+        "node_modules/@miloctl/skein-extension-api": entry(
+            release.extension_api, release.extension_version
+        ),
+        "node_modules/@miloctl/skein-frontend-host": entry(release.frontend_host, release.version),
+    }
+    for key, value in changed.items():
+        name, field = key.split("__")
+        target = packages[f"node_modules/@miloctl/skein-{name.replace('_', '-')}"]
+        if value is None:
+            target.pop(field)
+        else:
+            target[field] = value
+    path.write_text(json.dumps({"packages": packages}))
+    return path
+
+
+def test_the_template_lock_must_pin_the_published_bytes(tmp_path):
+    release = verify_release_packages.inspect_artifact(_artifact(tmp_path / "artifact"))
+    verify_release_packages.compare_template_lock(
+        release, _template_lock(tmp_path / "lock.json", release)
+    )
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"frontend_host__integrity": "sha512-" + "A" * 88},
+        {"extension_api__integrity": "sha512-" + "A" * 88},
+        {"frontend_host__resolved": "file:dist/miloctl-skein-frontend-host-0.3.1.tgz"},
+        {"frontend_host__version": "0.3.1"},
+        {"frontend_host__integrity": None},
+        {"frontend_host__link": True},
+    ],
+)
+def test_a_stale_template_lock_refuses_publication(tmp_path, changed):
+    """The host tarball changed after release preparation, so the committed
+    template lock pinned bytes that were never published and npm ci refused them."""
+    release = verify_release_packages.inspect_artifact(_artifact(tmp_path / "artifact"))
+    lock = _template_lock(tmp_path / "lock.json", release, **changed)
+    with pytest.raises(verify_release_packages.VerificationError, match="template lock"):
+        verify_release_packages.compare_template_lock(release, lock)

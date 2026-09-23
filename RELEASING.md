@@ -209,6 +209,7 @@ The verify job accepts the run only when all of these hold:
 - `.github/release-version` at that commit names the version you entered.
 - `backend/pyproject.toml` at that commit declares the same version.
 - No annotated tag `vX.Y.Z` exists yet. A tag means the version is finalized, so publishing again is a mistake.
+- The Atlas template lock at that commit (`examples/workplace-extension/package-lock.json`) pins the exact host and extension API tarballs in the artifact. If a frontend change followed `prepare-release.py`, refresh the lock from the new host tarball and publish the green run of that commit.
 
 Approve the protected `pypi` and `npm` environments. Both publishers consume that run's artifact. An identical published file is a no-op, a missing file publishes, and different bytes fail closed.
 
