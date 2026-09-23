@@ -574,13 +574,19 @@ def slip_forecast() -> dict:
     due date (median, not mean — see the note below)."""
     # completed_at, not updated_at: post-done corrections (relinks, title
     # fixes) bump updated_at and would inflate every forecast
-    history = db.query(
-        "SELECT ROUND((EXTRACT(epoch FROM"
-        " date_trunc('day', COALESCE(completed_at, updated_at)::timestamptz)"
-        " - due_date::timestamptz) / 86400.0)::numeric, 1) AS slip"
+    # the finishing TEAM day (db.local_day), not date_trunc in the database
+    # zone: in New York a milestone done at 21:00 on its due date is on time,
+    # and the insights rule counting the same slips already uses local_day
+    slips = []
+    for r in db.query(
+        "SELECT COALESCE(completed_at, updated_at) AS finished, due_date"
         " FROM milestones WHERE status = 'done' AND due_date IS NOT NULL"
-    )
-    slips = [r["slip"] for r in history if r["slip"] is not None]
+    ):
+        try:
+            finished = date.fromisoformat(db.local_day(r["finished"]))
+            slips.append(float((finished - date.fromisoformat(r["due_date"])).days))
+        except (TypeError, ValueError):
+            continue  # a malformed stored date must not sink the forecast
     # MEDIAN, not mean: docs/INSIGHTS.md says "medians over means everywhere",
     # and a mean let one pathological milestone rewrite the whole portfolio —
     # nine delivered on time plus one 200 days late pushed EVERY open

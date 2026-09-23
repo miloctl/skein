@@ -155,7 +155,7 @@ def raise_blocker(
         )
         # a finished task stays finished: flipping it clears completed_at (flow
         # metrics lose the completion) and brings a void task back into search
-        if task_id and task["status"] not in ("done", "void"):
+        if task_id and task is not None and task["status"] not in ("done", "void"):
             from .work import update_task
 
             update_task(task_id, status="blocked", actor=actor, origin=origin)

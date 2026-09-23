@@ -164,7 +164,13 @@ def generate_handoff(
                 " created_by = ?, created_at = ? WHERE id = ?",
                 (title, str(path), content_sha256, actor, db.now(), aid),
             )
-            db.log_activity(actor, "generate_handoff", f"#{engagement_id} {name} (rewritten)")
+            # ids only, like the create branch below: the name can be a
+            # private engagement's, and the ledger has no redaction
+            db.log_activity(
+                actor,
+                "generate_handoff",
+                f"engagement #{engagement_id} -> artifact #{aid} (rewritten)",
+            )
         else:
             aid = db.execute(
                 "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at,"

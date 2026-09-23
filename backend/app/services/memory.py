@@ -111,6 +111,13 @@ def forget(memory_id: int, *, actor: str, origin: str = "human", requester: str 
     return {"id": memory_id, "deleted": True}
 
 
+RECALL_CANDIDATES = 200
+# GET /api/memories is the only surface that lists memories and offers to
+# delete one. recall()'s default of 10 left every older memory steering
+# conversations from a row nobody could reach.
+BROWSE_LIMIT = 500
+
+
 def recall(
     query: str = "",
     user: str = "",
@@ -156,8 +163,12 @@ def recall(
     if query:
         from .search import search
 
-        hits = [h for h in search(query, limit=limit * 2, viewer=viewer) if h["entity"] == "memory"]
-        ids = [h["entity_id"] for h in hits][:limit]
+        # memory rows only, filtered in the search itself: taken from the top
+        # hits across every entity, 25 matching tasks left no memory at all.
+        # RECALL_CANDIDATES bounds the rows the owner and engagement filter
+        # below can still drop.
+        hits = search(query, limit=RECALL_CANDIDATES, viewer=viewer, entity="memory")
+        ids = [h["entity_id"] for h in hits]
         if not ids:
             return []
         rows = db.query(
@@ -165,7 +176,7 @@ def recall(
             (*ids, *vp, *op, *ep2),
         )
         order = {mid: i for i, mid in enumerate(ids)}
-        return sorted(rows, key=lambda r: order.get(r["id"], 99))
+        return sorted(rows, key=lambda r: order.get(r["id"], len(order)))[:limit]
     return db.query(
         f"SELECT * FROM memories WHERE {frag}{owner}{eng} ORDER BY id DESC LIMIT ?",  # noqa: S608 — scope.visible_filter emits only bound marks
         (*vp, *op, *ep2, limit),

@@ -272,3 +272,29 @@ def test_oversized_memory_fails_on_the_agent_not_the_reviewer(fresh_db, monkeypa
     assert not fresh_db.query_one(
         "SELECT id FROM pending_changes WHERE entity = 'memory' AND status = 'pending'"
     )
+
+
+def test_recall_finds_a_memory_behind_many_matching_tasks(fresh_db):
+    """recall kept memory rows only AFTER taking the top hits across every
+    entity, so 25 tasks with the same word left no room for the memory."""
+    from app.services import memory, work
+
+    # two mentions each: every task outranks the memory's one
+    for i in range(25):
+        work.create_task(f"vendor contract step {i}: vendor contract")
+    m = memory.remember("we noted in the review that the vendor contract renews in March")
+    assert [r["id"] for r in memory.recall("vendor contract")] == [m["id"]]
+
+
+def test_the_memory_list_reaches_past_the_ten_newest(client, fresh_db):
+    """/api/memories is the only surface that lists memories and offers to
+    delete one; capped at 10, older memories kept steering conversations from
+    a row no person could reach."""
+    from app import db
+
+    # inserted directly: remember() is rate-capped at 10 a minute per person
+    for i in range(12):
+        fresh_db.execute(
+            "INSERT INTO memories (content, created_at) VALUES (?, ?)", (f"fact {i}", db.now())
+        )
+    assert len(client.get("/api/memories").json()) == 12

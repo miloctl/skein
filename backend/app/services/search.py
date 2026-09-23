@@ -285,9 +285,12 @@ def search(
     terms: list[str] | None = None,
     viewer: "scope.Viewer | None" = None,
     row_filter: Callable[[list[dict]], list[dict]] | None = None,
+    entity: str = "",
 ) -> list[dict]:
     """`terms` matches ANY of the given words instead of q as a phrase —
-    ask()'s fallback when the phrase itself found nothing."""
+    ask()'s fallback when the phrase itself found nothing. `entity` limits
+    the match to one kind of record BEFORE the limit applies: filtered after,
+    rows of other kinds take every slot (memory.recall)."""
     if not q.strip():
         return []
     if terms:
@@ -309,16 +312,17 @@ def search(
         " AS snippet,"
         " ts_rank_cd(tsv, q.query) AS rank"
         " FROM search_index, q WHERE tsv @@ q.query"
+        + (" AND entity = ?" if entity else "")
         # DESC, because ts_rank_cd scores a better match HIGHER.
-        " ORDER BY rank DESC LIMIT ?",
+        + " ORDER BY rank DESC LIMIT ?",
         # over-fetch, because the tier is checked AFTER the match: a page of
         # hits that are all scoped would otherwise come back empty
-        (*params, limit * 4),
+        (*params, *([entity] if entity else []), limit * 4),
     )
     hits = visible_hits(hits, viewer or scope.NOBODY)[:limit]
     # the by-id fetch is its own door: `note 4` resolves a row without
     # matching anything, so the tier has to be checked here too
-    direct = None if terms else _short_id_hit(q)
+    direct = None if terms or entity else _short_id_hit(q)
     if direct and not visible_hits([direct], viewer or scope.NOBODY):
         direct = None
     if direct:
@@ -330,7 +334,11 @@ def search(
         hits = [direct, *rest[: limit - 1]]
     if len(hits) < limit:
         seen = {(h["entity"], h["entity_id"]) for h in hits}
-        for s in semantic_search(q, limit - len(hits)):
+        # ask for every row FTS already holds as well: they are skipped below,
+        # and asking only for the free slots left some of them empty
+        for s in semantic_search(q, limit + len(seen), entity=entity):
+            if len(hits) >= limit:
+                break
             if (s["entity"], s["entity_id"]) in seen:
                 continue
             row = db.query_one(
@@ -473,7 +481,7 @@ def embed_missing(limit: int = 0, on_error=None) -> tuple[int, int]:
     return done, failed
 
 
-def semantic_search(q: str, limit: int = 10) -> list[dict]:
+def semantic_search(q: str, limit: int = 10, entity: str = "") -> list[dict]:
     """Cosine-similarity search over stored vectors; empty without embeddings.
     Only vectors from the CURRENT model are compared — similarity across two
     embedding spaces is noise, so a model change invalidates rather than
@@ -490,8 +498,9 @@ def semantic_search(q: str, limit: int = 10) -> list[dict]:
         # change. Gated behind EMBED_READY (off by default), so the keyless
         # deployment never pays it.
         rows = db.query(
-            "SELECT entity, entity_id, vector FROM embeddings WHERE model = ?",
-            (config.EMBED_MODEL,),
+            "SELECT entity, entity_id, vector FROM embeddings WHERE model = ?"  # noqa: S608 — a fixed fragment; the entity is bound
+            + (" AND entity = ?" if entity else ""),
+            (config.EMBED_MODEL, *([entity] if entity else [])),
         )
     except Exception:
         return []

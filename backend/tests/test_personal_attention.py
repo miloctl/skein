@@ -199,3 +199,21 @@ def _this_week() -> str:
 
     iso = db.today().isocalendar()
     return f"{iso.year}-W{iso.week:02d}"
+
+
+def test_attention_count_honors_the_row_filter_my_day_applies(client, fresh_db):
+    """An extension policy hides rows from My Day through row_filter. The
+    count ignored it, so the tab read "(1) waiting on you" over a page that
+    showed nothing."""
+    from app.services import briefing, scope
+
+    client.post("/api/questions", json={"question": "Who owns infra?", "assigned_to": "tester"})
+    client.post("/api/blockers", json={"title": "Stuck", "owner": "tester"})
+
+    def hide_questions(entity, rows):
+        return [] if entity == "question" else rows
+
+    viewer = scope.Viewer("tester", strong=True)
+    page = briefing.my_day("tester", viewer, hide_questions)["attention_total"]
+    count = briefing.attention_count("tester", viewer, row_filter=hide_questions)["yours"]
+    assert count == page == 1
