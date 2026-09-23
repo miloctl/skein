@@ -51,13 +51,32 @@ def record_feedback(
 _COLS = "id, kind, input, output, verdict, correction, created_at"  # never created_by
 
 
-def list_feedback(kind: str = "") -> list[dict]:
+def list_feedback(kind: str = "", *, reader: str = "", admin: bool = False) -> list[dict]:
+    """The reader's own feedback, or all of it for an administrator.
+
+    A feedback row stores the chat input and the model's output it judged:
+    served to every teammate, one person's chat excerpt reached everyone.
+    The corpus exists for whoever improves the agent (privacy decision 2.5).
+    A pulse vote stores no author, so only an administrator reads its note."""
+    where, params = ("", []) if admin else (" WHERE created_by = ?", [reader])
     if kind:
-        return db.query(
-            f"SELECT {_COLS} FROM feedback WHERE kind = ? ORDER BY id DESC LIMIT 100",  # noqa: S608 — keys hardcoded, id is a bound mark
-            (kind,),
-        )
-    return db.query(f"SELECT {_COLS} FROM feedback ORDER BY id DESC LIMIT 100")  # noqa: S608 — keys hardcoded, id is a bound mark
+        where += " AND kind = ?" if where else " WHERE kind = ?"
+        params.append(kind)
+    return db.query(
+        f"SELECT {_COLS} FROM feedback{where} ORDER BY id DESC LIMIT 100",  # noqa: S608 — keys hardcoded, values are bound marks
+        tuple(params),
+    )
+
+
+def delete_feedback(feedback_id: int, *, actor: str) -> dict:
+    """The author removes their own feedback; anyone else gets NotFound, the
+    answer for an id that does not exist."""
+    if not actor or not db.execute_rowcount(
+        "DELETE FROM feedback WHERE id = ? AND created_by = ?", (feedback_id, actor)
+    ):
+        raise db.NotFound(f"no feedback #{feedback_id}")
+    db.log_activity(actor, "delete_feedback", f"#{feedback_id}")
+    return {"id": feedback_id, "deleted": True}
 
 
 CAPTURE_KINDS = ("question", "blocker", "decision", "promise", "task", "note")

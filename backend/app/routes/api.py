@@ -2069,12 +2069,20 @@ def post_feedback(body: FeedbackIn, user: CurrentUser):
 
 
 @router.get("/feedback")
-def get_feedback(user: CurrentUser, kind: str = ""):
-    return feedback.list_feedback(kind)
+def get_feedback(user: CurrentUser, request: Request, kind: str = ""):
+    return feedback.list_feedback(kind, reader=user, admin=is_administrator(user, request))
 
 
+@router.delete("/feedback/{feedback_id}")
+def delete_feedback(feedback_id: int, user: CurrentUser):
+    ratelimit.check("delete", user)
+    return feedback.delete_feedback(feedback_id, actor=user)
+
+
+# AdminUser: the replay quotes the captured text of every teammate's
+# misclassified captures, the operator's evaluation work (privacy decision 2.5)
 @router.get("/eval/capture")
-def get_eval_capture(user: CurrentUser):
+def get_eval_capture(user: AdminUser):
     return feedback.eval_capture()
 
 
