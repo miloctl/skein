@@ -101,3 +101,20 @@ export function isIdentityEvent(event: Event): boolean {
   if (!(event instanceof StorageEvent)) return false;
   return !event.key || ["skein-user", "skein-session-change", "skein-oidc-generation"].includes(event.key);
 }
+
+// lib/theme.ts dispatches a synthetic storage event on every paint. Treated
+// as an identity change, one hue drag blanked the Settings identity panel,
+// and a paint or a write in another tab cleared an unsaved 1:1 note draft on
+// People. lib/api.ts::subscribeUser stays unfiltered: auth-gate reads session
+// changes that are not identity changes through it.
+export function subscribeIdentity(cb: () => void) {
+  const changed = (event: Event) => {
+    if (isIdentityEvent(event)) cb();
+  };
+  window.addEventListener("storage", changed);
+  window.addEventListener("skein-identity-change", changed);
+  return () => {
+    window.removeEventListener("storage", changed);
+    window.removeEventListener("skein-identity-change", changed);
+  };
+}

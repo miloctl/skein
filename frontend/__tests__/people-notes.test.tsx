@@ -37,7 +37,22 @@ it("keeps each teammate's draft separate and clears drafts on identity change", 
   expect((screen.getByLabelText("1:1 note") as HTMLInputElement).value).toBe("");
   fireEvent.click(screen.getByRole("button", { name: "alice" }));
   expect((screen.getByLabelText("1:1 note") as HTMLInputElement).value).toBe("Alice draft");
+  // what lib/api.ts::setUser dispatches in the tab that changed the name
+  await act(async () => window.dispatchEvent(new Event("skein-identity-change")));
+  fireEvent.click(await screen.findByRole("button", { name: "alice" }));
+  expect((screen.getByLabelText("1:1 note") as HTMLInputElement).value).toBe("");
+});
+
+it("keeps an unsaved draft through a theme paint and another tab's unrelated write", async () => {
+  render(<PeoplePage />);
+  fireEvent.click(await screen.findByRole("button", { name: "alice" }));
+  fireEvent.change(screen.getByLabelText("1:1 note"), { target: { value: "Alice draft" } });
+  // lib/theme.ts dispatches this bare event on every paint
   await act(async () => window.dispatchEvent(new Event("storage")));
+  await act(async () => window.dispatchEvent(new StorageEvent("storage", { key: "skein-chat-layout" })));
+  expect((screen.getByLabelText("1:1 note") as HTMLInputElement).value).toBe("Alice draft");
+  // a cross-tab name change is still an identity change
+  await act(async () => window.dispatchEvent(new StorageEvent("storage", { key: "skein-user" })));
   fireEvent.click(await screen.findByRole("button", { name: "alice" }));
   expect((screen.getByLabelText("1:1 note") as HTMLInputElement).value).toBe("");
 });
