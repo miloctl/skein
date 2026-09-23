@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { api } from "@/lib/api";
+import { actionError, api } from "@/lib/api";
+import { reportStatus } from "@/lib/status";
 
 export type Tier = { visibility: string; crew_id: number };
 
@@ -82,8 +83,10 @@ export function VisibilityPicker({
     Array.isArray(crews) &&
     value.visibility === "crew" &&
     !crews.some((c) => c.id === value.crew_id);
+  // to "only you", never the roster: a remembered crew the person has since
+  // left (lib/audience.ts) must not widen the next row they write
   useEffect(() => {
-    if (missing) onChangeRef.current({ visibility: "workspace", crew_id: 0 });
+    if (missing) onChangeRef.current({ visibility: "private", crew_id: 0 });
   }, [missing]);
 
   // null is still loading, and that is the ONLY state that hides the picker.
@@ -189,35 +192,72 @@ function useCrewName(crewId?: number): string {
   return name;
 }
 
-/** The badge a scoped row carries in a list. Nothing renders for the
- *  workspace tier: a marker on every row is a marker nobody reads.
+/** The badge every row carries in a list: who can read it. The workspace
+ *  tier gets one too, in the quiet style, so a row the whole roster reads is
+ *  marked as shared rather than looking like a private note.
  *
  *  The crew NAME, not "one crew": the picker that set this said "Platform
  *  only", and a badge that reads "one crew only" beside it looks like a
- *  different setting. `crewName` wins when a caller already has it. */
+ *  different setting. `crewName` wins when a caller already has it.
+ *
+ *  `share` adds "share with the team" to a private row. A private row is
+ *  readable by its author alone, so every one a viewer sees is theirs; the
+ *  server checks that again (services/sharing.py). A crew row can be
+ *  somebody else's, so it gets no button here. */
 export function VisibilityBadge({
   visibility,
   crewId,
   crewName,
+  share,
 }: {
   visibility?: string;
   crewId?: number;
   crewName?: string;
+  share?: { kind: string; id: number; onShared?: () => void };
 }) {
   const resolved = useCrewName(crewName ? undefined : crewId);
+  const [sharing, setSharing] = useState(false);
+  if (visibility === "workspace")
+    return (
+      <span className="ml-1.5 rounded-full border border-line px-1.5 py-px font-mono text-[10px] text-ink-3">
+        everyone on the roster
+      </span>
+    );
   if (visibility !== "crew" && visibility !== "private") return null;
   const own = visibility === "private";
   const label = crewName || resolved;
   return (
-    <span
-      className={
-        "ml-1.5 rounded-full border px-1.5 py-px font-mono text-[10px] " +
-        (own
-          ? "border-weld/30 bg-weld/10 text-weld"
-          : "border-thread/30 bg-thread/10 text-thread")
-      }
-    >
-      {own ? "only you" : label ? `${label} only` : "one crew only"}
-    </span>
+    <>
+      <span
+        className={
+          "ml-1.5 rounded-full border px-1.5 py-px font-mono text-[10px] " +
+          (own
+            ? "border-weld/30 bg-weld/10 text-weld"
+            : "border-thread/30 bg-thread/10 text-thread")
+        }
+      >
+        {own ? "only you" : label ? `${label} only` : "one crew only"}
+      </span>
+      {own && share ? (
+        <button
+          disabled={sharing}
+          onClick={async () => {
+            setSharing(true);
+            try {
+              await api(`/api/share/${share.kind}/${share.id}`, { method: "POST" });
+              reportStatus("Everyone on the roster now sees this.", "confirmation");
+              share.onShared?.();
+            } catch (e) {
+              reportStatus(actionError(e));
+            } finally {
+              setSharing(false);
+            }
+          }}
+          className="ml-1.5 rounded bg-raised px-1.5 py-px text-[10px] text-ink-2 hover:bg-line disabled:opacity-40"
+        >
+          share with the team
+        </button>
+      ) : null}
+    </>
   );
 }

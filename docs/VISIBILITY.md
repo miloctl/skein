@@ -426,6 +426,24 @@ starts false (migration 037 sets it false for every existing row). The roster
 person's interests only after that person shares them. The share is one way,
 and a merge carries the flag with the text it backfills.
 
+**Personal records start at "only you".** For a strong identity, a standup,
+a capture (the REST default of `/api/standups` and `/api/capture`), and your
+own time away start private, and the standup card, the capture palette and
+the time-away form remember the last choice per person
+(`frontend/lib/audience.ts`). A weak identity (a trusted-header name with no
+key) reads no private row, so for it they start at the workspace tier
+(`routes/api.py::_personal_default`), or the record would be hidden from its
+own author. The CLI
+sends the roster tier only for `--team`. Shared work (tasks, milestones,
+decisions, blockers made through their own forms) keeps the workspace
+default. An agent files a private standup or time away only where the row
+names a person (`author`, `person`). In a table keyed on `created_by`, a
+private row an agent makes is readable by no human, so those agent tools
+keep the workspace tier. An agent's private standup forks no blocker, for
+the same reason. The author widens a row later with "share with the team"
+(`services/sharing.py`): it becomes workspace, is indexed for search, and
+its child rows keep their own tier. Nothing here narrows a row.
+
 **Administrator actions.** The activity log shows an actor's rows to that
 actor alone, so an action an administrator takes on someone else also sends a
 notice. A rename, a merge into an account, and a deactivation or reactivation

@@ -62,6 +62,7 @@ from ..services import (
     scope,
     search,
     settings,
+    sharing,
     stakeholders,
     tuning,
     uploads,
@@ -748,7 +749,7 @@ def get_absences(user: CurrentUser, viewer: ViewerDep, person: str = ""):
 
 
 @router.post("/absences")
-def post_absence(body: AbsenceIn, user: CurrentUser):
+def post_absence(body: AbsenceIn, user: CurrentUser, request: Request):
     ratelimit.check("absence", user)
     try:
         return absences.add_absence(
@@ -758,10 +759,41 @@ def post_absence(body: AbsenceIn, user: CurrentUser):
             body.kind,
             body.note,
             actor=user,
-            visibility=body.visibility,
+            # None lets the service pick the narrowest tier for this person,
+            # for a caller who can read it (_personal_default)
+            visibility=body.visibility
+            or (None if _personal_default(request) == scope.PRIVATE else scope.WORKSPACE),
             crew_id=body.crew_id,
             dates_shared=body.share_dates,
         )
+    except db.NotFound:
+        raise
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+# URL names, never table names: `requests` is intake_requests on the wire
+# elsewhere (the capture kind, /api/intake)
+_SHARE_KINDS = {
+    "standups": "standups",
+    "notes": "notes",
+    "tasks": "tasks",
+    "questions": "questions",
+    "decisions": "decisions",
+    "blockers": "blockers",
+    "promises": "promises",
+    "requests": "intake_requests",
+}
+
+
+@router.post("/share/{kind}/{row_id}")
+def share_row(kind: str, row_id: int, user: StrongUser):
+    """StrongUser: a weak name reads no private row, and must not widen one."""
+    ratelimit.check("write", user)
+    if kind not in _SHARE_KINDS:
+        raise HTTPException(404, "This kind of record cannot be shared.")
+    try:
+        return sharing.share_with_team(_SHARE_KINDS[kind], row_id, actor=user)
     except db.NotFound:
         raise
     except ValueError as e:
@@ -2943,13 +2975,24 @@ class StandupIn(BaseModel):
     today: str = Field("", max_length=2000)
     blockers: str = Field("", max_length=2000)
     # the tier the writer picked, checked in the service: crew membership, and
-    # the OWNER of the blocker this standup forks — which is always the author
-    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    # the OWNER of the blocker this standup forks — which is always the author.
+    # None: the capture default below (_personal_default).
+    visibility: str | None = Field(None, max_length=16)
     crew_id: int = 0
 
 
+def _personal_default(request: Request) -> str:
+    """The tier a personal record (a standup, a capture) gets when the request
+    names none: "only you" for a strong caller. A weak one (a trusted-header
+    name with no key) reads no private row (scope.Viewer), so "only you"
+    would hide the record from its own author; it gets the roster, which is
+    all that mode can keep private anyway."""
+    strong = bool(getattr(request.state, "strong_auth", False))
+    return scope.PRIVATE if strong else scope.WORKSPACE
+
+
 @router.post("/standups")
-def post_standup(body: StandupIn, user: CurrentUser):
+def post_standup(body: StandupIn, user: CurrentUser, request: Request):
     ratelimit.check("write", user)
     return collab.post_standup(
         user,
@@ -2957,7 +3000,7 @@ def post_standup(body: StandupIn, user: CurrentUser):
         body.today,
         body.blockers,
         actor=user,
-        visibility=body.visibility,
+        visibility=body.visibility or _personal_default(request),
         crew_id=body.crew_id,
     )
 
@@ -3578,7 +3621,10 @@ class CaptureIn(BaseModel):
     # entities, and every one of the seven carries the tier through
     # (services/capture.py) — a picker that applied to some kinds and not
     # others would be worse than none.
-    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    # None: "only you" for a strong caller, a capture being personal until
+    # shared (docs/VISIBILITY.md). _personal_default says why a weak one
+    # gets the roster. The CLI sends workspace only for `--team`.
+    visibility: str | None = Field(None, max_length=16)
     crew_id: int = 0
     # D5's idempotency key. The CLI outbox is at-least-once: a crash between
     # the server's accept and the outbox rewrite re-sends the row. A repeated
@@ -3595,6 +3641,7 @@ def post_capture(
 ):
     ratelimit.check("capture", user)
     strong = bool(getattr(request.state, "strong_auth", False))
+    visibility = body.visibility or _personal_default(request)
     with db.transaction():
         # FIRST in the transaction: the claim row is the idempotency receipt,
         # and its insert is the lock — a concurrent same-key request blocks on
@@ -3604,7 +3651,7 @@ def post_capture(
             return {"kind": "duplicate", "capture_key": body.capture_key}
         if not capture.is_private_feedback(body.text):
             _kind, entity, payload = capture.plan(body.text, actor=user)
-            payload.update({"visibility": body.visibility, "crew_id": body.crew_id})
+            payload.update({"visibility": visibility, "crew_id": body.crew_id})
             attributes = policy_context.for_change(entity, 0, payload, actor=user)
             enforce_decision(
                 decide(
@@ -3621,7 +3668,7 @@ def post_capture(
             body.text,
             actor=user,
             strong_auth=strong,
-            visibility=body.visibility,
+            visibility=visibility,
             crew_id=body.crew_id,
         )
 

@@ -404,7 +404,7 @@ def test_a_capture_survives_a_dead_server_and_files_later(monkeypatch, capsys, t
     monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
     monkeypatch.setattr(cli, "OUTBOX", tmp_path / "outbox.jsonl")
     monkeypatch.setattr(cli, "api_quiet", lambda *a, **k: None)  # server down
-    cli.cmd_capture(Namespace(text=["todo:", "fix", "it"]))
+    cli.cmd_capture(Namespace(text=["todo:", "fix", "it"], team=False))
     assert "saved locally" in capsys.readouterr().out
     assert (tmp_path / "outbox.jsonl").exists()
 
@@ -618,7 +618,7 @@ def test_a_refused_capture_is_not_queued_as_if_the_server_were_down(monkeypatch,
 
     monkeypatch.setattr(cli, "api", loud)
     with contextlib.suppress(SystemExit):
-        cli.cmd_capture(Namespace(text=["todo:", "x"]))
+        cli.cmd_capture(Namespace(text=["todo:", "x"], team=False))
     assert not (tmp_path / "outbox.jsonl").exists()
 
 
@@ -637,7 +637,7 @@ def test_a_retryable_capture_is_queued(status, monkeypatch, capsys, tmp_path):
         lambda *a, **k: pytest.fail("a retryable response must not be retried inline"),
     )
 
-    cli.cmd_capture(Namespace(text=["todo:", "keep", "me"]))
+    cli.cmd_capture(Namespace(text=["todo:", "keep", "me"], team=False))
     assert "saved locally" in capsys.readouterr().out
     assert cli._UNREACHABLE is True  # main() will not retry it immediately
     [row] = [json.loads(line) for line in cli.OUTBOX.read_text().splitlines()]

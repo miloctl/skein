@@ -1,6 +1,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import { getUser, subscribeUser } from "@/lib/api";
+import { sessionSnapshot, subscribeSession } from "@/lib/auth";
 
 /** The audience a person last picked on one form (standup, capture, time
  *  away), remembered per browser. Until they pick, each of these forms starts
@@ -60,4 +61,31 @@ export function useRememberedAudience<T>(
     [key],
   );
   return [value, remember];
+}
+
+export type TierChoice = { visibility: string; crew_id: number };
+
+export const ONLY_YOU: TierChoice = { visibility: "private", crew_id: 0 };
+export const ROSTER: TierChoice = { visibility: "workspace", crew_id: 0 };
+
+/** Whether "only you" can be the start. A weak identity (a trusted-header
+ *  name with no key) reads no private row, so a private default hid a
+ *  person's own standup from them. The server applies the same rule when a
+ *  request names no tier (routes/api.py::_personal_default). */
+export function useStrongIdentity(): boolean {
+  return useSyncExternalStore(
+    subscribeSession,
+    () => sessionSnapshot().strong,
+    () => false,
+  );
+}
+
+export function isTierChoice(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    ["private", "crew", "workspace"].includes(String(v.visibility)) &&
+    typeof v.crew_id === "number" &&
+    (v.visibility === "crew") === v.crew_id > 0
+  );
 }

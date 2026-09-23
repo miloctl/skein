@@ -1062,6 +1062,7 @@ VERBS: dict[str, tuple[str, str]] = {
     "add_absence": ("recorded time away", "normal"),
     "delete_absence": ("deleted a time-away entry", "loud"),
     "share_absence": ("shared time away with the team", "normal"),
+    "share_with_team": ("shared a record with the team", "normal"),
     "add_promise": ("made a promise", "normal"),
     # the other direction: somebody outside the team owes US this one
     "await_promise": ("recorded a promise made to the team", "normal"),

@@ -479,6 +479,16 @@ Not "scope" (a code word), not "audience" (`promises.audience` is a different
 enum on the same screens), and not "sharing" (nothing is shared; a tier is read
 access that either already exists or does not. Nothing changes hands).
 
+The one exception is an ACTION: **share with the team** widens a row its
+author wrote at "only you" (or one crew) to everyone on the roster. It is a
+verb for a deliberate, one-way change, never a name for a tier, and it never
+narrows (`services/sharing.py`). Every surface uses these exact words: a
+record's badge, time away ("share the dates" is its one partial step), growth
+interests, and a memory's team proposal.
+
+The badge marks all three tiers. **everyone on the roster** shows in the quiet
+style, so a shared row reads as shared.
+
 ### Switching something off without deleting it
 
 | | |

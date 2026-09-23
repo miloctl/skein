@@ -13,7 +13,7 @@ import {
 import { VisibilityBadge } from "@/components/visibility-picker";
 import { PeekLink } from "@/components/task-peek";
 import { actionError, api, getUser, loadError, subscribeUser } from "@/lib/api";
-import { useRememberedAudience } from "@/lib/audience";
+import { useRememberedAudience, useStrongIdentity } from "@/lib/audience";
 import { HASH_TARGET, useHashTarget } from "@/lib/hash-target";
 import { reportStatus } from "@/lib/status";
 import { PersonInput } from "@/components/person-input";
@@ -266,7 +266,15 @@ function LessonsCard({ hidden, onLoaded, cls, setCls }: { hidden: boolean; onLoa
   );
 }
 
-function StandupCard({ rows, hidden }: { rows: Row[]; hidden: boolean }) {
+function StandupCard({
+  rows,
+  hidden,
+  onShared,
+}: {
+  rows: Row[];
+  hidden: boolean;
+  onShared: () => void;
+}) {
   return (
     <section
       id="browse-recent-standups"
@@ -302,6 +310,7 @@ function StandupCard({ rows, hidden }: { rows: Row[]; hidden: boolean }) {
               <VisibilityBadge
                 visibility={s.visibility as string}
                 crewId={s.crew_id as number}
+                share={{ kind: "standups", id: Number(s.id), onShared }}
               />
               <p className="text-xs text-ink-3">
                 {s.today}
@@ -407,7 +416,7 @@ function AbsenceForm({
   const [adding, setAdding] = useState(false);
   const [sees, setSees] = useRememberedAudience<TeamSees>(
     "absence",
-    "nothing",
+    useStrongIdentity() ? "nothing" : "details",
     (v) => TEAM_SEES.includes(v as TeamSees),
   );
   const me = useSyncExternalStore(subscribeUser, getUser, () => "");
@@ -1195,6 +1204,7 @@ export default function Dashboard() {
                   <VisibilityBadge
                     visibility={b.visibility as string}
                     crewId={b.crew_id as number}
+                    share={{ kind: "blockers", id: Number(b.id), onShared: () => refresh(["blockers", "activity"]) }}
                   />
                   <span className="ml-2 text-xs text-ink-3">
                     {b.owner ? `@${b.owner}` : "unowned"} · {b.impact}
@@ -1741,6 +1751,7 @@ export default function Dashboard() {
                   <VisibilityBadge
                     visibility={t.visibility as string}
                     crewId={t.crew_id as number}
+                    share={{ kind: "tasks", id: Number(t.id), onShared: () => refresh(["tasks", "activity"]) }}
                   />
                   {t.assignee ? (
                     <span className="ml-2 text-xs text-ink-3">
@@ -1803,6 +1814,7 @@ export default function Dashboard() {
                 <VisibilityBadge
                   visibility={t.visibility as string}
                   crewId={t.crew_id as number}
+                  share={{ kind: "tasks", id: Number(t.id), onShared: () => refresh(["tasks", "activity"]) }}
                 />
                 {t.forge_url ? (
                   // same bare-href reasoning as the Tasks section above
@@ -1841,6 +1853,7 @@ export default function Dashboard() {
                   <VisibilityBadge
                     visibility={q.visibility as string}
                     crewId={q.crew_id as number}
+                    share={{ kind: "questions", id: Number(q.id), onShared: () => refresh(["questions", "activity"]) }}
                   />
                 </span>
                 <Badge value={String(q.status)} />
@@ -1974,6 +1987,7 @@ export default function Dashboard() {
               <VisibilityBadge
                 visibility={d.visibility as string}
                 crewId={d.crew_id as number}
+                share={{ kind: "decisions", id: Number(d.id), onShared: () => refresh(["decisions", "activity"]) }}
               />
               {d.decision !== d.title && (
                 <p className="text-xs text-ink-3">{d.decision}</p>
@@ -1981,7 +1995,11 @@ export default function Dashboard() {
             </li>
           )}
         />
-        <StandupCard rows={data.standups ?? []} hidden={selected !== "browse-recent-standups"} />
+        <StandupCard
+          rows={data.standups ?? []}
+          hidden={selected !== "browse-recent-standups"}
+          onShared={() => refresh(["standups", "activity"])}
+        />
         <LessonsCard hidden={selected !== "browse-lessons"} onLoaded={setLessonRows} cls={lessonClass} setCls={setLessonClass} />
         <Section
           hidden={selected !== "browse-calendar"}
@@ -2135,6 +2153,7 @@ export default function Dashboard() {
                     <VisibilityBadge
                       visibility={n.visibility as string}
                       crewId={n.crew_id as number}
+                      share={{ kind: "notes", id: Number(n.id), onShared: () => refresh(["notes", "activity"]) }}
                     />
                   </span>
                   <span className="flex shrink-0 gap-1">

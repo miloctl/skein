@@ -3,6 +3,13 @@
 import { useState } from "react";
 
 import { VisibilityPicker } from "@/components/visibility-picker";
+import {
+  isTierChoice,
+  ONLY_YOU,
+  ROSTER,
+  useRememberedAudience,
+  useStrongIdentity,
+} from "@/lib/audience";
 import { actionError, api } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 
@@ -20,7 +27,11 @@ export function StandupComposer({
   const [blockers, setBlockers] = useState("");
   const [posted, setPosted] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [tier, setTier] = useState({ visibility: "workspace", crew_id: 0 });
+  const [tier, setTier] = useRememberedAudience(
+    "standup",
+    useStrongIdentity() ? ONLY_YOU : ROSTER,
+    isTierChoice,
+  );
 
   const post = async () => {
     // in-flight guard: a held Enter key must not file N standups (each
@@ -44,12 +55,8 @@ export function StandupComposer({
         setToday("");
         setBlockers("");
         setYesterday("");
-        // `tier` is deliberately NOT reset, unlike capture-palette.tsx, which
-        // clears it and says why. The difference is whether the choice stays
-        // visible: that dialog closes after a capture, so a carried tier is
-        // one nobody can see, while this card stays mounted with the picker
-        // still reading "Platform only". Posting two standups to the same
-        // crew in a row is also the ordinary case here.
+        // `tier` is not reset: lib/audience.ts remembers the last choice, and
+        // the picker on this card shows it.
         onPosted?.();
       }, 700);
     } catch (e) {

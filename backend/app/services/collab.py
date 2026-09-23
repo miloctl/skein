@@ -529,7 +529,16 @@ def post_standup(
         )
         index_record("standup", sid, f"{author}'s standup", f"{yesterday} {today} {blockers}")
         db.log_activity(actor or author, "post_standup", f"#{sid}")
-        if blockers.strip() and blockers.strip().rstrip(".!").lower() not in NO_BLOCKERS:
+        # An agent's private standup forks no blocker: a private blocker is
+        # readable by its created_by, which would be the agent, and
+        # raise_blocker refuses a private row whose owner is somebody else.
+        # The text stays in the standup, which its author can share.
+        agent_private = tier == scope.PRIVATE and origin != "human"
+        if (
+            not agent_private
+            and blockers.strip()
+            and blockers.strip().rstrip(".!").lower() not in NO_BLOCKERS
+        ):
             from .blockers import raise_blocker
 
             # the child takes the standup's tier. Without it a crew standup's
