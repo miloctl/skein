@@ -23,6 +23,45 @@ type Req = {
   disposition_reason: string;
 };
 
+/** A number input the reader can empty while typing. Clamping every keystroke
+ *  put 1 back the moment the field was cleared, so "3" could only be typed as
+ *  "13", which then clamped to the maximum. The draft holds the raw text, the
+ *  owner gets only clamped values, and blur settles the field. An empty draft
+ *  is never reported: Number("") is 0, which the service refuses with a 400.
+ */
+function ClampedNumber({
+  value,
+  min,
+  max,
+  onValue,
+  ...rest
+}: {
+  value: number;
+  min: number;
+  max: number;
+  onValue: (value: number) => void;
+} & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "min" | "max" | "onChange" | "onBlur" | "type">) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const clamp = (text: string) => Math.max(min, Math.min(max, Number(text) || min));
+  return (
+    <input
+      {...rest}
+      type="number"
+      min={min}
+      max={max}
+      value={draft ?? value}
+      onChange={(e) => {
+        setDraft(e.target.value);
+        if (e.target.value !== "") onValue(clamp(e.target.value));
+      }}
+      onBlur={(e) => {
+        setDraft(null);
+        onValue(clamp(e.target.value));
+      }}
+    />
+  );
+}
+
 const STATUS_COLORS: Record<string, string> = {
   submitted: "bg-warn/15 text-warn",
   scored: "bg-thread/15 text-thread",
@@ -131,18 +170,14 @@ function WhatIf({ requestId }: { requestId: number }) {
         ))}
         <label className="ml-1 text-xs text-ink-3">
           at
-          <input
-            type="number"
+          <ClampedNumber
             min={1}
             max={100}
             value={percent}
             aria-label="Percent of each person"
-            // clamped here, not only by min/max: those are not enforced while
-            // typing, and an empty field is Number("") === 0, which the
-            // service refuses with a 400 for a value the reader never chose
-            onChange={(ev) => {
+            onValue={(next) => {
               setOut(null); // stale the moment the assumption changes
-              setPercent(Math.max(1, Math.min(100, Number(ev.target.value) || 1)));
+              setPercent(next);
             }}
             className="mx-1 w-14 rounded border border-line-strong bg-transparent px-1 py-0.5 text-xs"
           />
@@ -510,21 +545,14 @@ export default function IntakePage() {
                     (k) => (
                       <label key={k} className="text-xs text-ink-2">
                         {k}
-                        <input
-                          type="number"
+                        <ClampedNumber
                           name={`rice-${k}`}
                           autoFocus={k === "reach"}
                           min={1}
                           max={5}
                           value={rice[k]}
-                          onChange={(e) =>
-                            setRice({
-                              ...rice,
-                              [k]: Math.max(
-                                1,
-                                Math.min(5, Number(e.target.value) || 1),
-                              ),
-                            })
+                          onValue={(next) =>
+                            setRice((current) => ({ ...current, [k]: next }))
                           }
                           className="mt-0.5 block w-14 rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
                         />

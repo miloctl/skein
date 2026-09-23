@@ -121,6 +121,9 @@ function makeAttachmentAdapter(): AttachmentAdapter {
   };
 }
 
+const STREAM_INTERRUPTED =
+  "The connection closed before the reply was complete. Reload the page to see what Skein saved.";
+
 /** Streams from the FastAPI backend, which emits SSE lines of
  *  {"type": "masthead" | "text" | "tool" | "receipt" | "error" | "done", ...}.
  *
@@ -185,6 +188,10 @@ function makeAdapter(threadId: string): ChatModelAdapter {
       let buffer = "";
       let acc = "";
       let shown = false;
+      // every backend stream path ends with a done frame (routes/chat.py). A
+      // body that closes without one was cut, by a restart or a dropped
+      // connection, and its partial text otherwise reads as a whole reply.
+      let finished = false;
 
       const handle = (chunk: string): string | null => {
         if (!chunk.startsWith("data: ")) return null;
@@ -205,7 +212,10 @@ function makeAdapter(threadId: string): ChatModelAdapter {
         } else if (event.type === "tool") acc += `\n\n*🔧 ${event.name}…*\n\n`;
         else if (event.type === "receipt") acc += receiptLine(event);
         else if (event.type === "error") acc += `\n\n> ${event.message}\n`;
-        else return null;
+        else if (event.type === "done") {
+          finished = true;
+          return null;
+        } else return null;
         return acc;
       };
 
@@ -239,6 +249,10 @@ function makeAdapter(threadId: string): ChatModelAdapter {
           // a masthead with no word after it (an empty reply, a stop before
           // the first token): the transcript stores the nameplate, so the
           // bubble shows it too rather than "The turn ended without a reply."
+          yield { content: [{ type: "text", text: acc }] };
+        }
+        if (!finished && !abortSignal?.aborted) {
+          acc += `\n\n> ${STREAM_INTERRUPTED}\n`;
           yield { content: [{ type: "text", text: acc }] };
         }
       } finally {

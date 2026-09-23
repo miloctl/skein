@@ -331,9 +331,10 @@ export function TaskPeek() {
     // browser's Tab order. Without inert, three Tabs walk out of the panel
     // into content the reader has just been told does not exist — a focus
     // black hole, which is worse than claiming no modality at all.
-    // Siblings, because the panel is a body child too.
+    // Siblings, because the panel is a body child too. The status nodes stay
+    // live (status-region.tsx).
     const others = [...document.body.children].filter(
-      (el) => !el.contains(closeRef.current),
+      (el) => !el.contains(closeRef.current) && !el.hasAttribute("data-status-region"),
     ) as HTMLElement[];
     others.forEach((el) => el.setAttribute("inert", ""));
     closeRef.current?.focus();
@@ -593,7 +594,7 @@ export function TaskPeek() {
                 `origin` was a label on the row and the rest of the chain lived
                 in three other tables (services/provenance.py). */}
             <div className="mt-2 border-t border-line pt-2">
-              <Provenance entity="task" entityId={task.id} />
+              <Provenance entity="task" entityId={task.id} revision={nonce} />
             </div>
 
             {/* The worklog is readable BEFORE the sponsor's verdict by
@@ -663,7 +664,7 @@ function EditControls({ task, onSaved }: { task: PeekTask; onSaved: () => void }
         method: "PATCH",
         body: JSON.stringify(changes),
       });
-      reportStatus(said);
+      reportStatus(said, "confirmation");
       setEditing(false);
       onSaved();
     } catch (e) {
@@ -970,7 +971,10 @@ function Delegate({ taskId, onDone }: { taskId: number; onDone: () => void }) {
                 check_in_at: checkIn,
               }),
             });
-            reportStatus(`Task #${taskId} delegated to ${picked}. You are the sponsor.`);
+            reportStatus(
+              `Task #${taskId} delegated to ${picked}. You are the sponsor.`,
+              "confirmation",
+            );
             onDone();
           } catch (e) {
             reportStatus(actionError(e));

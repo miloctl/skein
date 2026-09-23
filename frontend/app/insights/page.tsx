@@ -170,7 +170,12 @@ export default function InsightsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const load = () =>
-    api<Insights>("/api/insights").then(setD).catch((e) => setError(loadError(e)));
+    api<Insights>("/api/insights")
+      .then((next) => {
+        setD(next);
+        setError(null);
+      })
+      .catch((e) => setError(loadError(e)));
   useEffect(() => {
     load();
   }, []);
@@ -215,7 +220,9 @@ export default function InsightsPage() {
     }
   };
 
-  if (error)
+  // only without data: a failed reload after a write keeps the last good
+  // page under the banner below instead of replacing it
+  if (error && !d)
     return (
       <main
         id="content"
@@ -229,6 +236,13 @@ export default function InsightsPage() {
           <ManageToggle />
         </div>
         <p className="text-sm text-danger">{error}</p>
+        <button
+          type="button"
+          onClick={load}
+          className="mt-2 rounded-lg bg-raised px-3 py-1 text-sm hover:bg-line"
+        >
+          Try again
+        </button>
       </main>
     );
   if (!d)
@@ -259,6 +273,16 @@ export default function InsightsPage() {
         <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Insights</h1>
         <ManageToggle />
       </div>
+      {/* the same sentence as Planning and My Day: one condition, one wording */}
+      {error && (
+        <p className="mb-4 rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs text-danger">
+          Last refresh failed. Skein shows the state from the last good load.{" "}
+          {error}{" "}
+          <button type="button" onClick={load} className="underline">
+            Try again
+          </button>
+        </p>
+      )}
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
         Everything on this page measures the system — rules, jobs, funnels —
         never individual people.

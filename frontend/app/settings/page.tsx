@@ -21,6 +21,7 @@ import {
 } from "@/lib/api";
 import { authConfig, sessionEnd, sessionSnapshot, signInWithKey, signOut, subscribeSession, trustedHeaderIdentity } from "@/lib/auth";
 import { startFirstWatch } from "@/lib/first-watch";
+import { isIdentityEvent } from "@/lib/shared-chats";
 import { reportStatus } from "@/lib/status";
 import { timeAgo } from "@/lib/time";
 import { copyText } from "@/lib/clipboard";
@@ -50,6 +51,21 @@ import {
 function subscribeStorage(cb: () => void) {
   window.addEventListener("storage", cb);
   return () => window.removeEventListener("storage", cb);
+}
+
+// lib/theme.ts dispatches a synthetic storage event on every paint. Treated
+// as an identity change, one hue drag blanked the identity panel, cleared the
+// status lines keyed on identityRevision, and refetched their endpoints.
+function subscribeIdentity(cb: () => void) {
+  const changed = (event: Event) => {
+    if (isIdentityEvent(event)) cb();
+  };
+  window.addEventListener("storage", changed);
+  window.addEventListener("skein-identity-change", changed);
+  return () => {
+    window.removeEventListener("storage", changed);
+    window.removeEventListener("skein-identity-change", changed);
+  };
 }
 
 const WRITE_TIMEOUT_MS = 30_000;
@@ -547,6 +563,7 @@ export default function SettingsPage() {
   const [interests, setInterests] = useState("");
   const [interestsSaved, setInterestsSaved] = useState("");
   const [interestsLoaded, setInterestsLoaded] = useState(false);
+  const [interestsError, setInterestsError] = useState("");
   const [interestsBusy, setInterestsBusy] = useState(false);
   const [ctx, setCtx] = useState<{
     strategy: string;
@@ -665,14 +682,18 @@ export default function SettingsPage() {
   }, []);
   useEffect(() => {
     // prefill: a write-only field can neither be reviewed nor cleared. If
-    // the GET fails, the empty field must NOT be saveable — an empty save
-    // clears the stored value, and a blank-from-failure would erase it.
+    // the GET fails, the field must NOT be saveable — any save replaces the
+    // stored value, which the reader never saw.
     api<{ interests: string }>("/api/users/growth-interests")
       .then((r) => {
         setInterests(r.interests);
         setInterestsLoaded(true);
+        setInterestsError("");
       })
-      .catch(() => setInterestsLoaded(false));
+      .catch((e) => {
+        setInterestsLoaded(false);
+        setInterestsError(loadError(e));
+      });
   }, [currentUser]);
 
   const loadCtx = useCallback(() => {
@@ -934,7 +955,7 @@ export default function SettingsPage() {
     queueMicrotask(() => {
       if (!cancelled) refresh();
     });
-    const unsubscribe = subscribeStorage(refresh);
+    const unsubscribe = subscribeIdentity(refresh);
     return () => {
       cancelled = true;
       unsubscribe();
@@ -1023,8 +1044,14 @@ export default function SettingsPage() {
     try {
       setKeyDraft("");
       await signInWithKey(candidate);
+      // The new session re-keys SessionBoundary (components/auth-gate.tsx),
+      // which remounts this page before the await returns. A setKeyStatus
+      // here lands on the unmounted page, and focus drops to <body>. The
+      // store survives the remount, and #content exists again after it.
       setKeyError(false);
-      setKeyStatus("Signed in. This browser does not store your personal key.");
+      setKeyStatus("");
+      reportStatus("Signed in. This browser does not store your personal key.", "confirmation");
+      setTimeout(() => document.getElementById("content")?.focus(), 0);
     } catch (e) {
       setKeyError(true);
       setKeyStatus(actionError(e));
@@ -1546,6 +1573,7 @@ export default function SettingsPage() {
                     name="growth-interests"
                     value={interests}
                     onChange={(e) => setInterests(e.target.value)}
+                    disabled={!interestsLoaded}
                     aria-label="Growth interests"
                     placeholder="for example: RAG evaluation, incident command, design reviews"
                     className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
@@ -1570,9 +1598,7 @@ export default function SettingsPage() {
                         setInterestsBusy(false);
                       }
                     }}
-                    disabled={
-                      interestsBusy || (!interests.trim() && !interestsLoaded)
-                    }
+                    disabled={interestsBusy || !interestsLoaded}
                     className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
                   >
                     Save
@@ -1585,6 +1611,9 @@ export default function SettingsPage() {
                 >
                   {interestsSaved}
                 </p>
+                {interestsError ? (
+                  <p className="mt-1 text-xs text-danger">{interestsError}</p>
+                ) : null}
               </Section>
 
               <Section title="Appearance" headingLevel={3}>

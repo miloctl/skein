@@ -123,7 +123,18 @@ describe("a projection stops being an answer when its inputs change", () => {
 });
 
 describe("the assumed percent stays inside what the service accepts", () => {
-  it("clamps an emptied field to 1 rather than sending 0", async () => {
+  it("lets the reader empty the field and type a new value", async () => {
+    await openAcceptPanel();
+    const pct = (await screen.findByLabelText(
+      "Percent of each person",
+    )) as HTMLInputElement;
+    fireEvent.change(pct, { target: { value: "" } });
+    expect(pct.value).toBe("");
+    fireEvent.change(pct, { target: { value: "3" } });
+    expect(pct.value).toBe("3");
+  });
+
+  it("clamps an emptied field to 1 on blur rather than sending 0", async () => {
     // Number("") is 0, which the service refuses with a 400 for a value the
     // reader never chose
     await openAcceptPanel();
@@ -131,6 +142,7 @@ describe("the assumed percent stays inside what the service accepts", () => {
       "Percent of each person",
     )) as HTMLInputElement;
     fireEvent.change(pct, { target: { value: "" } });
+    fireEvent.blur(pct);
     expect(pct.value).toBe("1");
   });
 
@@ -140,6 +152,7 @@ describe("the assumed percent stays inside what the service accepts", () => {
       "Percent of each person",
     )) as HTMLInputElement;
     fireEvent.change(pct, { target: { value: "400" } });
+    fireEvent.blur(pct);
     expect(pct.value).toBe("100");
   });
 

@@ -237,4 +237,20 @@ describe("CrewsCard", () => {
     ).toBeNull();
     expect(writes).toHaveLength(0);
   });
+
+  it("moves focus to the next member after a removal, never to <body>", async () => {
+    mode.answer = () => [CREW];
+    render(card());
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Remove bo from Platform" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm: remove bo from Platform" }),
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Remove ava from Platform" }),
+      ),
+    );
+  });
 });

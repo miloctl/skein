@@ -31,10 +31,13 @@ const EMPTY: Record<string, string[]> = {
     "Zero blockers. The escalation clock rests.",
     "Nothing is blocked. Someone is about to change that — capture it fast.",
   ],
+  // My Day shows these when nothing is addressed to the reader, while the
+  // team queue and escalated blockers can still hold work. A line that says
+  // "inbox zero" or "zero blockers" can be false (all-clear-claims.test.ts).
   allclear: [
     "All clear. Go build something.",
     "Nothing needs you. A rare and beautiful state.",
-    "Inbox zero, blocker zero. Frame this moment.",
+    "Your list is empty. Frame this moment.",
   ],
 };
 
@@ -45,7 +48,7 @@ const PACK_EMPTY: Record<string, Record<string, string[]>> = {
   phosphor: {
     review: ["approvals: 0 pending. exit 0", "queue empty. nothing to sign off", "0 proposals awaiting verdict"],
     blockers: ["no blocked processes", "blockers: none. uptime holds", "escalation daemon: idle"],
-    allclear: ["all systems nominal", "idle loop engaged. nothing needs you", "inbox 0. load average 0.00"],
+    allclear: ["all systems nominal", "idle loop engaged. nothing needs you", "needs_you: 0. load average 0.00"],
   },
   ledger: {
     review: ["Nothing awaits approval. The ledger is balanced.", "No entries pending. The columns reconcile.", "Approvals: nil. Carried forward: nothing."],

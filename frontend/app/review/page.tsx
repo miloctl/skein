@@ -362,6 +362,7 @@ export default function ReviewPage() {
   // can only send focus to the top of the list, which is the wrong place for
   // a reviewer working a queue deeper than one page
   const focusAfterVerdict = useRef<number | null>(null);
+  const reloadAfterVerdict = useRef(false);
   const deepLinkFocused = useRef(false);
 
   const loadHistory = useCallback(() => {
@@ -450,25 +451,37 @@ export default function ReviewPage() {
   // Drop judged rows and keep every page the reviewer has fetched. Calling
   // load() instead rebuilds the list from the FIRST page, so a verdict cast on
   // page 3 of a long queue throws pages 2 and 3 away under the reviewer.
+  // Functional updates: verdicts resolve out of order, and a list captured at
+  // click time puts back a card another verdict already dropped.
   const settle = useCallback(
     (ids: number[]) => {
       const judged = new Set(ids);
-      const current = changes ?? [];
-      const at = current.findIndex((row) => judged.has(row.id));
-      const rest = current.filter((row) => !judged.has(row.id));
-      setChanges(rest);
-      // the row that slid into the judged one's place, so the reviewer stays
-      // where they were working instead of at the top of page one. NO_CARD
-      // when nothing is left: it matches no element id, so the focus effect
-      // falls through to the queue heading.
-      focusAfterVerdict.current = (rest[at] ?? rest.at(-1))?.id ?? NO_CARD;
+      // a judged id left selected goes out with the next batch and comes
+      // back as an "already approved" failure
+      setSelected((prev) => new Set([...prev].filter((id) => !judged.has(id))));
+      setChanges((current) => {
+        const rows = current ?? [];
+        const at = rows.findIndex((row) => judged.has(row.id));
+        const rest = rows.filter((row) => !judged.has(row.id));
+        // the row that slid into the judged one's place, so the reviewer stays
+        // where they were working instead of at the top of page one. NO_CARD
+        // when nothing is left: it matches no element id, so the focus effect
+        // falls through to the queue heading.
+        focusAfterVerdict.current = (rest[at] ?? rest.at(-1))?.id ?? NO_CARD;
+        // nothing loaded is left to judge — only a reload separates a truly
+        // empty queue from proposals filed while this page stayed open
+        if (rest.length === 0) reloadAfterVerdict.current = true;
+        return rest;
+      });
       loadHistory();
-      // nothing loaded is left to judge — only a reload separates a truly
-      // empty queue from proposals filed while this page stayed open
-      if (rest.length === 0) load();
     },
-    [changes, load, loadHistory],
+    [loadHistory],
   );
+  useEffect(() => {
+    if (!reloadAfterVerdict.current) return;
+    reloadAfterVerdict.current = false;
+    load();
+  }, [changes, load]);
 
   const loadMore = useCallback(async () => {
     if (nextAfter === null || moreBusy) return;
@@ -568,6 +581,7 @@ export default function ReviewPage() {
         );
       }
       setSelected(new Set());
+      notifyAttentionChange();
       // only approved ids settled — forbidden/error rows remain in the queue
       settle(r.results.filter((x) => x.status === "approved").map((x) => x.id));
     } catch (e) {

@@ -28,6 +28,7 @@ const state = vi.hoisted(() => ({
   keyExchange: vi.fn(),
   logout: vi.fn(),
   tunables: [] as unknown[],
+  interestsFail: false,
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -42,8 +43,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
         return state.identityError
           ? Promise.reject(new Error(state.identityError))
           : Promise.resolve(state.identity);
-      if (path === "/api/users/growth-interests")
-        return Promise.resolve({ interests: "" });
+      if (path === "/api/users/growth-interests" && !init?.method)
+        return state.interestsFail
+          ? Promise.reject(new Error("growth interests are unavailable"))
+          : Promise.resolve({ interests: "" });
       if (path === "/api/agents/status")
         return Promise.resolve({ review_gate: true });
       if (path === "/api/settings/agent-automation") {
@@ -137,6 +140,7 @@ vi.mock("@/lib/auth", async (importOriginal) => {
 vi.mock("next/navigation", () => ({ usePathname: () => "/settings" }));
 
 import SettingsPage from "@/app/settings/page";
+import { dismissStatus, getStatus } from "@/lib/status";
 
 function openSettingsSection(name: "You" | "Connections" | "AI runtime" | "Team") {
   fireEvent.click(screen.getByRole("link", { name }));
@@ -158,6 +162,7 @@ beforeEach(() => {
   state.automationWritePromise = null;
   state.automationReadFailsAfterWrite = false;
   state.tunables = [];
+  state.interestsFail = false;
   state.authMode = "trusted-header";
   state.session = { authenticated: false, user: "anonymous", strong: false, auth_method: "", csrf_token: "", status: "ready", error: "" };
   state.keyExchange.mockReset();
@@ -289,7 +294,7 @@ describe("Settings identity states", () => {
       strong: false,
       can_administer: false,
     };
-    window.dispatchEvent(new Event("storage"));
+    window.dispatchEvent(new Event("skein-identity-change"));
 
     expect(
       (
@@ -337,7 +342,7 @@ describe("Settings identity states", () => {
       strong: false,
       can_administer: false,
     };
-    window.dispatchEvent(new Event("storage"));
+    window.dispatchEvent(new Event("skein-identity-change"));
 
     // the receipt is a value the section says only an administrator can
     // read — it must not survive into the next identity's page
@@ -383,7 +388,7 @@ describe("Settings identity states", () => {
 
     state.identity = { ...state.identity, user: "next-operator" };
     state.automationEnabled = false;
-    window.dispatchEvent(new Event("storage"));
+    window.dispatchEvent(new Event("skein-identity-change"));
 
     expect(
       await screen.findByRole("button", { name: "Resume unattended runs" }),
@@ -414,7 +419,7 @@ describe("Settings identity states", () => {
       strong: false,
       can_administer: false,
     };
-    window.dispatchEvent(new Event("storage"));
+    window.dispatchEvent(new Event("skein-identity-change"));
     await waitFor(() =>
       expect(state.calls.filter((path) => path === "/api/whoami")).toHaveLength(
         2,
@@ -449,6 +454,35 @@ describe("Settings identity states", () => {
     expect(
       state.calls.filter((path) => path === "/api/settings/model"),
     ).toHaveLength(1);
+  });
+
+  it("keeps the identity through a theme paint and rereads it on an identity change", async () => {
+    render(<SettingsPage />);
+    await screen.findByText(/as operator/);
+    const whoami = () => state.calls.filter((path) => path === "/api/whoami").length;
+    const before = whoami();
+
+    // lib/theme.ts dispatches this form on every paint, a hue drag included
+    act(() => window.dispatchEvent(new Event("storage")));
+    await act(async () => {});
+    expect(whoami()).toBe(before);
+    expect(screen.queryByText("Checking identity…")).toBeNull();
+
+    act(() => window.dispatchEvent(new Event("skein-identity-change")));
+    await waitFor(() => expect(whoami()).toBe(before + 1));
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key: "skein-user" })));
+    await waitFor(() => expect(whoami()).toBe(before + 2));
+  });
+
+  it("locks the growth interests field when its stored value cannot be read", async () => {
+    state.interestsFail = true;
+    render(<SettingsPage />);
+    expect(await screen.findByText("Could not load this page: growth interests are unavailable")).toBeTruthy();
+    const field = screen.getByLabelText("Growth interests") as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "incident command" } });
+    expect(
+      (screen.getByRole("button", { name: "Save growth interests" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it("shows an identity failure instead of checking forever", async () => {
@@ -494,9 +528,33 @@ describe("Settings identity states", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign in with key" }));
     await waitFor(() => expect(state.keyExchange).toHaveBeenCalledWith("sk-skein-other-owner"));
     expect(input.value).toBe("");
-    expect(await screen.findByText("Signed in. This browser does not store your personal key.")).toBeTruthy();
+    await waitFor(() =>
+      expect(getStatus()?.message).toBe("Signed in. This browser does not store your personal key."),
+    );
+    act(() => dismissStatus());
     expect(localStorage.getItem("skein-key")).toBeNull();
     expect(screen.queryByText(/takes effect after you sign out/)).toBeNull();
+  });
+
+  it("confirms a key sign-in that remounts the page, and moves focus to the content", async () => {
+    // a new session re-keys SessionBoundary (components/auth-gate.tsx), which
+    // remounts this page while the sign-in is still in flight
+    const { rerender } = render(<SettingsPage key="anonymous" />);
+    state.keyExchange.mockImplementation(async () => {
+      rerender(<SettingsPage key="signed-in" />);
+    });
+    const input = await screen.findByLabelText("Personal API key");
+    fireEvent.change(input, { target: { value: "sk-skein-owner" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with key" }));
+
+    await waitFor(() =>
+      expect(getStatus()).toMatchObject({
+        message: "Signed in. This browser does not store your personal key.",
+        tone: "confirmation",
+      }),
+    );
+    await waitFor(() => expect(document.activeElement?.id).toBe("content"));
+    act(() => dismissStatus());
   });
 
   it("does not offer browser key minting to a strong identity without keys", async () => {

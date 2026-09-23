@@ -75,4 +75,17 @@ describe("the re-score panel", () => {
     expect((spin(/reach/i) as HTMLInputElement).value).toBe("3");
     expect((spin(/confidence/i) as HTMLInputElement).value).toBe("3");
   });
+
+  it("lets the reader empty a score field and type a new value", async () => {
+    render(<IntakePage />);
+    fireEvent.click((await screen.findAllByText("score…"))[0]);
+    const reach = spin(/reach/i) as HTMLInputElement;
+    fireEvent.change(reach, { target: { value: "" } });
+    expect(reach.value).toBe("");
+    fireEvent.change(reach, { target: { value: "3" } });
+    expect(reach.value).toBe("3");
+    fireEvent.change(reach, { target: { value: "9" } });
+    fireEvent.blur(reach);
+    expect(reach.value).toBe("5");
+  });
 });
