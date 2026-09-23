@@ -49,11 +49,15 @@ COPY fieldguide ./fieldguide
 COPY schemas ./schemas
 COPY seed.py ./
 
+# /data is the only path the runtime writes: OpenShift runs this image with
+# readOnlyRootFilesystem (deploy/k8s/base/backend.yaml). /app stays root's,
+# so a compromised process cannot rewrite its own code. g=u gives OpenShift's
+# arbitrary UID, which runs in group 0, the owner's access to /data.
 RUN pip install --no-cache-dir --no-deps . \
     && useradd --create-home appuser \
     && mkdir -p /data \
-    && chown -R appuser:0 /data /app \
-    && chmod -R g=u /data /app
+    && chown -R appuser:0 /data \
+    && chmod -R g=u /data
 
 USER appuser:0
 VOLUME /data
