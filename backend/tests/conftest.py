@@ -469,3 +469,36 @@ def _ago(days: float) -> str:
     from datetime import datetime, timedelta
 
     return (datetime.now(UTC) - timedelta(days=days)).isoformat(timespec="seconds")
+
+
+class _SpendingModel:
+    """A strands model that answers `text` and reports the usage a real
+    provider sends in its metadata event."""
+
+    stateful = False
+
+    def __init__(self, model_id="fake", text="the answer", tokens=(900, 40)):
+        self.config = {"model_id": model_id}
+        self.text, self.tokens = text, tokens
+
+    def get_config(self):
+        return self.config
+
+    def update_config(self, **kwargs):
+        self.config.update(kwargs)
+
+    async def stream(self, *_args, **_kwargs):
+        yield {"messageStart": {"role": "assistant"}}
+        yield {"contentBlockDelta": {"delta": {"text": self.text}}}
+        yield {"contentBlockStop": {}}
+        yield {"messageStop": {"stopReason": "end_turn"}}
+        yield {
+            "metadata": {
+                "usage": {
+                    "inputTokens": self.tokens[0],
+                    "outputTokens": self.tokens[1],
+                    "totalTokens": sum(self.tokens),
+                },
+                "metrics": {"latencyMs": 1},
+            }
+        }

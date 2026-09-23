@@ -20,6 +20,20 @@ def test_narrator_hook_used_and_fail_safe(fresh_db):
         digest.set_narrator(None)
 
 
+def test_the_narrator_spend_is_recorded(fresh_db, monkeypatch):
+    """The narrator is a model call on every digest. Unrecorded, it reached no
+    usage report and no monthly budget."""
+    from conftest import _SpendingModel
+
+    from app import db
+    from app.agents import narrator, team_agent
+
+    monkeypatch.setattr(team_agent, "_model", lambda *a, **k: _SpendingModel("m1", "All calm."))
+    assert narrator.narrate("# Daily digest").startswith("> All calm.")
+    row = db.query_one("SELECT thread_id, agent_name, input_tokens FROM usage_log")
+    assert row == {"thread_id": "digest", "agent_name": "narrator", "input_tokens": 900}
+
+
 def test_same_day_digest_rerun_rotates_the_file_and_keeps_one_row(fresh_db):
     from pathlib import Path
 

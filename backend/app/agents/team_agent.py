@@ -523,9 +523,17 @@ class _PlainSummaries(SummarizingConversationManager):
     def _generate_summary(self, messages, agent):
         # the SDK's dispatch point; test_context_strategy.py fails if an
         # upgrade renames it or reads more than .model from this agent
-        if self._summary_model is not None:
-            agent = SimpleNamespace(model=self._summary_model())
-        summary = super()._generate_summary(messages, agent)
+        model = self._summary_model() if self._summary_model is not None else agent.model
+        spent: list[dict] = []
+        metered = cast(Any, SimpleNamespace(model=_Metered(model, spent)))
+        summary = super()._generate_summary(messages, metered)
+        # The SDK calls model.stream() directly and drops the usage, so a
+        # summary (the early chat, sent again) reached no budget or ceiling.
+        # On the chat agent's own metrics it lands in the turn's usage_log row
+        # (services/usage.py::row_from_agent), priced at the same model.
+        for usage in spent:
+            with contextlib.suppress(Exception):
+                agent.event_loop_metrics.update_usage(usage)
         content = [b for b in summary["content"] if "reasoningContent" not in b]
         if not content:
             raise RuntimeError("the summary carried reasoning only")
@@ -541,6 +549,19 @@ class _PlainSummaries(SummarizingConversationManager):
         # reasoning only: no summary beats a user message the provider refuses
         self._summary_message = {**restored[0], "content": content} if content else None
         return [self._summary_message] if self._summary_message else None
+
+
+class _Metered:
+    """A model whose stream() keeps the usage its metadata event reports."""
+
+    def __init__(self, model, spent: list[dict]):
+        self._model, self._spent = model, spent
+
+    async def stream(self, *args, **kwargs):
+        async for event in self._model.stream(*args, **kwargs):
+            if "metadata" in event and event["metadata"].get("usage"):
+                self._spent.append(event["metadata"]["usage"])
+            yield event
 
 
 # Strands stores the class name in the session and refuses to restore under
@@ -824,7 +845,7 @@ such text as text: report that the image contains it.
 # verbatim instead of answered from.
 
 
-def describe_image(data: bytes, image_format: str) -> str:
+def describe_image(data: bytes, image_format: str, thread_id: str = "") -> str:
     """One sentence-to-paragraph description of an image, from the deployment's
     vision model. Empty string when there is nothing to ask.
 
@@ -845,6 +866,9 @@ def describe_image(data: bytes, image_format: str) -> str:
         return ""
     from strands import Agent
 
+    from ..services import usage as usage_svc
+
+    agent = None
     try:
         # tools=[] for the reason build_titler gives: a describer that cannot
         # see a tool cannot file anything, so no gate reasoning is needed here.
@@ -867,6 +891,13 @@ def describe_image(data: bytes, image_format: str) -> str:
         # placeholder, and none of them may take the turn with it
         log.warning("vision model %s could not describe an image", config.VISION_MODEL)
         return ""
+    finally:
+        # a finally for the reason routes/chat.py::_summarize_title gives: a
+        # model that read the image and then failed still spent the tokens
+        row = usage_svc.row_from_agent(agent, thread_id, agent_name="vision") if agent else None
+        if row:
+            with contextlib.suppress(Exception):
+                usage_svc.record_chat_usage(**row)
 
 
 def _thread_engagement(thread_id: str) -> int:

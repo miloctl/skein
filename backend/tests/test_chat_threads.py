@@ -290,7 +290,7 @@ def test_provider_faults_classify_load_and_configuration(client, monkeypatch):
 def test_attachments_and_agent_build_share_one_model_snapshot(client, monkeypatch):
     seen = {}
 
-    def attachments(message, ids, user, model_id=""):
+    def attachments(message, ids, user, model_id="", thread_id=""):
         seen["attachments"] = model_id
         return message, []
 
