@@ -276,3 +276,91 @@ describe("server-held browser identity", () => {
     expect(document.documentElement.dataset.pack).toBe("ledger");
   });
 });
+
+describe("a server that stops answering", () => {
+  // Real fetch rejects when its signal aborts. A fetch with no signal hangs.
+  const silent = (init?: RequestInit) => new Promise<Response>((_, reject) => {
+    init?.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "AbortError")));
+  });
+  const stalls = (match: (url: string, init?: RequestInit) => boolean) => {
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    let stalled = true;
+    vi.mocked(fetch).mockImplementation((input, init) =>
+      stalled && match(String(input), init) ? silent(init) : original(input, init));
+    return () => { stalled = false; };
+  };
+  // The shared mock runs each callback at once. Sign-in, sign-out, and the
+  // session read exclude each other across tabs, which is what a stall holds.
+  const exclusiveLocks = () => {
+    let tail: Promise<unknown> = Promise.resolve();
+    Object.defineProperty(navigator, "locks", { configurable: true, value: {
+      request: vi.fn((_name: string, fn: () => Promise<unknown>) => {
+        const run = tail.then(fn);
+        tail = run.catch(() => {});
+        return run;
+      }),
+    } });
+  };
+  const settled = (promise: Promise<unknown>) => {
+    let state = "pending";
+    promise.then(() => { state = "resolved"; }, () => { state = "rejected"; });
+    return () => state;
+  };
+  beforeEach(() => { vi.useFakeTimers(); exclusiveLocks(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("ends a stalled session read with the unreachable wording and frees the lock", async () => {
+    const recover = stalls((url, init) => url.endsWith("/auth/session") && !init?.method);
+    const auth = await import("@/lib/auth");
+    const first = settled(auth.bootstrapSession());
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(first()).toBe("rejected");
+    expect(auth.sessionSnapshot()).toMatchObject({ status: "unavailable" });
+    expect(auth.sessionSnapshot().error).toMatch(/^Cannot reach the backend at .*did not answer in 60 seconds/);
+    recover();
+    served = person();
+    await auth.bootstrapSession(true);
+    expect(auth.signedInUser()).toBe("ava");
+  });
+
+  it("ends a stalled sign-in configuration read so Try again can start over", async () => {
+    const recover = stalls((url) => url.endsWith("/auth/config"));
+    const auth = await import("@/lib/auth");
+    const first = settled(auth.bootstrapSession());
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(first()).toBe("rejected");
+    expect(auth.sessionSnapshot().error).toBe("Cannot read the sign-in configuration. Check that the server is running, then try again.");
+    recover();
+    await expect(auth.bootstrapSession(true)).resolves.toMatchObject({ status: "ready" });
+  });
+
+  it.each([
+    ["key sign-in", (url: string) => url.endsWith("/auth/session/key"), (auth: typeof import("@/lib/auth")) => auth.signInWithKey("sk-skein-entered")],
+    ["sign-out", (url: string, init?: RequestInit) => init?.method === "DELETE", (auth: typeof import("@/lib/auth")) => auth.signOut()],
+  ])("releases the cross-tab lock after a stalled %s", async (_name, match, act) => {
+    served = person();
+    const recover = stalls(match);
+    const auth = await import("@/lib/auth");
+    const stalled = settled(act(auth));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(stalled()).toBe("rejected");
+    recover();
+    const next = settled(auth.bootstrapSession(true));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(next()).toBe("resolved");
+  });
+
+  it("keeps a slow sign-in exchange that still answers inside the deadline", async () => {
+    // A 30-second wait for a database connection, then identity-provider calls
+    // the backend caps at 5 seconds each.
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => String(input).endsWith("/auth/session/key")
+      ? new Promise((resolve) => setTimeout(() => resolve(original(input, init)), 50_000))
+      : original(input, init));
+    const auth = await import("@/lib/auth");
+    const exchange = settled(auth.signInWithKey("sk-skein-entered"));
+    await vi.advanceTimersByTimeAsync(50_000);
+    expect(exchange()).toBe("resolved");
+    expect(auth.signedInUser()).toBe("ava");
+  });
+});

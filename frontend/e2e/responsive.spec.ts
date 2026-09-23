@@ -692,6 +692,25 @@ test("a dead backend says so, and claims nothing", async ({ page }) => {
   expect(problems, JSON.stringify(problems, null, 2)).toEqual([]);
 });
 
+test("a backend that stops answering says so, and Try again recovers", async ({ page }) => {
+  test.setTimeout(180_000);
+  // Stalled, not refused: the request stays open, and only the session
+  // deadline in lib/auth.ts ends it. It also holds the cross-tab lock.
+  let stalled = false;
+  await page.route("**/api/auth/session", (route) => (stalled ? undefined : route.fallback()));
+  await page.goto("/");
+  await page.evaluate(() => window.localStorage.setItem("skein-user", "ava"));
+  stalled = true;
+  await page.reload();
+  await expect(page.locator("#content").getByRole("alert")).toContainText(
+    /Cannot reach the backend at .*did not answer in 60 seconds/,
+    { timeout: 75_000 },
+  );
+  stalled = false;
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByRole("button", { name: /ava/i }).first()).toBeVisible();
+});
+
 /** Loading, and TRUE empty — the two states the dead-backend walk cannot
  *  reach. Empty needs a SHAPED body, not []: __tests__/no-raw-payloads.test.tsx
  *  records that returning a bare array where an object is expected makes a
