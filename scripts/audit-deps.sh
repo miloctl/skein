@@ -44,11 +44,11 @@ if [ -d backend/.venv/bin ]; then
 fi
 
 if [ "$mode" = "backend" ] || [ "$mode" = "all" ]; then
-    echo "== pip-audit (core production dependencies) =="
-    requirements="$(mktemp)"
-    trap 'rm -f "$requirements"' EXIT
-    uv pip compile backend/pyproject.toml --quiet -o "$requirements"
-    pip-audit --requirement "$requirements" --no-deps
+    # The lock the core image installs (backend/Dockerfile), not a fresh
+    # compile: a fresh resolve picks newer versions than the image ships, so
+    # an advisory against a shipped pin passes unseen.
+    echo "== pip-audit (core production lock) =="
+    pip-audit --requirement backend/requirements.lock --no-deps
 fi
 
 if [ "$mode" = "frontend" ] || [ "$mode" = "all" ]; then

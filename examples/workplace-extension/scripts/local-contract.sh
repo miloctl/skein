@@ -191,6 +191,13 @@ artifact_count="$(find "$artifacts" -maxdepth 1 -type f ! -name '.*' | wc -l)"
     sha256sum * >"$tmp/artifacts.sha256"
 )
 cp "$artifacts"/* "$stage/dist/"
+# skein-agents.lock pins the published wheel, and this contract stages its
+# own. The staging copy pins the staged bytes, or the image build refuses them.
+core_digest="$(sha256sum "$artifacts/skein_agents-0.6.6-py3-none-any.whl" | cut -d' ' -f1)"
+sed "s/--hash=sha256:[0-9a-f]\{64\}/--hash=sha256:$core_digest/" \
+    "$stage/skein-agents.lock" >"$tmp/skein-agents.lock"
+mv "$tmp/skein-agents.lock" "$stage/skein-agents.lock"
+[ "$(grep -c "sha256:$core_digest" "$stage/skein-agents.lock")" -eq 1 ]
 
 (
     cd "$stage"

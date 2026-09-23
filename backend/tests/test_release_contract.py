@@ -85,6 +85,56 @@ def test_core_release_and_extension_api_versions_are_synchronized():
     assert direct <= locked
 
 
+def test_the_published_wheel_build_backend_is_pinned_exactly():
+    requires = [
+        Requirement(value) for value in _toml("backend/pyproject.toml")["build-system"]["requires"]
+    ]
+    assert requires
+    for requirement in requires:
+        assert [spec.operator for spec in requirement.specifier] == ["=="], str(requirement)
+
+
+def test_core_image_installs_and_audits_the_hashed_lock():
+    lock = (ROOT / "backend/requirements.lock").read_text()
+    pins = [line for line in lock.splitlines() if line and not line[0].isspace()]
+    assert pins
+    # a pin line with no trailing continuation carries no hash, and
+    # pip --require-hashes then refuses the whole core image build
+    assert [line for line in pins if not line.endswith(" \\")] == []
+    dockerfile = (ROOT / "backend/Dockerfile").read_text()
+    assert "--generate-hashes --output-file backend/requirements.lock" in dockerfile
+    assert "pip install --no-cache-dir --require-hashes -r requirements.lock" in dockerfile
+    audit = (ROOT / "scripts/audit-deps.sh").read_text()
+    assert "pip-audit --requirement backend/requirements.lock --no-deps" in audit
+    assert "uv pip compile" not in audit
+
+
+def test_workplace_image_installs_the_core_wheel_by_digest():
+    declared = _toml("backend/pyproject.toml")["project"]["version"]
+    lock = (ROOT / "examples/workplace-extension/skein-agents.lock").read_text()
+    pins = re.findall(r"^skein-agents==(\S+) \\\n    --hash=sha256:[0-9a-f]{64}$", lock, re.M)
+    assert pins == [declared]
+    dockerfile = (ROOT / "examples/workplace-extension/deployment/Dockerfile").read_text()
+    assert "--no-index --find-links /tmp/skein" in dockerfile
+    assert "--require-hashes -r /tmp/skein-agents.lock" in dockerfile
+    # a wheel path on a pip line installs with no digest check at all
+    commands = [
+        command
+        for line in dockerfile.replace("\\\n", " ").splitlines()
+        for command in line.split("&&")
+        if "pip install" in command
+    ]
+    assert len(commands) == 3
+    for command in commands:
+        assert "skein_agents-" not in command, command
+    # the contracts stage their own wheel, so each repins its copy of the lock
+    for relative in (
+        "scripts/reference-images-contract.sh",
+        "examples/workplace-extension/scripts/local-contract.sh",
+    ):
+        assert "--hash=sha256:$core_digest" in (ROOT / relative).read_text(), relative
+
+
 @pytest.mark.parametrize(
     "path",
     [

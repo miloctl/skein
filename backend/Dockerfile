@@ -29,9 +29,11 @@ RUN apt-get update \
 
 # Keep runtime pins separate from the dev environment. From the repo root:
 #   uv pip compile backend/pyproject.toml --python-version 3.12 --no-header \
-#     --output-file backend/requirements.lock
+#     --generate-hashes --output-file backend/requirements.lock
+# Without --generate-hashes this install fails: --require-hashes refuses an
+# unhashed line, and without the flag the index decides which bytes install.
 COPY requirements.lock ./
-RUN pip install --no-cache-dir -r requirements.lock
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
 COPY pyproject.toml ./
 COPY app ./app
