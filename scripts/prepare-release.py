@@ -23,7 +23,7 @@ DOC_VERSION_COUNTS = {
     "docs/EXTENSIONS.md": 5,
     "frontend/README.md": 1,
     "examples/workplace-extension/README.md": 3,
-    "examples/workplace-extension/deployment/README.md": 3,
+    "examples/workplace-extension/deployment/README.md": 2,
     "scripts/publish-images.sh": 2,
 }
 
@@ -311,7 +311,16 @@ def _replace_release_text(root: Path, old: str, new: str) -> None:
             "examples/workplace-extension/deployment/Dockerfile",
             f"skein_agents-{old}-py3-none-any.whl",
             f"skein_agents-{new}-py3-none-any.whl",
-            3,
+            2,
+        ),
+        # The version only. The template digest stays zero: this commit's
+        # wheel is not published yet, and a local build is not the bytes that
+        # CI publishes. The consumer pins the published digest.
+        (
+            "examples/workplace-extension/skein-agents.lock",
+            f"skein-agents=={old} ",
+            f"skein-agents=={new} ",
+            1,
         ),
         (
             "examples/workplace-extension/deployment/Frontend.Dockerfile",
@@ -365,7 +374,7 @@ def _replace_release_text(root: Path, old: str, new: str) -> None:
             "examples/workplace-extension/scripts/local-contract.sh",
             f"skein_agents-{old}-py3-none-any.whl",
             f"skein_agents-{new}-py3-none-any.whl",
-            4,
+            5,
         ),
         (
             "examples/workplace-extension/scripts/local-contract.sh",
@@ -515,6 +524,7 @@ def _assert_final_state(root: Path, old: str, new: str) -> None:
         "examples/workplace-extension/package.json",
         "examples/workplace-extension/requirements.in",
         "examples/workplace-extension/requirements-test.in",
+        "examples/workplace-extension/skein-agents.lock",
         "examples/workplace-extension/deployment/Dockerfile",
         "examples/workplace-extension/deployment/Frontend.Dockerfile",
         "examples/workplace-extension/deployment/skein.yaml",

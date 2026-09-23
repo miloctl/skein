@@ -36,7 +36,7 @@ Regenerate artifacts and locks in this order:
 
 1. Rename manifests, source, content, tests, and deployment files.
 2. Build the private extension wheel.
-3. Download the Skein wheel and repack the two Skein npm packages into `dist/`.
+3. Pin the published Skein wheel digest in `skein-agents.lock`, download the wheel through it, and repack the two Skein npm packages into `dist/`.
 4. Use Node 22 to regenerate `package-lock.json`.
 5. Regenerate `requirements.lock` when the Python production graph changes.
 6. Regenerate `requirements-test.lock` when the Python production or test graph changes.

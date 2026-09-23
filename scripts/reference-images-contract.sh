@@ -92,6 +92,14 @@ shopt -u nullglob
 [ "${#atlas_wheels[@]}" -eq 1 ]
 [ "${#api_packages[@]}" -eq 1 ]
 [ "${#host_packages[@]}" -eq 1 ]
+# The template pins the published Skein wheel with a zero digest, which
+# refuses every wheel. This copy pins the wheel it staged, as the npm update
+# above pins the staged host tarball.
+core_digest="$(sha256sum "${core_wheels[0]}" | cut -d' ' -f1)"
+sed "s/--hash=sha256:[0-9a-f]\{64\}/--hash=sha256:$core_digest/" \
+    "$extension/skein-agents.lock" >"$tmp/skein-agents.lock"
+mv "$tmp/skein-agents.lock" "$extension/skein-agents.lock"
+[ "$(grep -c "sha256:$core_digest" "$extension/skein-agents.lock")" -eq 1 ]
 
 build_image() {
     local label="$1" log="$tmp/build-$1.log" status

@@ -27,13 +27,17 @@ COPY requirements.lock /tmp/requirements.lock
 RUN --mount=type=secret,id=pip-config,target=/etc/pip.conf,required=true \
     PIP_CONFIG_FILE=/etc/pip.conf \
     pip install --no-cache-dir --require-hashes -r /tmp/requirements.lock
-COPY dist/skein_agents-0.6.6-py3-none-any.whl /tmp/skein_agents-0.6.6-py3-none-any.whl
+COPY skein-agents.lock /tmp/skein-agents.lock
+COPY dist/skein_agents-0.6.6-py3-none-any.whl /tmp/skein/skein_agents-0.6.6-py3-none-any.whl
 COPY dist/atlas_skein_extension-2.0.0-py3-none-any.whl /tmp/atlas_skein_extension-2.0.0-py3-none-any.whl
-RUN pip install --no-cache-dir --no-deps \
-        /tmp/skein_agents-0.6.6-py3-none-any.whl \
+# The Skein wheel comes from outside this repository, so it installs only
+# through its pinned digest. The Atlas wheel is built from this tree.
+RUN pip install --no-cache-dir --no-deps --no-index --find-links /tmp/skein \
+        --require-hashes -r /tmp/skein-agents.lock \
+    && pip install --no-cache-dir --no-deps \
         /tmp/atlas_skein_extension-2.0.0-py3-none-any.whl \
     && pip check \
-    && rm /tmp/*.whl
+    && rm -r /tmp/skein /tmp/skein-agents.lock /tmp/*.whl
 
 COPY content /opt/atlas/content
 RUN useradd --create-home appuser \
