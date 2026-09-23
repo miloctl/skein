@@ -26,6 +26,9 @@ from ..services import mcp_servers
 
 # A sign-in the person never finishes must not hold its thread for good.
 FLOW_SECONDS = 300.0
+# One cookie per server, so two sign-ins open in one browser do not
+# overwrite each other's binding (routes/api.py sets and reads it).
+BROWSER_COOKIE = "skein_mcp_oauth_"
 _URL_WAIT_SECONDS = 20.0
 
 
@@ -177,7 +180,11 @@ def start(server_id: str, server: dict) -> str:
     from . import mcp_tools
 
     claim = mcp_servers.claim_oauth(
-        int(server["id"]), server["owner"], FLOW_SECONDS, redirect_uri=server["oauth_redirect_uri"]
+        int(server["id"]),
+        server["owner"],
+        FLOW_SECONDS,
+        redirect_uri=server["oauth_redirect_uri"],
+        browser=server.get("oauth_browser", ""),
     )
     flow = _Flow(server_id, claim)
 

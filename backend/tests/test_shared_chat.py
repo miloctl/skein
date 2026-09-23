@@ -316,6 +316,25 @@ def test_steward_can_review_and_revoke_pending_invitations(client):
     assert client.get("/api/shared-chats/invitations", headers=dana).json() == []
 
 
+def test_a_revoked_invitee_cannot_learn_that_the_room_was_archived(client):
+    """Accept checked the archive before the invitation, so a revoked invitee
+    read a different refusal for an archived room than for an open one."""
+    room, mira = create_room(client)
+    dana = auth("dana")
+    invitation = invite(client, room["id"], mira, "dana")
+    client.request(
+        "DELETE",
+        f"/api/shared-chats/{room['id']}/invitations",
+        json={"invitation_id": invitation["id"]},
+        headers=mira,
+    )
+    accept = f"/api/shared-chats/invitations/{invitation['id']}/accept"
+    before = client.post(accept, headers=dana)
+    assert client.post(f"/api/shared-chats/{room['id']}/archive", headers=mira).status_code == 200
+    after = client.post(accept, headers=dana)
+    assert (after.status_code, after.json()) == (before.status_code, before.json())
+
+
 def test_member_names_with_slashes_travel_in_the_request_body(client):
     room, mira = create_room(client)
     slash = auth("dana/ops")

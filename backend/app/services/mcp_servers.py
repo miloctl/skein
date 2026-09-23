@@ -9,6 +9,8 @@ one deciding how much to trust it. The token is sealed under
 SKEIN_CREDENTIAL_KEY and never leaves this module unsealed except into the
 connection that uses it."""
 
+import hashlib
+import hmac
 import ipaddress
 import json
 import re
@@ -260,7 +262,9 @@ def _owned_oauth(sid: int, owner: str) -> None:
         raise ValueError("The OAuth server is not available. Start sign-in again from Settings.")
 
 
-def claim_oauth(sid: int, owner: str, seconds: float, *, redirect_uri: str = "") -> str:
+def claim_oauth(
+    sid: int, owner: str, seconds: float, *, redirect_uri: str = "", browser: str = ""
+) -> str:
     """Own discovery, registration and token storage, not only the callback wait."""
     claim = secrets.token_urlsafe(32)
     with db.transaction():
@@ -272,9 +276,10 @@ def claim_oauth(sid: int, owner: str, seconds: float, *, redirect_uri: str = "")
             timespec="microseconds"
         )
         if not db.execute_rowcount(
-            "INSERT INTO mcp_oauth_flows (claim_id, server_id, owner, created_at, expires_at)"
-            " VALUES (?, ?, ?, ?, ?) ON CONFLICT (server_id) DO NOTHING",
-            (claim, sid, owner, db.now(), expires),
+            "INSERT INTO mcp_oauth_flows"
+            " (claim_id, server_id, owner, created_at, expires_at, browser_binding)"
+            " VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (server_id) DO NOTHING",
+            (claim, sid, owner, db.now(), expires, _browser_hash(browser) if browser else None),
         ):
             raise ValueError("A sign-in for this server is already in progress. Finish it first.")
         if redirect_uri:
@@ -282,6 +287,27 @@ def claim_oauth(sid: int, owner: str, seconds: float, *, redirect_uri: str = "")
                 "UPDATE mcp_servers SET oauth_redirect_uri = ? WHERE id = ?", (redirect_uri, sid)
             )
     return claim
+
+
+def _browser_hash(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+def oauth_browser_matches(state: str, candidates: list[str]) -> bool:
+    """Whether the browser at the callback is the one that started the flow.
+
+    The state alone names the flow, and it travels in the authorization URL.
+    Without this, a person who sends that URL to a colleague receives the
+    colleague's grant on their own server, and then acts as the colleague on
+    the remote service."""
+    row = db.query_one(
+        "SELECT browser_binding FROM mcp_oauth_flows WHERE state = ? AND expires_at > ?",
+        (state, db.now()),
+    )
+    stored = (row or {}).get("browser_binding") or ""
+    return bool(stored) and any(
+        hmac.compare_digest(stored, _browser_hash(value)) for value in candidates if value
+    )
 
 
 def release_oauth(claim: str) -> None:

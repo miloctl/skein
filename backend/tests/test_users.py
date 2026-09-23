@@ -45,6 +45,22 @@ def test_deactivate_revokes_keys(client, fresh_db):
     assert api_keys.verify_key(minted["key"]) is None
 
 
+def test_no_key_is_minted_for_a_deactivated_account(client, fresh_db):
+    """A mint whose route check passed before the deactivation committed
+    reaches the service after it. A key inserted then outlives the
+    revocation, and reactivation brings it back."""
+    import pytest
+
+    from app.services import api_keys, users
+
+    users.ensure_user("leaver")
+    users.set_active("leaver", False, actor="tester")
+    with pytest.raises(ValueError, match="not active"):
+        api_keys.create_key("leaver", label="late")
+    users.set_active("leaver", True, actor="tester")
+    assert not fresh_db.query("SELECT 1 FROM api_keys WHERE owner = 'leaver' AND active = 1")
+
+
 def test_users_all_param_lists_inactive(client, fresh_db):
     from app.services import users
 

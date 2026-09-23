@@ -97,7 +97,10 @@ def test_callback_issuer_is_validated_before_code_exchange(client, sealed, iss, 
 
     row, flow, provider = _registered_flow("issuer")
     mcp_servers.release_oauth(flow.claim)
-    flow.claim = mcp_servers.claim_oauth(row["id"], "ava", mcp_oauth.FLOW_SECONDS)
+    flow.claim = mcp_servers.claim_oauth(
+        row["id"], "ava", mcp_oauth.FLOW_SECONDS, browser="browser-1"
+    )
+    cookie = {"Cookie": f"{mcp_oauth.BROWSER_COOKIE}{row['id']}=browser-1"}
     provider.context.client_info = OAuthClientInformationFull(client_id="skein")
     provider.context.oauth_metadata = OAuthMetadata(
         issuer="https://idp.example",
@@ -114,7 +117,7 @@ def test_callback_issuer_is_validated_before_code_exchange(client, sealed, iss, 
         params = {"state": state, "code": "issuer-code"}
         if iss is not None:
             params["iss"] = iss
-        response = client.get("/api/mcp/oauth/callback", params=params)
+        response = client.get("/api/mcp/oauth/callback", params=params, headers=cookie)
         assert response.status_code == 200
         assert "issuer-code" not in response.text
         assert not mcp_oauth.complete(state, "replayed", iss=iss)
@@ -521,8 +524,20 @@ def test_the_grant_is_bridged_to_the_browser_and_the_connect_completes(client, s
     # a second start while one waits is refused, and the wrong state learns nothing
     assert client.post(f"/api/mcp/servers/{row['id']}/sign-in", headers=ava).status_code == 400
     assert client.get("/api/mcp/oauth/callback?state=other&code=c").status_code == 404
+    # The state travels in the authorization URL. A colleague's browser that
+    # opens it holds no binding cookie, and its grant must not reach ava's
+    # server (mcp_servers.oauth_browser_matches).
+    name = f"{mcp_oauth.BROWSER_COOKIE}{row['id']}"
+    binding = started.cookies[name]
+    for other in ({}, {"Cookie": f"{name}=someone-else"}):
+        stolen = client.get("/api/mcp/oauth/callback?state=nonce-1&code=stolen", headers=other)
+        assert stolen.status_code == 404
+    assert "stolen" not in stolen.text
 
-    done = client.get("/api/mcp/oauth/callback?state=nonce-1&code=code-9&iss=https://idp.example")
+    done = client.get(
+        "/api/mcp/oauth/callback?state=nonce-1&code=code-9&iss=https://idp.example",
+        headers={"Cookie": f"{name}={binding}"},
+    )
     assert done.status_code == 200 and "code-9" not in done.text
     deadline = time.monotonic() + 5
     while "personal:ava:jira" not in mcp_tools._connections and time.monotonic() < deadline:
