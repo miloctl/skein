@@ -508,3 +508,34 @@ def test_a_governed_write_keeps_its_database_work_off_the_event_loop(fresh_db):
         reset_policy_engine(token)
     assert events[-1]["status"] == "success"
     assert seen["policy"] != seen["loop"]
+
+
+def test_a_review_stores_the_state_a_real_agent_loop_passes(fresh_db):
+    """Strands puts the live Agent in invocation_state, and json.dumps on it
+    raised: every review-path stock tool call failed instead of queuing."""
+    delegate = _Delegate("claim_delegated_task")
+    wrapper = GovernedCoreTool(delegate, effect="write", risk="high")
+    engine = PolicyEngine((lambda request: PolicyDecision(PolicyEffect.REVIEW, ("review",)),))
+    token = set_policy_engine(engine)
+    receipts.start()
+
+    async def run():
+        stream = wrapper._stream(
+            {"toolUseId": "write-1", "input": {"task_id": 42}},
+            {"agent": object(), "request_state": {"k": 1}},
+            PolicySubject("mira"),
+            "agent",
+            "",
+        )
+        event = await anext(stream)
+        await stream.aclose()
+        return event
+
+    try:
+        event = asyncio.run(run())
+    finally:
+        receipts.reset()
+        reset_policy_engine(token)
+    assert event["completionStatus"] == "review_required"
+    stored = fresh_db.query_one("SELECT invocation FROM extension_review_invocations")
+    assert '"request_state": {"k": 1}' in stored["invocation"]
