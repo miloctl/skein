@@ -134,6 +134,7 @@ describe("the chat SSE reader", () => {
         ok([
           'data: {"type":"text","text":"Hel"}\n\n',
           'data: {"type":"text","text":"lo"}\n\n',
+          'data: {"type":"done"}\n\n',
         ]),
       ),
     );
@@ -157,7 +158,9 @@ describe("the chat SSE reader", () => {
     // partial line instead of parsing and discarding it
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(ok(['data: {"type":"te', 'xt","text":"whole"}\n\n'])),
+      vi.fn().mockResolvedValue(
+        ok(['data: {"type":"te', 'xt","text":"whole"}\n\n', 'data: {"type":"done"}\n\n']),
+      ),
     );
     await mountAndCapture();
     expect(await drain()).toEqual(["whole"]);
@@ -166,10 +169,26 @@ describe("the chat SSE reader", () => {
   it("yields a truncated tail when the stream closes without a blank line", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(ok(['data: {"type":"text","text":"cut off"}'])),
+      vi.fn().mockResolvedValue(
+        ok(['data: {"type":"text","text":"cut off"}\n\n', 'data: {"type":"done"}']),
+      ),
     );
     await mountAndCapture();
     expect(await drain()).toEqual(["cut off"]);
+  });
+
+  it("says a reply was cut when the stream closes without its done frame", async () => {
+    // a backend restart mid-turn: the text so far, then the body just ends
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(ok(['data: {"type":"text","text":"The plan is"}\n\n'])),
+    );
+    await mountAndCapture();
+    const out = await drain();
+    expect(out[0]).toBe("The plan is");
+    expect(out.at(-1)).toBe(
+      "The plan is\n\n> The connection closed before the reply was complete. Reload the page to see what Skein saved.\n",
+    );
   });
 
   it("tolerates a malformed line instead of ending the stream", async () => {
@@ -180,6 +199,7 @@ describe("the chat SSE reader", () => {
           ": keep-alive from a proxy\n\n",
           "data: {not json}\n\n",
           'data: {"type":"text","text":"survived"}\n\n',
+          'data: {"type":"done"}\n\n',
         ]),
       ),
     );
