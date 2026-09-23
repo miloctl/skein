@@ -1153,9 +1153,28 @@ def _crew_admin_override(user: str, request: Request) -> bool:
     return is_named_admin(user, groups)
 
 
+def _crew_for(crew: dict, reader: str, admin: bool) -> dict:
+    """Who is in a crew is shared inside it: members and named administrators
+    read the list, everyone else the name and a count (privacy decision 2.6).
+    `reader` is the strong viewer's name, as for crew-tier rows."""
+    crew["member_count"] = len(crew["members"])
+    if not admin and not any(m["person"] == reader for m in crew["members"]):
+        crew["members"] = []
+    return crew
+
+
+def _crew_admin_reader(user: str, request: Request) -> bool:
+    from .deps import is_named_admin
+
+    return bool(getattr(request.state, "strong_auth", False)) and is_named_admin(
+        user, getattr(request.state, "auth_groups", [])
+    )
+
+
 @router.get("/crews")
-def get_crews(user: CurrentUser, all: bool = False):
-    return crews.list_crews(active_only=not all)
+def get_crews(user: CurrentUser, viewer: ViewerDep, request: Request, all: bool = False):
+    admin = _crew_admin_reader(user, request)
+    return [_crew_for(c, viewer.name, admin) for c in crews.list_crews(active_only=not all)]
 
 
 @router.get("/crews/mine")
@@ -1166,8 +1185,8 @@ def get_my_crews(user: CurrentUser):
 
 
 @router.get("/crews/{crew_id}")
-def get_crew(crew_id: int, user: CurrentUser):
-    return crews.get_crew(crew_id)
+def get_crew(crew_id: int, user: CurrentUser, viewer: ViewerDep, request: Request):
+    return _crew_for(crews.get_crew(crew_id), viewer.name, _crew_admin_reader(user, request))
 
 
 @router.post("/crews")

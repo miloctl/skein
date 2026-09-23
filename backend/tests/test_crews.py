@@ -545,3 +545,28 @@ def test_a_removed_member_cannot_scope_a_row_into_the_crew(fresh_db):
             interleaved += 1
 
     assert interleaved == 0
+
+
+def test_who_is_in_a_crew_is_shared_inside_it(client, fresh_db, monkeypatch):
+    """Every teammate read every crew's member list, and a crew's name plus
+    its members can say more than either alone (privacy decision 2.6)."""
+    from conftest import _strong
+
+    from app import config
+    from app.services import crews, users
+
+    monkeypatch.setattr(config, "ADMINS", frozenset({"ops"}))
+    for name in ("ava", "bo", "cy"):
+        users.ensure_user(name)
+    crew = crews.create_crew("Platform", actor="ava")
+    crews.add_member(crew["id"], "bo", actor="ava")
+
+    def members(who, path="/api/crews"):
+        body = client.get(path, headers=_strong(client, who)).json()
+        row = body if isinstance(body, dict) else next(c for c in body if c["id"] == crew["id"])
+        return row["member_count"], sorted(m["person"] for m in row["members"])
+
+    assert members("bo") == (2, ["ava", "bo"])
+    assert members("ops") == (2, ["ava", "bo"])
+    assert members("cy") == (2, [])
+    assert members("cy", f"/api/crews/{crew['id']}") == (2, [])

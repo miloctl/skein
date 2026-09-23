@@ -47,6 +47,7 @@ const CREW = {
     { person: "ava", role: "steward" },
     { person: "bo", role: "member" },
   ],
+  member_count: 2,
 };
 
 const card = (
@@ -134,10 +135,18 @@ describe("CrewsCard", () => {
 
   it("counts members in sentence form", async () => {
     mode.answer = () => [
-      { ...CREW, members: [{ person: "ava", role: "steward" }] },
+      { ...CREW, members: [{ person: "ava", role: "steward" }], member_count: 1 },
     ];
     render(card());
     await waitFor(() => expect(screen.getByText(/1 member$/)).toBeTruthy());
+  });
+
+  it("counts a crew whose member list only its members can see", async () => {
+    // the server sends no names to a non-member (routes/api.py::_crew_for)
+    mode.answer = () => [{ ...CREW, members: [], member_count: 3 }];
+    render(card({ me: "cy" }));
+    await waitFor(() => expect(screen.getByText(/3 members$/)).toBeTruthy());
+    expect(screen.getByText("Only crew members can see who is in this crew.")).toBeTruthy();
   });
 
   it("states the existing and future access granted by membership", async () => {

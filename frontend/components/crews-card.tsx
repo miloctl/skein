@@ -13,7 +13,10 @@ export type Crew = {
   name: string;
   summary: string;
   active: number;
+  /** Empty unless the reader is a member or a named administrator: who is
+   *  in a crew is shared inside it (routes/api.py::_crew_for). */
   members: CrewMember[];
+  member_count: number;
 };
 
 /** Crew membership. This is what services/scope.py::visible_filter reads:
@@ -217,12 +220,17 @@ export function CrewsCard({
                   {/* a space, not only a margin: an accname computation reads
                       these as one run and announced "inactive1 member" */}
                   {!crew.active && <span className="mr-1.5">inactive </span>}
-                  {crew.members.length} member
-                  {crew.members.length === 1 ? "" : "s"}
+                  {crew.member_count} member
+                  {crew.member_count === 1 ? "" : "s"}
                 </span>
               </div>
               {crew.summary && (
                 <p className="mt-1 text-xs text-ink-3">{crew.summary}</p>
+              )}
+              {crew.members.length === 0 && crew.member_count > 0 && (
+                <p className="mt-1 text-xs text-ink-3">
+                  Only crew members can see who is in this crew.
+                </p>
               )}
 
               <ul

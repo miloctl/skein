@@ -684,7 +684,10 @@ UNSCOPED: dict[str, str] = {
     ),
     "app_settings": "deployment configuration",
     "crew_members": "the membership the filter READS. Scoping it would be circular.",
-    "crews": "the crews the filter reads. Who is in which crew is not itself scoped.",
+    "crews": (
+        "the crews the filter reads. The table is unscoped, and the member LIST is"
+        " shared only inside the crew by the REST door (routes/api.py::_crew_for)"
+    ),
     "allocations": "staffing math — capacity is a team-wide number by design",
     "job_outcomes": (
         "scheduler telemetry. NOT content-free — run_job stringifies the whole"
