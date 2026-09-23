@@ -577,7 +577,9 @@ def search_workspace(query: str, limit: int = 20) -> str:
         tool="skein.mcp.search.read",
     )
     with db.read_transaction():
-        return json.dumps(search.search(query, limit=limit, row_filter=policy.filter_resources))
+        return json.dumps(
+            search.search(query, limit=limit, row_filter=policy.filter_resources, reader=_person())
+        )
 
 
 @_tool(WRITE)

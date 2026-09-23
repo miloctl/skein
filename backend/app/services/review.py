@@ -1494,7 +1494,7 @@ def _governing_tier(change: dict) -> tuple[str, int | None, str] | str | None:
     if row_id:
         author = scope.CLASSIFIED[table]
         row = db.query_one(
-            f"SELECT visibility, crew_id, {author} AS author FROM {table} WHERE id = ?",  # noqa: S608 — table and column from constant maps
+            f'SELECT visibility, crew_id, "{author}" AS author FROM {table} WHERE id = ?',  # noqa: S608 — table and column from constant maps; quoted because memories' `user` is CURRENT_USER unquoted
             (row_id,),
         )
         return (row["visibility"], row["crew_id"], row["author"] or "") if row else "gone"
@@ -1560,7 +1560,7 @@ def _governing_tiers(rows: list[dict]) -> list[tuple[str, int | None, str] | str
         marks = ", ".join("?" for _ in ids)
         author = scope.CLASSIFIED[table]
         for row in db.query(
-            f"SELECT id, visibility, crew_id, {author} AS author FROM {table}"  # noqa: S608 — table and column come from constant maps
+            f'SELECT id, visibility, crew_id, "{author}" AS author FROM {table}'  # noqa: S608 — table and column come from constant maps; quoted because memories' `user` is CURRENT_USER unquoted
             f" WHERE id IN ({marks})",
             tuple(ids),
         ):

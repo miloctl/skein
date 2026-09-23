@@ -219,6 +219,7 @@ async def _search(
                 args,
                 viewer=viewer,
                 row_filter=policy.filter_resources if policy is not None else None,
+                reader=user,
             )
 
     hits = await run_in_threadpool(read_search)

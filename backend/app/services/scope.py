@@ -486,7 +486,11 @@ def visible_filter(viewer: Viewer, table: str, alias: str = "") -> tuple[str, li
     # scope.audience) — and giving it the author arm would put the writer's
     # own private rows into a document written for somebody else.
     if viewer.name:
-        parts.append(f"{p}{author_column} = ?")
+        # QUOTED: memories' author column is `user`, which unquoted is
+        # CURRENT_USER. The arm then compared the database role name, so an
+        # addressee never read their own private memory and a person named
+        # like the role read every one.
+        parts.append(f'{p}"{author_column}" = ?')
         params.append(viewer.name)
     if viewer.crew_ids:
         marks = ", ".join("?" for _ in viewer.crew_ids)

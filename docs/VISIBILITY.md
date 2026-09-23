@@ -371,6 +371,23 @@ and a viewer; `recall` applies both on every branch. MCP `search_workspace`
 passes NOBODY, so it reads the workspace tier only, and a private row was
 never indexed to begin with.
 
+**An addressed memory reaches only its addressee, on every surface.** A
+memory's `user` is who it is addressed to, and it is a read boundary, not only
+a recall filter: the memory list, recall, forget, `get_memory`, and search
+(REST search, `/ask`, the short-id lookup, the chat `/search` command, and the
+agent and MCP `search_workspace` tools) all serve it to that person alone,
+whatever its tier. `search.visible_hits` takes the reader by name and reads no
+addressed memory when it names nobody. The reason is consent: `/remember`, the
+MCP tool, and the agent tool address a memory to one person at the workspace
+tier, and none of them offers a tier, so a teammate reading it through search
+was sharing that nobody chose. A fact meant for the team is a memory addressed
+to nobody.
+
+The tier check quotes the author column. Unquoted, memories' `user` is
+CURRENT_USER: the check compared the database role name, so an addressee never
+read their own private memory and a person named like the role read all of
+them.
+
 A third, found in the phase 3-6 review and closed with them:
 `GET /api/private/brief/{person}` took a free path parameter with no manager
 relation behind it, and its six queries were unfiltered — so every strong

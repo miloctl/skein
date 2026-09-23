@@ -167,7 +167,7 @@ def recall(
         # hits across every entity, 25 matching tasks left no memory at all.
         # RECALL_CANDIDATES bounds the rows the owner and engagement filter
         # below can still drop.
-        hits = search(query, limit=RECALL_CANDIDATES, viewer=viewer, entity="memory")
+        hits = search(query, limit=RECALL_CANDIDATES, viewer=viewer, entity="memory", reader=user)
         ids = [h["entity_id"] for h in hits]
         if not ids:
             return []
