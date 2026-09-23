@@ -510,3 +510,69 @@ def test_the_export_keeps_an_agents_own_memories(fresh_db):
     memory.remember("ZZPERSONZZ", user="ava", actor="ava")
     exported = Path(admin.export(actor="ops")["path"]).read_text()
     assert "ZZAGENTNOTEZZ" in exported and "ZZPERSONZZ" not in exported
+
+
+def test_approver_groups_govern_team_memories_and_an_addressee_judges_their_own(
+    fresh_db, monkeypatch
+):
+    """With policy naming approver groups, an addressed memory went to the
+    team review and every teammate's notice quoted it, while _addressed hid it
+    from the approvers and the addressee was not qualified to judge it."""
+    from app import config
+    from app.agents import identity
+    from app.extensions import PolicyContribution, PolicyDecision, PolicyEffect, SkeinModule
+    from app.extensions.policy import reset_policy_engine, set_policy_engine
+    from app.extensions.registry import ExtensionRegistry
+    from app.services import review, scope, users
+    from app.tools._gate import gated_write
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    users.ensure_user("scribe", kind="agent")
+    users.ensure_user("ava")
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="acme.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.7.0",
+                policies=(
+                    PolicyContribution(
+                        "acme.workplace.memory-review",
+                        lambda request: PolicyDecision(
+                            PolicyEffect.REVIEW, approver_groups=("leads",)
+                        ),
+                    ),
+                ),
+            ),
+        )
+    )
+    token = set_policy_engine(registry.policy_engine)
+    agent = identity.set_agent_identity("scribe")
+    try:
+        filed = [
+            json.loads(
+                gated_write(
+                    "memory",
+                    "create",
+                    {"content": text, "user": user},
+                    lambda: {"id": 0},
+                    summary=f"remember: {text}",
+                )
+            )["id"]
+            for text, user in (("ZZPERSONALZZ", "ava"), ("ZZTEAMZZ", ""))
+        ]
+    finally:
+        identity.reset_agent_identity(agent)
+        reset_policy_engine(token)
+    personal, team = filed
+    row = fresh_db.query_one("SELECT * FROM pending_changes WHERE id = ?", (personal,))
+    assert (row["review_visibility"], row["review_owner"]) == ("private", "ava")
+    notices = json.dumps(fresh_db.query("SELECT message FROM notifications"))
+    assert "ZZPERSONALZZ" not in notices and "ZZTEAMZZ" in notices
+    ava = scope.Viewer("ava", True)
+    approved = review.approve_change(personal, actor="ava", viewer=ava, policy_registry=registry)
+    assert approved["status"] == "approved"
+    with pytest.raises(PermissionError, match="configured workplace approver"):
+        review.approve_change(team, actor="ava", viewer=ava, policy_registry=registry)

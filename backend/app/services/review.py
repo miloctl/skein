@@ -380,6 +380,15 @@ def _check_policy_approver(
     groups: tuple[str, ...],
     capabilities: tuple[str, ...],
 ) -> dict[str, list[str]]:
+    # A memory addressed to a person reaches that person alone (_addressed),
+    # so no policy-named approver can read its proposal, and with the
+    # requirement kept it waited for a verdict nobody could give. The
+    # addressee judges it: approver groups govern team memories only
+    # (docs/EXTENSIONS.md, review decisions).
+    if change["entity"] in ("memory", "memory_forget"):
+        tier = _governing_tier(change)
+        if isinstance(tier, tuple) and tier[0] == scope.PRIVATE and tier[2]:
+            return {"matched_groups": [], "matched_capabilities": []}
     required_groups = set(json.loads(change.get("approver_groups") or "[]"))
     required_capabilities = set(json.loads(change.get("approver_capabilities") or "[]"))
     missing_groups = required_groups - set(groups)

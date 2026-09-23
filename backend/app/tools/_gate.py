@@ -272,17 +272,14 @@ def _gated_write_locked(
     # A memory addressed to a person is that person's alone
     # (review._addressed), whichever tool filed it: the agent tool, the MCP
     # server, a future one. Reviewed at the workspace tier, every teammate
-    # got a "Review needed" notice quoting it. Policy-named approvers keep the
-    # workspace review, or nobody qualified could read it; for an addressed
-    # memory _addressed still hides it, so it waits for the addressee to
-    # reject it rather than reach a reader she did not choose.
+    # got a "Review needed" notice quoting it. That holds when policy names
+    # approver groups too: they govern team memories only, and the addressee
+    # judges it (review._check_policy_approver).
     from ..services.users import is_agent
 
     addressee = str(payload.get("user") or "") if entity == "memory" and action == "create" else ""
     review_owner = addressee if addressee and not is_agent(addressee) else ""
-    private_review = workspace_only_tools() or (
-        bool(review_owner) and not decision.approver_groups and not decision.approver_capabilities
-    )
+    private_review = workspace_only_tools() or bool(review_owner)
     review_owner = (review_owner or requester_identity()) if private_review else ""
     try:
         # Same reason as the direct() savepoint above: this catch RETURNS, so
