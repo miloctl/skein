@@ -87,6 +87,7 @@ export function McpServersCard({
   // give up after the grant's own lifetime
   const [awaiting, setAwaiting] = useState<number | null>(null);
   const awaitingRef = useRef<number | null>(null);
+  const [signInUrl, setSignInUrl] = useState("");
   const [busy, setBusy] = useState("");
   const restoreTo = useRef<HTMLElement | null>(null);
   const introId = useId();
@@ -247,6 +248,11 @@ export function McpServersCard({
                         <button
                           disabled={!!busy || awaiting === s.id}
                           onClick={async () => {
+                            // A link, not window.open: after the await the click's
+                            // user activation is spent, a popup blocker drops the
+                            // tab, and with noopener open() returns null either
+                            // way, so a blocked tab still read as opened.
+                            let url = "";
                             const ok = await act(
                               `s${s.id}`,
                               async () => {
@@ -254,13 +260,19 @@ export function McpServersCard({
                                   `/api/mcp/servers/${s.id}/sign-in`,
                                   { method: "POST" },
                                 );
-                                window.open(reply.authorization_url, "_blank", "noopener");
+                                url = reply.authorization_url;
                               },
-                              () => `Sign-in opened in a new tab for "${s.name}".`,
+                              () => `The sign-in link for "${s.name}" is ready. Open it to sign in.`,
                             );
                             if (ok) {
                               awaitingRef.current = s.id;
                               setAwaiting(s.id);
+                              setSignInUrl(url);
+                              // after act's own focus restore: that target is
+                              // this button, which is now disabled
+                              requestAnimationFrame(() =>
+                                document.getElementById(`mcp-sign-in-${s.id}`)?.focus(),
+                              );
                             }
                           }}
                           className="ml-2 rounded-lg border border-line-strong px-2 py-0.5 text-xs hover:border-thread-solid disabled:opacity-50"
@@ -268,6 +280,18 @@ export function McpServersCard({
                           {awaiting === s.id ? "waiting for sign-in…" : "Sign in"}
                         </button>
                       )}
+                      {awaiting === s.id && signInUrl ? (
+                        <a
+                          id={`mcp-sign-in-${s.id}`}
+                          href={signInUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-2 text-xs underline"
+                        >
+                          Open the sign-in page{" "}
+                          <span className="sr-only">for {s.name}</span>
+                        </a>
+                      ) : null}
                     </span>
                     {deleting === s.id ? (
                       <span className="flex items-center gap-1.5 text-xs">

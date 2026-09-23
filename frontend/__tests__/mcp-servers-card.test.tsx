@@ -169,7 +169,8 @@ describe("McpServersCard", () => {
     expect(writes[0].init?.method).toBe("DELETE");
   });
 
-  it("adds an OAuth server without a token and starts its sign-in in a new tab", async () => {
+  it("adds an OAuth server without a token and offers its sign-in as a link", async () => {
+    // a blocked popup: open() after an await has no user activation left
     const opened: string[] = [];
     vi.stubGlobal("open", (url: string) => {
       opened.push(url);
@@ -214,7 +215,12 @@ describe("McpServersCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0].path).toBe("/api/mcp/servers/5/sign-in");
-    await waitFor(() => expect(opened).toHaveLength(1));
+    const link = await screen.findByRole("link", { name: "Open the sign-in page for jira" });
+    expect(link.getAttribute("href")).toBe("https://idp.example/authorize?state=s");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(getStatus()?.message).not.toMatch(/opened/);
+    await waitFor(() => expect(document.activeElement).toBe(link));
+    expect(opened).toEqual([]);
     vi.unstubAllGlobals();
   });
 
