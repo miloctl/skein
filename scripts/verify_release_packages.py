@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Inspect one tested release artifact and compare registry bytes."""
+"""Inspect one tested release artifact, and compare registry and template bytes."""
 
 from __future__ import annotations
 
+import base64
 import email.parser
 import hashlib
 import hmac
@@ -124,6 +125,35 @@ def compare_registry_bytes(release: ReleasePackages, registry: Path) -> None:
             raise VerificationError(f"Registry bytes do not match {source.name}.")
 
 
+def compare_template_lock(release: ReleasePackages, lock: Path) -> None:
+    """The Atlas template ships from the release commit and installs these exact
+    tarballs: its npm lock pins each one by SHA-512. A host change after
+    prepare-release.py left a lock that npm ci refuses against the published
+    package, and no other gate compares the two."""
+    try:
+        packages = json.loads(lock.read_text(encoding="utf-8")).get("packages")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, AttributeError) as exc:
+        raise VerificationError("The workplace template lock is malformed.") from exc
+    for name, version, tarball in (
+        ("@miloctl/skein-extension-api", release.extension_version, release.extension_api),
+        ("@miloctl/skein-frontend-host", release.version, release.frontend_host),
+    ):
+        entry = packages.get(f"node_modules/{name}") if isinstance(packages, dict) else None
+        integrity = "sha512-" + base64.b64encode(_digest(tarball, "sha512")).decode()
+        if (
+            not isinstance(entry, dict)
+            or entry.get("link") is True
+            or entry.get("version") != version
+            or entry.get("resolved") != f"file:dist/{tarball.name}"
+            or not hmac.compare_digest(str(entry.get("integrity", "")), integrity)
+        ):
+            raise VerificationError(
+                f"The workplace template lock does not pin {tarball.name} from the release"
+                " artifact. Refresh examples/workplace-extension/package-lock.json from"
+                " these bytes, then publish the green run of that commit."
+            )
+
+
 def _write_outputs(release: ReleasePackages) -> None:
     values = {
         "version": release.version,
@@ -151,8 +181,12 @@ def main() -> int:
             release = inspect_artifact(Path(sys.argv[2]))
             compare_registry_bytes(release, Path(sys.argv[3]))
             return 0
+        if len(sys.argv) == 4 and sys.argv[1] == "template":
+            compare_template_lock(inspect_artifact(Path(sys.argv[2])), Path(sys.argv[3]))
+            return 0
         raise VerificationError(
             "Usage: verify_release_packages.py inspect DIR | compare ARTIFACT REGISTRY"
+            " | template ARTIFACT LOCK"
         )
     except (OSError, VerificationError) as exc:
         print(f"verify-release-packages: {exc}", file=sys.stderr)
