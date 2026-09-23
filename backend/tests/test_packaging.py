@@ -5,6 +5,7 @@ cannot create that wheel if one source directory is missing from its context.
 """
 
 import os
+import re
 import subprocess
 import sys
 import tomllib
@@ -136,17 +137,17 @@ def test_workplace_browser_contract_uses_https_for_secure_sessions():
     assert 'pids=("$proxy_pid" "$server_pid" "$backend_pid" "$idp_pid")' in body
 
 
-def test_workplace_login_finishes_before_removing_interception():
-    body = (ROOT / "frontend/e2e-oidc/workplace-runtime.spec.ts").read_text()
-    helper = body.split("async function signedInPage", 1)[1].split(
-        "\nfunction watchSignedInPage", 1
-    )[0]
-    ready = 'await expect(page.getByRole("button", { name: new RegExp(user, "i") }))'
-    assert (
-        helper.index(ready)
-        < helper.index("await page.unroute(")
-        < helper.index("return { context, page,")
-    )
+def test_workplace_browser_specs_never_remove_a_route():
+    """Removing the last Playwright route turns interception off, and a request
+    the page starts during that switch stays pending forever. Waiting for sign-in
+    before the removal only narrowed the window: CI still stranded a request.
+    frontend/eslint.config.mjs refuses unroute in the source suites, and this
+    covers the consumer copy that ESLint does not lint."""
+    for spec in (
+        "frontend/e2e-oidc/workplace-runtime.spec.ts",
+        "examples/workplace-extension/e2e/workplace-runtime.spec.ts",
+    ):
+        assert not re.search(r"\.unroute(All)?\(", (ROOT / spec).read_text()), spec
 
 
 def test_workplace_runtime_pid_belongs_to_the_server():
