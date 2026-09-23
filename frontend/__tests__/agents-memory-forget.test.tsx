@@ -10,6 +10,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 vi.mock("next/navigation", () => ({ usePathname: () => "/agents" }));
 
 import AgentsPage from "@/app/agents/page";
+import { getStatus } from "@/lib/status";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -108,5 +109,22 @@ describe("forgetting a memory", () => {
       ),
     );
     expect(screen.getByText("Ava owns the launch checklist")).toBeTruthy();
+  });
+
+  it("confirms the forget and moves focus off the removed row", async () => {
+    render(<AgentsPage />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Forget memory: launch" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Forget memory" }));
+    await waitFor(() =>
+      expect(getStatus()).toMatchObject({
+        message: "Memory forgotten: launch.",
+        tone: "confirmation",
+      }),
+    );
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toMatch(/Nothing remembered yet/),
+    );
   });
 });

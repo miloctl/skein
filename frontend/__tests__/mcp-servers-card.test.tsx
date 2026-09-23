@@ -224,6 +224,17 @@ describe("McpServersCard", () => {
     vi.unstubAllGlobals();
   });
 
+  it("moves focus to the add form after the last server is deleted", async () => {
+    mode.answer = () => PAYLOAD;
+    render(<McpServersCard strong />);
+    fireEvent.click(await screen.findByRole("button", { name: /^Delete server / }));
+    fireEvent.click(screen.getByRole("button", { name: /^Confirm: delete server / }));
+    await waitFor(() => expect(writes).toHaveLength(1));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText("Server name")),
+    );
+  });
+
   it("reports a failed load on the card, not the page", async () => {
     mode.answer = "fail";
     render(<McpServersCard strong />);

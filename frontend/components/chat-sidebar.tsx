@@ -302,10 +302,20 @@ export function ChatSidebar({
   const remove = async (t: ChatThread) => {
     closeMenu();
     setConfirmingDelete(null);
+    // the row's menu held focus and unmounts with it: the neighbouring chat
+    // in the same folder takes focus, or the list options button
+    const siblings = threads.filter((x) => x.folder === t.folder);
+    const at = siblings.findIndex((x) => x.id === t.id);
+    const next = siblings[at + 1] ?? siblings[at - 1];
     try {
       await api(`/api/chats/${t.id}`, { method: "DELETE" });
       if (t.id === threadId) onNew();
       announce();
+      reportStatus(`Chat "${t.title}" deleted.`, "confirmation");
+      setTimeout(() => {
+        const row = next && document.querySelector<HTMLElement>(`[id="chat-${next.id}"] button`);
+        (row || optionsTrigger.current)?.focus();
+      }, 0);
     } catch (e) {
       reportStatus(actionError(e));
     }

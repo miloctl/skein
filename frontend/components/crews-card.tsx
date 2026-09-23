@@ -273,7 +273,11 @@ export function CrewsCard({
                             aria-label={`Confirm: remove ${m.person} from ${crew.name}`}
                             aria-describedby={`rm-${crew.id}-${m.person}`}
                             disabled={!!busy}
-                            onClick={async () => {
+                            onClick={async (e) => {
+                              const confirm = e.currentTarget;
+                              const at = crew.members.indexOf(m);
+                              const next =
+                                crew.members[at + 1] ?? crew.members[at - 1];
                               const ok = await act(
                                 `c${crew.id}`,
                                 () =>
@@ -284,6 +288,17 @@ export function CrewsCard({
                                 `${m.person} removed from ${crew.name}.`,
                               );
                               if (ok) setRemoving(null);
+                              // restoreTo holds the × this confirm replaced,
+                              // which is unmounted, so act's restore found
+                              // nothing and focus fell to <body>. Before act's
+                              // requestAnimationFrame reads it.
+                              restoreTo.current = ok
+                                ? document.getElementById(
+                                    next
+                                      ? `remove-member-${crew.id}-${next.person}`
+                                      : `add-member-${crew.id}`,
+                                  )
+                                : confirm;
                             }}
                             className="rounded bg-danger-solid px-2 py-0.5 font-medium text-white hover:opacity-90 disabled:opacity-50"
                           >

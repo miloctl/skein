@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
 import { startFirstWatch } from "@/lib/first-watch";
+import { reportStatus } from "@/lib/status";
 
 type Suggestion = { id: string; feature: string; pitch: string; link: string };
 
@@ -17,6 +18,7 @@ export function GuideHint() {
   // a click must beat a slow in-flight fetch — a dismissed suggestion
   // resurrected by a late response would make × look broken
   const dismissed = useRef(false);
+  const line = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
     api<{ suggestion: Suggestion | null }>("/api/field-guide/hint")
@@ -28,7 +30,7 @@ export function GuideHint() {
 
   if (!s) return null;
   return (
-    <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-ink-3">
+    <p ref={line} className="flex flex-wrap items-baseline gap-x-2 text-xs text-ink-3">
       <span>
         <span aria-hidden>🧶 </span>
         Something you have not tried yet:{" "}
@@ -49,16 +51,34 @@ export function GuideHint() {
       <button
         onClick={() => {
           const prev = s;
+          // The line unmounts with the × that has focus, which drops a
+          // keyboard reader to <body>. The next control on the page takes it.
+          const hint = line.current;
+          const after = [
+            ...document.querySelectorAll<HTMLElement>(
+              "a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex='-1'])",
+            ),
+          ].find(
+            (el) =>
+              !!hint &&
+              !hint.contains(el) &&
+              (hint.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+          );
+          (after ?? document.getElementById("content"))?.focus();
           dismissed.current = true;
           setS(null);
           api("/api/field-guide/dismiss", {
             method: "POST",
             body: JSON.stringify({ knot: prev.id }),
-          }).catch(() => {
-            // the dismissal didn't stick — showing it again is the truth
-            dismissed.current = false;
-            setS(prev);
-          });
+          })
+            .then(() =>
+              reportStatus(`Skein does not suggest ${prev.feature} again.`, "confirmation"),
+            )
+            .catch(() => {
+              // the dismissal didn't stick — showing it again is the truth
+              dismissed.current = false;
+              setS(prev);
+            });
         }}
         aria-label={`Never suggest ${s.feature} again`}
         title="Never suggest this one again"

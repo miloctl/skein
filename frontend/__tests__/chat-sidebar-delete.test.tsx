@@ -89,6 +89,21 @@ describe("deletion consequences", () => {
     await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 
+  it("confirms a deletion and moves focus to the neighbouring chat", async () => {
+    render(<ChatSidebar threadId="" onOpen={() => {}} onNew={() => {}} />);
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByLabelText("More actions for Alpha"));
+    fireEvent.click(screen.getByText("Delete…"));
+    fireEvent.click(await screen.findByRole("button", { name: /^Delete this chat/ }));
+
+    await waitFor(() =>
+      expect(mocks.reportStatus).toHaveBeenCalledWith('Chat "Alpha" deleted.', "confirmation"),
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Bravo" })),
+    );
+  });
+
   it("says a deleted folder leaves its chats unfiled", async () => {
     threadRows = [row("a", "Alpha", "Plans")];
     folderRows = ["Plans"];
