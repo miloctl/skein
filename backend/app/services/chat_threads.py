@@ -469,22 +469,32 @@ def set_thread_reasoning(thread_id: str, owner: str, level: str) -> str:
     from . import settings
 
     level = (level or "").strip().lower()
-    if level:
-        settings.check_reasoning_level(
-            level,
-            thread_model(thread_id) or settings.model_pick_state()["model"],
-            "The model of this chat",
-        )
+    _check_id(thread_id)
     with db.transaction():
-        _own(thread_id, owner)
-        # owner and kind in the UPDATE too, for the reason set_thread_model gives
-        changed = db.execute_rowcount(
-            "UPDATE chat_threads SET reasoning = ?, updated_at = ?"
-            " WHERE id = ? AND owner = ? AND kind = 'solo'",
-            (level, db.now(), thread_id, owner),
+        # FOR UPDATE, and before the check: the chat's model decides whether
+        # the level is accepted, and a /model between the read and the write
+        # validates it against a model the chat no longer runs. Ownership
+        # first, so a refusal never describes another person's chat. The team
+        # pick is not locked: a level it stops offering defers at turn time
+        # (settings.turn_reasoning) and is reported there.
+        row = db.query_one(
+            "SELECT model_id FROM chat_threads"
+            " WHERE id = ? AND owner = ? AND kind = 'solo' FOR UPDATE",
+            (thread_id, owner),
         )
-        if not changed:
+        if not row:
             raise db.NotFound("No chat was found.")
+        if level:
+            picked = str(row["model_id"])
+            settings.check_reasoning_level(
+                level,
+                picked if picked in config.MODELS else settings.model_pick_state()["model"],
+                "The model of this chat",
+            )
+        db.execute(
+            "UPDATE chat_threads SET reasoning = ?, updated_at = ? WHERE id = ?",
+            (level, db.now(), thread_id),
+        )
         db.log_activity(owner, "set_chat_reasoning", f"{thread_id}: {level or 'default'}")
     return level
 

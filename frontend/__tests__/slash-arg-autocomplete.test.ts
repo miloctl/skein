@@ -100,9 +100,9 @@ describe("reasoningRoster", () => {
         { reasoning: ["low", "high"] },
         { reasoning: [] },
         {},
-        { reasoning: ["off", "high"] },
+        { reasoning: ["none", "high"] },
       ]).map((item) => item.slug),
-    ).toEqual(["low", "high", "off", "default"]);
+    ).toEqual(["low", "high", "none", "default"]);
   });
 
   it("offers nothing when no model declares a level", () => {

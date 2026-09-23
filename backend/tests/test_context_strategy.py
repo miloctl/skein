@@ -732,3 +732,18 @@ def test_build_agent_gives_the_level_to_the_chat_model_and_not_to_its_summaries(
     assert built == ["high"]
     agent.conversation_manager._summary_model()
     assert built == ["high", ""]
+
+
+def test_a_summary_restored_from_an_older_session_keeps_no_reasoning(fresh_db, monkeypatch):
+    """Summaries stored before the filter existed replay on every turn of that
+    chat, and Anthropic and Bedrock refuse the reasoning block in them."""
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
+    old = team_agent._conversation_manager()
+    old._summary_message = {
+        "role": "user",
+        "content": [{"reasoningContent": {"reasoningText": {"text": "x"}}}, {"text": "summary"}],
+    }
+    restored = team_agent._conversation_manager().restore_from_session(old.get_state())
+    assert restored and [list(block) for block in restored[0]["content"]] == [["text"]]

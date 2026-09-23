@@ -2144,7 +2144,13 @@ class ReasoningIn(BaseModel):
 
 @router.get("/settings/reasoning")
 def get_reasoning(user: CurrentUser):
-    """Reads for everyone; writing is operator-only."""
+    """Reads for named teammates, the GET /settings/model rule. Writing is
+    admin-only."""
+    if user == "anonymous":
+        raise HTTPException(
+            403,
+            "A named identity is required. Select a name in Settings, then try again.",
+        )
     return settings.reasoning_level_state()
 
 
