@@ -10,12 +10,12 @@ opened once per process and kept alive so tools stay usable across requests.
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import os
 import threading
 import time
-import zlib
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import partial
@@ -245,16 +245,21 @@ class GovernedMCPTool(AgentTool):
             )
             return
         # A personal server's write needs a human even under PERMIT: its
-        # owner classified nothing, and an admin's mcp-tool authority grant
-        # was made for operator-classified servers. The engine's decision
-        # object stays as decided — services/review.py recomputes the
-        # approval fingerprint from it, and a substituted REVIEW decision
-        # would stale every approval.
+        # owner classified nothing, and the authority matrix has no mcp-tool
+        # level that could relax it (delegation.set_authority refuses the
+        # entity). The engine's decision object stays as decided —
+        # services/review.py recomputes the approval fingerprint from it, and
+        # a substituted REVIEW decision would stale every approval.
+        # The database calls run on a worker thread (asyncio.to_thread copies
+        # the context): on the event loop, a pool wait freezes every chat
+        # stream in the process.
         needs_review = decision.effect == PolicyEffect.REVIEW or (
             self.tier == PERSONAL
             and (
                 self.metadata.effect == "write"
-                or not _first_use_approved(self.server_id, self.tool_name, self.metadata.version)
+                or not await asyncio.to_thread(
+                    _first_use_approved, self.server_id, self.tool_name, self.metadata.version
+                )
             )
         )
         if needs_review and approved_fingerprint != fingerprint:
@@ -271,7 +276,8 @@ class GovernedMCPTool(AgentTool):
                     "agent": actor,
                     "approval_fingerprint": fingerprint,
                 }
-                proposal = review.propose_extension_invocation(
+                proposal = await asyncio.to_thread(
+                    review.propose_extension_invocation,
                     "mcp_tool",
                     {
                         "tool": self.tool_name,
@@ -608,11 +614,18 @@ def _derived_metadata(remote_tool) -> MCPToolMetadata:
         risk = "low"
     else:
         risk = "high" if destructive is None or destructive else "medium"
-    spec = remote_tool.tool_spec
-    contract = json.dumps(spec.get("inputSchema", {}), sort_keys=True, default=str)
-    digest = zlib.crc32(f"{spec.get('name', '')}:{contract}".encode())
+    # The first-use approval is keyed on this version, so it must change with
+    # anything that steers the model: the description as much as the schema,
+    # and the annotations that set effect and risk. A short checksum lets a
+    # server craft a changed tool that keeps the approved version.
+    dump = getattr(annotations, "model_dump", None)
+    contract = json.dumps(
+        {"spec": remote_tool.tool_spec, "annotations": dump(mode="json") if dump else None},
+        sort_keys=True,
+        default=str,
+    )
     return MCPToolMetadata(
-        f"0.0.{digest}",
+        f"sha256:{hashlib.sha256(contract.encode()).hexdigest()}",
         effect,
         risk,
         f"mcp:{effect}",

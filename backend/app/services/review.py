@@ -543,8 +543,22 @@ def _approve_change_locked(
     # chosen for the project it used to belong to.
     from . import policy_context
 
-    if change.get("source_id"):
-        policy_context.hold_resource(str(change["source_entity"]), int(change["source_id"]))
+    # An update is about entity_id. A create's policy context comes from the
+    # parent its payload names (policy_context.for_change), so hold that.
+    if change.get("entity_id"):
+        policy_context.hold_resource(str(change["entity"]), int(change["entity_id"]))
+    else:
+        try:
+            payload = json.loads(change.get("payload") or "{}")
+        except ValueError:
+            payload = {}
+        for key, parent in (
+            ("task_id", "task"),
+            ("milestone_id", "milestone"),
+            ("engagement_id", "engagement"),
+        ):
+            if isinstance(payload, dict) and str(payload.get(key) or "").isdigit():
+                policy_context.hold_resource(parent, int(payload[key]))
     _assert_judgeable(change, viewer)
     # settle the already-reviewed case before any gating, so a non-sponsor
     # isn't told to fetch a note for a verdict that already happened

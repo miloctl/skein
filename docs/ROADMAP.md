@@ -232,6 +232,14 @@ morning sweep, which notifies each delegated task's sponsor rather than filing
   signatures — a mismatched handler surfaces at apply time as a caught
   runtime error, not at startup. Assert the signatures when the registry is
   built, or record the runtime guard as the accepted answer.
+- **An authority level for remote MCP writes.** `extensions/policy.py`
+  CorePolicy reads `effective_authority(agent, "mcp-tool")` for every system
+  MCP write, but `set_authority` refuses `mcp-tool` because it is not a
+  review-registry entity. No operator can forbid an agent's system MCP writes
+  or grant it autonomy, and with `SKEIN_AGENT_REVIEW=0` they apply directly.
+  Add `mcp-tool` as an authority-only entity across the gated-entity lists
+  (picker, `NO_AUTHORITY`, the authority card wording, and their enumeration
+  tests).
 
 ## Developer loop (2026-07-25)
 
