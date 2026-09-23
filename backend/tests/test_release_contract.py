@@ -454,6 +454,51 @@ def test_ci_admin_database_url_is_scoped_to_database_contract_steps():
         assert "env: CLEAN_ENV" in text
 
 
+def _jobs(relative: str) -> dict:
+    return yaml.safe_load((ROOT / relative).read_text())["jobs"]
+
+
+def test_ci_mirrors_run_the_same_services_and_uv():
+    github = _jobs(".github/workflows/ci.yml")
+    gitea = _jobs(".gitea/workflows/ci.yml")
+    assert gitea.keys() == github.keys()
+    # a job with no database on one side fails there on the first test that
+    # connects, and only after the change has merged (Gitea runs on push)
+    for name in github:
+        assert gitea[name].get("services") == github[name].get("services"), name
+    versions = [
+        step.get("with", {}).get("version")
+        for relative in (
+            ".github/workflows/ci.yml",
+            ".github/workflows/publish-release.yml",
+            ".gitea/workflows/ci.yml",
+            ".gitea/workflows/weekly.yml",
+        )
+        for job in _jobs(relative).values()
+        for step in job["steps"]
+        if step.get("uses", "").startswith("astral-sh/setup-uv@")
+    ]
+    assert len(versions) == 8
+    assert set(versions) == {"0.11.11"}
+
+
+def test_gitea_checkout_credential_stays_out_of_the_clone():
+    for relative in (".gitea/workflows/ci.yml", ".gitea/workflows/weekly.yml"):
+        for job in _jobs(relative).values():
+            for step in job["steps"]:
+                run = step.get("run", "")
+                # interpolated into the script, it lands in a remote URL and
+                # .git/config, where every later install script can read it
+                assert "CI_CHECKOUT" not in run, (relative, step.get("name"))
+                for call in re.findall(r"\bgit\b.*?\b(?:clone|fetch)\b", run):
+                    assert call.startswith('git -c http.extraHeader="$auth" '), call
+                if "CI_CHECKOUT" in str(step.get("env", {})):
+                    assert not re.search(r"\b(npm|npx|pip|uv|python)\b|scripts/", run), (
+                        relative,
+                        step.get("name"),
+                    )
+
+
 def test_release_finalization_verifies_registry_bytes_before_tagging():
     workflow = (ROOT / ".github/workflows/finalize-release.yml").read_text()
     releasing = (ROOT / "RELEASING.md").read_text()

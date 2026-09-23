@@ -5,6 +5,9 @@
 # Manual clone instead of actions/checkout: some Gitea instances 403 the
 # `x-access-token` basic-auth username the action hardcodes; a real username
 # and token work. Set two repo secrets: CI_CHECKOUT_USER, CI_CHECKOUT_TOKEN.
+# The credential goes in a header on each git command and only in that step's
+# env. A credential in the remote URL stays in .git/config, and every later
+# npm or pip install script in the job can read it from there.
 #
 # Lint gates live in scripts/lint.sh alone — call it, never restate a gate
 # here, or the local run and CI drift apart again.
@@ -18,14 +21,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
+        env:
+          CHECKOUT_AUTH: ${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}
         run: |
-          base="${{ github.server_url }}"
-          git clone --depth 50 "${base%%://*}://${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}@${base#*://}/${{ github.repository }}.git" .
+          auth="Authorization: Basic $(printf %s "$CHECKOUT_AUTH" | base64 -w0)"
+          git -c http.extraHeader="$auth" clone --depth 50 "${{ github.server_url }}/${{ github.repository }}.git" .
           git checkout "$GITHUB_SHA"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.11.11"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
@@ -60,9 +67,11 @@ jobs:
           --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - name: Checkout
+        env:
+          CHECKOUT_AUTH: ${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}
         run: |
-          base="${{ github.server_url }}"
-          git clone --depth 50 "${base%%://*}://${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}@${base#*://}/${{ github.repository }}.git" .
+          auth="Authorization: Basic $(printf %s "$CHECKOUT_AUTH" | base64 -w0)"
+          git -c http.extraHeader="$auth" clone --depth 50 "${{ github.server_url }}/${{ github.repository }}.git" .
           git checkout "$GITHUB_SHA"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -108,30 +117,41 @@ jobs:
         # bootstrap superuser to a disposable NOSUPERUSER role.
         run: pytest -q -n0 tests/test_database_role.py
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.11.11"
       - name: Audit production dependencies
         # scripts/audit-deps.sh explains why this resolves the production
         # set instead of auditing the installed dev environment.
         run: ./scripts/audit-deps.sh backend
-      - name: Upgrade path
+      - name: Fetch tags for the upgrade path
         # the clone above is shallow and tagless; the baseline tag's commit
-        # must be reachable for the worktree. Skips itself until the first
-        # v* release tag exists. The psql guard is for the self-hosted
-        # runner image, which ships no PostgreSQL client — the script
-        # creates its databases with psql.
+        # must be reachable for the worktree. A separate step, so that the
+        # credential never reaches upgrade-path.sh.
+        env:
+          CHECKOUT_AUTH: ${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}
+        run: |
+          auth="Authorization: Basic $(printf %s "$CHECKOUT_AUTH" | base64 -w0)"
+          git -c http.extraHeader="$auth" fetch --tags --unshallow --quiet \
+            || git -c http.extraHeader="$auth" fetch --tags --quiet
+      - name: Upgrade path
+        # Skips itself until the first v* release tag exists. The psql guard
+        # is for the self-hosted runner image, which ships no PostgreSQL
+        # client — the script creates its databases with psql.
         env:
           SKEIN_DATABASE_URL: postgresql://skein:skein@localhost:5432/skein
         run: |
           if ! command -v psql >/dev/null; then apt-get update -qq && apt-get install -y -qq postgresql-client; fi
-          git fetch --tags --unshallow --quiet || git fetch --tags --quiet
           ./scripts/upgrade-path.sh
 
   frontend:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
+        env:
+          CHECKOUT_AUTH: ${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}
         run: |
-          base="${{ github.server_url }}"
-          git clone --depth 50 "${base%%://*}://${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}@${base#*://}/${{ github.repository }}.git" .
+          auth="Authorization: Basic $(printf %s "$CHECKOUT_AUTH" | base64 -w0)"
+          git -c http.extraHeader="$auth" clone --depth 50 "${{ github.server_url }}/${{ github.repository }}.git" .
           git checkout "$GITHUB_SHA"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -180,11 +200,13 @@ jobs:
       SKEIN_RELEASE_DIST: ${{ github.workspace }}/dist
     steps:
       - name: Checkout
+        env:
+          CHECKOUT_AUTH: ${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}
         run: |
-          base="${{ github.server_url }}"
-          git clone --depth 50 "${base%%://*}://${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}@${base#*://}/${{ github.repository }}.git" .
+          auth="Authorization: Basic $(printf %s "$CHECKOUT_AUTH" | base64 -w0)"
+          git -c http.extraHeader="$auth" clone --depth 50 "${{ github.server_url }}/${{ github.repository }}.git" .
           git checkout "$GITHUB_SHA"
-          git fetch --unshallow --quiet
+          git -c http.extraHeader="$auth" fetch --unshallow --quiet
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-packages
@@ -197,6 +219,8 @@ jobs:
           cache: pip
           cache-dependency-path: backend/pyproject.toml
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.11.11"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
@@ -257,11 +281,26 @@ jobs:
     # backend: console errors, failed requests, and an axe scan per page.
     # Needs both toolchains, so it is its own job.
     runs-on: ubuntu-latest
+    services:
+      # The walked backend is the real one, so it needs the real database.
+      # Both playwright configs seed into it.
+      postgres:
+        image: postgres:17-alpine@sha256:d4bb0a8c1b7bb2e29f976d099e7bfb9a5d8858cffe9e46b35cd302cd1f1f8168
+        env:
+          POSTGRES_USER: skein
+          POSTGRES_PASSWORD: skein
+          POSTGRES_DB: skein
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U skein -d skein"
+          --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - name: Checkout
+        env:
+          CHECKOUT_AUTH: ${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}
         run: |
-          base="${{ github.server_url }}"
-          git clone --depth 50 "${base%%://*}://${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}@${base#*://}/${{ github.repository }}.git" .
+          auth="Authorization: Basic $(printf %s "$CHECKOUT_AUTH" | base64 -w0)"
+          git -c http.extraHeader="$auth" clone --depth 50 "${{ github.server_url }}/${{ github.repository }}.git" .
           git checkout "$GITHUB_SHA"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
