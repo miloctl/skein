@@ -129,3 +129,19 @@ def test_verify_key_throttles_the_last_used_stamp(client, fresh_db):
     fresh_db.execute("UPDATE api_keys SET last_used_at = ?", (future,))
     assert verify_key(key) == "tester"  # a clock-step stamp rewrites instead of freezing
     assert fresh_db.query_row("SELECT last_used_at FROM api_keys")["last_used_at"] != future
+
+
+def test_a_key_minted_at_the_server_says_so_in_its_owners_feed(fresh_db, monkeypatch):
+    """The operator's mint was logged as the owner's own action, so the owner
+    could not tell a key issued for them from one they made."""
+    import sys
+
+    from app import bootstrap_key
+    from app.services import users
+
+    users.ensure_user("ava")
+    monkeypatch.setattr(sys, "argv", ["bootstrap_key", "ava", "laptop"])
+    monkeypatch.setattr(bootstrap_key.db, "init_db", lambda: None)
+    bootstrap_key.main()
+    row = fresh_db.query_one("SELECT actor, detail FROM activity WHERE action = 'create_api_key'")
+    assert row["actor"] == "ava" and "minted at the server" in row["detail"]

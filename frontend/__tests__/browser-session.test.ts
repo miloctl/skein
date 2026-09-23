@@ -93,6 +93,15 @@ describe("server-held browser identity", () => {
     expect(new Headers(call.init?.headers).get("X-Skein-CSRF")).toBe("csrf-ava");
   });
 
+  it("forgets the picked name on sign-out, so a shared browser does not keep acting as it", async () => {
+    served = person();
+    window.localStorage.setItem("skein-user", "ava");
+    const auth = await import("@/lib/auth");
+    await auth.bootstrapSession();
+    await auth.signOut();
+    expect(window.localStorage.getItem("skein-user")).toBeNull();
+  });
+
   it("logs out an expired cookie with its metadata and no provider call", async () => {
     served = { ...anonymous, csrf_token: "expired-cookie-csrf" };
     const auth = await import("@/lib/auth");

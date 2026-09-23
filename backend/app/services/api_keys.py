@@ -17,7 +17,7 @@ def _hash(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()
 
 
-def create_key(owner: str, label: str = "") -> dict:
+def create_key(owner: str, label: str = "", *, at_server: bool = False) -> dict:
     from .users import fold, is_active
 
     key = PREFIX + secrets.token_hex(20)
@@ -34,7 +34,11 @@ def create_key(owner: str, label: str = "") -> dict:
             " VALUES (?, ?, ?, ?, ?) RETURNING id",
             (_hash(key), key[: len(PREFIX) + 6], owner, label, db.now()),
         )
-        db.log_activity(owner, "create_api_key", f"#{kid} {label}")
+        # Under the owner's name, so it shows in their feed and nobody else's.
+        # `at_server` says the operator minted it (app.bootstrap_key): logged
+        # as theirs alone, a key someone else issued read as one they made.
+        where = " (minted at the server)" if at_server else ""
+        db.log_activity(owner, "create_api_key", f"#{kid} {label}{where}")
     return {"id": kid, "key": key, "label": label, "note": "store this now — it is not shown again"}
 
 

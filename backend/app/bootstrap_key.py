@@ -30,7 +30,7 @@ def main() -> None:
         # ("pick another name"), and one condition gets one wording
         print(f"cannot create '{name}': {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
-    result = create_key(name, label)
+    result = create_key(name, label, at_server=True)
     print(f"API key for {name} (shown once — store it now):\n{result['key']}")
 
 

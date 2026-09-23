@@ -32,6 +32,12 @@ export function ThreadTitle({ threadId }: { threadId: string }) {
 
   useEffect(() => {
     document.title = title ? `${title} — Skein` : "Chat — Skein";
+    // The title is the chat's first line. When the auth gate replaces the
+    // page (sign-out, expiry, another tab), it stays in the tab and in
+    // browser history for the next person on the device.
+    return () => {
+      document.title = "Skein";
+    };
   }, [title]);
 
   // deferred: the button carrying btnRef is unmounted while editing, so an
