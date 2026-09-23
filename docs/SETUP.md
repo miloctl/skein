@@ -29,7 +29,7 @@ Install or obtain these tools and services:
 - PostgreSQL 17 client tools.
 - `kubectl` for Kustomize validation.
 - PyPI access or a controlled Python mirror.
-- A controlled npm mirror and GitHub Packages access for `@miloctl`.
+- npmjs.com access or a controlled npm mirror for the public `@miloctl` packages.
 - A workplace image registry.
 - A PostgreSQL 17 database.
 

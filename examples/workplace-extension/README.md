@@ -56,7 +56,7 @@ The frontend root pins these exact dependencies:
 - `react@19.2.4`
 - `react-dom@19.2.4`
 
-Released deployments get the core wheel from PyPI. The two private npm packages come from GitHub Packages under the `@miloctl` scope.
+Released deployments get the core wheel from PyPI. The two npm packages under the `@miloctl` scope are public on npmjs.com and install with no token.
 
 The executable contract builds the current Skein source in temporary staging and packs local npm tarballs before `npm ci`. These artifacts can differ from registry packages with the same version. Do not publish or distribute them. Release a new Skein version before production.
 

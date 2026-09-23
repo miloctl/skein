@@ -23,7 +23,7 @@ These commands build the source artifacts for the local reference contracts.
 
 ## Stage packages from a copied consumer root
 
-Configure PyPI and GitHub Packages before you run these commands. Keep registry credentials outside the repository.
+Configure PyPI or your controlled Python mirror before you run these commands. Keep registry credentials outside the repository.
 
 ```sh
 rm -rf dist
