@@ -1108,6 +1108,7 @@ VERBS: dict[str, tuple[str, str]] = {
     "set_growth_interests": ("updated growth interests", "quiet"),
     "record_lesson": ("recorded a lesson", "normal"),
     "record_feedback": ("recorded feedback", "quiet"),
+    "delete_feedback": ("deleted feedback", "quiet"),
     "review_delta": ("reviewed the recent summary", "quiet"),
     "ingest_notes": ("ingested meeting notes", "normal"),
     "instantiate_playbook": ("started an engagement from a playbook", "normal"),
