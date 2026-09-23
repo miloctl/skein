@@ -119,3 +119,73 @@ def test_ensure_user_refuses_to_flip_a_human_into_an_agent(fresh_db):
     users.ensure_user("mario")
     users.ensure_user("mario", kind="agent")  # what main.py does at startup
     assert not users.is_agent("mario")
+
+
+def test_a_merge_cannot_carry_a_teammate_into_the_caller(fresh_db):
+    """Merged into the caller's own account, a teammate's history, files and
+    chats became the caller's, and the teammate's key signed in as the caller."""
+    from app.services import users
+
+    users.ensure_user("boss")
+    users.ensure_user("alice")
+    with pytest.raises(ValueError, match="your own account"):
+        users.rename_user("alice", "boss", actor="boss", expected_merge=True)
+    assert users.is_active("alice")
+
+
+def test_a_merge_cannot_hand_single_owner_data_to_another_person(fresh_db):
+    from app.services import memory, users, work
+
+    for name in ("alice", "bob", "carol"):
+        users.ensure_user(name)
+    work.create_task("alice private", actor="alice", visibility="private")
+    with pytest.raises(ValueError, match="only its owner can read"):
+        users.rename_user("alice", "bob", actor="carol", expected_merge=True)
+    fresh_db.execute("DELETE FROM tasks")
+    memory.remember("alice only", user="alice", actor="alice")
+    with pytest.raises(ValueError, match="only its owner can read"):
+        users.rename_user("alice", "bob", actor="carol", expected_merge=True)
+
+
+def test_a_merged_account_key_stops_signing_in(fresh_db):
+    """The merge moved the source's API keys to the target, so the source's
+    key authenticated as the target account."""
+    from app.services import api_keys, users
+
+    users.ensure_user("dana")
+    users.ensure_user("dana-alt")
+    key = api_keys.create_key("dana", label="old")["key"]
+    users.rename_user("dana", "dana-alt", actor="ops", expected_merge=True)
+    assert api_keys.verify_key(key) is None
+
+
+def test_a_freed_name_cannot_be_claimed_by_a_new_person(client, fresh_db):
+    """The ledger is never renamed, so a new `ava` read the earlier ava's
+    ledger rows as her own history, and owned her private proposals."""
+    from app.services import review, scope, users
+
+    users.ensure_user("ava")
+    users.ensure_user("bosun", kind="agent")
+    proposal = review.propose_change(
+        "note",
+        "create",
+        {"topic": "t", "content": "ava only"},
+        "note",
+        actor="bosun",
+        requested_by="ava",
+        review_visibility=scope.PRIVATE,
+        review_owner="ava",
+    )
+    users.rename_user("ava", "ava.smith", actor="ops")
+    with pytest.raises(ValueError, match="history from an earlier account"):
+        users.ensure_user("ava")
+    assert (
+        client.post(
+            "/api/notes", json={"topic": "t", "content": "c"}, headers={"X-User": "Ava"}
+        ).status_code
+        == 403
+    )
+    owner = fresh_db.query_one(
+        "SELECT review_owner FROM pending_changes WHERE id = ?", (proposal["id"],)
+    )
+    assert owner["review_owner"] == "ava.smith"

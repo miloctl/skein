@@ -177,8 +177,8 @@ _PERSON_SHAPED = frozenset(
     {
         "actor", "added_by", "agent", "asked_by", "assigned_to", "assignee", "author",
         "created_by", "decided_by", "delegated_agent", "lead", "mentioned_by", "owner",
-        "person", "proposed_by", "requested_by", "requester", "reviewed_by", "sponsor",
-        "steward", "subject", "updated_by", "user",
+        "person", "proposed_by", "requested_by", "requester", "review_owner", "reviewed_by",
+        "sponsor", "steward", "subject", "updated_by", "user",
     }
 )  # fmt: skip
 # `steward` was missing while this very feature introduced the word

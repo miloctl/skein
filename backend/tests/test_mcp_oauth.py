@@ -766,7 +766,12 @@ def test_rename_invalidates_the_old_grants_owner(fresh_db, sealed, merge):
 
     row, flow, provider = _registered_flow()
     if merge:
+        # a merge would hand ava's MCP server to dana, a person ava never
+        # chose, so it is refused while she holds one (users._holds_personal_data)
         users.ensure_user("dana")
+        with pytest.raises(ValueError, match="only its owner can read"):
+            users.rename_user("ava", "dana", actor="ops")
+        return
     users.rename_user("ava", "dana", actor="ops")
     assert not mcp_oauth.complete(flow.state, "renamed")
     assert fresh_db.query("SELECT * FROM mcp_oauth_flows") == []

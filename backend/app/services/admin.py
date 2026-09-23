@@ -64,6 +64,9 @@ EXCLUDED = frozenset(
         "mcp_servers",
         # sign-in codes in transit, dead within minutes of the export
         "mcp_oauth_flows",
+        # folded names a rename freed: a restore target keeps its own roster
+        # history, and a copied row would refuse a name that was never freed there
+        "released_names",
         # proposal payloads can contain private target bodies and extension
         # previews. The portable export cannot reconstruct their governing tier.
         "pending_changes",

@@ -340,6 +340,20 @@ def identity_ownership_error() -> str:
     return f"{count} conflicting identity {noun}. Run 'python -m app.identity_audit' on the server."
 
 
+def refuse_released_name(name: str) -> None:
+    """Refuse a new human row for a name a rename or merge freed.
+
+    `activity.actor` is never rewritten (the hash chain covers it), so the
+    next person to claim a freed name would read the earlier owner's ledger
+    rows as their own history. The freed names are recorded at the rename
+    (released_names, migration 035) rather than inferred from the ledger: a
+    ledger row can name someone who never had a roster row, and a refusal
+    there would lock a real person out of their first sign-in.
+    """
+    if db.query_one("SELECT 1 FROM released_names WHERE folded = ?", (fold(name),)):
+        raise ValueError("That name has history from an earlier account. Pick another name.")
+
+
 def ensure_user(name: str, kind: str = "human", *, _owner: str = "") -> dict:
     name = (name or "anonymous").strip()[:64] or "anonymous"
     effective_kind = kind if kind in ("human", "agent") else "human"
@@ -372,6 +386,8 @@ def ensure_user(name: str, kind: str = "human", *, _owner: str = "") -> dict:
         # would silently absorb the persona's trust/authority history (and
         # vice versa)
         existing = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
+        if existing is None and effective_kind == "human":
+            refuse_released_name(name)
         refuse_fold_collision(name)
         if kind == "human" and _is_bench_slug(name):
             raise ValueError("that name is reserved for a bench persona — pick another name")
@@ -705,11 +721,14 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     # reads that disagreement as a handover, printing "X sponsored this when the
     # work was submitted" about a delegation that never moved, in front of the
     # Approve button.
+    # review_owner is who may read a private proposal: left behind, the next
+    # person to claim the old name reads it, and the renamed owner cannot
     "pending_changes": (
         "proposed_by",
         "reviewed_by",
         "requested_by",
         "sponsor_at_submission",
+        "review_owner",
     ),
     "notifications": ("user",),
     "notification_reads": ("user",),
@@ -759,6 +778,8 @@ def _validate_rename_target(old: str, new: str, row: dict, *, identity_repair: b
     if _is_bench_slug(new):
         raise ValueError("the new name is reserved for a bench persona")
     target = db.query_one("SELECT * FROM users WHERE name = ?", (new,))
+    if target is None and row["kind"] == "human" and not identity_repair:
+        refuse_released_name(new)
     if target and identity_repair:
         raise ValueError("identity ownership repair cannot merge roster rows")
     if target and target["kind"] != row["kind"]:
@@ -782,6 +803,34 @@ def _rename_names(old: str, new: str) -> tuple[str, str]:
             " anonymous — pick a real name first"
         )
     return old, new
+
+
+def _holds_personal_data(name: str) -> bool:
+    """Whether `name` holds data that only they can read: private-tier rows,
+    solo chats, addressed memories, attached files, or MCP servers. A merge
+    moves all of it to the target account, so a merge run by anyone else
+    hands it to a person the owner never chose. Returns a boolean and no
+    content.
+
+    Shared-chat membership is deliberately absent: the merge folds it
+    (tests/test_shared_chat.py pins that), and whether a merge may carry a
+    person into a room needs the room's consent, a product decision."""
+    from . import scope
+
+    probes: list[tuple[str, tuple]] = [
+        (
+            f'SELECT 1 FROM {table} WHERE visibility = ? AND "{column}" = ? LIMIT 1',  # noqa: S608 — table and column from scope.CLASSIFIED
+            (scope.PRIVATE, name),
+        )
+        for table, column in scope.CLASSIFIED.items()
+    ]
+    probes += [
+        ("SELECT 1 FROM chat_threads WHERE owner = ? AND kind = 'solo' LIMIT 1", (name,)),
+        ('SELECT 1 FROM memories WHERE "user" = ? LIMIT 1', (name,)),
+        ("SELECT 1 FROM artifacts WHERE kind = 'upload' AND created_by = ? LIMIT 1", (name,)),
+        ("SELECT 1 FROM mcp_servers WHERE owner = ? LIMIT 1", (name,)),
+    ]
+    return any(db.query_one(sql, params) for sql, params in probes)
 
 
 def _mcp_agent_row(person: str) -> str:
@@ -831,10 +880,11 @@ def rename_user(
     # same ones. Without this a teammate is renameable to a system actor, and
     # their surviving API key then writes rows every viewer can read.
     target = _validate_rename_target(old, new, row, identity_repair=_identity_repair)
-    # A merge moves the caller's own API keys onto the target row, so a
-    # self-directed merge is a keyholder becoming a colleague: their key
-    # then authenticates as the target, and the private schema renames with
-    # them. A merge needs a second person, who cannot gain from it.
+    # A self-directed merge is a keyholder becoming a colleague: they take
+    # the target's name and the private schema renames with them. The other
+    # two ways a merge gains its caller something are refused inside the
+    # transaction: a merge INTO the caller, and one whose source holds data
+    # only its owner can read. The source's keys are revoked, never moved.
     if target and actor == old:
         raise ValueError(
             f"'{new}' already names an account. A merge into another account"
@@ -855,6 +905,17 @@ def rename_user(
         if not current:
             raise db.NotFound("no user has that name")
         target = _validate_rename_target(old, new, current, identity_repair=_identity_repair)
+        if target and fold(new) == fold(actor):
+            # the merge moves the source's history, files and chats to the
+            # target: into the caller's own account, the caller takes them
+            raise ValueError(
+                "A merge into your own account is refused. Ask another administrator to run it."
+            )
+        if target and _holds_personal_data(old):
+            raise ValueError(
+                "The account holds data that only its owner can read. A merge by another"
+                " person is refused. Deactivate the account instead."
+            )
         if expected_merge is not None and bool(target) != expected_merge:
             raise db.Conflict(
                 "The roster changed after this confirmation. Reload Settings, then confirm the action again."
@@ -876,9 +937,13 @@ def rename_user(
                 "Remove this agent from every private shared chat before you rename it."
             )
         if target:
-            # A merge transfers content, not browser authority. Keeping source
-            # sessions would let that browser act as the destination account.
+            # A merge transfers content, not authority. Keeping source sessions
+            # would let that browser act as the destination account, and the
+            # source's API keys, moved by _ATTRIBUTION, would sign in as it.
             db.execute("DELETE FROM browser_sessions WHERE user_id = ?", (current["id"],))
+            from .api_keys import revoke_keys_for
+
+            revoke_keys_for(old, actor=actor)
             if db.query_one(
                 "SELECT 1 FROM oidc_identities source"
                 " JOIN oidc_identities destination ON destination.issuer = source.issuer"
@@ -1074,6 +1139,12 @@ def rename_user(
             db.execute("DELETE FROM users WHERE name = ?", (old,))
         else:
             db.execute("UPDATE users SET name = ? WHERE name = ?", (new, old))
+        if current["kind"] == "human" and fold(old) != fold(new):
+            db.execute(
+                "INSERT INTO released_names (folded, released_at) VALUES (?, ?)"
+                " ON CONFLICT DO NOTHING",
+                (fold(old), db.now()),
+            )
         # The private journal follows the person ONLY when the person is doing
         # the renaming. Every keyholder can rename any roster row (the
         # trusted-network model makes them all admins over TEAM data) — but a
