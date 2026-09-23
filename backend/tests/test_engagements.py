@@ -175,3 +175,20 @@ def test_closing_again_after_a_reopen_does_not_repeat_the_close(fresh_db):
     ship = fresh_db.query("SELECT id FROM notifications WHERE message LIKE '%Probe%shipped%'")
     assert len(lessons) == 1
     assert len(ship) <= 1
+
+
+def test_the_ship_recap_counts_only_what_the_team_can_open(fresh_db):
+    """The recap is one workspace note for everybody, and it counted a
+    private task inside the engagement, a row its readers could not open."""
+    from app.services import engagements, users, work
+
+    users.ensure_user("ada")
+    eng = engagements.create_engagement("Borealis", actor="ada")
+    for tier in ("workspace", "private"):
+        task = work.create_task(
+            f"{tier} step", actor="ada", engagement_id=eng["id"], visibility=tier
+        )
+        work.update_task(task["id"], status="done", actor="ada")
+    engagements.update_engagement(eng["id"], status="closed", conclusion="achieved", actor="ada")
+    recap = fresh_db.query_one("SELECT content FROM notes WHERE topic = 'shipped-Borealis'")
+    assert "1 tasks done" in recap["content"]

@@ -5,6 +5,7 @@ accrues forever."""
 from datetime import date, timedelta
 
 from .. import db
+from .scope import WORKSPACE_ONLY
 
 SEASON_EPOCH = date(2026, 1, 5)  # a Monday; seasons are 6-week buckets from here
 SEASON_DAYS = 42
@@ -95,7 +96,7 @@ def blocker_speedrun() -> list[dict]:
     is scoring, not failing — only clear times are shown, never who."""
     start = season()["start_ts"]  # a timestamp column — see season()
     rows = db.query(
-        "SELECT impact,"
+        "SELECT impact,"  # noqa: S608 — WORKSPACE_ONLY is a scope constant
         " COUNT(*) AS cleared,"
         " ROUND(AVG((EXTRACT(epoch FROM resolved_at::timestamptz - created_at::timestamptz) / 86400.0) * 24)::numeric, 1)"
         " AS avg_hours,"
@@ -104,7 +105,7 @@ def blocker_speedrun() -> list[dict]:
         # resolved_at >= created_at: a row resolved before it was raised is a
         # data fault, and averaged in it printed a negative clear time on the
         # season strip — the same guard insights._resolve_hours applies
-        " FROM blockers WHERE status = 'resolved' AND resolved_at >= ?"
+        f" FROM blockers WHERE {WORKSPACE_ONLY} AND status = 'resolved' AND resolved_at >= ?"
         " AND resolved_at >= created_at"
         " GROUP BY impact"
         " ORDER BY CASE impact WHEN 'critical' THEN 0 WHEN 'high' THEN 1"
@@ -115,16 +116,24 @@ def blocker_speedrun() -> list[dict]:
 
 
 def pulse() -> dict:
+    # Every count reads the workspace tier (scope.WORKSPACE_ONLY), like the
+    # insights rules: the strip is one number for everybody, and a private
+    # blocker moved `blockers_open` for readers whose list stayed empty.
     s = season()
-    open_blockers = db.query_one("SELECT COUNT(*) AS n FROM blockers WHERE status != 'resolved'")
+    open_blockers = db.query_one(
+        f"SELECT COUNT(*) AS n FROM blockers WHERE {WORKSPACE_ONLY} AND status != 'resolved'"  # noqa: S608 — scope constant
+    )
     spotted = db.query_one(
-        "SELECT COUNT(*) AS n FROM blockers WHERE created_at >= ?", (s["start_ts"],)
+        f"SELECT COUNT(*) AS n FROM blockers WHERE {WORKSPACE_ONLY} AND created_at >= ?",  # noqa: S608 — scope constant
+        (s["start_ts"],),
     )
     lessons = db.query_one(
-        "SELECT COUNT(*) AS n FROM lessons WHERE created_at >= ?", (s["start_ts"],)
+        f"SELECT COUNT(*) AS n FROM lessons WHERE {WORKSPACE_ONLY} AND created_at >= ?",  # noqa: S608 — scope constant
+        (s["start_ts"],),
     )
     shipped = db.query_one(
-        "SELECT COUNT(*) AS n FROM engagements WHERE status = 'closed' AND closed_at >= ?",
+        f"SELECT COUNT(*) AS n FROM engagements WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope constant
+        " AND status = 'closed' AND closed_at >= ?",
         (s["start_ts"],),
     )
     # milestones too: most six-week seasons close zero engagements, so a
@@ -132,7 +141,7 @@ def pulse() -> dict:
     # milestones landed — a scoreboard that only says failure stops being
     # read. The strip shows the sum and names both parts.
     milestones_shipped = db.query_one(
-        "SELECT COUNT(*) AS n FROM milestones WHERE status = 'done'"
+        f"SELECT COUNT(*) AS n FROM milestones WHERE {WORKSPACE_ONLY} AND status = 'done'"  # noqa: S608 — scope constant
         " AND completed_at IS NOT NULL AND completed_at >= ?",
         (s["start_ts"],),
     )

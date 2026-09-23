@@ -11,6 +11,7 @@ test_every_id_addressed_mutation_is_listed catches.
 """
 
 import ast
+import json
 
 import pytest
 
@@ -814,8 +815,6 @@ _UNFILTERED_READS = {
     # --- aggregates and counts: no row's own text leaves the function ---
     "delegation.py::mission_control": "COUNT per agent, plus a MAX(created_at)",
     "pulse.py::standup_chain": "counts standup days, never their text",
-    "pulse.py::blocker_speedrun": "resolution times by impact, no titles",
-    "pulse.py::pulse": "season counters over the same aggregates",
     "onboarding.py::checklist": "COUNT per entity, to decide which step is done",
     "delegation.py::list_worklog": (
         "the `party` branch only, and it is gated per task on that task's own"
@@ -1222,3 +1221,48 @@ def test_a_milestone_and_an_event_take_a_tier_over_rest(client, fresh_db):
         "crew_id": cid,
     }
     assert fresh_db.query_one("SELECT visibility FROM events") == {"visibility": "private"}
+
+
+def test_hidden_engagements_leave_no_trace_in_derived_views(client, fresh_db):
+    """Allocations answered 500 for a hidden engagement and 200 for an absent
+    one, usage named its id beside "other work", and the pulse strip counted
+    rows its readers could not open."""
+    from datetime import timedelta
+
+    from conftest import _strong
+
+    from app import db
+    from app.services import blockers, chat_threads, engagements, insights, usage, users
+
+    for name in ("alice", "bob"):
+        users.ensure_user(name)
+    hidden = engagements.create_engagement("ZZSECRET", actor="alice", visibility="private")["id"]
+    engagements.allocate("alice", hidden, 50, actor="alice")
+    bob = _strong(client, "bob")
+    listed = client.get("/api/allocations", headers=bob)
+    assert listed.status_code == 200
+    assert all(row["engagement_id"] != hidden for row in listed.json())
+    by_hidden = client.get("/api/allocations", params={"engagement_id": hidden}, headers=bob)
+    absent = client.get("/api/allocations", params={"engagement_id": 99999}, headers=bob)
+    assert (by_hidden.status_code, by_hidden.json()) == (absent.status_code, absent.json())
+
+    usage.record_chat_usage("run:scout:x", "scout", "m", 10, 5, engagement_id=hidden)
+    rows = client.get("/api/usage", headers=bob).json()["engagements"]
+    assert rows and all(row["engagement_id"] != hidden for row in rows)
+
+    before = client.get("/api/pulse", headers=bob).json()["season_totals"]["blockers_open"]
+    blockers.raise_blocker("alice private", actor="alice", visibility="private")
+    after = client.get("/api/pulse", headers=bob).json()["season_totals"]["blockers_open"]
+    assert after == before
+
+    thread = chat_threads.default_thread_id("alice")
+    for week in range(4):
+        tokens = 900_000 if week == 0 else 100_000
+        usage.record_chat_usage(thread, "chief-of-staff", "m", tokens, 0)
+        db.execute(
+            "UPDATE usage_log SET created_at = ? WHERE id = (SELECT MAX(id) FROM usage_log)",
+            ((db.today() - timedelta(weeks=week)).isoformat() + "T12:00:00+00:00",),
+        )
+    found = insights._r_token_anomaly()
+    assert found, "the spend rule must fire for this check to mean anything"
+    assert thread not in json.dumps(found)

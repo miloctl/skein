@@ -260,7 +260,9 @@ def engagement_costs(
     return db.query(
         "SELECT CASE WHEN COALESCE(u.engagement_id, t.engagement_id) IS NULL THEN '(unlinked)'"  # noqa: S608 — scope.visible_filter emits only bound marks
         f" WHEN {frag} THEN e.name ELSE ? END AS engagement,"
-        " COALESCE(u.engagement_id, t.engagement_id) AS engagement_id,"
+        # the id is masked with the name: beside "other work" it named the
+        # hidden engagement and its spend anyway
+        f" CASE WHEN {frag} THEN COALESCE(u.engagement_id, t.engagement_id) END AS engagement_id,"
         " COUNT(*) AS calls,"
         " SUM(u.input_tokens) AS input_tokens, SUM(u.output_tokens) AS output_tokens,"
         " ROUND(SUM(u.cost_usd)::numeric, 4) AS cost_usd,"
@@ -275,7 +277,7 @@ def engagement_costs(
         # dependency). Grouping by the COALESCE alone is a grouping error.
         " GROUP BY COALESCE(u.engagement_id, t.engagement_id), e.id"
         " ORDER BY cost_usd DESC NULLS LAST",
-        (*fp, scope.OTHER_WORK, since),
+        (*fp, scope.OTHER_WORK, *fp, since),
     )
 
 
