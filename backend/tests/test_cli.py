@@ -3,8 +3,12 @@
 import contextlib
 import importlib.util
 import json
+import re
+import sys
 import threading
+import time
 from argparse import Namespace
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -822,3 +826,146 @@ def test_a_live_host_answering_badly_does_not_count_as_unreachable(monkeypatch, 
     )
     assert cli.api_quiet("GET", "/api/attention") is None
     assert cli._UNREACHABLE is False, "a server that answered is not unreachable"
+
+
+@contextlib.contextmanager
+def _server(answer):
+    """A real HTTP server on a free port. `answer(handler)` serves each request."""
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            answer(self)
+
+        do_POST = do_GET
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def _reply(status, body, content_type="application/json"):
+    def answer(handler):
+        data = body if isinstance(body, bytes) else json.dumps(body).encode()
+        handler.send_response(status)
+        handler.send_header("Content-Type", content_type)
+        handler.send_header("Content-Length", str(len(data)))
+        handler.end_headers()
+        handler.wfile.write(data)
+
+    return answer
+
+
+def _hang_up(handler):
+    handler.close_connection = True  # no status line: RemoteDisconnected
+
+
+def _point_at(cli, monkeypatch, tmp_path, url):
+    monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(cli, "OUTBOX", tmp_path / "outbox.jsonl")
+    cli.save_config({"url": url})
+
+
+# OSC 52 writes the clipboard, CSI 2J clears the screen, \x9b is the one-byte
+# C1 CSI, and \r returns to overwrite the line.
+HOSTILE = "ok\x1b]52;c;cHduZWQ=\x07\x1b[2J\x9b31m\rdone"
+CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def test_server_text_cannot_drive_the_terminal(monkeypatch, capsys, tmp_path):
+    cli = _load_cli()
+    rows = [{"id": 1, "priority": "high", "status": "open", "title": HOSTILE, "assignee": HOSTILE}]
+    with _server(_reply(200, rows)) as url:
+        _point_at(cli, monkeypatch, tmp_path, url)
+        cli.cmd_tasks(Namespace(action=None, id=None, agent=None, all=False))
+    out = capsys.readouterr().out
+    assert "ok" in out and "done" in out
+    assert CONTROL.search(out) is None
+
+
+def test_a_refusal_detail_cannot_drive_the_terminal(monkeypatch, tmp_path):
+    cli = _load_cli()
+    with _server(_reply(422, {"detail": HOSTILE})) as url:
+        _point_at(cli, monkeypatch, tmp_path, url)
+        with pytest.raises(SystemExit) as exit_:
+            cli.api("GET", "/api/tasks")
+    message = str(exit_.value.code)
+    assert message.startswith("error: ok")
+    assert CONTROL.search(message) is None
+
+
+def test_cleaning_keeps_the_line_structure():
+    cli = _load_cli()
+    assert cli._printable({"a\x1b": ["x\ny\tz\x07", 3, None]}) == {"a": ["x\ny\tz", 3, None]}
+
+
+@pytest.mark.parametrize(
+    "answer, wording",
+    [
+        (_hang_up, "cannot reach"),
+        (_reply(200, b"<html>sign in</html>", "text/html"), "did not send a Skein API response"),
+    ],
+)
+def test_a_broken_answer_is_one_line_not_a_traceback(answer, wording, monkeypatch, tmp_path):
+    cli = _load_cli()
+    with _server(answer) as url:
+        _point_at(cli, monkeypatch, tmp_path, url)
+        with pytest.raises(SystemExit) as exit_:
+            cli.api("GET", "/api/tasks")
+    message = str(exit_.value.code)
+    assert message.startswith("error: ")
+    assert wording in message
+    assert "\n" not in message
+
+
+def test_a_corrupt_config_names_the_repair_and_the_repair_works(monkeypatch, tmp_path):
+    cli = _load_cli()
+    config = tmp_path / "config.json"
+    monkeypatch.setattr(cli, "CONFIG_PATH", config)
+    monkeypatch.setattr(cli, "OUTBOX", tmp_path / "outbox.jsonl")
+    config.write_text('{"url": "http://127.0.0.1:9", "key": ')
+    monkeypatch.setattr(sys, "argv", ["skein", "tasks"])
+    with pytest.raises(SystemExit) as exit_:
+        cli.main()
+    assert "skein config --url" in str(exit_.value.code)
+
+    monkeypatch.setattr(sys, "argv", ["skein", "config", "--url", "http://127.0.0.1:9"])
+    cli.main()
+    assert json.loads(config.read_text()) == {"url": "http://127.0.0.1:9"}
+
+
+def test_saving_the_config_tightens_an_existing_file(monkeypatch, tmp_path):
+    cli = _load_cli()
+    config = tmp_path / "config.json"
+    config.write_text("{}")
+    config.chmod(0o644)
+    monkeypatch.setattr(cli, "CONFIG_PATH", config)
+    cli.save_config({"key": "sk-skein-secret"})
+    assert config.stat().st_mode & 0o777 == 0o600
+
+
+def test_attention_has_one_deadline_for_the_whole_call(monkeypatch, capsys, tmp_path):
+    """The socket timeout bounds each operation. Name resolution has none, so
+    a stalled resolver froze the prompt for as long as it stalled."""
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
+    release = threading.Event()
+
+    def stalled(*args, **kwargs):
+        release.wait(10)
+        return {"count": 3}
+
+    monkeypatch.setattr(cli, "api_quiet", stalled)
+    started = time.monotonic()
+    try:
+        cli.cmd_attention(Namespace(porcelain=True))
+    finally:
+        release.set()
+    assert time.monotonic() - started < 2 * cli.ATTENTION_TIMEOUT_S
+    assert capsys.readouterr().out == ""
