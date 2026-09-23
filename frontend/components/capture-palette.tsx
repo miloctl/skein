@@ -249,7 +249,17 @@ export function CapturePalette() {
     // makes type-then-choose the natural order
   }, [text, busy, tier]);
 
+  // An edit starts the next capture. A result left standing hid the
+  // "will file as" preview under an old failure, and the success auto-close
+  // shut the dialog on the text the reader was typing.
+  const startEdit = () => {
+    setResult(null);
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+  };
+
   const applyChip = (prefix: string) => {
+    startEdit();
     setText((t) => `${prefix} ${t.replace(KNOWN_PREFIX, "").trimStart()}`);
     inputRef.current?.focus();
   };
@@ -331,7 +341,10 @@ export function CapturePalette() {
           aria-label="What to capture"
           rows={3}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            startEdit();
+            setText(e.target.value);
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
