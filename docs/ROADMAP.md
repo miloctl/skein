@@ -212,6 +212,21 @@ morning sweep, which notifies each delegated task's sponsor rather than filing
   now drops out — a rejected `task_completion` disappears once a later one for
   the same task is approved — so what remains is every other entity, and every
   rejection nobody re-submits. An `acked_at` column ends those.
+- **Retire `SKEIN_EXTRA_TOOLS` and the `strands-agents-tools` dependency.**
+  Upstream deprecated every tool Skein allows (`calculator`, `current_time`,
+  `batch`, `sleep`, `rss`) and plans to archive the package. Calls log a
+  deprecation warning since 0.8.6, and 0.9.0 makes it an error log. The
+  feature is off by default, and `backend/app/agents/extra_tools.py` is the
+  only importer. Upstream's replacements, checked against Skein:
+  `current_time` is covered by the system prompt's team date; `batch` adds
+  nothing, because the SDK runs tool calls concurrently by default; model
+  reasoning replaces `think` through the model settings; `sleep` and `rss`
+  have no Skein use case, and `rss` fetches model-chosen URLs. `calculator`'s
+  suggested replacement is the vended `shell`, which Skein refuses. Build a
+  small Skein-owned arithmetic tool only if a deployment needs exact math.
+  Removing the package also drops its dependency tree from the image
+  (`slack-bolt`, `botocore`, `pillow`, `rich`, `prompt-toolkit`, `dill`). The
+  release note must tell operators that the variable is ignored.
 - Notify-tier writes link to an empty `/review`.
 - The review registry has no registration-time assertion on apply-handler
   signatures — a mismatched handler surfaces at apply time as a caught
