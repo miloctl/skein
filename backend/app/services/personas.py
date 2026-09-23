@@ -475,6 +475,10 @@ def get_persona(slug: str) -> dict:
             if p:
                 return p
     roster = ", ".join(p["slug"] for p in list_personas()) or "none installed"
+    # an off-charset slug is arbitrary caller text and is not echoed, the
+    # rule services/flocks.py::get_flock follows
+    if not _SLUG.match(slug):
+        raise ValueError(f"no persona with that name on the bench — available: {roster}")
     raise ValueError(f"no persona '{slug}' on the bench — available: {roster}")
 
 

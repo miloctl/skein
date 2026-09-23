@@ -21,7 +21,7 @@ def test_dispositioned_intake_cannot_be_rescored(client, fresh_db):
 def test_intake_accept_carries_lead_and_kill_criteria(client):
     rid = client.post(
         "/api/intake",
-        json={"title": "Shadow alerts", "requester": "pm"},
+        json={"title": "Shadow alerts"},
     ).json()["id"]
     r = client.post(
         f"/api/intake/{rid}/disposition",

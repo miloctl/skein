@@ -43,7 +43,8 @@ def overlay_errors() -> list[str]:
     how an unmounted volume masquerades as a working overlay. /health carries
     this, on the MODEL_PROVIDER_ERROR precedent: degrade AND say so.
     Computed live so mounting the directory clears the error without a
-    restart."""
+    restart. Names the variable, never its value: /api/health reaches every
+    signed-in user, and a filesystem path is deployment shape."""
     out = []
     for label, overlay in (
         ("SKEIN_PLAYBOOKS_DIR", PLAYBOOKS_OVERLAY),
@@ -52,7 +53,7 @@ def overlay_errors() -> list[str]:
     ):
         if overlay and not overlay.is_dir():
             out.append(
-                f"{label} is set to {overlay}, which is not a directory. Mount the directory or clear the variable."
+                f"{label} does not name a directory. Mount the directory or clear the variable."
             )
     return out
 

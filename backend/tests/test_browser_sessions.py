@@ -116,14 +116,16 @@ def test_key_creation_refuses_nonhuman_and_ambiguous_roster(sessions, fresh_db, 
         users.ensure_agent_identity(name)
     elif name in {"inactive", "ambiguous"}:
         users.ensure_human_identity(name)
-        if name == "inactive":
-            users.set_active(name, False)
-        else:
+        if name == "ambiguous":
             fresh_db.execute(
                 "INSERT INTO users (name, kind, created_at) VALUES (?, 'human', ?)",
                 (name.upper(), fresh_db.now()),
             )
     key = api_keys.create_key(name)
+    if name == "inactive":
+        # api_keys.create_key refuses an inactive account, so the key exists
+        # first and deactivation follows
+        users.set_active(name, False)
     with pytest.raises(sessions.SessionInvalid):
         sessions.create_key_session(key["key"], mode="trusted-header")
     assert fresh_db.query("SELECT * FROM browser_sessions") == []

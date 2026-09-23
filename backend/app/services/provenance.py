@@ -47,7 +47,7 @@ def lineage(entity: str, entity_id: int, viewer: scope.Viewer = scope.NOBODY) ->
         # a 404, never `{}` at 200: an empty object has no `history` key, and
         # the renderer reads `.length` off it and unmounts the panel — the
         # same failure `review.list_changes` records for its evidence block
-        raise db.NotFound(f"no provenance for '{entity}'")
+        raise db.NotFound("no provenance for that kind of record")
     frag, vp = scope.visible_filter(viewer, table)
     row = db.query_one(
         f"SELECT origin, created_by, created_at FROM {table}"  # noqa: S608 — table from the _TABLES map, visible_filter emits only bound marks

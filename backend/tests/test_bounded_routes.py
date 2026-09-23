@@ -108,10 +108,8 @@ EXEMPT: dict[str, str] = {
     "POST /api/notifications/read": "idempotent flag flip on rows the caller owns",
     # --- edits of a row that already exists: no growth, and the parity test
     # bounds the field sizes ---
-    "PATCH /api/blockers/{blocker_id}": "edits one existing row",
     "PATCH /api/engagements/{engagement_id}": "edits one existing row",
     "PATCH /api/intake/{request_id}": "edits one existing row",
-    "PATCH /api/milestones/{milestone_id}": "edits one existing row",
     "PATCH /api/promises/{promise_id}": "edits one existing row",
     "POST /api/blockers/{blocker_id}/resolve": "terminal flip on one existing row",
     "POST /api/promises/{promise_id}/status": "terminal flip on one existing row",
@@ -135,10 +133,6 @@ EXEMPT: dict[str, str] = {
     # A spent sign-in budget must not prevent logout. This origin/CSRF-bound
     # endpoint only revokes its cookie, has no body or remote work, and is idempotent.
     "DELETE /api/auth/session": "origin/CSRF-bound local session revocation",
-    # --- signature-verified integrations, metered as one caller each ---
-    "POST /api/webhooks/ci": "strong identity; files one deduped blocker per run",
-    # --- capped elsewhere, deliberately ---
-    "POST /api/decisions/{decision_id}/supersede": "the write path is capped in the create route",
     # --- known cost, no cap yet: these are the census's own open rows and the
     # reason it is a ratchet rather than a one-time sweep ---
     "POST /api/findings/run": "UNCAPPED: a full rule-engine sweep on demand",

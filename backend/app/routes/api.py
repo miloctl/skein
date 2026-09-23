@@ -717,6 +717,7 @@ def delete_allocation(allocation_id: int, user: CurrentUser):
 
 
 class AbsenceIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     person: str = Field(max_length=64)
     starts_on: str = Field(max_length=10)
     ends_on: str = Field(max_length=10)
@@ -1067,6 +1068,7 @@ def get_users(user: CurrentUser, all: bool = False):
 
 
 class UserRenameIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     new_name: str = Field(min_length=1, max_length=64)
     merge: bool | None = None
 
@@ -1680,6 +1682,7 @@ def get_notifications(
 
 
 class MarkReadIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     notification_id: int = 0  # 0 = mark all read
 
 
@@ -1886,6 +1889,7 @@ def get_week_draft(
 
 
 class WeekPlanIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     week: str = Field("", max_length=8)
     task_ids: list[int] = Field(max_length=200)
 
@@ -1944,6 +1948,7 @@ def get_promises(
 
 
 class PromiseIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     promise: str = Field(max_length=500)
     to_whom: str = Field("", max_length=120)
     due_date: str = Field("", max_length=10)
@@ -2000,6 +2005,8 @@ class SupersedeIn(BaseModel):
 
 @router.post("/decisions/{decision_id}/supersede")
 def post_supersede(decision_id: int, body: SupersedeIn, user: CurrentUser):
+    # a supersede files a new decision, and it does not pass the create route
+    ratelimit.check("write", user)
     return collab.supersede_decision(decision_id, **body.model_dump(), decided_by=user, actor=user)
 
 
@@ -2631,6 +2638,7 @@ def get_usage(user: CurrentUser, viewer: ViewerDep):
 
 
 class MilestoneIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     # from services/work.py, never a literal: the service enforces the same two
     # bounds on every write path, and a second copy of the number here is how
     # the REST door and the agent door drift apart again
@@ -2664,10 +2672,12 @@ class MilestonePatch(BaseModel):
 
 @router.patch("/milestones/{milestone_id}")
 def patch_milestone(milestone_id: int, body: MilestonePatch, user: CurrentUser):
+    ratelimit.check("write", user)
     return work.update_milestone(milestone_id, **body.model_dump(), actor=user)
 
 
 class TaskIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     title: str = Field(max_length=work.TITLE_LEN)
     description: str = Field("", max_length=work.DESCRIPTION_LEN)
     milestone_id: int = 0
@@ -2772,6 +2782,7 @@ def patch_task(
 
 
 class QuestionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     question: str = Field(max_length=1000)
     assigned_to: str = Field("", max_length=64)
     # `assigned_to` is checked as a READER (collab.ask_question).
@@ -2818,6 +2829,7 @@ def post_answer(question_id: int, body: AnswerIn, user: CurrentUser):
 
 
 class DecisionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     title: str = Field(max_length=200)
     decision: str = Field(max_length=2000)
     context: str = Field("", max_length=4000)
@@ -2846,6 +2858,7 @@ def post_decision(body: DecisionIn, user: CurrentUser):
 
 
 class StandupIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     yesterday: str = Field("", max_length=2000)
     today: str = Field("", max_length=2000)
     blockers: str = Field("", max_length=2000)
@@ -2870,6 +2883,7 @@ def post_standup(body: StandupIn, user: CurrentUser):
 
 
 class NoteIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     topic: str = Field(max_length=200)
     content: str = Field(max_length=20_000)
     # the tier the writer picked, checked in the service: crew membership only.
@@ -2929,6 +2943,7 @@ def post_event_outcome(event_id: int, body: OutcomeIn, user: CurrentUser):
 
 
 class EventIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     title: str = Field(max_length=200)
     starts_at: str = Field(max_length=25)
     ends_at: str = Field("", max_length=25)
@@ -2952,6 +2967,7 @@ def post_event(body: EventIn, user: CurrentUser):
 
 
 class BlockerIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     title: str = Field(max_length=200)
     detail: str = Field("", max_length=4000)
     owner: str = Field("", max_length=64)
@@ -3018,6 +3034,7 @@ def patch_blocker(
     request: Request,
     subject: PolicySubjectDep,
 ):
+    ratelimit.check("write", user)
     try:
         with db.transaction():
             domain = blockers.existing_policy_context(blocker_id, actor=user)
@@ -3068,6 +3085,7 @@ def post_resolve_blocker(
 
 
 class IntakeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     title: str = Field(max_length=200)
     detail: str = Field("", max_length=4000)
     project_class: str = Field("", max_length=40)
@@ -3473,6 +3491,7 @@ def post_reject(
 
 
 class CaptureIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     text: str = Field(max_length=10_000)  # one capture, not a document dump
     # quick capture is the ONLY door tasks and notes are created through in
     # the web UI, so this is where their tier is chosen. It routes to seven
@@ -3600,6 +3619,7 @@ def post_approve_batch(
 
 
 class EngagementIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     name: str = Field(max_length=120)
     project_class: str = Field("general", max_length=40)
     summary: str = Field("", max_length=4000)
@@ -3682,6 +3702,7 @@ def post_allocate(engagement_id: int, body: AllocationIn, user: CurrentUser):
 
 
 class LessonIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     lesson: str = Field(max_length=2000)
     recommendation: str = Field("", max_length=2000)
     engagement_id: int = 0

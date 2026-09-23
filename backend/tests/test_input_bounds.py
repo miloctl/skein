@@ -150,3 +150,56 @@ def test_propose_change_rejects_oversized_payload(fresh_db):
     with pytest.raises(ValueError, match="too large"):
         review.propose_change("task", "create", {"title": "x" * 21_000}, actor="agent")
     assert fresh_db.query("SELECT * FROM pending_changes") == []
+
+
+_CREATES = {
+    "/api/tasks": {"title": "t"},
+    "/api/notes": {"topic": "t", "content": "c"},
+    "/api/questions": {"question": "q"},
+    "/api/decisions": {"title": "t", "decision": "d"},
+    "/api/standups": {"yesterday": "y", "today": "t"},
+    "/api/events": {"title": "e", "starts_at": "2026-10-01T10:00"},
+    "/api/blockers": {"title": "b"},
+    "/api/intake": {"title": "i"},
+    "/api/capture": {"text": "note: hello"},
+    "/api/engagements": {"name": "e"},
+    "/api/lessons": {"lesson": "l"},
+    "/api/promises": {"promise": "p", "to_whom": "w", "due_date": "2026-10-01"},
+    "/api/milestones": {"title": "m"},
+    "/api/absences": {"person": "tester", "starts_on": "2026-10-01", "ends_on": "2026-10-02"},
+}
+
+
+def test_a_misspelled_field_is_refused_not_dropped(client):
+    """An unknown field was dropped silently. A misspelled `visibility` then
+    filed a row the writer meant to keep private at the workspace tier, where
+    every teammate reads it."""
+    for path, body in _CREATES.items():
+        typo = client.post(path, json={**body, "visiblity": "private"})
+        assert typo.status_code == 422, path
+        assert "private" not in typo.text, path
+        assert client.post(path, json=body).status_code == 200, path
+    assert client.post("/api/notifications/read", json={"notification": 5}).status_code == 422
+    assert (
+        client.post("/api/week/plan", json={"weak": "2026-W40", "task_ids": []}).status_code == 422
+    )
+
+
+def test_an_oversized_body_is_refused_before_it_is_parsed(client):
+    """The body was read and parsed in full before any max_length check ran,
+    so any caller could make the process hold a body of any size."""
+    big = json.dumps({"text": "x" * (1024 * 1024)})
+    declared = client.post("/api/ingest", content=big, headers={"content-type": "application/json"})
+    assert declared.status_code == 413
+    assert "xxxx" not in declared.text
+
+    def chunks():
+        for _ in range(20):
+            yield b"x" * 65_536
+
+    streamed = client.post(
+        "/api/ingest", content=chunks(), headers={"content-type": "application/json"}
+    )
+    assert streamed.status_code == 413
+    ok = client.post("/api/ingest", json={"text": "note: fine"})
+    assert ok.status_code != 413

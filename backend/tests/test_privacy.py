@@ -266,6 +266,24 @@ def test_feedback_parses_hyphenated_names():
     assert parse_feedback("fb: chen: good pushback") == ("chen", "good pushback")
 
 
+def test_brief_pulls_are_bounded(client, fresh_db, monkeypatch):
+    """Every pull files a private audit row, and nothing capped it: a looping
+    client grew the one store that backup, export and FTS never open. The
+    person was unbounded text that went into that row."""
+    from app import ratelimit
+
+    headers = _setup_key(client, fresh_db)
+    assert client.get(f"/api/private/brief/{'x' * 65}", headers=headers).status_code == 422
+    monkeypatch.setitem(ratelimit.LIMITS, "brief", 2)
+    ratelimit.reset()
+    for _ in range(2):
+        assert client.get("/api/private/brief/dana", headers=headers).status_code == 200
+    assert client.get("/api/private/brief/dana", headers=headers).status_code == 429
+    # the note budget is a different bucket
+    note = {"person": "dana", "body": "prep"}
+    assert client.post("/api/private/notes", json=note, headers=headers).status_code == 200
+
+
 def test_brief_degrades_to_empty(client, fresh_db):
     headers = _setup_key(client, fresh_db)
     r = client.get("/api/private/brief/dana", headers=headers)

@@ -4,7 +4,8 @@ X-User header is never enough. No agent tool, MCP tool, or review-registry
 entry may reference these records."""
 
 from fastapi import APIRouter
-from pydantic import BaseModel, Field
+from fastapi import Path as PathParam
+from pydantic import BaseModel, ConfigDict, Field
 
 from .. import ratelimit
 from ..extensions.fastapi import PolicyAPIRoute
@@ -15,6 +16,7 @@ router = APIRouter(prefix="/api/private", route_class=PolicyAPIRoute)
 
 
 class NoteIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     person: str = Field(max_length=64)
     body: str = Field(max_length=20_000)
     kind: str = Field("note", max_length=20)
@@ -48,7 +50,14 @@ def get_audit(user: StrongUser):
 
 
 @router.get("/brief/{person}")
-def get_brief(person: str, user: StrongUser, viewer: ViewerDep, days: int = 14):
+def get_brief(
+    user: StrongUser,
+    viewer: ViewerDep,
+    person: str = PathParam(max_length=64),
+    days: int = 14,
+):
+    # a read that writes: every pull files a private audit row
+    ratelimit.check("brief", user)
     private_notes.audit_brief(user, person)
     brief = private_notes.one_on_one_brief(person, days=days, viewer=viewer)
     gap = private_notes.feedback_gap_days(user, person)

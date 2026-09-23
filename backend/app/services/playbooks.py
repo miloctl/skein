@@ -317,7 +317,11 @@ def instantiate(
         if workflow_engine is None or workflow_context is None:
             raise ValueError("this playbook has workflow actions and needs a composed application")
         prepared_workflow = workflow_engine.prepare(pb["workflow"])
-    start = date.fromisoformat(start_date) if start_date else db.today()
+    try:
+        start = date.fromisoformat(start_date) if start_date else db.today()
+    except ValueError:
+        # date's own message quotes the rejected string back
+        raise ValueError("start_date must be a date in YYYY-MM-DD form") from None
     workflow_result = None
     authorized_context = workflow_context
     if prepared_workflow is not None and workflow_engine is not None:
