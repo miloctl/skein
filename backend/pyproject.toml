@@ -22,7 +22,9 @@ dependencies = [
     "python-dotenv>=1.0",
     "apscheduler>=3.10",
     "pyyaml>=6.0",
-    "strands-agents-tools>=0.2",
+    # 0.8.7 closes the calculator sandbox escape (symbols(cls=...) reached
+    # sympify with full builtins). SKEIN_EXTRA_TOOLS can load calculator.
+    "strands-agents-tools>=0.8.7",
     "pyjwt[crypto]>=2.8",
     "cryptography>=41",
     # FastAPI parses a multipart body (the file upload route) only when this is

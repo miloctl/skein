@@ -1220,7 +1220,7 @@ MCP_SERVERS, MCP_SERVERS_ERROR, MCP_SERVERS_SOURCE = _structured("SKEIN_MCP_SERV
 OTEL_ENDPOINT = os.getenv("SKEIN_OTEL_ENDPOINT", "")
 
 # Opt-in prebuilt tools from strands-agents-tools for the real agent,
-# comma-separated (e.g. "calculator,current_time,think,batch"). Only
+# comma-separated (e.g. "calculator,current_time,batch"). Only
 # allowlisted names load — see app/agents/extra_tools.py.
 EXTRA_TOOLS = tuple(t.strip() for t in os.getenv("SKEIN_EXTRA_TOOLS", "").split(",") if t.strip())
 

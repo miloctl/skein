@@ -40,8 +40,11 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
-- The backend and workplace locks select Strands Agents SDK `1.56.0`. A cross-version PostgreSQL check passed SDK `1.55.1` writes, `1.56.0` restore and append, restart with offloaded-result retrieval, and `1.55.1` rollback and append. This release adds no database migration. Optional Strands tools versions are unchanged.
+- The backend and workplace locks select Strands Agents SDK `1.56.0`. A cross-version PostgreSQL check passed SDK `1.55.1` writes, `1.56.0` restore and append, restart with offloaded-result retrieval, and `1.55.1` rollback and append. This release adds no database migration.
 - Upgrade the backend and frontend host together. Workplace frontend roots must carry the host's `@assistant-ui/tap` override at `0.9.18` and regenerate their npm lock. The installed host builder checks this override and every resolved copy. Do not apply this override to an older assistant-ui `0.14` host.
+- The backend and workplace locks select `strands-agents-tools` `0.8.9`, and the package requires `0.8.7` or later. Before `0.8.7`, the optional `calculator` tool ran `symbols("...", cls=N)` with full Python builtins, so a deployment that listed `calculator` in `SKEIN_EXTRA_TOOLS` let the model run code on the server. If a deployment enables `calculator`, upgrade.
+- `think` is no longer an allowed extra tool: the model chooses its model provider and settings, which runs a model call outside Skein's model factory. A `SKEIN_EXTRA_TOOLS` list that names `think` loads the other tools and logs that `think` was refused. Remove it from the list.
+- Upstream deprecated every allowed extra tool. Each call logs a deprecation warning, and `strands-agents-tools` `0.9.0` makes it an error log. Extra tools stay off by default.
 - GitHub and Gitea workflows use the same `setup-uv` `v10.1.0` action commit. The release-contract gate continues to refuse mismatched mirror pins.
 
 ## 0.6.4 — 2026-09-20
