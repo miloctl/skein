@@ -1,9 +1,11 @@
 """The versioned context pack: it versions only on change, and scopes to an engagement."""
 
+import json
 import threading
-from pathlib import Path
 
 import pytest
+
+from app import config
 
 
 def test_context_pack_versions_only_on_change(client):
@@ -40,19 +42,19 @@ def test_context_pack_repairs_a_missing_archive(fresh_db):
     from app.services import context_pack
 
     first = context_pack.publish_pack(actor="mira")
-    path = Path(first["path"])
+    path = context_pack._pack_path(0, first["version"])[1]
     path.unlink()
     repeated = context_pack.publish_pack(actor="mira")
     assert repeated["changed"] is False
-    assert Path(repeated["path"]).is_file()
-    assert "# Team context pack" in Path(repeated["path"]).read_text(encoding="utf-8")
+    assert path.is_file()
+    assert "# Team context pack" in path.read_text(encoding="utf-8")
 
 
 def test_concurrent_archive_repairs_recheck_after_the_lock(fresh_db, monkeypatch):
     from app.services import context_pack
 
     first = context_pack.publish_pack(actor="mira")
-    path = Path(first["path"])
+    path = context_pack._pack_path(0, first["version"])[1]
     expected = path.read_bytes()
     path.unlink()
     barrier = threading.Barrier(2)
@@ -190,3 +192,12 @@ def test_the_first_context_pack_read_publishes_outside_the_read_snapshot(client,
     assert r.status_code == 200, r.text
     assert r.json()["version"] >= 1
     assert db.query_one("SELECT id FROM activity WHERE action = 'publish_context_pack'")
+
+
+def test_publishing_answers_with_a_file_name_not_a_server_path(client):
+    """The publish route answers any caller who may publish, and an absolute
+    path told them where the data volume is mounted."""
+    body = client.post("/api/context-pack/publish").json()
+    assert body["file"] == f"context-pack-v{body['version']}.md"
+    assert "path" not in body
+    assert str(config.DATA_DIR) not in json.dumps(body)

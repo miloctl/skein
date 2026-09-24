@@ -77,45 +77,8 @@ def persona_session_id(thread_id: str, persona: str) -> str:
 
 def transcript_header(author_kind: str, author: str, message_id: int) -> str:
     """How a room agent's prompt labels one shared message
-    (shared_chat_agents._prompt). delete_shared_message finds the copies in
-    agent sessions by this header, so the two must stay one function."""
+    (shared_chat_agents._prompt)."""
     return f"[{author_kind} {author or 'Skein'} | message {message_id}]\n"
-
-
-def _replace_text(value, old: str, new: str):
-    if isinstance(value, str):
-        return value.replace(old, new)
-    if isinstance(value, list):
-        return [_replace_text(item, old, new) for item in value]
-    if isinstance(value, dict):
-        return {key: _replace_text(item, old, new) for key, item in value.items()}
-    return value
-
-
-def _redact_agent_copies(thread_id: str, row: dict) -> None:
-    """A room agent's model session keeps the transcript it was given and
-    replays it on every later turn, so a deleted message's text stayed with
-    the provider. The delete promise, that the text leaves the database,
-    covers those copies."""
-    if not row["content"]:
-        return
-    header = transcript_header(row["author_kind"], row["author"], row["id"])
-    prefix = f"{thread_id}{PERSONA_SEP}"
-    for stored in db.query(
-        "SELECT session_id, agent_id, message_id, payload FROM session_messages"
-        " WHERE left(session_id, ?) = ? AND strpos(payload, ?) > 0",
-        (len(prefix), prefix, f"| message {row['id']}]"),
-    ):
-        payload = _replace_text(
-            json.loads(stored["payload"]),
-            header + row["content"],
-            header + "[deleted by its author]",
-        )
-        db.execute(
-            "UPDATE session_messages SET payload = ?"
-            " WHERE session_id = ? AND agent_id = ? AND message_id = ?",
-            (json.dumps(payload), stored["session_id"], stored["agent_id"], stored["message_id"]),
-        )
 
 
 def default_thread_id(owner: str) -> str:
@@ -158,7 +121,7 @@ def claim_thread(thread_id: str, owner: str) -> str:
     # teammate's computed id took their unnamed thread for good: every later
     # message of theirs 404s, and they cannot delete it to take it back.
     if thread_id.startswith(DEFAULT_PREFIX) and thread_id != default_thread_id(owner):
-        raise db.NotFound(f"no chat '{thread_id}' for {owner}")
+        raise db.NotFound("No chat was found.")
     now = db.now()
     db.execute(
         "INSERT INTO chat_threads"
@@ -169,7 +132,7 @@ def claim_thread(thread_id: str, owner: str) -> str:
     )
     row = db.query_one("SELECT owner, kind FROM chat_threads WHERE id = ?", (thread_id,))
     if not row or row["owner"] != owner or row["kind"] != "solo":
-        raise db.NotFound(f"no chat '{thread_id}' for {owner}")
+        raise db.NotFound("No chat was found.")
     return thread_id
 
 
@@ -1307,20 +1270,40 @@ def delete_shared_message(thread_id: str, person: str, message_id: int) -> dict:
             raise PermissionError("Only the author can delete a message.")
         if row["deleted_at"]:
             return _public_message(row)
+        # Any running agent, not only one answering this message: the delete
+        # clears every agent session of the room, and a running turn keeps
+        # writing to its session. A claim takes the room lock held here
+        # (shared_chat_agents.claim_next), so no run starts between this
+        # check and the commit.
         live = db.query_one(
-            "SELECT 1 FROM chat_agent_runs WHERE trigger_message_id = ?"
-            " AND (status IN ('pending', 'running') OR execution_active = TRUE) LIMIT 1",
-            (message_id,),
+            "SELECT 1 FROM chat_agent_runs WHERE thread_id = ?"
+            " AND (status = 'running' OR execution_active = TRUE"
+            " OR (trigger_message_id = ? AND status = 'pending')) LIMIT 1",
+            (thread_id, message_id),
         )
         if live:
             raise db.Conflict(
-                "An agent is answering this message. Wait for the response, then delete."
+                "An agent is answering in this chat. Wait for the response, then delete."
             )
+        now = db.now()
         updated = db.query_row(
             "UPDATE chat_messages SET content = '', deleted_at = ? WHERE id = ? RETURNING *",
-            (db.now(), message_id),
+            (now, message_id),
         )
-        _redact_agent_copies(thread_id, row)
+        # an agent reply to this message answers text its author withdrew
+        db.execute(
+            "UPDATE chat_messages SET content = '', deleted_at = ? WHERE id IN ("
+            " SELECT response_message_id FROM chat_agent_runs WHERE thread_id = ?"
+            " AND trigger_message_id = ?) AND deleted_at IS NULL",
+            (now, thread_id, message_id),
+        )
+        # A model session keeps the message in forms no search can find: a
+        # written summary, and the agent's own paraphrase. With the sessions
+        # gone, each agent re-reads the room from its join point on its next
+        # turn, and this message is a placeholder there (shared_chat_agents._prompt).
+        from ..agents.session_store import delete_thread_sessions
+
+        delete_thread_sessions(thread_id)
         db.log_activity(
             person,
             "delete_shared_chat_message",

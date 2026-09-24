@@ -444,8 +444,17 @@ def _prompt(run: dict) -> str:
         "SELECT history_from FROM chat_members WHERE thread_id = ? AND person = ?",
         (run["thread_id"], run["agent"]),
     )
+    # The previous trigger bounds the window only while the agent's model
+    # session holds what came before it. A cleared session (a message delete
+    # in chat_threads.delete_shared_message, a re-add, the idle limit in
+    # retention.prune) remembers nothing, so the agent re-reads from its join
+    # point.
+    remembers = db.query_one(
+        "SELECT 1 FROM sessions WHERE session_id = ?",
+        (chat_threads.persona_session_id(str(run["thread_id"]), str(run["agent"])),),
+    )
     after = max(
-        int(previous["trigger_message_id"]) if previous else 0,
+        int(previous["trigger_message_id"]) if previous and remembers else 0,
         int(joined["history_from"]) if joined else 0,
     )
     separator = "\n\n---\n\n"
@@ -456,7 +465,7 @@ def _prompt(run: dict) -> str:
     before = int(run["trigger_message_id"]) + 1
     while True:
         rows = db.query(
-            "SELECT id, author_kind, author, content FROM chat_messages"
+            "SELECT id, author_kind, author, content, deleted_at FROM chat_messages"
             " WHERE thread_id = ? AND id > ? AND id < ?"
             " AND NOT (author_kind = 'agent' AND author = ?)"
             " ORDER BY id DESC LIMIT ?",
@@ -467,9 +476,8 @@ def _prompt(run: dict) -> str:
             break
         stopped = False
         for index, row in enumerate(page):
-            item = (
-                chat_threads.transcript_header(row["author_kind"], row["author"], row["id"])
-                + row["content"]
+            item = chat_threads.transcript_header(row["author_kind"], row["author"], row["id"]) + (
+                "[deleted]" if row["deleted_at"] else row["content"]
             )
             addition = len(item) + (len(separator) if kept else 0)
             if kept and len(marker) + size + addition > _MAX_TRANSCRIPT_CHARS:

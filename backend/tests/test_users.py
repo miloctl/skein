@@ -63,13 +63,27 @@ def test_no_key_is_minted_for_a_deactivated_account(client, fresh_db):
     assert not fresh_db.query("SELECT 1 FROM api_keys WHERE owner = 'leaver' AND active = 1")
 
 
-def test_users_all_param_lists_inactive(client, fresh_db):
+def test_users_all_param_lists_inactive_for_an_administrator_only(client, fresh_db, monkeypatch):
+    """The list of who was deactivated is a list of who left. The Settings
+    roster needs it to reverse a deactivation, and nobody else does."""
+    from conftest import _strong
+
+    from app import config
     from app.services import users
 
     users.ensure_user("gone")
     users.set_active("gone", False, actor="tester")
-    assert "gone" not in [u["name"] for u in client.get("/api/users").json()]
-    assert "gone" in [u["name"] for u in client.get("/api/users?all=1").json()]
+    admin = _strong(client)
+
+    def listed(**headers) -> list[str]:
+        return [u["name"] for u in client.get("/api/users?all=1", headers=headers).json()]
+
+    assert "gone" not in [u["name"] for u in client.get("/api/users", headers=admin).json()]
+    assert "gone" in listed(**admin)
+    # a self-asserted name, and a strong caller who is not an administrator
+    assert "gone" not in listed()
+    monkeypatch.setattr(config, "ADMINS", ["boss"])
+    assert "gone" not in listed(**admin)
 
 
 def test_rename_user_moves_attribution(client, fresh_db):

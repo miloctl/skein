@@ -396,7 +396,7 @@ def _store_pack(body: str, *, actor: str, crew_id: int) -> dict:
                 "version": last["version"],
                 "hash": digest,
                 "changed": False,
-                "path": str(path),
+                "file": path.name,
             }
         version = (last["version"] + 1) if last else 1
         content = body.replace(
@@ -422,12 +422,14 @@ def _store_pack(body: str, *, actor: str, crew_id: int) -> dict:
                 "version": last["version"],
                 "hash": last["content_hash"],
                 "changed": False,
-                "path": str(_pack_path(crew_id, int(last["version"]))[1]),
+                "file": _pack_path(crew_id, int(last["version"]))[1].name,
             }
         stem, path = _pack_path(crew_id, version)
         artifact_files.publish(path, content.encode("utf-8"))
         db.log_activity(actor, "publish_context_pack", f"{stem} ({digest})")
-        return {"version": version, "hash": digest, "changed": True, "path": str(path)}
+        # the file's name, never its path: the result reaches any caller of
+        # the publish route, and an absolute path maps the server's disk
+        return {"version": version, "hash": digest, "changed": True, "file": path.name}
 
 
 def publish_pack(

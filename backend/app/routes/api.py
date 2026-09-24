@@ -1120,10 +1120,12 @@ def download_file(artifact_id: int, user: CurrentUser):
 
 
 @router.get("/users")
-def get_users(user: CurrentUser, all: bool = False):
-    # all=1 includes deactivated rows — the Settings roster needs them so
-    # deactivation stays reversible from the UI
-    return users.public_users(user, active_only=not all)
+def get_users(user: CurrentUser, request: Request, all: bool = False):
+    # all=1 includes deactivated rows for an administrator: the Settings
+    # roster needs them so deactivation stays reversible from the UI. Anyone
+    # else gets the active roster, because the list of who was deactivated is
+    # a list of who left.
+    return users.public_users(user, active_only=not (all and is_administrator(user, request)))
 
 
 class UserRenameIn(BaseModel):

@@ -1887,13 +1887,20 @@ def _shared_prompt_block(kind: str, author: str, message_id: int, content: str) 
 
 
 def test_prompt_uses_the_last_completed_same_agent_boundary(client, monkeypatch):
-    from app.services import shared_chat_agents
+    from app.services import chat_threads, shared_chat_agents
 
     target, other = sorted(personas.bench_slugs())[:2]
     room, mira = create_room(client)
     add_agent(client, room["id"], mira, target)
     add_agent(client, room["id"], mira, other)
     monkeypatch.setattr(shared_chat_agents, "kick", lambda: False)
+    # the boundary holds while the agent's model session remembers what came
+    # before it: a real provider's first completed turn leaves this row
+    with db.transaction():
+        db.execute(
+            "INSERT INTO sessions (session_id, payload) VALUES (?, '{}')",
+            (chat_threads.persona_session_id(room["id"], target),),
+        )
 
     before = post_message(client, room["id"], mira, "before boundary", "prompt-before")
     completed = post_message(
@@ -2398,42 +2405,85 @@ def test_a_kept_execution_keeps_its_lease_until_released(client):
     assert _held_state()["lease_owner"] == ""
 
 
-def test_a_deleted_message_leaves_the_room_agent_sessions(client):
-    """A room agent's model session keeps the transcript it was given and
-    replays it on every later turn. The delete promise, that the text leaves
-    the database, covers those copies too."""
+def test_a_deleted_message_leaves_the_room_agents_and_their_answers(client, monkeypatch):
+    """A room agent's model session keeps the message in forms no search can
+    find: a written summary, and the agent's own paraphrase. Its answer to
+    the message stays in the room. The delete promise, that the text leaves
+    the database, covers all three."""
     from strands.types.content import Message
     from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
 
     from app.agents.session_store import DatabaseSessionRepository
-    from app.services import chat_threads
+    from app.services import chat_threads, shared_chat_agents
 
     agent = sorted(personas.bench_slugs())[0]
     room, mira = create_room(client)
     add_agent(client, room["id"], mira, agent)
-    sent = post_message(client, room["id"], mira, "the vault code is 4471", "k-secret")
+    monkeypatch.setattr(shared_chat_agents, "kick", lambda: False)
+    sent = post_message(
+        client, room["id"], mira, f"@{agent} the vault code is 4471", "k-secret", invoke_agent=agent
+    )
     session_id = chat_threads.persona_session_id(room["id"], agent)
-    header = chat_threads.transcript_header("human", "mira", sent["id"])
     repo = DatabaseSessionRepository()
     repo.create_session(Session(session_id=session_id, session_type=SessionType.AGENT))
     repo.create_agent(
         session_id, SessionAgent(agent_id="default", state={}, conversation_manager_state={})
     )
-    prompt: Message = {
+    summary: Message = {
         "role": "user",
-        "content": [{"text": f"<t>\n{header}the vault code is 4471\n</t>"}],
+        "content": [{"text": "Summary: mira shared the vault code, which is 4471."}],
     }
-    repo.create_message(session_id, "default", SessionMessage.from_message(prompt, 0))
+    repo.create_message(session_id, "default", SessionMessage.from_message(summary, 0))
+    with db.transaction():
+        reply_id = db.execute(
+            "INSERT INTO chat_messages"
+            " (thread_id, role, content, created_at, author_kind, author, turn_id,"
+            " reply_to_message_id) VALUES (?, 'assistant', ?, ?, 'agent', ?, ?, ?)"
+            " RETURNING id",
+            (room["id"], "Noted: 4471.", db.now(), agent, sent["turn_id"], sent["id"]),
+        )
+        db.execute(
+            "UPDATE chat_agent_runs SET status = 'completed', response_message_id = ?,"
+            " finished_at = ? WHERE turn_id = ?",
+            (reply_id, db.now(), sent["turn_id"]),
+        )
+    later = post_message(client, room["id"], mira, "the lobby opens at nine", "k-later")
 
     deleted = client.delete(f"/api/shared-chats/{room['id']}/messages/{sent['id']}", headers=mira)
     assert deleted.status_code == 200, deleted.text
-    payloads = [
-        r["payload"]
-        for r in db.query(
-            "SELECT payload FROM session_messages WHERE session_id = ?", (session_id,)
+    stored = db.query("SELECT payload FROM session_messages WHERE session_id = ?", (session_id,))
+    assert not [row for row in stored if "4471" in row["payload"]]
+    answer = db.query_row("SELECT content, deleted_at FROM chat_messages WHERE id = ?", (reply_id,))
+    assert answer["content"] == "" and answer["deleted_at"]
+    listed = client.get(f"/api/shared-chats/{room['id']}/messages", headers=mira).json()
+    assert "4471" not in json.dumps(listed)
+    # the next turn re-reads the room from the join point, not from the last
+    # answered call, because the session that remembered it is gone
+    call = post_message(client, room["id"], mira, f"@{agent} when?", "k-next", invoke_agent=agent)
+    run = db.query_row("SELECT * FROM chat_agent_runs WHERE trigger_message_id = ?", (call["id"],))
+    body = _shared_prompt_body(shared_chat_agents._prompt(run))
+    assert _shared_prompt_block("human", "mira", sent["id"], "[deleted]") in body
+    assert _shared_prompt_block("human", "mira", later["id"], "the lobby opens at nine") in body
+    assert "4471" not in body
+
+
+def test_a_message_delete_waits_for_any_running_agent_in_the_room(client):
+    """The delete clears every agent session of the room, and a running turn
+    keeps writing to its own session after the delete commits."""
+    room, mira = create_room(client)
+    first = post_message(client, room["id"], mira, "first", "k-first")
+    second = post_message(client, room["id"], mira, "second", "k-second")
+    with db.transaction():
+        db.execute(
+            "INSERT INTO chat_agent_runs"
+            " (turn_id, batch_id, thread_id, trigger_message_id, agent, requested_by,"
+            " requester_subject, status, requested_at)"
+            " VALUES ('t-run', 't-run', ?, ?, 'scout', 'mira', '{}', 'running', ?)",
+            (room["id"], first["id"], db.now()),
         )
-    ]
-    assert payloads and not any("4471" in p for p in payloads)
+    blocked = client.delete(f"/api/shared-chats/{room['id']}/messages/{second['id']}", headers=mira)
+    assert blocked.status_code == 409
+    assert "Wait for the response" in blocked.json()["detail"]
 
 
 def test_an_agent_call_can_be_followed_by_a_person_mention(client):

@@ -21,12 +21,14 @@ PRUNE_LABEL = {
     "browser_sessions": "expired browser session",
     "mcp_oauth_flows": "expired MCP sign-in",
     "rate_hits": "expired rate window",
+    "sessions": "idle chat model session",
 }
 
 FORECAST_SNAPSHOT_DAYS = 365
 READ_NOTIFICATION_DAYS = 90
 JOB_ROW_DAYS = 90
 EXTENSION_EVENT_DAYS = 90
+IDLE_SESSION_DAYS = 90
 
 # Every public table carries one recorded retention decision: pruned here
 # (PRUNE_LABEL), pruned by cascade with its parent (CASCADED), or kept with
@@ -69,7 +71,6 @@ KEPT = {
             "chat_members",
             "chat_invitations",
             "chat_agent_runs",
-            "sessions",
         ),
         _CHAT_LIFECYCLE,
     ),
@@ -215,6 +216,18 @@ def prune(*, actor: str = "scheduler") -> dict:
             "DELETE FROM extension_outbox"
             " WHERE status IN ('delivered', 'dead', 'pending') AND created_at < ?",
             (_cutoff(EXTENSION_EVENT_DAYS),),
+        ),
+        # A model session replays everything its agent read on every later
+        # turn, a record deleted since included. An idle chat's sessions go
+        # and the chat stays: the next turn starts fresh, and a room agent
+        # re-reads the room from its join point (shared_chat_agents._prompt).
+        # The separators are chat_threads.PERSONA_SEP and its legacy form,
+        # the same match session_store.delete_thread_sessions uses.
+        "sessions": db.execute_rowcount(
+            "DELETE FROM sessions s USING chat_threads t WHERE t.updated_at < ?"
+            " AND (s.session_id = t.id OR starts_with(s.session_id, t.id || ':')"
+            " OR starts_with(s.session_id, t.id || '--'))",
+            (_cutoff(IDLE_SESSION_DAYS),),
         ),
         # orphans only, never by age: the (entity, entity_id, person) key is
         # the notify-once promise, and an age prune would let an edit of an

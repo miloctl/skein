@@ -51,18 +51,16 @@ def _check_source(source_id: int) -> None:
     who did not write it is a worse lie than a refusal. The agent can still
     answer about the file in the chat turn — that answer goes to the one
     person who attached it, which is the reader who was always allowed it.
+
+    An unshared source reads as absent (scope.missing): any other refusal
+    tells a caller walking ids which of them are somebody's private files.
+    The tool's own docstring carries the guidance (tools/files.py).
     """
     if not source_id:
         return
-    row = db.query_one("SELECT visibility, kind FROM artifacts WHERE id = ?", (source_id,))
-    if not row:
+    row = db.query_one("SELECT visibility FROM artifacts WHERE id = ?", (source_id,))
+    if not row or row["visibility"] != "workspace":
         raise scope.missing("artifacts", source_id)
-    if row["visibility"] != "workspace":
-        raise PermissionError(
-            f"artifact #{source_id} is not shared with the team,"
-            " so a document made from it cannot be shared either."
-            " Answer in the conversation instead."
-        )
 
 
 def create_document(
@@ -130,7 +128,8 @@ def _document_row(artifact_id: int) -> dict:
     "a read whose RESULT decides a later write must hold something").
     """
     row = db.query_one("SELECT * FROM artifacts WHERE id = ? FOR UPDATE", (artifact_id,))
-    if not row:
+    # an unshared artifact reads as absent, for the reason _check_source gives
+    if not row or row["visibility"] != "workspace":
         raise scope.missing("artifacts", artifact_id)
     if row["kind"] != "document":
         # Named, not a generic refusal: an agent told only "no" retries with
