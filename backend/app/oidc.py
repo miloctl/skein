@@ -36,7 +36,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any
+from typing import Any, cast
 
 import jwt as pyjwt
 from jwt import PyJWKClient
@@ -759,8 +759,10 @@ class _SafeJWKClient(PyJWKClient):
                     "The identity provider returned an unusable signing-key response."
                 ) from exc
             if self.jwk_set_cache is not None:
-                # PyJWT fetch_data stores this raw dict despite its PyJWKSet annotation.
-                self.jwk_set_cache.put(jwk_set)  # type: ignore[arg-type]
+                # PyJWT fetch_data stores this raw dict. PyJWT 2.13 annotates put()
+                # as PyJWKSet and 2.15 accepts the dict: a cast type-checks on both,
+                # where an ignore fails the newer one as unused (warn_unused_ignores).
+                self.jwk_set_cache.put(cast(Any, jwk_set))
             with _lock:
                 _jwks_failed_at = float("-inf")
             return jwk_set
