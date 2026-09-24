@@ -160,9 +160,10 @@ def test_a_crew_memory_proposal_is_not_announced_to_the_roster(client, fresh_db)
     engagement's NAME and eighty characters of its memory left that way."""
     from app.services import crews, engagements, notifications, users
 
-    for n in ("insider", "outsider"):
+    for n in ("insider", "partner", "outsider"):
         users.ensure_user(n)
     crew = crews.create_crew("ops", actor="insider")
+    crews.add_member(crew["id"], "partner", actor="insider")
     eng = engagements.create_engagement(
         "Nightshade",
         project_class="migration",
@@ -192,3 +193,27 @@ def test_a_private_engagement_refuses_a_memory_nobody_could_review(client, fresh
         memory.propose_engagement_memory(
             eng["id"], "a thought", actor="ava", viewer=scope.Viewer("ava", True)
         )
+
+
+def test_a_crew_of_one_refuses_a_memory_nobody_could_review(client, fresh_db):
+    """The author may not approve their own engagement memory, and a crew
+    row is read by its members alone, so a one-person crew left the proposal
+    with no approver."""
+    from app.services import crews, engagements, users
+
+    users.ensure_user("ava")
+    users.ensure_user("bo")
+    crew = crews.create_crew("solo", actor="ava")
+    eng = engagements.create_engagement(
+        "Lonely", project_class="prototype", actor="ava", visibility=scope.CREW, crew_id=crew["id"]
+    )
+    ava = scope.Viewer("ava", True)
+    with pytest.raises(ValueError, match="no second person can review"):
+        memory.propose_engagement_memory(eng["id"], "a thought", actor="ava", viewer=ava)
+    crews.add_member(crew["id"], "bo", actor="ava")
+    users.set_active("bo", False)
+    with pytest.raises(ValueError, match="no second person can review"):
+        memory.propose_engagement_memory(eng["id"], "a thought", actor="ava", viewer=ava)
+    users.set_active("bo", True)
+    filed = memory.propose_engagement_memory(eng["id"], "a thought", actor="ava", viewer=ava)
+    assert filed["status"] == "pending"
