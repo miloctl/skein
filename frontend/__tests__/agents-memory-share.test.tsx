@@ -1,13 +1,17 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ api: vi.fn(), strong: true }));
+const mocks = vi.hoisted(() => ({ api: vi.fn(), strong: true, weakHeader: false }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
   return { ...real, api: mocks.api, getUser: () => "tester" };
 });
 vi.mock("next/navigation", () => ({ usePathname: () => "/agents" }));
+vi.mock("@/lib/auth", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/auth")>();
+  return { ...real, trustedHeaderIdentity: () => mocks.weakHeader };
+});
 
 import AgentsPage from "@/app/agents/page";
 import { getStatus } from "@/lib/status";
@@ -56,4 +60,19 @@ describe("sharing a memory with the team", () => {
     await screen.findByRole("button", { name: "Forget memory: focus" });
     expect(screen.queryByRole("button", { name: /Share memory with the team/ })).toBeNull();
   });
+
+  it("tells a trusted-header name with no key that anyone can read its memories", async () => {
+    mocks.strong = false;
+    mocks.weakHeader = true;
+    try {
+      render(<AgentsPage />);
+      await screen.findByRole("button", { name: "Forget memory: focus" });
+      expect(
+        screen.getByText(/Anyone who can reach this server can pick your name and read this\./),
+      ).toBeTruthy();
+    } finally {
+      mocks.weakHeader = false;
+    }
+  });
 });
+

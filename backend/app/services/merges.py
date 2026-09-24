@@ -9,9 +9,32 @@ result would be one the owner never chose. Here the owner chooses twice:
 signed in as the source they ask, and signed in as the target they confirm.
 """
 
+from datetime import UTC, datetime, timedelta
+
 from .. import db
 from .notifications import notify
 from .users import fold, rename_user, resolve_teammate
+
+# A request is one strong call, which a stolen key can make. It lapses after
+# this many days, and deactivation or key revocation cancels it (cancel_for),
+# so a request filed with a leaked credential cannot be confirmed later.
+EXPIRY_DAYS = 7
+
+
+def _expired_before() -> str:
+    # the db.now() format, so the text comparison orders by time
+    return (datetime.now(UTC) - timedelta(days=EXPIRY_DAYS)).isoformat(timespec="seconds")
+
+
+def cancel_for(name: str = "") -> int:
+    """Cancel every pending request naming `name`, or every pending request
+    when `name` is empty (revoke_all_keys: every credential is suspect)."""
+    where, params = ("(source = ? OR target = ?)", (name, name)) if name else ("TRUE", ())
+    return db.execute_rowcount(
+        f"UPDATE merge_requests SET status = 'cancelled', settled_at = ?"  # noqa: S608 — fixed fragments
+        f" WHERE status = 'pending' AND {where}",
+        (db.now(), *params),
+    )
 
 
 def _row(request_id: int) -> dict | None:
@@ -20,22 +43,55 @@ def _row(request_id: int) -> dict | None:
 
 def request(target: str, *, actor: str) -> dict:
     """The source (the actor) asks to merge into `target`."""
-    person = resolve_teammate(target, actor, "target", allow_team=False)
-    if not person or fold(person) == fold(actor):
+    named = resolve_teammate(target, actor, "target", allow_team=False)
+    if not named or fold(named) == fold(actor):
         raise ValueError("Name the other account, not this one.")
     with db.transaction():
-        # the pending check decides the insert (merge_requests_pending)
-        db.name_lock(db.LOCK_IDENTITY, fold(actor))
+        # both identities, sorted, before anything is read: the pending check
+        # decides the insert (merge_requests_pending), and a rename of the
+        # target landing between its lookup and the insert left a request
+        # naming a released name
+        for identity in sorted({fold(actor), fold(named)}):
+            db.name_lock(db.LOCK_IDENTITY, identity)
+        person = resolve_teammate(target, actor, "target", allow_team=False)
+        if not person or fold(person) != fold(named):
+            raise ValueError("Name the other account, not this one.")
+        # a lapsed request would block a new one (merge_requests_pending)
+        db.execute(
+            "UPDATE merge_requests SET status = 'cancelled', settled_at = ?"
+            " WHERE source = ? AND status = 'pending' AND created_at < ?",
+            (db.now(), actor, _expired_before()),
+        )
         if db.query_one(
             "SELECT 1 FROM merge_requests WHERE source = ? AND status = 'pending'", (actor,)
         ):
             raise ValueError("A merge request from this account already waits. Cancel it first.")
+        # refused here, not at confirm: there the request stayed pending and
+        # blocked every later one (users.rename_user refuses the same pair)
+        if db.query_one(
+            "SELECT 1 FROM oidc_identities source JOIN users su ON su.id = source.user_id"
+            " JOIN oidc_identities target ON target.issuer = source.issuer"
+            " JOIN users tu ON tu.id = target.user_id WHERE su.name = ? AND tu.name = ?",
+            (actor, person),
+        ):
+            raise ValueError(
+                "These accounts sign in as different people at the same identity provider."
+                " They cannot be merged."
+            )
         rid = db.execute(
             "INSERT INTO merge_requests (source, target, status, created_at)"
             " VALUES (?, ?, 'pending', ?) RETURNING id",
             (actor, person, db.now()),
         )
         db.log_activity(actor, "request_merge", f"#{rid}")
+        # the account's own person hears of it: a stolen key can file this
+        notify(
+            actor,
+            f"A request to merge this account into {person} was filed from this account."
+            " If you did not file it, cancel it in Settings and revoke your keys.",
+            tier="immediate",
+            link="/settings",
+        )
         notify(
             person,
             f"{actor} asks to merge that account into yours. Confirm or decline in Settings.",
@@ -60,6 +116,17 @@ def confirm(request_id: int, *, actor: str) -> dict:
         # re-read under the locks: a rename or a cancel can land in between
         if not row or row["target"] != actor or row["status"] != "pending":
             raise db.NotFound("merge request not found")
+        if row["created_at"] < _expired_before():
+            raise ValueError(
+                f"This merge request is older than {EXPIRY_DAYS} days."
+                " Ask again from the other account."
+            )
+        active = db.query(
+            "SELECT name FROM users WHERE name IN (?, ?) AND active = 1",
+            (row["source"], row["target"]),
+        )
+        if len(active) != 2:
+            raise ValueError("A deactivated account cannot be merged by request.")
         db.execute(
             "UPDATE merge_requests SET status = 'confirmed', settled_at = ? WHERE id = ?",
             (db.now(), request_id),
@@ -99,8 +166,9 @@ def settle(request_id: int, *, actor: str) -> dict:
 def list_for(person: str) -> dict:
     rows = db.query(
         "SELECT id, source, target, created_at FROM merge_requests"
-        " WHERE status = 'pending' AND (source = ? OR target = ?) ORDER BY id",
-        (person, person),
+        " WHERE status = 'pending' AND (source = ? OR target = ?) AND created_at >= ?"
+        " ORDER BY id",
+        (person, person, _expired_before()),
     )
     return {
         "outgoing": [r for r in rows if r["source"] == person],

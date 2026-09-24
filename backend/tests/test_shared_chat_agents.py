@@ -2496,3 +2496,26 @@ def test_a_room_agent_reads_from_its_join_point_unless_the_history_is_shared(cli
     ]
     assert any(f"added {joiner} as an agent. It reads messages from here on" in n for n in notices)
     assert any(f"added {sharer} as an agent and shared the earlier messages" in n for n in notices)
+
+
+def test_a_re_added_agent_starts_a_new_session_unless_history_is_shared(client, monkeypatch):
+    """Removed and re-added "from here on", the agent kept its model session,
+    and the next turn replayed the earlier prompts to the provider."""
+    from app.services import chat_threads, shared_chat_agents
+
+    agent = sorted(personas.bench_slugs())[0]
+    room, mira = create_room(client)
+    monkeypatch.setattr(shared_chat_agents, "kick", lambda: False)
+    add_agent(client, room["id"], mira, agent)
+    session_id = chat_threads.persona_session_id(room["id"], agent)
+    with db.transaction():
+        db.execute("INSERT INTO sessions (session_id, payload) VALUES (?, '{}')", (session_id,))
+    removed = client.request(
+        "DELETE", f"/api/shared-chats/{room['id']}/agents", json={"agent": agent}, headers=mira
+    )
+    assert removed.status_code == 200
+    readded = client.post(
+        f"/api/shared-chats/{room['id']}/agents", json={"agent": agent}, headers=mira
+    )
+    assert readded.status_code == 200
+    assert not db.query_one("SELECT 1 FROM sessions WHERE session_id = ?", (session_id,))

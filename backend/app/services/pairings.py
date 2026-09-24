@@ -13,10 +13,20 @@ it. The 1:1 journal (private_notes) is the author's alone and needs no pair.
 """
 
 import json
+from datetime import UTC, datetime, timedelta
 
 from .. import db
 from .notifications import notify
 from .users import fold, resolve_teammate
+
+# A subject who declined or ended a pair is not asked again, with a new
+# immediate notice, before this many days pass.
+REASK_DAYS = 7
+
+
+def _cutoff() -> str:
+    # the db.now() format, so the text comparison orders by time
+    return (datetime.now(UTC) - timedelta(days=REASK_DAYS)).isoformat(timespec="seconds")
 
 
 def _teammate(name: str, actor: str) -> str:
@@ -48,6 +58,15 @@ def propose(person: str, *, actor: str, role: str) -> dict:
         existing = _open_pair(lead, subject)
         if existing and (existing["status"] == "accepted" or role == "lead"):
             raise ValueError("A 1:1 pairing between you already exists.")
+        if role == "lead" and db.query_one(
+            "SELECT 1 FROM one_on_one_pairs WHERE lead = ? AND subject = ? AND status = 'ended'"
+            " AND ended_by = subject AND ended_at >= ?",
+            (lead, subject, _cutoff()),
+        ):
+            raise ValueError(
+                f"This teammate declined or ended a pairing with you in the last {REASK_DAYS} days."
+                " Ask again after that."
+            )
         if existing:
             # the subject offers what the lead asked for: that is acceptance
             return accept(int(existing["id"]), actor=actor)
@@ -111,8 +130,8 @@ def end(pair_id: int, *, actor: str) -> dict:
         if not row or actor not in (row["lead"], row["subject"]) or row["status"] == "ended":
             raise db.NotFound("pairing not found")
         db.execute(
-            "UPDATE one_on_one_pairs SET status = 'ended', ended_at = ? WHERE id = ?",
-            (db.now(), pair_id),
+            "UPDATE one_on_one_pairs SET status = 'ended', ended_at = ?, ended_by = ? WHERE id = ?",
+            (db.now(), actor, pair_id),
         )
         db.log_activity(actor, "end_pairing", f"#{pair_id}")
         other = row["subject"] if actor == row["lead"] else row["lead"]
@@ -125,6 +144,16 @@ def end(pair_id: int, *, actor: str) -> dict:
             link="/people",
         )
     return {"id": pair_id, "status": "ended"}
+
+
+def end_all_for(person: str) -> int:
+    """End every open pair `person` is in. A deactivated account neither
+    leads nor is led: its accepted consent must not keep its brief open."""
+    return db.execute_rowcount(
+        "UPDATE one_on_one_pairs SET status = 'ended', ended_at = ?, ended_by = 'system'"
+        " WHERE status <> 'ended' AND (lead = ? OR subject = ?)",
+        (db.now(), person, person),
+    )
 
 
 def list_pairs(person: str) -> dict:
@@ -152,7 +181,9 @@ def list_pairs(person: str) -> dict:
 def record_brief(lead: str, subject: str) -> None:
     """Refuse a brief the subject never accepted, and stamp the pull the
     subject sees. Your own brief needs no pair."""
-    if fold(lead) == fold(subject):
+    # exact names: a legacy fold-duplicate ("Mira" and "mira", which rename
+    # exists to clean up) is another account and needs a pairing
+    if lead == subject:
         return
     with db.transaction():
         n = db.execute_rowcount(

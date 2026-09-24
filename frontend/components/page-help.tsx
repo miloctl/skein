@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { startFirstWatch } from "@/lib/first-watch";
 import { ShortcutText } from "@/components/shortcut";
 import { actionError, api } from "@/lib/api";
+import { useStrongIdentity } from "@/lib/audience";
 
 type Card = {
   id: string;
@@ -18,6 +19,8 @@ type Card = {
 };
 
 export function PageHelp() {
+  // a weak caller sees People as a sign-in banner only (app/people/page.tsx)
+  const strong = useStrongIdentity();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [cards, setCards] = useState<{ path: string; rows: Card[] } | null>(null);
@@ -154,23 +157,24 @@ export function PageHelp() {
               {error || "Loading page help…"}
             </p>
           ) : null}
-          {pageCards?.length === 0 ? (
-            pathname === "/people" ? (
-              <div className="space-y-2 text-xs text-ink-2">
-                <p>
-                  Private 1:1 prep and notes require deployment sign-in or a personal API key.
-                </p>
-                <Link
-                  href="/settings#settings-you"
-                  onClick={() => dismiss()}
-                  className="font-medium text-thread underline"
-                >
-                  Open Settings & access
-                </Link>
-              </div>
-            ) : (
-              <p className="text-xs text-ink-3">No field-guide cards match this page.</p>
-            )
+          {/* on its own, not only when no card matches: the People cards
+              explain pairings, which a weak caller cannot open at all */}
+          {pageCards !== null && pathname === "/people" && !strong ? (
+            <div className="mb-3 space-y-2 text-xs text-ink-2">
+              <p>
+                Private 1:1 prep and notes require deployment sign-in or a personal API key.
+              </p>
+              <Link
+                href="/settings#settings-you"
+                onClick={() => dismiss()}
+                className="font-medium text-thread underline"
+              >
+                Open Settings & access
+              </Link>
+            </div>
+          ) : null}
+          {pageCards?.length === 0 && (pathname !== "/people" || strong) ? (
+            <p className="text-xs text-ink-3">No field-guide cards match this page.</p>
           ) : null}
           {pageCards && pageCards.length > 0 ? (
             <ul id="page-help-cards" className="space-y-3">

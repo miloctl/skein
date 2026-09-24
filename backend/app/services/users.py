@@ -1072,11 +1072,22 @@ def rename_user(
         # receipt of what a consented merge moved, and rewriting its source
         # to the target would erase which account that was. A pending one
         # naming a renamed account can no longer be confirmed as asked.
+        # and one the TARGET filed: its contents now include the source's,
+        # which the source agreed to move here and nowhere further
         db.execute(
             "UPDATE merge_requests SET status = 'cancelled', settled_at = ?"
-            " WHERE status = 'pending' AND (source = ? OR target = ?)",
-            (db.now(), old, old),
+            " WHERE status = 'pending' AND (source IN (?, ?) OR target = ?)",
+            (db.now(), old, new, old),
         )
+        # An administrator's merge ends the source's pairings: the subject
+        # accepted THAT lead, and a merge by someone else must not hand the
+        # consent to another account. A consented merge is one person.
+        if target and not consented:
+            db.execute(
+                "UPDATE one_on_one_pairs SET status = 'ended', ended_at = ?, ended_by = 'system'"
+                " WHERE status <> 'ended' AND (lead = ? OR subject = ?)",
+                (db.now(), old, old),
+            )
         # one_on_one_pairs: a pair between the two halves of one person would
         # pair them with themselves (CHECK lead <> subject), and an open pair
         # both halves hold with one teammate is one pair twice
@@ -1502,6 +1513,11 @@ def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
             # browser session whose upstream tokens have not expired.
             db.execute("DELETE FROM browser_sessions WHERE user_id = ?", (row["id"],))
             delete_for(name, actor=actor)
+            # a deactivated account's accepted consent must not keep its brief
+            # open, nor let it keep pulling others' (pairings.record_brief)
+            from .pairings import end_all_for
+
+            end_all_for(name)
             # and the person's MCP agent, or SKEIN_MCP_USER=<name>-mcp on a
             # stdio process keeps acting with its authority after offboarding
             if agent := _mcp_agent_row(name):

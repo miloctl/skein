@@ -157,6 +157,11 @@ def revoke_key(key_id: int, owner: str) -> dict:
     )
     if not n:
         raise db.NotFound(f"key #{key_id} not found (or not yours)")
+    # a revoked key is a suspect one, and a merge request is one call it can
+    # have made (services/merges.py)
+    from .merges import cancel_for
+
+    cancel_for(owner)
     db.log_activity(owner, "revoke_api_key", f"#{key_id}")
     return {"id": key_id, "active": False}
 
@@ -178,6 +183,11 @@ def revoke_all_keys(*, actor: str) -> dict:
     """Kill switch: revoke every active key (e.g. after rotating the shared
     token, so a leaked token can't have left durable access behind)."""
     n = db.execute_rowcount("UPDATE api_keys SET active = 0 WHERE active = 1")
+    # every credential is suspect: a request filed with one must not be
+    # confirmable after the kill switch (services/merges.py)
+    from .merges import cancel_for
+
+    cancel_for()
     db.log_activity(actor, "revoke_all_api_keys", f"{n} keys")
     # every key holder just lost access; the ledger row reaches the actor's
     # feed alone
@@ -193,6 +203,11 @@ def revoke_keys_for(owner: str, *, actor: str = "system") -> int:
     n = db.execute_rowcount(
         "UPDATE api_keys SET active = 0 WHERE owner = ? AND active = 1", (owner,)
     )
+    # deactivation and every merge land here: a pending merge request that
+    # names this account is cancelled with its credentials
+    from .merges import cancel_for
+
+    cancel_for(owner)
     if n:
         db.log_activity(actor, "revoke_api_keys_for", f"{owner}: {n} key(s)")
     return n
