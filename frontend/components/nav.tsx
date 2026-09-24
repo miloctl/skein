@@ -404,7 +404,11 @@ export function Nav({ children }: { children?: React.ReactNode }) {
                         if (signedIn) {
                           try {
                             // signOut already left for the provider's
-                            // sign-out page, which returns here
+                            // sign-out page, which returns here. A full
+                            // load, never router.push: it drops every
+                            // in-memory copy of the signed-out person's data
+                            // before the next person uses this browser.
+                            // eslint-disable-next-line @next/next/no-location-assign-relative-destination
                             if (!(await signOut())) window.location.assign("/");
                           } catch (error) {
                             reportStatus(actionError(error));

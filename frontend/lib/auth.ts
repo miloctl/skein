@@ -256,6 +256,8 @@ export async function signIn(returnTo?: string): Promise<string> {
       redirect_uri: redirectUri(), scope: cfg.scopes || "openid profile", state,
       code_challenge: base64url(new Uint8Array(digest)), code_challenge_method: "S256" });
     checkGeneration(expected);
+    // the identity provider's own site: router.push cannot leave this origin
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.assign(`${cfg.authorize_url}?${params}`);
     return "";
   } catch (error) { return errorMessage(error); }
