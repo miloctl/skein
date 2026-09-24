@@ -1,5 +1,6 @@
 "use client";
 
+import { WeakIdentityNotice } from "@/components/weak-identity-notice";
 import Link from "next/link";
 import {
   useCallback,
@@ -1029,6 +1030,7 @@ export default function MyDay() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card title="Needs you">
+          <WeakIdentityNotice className="mb-3" />
           {yours.length === 0 ? (
             <p className="text-sm text-ink-3">{emptyState("allclear")}</p>
           ) : (

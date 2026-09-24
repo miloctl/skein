@@ -1,5 +1,6 @@
 "use client";
 
+import { WeakIdentityNotice } from "@/components/weak-identity-notice";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Card as Section, EmptyState } from "@/components/card";
@@ -118,6 +119,7 @@ export function AttachedFilesCard({
         Files you attached to a chat message. Only you can read them, and they
         stay until you delete them.
       </p>
+      <WeakIdentityNotice className="mb-2" />
       {error ? <p className="mb-2 text-sm text-danger">{error}</p> : null}
       {state ? (
         <div className="mb-3">

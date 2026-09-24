@@ -1,5 +1,6 @@
 "use client";
 
+import { WeakIdentityNotice } from "@/components/weak-identity-notice";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { RuntimeProvider } from "../runtime-provider";
@@ -213,6 +214,7 @@ export default function ChatPage() {
         tabIndex={-1}
         className="flex h-full min-h-0 min-w-0 flex-1 flex-col"
       >
+        <WeakIdentityNotice className="m-2 mb-0" />
         {/* one header bar, one control per breakpoint — the toggle lives
             OUTSIDE the sidebar, so it never has to teleport when it hides */}
         <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2 sm:px-4">

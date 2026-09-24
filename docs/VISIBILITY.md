@@ -481,6 +481,14 @@ records its addition (`chat_members.history_from`). The steward can share the
 earlier messages when adding it, and that system message says which, so every
 member sees the choice. Agents added before this rule keep the whole history.
 
+**Trusted-header mode says what it cannot keep private.** A name there is
+whatever a caller types, so a person's own records are only as private as the
+network. The mode keeps working, and every personal surface (solo chats,
+attached files, memories, My Day's notices, your own activity) shows a weak
+caller "Anyone who can reach this server can pick your name and read this.
+Sign in with a key for privacy." (`components/weak-identity-notice.tsx`). A
+team that needs privacy runs `api-key` or `oidc`.
+
 **Administrator actions.** The activity log shows an actor's rows to that
 actor alone, so an action an administrator takes on someone else also sends a
 notice. A rename, a merge into an account, and a deactivation or reactivation

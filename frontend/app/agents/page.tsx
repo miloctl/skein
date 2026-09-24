@@ -1,5 +1,6 @@
 "use client";
 
+import { WeakIdentityNotice } from "@/components/weak-identity-notice";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -1062,6 +1063,7 @@ export default function Agents() {
           title="Team memory — steers agent chats (personal ones only their owner's)"
           className={mode === "memory" ? "" : "hidden"}
         >
+          <WeakIdentityNotice className="mb-2" />
           {errors.memories ? (
             failed("memories")
           ) : memories === null ? (
