@@ -125,13 +125,23 @@ describe("one governed shared-chat agent", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Review agent access" }));
 
+    // the join point is the default: the earlier messages stay out of reach
     expect(
       screen.getByText(
-        "Backend Architect can read this private chat history when a participant calls @backend-architect.",
+        "Backend Architect reads messages from now on, when a participant calls @backend-architect. The earlier messages stay out of its reach.",
       ),
     ).toBeTruthy();
     expect(
-      screen.getByText("The chat history goes to the configured model provider."),
+      screen.getByText(/The messages it reads go to the configured model provider\./),
+    ).toBeTruthy();
+    // sharing the earlier messages is a deliberate step the text follows
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Also share the earlier messages with Backend Architect" }),
+    );
+    expect(
+      screen.getByText(
+        "Backend Architect can read the earlier messages of this chat when a participant calls @backend-architect.",
+      ),
     ).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: "Add Backend Architect to this private chat" }),
@@ -214,7 +224,7 @@ describe("one governed shared-chat agent", () => {
       expect(state.requests).toContainEqual({
         path: "/api/shared-chats/shared-room/agents",
         method: "POST",
-        body: { agent: "code-reviewer", share_history: true },
+        body: { agent: "code-reviewer", share_history: false },
       }),
     );
   });

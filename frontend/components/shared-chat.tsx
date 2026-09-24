@@ -40,7 +40,9 @@ type AccessAction =
       invitationId: number;
       trigger: HTMLButtonElement;
     }
-  | { kind: "add-agent"; persona: BenchPersona; trigger: HTMLButtonElement }
+  // shareHistory: the steward lets the agent read the messages before it
+  // joined (chat_threads.add_shared_chat_agent); off by default
+  | { kind: "add-agent"; persona: BenchPersona; trigger: HTMLButtonElement; shareHistory?: boolean }
   | { kind: "remove-agent"; person: string; trigger: HTMLButtonElement }
   | { kind: "archive"; trigger: HTMLButtonElement }
   | { kind: "leave"; trigger: HTMLButtonElement };
@@ -71,7 +73,9 @@ function accessActionCopy(action: AccessAction) {
   }
   if (action.kind === "add-agent") {
     return {
-      message: `${action.persona.name} can read this private chat history when a participant calls @${action.persona.slug}.`,
+      message: action.shareHistory
+        ? `${action.persona.name} can read the earlier messages of this chat when a participant calls @${action.persona.slug}.`
+        : `${action.persona.name} reads messages from now on, when a participant calls @${action.persona.slug}. The earlier messages stay out of its reach.`,
       label: `Add ${action.persona.name} to this private chat`,
     };
   }
@@ -743,7 +747,7 @@ export function SharedChat({
     } else if (action.kind === "add-agent") {
       succeeded = await memberWrite(`/api/shared-chats/${threadId}/agents`, {
         agent: action.persona.slug,
-        share_history: true,
+        share_history: action.shareHistory === true,
       });
       if (succeeded) {
         setAgentDraft((current) => (current === action.persona.slug ? "" : current));
@@ -1171,9 +1175,22 @@ export function SharedChat({
                 {accessActionCopy(accessAction).message}
               </p>
               {accessAction.kind === "add-agent" ? (
-                <p className="mt-1 text-xs text-danger">
-                  The chat history goes to the configured model provider.
-                </p>
+                <>
+                  <p className="mt-1 text-xs text-danger">
+                    The messages it reads go to the configured model provider.
+                    Every member sees which messages it can read.
+                  </p>
+                  <label className="mt-2 flex items-center gap-1.5 text-xs text-ink-2">
+                    <input
+                      type="checkbox"
+                      checked={accessAction.shareHistory === true}
+                      onChange={(e) =>
+                        setAccessAction({ ...accessAction, shareHistory: e.target.checked })
+                      }
+                    />
+                    Also share the earlier messages with {accessAction.persona.name}
+                  </label>
+                </>
               ) : null}
               <div className="mt-2 flex flex-wrap gap-2">
                 <button

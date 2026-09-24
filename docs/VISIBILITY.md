@@ -474,6 +474,13 @@ the 1:1 journal, notifications and the OIDC binding included. Keys and
 browser sessions are still revoked. A request keeps the names it was made
 with, and a rename cancels a pending one that names the renamed account.
 
+**A room agent reads from its join point.** Each call sends what a room
+agent reads to the model provider, and the earlier messages were written for
+the people in the room. So a new agent starts at the system message that
+records its addition (`chat_members.history_from`). The steward can share the
+earlier messages when adding it, and that system message says which, so every
+member sees the choice. Agents added before this rule keep the whole history.
+
 **Administrator actions.** The activity log shows an actor's rows to that
 actor alone, so an action an administrator takes on someone else also sends a
 notice. A rename, a merge into an account, and a deactivation or reactivation

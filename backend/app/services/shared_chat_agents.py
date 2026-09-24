@@ -438,7 +438,16 @@ def _prompt(run: dict) -> str:
         " AND trigger_message_id < ? ORDER BY trigger_message_id DESC LIMIT 1",
         (run["thread_id"], run["agent"], run["trigger_message_id"]),
     )
-    after = int(previous["trigger_message_id"]) if previous else 0
+    # never before the agent's join point (chat_threads.add_shared_chat_agent):
+    # a steward who did not share the earlier messages kept them from it
+    joined = db.query_one(
+        "SELECT history_from FROM chat_members WHERE thread_id = ? AND person = ?",
+        (run["thread_id"], run["agent"]),
+    )
+    after = max(
+        int(previous["trigger_message_id"]) if previous else 0,
+        int(joined["history_from"]) if joined else 0,
+    )
     separator = "\n\n---\n\n"
     marker = "[Earlier shared-chat messages were omitted from this bounded turn.]\n\n"
     kept: list[str] = []
