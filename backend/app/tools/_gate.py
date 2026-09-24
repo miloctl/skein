@@ -316,14 +316,14 @@ def _gated_write_locked(
         detail = wording.strong_identity_required("Approving a change to your own record")
         receipts.record("refused", entity, detail, actor=actor)
         return json.dumps({"error": detail})
-    private_review = (
-        workspace_only_tools()
-        or bool(review_owner)
-        or review.requester_judges(
-            getattr(requester_viewer(), "name", ""),
-            decision.approver_groups,
-            decision.approver_capabilities,
-        )
+    # A shared chat's requester is strong (StrongUser starts one) but runs
+    # under scope.NOBODY, so the name comes from requester_identity there.
+    # Forcing its review private whatever the rule said left it with no
+    # approver under separated duties or policy-named approvers.
+    private_review = bool(review_owner) or review.requester_judges(
+        requester_identity() if workspace_only_tools() else getattr(viewer, "name", ""),
+        decision.approver_groups,
+        decision.approver_capabilities,
     )
     review_owner = (review_owner or requester_identity()) if private_review else ""
     try:

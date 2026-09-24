@@ -859,6 +859,45 @@ def test_separated_duties_refuse_the_person_the_proposal_came_from(fresh_db, mon
     assert review.approve_change(proposal["id"], actor="hana")["status"] == "approved"
 
 
+def test_separated_duties_send_a_shared_chat_proposal_to_the_team(fresh_db, monkeypatch):
+    """A shared-chat proposal was private to its requester whatever the
+    setting, and separation refuses that requester, so nobody could approve
+    it. The requester_judges rule decides the audience here too."""
+    from app import config
+    from app.agents import identity
+    from app.extensions.core import core_module
+    from app.extensions.registry import ExtensionRegistry
+    from app.services import review, scope, users
+    from app.tools._gate import gated_write
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    monkeypatch.setattr(config, "REVIEW_SEPARATION", True)
+    users.ensure_user("mira")
+    users.ensure_user("bob")
+    # the context shared_chat_agents.py sets for a member's turn
+    tokens = (
+        identity.set_requester_identity("mira"),
+        identity.set_requester_viewer(scope.NOBODY),
+        identity.set_workspace_only_tools(True),
+    )
+    try:
+        filed = json.loads(
+            gated_write("task", "create", {"title": "from the group"}, lambda: {"id": 0})
+        )
+    finally:
+        identity.set_workspace_only_tools(False)
+        identity.reset_requester_viewer(tokens[1])
+        identity.reset_requester_identity(tokens[0])
+    approved = review.approve_change(
+        filed["id"],
+        actor="bob",
+        strong=True,
+        viewer=scope.Viewer("bob", True),
+        policy_registry=ExtensionRegistry.build((core_module(),)),
+    )
+    assert approved["status"] == "approved"
+
+
 def test_separated_duties_still_let_the_requester_reject(fresh_db, monkeypatch):
     """A rule that traps a proposal in the queue is worse than one person
     declining it, so separation gates approval alone."""
