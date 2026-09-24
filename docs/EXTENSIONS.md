@@ -378,7 +378,9 @@ roles. Use the groups that the configured OIDC claim supplies.
 Configure a directory resolver for each OIDC identity contribution. Skein
 uses the resolver to refresh group membership before a verdict. This rule also
 applies to an OIDC user who has no groups. A missing record or unavailable
-resolver fails closed. Skein stores the original authentication strength and
+resolver fails closed. If the application composes no identity or policy
+contribution, Skein skips this refresh, because no verdict reads groups.
+Skein stores the original authentication strength and
 never increases it during refresh. Skein also rejects an inactive local user.
 
 Exactly one identity contribution can own group refresh. Set

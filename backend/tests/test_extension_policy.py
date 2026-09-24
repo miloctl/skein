@@ -3396,6 +3396,47 @@ def test_zero_group_directory_subject_still_requires_refresh(fresh_db):
         ExtensionRegistry.build((module,)).refresh_subject(subject)
 
 
+def test_stock_app_approves_an_oidc_requesters_agent_proposal(fresh_db, monkeypatch):
+    from app import config
+    from app.agents.identity import (
+        reset_agent_identity,
+        reset_requester_identity,
+        set_agent_identity,
+        set_requester_identity,
+    )
+    from app.extensions.core import core_module
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import review, scope, users
+    from app.tools.memory import remember
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    registry = ExtensionRegistry.build((core_module(),))
+    users.ensure_user("mira")
+    policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(
+        PolicySubject("mira", groups=("staff",), strong=True, source="oidc", refresh_required=True)
+    )
+    requester_token = set_requester_identity("mira")
+    agent_token = set_agent_identity("orchestrator")
+    try:
+        proposal = json.loads(remember("check the build on Friday"))
+    finally:
+        reset_agent_identity(agent_token)
+        reset_requester_identity(requester_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+    assert proposal["status"] == "pending"
+
+    approved = review.approve_change(
+        proposal["id"],
+        actor="mira",
+        strong=True,
+        viewer=scope.Viewer("mira", True),
+        policy_registry=registry,
+    )
+    assert approved["status"] == "approved"
+
+
 def test_profile_resolver_cannot_mask_unavailable_group_directory(fresh_db):
     from app.services import users
 
