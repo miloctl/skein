@@ -10,13 +10,24 @@ const identity = vi.hoisted(() => ({
   strong: false,
   briefDown: false,
   roster: "data" as "data" | "empty" | "failed" | "pending",
+  // services/pairings.py: a brief opens only under an accepted pairing
+  pairs: {
+    leading: [{ id: 1, subject: "dana", status: "accepted" }],
+    subject_of: [] as { id: number; lead: string; status: string; last_brief_at: string | null }[],
+  } as { leading: { id: number; subject: string; status: string }[]; subject_of: unknown[] },
+  posts: [] as { path: string; body?: string }[],
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...real,
-    api: (path: string) => {
+    api: (path: string, init?: { method?: string; body?: string }) => {
+      if (init?.method === "POST") {
+        identity.posts.push({ path, body: init.body });
+        return Promise.resolve({ id: 2, status: "proposed" });
+      }
+      if (path === "/api/private/pairs") return Promise.resolve(identity.pairs);
       if (path === "/api/whoami")
         return Promise.resolve({
           user: "tester",
@@ -73,6 +84,8 @@ vi.mock("next/navigation", () => ({
 import PeoplePage from "@/app/people/page";
 
 beforeEach(() => {
+  identity.pairs = { leading: [{ id: 1, subject: "dana", status: "accepted" }], subject_of: [] };
+  identity.posts = [];
   identity.strong = false;
   identity.briefDown = false;
   identity.roster = "data";
@@ -174,4 +187,38 @@ describe("the 1:1 identity boundary", () => {
     // renders under weak identity
     expect(screen.queryByRole("button", { name: "dana" })).toBeNull();
   });
+
+  it("asks for a pairing instead of pulling an unaccepted brief", async () => {
+    identity.strong = true;
+    identity.pairs = { leading: [], subject_of: [] };
+    render(<PeoplePage />);
+    fireEvent.click(await screen.findByRole("button", { name: "dana" }));
+    expect(await screen.findByText(/Their brief opens after dana accepts a 1:1 pairing/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Ask for a 1:1 pairing" }));
+    await waitFor(() =>
+      expect(identity.posts).toContainEqual({
+        path: "/api/private/pairs",
+        body: JSON.stringify({ person: "dana", role: "lead" }),
+      }),
+    );
+  });
+
+  it("lets the subject accept a request and see when a lead last read", async () => {
+    identity.strong = true;
+    identity.pairs = {
+      leading: [],
+      subject_of: [
+        { id: 7, lead: "dana", status: "proposed", last_brief_at: null },
+        { id: 8, lead: "lee", status: "accepted", last_brief_at: null },
+      ],
+    };
+    render(<PeoplePage />);
+    expect(await screen.findByText("dana asks to prepare 1:1s with you.")).toBeTruthy();
+    expect(screen.getByText(/lee prepares 1:1s with you\. Last opened your brief: never\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    await waitFor(() =>
+      expect(identity.posts).toContainEqual({ path: "/api/private/pairs/7/accept", body: undefined }),
+    );
+  });
 });
+

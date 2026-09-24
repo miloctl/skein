@@ -614,6 +614,7 @@ LOCK_OIDC_IDENTITY = 11
 LOCK_MCP_SERVER = 12
 LOCK_ENGAGEMENT = 13
 LOCK_KEY_REQUEST = 14
+LOCK_PAIRING = 15
 
 # EVERY advisory lock is scoped to the current database by this expression.
 # PostgreSQL advisory locks are CLUSTER-global: the key space is shared by

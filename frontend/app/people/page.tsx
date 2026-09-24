@@ -6,6 +6,7 @@ import { actionError, api, loadError } from "@/lib/api";
 import { subscribeIdentity } from "@/lib/shared-chats";
 import { reportStatus } from "@/lib/status";
 import { Card, EmptyState } from "@/components/card";
+import { timeAgo } from "@/lib/time";
 
 type Note = {
   id: number;
@@ -29,6 +30,11 @@ type Brief = {
 };
 
 type User = { name: string; kind: string };
+// services/pairings.py: a lead pulls a brief only while its subject accepted
+type Pairs = {
+  leading: { id: number; subject: string; status: string }[];
+  subject_of: { id: number; lead: string; status: string; last_brief_at: string | null }[];
+};
 type Draft = { body: string; kind: "note" | "feedback" };
 
 export default function PeoplePage() {
@@ -45,6 +51,11 @@ export default function PeoplePage() {
   const kind = drafts[person]?.kind ?? "note";
   const [error, setError] = useState<string | null>(null);
   const [strong, setStrong] = useState<boolean | null>(null);
+  const [pairs, setPairs] = useState<Pairs | null>(null);
+  const [pairBusy, setPairBusy] = useState(false);
+  // read by load(): a brief is fetched only under an accepted pairing, and
+  // each refused fetch still spends the `brief` rate cap
+  const acceptedLeads = useRef<string[]>([]);
   // last-request-wins: clicking Alice then Bob quickly must never render
   // Alice's private notes under Bob's chip
   const generation = useRef(0);
@@ -96,6 +107,11 @@ export default function PeoplePage() {
       .catch((e) => {
         if (g === generation.current) setError(loadError(e));
       });
+    if (!acceptedLeads.current.includes(p)) {
+      setBrief(null);
+      setBriefError("");
+      return;
+    }
     api<Brief>(`/api/private/brief/${encodeURIComponent(p)}`)
       .then((b) => {
         if (g !== generation.current) return;
@@ -111,12 +127,51 @@ export default function PeoplePage() {
       });
   }, []);
 
+  const loadPairs = useCallback(() => {
+    const owner = identityGeneration.current;
+    return api<Pairs>("/api/private/pairs")
+      .then((p) => {
+        if (owner !== identityGeneration.current) return;
+        acceptedLeads.current = p.leading
+          .filter((x) => x.status === "accepted")
+          .map((x) => x.subject);
+        setPairs(p);
+      })
+      .catch((e) => {
+        if (owner === identityGeneration.current) setError(loadError(e));
+      });
+  }, []);
+
+  useEffect(() => {
+    if (strong === true) void loadPairs();
+  }, [strong, loadPairs]);
+
+  const pairAction = async (path: string, body: object | null, done: string) => {
+    if (pairBusy) return;
+    setPairBusy(true);
+    try {
+      await api(path, {
+        method: "POST",
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      reportStatus(done, "confirmation");
+      await loadPairs();
+      if (person) load(person);
+    } catch (e) {
+      reportStatus(actionError(e));
+    } finally {
+      setPairBusy(false);
+    }
+  };
+  const leadPair = pairs?.leading.find((p) => p.subject === person);
+  const subjectPair = pairs?.subject_of.find((p) => p.lead === person);
+
   useEffect(() => {
     // never under weak identity: both endpoints refuse it, and firing them
     // rendered the same refusal twice — once per card — over a notes form
     // whose submit was going to collect a third copy
     if (person && strong !== false) load(person);
-  }, [person, strong, load]);
+  }, [person, strong, load, pairs]);
 
   const teammates = people?.filter((user) => user.kind !== "agent") ?? [];
 
@@ -152,7 +207,8 @@ export default function PeoplePage() {
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
         Private 1:1 prep and feedback journal. Only you can read what you
         write here — it lives outside search, digests, context packs, exports, and
-        every agent surface.
+        every agent surface. A teammate&apos;s brief opens after they accept a 1:1
+        pairing, and they see when you last opened it.
       </p>
 
       {strong === false && (
@@ -213,6 +269,59 @@ export default function PeoplePage() {
             <EmptyState>No teammates are on the roster.</EmptyState>
           ) : (
             <>
+      {pairs && (pairs.leading.length > 0 || pairs.subject_of.length > 0) && (
+        <Card title="1:1 partners" className="mb-6">
+          <ul className="space-y-2 text-sm">
+            {pairs.subject_of.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  {p.status === "proposed"
+                    ? `${p.lead} asks to prepare 1:1s with you.`
+                    : `${p.lead} prepares 1:1s with you. Last opened your brief: ${
+                        p.last_brief_at ? timeAgo(p.last_brief_at) : "never"
+                      }.`}
+                </span>
+                <span className="flex gap-1">
+                  {p.status === "proposed" && (
+                    <button
+                      aria-disabled={pairBusy}
+                      onClick={() => pairAction(`/api/private/pairs/${p.id}/accept`, null, `${p.lead} can now open your brief.`)}
+                      className="rounded bg-thread-solid px-2 py-0.5 text-xs font-medium text-white hover:opacity-90 aria-disabled:opacity-40"
+                    >
+                      Accept
+                    </button>
+                  )}
+                  <button
+                    aria-disabled={pairBusy}
+                    aria-label={`${p.status === "proposed" ? "Decline" : "End"} the 1:1 pairing with ${p.lead}`}
+                    onClick={() => pairAction(`/api/private/pairs/${p.id}/end`, null, p.status === "proposed" ? "Declined." : "Pairing ended.")}
+                    className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line aria-disabled:opacity-40"
+                  >
+                    {p.status === "proposed" ? "Decline" : "End"}
+                  </button>
+                </span>
+              </li>
+            ))}
+            {pairs.leading.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  {p.status === "proposed"
+                    ? `You asked ${p.subject} for a 1:1 pairing. It waits for them.`
+                    : `You prepare 1:1s with ${p.subject}.`}
+                </span>
+                <button
+                  aria-disabled={pairBusy}
+                  aria-label={`${p.status === "proposed" ? "Cancel" : "End"} the 1:1 pairing with ${p.subject}`}
+                  onClick={() => pairAction(`/api/private/pairs/${p.id}/end`, null, p.status === "proposed" ? "Request cancelled." : "Pairing ended.")}
+                  className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line aria-disabled:opacity-40"
+                >
+                  {p.status === "proposed" ? "Cancel" : "End"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
       <div className="mb-6 flex flex-wrap gap-2">
         {teammates.map((u) => (
             <button
@@ -252,7 +361,38 @@ export default function PeoplePage() {
       {person && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Card title="Since last time">
-            {brief === null ? (
+            {leadPair?.status !== "accepted" ? (
+              <div className="space-y-2 text-sm text-ink-2">
+                {leadPair ? (
+                  <p>You asked {person} for a 1:1 pairing. Their brief opens after they accept.</p>
+                ) : (
+                  <>
+                    <p>
+                      Their brief opens after {person} accepts a 1:1 pairing.
+                      They see when you open it.
+                    </p>
+                    <button
+                      aria-disabled={pairBusy}
+                      onClick={() => pairAction("/api/private/pairs", { person, role: "lead" }, `Asked ${person}.`)}
+                      className="rounded-lg bg-thread-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90 aria-disabled:opacity-40"
+                    >
+                      Ask for a 1:1 pairing
+                    </button>
+                  </>
+                )}
+                {!subjectPair && (
+                  <p>
+                    <button
+                      aria-disabled={pairBusy}
+                      onClick={() => pairAction("/api/private/pairs", { person, role: "subject" }, `${person} can now open your brief.`)}
+                      className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line aria-disabled:opacity-40"
+                    >
+                      Let {person} prepare 1:1s with me
+                    </button>
+                  </p>
+                )}
+              </div>
+            ) : brief === null ? (
               briefError ? (
                 <p className="text-sm text-danger">{briefError}</p>
               ) : (

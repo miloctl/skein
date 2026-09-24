@@ -643,6 +643,16 @@ knots:
     link: /dashboard
     since: 2026-09-23
 
+  - id: one_on_one_pairing
+    feature: Prepare 1:1s with a teammate
+    knot: Reef Knot
+    set: bends
+    role: any
+    pitch: One person's recent work in one place, for the lead they chose, and they see when it was read.
+    how: "Open People and select a teammate, then select \"Ask for a 1:1 pairing\". After they accept, you see their brief. To let a lead see your brief, select \"Let them prepare 1:1s with me\". Either of you can end the pairing. Your own 1:1 notes stay yours."
+    link: /people
+    since: 2026-09-23
+
   - id: chat_attachment
     feature: Attach a file to a question
     knot: Timber Hitch
