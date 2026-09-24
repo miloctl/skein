@@ -342,7 +342,11 @@ team this list. Item 1 is the one that blocks everything.
    allowed. Without it, each user signs in again every access-token
    lifetime.
 7. One registered redirect URI per environment:
-   `https://<frontend-route-host>/auth/callback`.
+   `https://<frontend-route-host>/auth/callback`. Register
+   `https://<frontend-route-host>/` as the post-logout redirect URI too,
+   and publish `end_session_endpoint` in discovery: Skein's sign-out then
+   ends the provider session as well. Without it, sign-out ends only the
+   Skein session.
 8. The exact admin group string as the claim emits it. The match is
    case-sensitive.
 9. An access-token lifetime of 2 minutes or more. The frontend refreshes

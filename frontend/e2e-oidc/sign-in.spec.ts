@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const API = process.env.SKEIN_OIDC_API_URL ?? "http://127.0.0.1:8601";
+const IDP = process.env.SKEIN_OIDC_IDP_URL ?? "http://127.0.0.1:8610";
 
 async function sessionCookieMetadata(page: Page) {
   // Playwright's HTTP URL filter hides Secure cookies on 127.0.0.1, including
@@ -68,6 +69,8 @@ test("a callback that did not start in this tab is refused", async ({ page }) =>
 
 test("sign-out revokes the browser cookie and clears another tab's private page", async ({ page }) => {
   await signIn(page);
+  // scripts/stub-idp.py records each provider sign-out it receives
+  const before = (await (await page.request.get(`${IDP}/logouts`)).json()).subjects.length;
   const other = await page.context().newPage();
   await other.goto("/people");
   await expect(other.getByRole("button", { name: /ava/i }).first()).toBeVisible();
@@ -75,7 +78,11 @@ test("sign-out revokes the browser cookie and clears another tab's private page"
   await page.getByRole("button", { name: /ava/i }).first().click();
   const revoked = page.waitForResponse((r) => r.url().endsWith("/api/auth/session") && r.request().method() === "DELETE");
   await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
-  expect((await revoked).status()).toBe(204);
+  expect((await revoked).status()).toBe(200);
+  // the browser went to the provider with its ID token and came back
+  await expect
+    .poll(async () => (await (await page.request.get(`${IDP}/logouts`)).json()).subjects.slice(before))
+    .toEqual(["ava"]);
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible({ timeout: 15_000 });
   await other.bringToFront();
   await expect(other.getByRole("button", { name: "Sign in" })).toBeVisible({ timeout: 15_000 });

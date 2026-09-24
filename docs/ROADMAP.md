@@ -315,8 +315,7 @@ settled (time zone, the auth bridge, `wip_by_person` egress) were dropped
   skip exactly one run of a daily job whose next-day key was already claimed
   by that evening's UTC-keyed run. Deploy outside that window, or accept one
   missed digest.
-- **Auth follow-ons, none blocking:** RP-initiated logout (sign-out is local
-  only, so the IdP session survives), and refresh-token rotation if the
+- **Auth follow-on, not blocking:** refresh-token rotation if the
   deployment's IdP issues rotating tokens.
 - **`promised:` audience is ambiguous at capture time.**
 - **If HMAC is ever added to the activity chain** — changing the preimage

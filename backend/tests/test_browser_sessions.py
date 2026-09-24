@@ -158,7 +158,8 @@ def test_oidc_storage_is_sealed_and_metadata_and_logout_are_local(
     row = fresh_db.query_row("SELECT * FROM browser_sessions")
     assert tokens["access_token"] not in repr(row)
     assert tokens["refresh_token"] not in repr(row)
-    assert json.loads(credentials.unseal(row["sealed_tokens"])) == tokens
+    # no id_token in this provider's answer: stored empty, sign-out stays local
+    assert json.loads(credentials.unseal(row["sealed_tokens"])) == {**tokens, "id_token": ""}
     assert (datetime.fromisoformat(row["expires_at"]) - datetime.now(UTC)).total_seconds() > 28_790
     monkeypatch.setattr(oidc, "validate", lambda token: pytest.fail("metadata contacted provider"))
     monkeypatch.setattr(credentials, "unseal", lambda blob: pytest.fail("logout decrypted tokens"))
@@ -248,6 +249,7 @@ def test_local_refresh_sealing_failure_preserves_rotation_and_retries(
     assert json.loads(credentials.unseal(pending["sealed_tokens"])) == {
         "access_token": "candidate-access",
         "refresh_token": "rotated-refresh",
+        "id_token": "",
         "pending_validation": True,
     }
     assert sessions.metadata(issued.cookie, mode="oidc")["authenticated"]
@@ -261,6 +263,7 @@ def test_local_refresh_sealing_failure_preserves_rotation_and_retries(
     assert json.loads(credentials.unseal(recovered["sealed_tokens"])) == {
         "access_token": "candidate-access",
         "refresh_token": "rotated-refresh",
+        "id_token": "",
     }
     assert exchanges == [tokens["refresh_token"]]
 
@@ -598,3 +601,14 @@ def test_session_limit_prunes_oldest_and_expired(sessions, fresh_db, monkeypatch
         ((datetime.now(UTC) - timedelta(seconds=1)).isoformat(),),
     )
     assert sessions.prune_expired() == 2
+
+
+def test_a_refresh_keeps_the_id_token_from_sign_in(sessions):
+    """A refresh response can omit id_token, and the provider session it
+    names is still this one. Dropped, sign-out at the provider stopped
+    working after the first refresh."""
+    stored = sessions._tokens(
+        {"access_token": "a2", "refresh_token": "r2"},
+        {"access_token": "a1", "refresh_token": "r1", "id_token": "id-from-sign-in"},
+    )
+    assert stored["id_token"] == "id-from-sign-in"

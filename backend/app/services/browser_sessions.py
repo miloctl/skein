@@ -249,7 +249,12 @@ def _tokens(tokens: dict, previous: dict | None = None) -> dict:
         raise SessionUnavailable()
     if not isinstance(refresh, str) or len(refresh) > 64 * 1024:
         raise SessionUnavailable()
-    return {"access_token": access, "refresh_token": refresh}
+    # kept for sign-out at the provider (oidc.logout_url). A refresh response
+    # can omit it, and the one from sign-in still names this provider session.
+    id_token = tokens.get("id_token", (previous or {}).get("id_token", ""))
+    if not isinstance(id_token, str) or len(id_token) > 64 * 1024:
+        raise SessionUnavailable()
+    return {"access_token": access, "refresh_token": refresh, "id_token": id_token}
 
 
 def create_oidc_session(tokens: dict, claims: dict, *, mode: str) -> IssuedSession:
@@ -274,6 +279,25 @@ def create_oidc_session(tokens: dict, claims: dict, *, mode: str) -> IssuedSessi
             raise SessionInvalid()
         _claims(claims)
         return _insert(human, mode=mode, kind="oidc", sealed=sealed, claims=claims)
+
+
+def id_token_for(cookie: str) -> str:
+    """The provider ID token this browser's session holds, or "". Read it
+    before the session is revoked: the revoke deletes the row that holds it.
+
+    Any failure is "": sign-out must work while the credential key or the
+    stored tokens are broken, and it then stays local."""
+    if not cookie or len(cookie) > 128:
+        return ""
+    row = db.query_one(
+        "SELECT kind, sealed_tokens FROM browser_sessions WHERE token_hash = ?", (_hash(cookie),)
+    )
+    if not row or row["kind"] != "oidc" or not row["sealed_tokens"]:
+        return ""
+    try:
+        return str(_unseal(row)["id_token"])
+    except Exception:
+        return ""
 
 
 def revoke(cookie: str) -> None:

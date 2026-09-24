@@ -24,7 +24,7 @@ The database stores a hash of the cookie value. OIDC access and refresh credenti
 
 The server refreshes expired OIDC authority outside database transactions. A bounded lease permits one refresh at a time. A refresh result must still match the session, subject, issuer, client binding, expiry, and lease before it is stored. A transient provider failure leaves the session available for retry. The session lifetime does not extend an access token's authority.
 
-Sign out revokes the server session and expires the cookie without contacting the identity provider. It does not end the identity provider's own sign-in session. Browser tabs serialize requests that change cookies. An old callback cannot restore a completed logout.
+Sign out revokes the server session and expires the cookie first, without contacting the identity provider. Then, if the provider's discovery document names an `end_session_endpoint`, the browser goes there with the session's ID token (`id_token_hint`), the client id, and `post_logout_redirect_uri` set to the app origin followed by `/`, so the provider's own sign-in session ends too (RP-initiated logout). The ID token is kept sealed with the other provider tokens, and a refresh that omits one keeps the token from sign-in. The endpoint comes from discovery only, never from a setting, because the URL carries the ID token. If the provider publishes no endpoint, or discovery fails, sign-out stays local. Browser tabs serialize requests that change cookies. An old callback cannot restore a completed logout.
 
 ## Browser request contract
 
@@ -32,8 +32,8 @@ Sign out revokes the server session and expires the cookie without contacting th
 - `GET /api/auth/session` returns uncached identity, strength, authentication method, and CSRF metadata. It does not refresh the provider token. An anonymous response can carry metadata for clearing an expired cookie, but grants no authentication.
 - `POST /api/auth/token` accepts an authorization code, verifier, and pinned callback URI. It returns session metadata, never provider tokens. Browser-supplied refresh tokens are refused.
 - `POST /api/auth/session/key` accepts a deliberately entered personal API key once and returns the same session metadata.
-- `DELETE /api/auth/session` revokes the session and clears the cookie. It requires an approved Origin and the cookie-bound CSRF value when a cookie exists.
-- `DELETE /api/auth/sessions` revokes every browser session of the cookie's person, this one included, and clears the cookie (Settings → Sign out of every browser). It always requires an approved Origin and the cookie-bound CSRF value. API keys are not touched.
+- `DELETE /api/auth/session` revokes the session and clears the cookie. It requires an approved Origin and the cookie-bound CSRF value when a cookie exists. It returns `{"logout_url": ...}`: the provider sign-out URL, or an empty string when sign-out stays local.
+- `DELETE /api/auth/sessions` revokes every browser session of the cookie's person, this one included, and clears the cookie (Settings → Sign out of every browser). It always requires an approved Origin and the cookie-bound CSRF value. API keys are not touched. It returns `logout_url` for this browser's provider session, like `DELETE /api/auth/session`.
 
 Browser fetches use `credentials: include`. Every protected cookie-authenticated request carries `X-Skein-CSRF`, including reads, uploads, downloads, chat streams, and page-close preference saves. This is also an identity binding: a stale tab cannot send work as a different account after the cookie changes.
 

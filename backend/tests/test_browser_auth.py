@@ -137,7 +137,9 @@ def test_logout_revokes_and_clears_without_provider_access(browser, monkeypatch)
     monkeypatch.setattr(oidc, "exchange", lambda *_: pytest.fail("logout must be local"))
     assert browser.delete("/api/auth/session").status_code == 403
     response = browser.delete("/api/auth/session", headers={"X-Skein-CSRF": info["csrf_token"]})
-    assert response.status_code == 204
+    assert response.status_code == 200
+    # a key session holds no provider session to end
+    assert response.json() == {"logout_url": ""}
     assert "Max-Age=0" in response.headers["set-cookie"]
     assert browser_sessions.metadata(cookie, mode="trusted-header")["authenticated"] is False
 
@@ -157,7 +159,7 @@ def test_signing_out_everywhere_ends_every_session_of_that_person_only(browser):
     assert browser.delete("/api/auth/sessions").status_code == 403
     assert signed_in(elsewhere)
     response = browser.delete("/api/auth/sessions", headers={"X-Skein-CSRF": info["csrf_token"]})
-    assert response.status_code == 204
+    assert response.status_code == 200
     assert "Max-Age=0" in response.headers["set-cookie"]
     assert not signed_in(elsewhere) and not signed_in(here)
     assert signed_in(teammate)
@@ -201,6 +203,74 @@ def test_oidc_exchange_returns_no_provider_credentials(browser, monkeypatch):
     assert "access_token" not in response.json() and "refresh_token" not in response.json()
     assert response.json()["authenticated"] is True
     assert "HttpOnly" in response.headers["set-cookie"]
+
+
+def _oidc_sign_in(browser, monkeypatch) -> dict:
+    monkeypatch.setattr(config, "AUTH_MODE", "oidc")
+    monkeypatch.setattr(config, "OIDC_ISSUER", "https://idp.test")
+    monkeypatch.setattr(config, "OIDC_AUDIENCE", "skein")
+    monkeypatch.setattr(config, "OIDC_CLIENT_ID", "skein-web")
+    claims = {
+        "iss": "https://idp.test",
+        "sub": "subject:ava",
+        "aud": "skein",
+        "exp": time.time() + 600,
+        "preferred_username": "ava",
+    }
+    monkeypatch.setattr(oidc, "validate", lambda _: claims)
+    monkeypatch.setattr(
+        oidc,
+        "exchange",
+        lambda _: {
+            "access_token": "provider-access-secret",
+            "refresh_token": "provider-refresh-secret",
+            "id_token": "provider-id-token",
+            "expires_in": 600,
+        },
+    )
+    response = browser.post(
+        "/api/auth/token",
+        json={"code": "code", "code_verifier": "v" * 43, "redirect_uri": ORIGIN + "/auth/callback"},
+    )
+    assert response.status_code == 200, response.text
+    assert "provider-id-token" not in response.text
+    return response.json()
+
+
+@pytest.mark.parametrize("path", ["/api/auth/session", "/api/auth/sessions"])
+def test_signing_out_also_ends_the_provider_session(browser, monkeypatch, path):
+    """Sign-out was local only: the next person at the browser selected Sign
+    in and was back in the first person's account without a password."""
+    from urllib.parse import parse_qs, urlsplit
+
+    info = _oidc_sign_in(browser, monkeypatch)
+    monkeypatch.setattr(
+        oidc, "metadata", lambda: {"end_session_endpoint": "https://idp.test/logout"}
+    )
+    response = browser.delete(path, headers={"X-Skein-CSRF": info["csrf_token"]})
+    assert response.status_code == 200, response.text
+    target = urlsplit(response.json()["logout_url"])
+    assert (target.scheme, target.netloc, target.path) == ("https", "idp.test", "/logout")
+    assert parse_qs(target.query) == {
+        "id_token_hint": ["provider-id-token"],
+        "post_logout_redirect_uri": [ORIGIN + "/"],
+        "client_id": ["skein-web"],
+    }
+    assert "Max-Age=0" in response.headers["set-cookie"]
+
+
+def test_signing_out_stays_local_when_the_provider_publishes_no_endpoint(browser, monkeypatch):
+    info = _oidc_sign_in(browser, monkeypatch)
+
+    def unreachable():
+        raise oidc.OIDCUnavailable("down")
+
+    for metadata in (lambda: {}, unreachable):
+        monkeypatch.setattr(oidc, "metadata", metadata)
+        response = browser.delete("/api/auth/session", headers={"X-Skein-CSRF": info["csrf_token"]})
+        assert response.status_code == 200
+        assert response.json() == {"logout_url": ""}
+        info = _oidc_sign_in(browser, monkeypatch)
 
 
 def test_oidc_exchange_rejects_foreign_redirect_before_contacting_provider(browser, monkeypatch):
