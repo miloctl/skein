@@ -488,6 +488,27 @@ member sees the choice. Agents added before this rule keep the whole history.
 An agent added again without the history also loses its model session,
 which would replay its earlier prompts.
 
+**A deleted record leaves the model sessions too.** A model session replays
+everything its agent read on every later turn.
+- An attached text file is stored in a session as a pointer, and each restore
+  of its owner's own turn reads the file's current text
+  (`session_store._with_attached_text`). Deleting the file removes it from
+  every later turn. An image description is stored as the file name, like the
+  image bytes.
+- Deleting a room message also deletes the agent answers to it and clears the
+  model session of every agent in the room. Each agent re-reads the room from
+  its join point on its next call, where the message is a placeholder. The
+  delete waits while any agent in the room is answering.
+- A chat with no activity for 90 days loses its model sessions
+  (`retention.IDLE_SESSION_DAYS`). The chat stays, and its agent starts
+  fresh. This bounds how long a record deleted elsewhere stays in a
+  teammate's session, where their agent read it while they were allowed to.
+
+**Who left is an administrator's list.** `/api/users?all=1` adds deactivated
+teammates for an administrator only (`deps.is_administrator`), because the
+Settings roster reverses a deactivation there. Everyone else gets the active
+roster.
+
 **Trusted-header mode says what it cannot keep private.** A name there is
 whatever a caller types, so a person's own records are only as private as the
 network. The mode keeps working, and every personal surface (solo chats,

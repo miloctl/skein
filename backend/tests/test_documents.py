@@ -47,8 +47,12 @@ def test_an_upload_is_never_rewritten(client):
     """The person's own file stays the file they attached. Revising one means
     a new document, so undo costs nothing."""
     upload_id = _upload(client)
-    with pytest.raises(PermissionError, match="not written by an agent"):
+    with pytest.raises(db.NotFound) as refused:
         documents.edit_document(upload_id, "private", "public", actor="agent")
+    # the same sentence as an id nobody holds: a private file reads as absent
+    with pytest.raises(db.NotFound) as absent:
+        documents.edit_document(upload_id + 1000, "private", "public", actor="agent")
+    assert str(refused.value) == str(absent.value).replace(str(upload_id + 1000), str(upload_id))
     row = db.query_one("SELECT path FROM artifacts WHERE id = ?", (upload_id,))
     assert Path(row["path"]).read_bytes() == b"private plans"
 
@@ -58,8 +62,13 @@ def test_a_private_source_cannot_become_a_shared_document(client):
     write a document, and a summary of a private file at the workspace tier is
     that file's content, published, with nobody asked."""
     upload_id = _upload(client)
-    with pytest.raises(PermissionError, match="not shared with the team"):
+    with pytest.raises(db.NotFound) as refused:
         documents.create_document("Summary", "the plans say...", actor="agent", source_id=upload_id)
+    # the same sentence as an id nobody holds: a refusal that names the
+    # file as unshared tells a caller walking ids which ones are private
+    with pytest.raises(db.NotFound) as absent:
+        documents.create_document("S", "x", actor="agent", source_id=upload_id + 1000)
+    assert str(refused.value) == str(absent.value).replace(str(upload_id + 1000), str(upload_id))
     assert not db.query("SELECT 1 FROM artifacts WHERE kind = 'document'")
 
 
@@ -288,7 +297,7 @@ def test_a_refused_document_write_leaves_a_receipt_not_a_raw_error(client):
     receipts.start()
     fn = getattr(files.create_document, "_tool_func", None) or files.create_document.__wrapped__
     out = json.loads(fn("Summary", "the plans say...", source_id=upload_id))
-    assert "not shared with the team" in out["error"]
+    assert out["error"] == documents.scope.missing_text("artifacts", upload_id)
     assert [r["kind"] for r in receipts.drain()] == ["failed"]
 
 

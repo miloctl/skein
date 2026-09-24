@@ -207,3 +207,32 @@ def test_retention_prunes_past_interval_firing_receipts(fresh_db):
     retention.prune(actor="tester")
     left = {r["job"] for r in fresh_db.query("SELECT job FROM job_runs WHERE job LIKE 'fire:%'")}
     assert left == {"fire:annual"}
+
+
+def test_an_idle_chat_loses_its_model_sessions_and_keeps_the_chat(fresh_db):
+    """A session replays what its agent read on every later turn, a record
+    deleted since included. Kept forever, a teammate's deleted note rode
+    every idle chat that had once read it."""
+    from strands.types.session import Session, SessionType
+
+    from app.agents.session_store import DatabaseSessionRepository
+    from app.services import chat_threads
+    from app.services.retention import IDLE_SESSION_DAYS, prune
+
+    repo = DatabaseSessionRepository()
+    for thread, days in (
+        ("idle-chat", IDLE_SESSION_DAYS + 1),
+        ("recent-chat", IDLE_SESSION_DAYS - 1),
+    ):
+        chat_threads.claim_thread(thread, "ava")
+        for session_id in (thread, chat_threads.persona_session_id(thread, "scout")):
+            repo.create_session(Session(session_id=session_id, session_type=SessionType.AGENT))
+        fresh_db.execute(
+            "UPDATE chat_threads SET updated_at = ? WHERE id = ?",
+            (_iso_hours_ago(24 * days), thread),
+        )
+
+    assert prune(actor="tester")["sessions"] == 2
+    left = {r["session_id"] for r in fresh_db.query("SELECT session_id FROM sessions")}
+    assert left == {"recent-chat", "recent-chat:scout"}
+    assert fresh_db.query_one("SELECT 1 FROM chat_threads WHERE id = 'idle-chat'")

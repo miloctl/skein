@@ -655,3 +655,22 @@ def test_a_refused_persona_command_never_stores_a_private_line(client, fresh_db)
             assert r.status_code == 200
             r.read()
     assert fresh_db.query("SELECT id FROM chat_messages WHERE content LIKE '%ZZPRIVATEZZ%'") == []
+
+
+def test_claiming_someone_elses_chat_repeats_nothing_back(client):
+    """An error response never echoes the rejected value (CLAUDE.md). The
+    refusal named the thread id and the caller, the same sentence as for an
+    absent chat but with the caller's own input in it."""
+    assert (
+        client.post(
+            "/api/chat",
+            json={"thread_id": "ava-plans", "message": "/help"},
+            headers={"X-User": "ava"},
+        ).status_code
+        == 200
+    )
+    refused = client.post(
+        "/api/chat", json={"thread_id": "ava-plans", "message": "/help"}, headers={"X-User": "bo"}
+    )
+    assert refused.status_code == 404
+    assert refused.json()["detail"] == "No chat was found."

@@ -465,3 +465,40 @@ def test_a_file_only_message_to_a_persona_reaches_the_persona(client, monkeypatc
     )
     assert r.status_code == 200
     assert "Usage:" not in r.text
+
+
+def test_an_attached_text_file_is_stored_as_a_pointer_to_the_file(client, monkeypatch):
+    """The session keeps a pointer, and each restore reads the file's current
+    text for the person whose own turn it is. A copy of the text in the row
+    would outlive the file: every later turn replayed it to the provider
+    after the person deleted the file."""
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr(team_agent, "_model", lambda **_: _SpendingModel())
+    aid = _upload(client, "roof.md", b"the roof leaks over bay 4")
+    blocks, _ = _attachment_prompt("what is wrong?", [aid], "tester")
+    team_agent.build_agent("t-file", "tester", personal_tools_for="tester")(blocks)
+
+    def restored(owner: str) -> str:
+        agent = team_agent.build_agent("t-file", "tester", personal_tools_for=owner)
+        return json.dumps(agent.messages)
+
+    rows = db.query("SELECT payload FROM session_messages WHERE session_id = 't-file'")
+    assert rows and not [row for row in rows if "bay 4" in row["payload"]]
+    assert "bay 4" in restored("tester")
+    # a shared chat, the runner and a flock pass no owner (team_agent.build_agent)
+    assert "bay 4" not in restored("")
+    assert client.delete(f"/api/files/{aid}").status_code == 200
+    after = restored("tester")
+    assert "bay 4" not in after and "[attached file: roof.md]" in after
+
+
+def test_an_image_description_is_stored_as_the_name_alone():
+    """A description is a copy of the image, and stored it outlives the
+    image the same way the bytes would."""
+    block = session_store.attached_image_block("plan.png", "A floor plan with bay 4 marked.")
+    payload = {"message": {"role": "user", "content": [block, {"text": "where is it?"}]}}
+    stored = session_store._without_attachment_bytes(payload)["message"]["content"]
+    assert stored == [{"text": "[attached file: plan.png]"}, {"text": "where is it?"}]

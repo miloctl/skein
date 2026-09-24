@@ -669,6 +669,24 @@ describe("private shared chat", () => {
     expect(screen.getByRole("status").textContent).toBe("New message 2 from dana.");
   });
 
+  it("says an agent answer went with the message it answered", async () => {
+    state.messages.push({
+      id: 2,
+      thread_id: "shared-room",
+      role: "assistant",
+      author_kind: "agent",
+      author: "scout",
+      content: "",
+      created_at: "2026-08-24T12:02:00+00:00",
+      turn_id: "t-2",
+      reply_to_message_id: 1,
+      deleted_at: "2026-08-24T12:05:00+00:00",
+    });
+    render(<SharedChat threadId="shared-room" />);
+    expect(await screen.findByText("Deleted with the message it answered.")).toBeTruthy();
+    expect(screen.queryByText("The author deleted this message.")).toBeNull();
+  });
+
   it("shows a deletion made in another browser while the room is open", async () => {
     vi.useFakeTimers();
     state.messages.push({

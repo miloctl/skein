@@ -21,6 +21,8 @@ keeps its existing `minimum_core` and needs no change.
 - The REST create models refuse an unknown field with a 422: tasks, notes, questions, decisions, standups, events, blockers, intake, capture, engagements, lessons, promises, milestones, absences, private notes, `POST /api/notifications/read`, `POST /api/users/{name}/rename`, and `POST /api/week/plan`. An unknown field was dropped, so a misspelled `visibility` filed a row at the workspace tier. A client that sends extra fields to these routes must stop sending them.
 - An `/api` request body over 1 MB returns 413 before it is parsed, with or without a Content-Length. Multipart uploads, the forge webhook, and the remote MCP endpoint keep their own limits.
 - Event rows from `/api/events`, the digest, and My Day carry `starts_local` and `ends_local`, the times on the team clock. `starts_at` and `ends_at` are UTC.
+- `POST /api/context-pack/publish` returns `file`, the archive's name, in place of `path`, its absolute path on the server.
+- `GET /api/users?all=1` includes deactivated teammates for an administrator only. Everyone else gets the active roster.
 - Extension API `1.0.0` is unchanged.
 
 ### Behavior
@@ -59,6 +61,8 @@ keeps its existing `minimum_core` and needs no change.
 - Auth and visibility: an API key cannot be minted for a deactivated account. A rename moves the private journal in the same transaction as the roster. A trusted-header caller with no X-User cannot edit crew rows. Accepting a revoked invitation does not tell the caller whether the room is archived.
 - Rate caps: supersede, milestone and blocker edits, and the CI webhook take the write cap. A 1:1 brief pull takes its own cap. Refusals no longer quote the rejected value for provenance kinds, renames, personas, playbook start dates, and duplicate crew or engagement names.
 - Frontend: status messages stay live under the task panel and the capture dialog, and success messages use the confirmation tone. Review verdicts settle against the current queue. Settings and People reload on identity changes only, so a theme paint or a write in another tab no longer clears an unsaved 1:1 note draft. Shared chat keeps its read cursor behind sends and removes deleted messages from open rooms. A chat reply that ends without a done frame is marked as cut. Focus moves to the next row after a delete. Intake number fields can be emptied while typing.
+- Deleted content leaves the model sessions. An attached text file is kept in a chat's history as a pointer, and each later turn reads the file's current text, so a deleted file leaves every later turn. An image description is kept as the file name. Deleting a shared-chat message also deletes the agent answers to it ("Deleted with the message it answered.") and clears every agent session of the room, so each agent re-reads the room from its join point. The delete waits while any agent in the room is answering. A chat with no activity for 90 days loses its model sessions, and the chat stays.
+- Document tools answer for an unshared artifact as for an absent one, and a chat claimed by somebody else answers "No chat was found." without repeating the id.
 - CLI: server text reaches the terminal without control characters, a failed request prints one line instead of a traceback, `skein config` repairs a corrupt file and keeps it at mode 0600, and `skein attention` never waits more than its timeout.
 
 ### Operations

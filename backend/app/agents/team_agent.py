@@ -1634,7 +1634,11 @@ def build_agent(
         conversation_manager=manager,
         system_prompt=system,
         tools=tools,
-        session_manager=session_store.session_manager(thread_id),
+        # personal_tools_for names the person driving their own turn, the
+        # one caller whose attached text files may be read back into it
+        session_manager=session_store.session_manager(
+            thread_id, attachments_for=personal_tools_for
+        ),
         plugins=_offloader_plugins(thread_id, allowed_tools, beh),
         callback_handler=None,
     )

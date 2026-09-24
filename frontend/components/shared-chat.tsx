@@ -1321,7 +1321,11 @@ export function SharedChat({
                     </p>
                     {message.deleted_at ? (
                       <p className={"italic " + (mine ? "text-white/70" : "text-ink-3")}>
-                        The author deleted this message.
+                        {/* services/chat_threads.py::delete_shared_message
+                            deletes an agent's answer with the message it answered */}
+                        {message.author_kind === "agent"
+                          ? "Deleted with the message it answered."
+                          : "The author deleted this message."}
                       </p>
                     ) : (
                       <p className="whitespace-pre-wrap break-words">{message.content}</p>

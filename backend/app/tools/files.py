@@ -53,7 +53,9 @@ def create_document(title: str, content: str, source_id: int = 0, engagement_id:
     Args:
         title: Short title for the document.
         content: The markdown body. A ```mermaid block renders as a diagram.
-        source_id: Optional id of the artifact this was made from.
+        source_id: Optional id of the shared artifact this was made from. A
+            file somebody attached is not shared: answer about it in the
+            conversation instead.
         engagement_id: Optional engagement to file it under.
     """
     payload: dict[str, Any] = {
