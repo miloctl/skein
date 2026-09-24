@@ -7,7 +7,8 @@ them for routine operation.
 
 An **admin** here means a person named in `SKEIN_ADMINS`, or in the IdP
 group that `SKEIN_OIDC_ADMIN_GROUP` names. The admin API calls below need
-that person's credential. Every `oc` command below needs your namespace:
+that person's credential. An API key carries no IdP groups, so a `curl`
+step that sends an admin API key works only for a name in `SKEIN_ADMINS`. Every `oc` command below needs your namespace:
 add `-n <namespace>`.
 
 ## What this system needs from you
