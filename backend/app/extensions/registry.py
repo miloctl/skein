@@ -157,13 +157,16 @@ class ExtensionRegistry:
                 raise PermissionError(
                     f"Identity profile resolver {contribution.name!r} returned groups."
                 )
-        # Requester groups reach a verdict only through an identity mapper or a
-        # policy rule. With neither composed (the stock core app), stale groups
-        # change nothing, and refusing here leaves every OIDC requester's
-        # proposal unapprovable.
-        groups_decide = bool(self.identities or self.policies)
-        if groups_decide and (subject.refresh_required or subject.groups) and not groups_resolved:
-            raise PermissionError("The requester directory identity could not be refreshed.")
+        if (subject.refresh_required or subject.groups) and not groups_resolved:
+            # An identity mapper or policy rule can turn a stale group into a
+            # grant or lift a deny, so either one requires the directory.
+            # Without both (the stock core app), refusing leaves every OIDC
+            # requester's proposal unapprovable. The saved groups are still
+            # dropped: a contributed tool handler reads subject.groups, and
+            # the saved ones can name a group the person has since lost.
+            if self.identities or self.policies:
+                raise PermissionError("The requester directory identity could not be refreshed.")
+            groups = ()
         if not active:
             raise PermissionError("The requester identity is no longer active.")
         # A stored weak identity must never become strong during review resume.
