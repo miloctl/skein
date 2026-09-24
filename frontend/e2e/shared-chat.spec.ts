@@ -69,11 +69,11 @@ test("two invited people call two agents and removal revokes access", async ({
     await ava.getByRole("button", { name: "Review agent access" }).click();
     await expect(
       ava.getByText(
-        "Backend Architect can read this private chat history when a participant calls @backend-architect.",
+        "Backend Architect reads messages from now on, when a participant calls @backend-architect. The earlier messages stay out of its reach.",
       ),
     ).toBeVisible();
     await expect(
-      ava.getByText("The chat history goes to the configured model provider."),
+      ava.getByText(/The messages it reads go to the configured model provider\./),
     ).toBeVisible();
     await ava
       .getByRole("button", { name: "Add Backend Architect to this private chat" })

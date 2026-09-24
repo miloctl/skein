@@ -89,10 +89,12 @@ def test_only_a_steward_adds_dormant_bench_agents(client):
         headers=dana,
     )
     assert refused.status_code == 403
+    # false is a real choice now (the join point); a value that is not a
+    # choice at all is still refused
     assert (
         client.post(
             f"/api/shared-chats/{room['id']}/agents",
-            json={"agent": agent, "share_history": False},
+            json={"agent": agent, "share_history": "sometimes"},
             headers=mira,
         ).status_code
         == 422
@@ -2458,3 +2460,39 @@ def test_an_agent_call_can_be_followed_by_a_person_mention(client):
         headers=mira,
     )
     assert refused.status_code == 400
+
+
+def test_a_room_agent_reads_from_its_join_point_unless_the_history_is_shared(client, monkeypatch):
+    """The first call to a new room agent sent the whole earlier history of the
+    room to the model provider, on one steward's say."""
+    from app.services import shared_chat_agents
+
+    joiner, sharer = sorted(personas.bench_slugs())[:2]
+    room, mira = create_room(client)
+    monkeypatch.setattr(shared_chat_agents, "kick", lambda: False)
+    post_message(client, room["id"], mira, "ZZBEFOREZZ", "join-before")
+    joined = client.post(
+        f"/api/shared-chats/{room['id']}/agents", json={"agent": joiner}, headers=mira
+    )
+    assert joined.status_code == 200
+    add_agent(client, room["id"], mira, sharer)  # the steward shares the history
+    prompts = {}
+    for agent in (joiner, sharer):
+        call = post_message(
+            client, room["id"], mira, f"@{agent} ZZNOWZZ", f"join-{agent}", invoke_agent=agent
+        )
+        run = db.query_row(
+            "SELECT * FROM chat_agent_runs WHERE trigger_message_id = ?", (call["id"],)
+        )
+        prompts[agent] = shared_chat_agents._prompt(run)
+    assert "ZZNOWZZ" in prompts[joiner] and "ZZBEFOREZZ" not in prompts[joiner]
+    assert "ZZBEFOREZZ" in prompts[sharer]
+    notices = [
+        row["content"]
+        for row in db.query(
+            "SELECT content FROM chat_messages WHERE thread_id = ? AND author_kind = 'system'",
+            (room["id"],),
+        )
+    ]
+    assert any(f"added {joiner} as an agent. It reads messages from here on" in n for n in notices)
+    assert any(f"added {sharer} as an agent and shared the earlier messages" in n for n in notices)

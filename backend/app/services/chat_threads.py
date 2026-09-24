@@ -880,8 +880,10 @@ def add_shared_chat_agent(
     *,
     share_history: bool,
 ) -> dict:
-    if not share_history:
-        raise ValueError("history sharing must be confirmed")
+    """`share_history` is the steward's deliberate choice to let the agent
+    read the messages before it joined. Without it the agent starts at its
+    join point: the earlier messages were written for the people in the
+    room, and each call sends what the agent reads to the model provider."""
     if not _AGENT_SLUG.fullmatch(agent):
         raise ValueError("agent is not on the configured bench")
     from . import personas, users
@@ -908,19 +910,27 @@ def add_shared_chat_agent(
         )["n"]
         if int(count) >= SHARED_AGENT_LIMIT:
             raise db.Conflict("This shared chat already has four agents.")
+        # the system message first: its id is the join point, and every
+        # member sees which history the agent reads
+        joined = _system_message(
+            thread_id,
+            f"{actor} added {agent} as an agent and shared the earlier messages with it."
+            f" It stays silent until a participant calls @{agent}."
+            if share_history
+            else f"{actor} added {agent} as an agent. It reads messages from here on,"
+            f" and it stays silent until a participant calls @{agent}.",
+            now,
+        )
         db.execute(
             "INSERT INTO chat_members"
-            " (thread_id, person, role, joined_at, left_at, added_by, last_read_message_id)"
-            " VALUES (?, ?, 'member', ?, NULL, ?, 0)"
+            " (thread_id, person, role, joined_at, left_at, added_by, last_read_message_id,"
+            " history_from)"
+            " VALUES (?, ?, 'member', ?, NULL, ?, 0, ?)"
             " ON CONFLICT (thread_id, person) DO UPDATE SET role = 'member',"
             " joined_at = EXCLUDED.joined_at, left_at = NULL,"
-            " added_by = EXCLUDED.added_by, last_read_message_id = 0",
-            (thread_id, agent, now, actor),
-        )
-        _system_message(
-            thread_id,
-            f"{agent} was added as an agent. It stays silent until a participant calls @{agent}.",
-            now,
+            " added_by = EXCLUDED.added_by, last_read_message_id = 0,"
+            " history_from = EXCLUDED.history_from",
+            (thread_id, agent, now, actor, 0 if share_history else joined),
         )
         db.execute("UPDATE chat_threads SET updated_at = ? WHERE id = ?", (now, thread_id))
         db.log_activity(actor, "add_shared_chat_agent", f"thread {thread_id}")

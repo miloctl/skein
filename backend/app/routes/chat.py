@@ -360,7 +360,9 @@ class SharedAgentNameIn(BaseModel):
 
 
 class SharedAgentIn(SharedAgentNameIn):
-    share_history: Literal[True]
+    # False starts the agent at its join point; True is the steward sharing
+    # the earlier messages with it (chat_threads.add_shared_chat_agent)
+    share_history: bool = False
 
 
 class SharedReadIn(BaseModel):
