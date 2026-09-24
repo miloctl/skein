@@ -199,5 +199,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      # 30 public dumps can each approach the 10Gi database request.
+      # 14 public dumps (services/admin.py BACKUP_KEEP) can each approach the
+      # 10Gi database request. A bound claim cannot shrink, so the request
+      # stays at the size existing claims already hold.
       storage: 320Gi

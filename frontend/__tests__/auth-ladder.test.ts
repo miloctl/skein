@@ -24,6 +24,7 @@ beforeEach(() => {
       cookie = person(); return json(cookie);
     }
     if (url.endsWith("/auth/session") && init?.method === "DELETE") { cookie = anonymous; return new Response(null, { status: 204 }); }
+    if (url.endsWith("/auth/sessions") && init?.method === "DELETE") { cookie = anonymous; return new Response(null, { status: 204 }); }
     if (url.endsWith("/auth/session")) return json(cookie);
     return protectedResponse ? protectedResponse() : json({ ok: true });
   }));
@@ -54,6 +55,18 @@ describe("cookie identity coordination without credential fallback", () => {
     expect(auth.signedInUser()).toBe("ava");
     expect(JSON.stringify(calls)).not.toMatch(/shared-token|sk-skein-other-person|refresh_token/);
     expect(auth.sessionEnd()).toBe("");
+  });
+
+  it("signs out of every browser through the endpoint that ends them all", async () => {
+    cookie = person();
+    const auth = await import("@/lib/auth");
+    await auth.bootstrapSession();
+    await auth.signOut(true);
+    const ended = calls.filter((c) => c.init?.method === "DELETE");
+    expect(ended.map((c) => c.url.replace(/^.*\/api/, "/api"))).toEqual(["/api/auth/sessions"]);
+    expect(new Headers(ended[0].init?.headers).get("X-Skein-CSRF")).toBe("csrf-ava");
+    expect(auth.isSignedIn()).toBe(false);
+    expect(auth.sessionEnd()).toBe("signed-out");
   });
 
   it("does not start an older sign-in whose configuration arrives after logout", async () => {

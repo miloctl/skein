@@ -1,11 +1,18 @@
-"""Monthly retention pruning. activity is the provenance ledger — kept
-forever; everything pruned here is derivable telemetry or already-consumed
-claims/notifications."""
+"""Daily retention pruning. activity is the provenance ledger — kept
+forever; everything pruned here is derivable telemetry, already-consumed
+claims/notifications, or a copy of content that outlived its reason.
 
+Daily, because a horizon is a promise about how long a copy lives: a monthly
+run kept every copy up to a month past it. The horizons and the backup keep
+count (admin.BACKUP_KEEP) together set how long a deleted record can still
+exist anywhere."""
+
+import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from .. import db
-from . import wording
+from . import artifact_files, scope, wording
 
 # every key of `removed` needs an entry: a missing one raises KeyError while
 # building the feed sentence, which is louder and earlier than shipping a
@@ -21,7 +28,11 @@ PRUNE_LABEL = {
     "browser_sessions": "expired browser session",
     "mcp_oauth_flows": "expired MCP sign-in",
     "rate_hits": "expired rate window",
-    "sessions": "idle chat model session",
+    "sessions": "model session",
+    "artifacts": "old daily digest",
+    "context_packs": "old context-pack version",
+    "pending_changes": "cleared proposal",
+    "usage_log": "cleared cost-row name",
 }
 
 FORECAST_SNAPSHOT_DAYS = 365
@@ -29,6 +40,13 @@ READ_NOTIFICATION_DAYS = 90
 JOB_ROW_DAYS = 90
 EXTENSION_EVENT_DAYS = 90
 IDLE_SESSION_DAYS = 90
+# digests, old context-pack versions, and the text of settled proposals and
+# their remote tool calls: copies of records, made for one day's reader
+DERIVED_COPY_DAYS = 180
+# an unattended run's session: scratch once the run wrote what it wrote
+RUNNER_SESSION_DAYS = 30
+# usage_log keeps its cost forever; the requester's name leaves after a year
+USAGE_NAME_DAYS = 365
 
 # Every public table carries one recorded retention decision: pruned here
 # (PRUNE_LABEL), pruned by cascade with its parent (CASCADED), or kept with
@@ -40,7 +58,6 @@ _CHAT_LIFECYCLE = "chat lifecycle owns deletion (delete_thread and folder operat
 _DERIVED = "derived from content: rebuilt on demand, rows leave with their entity"
 KEPT = {
     "activity": "hash-chained provenance ledger, kept forever",
-    "usage_log": "cost history nothing else reconstructs, kept forever",
     "flock_traces": "per-turn token counts usage_log cannot reconstruct",
     "tool_usage": "one row per day/user/surface; the adoption trend is the read",
     "schema_version": "migration receipts the boot depends on",
@@ -53,8 +70,7 @@ KEPT = {
     "agent_authority": "the authority matrix the tool gate reads",
     "agent_wakeups": "one current operational wake state per agent, updated in place",
     "feature_unlocks": "one row per unlocked feature",
-    "pending_changes": "review provenance beside the ledger",
-    "extension_review_invocations": "execution outcome of a reviewed remote write",
+    "extension_review_invocations": "execution outcome of a reviewed remote write; its arguments and result are cleared with its proposal's text (prune)",
     "extension_command_receipts": "extension write receipts: provenance",
     "forge_receipts": "permanent repository/event/raw-payload fingerprints and delivery-ID bindings: pruning re-enables replay after human edits",
     "memories": "owner-forgettable (memory.forget), never age-pruned",
@@ -62,7 +78,6 @@ KEPT = {
     "merge_requests": "consent records for a merge that moved private data, kept as its receipt",
     "search_index": _DERIVED,
     "embeddings": _DERIVED,
-    "context_packs": "versioned pack registry: one row per content change, kept forever",
     **dict.fromkeys(
         (
             "chat_folders",
@@ -91,7 +106,6 @@ KEPT = {
             "events",
             "intake_requests",
             "lessons",
-            "artifacts",
             "findings",
             "finding_dispositions",
             "feedback",
@@ -127,21 +141,19 @@ def _cutoff(days: int) -> str:
 
 @db.transaction()
 def prune(*, actor: str = "scheduler") -> dict:
-    # the TEAM month, matching the local 1st-of-month the scheduler now fires
-    # on (config.TZ_NAME). Keyed on the UTC month, a zone more than 4 hours
-    # east of UTC computes the PREVIOUS month at 04:00 local on the 1st — the
-    # key is already claimed, the prune silently never runs, and the trigger
-    # does not come back for a month.
-    month = db.today().isoformat()[:7]
-    if not db.claim_job("retention-prune", month):
-        return {"skipped": "already pruned this month", "status": "noop"}
+    # the TEAM day, matching the local 04:00 the scheduler fires on
+    # (config.TZ_NAME). Keyed on the UTC day, a zone more than 4 hours east
+    # of UTC computes the PREVIOUS day at 04:00 local: the key is already
+    # claimed, and the prune silently never runs.
+    day = db.today().isoformat()
+    if not db.claim_job("retention-prune", day):
+        return {"skipped": "already pruned today", "status": "noop"}
     # tool_usage is deliberately absent: one row per (day, user, surface), so
     # a year of a ten-person team is a few thousand rows, and the adoption
     # trend is the read it exists for — pruning it deletes the trend.
-    # usage_log is deliberately absent from this list: it is the platform's
-    # cost history (spend per thread and engagement over time), it is not
-    # derivable from anything else, and its ranged reads ride
-    # idx_usage_log_created — kept forever, like activity.
+    # usage_log rows are the platform's cost history (spend per thread and
+    # engagement over time), not derivable from anything else: only the
+    # requester's name leaves them, below.
     # flock_traces is absent for the same reason: it carries the per-turn token
     # counts that usage_log cannot reconstruct (usage rows key on thread +
     # agent, so two flock turns in one thread are indistinguishable there). It
@@ -223,11 +235,28 @@ def prune(*, actor: str = "scheduler") -> dict:
         # re-reads the room from its join point (shared_chat_agents._prompt).
         # The separators are chat_threads.PERSONA_SEP and its legacy form,
         # the same match session_store.delete_thread_sessions uses.
+        # `[^:]+$` keeps an unattended run's id (run:<agent>:<date>, which
+        # starts like the persona session of a chat named "run") out of it.
+        # Thread ids are [A-Za-z0-9_-] (chat_threads._THREAD_ID), so t.id
+        # carries no regex operator.
         "sessions": db.execute_rowcount(
             "DELETE FROM sessions s USING chat_threads t WHERE t.updated_at < ?"
-            " AND (s.session_id = t.id OR starts_with(s.session_id, t.id || ':')"
-            " OR starts_with(s.session_id, t.id || '--'))",
+            " AND (s.session_id = t.id OR s.session_id ~ ('^' || t.id || '(:|--)[^:]+$'))",
             (_cutoff(IDLE_SESSION_DAYS),),
+        )
+        # agent_runner and agent_wakeups name these; the date lives in the
+        # SDK's own session payload, since the table has no column for it
+        + db.execute_rowcount(
+            "DELETE FROM sessions WHERE session_id ~ '^(run|wake):[^:]+:'"
+            " AND payload::jsonb ->> 'created_at' < ?",
+            (_cutoff(RUNNER_SESSION_DAYS),),
+        ),
+        "artifacts": _prune_digests(),
+        "context_packs": _prune_pack_versions(),
+        "pending_changes": _clear_settled_proposals(),
+        "usage_log": db.execute_rowcount(
+            "UPDATE usage_log SET requested_by = '' WHERE requested_by <> '' AND created_at < ?",
+            (_cutoff(USAGE_NAME_DAYS),),
         ),
         # orphans only, never by age: the (entity, entity_id, person) key is
         # the notify-once promise, and an age prune would let an edit of an
@@ -251,3 +280,82 @@ def prune(*, actor: str = "scheduler") -> dict:
         ", ".join(gone) if gone else "nothing old enough to remove",
     )
     return removed
+
+
+def _prune_digests() -> int:
+    """Daily digests past the horizon. Uploads and documents are never
+    age-pruned: removing those is their person's decision."""
+    rows = db.query(
+        "DELETE FROM artifacts WHERE kind = 'digest' AND created_at < ? RETURNING path",
+        (_cutoff(DERIVED_COPY_DAYS),),
+    )
+    for row in rows:
+        if row["path"]:
+            artifact_files.delete_after_commit(Path(row["path"]))
+    return len(rows)
+
+
+def _prune_pack_versions() -> int:
+    """Old context-pack versions and their archive files. The newest version
+    of each pack stays at any age: publish_pack numbers the next version
+    from it, and get_pack serves it."""
+    from .context_pack import _pack_path
+
+    rows = db.query(
+        "DELETE FROM context_packs p WHERE created_at < ? AND version < ("
+        " SELECT MAX(version) FROM context_packs q"
+        " WHERE COALESCE(q.crew_id, 0) = COALESCE(p.crew_id, 0))"
+        " RETURNING COALESCE(crew_id, 0) AS crew_id, version",
+        (_cutoff(DERIVED_COPY_DAYS),),
+    )
+    for row in rows:
+        artifact_files.delete_after_commit(_pack_path(int(row["crew_id"]), int(row["version"]))[1])
+    return len(rows)
+
+
+def _tier_keys() -> frozenset[str]:
+    from .review import _CREATE_PARENT
+
+    return frozenset(
+        {"visibility", "crew_id", *scope.CLASSIFIED.values()}
+        | {key for _table, key in _CREATE_PARENT.values()}
+    )
+
+
+def _clear_settled_proposals() -> int:
+    """The text of a settled proposal past the horizon: the payload and the
+    summary. Who proposed, who judged, the verdict and its time stay.
+
+    The payload keeps the keys review._governing_tier reads for a create
+    whose row is gone or never came: without them the proposal resolves to
+    the workspace tier, and a private create's record reaches the team. An
+    approved first use of a personal MCP tool keeps its server, tool and
+    version, which mcp_tools._first_use_approved matches: without them the
+    tool asks for approval again."""
+    keys = _tier_keys()
+    rows = db.query(
+        "SELECT id, payload FROM pending_changes WHERE status IN ('approved', 'rejected')"
+        " AND reviewed_at < ? AND text_cleared_at IS NULL",
+        (_cutoff(DERIVED_COPY_DAYS),),
+    )
+    now = db.now()
+    for row in rows:
+        try:
+            payload = json.loads(row["payload"] or "{}")
+        except ValueError:
+            payload = {}
+        kept = {k: v for k, v in payload.items() if k in keys} if isinstance(payload, dict) else {}
+        db.execute(
+            "UPDATE pending_changes SET payload = ?, summary = '', text_cleared_at = ? WHERE id = ?",
+            (json.dumps(kept), now, row["id"]),
+        )
+        # completion_unknown keeps its arguments: reconciling it needs them
+        db.execute(
+            "UPDATE extension_review_invocations SET result = '{}', invocation = CASE"
+            " WHEN kind = 'mcp_tool' THEN jsonb_build_object("
+            " 'server', invocation::jsonb -> 'server', 'tool', invocation::jsonb -> 'tool',"
+            " 'version', invocation::jsonb -> 'version')::text ELSE '{}' END"
+            " WHERE change_id = ? AND status IN ('approved', 'rejected')",
+            (row["id"],),
+        )
+    return len(rows)

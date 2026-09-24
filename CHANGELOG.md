@@ -23,6 +23,7 @@ keeps its existing `minimum_core` and needs no change.
 - Event rows from `/api/events`, the digest, and My Day carry `starts_local` and `ends_local`, the times on the team clock. `starts_at` and `ends_at` are UTC.
 - `POST /api/context-pack/publish` returns `file`, the archive's name, in place of `path`, its absolute path on the server.
 - `GET /api/users?all=1` includes deactivated teammates for an administrator only. Everyone else gets the active roster.
+- `DELETE /api/auth/sessions` ends every browser session of the cookie's person, this one included. It requires the cookie-bound CSRF value. Settled `/api/review` rows carry `text_cleared_at`.
 - Extension API `1.0.0` is unchanged.
 
 ### Behavior
@@ -62,6 +63,8 @@ keeps its existing `minimum_core` and needs no change.
 - Rate caps: supersede, milestone and blocker edits, and the CI webhook take the write cap. A 1:1 brief pull takes its own cap. Refusals no longer quote the rejected value for provenance kinds, renames, personas, playbook start dates, and duplicate crew or engagement names.
 - Frontend: status messages stay live under the task panel and the capture dialog, and success messages use the confirmation tone. Review verdicts settle against the current queue. Settings and People reload on identity changes only, so a theme paint or a write in another tab no longer clears an unsaved 1:1 note draft. Shared chat keeps its read cursor behind sends and removes deleted messages from open rooms. A chat reply that ends without a done frame is marked as cut. Focus moves to the next row after a delete. Intake number fields can be emptied while typing.
 - Deleted content leaves the model sessions. An attached text file is kept in a chat's history as a pointer, and each later turn reads the file's current text, so a deleted file leaves every later turn. An image description is kept as the file name. Deleting a shared-chat message also deletes the agent answers to it ("Deleted with the message it answered.") and clears every agent session of the room, so each agent re-reads the room from its join point. The delete waits while any agent in the room is answering. A chat with no activity for 90 days loses its model sessions, and the chat stays.
+- Settings → You has "Sign out of every browser". It ends your session in every browser, this one included. Your API keys keep working.
+- Copies have horizons: daily digests, old context-pack versions and the text of settled proposals leave after 180 days, an unattended agent run's session after 30 days, and the requester's name on a cost row after 365 days. A proposal keeps who proposed, who judged and the verdict, and the review list says "The text was deleted after 180 days." An approved first use of a personal MCP tool stays approved.
 - Document tools answer for an unshared artifact as for an absent one, and a chat claimed by somebody else answers "No chat was found." without repeating the id.
 - CLI: server text reaches the terminal without control characters, a failed request prints one line instead of a traceback, `skein config` repairs a corrupt file and keeps it at mode 0600, and `skein attention` never waits more than its timeout.
 
@@ -74,6 +77,8 @@ keeps its existing `minimum_core` and needs no change.
 - The workplace template installs `skein-agents` through `skein-agents.lock` with `--require-hashes`. The template digest is zeros and fails the build until the consumer pins the digest of the published wheel.
 - The example production egress policy allows DNS on port 5353, the CoreDNS pod port that OpenShift matches after the Service rewrite. The example dev Routes carry an IP allowlist annotation with a placeholder range that admits nobody until an operator sets it. The images keep code read-only to the runtime user, and the workplace Deployments carry resource requests and limits.
 - The Gitea CI checkout token no longer lands in `.git/config`, and the Gitea e2e job has the postgres service the GitHub job has.
+- The retention prune runs daily at 04:00 instead of monthly. Migration `041_pending_change_text_cleared.sql` adds `pending_changes.text_cleared_at`.
+- The backup mirror keeps 14 dumps, the same count as local, instead of 30. The first backup after the upgrade deletes the older mirror dumps. Copy any you must keep before you upgrade.
 - Same-day backup retries mirror the partial backup instead of dumping again. The nightly chain check streams the ledger in batches. Retention prunes interval-job receipts.
 
 ## 0.6.6 — 2026-09-23

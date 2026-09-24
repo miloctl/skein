@@ -504,6 +504,21 @@ everything its agent read on every later turn.
   fresh. This bounds how long a record deleted elsewhere stays in a
   teammate's session, where their agent read it while they were allowed to.
 
+**Copies have horizons.** The daily prune (`services/retention.py`) removes
+copies of records that outlived their reason:
+- 180 days: daily digests, old context-pack versions (never a pack's newest),
+  and the text of a settled proposal and of its remote tool call. The
+  proposal keeps who proposed, who judged, the verdict and the keys that decide
+  who may see it. An approved first use of a personal MCP tool keeps its
+  server, tool and version, so the approval holds.
+- 30 days: the model session of an unattended agent run.
+- 365 days: the requester's name on a cost row. The cost stays.
+- 90 days of no activity: a chat's model sessions (above).
+
+The local backups and the off-site mirror both keep 14 dumps
+(`admin.BACKUP_KEEP`). A record deleted today can live in older dumps for 14
+more days, and that is the longest any deletion takes.
+
 **Who left is an administrator's list.** `/api/users?all=1` adds deactivated
 teammates for an administrator only (`deps.is_administrator`), because the
 Settings roster reverses a deactivation there. Everyone else gets the active

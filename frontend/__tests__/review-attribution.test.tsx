@@ -31,6 +31,16 @@ vi.mock("@/lib/api", async (importOriginal) => {
             reviewed_by: "ava",
             reviewed_override: 0,
           },
+          {
+            ...base,
+            id: 3,
+            origin: "agent",
+            payload: {},
+            summary: "",
+            text_cleared_at: "2026-09-23T04:00:00+00:00",
+            reviewed_by: "ava",
+            reviewed_override: 0,
+          },
         ]);
       return Promise.resolve([]);
     },
@@ -53,5 +63,7 @@ describe("review attribution", () => {
     fireEvent.click(heading.closest("summary")!);
     expect(details.open).toBe(true);
     expect(details.textContent).toContain("by scout · accepted by ava");
+    // services/retention.py cleared this one: the row says why it has no text
+    expect(details.textContent).toContain("#3 The text was deleted after 180 days.");
   });
 });

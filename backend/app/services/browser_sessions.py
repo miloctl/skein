@@ -291,6 +291,20 @@ def revoke(cookie: str) -> None:
                 db.log_activity(human["name"], "revoke_browser_session", deleted["kind"])
 
 
+def revoke_all(cookie: str, *, mode: str) -> int:
+    """Every browser session of this session's person, this one included:
+    a stolen copy of this cookie is one of the sessions to end. API keys
+    stay, because revoking them is its own action (api_keys.revoke_key).
+
+    No identity lock, like revoke: a refresh racing this rewrites its own
+    row by token_hash, and a deleted row matches nothing (_refresh)."""
+    with db.transaction():
+        row, human = _row(cookie, mode)
+        n = db.execute_rowcount("DELETE FROM browser_sessions WHERE user_id = ?", (row["user_id"],))
+        db.log_activity(human["name"], "revoke_all_browser_sessions", f"{n} session(s)")
+    return n
+
+
 def _unseal(row: dict) -> dict:
     try:
         tokens = json.loads(credentials.unseal(row["sealed_tokens"]))

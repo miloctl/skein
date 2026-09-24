@@ -88,6 +88,9 @@ type Change = {
   action: string;
   payload: Record<string, unknown>;
   summary: string;
+  // set when services/retention.py cleared the summary and payload of a
+  // settled proposal past its horizon
+  text_cleared_at?: string | null;
   proposed_by: string;
   requested_by: string | null;
   // "private" when the proposal reaches its owner alone: an agent's
@@ -1045,7 +1048,10 @@ export default function ReviewPage() {
                 {c.execution_status === "completion_unknown"
                   ? "Completion unknown — do not retry. "
                   : "✅ "}
-                #{c.id} {c.summary}{" "}
+                #{c.id}{" "}
+                {c.text_cleared_at
+                  ? "The text was deleted after 180 days."
+                  : c.summary}{" "}
                 <span className="text-ink-3">by {c.proposed_by}</span>
                 {/* authorship and authorization are two claims: the reviewer
                     who accepted renders on every row, not only overrides */}

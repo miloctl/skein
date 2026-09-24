@@ -83,7 +83,7 @@ def test_retention_prune(fresh_db):
     assert removed["forecast_snapshots"] == 1
     assert removed["notifications"] == 1  # unread rows are never pruned
     assert removed["job_runs"] == 1
-    assert prune(actor="tester") == {"skipped": "already pruned this month", "status": "noop"}
+    assert prune(actor="tester") == {"skipped": "already pruned today", "status": "noop"}
     assert fresh_db.query_row("SELECT COUNT(*) AS n FROM notifications")["n"] == 1
 
 
@@ -236,3 +236,124 @@ def test_an_idle_chat_loses_its_model_sessions_and_keeps_the_chat(fresh_db):
     left = {r["session_id"] for r in fresh_db.query("SELECT session_id FROM sessions")}
     assert left == {"recent-chat", "recent-chat:scout"}
     assert fresh_db.query_one("SELECT 1 FROM chat_threads WHERE id = 'idle-chat'")
+
+
+def _backdate(fresh_db, table: str, column: str, days: int, row_id) -> None:
+    fresh_db.execute(
+        f"UPDATE {table} SET {column} = ? WHERE id = ?",  # noqa: S608 — test constants
+        (_iso_hours_ago(24 * days), row_id),
+    )
+
+
+def test_the_prune_runs_daily():
+    """A horizon is a promise about how long a copy lives. Monthly, every
+    copy lived up to a month past its horizon."""
+    from app.services import jobs
+
+    spec = next(job for job in jobs.JOBS if job.name == "retention-prune")
+    assert "day" not in spec.trigger and spec.period_hours == 24
+
+
+def test_old_digests_leave_with_their_files_and_documents_stay(fresh_db):
+    from pathlib import Path
+
+    from app.services import digest, documents
+    from app.services.retention import DERIVED_COPY_DAYS, prune
+
+    path = Path(digest.publish_digest(actor="tester", force=True)["path"])
+    old = fresh_db.query_row("SELECT id FROM artifacts WHERE kind = 'digest'")["id"]
+    _backdate(fresh_db, "artifacts", "created_at", DERIVED_COPY_DAYS + 1, old)
+    doc = documents.create_document("Plan", "# Plan\n", actor="scout")["id"]
+    _backdate(fresh_db, "artifacts", "created_at", DERIVED_COPY_DAYS + 30, doc)
+
+    assert prune(actor="tester")["artifacts"] == 1
+    assert not path.exists()
+    assert fresh_db.query_one("SELECT 1 FROM artifacts WHERE id = ?", (doc,))
+
+
+def test_old_context_pack_versions_go_and_the_newest_stays(client, fresh_db):
+    from app.services import context_pack
+    from app.services.retention import DERIVED_COPY_DAYS, prune
+
+    first = context_pack.publish_pack(actor="mira")
+    client.post("/api/decisions", json={"title": "Ship weekly", "decision": "always"})
+    second = context_pack.publish_pack(actor="mira")
+    assert second["version"] == first["version"] + 1
+    for row in fresh_db.query("SELECT id FROM context_packs"):
+        _backdate(fresh_db, "context_packs", "created_at", DERIVED_COPY_DAYS + 1, row["id"])
+
+    assert prune(actor="tester")["context_packs"] == 1
+    assert not context_pack._pack_path(0, first["version"])[1].exists()
+    assert context_pack._pack_path(0, second["version"])[1].exists()
+    assert context_pack.publish_pack(actor="mira")["version"] == second["version"]
+
+
+def test_finished_agent_run_sessions_go_after_their_horizon(fresh_db):
+    """An unattended run's session is scratch once the run wrote what it
+    wrote, and it holds every tool result the run read."""
+    from strands.types.session import Session, SessionType
+
+    from app.agents.session_store import DatabaseSessionRepository
+    from app.services import chat_threads
+    from app.services.retention import RUNNER_SESSION_DAYS, prune
+
+    repo = DatabaseSessionRepository()
+    # a chat named "run", in use: its persona session starts like a run id
+    chat_threads.claim_thread("run", "ava")
+    for session_id in ("run:scout:2026-01-01", "wake:scout:3", "run:scout"):
+        repo.create_session(Session(session_id=session_id, session_type=SessionType.AGENT))
+    fresh_db.execute(
+        "UPDATE sessions SET payload = jsonb_set(payload::jsonb, '{created_at}', to_jsonb(?::text))::text"
+        " WHERE session_id IN ('run:scout:2026-01-01', 'run:scout')",
+        (_iso_hours_ago(24 * (RUNNER_SESSION_DAYS + 1)),),
+    )
+
+    assert prune(actor="tester")["sessions"] == 1
+    left = {r["session_id"] for r in fresh_db.query("SELECT session_id FROM sessions")}
+    assert left == {"wake:scout:3", "run:scout"}
+
+
+def test_a_settled_proposal_loses_its_text_and_keeps_its_audience(fresh_db):
+    """Cleared to nothing, a rejected private create resolves to the
+    workspace tier (review._declared_tier), and the record of a proposal only
+    its person could read reaches the team."""
+    import json
+
+    from app.services import review
+    from app.services.retention import DERIVED_COPY_DAYS, prune
+
+    change = review.propose_change(
+        "standup",
+        "create",
+        {"author": "ava", "visibility": "private", "yesterday": "interviewed elsewhere"},
+        summary="ava's standup: interviewed elsewhere",
+        actor="scout",
+        requested_by="ava",
+    )
+    review.reject_change(change["id"], actor="ava", viewer=review.scope.Viewer("ava", True))
+    before = review._governing_tier(
+        fresh_db.query_row("SELECT * FROM pending_changes WHERE id = ?", (change["id"],))
+    )
+    _backdate(fresh_db, "pending_changes", "reviewed_at", DERIVED_COPY_DAYS + 1, change["id"])
+
+    assert prune(actor="tester")["pending_changes"] == 1
+    row = fresh_db.query_row("SELECT * FROM pending_changes WHERE id = ?", (change["id"],))
+    assert "interviewed" not in row["payload"] + row["summary"]
+    assert json.loads(row["payload"]) == {"author": "ava", "visibility": "private"}
+    assert row["text_cleared_at"] and row["status"] == "rejected" and row["reviewed_by"] == "ava"
+    assert review._governing_tier(row) == before == ("private", None, "ava")
+
+
+def test_a_cost_row_loses_its_requester_name_after_a_year(fresh_db):
+    from app.services.retention import USAGE_NAME_DAYS, prune
+
+    for days in (USAGE_NAME_DAYS + 1, USAGE_NAME_DAYS - 1):
+        fresh_db.execute(
+            "INSERT INTO usage_log (thread_id, model_id, created_at, requested_by, cost_usd)"
+            " VALUES ('room', 'm', ?, 'ava', 0.5)",
+            (_iso_hours_ago(24 * days),),
+        )
+
+    assert prune(actor="tester")["usage_log"] == 1
+    rows = fresh_db.query("SELECT requested_by, cost_usd FROM usage_log ORDER BY created_at")
+    assert [(r["requested_by"], r["cost_usd"]) for r in rows] == [("", 0.5), ("ava", 0.5)]

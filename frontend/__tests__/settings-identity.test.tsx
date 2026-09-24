@@ -565,6 +565,22 @@ describe("Settings identity states", () => {
     expect(screen.queryByRole("button", { name: /Delete from browser/ })).toBeNull();
   });
 
+  it("signs out of every browser only for a live browser session", async () => {
+    render(<SettingsPage />);
+    await screen.findByLabelText("Personal API key");
+    expect(screen.queryByRole("button", { name: "Sign out of every browser" })).toBeNull();
+  });
+
+  it("asks the server to end every browser session of this person", async () => {
+    state.session = { ...state.session, authenticated: true, user: "operator", strong: true, auth_method: "oidc", csrf_token: "csrf-operator" };
+    render(<SettingsPage />);
+    const button = await screen.findByRole("button", { name: "Sign out of every browser" });
+    expect(button.getAttribute("aria-describedby")).toBe("sign-out-everywhere-help");
+    expect(document.getElementById("sign-out-everywhere-help")!.textContent).toContain("this one included");
+    fireEvent.click(button);
+    await waitFor(() => expect(state.logout).toHaveBeenCalledWith(true));
+  });
+
   it("reports a refused key exchange without changing the current session", async () => {
     state.session = { ...state.session, authenticated: true, user: "operator", strong: true, auth_method: "oidc", csrf_token: "csrf-operator" };
     state.keyExchange.mockRejectedValue(new Error("This key did not establish strong identity. Check the key, then try again."));

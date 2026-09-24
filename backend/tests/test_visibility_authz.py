@@ -966,6 +966,10 @@ _UNFILTERED_READS = {
     # --- deliberate carve-outs, argued where the code lives ---
     "absences.py::away_today": "capacity must be honest — see the comment there",
     "absences.py::weekday_overlap": "same",
+    "retention.py::_prune_digests": (
+        "deletes digest rows past their horizon and returns only their file"
+        " paths, which it deletes; no row text reaches a reader"
+    ),
     "retention.py::prune": (
         "its orphan-reaping NOT IN subqueries decide what to DELETE, so a"
         " filter there does not hide rows — it deletes live ones"

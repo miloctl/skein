@@ -408,7 +408,7 @@ deploy repository.
 
 The base sizes `skein-data` at 360Gi and the mirror at 320Gi against the
 10Gi database request. The data PVC covers 14 full dumps, 14 public dumps,
-one portable export, and artifact headroom. The mirror covers 30 public dumps.
+one portable export, and artifact headroom. The mirror keeps 14 public dumps, the same count as local, and its request leaves room to spare.
 These values do not assume compression. If an overlay changes the database
 request or retention, patch both recovery volumes with the same calculation.
 
