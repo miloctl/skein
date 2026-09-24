@@ -157,7 +157,12 @@ class ExtensionRegistry:
                 raise PermissionError(
                     f"Identity profile resolver {contribution.name!r} returned groups."
                 )
-        if (subject.refresh_required or subject.groups) and not groups_resolved:
+        # Requester groups reach a verdict only through an identity mapper or a
+        # policy rule. With neither composed (the stock core app), stale groups
+        # change nothing, and refusing here leaves every OIDC requester's
+        # proposal unapprovable.
+        groups_decide = bool(self.identities or self.policies)
+        if groups_decide and (subject.refresh_required or subject.groups) and not groups_resolved:
             raise PermissionError("The requester directory identity could not be refreshed.")
         if not active:
             raise PermissionError("The requester identity is no longer active.")
