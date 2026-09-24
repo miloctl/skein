@@ -357,3 +357,72 @@ def test_a_cost_row_loses_its_requester_name_after_a_year(fresh_db):
     assert prune(actor="tester")["usage_log"] == 1
     rows = fresh_db.query("SELECT requested_by, cost_usd FROM usage_log ORDER BY created_at")
     assert [(r["requested_by"], r["cost_usd"]) for r in rows] == [("", 0.5), ("ava", 0.5)]
+
+
+def test_the_idle_prune_takes_one_chat_s_sessions_and_nobody_else_s(fresh_db):
+    """`--` is inside the thread-id charset, so `abc--x` can be another
+    person's whole chat, and a run id starts like a persona session of a
+    chat named "run"."""
+    from strands.types.session import Session, SessionType
+
+    from app.agents.session_store import DatabaseSessionRepository
+    from app.services import chat_threads
+    from app.services.retention import IDLE_SESSION_DAYS, prune
+
+    repo = DatabaseSessionRepository()
+    chat_threads.claim_thread("abc", "ava")
+    chat_threads.claim_thread("abc--x", "bo")
+    chat_threads.claim_thread("run", "ava")
+    for session_id in ("abc", "abc:scout", "abc--scout", "abc--x", "run", "run:scout:2026-09-01"):
+        repo.create_session(Session(session_id=session_id, session_type=SessionType.AGENT))
+    fresh_db.execute(
+        "UPDATE chat_threads SET updated_at = ? WHERE id IN ('abc', 'run')",
+        (_iso_hours_ago(24 * (IDLE_SESSION_DAYS + 1)),),
+    )
+    prune(actor="tester")
+    left = {r["session_id"] for r in fresh_db.query("SELECT session_id FROM sessions")}
+    assert left == {"abc--x", "run:scout:2026-09-01"}
+
+
+def test_a_remote_call_with_an_unknown_outcome_keeps_its_text(fresh_db):
+    """Reconciling it needs its arguments, and the review list names it by
+    its summary. An automatic rejection leaves its invocation 'pending', and
+    the prune skipped that one's arguments for good."""
+    from app.services import review
+    from app.services.retention import DERIVED_COPY_DAYS, prune
+
+    unknown = review.propose_extension_invocation(
+        "core_tool",
+        {"tool": "t"},
+        {"tool": "t", "secret": "UNKNOWN-ARGS"},
+        summary="stuck call",
+        actor="scout",
+        requested_by="ava",
+    )["id"]
+    refused = review.propose_extension_invocation(
+        "core_tool",
+        {"tool": "t"},
+        {"tool": "t", "secret": "REFUSED-ARGS"},
+        summary="refused call",
+        actor="scout",
+        requested_by="ava",
+    )["id"]
+    fresh_db.execute(
+        "UPDATE pending_changes SET status = 'rejected', reviewed_at = ? WHERE id IN (?, ?)",
+        (_iso_hours_ago(24 * (DERIVED_COPY_DAYS + 1)), unknown, refused),
+    )
+    fresh_db.execute(
+        "UPDATE extension_review_invocations SET status = 'completion_unknown' WHERE change_id = ?",
+        (unknown,),
+    )
+    assert prune(actor="tester")["pending_changes"] == 1
+    kept = fresh_db.query_row(
+        "SELECT p.summary, i.invocation FROM pending_changes p"
+        " JOIN extension_review_invocations i ON i.change_id = p.id WHERE p.id = ?",
+        (unknown,),
+    )
+    assert kept["summary"] == "stuck call" and "UNKNOWN-ARGS" in kept["invocation"]
+    cleared = fresh_db.query_row(
+        "SELECT invocation FROM extension_review_invocations WHERE change_id = ?", (refused,)
+    )
+    assert "REFUSED-ARGS" not in cleared["invocation"]

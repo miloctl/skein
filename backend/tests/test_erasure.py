@@ -9,7 +9,6 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import pytest
 from conftest import _strong
 
 from app import db
@@ -132,11 +131,115 @@ def test_reactivation_inside_the_grace_period_keeps_everything(client, fresh_db)
     assert erasure.holdings("leaver")["standups"] == 1
 
 
-def test_an_active_account_is_never_erased(client, fresh_db):
+def test_an_account_that_is_not_due_is_never_erased(client, fresh_db):
+    """erase_due reads its list before any lock, so erase checks again: an
+    account reactivated in between, or deactivated again since, keeps its
+    data, and the job does not fail over it."""
     _departing_person(client)
-    with pytest.raises(ValueError, match="deactivated"):
-        erasure.erase("leaver")
+    assert erasure.erase("leaver") == {}  # active
+    users.set_active("leaver", False, actor="ava")
+    assert erasure.erase("leaver") == {}  # inside the grace period
     assert erasure.holdings("leaver")["standups"] == 1
+
+
+def test_the_first_erase_lands_on_the_date_shown(client, fresh_db):
+    """The roster says "on <date>". A clock that counted to the second
+    erased a day later than it said for most deactivations."""
+    users.ensure_human_identity("leaver")
+    users.set_active("leaver", False, actor="ava")
+    day = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    late_on_the_day = day - timedelta(days=erasure.GRACE_DAYS) + timedelta(hours=23)
+    db.execute(
+        "UPDATE users SET deactivated_at = ? WHERE name = 'leaver'",
+        (late_on_the_day.isoformat(timespec="seconds"),),
+    )
+    assert erasure.erase_on(late_on_the_day.isoformat()) == day.date().isoformat()
+    erasure.erase_due()
+    assert db.query_one("SELECT erased_at FROM users WHERE name = 'leaver'")["erased_at"]
+    # one day less and it is not due yet
+    users.set_active("leaver", True, actor="ava")
+    users.set_active("leaver", False, actor="ava")
+    db.execute(
+        "UPDATE users SET deactivated_at = ? WHERE name = 'leaver'",
+        ((late_on_the_day + timedelta(days=1)).isoformat(timespec="seconds"),),
+    )
+    assert erasure.erase_due() == {"erased": 0}
+    assert not db.query_one("SELECT erased_at FROM users WHERE name = 'leaver'")["erased_at"]
+
+
+def test_what_reaches_an_erased_account_later_is_erased_too(client, fresh_db):
+    """A notification or a memory can be addressed to the person after the
+    first erase. Run once, the erase left those forever."""
+    _departing_person(client)
+    users.set_active("leaver", False, actor="ava")
+    _backdate_deactivation("leaver", erasure.GRACE_DAYS)
+    assert erasure.erase_due() == {"erased": 1}
+    notifications.notify("leaver", "Blocker #4 escalated.")
+    from app.services import memory
+
+    memory.remember("was on call in June", user="leaver", actor="scout")
+    assert erasure.erase_due() == {"erased": 1}
+    assert not any(erasure.holdings("leaver").values())
+    assert erasure.erase_due() == {"erased": 0}
+    assert len(db.query("SELECT 1 FROM activity WHERE action = 'erase_private_data'")) == 2
+
+
+def test_the_erase_keeps_what_others_read_and_takes_what_only_they_read(client, fresh_db):
+    """A crew review names an owner, and its crew reads and judges it. A room
+    whose other people all left is the person's alone."""
+    from app.services import chat_threads, crews
+
+    users.ensure_human_identity("leaver")
+    users.ensure_human_identity("ava")
+    crew = crews.create_crew("Platform", actor="leaver")["id"]
+    crews.add_member(crew, "ava", actor="leaver")
+    crew_review = review.propose_change(
+        "note",
+        "create",
+        {
+            "topic": "t",
+            "content": "crew draft",
+            "author": "leaver",
+            "visibility": "crew",
+            "crew_id": crew,
+        },
+        summary="crew draft",
+        actor="scout",
+        requested_by="leaver",
+        review_visibility=scope.CREW,
+        review_crew_id=crew,
+        review_owner="leaver",
+    )["id"]
+    alone = chat_threads.create_shared_chat("Thinking out loud", "leaver")["id"]
+    chat_threads.post_shared_message(alone, "leaver", "a private thought", "k-alone")
+    shared = chat_threads.create_shared_chat("Planning", "leaver")["id"]
+    invitation = chat_threads.invite_to_shared_chat(shared, "leaver", "ava", share_history=True)
+    chat_threads.accept_shared_chat_invitation(invitation["id"], "ava")
+    chat_threads.post_shared_message(shared, "leaver", "a note for ava", "k-shared")
+    chat_threads.create_folder("leaver", "job search")
+    assert erasure.holdings("leaver")["private_proposals"] == 0
+
+    users.set_active("leaver", False, actor="ava")
+    _backdate_deactivation("leaver", erasure.GRACE_DAYS)
+    erasure.erase_due()
+    assert db.query_one("SELECT 1 FROM pending_changes WHERE id = ?", (crew_review,))
+    assert not db.query_one("SELECT 1 FROM chat_messages WHERE content = 'a private thought'")
+    assert db.query_one("SELECT 1 FROM chat_messages WHERE content = 'a note for ava'")
+    assert not db.query_one("SELECT 1 FROM chat_folders WHERE owner = 'leaver'")
+
+
+def test_a_file_outside_the_artifact_root_does_not_stop_the_erase(client, fresh_db):
+    """A moved or restored volume leaves stored paths outside the root, and
+    one of them rolled back the whole erase every day."""
+    _departing_person(client)
+    db.execute(
+        "UPDATE artifacts SET path = '/tmp/elsewhere/1.md' WHERE kind = 'upload'"
+        " AND created_by = 'leaver'"
+    )
+    users.set_active("leaver", False, actor="ava")
+    _backdate_deactivation("leaver", erasure.GRACE_DAYS)
+    assert erasure.erase_due() == {"erased": 1}
+    assert not any(erasure.holdings("leaver").values())
 
 
 def test_the_roster_shows_an_administrator_when_the_erase_runs(client, fresh_db):

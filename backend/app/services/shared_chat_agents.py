@@ -464,12 +464,21 @@ def _prompt(run: dict) -> str:
     omitted = False
     before = int(run["trigger_message_id"]) + 1
     while True:
+        # the agent's own answers live in its session; with no session they
+        # must come from the room, or it forgets what it already said
         rows = db.query(
             "SELECT id, author_kind, author, content, deleted_at FROM chat_messages"
             " WHERE thread_id = ? AND id > ? AND id < ?"
-            " AND NOT (author_kind = 'agent' AND author = ?)"
+            " AND (? OR NOT (author_kind = 'agent' AND author = ?))"
             " ORDER BY id DESC LIMIT ?",
-            (run["thread_id"], after, before, run["agent"], _PROMPT_BATCH + 1),
+            (
+                run["thread_id"],
+                after,
+                before,
+                remembers is None,
+                run["agent"],
+                _PROMPT_BATCH + 1,
+            ),
         )
         page = rows[:_PROMPT_BATCH]
         if not page:

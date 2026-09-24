@@ -27,12 +27,15 @@ const LISTED: Record<string, string> = {
   events: "Events",
   absences: "Time away",
   task_worklog: "Worklog entries",
+  artifacts: "Other private files",
 };
 // kinds another surface manages, and where to find it
 const ELSEWHERE: Record<string, [string, string]> = {
-  artifacts: ["Attached files", "Attached files, above"],
+  uploads: ["Attached files", "Attached files, above"],
   memories: ["Memories addressed to you", "Agents, then Memory"],
   solo_chats: ["Solo chats", "Chat"],
+  rooms_alone: ["Shared chats where you are the only person", "Chat"],
+  chat_folders: ["Chat folders", "Chat"],
   journal_notes: ["1:1 notes you wrote", "People"],
   private_proposals: ["Proposals only you can see", "Review"],
   mcp_servers: ["Your MCP servers", "Settings, then Connections"],
@@ -50,6 +53,8 @@ export function MyDataCard() {
   const [confirming, setConfirming] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const intro = useRef<HTMLParagraphElement>(null);
+  // each row's Delete… button, so Cancel can hand focus back to it
+  const triggers = useRef(new Map<number, HTMLButtonElement | null>());
 
   // the generation guard components/attached-files-card.tsx uses: a slow
   // load resolving after a delete would put the deleted row back
@@ -89,10 +94,14 @@ export function MyDataCard() {
   const remove = async (kind: string, row: PrivateRow) => {
     if (busy) return;
     setBusy(true);
+    // ids repeat across kinds: a delete that lands after another kind opened
+    // must not take a row out of that kind's list
+    const list = listGen.current;
     try {
       await api(`/api/my-data/${kind}/${row.id}`, { method: "DELETE" });
       setConfirming(null);
-      setRows((current) => (current ? current.filter((r) => r.id !== row.id) : current));
+      if (list === listGen.current)
+        setRows((current) => (current ? current.filter((r) => r.id !== row.id) : current));
       load();
       // the focused button leaves with its row: the intro stays
       setTimeout(() => intro.current?.focus(), 0);
@@ -142,7 +151,7 @@ export function MyDataCard() {
               <span>
                 {label}: <span className="tabular-nums">{counts[kind] ?? 0}</span>
               </span>
-              {(counts[kind] ?? 0) > 0 ? (
+              {(counts[kind] ?? 0) > 0 || open === kind ? (
                 <button
                   type="button"
                   aria-expanded={open === kind}
@@ -158,7 +167,7 @@ export function MyDataCard() {
           {Object.entries(ELSEWHERE).map(([kind, [label, where]]) => (
             <li key={kind} className="text-ink-2">
               {label}: <span className="tabular-nums">{counts[kind] ?? 0}</span>
-              {kind === "artifacts" ? ` (${size(summary.file_bytes)})` : ""}
+              {kind === "uploads" ? ` (${size(summary.file_bytes)})` : ""}
               <span className="text-xs text-ink-3"> · manage in {where}</span>
             </li>
           ))}
@@ -169,7 +178,7 @@ export function MyDataCard() {
           {rows === null ? (
             <p className="text-sm text-ink-3">Loading…</p>
           ) : rows.length === 0 ? (
-            <p className="text-sm text-ink-3">No private {LISTED[open].toLowerCase()} are left.</p>
+            <p className="text-sm text-ink-3">No private records of this kind are left.</p>
           ) : (
             <ul className="space-y-1 text-sm">
               {rows.map((row) => (
@@ -192,7 +201,10 @@ export function MyDataCard() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setConfirming(null)}
+                        onClick={() => {
+                          setConfirming(null);
+                          setTimeout(() => triggers.current.get(row.id)?.focus(), 0);
+                        }}
                         className="text-ink-3 hover:text-ink"
                       >
                         Cancel
@@ -201,6 +213,9 @@ export function MyDataCard() {
                   ) : (
                     <button
                       type="button"
+                      ref={(node) => {
+                        triggers.current.set(row.id, node);
+                      }}
                       aria-label={`Delete ${row.label || `#${row.id}`}`}
                       onClick={() => setConfirming(row.id)}
                       className="shrink-0 text-xs text-ink-3 hover:text-danger"
@@ -223,7 +238,7 @@ export function MyDataCard() {
         Download my data
       </button>
       <p id="my-data-export-help" className="mt-1 text-xs text-ink-3">
-        One JSON file with the records you wrote, your solo chats, memories addressed to you, and
+        One JSON file with your private records, your solo chats, memories addressed to you, and
         your 1:1 notes. Files are listed by name. Download each file from Attached files.
       </p>
     </Section>

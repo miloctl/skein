@@ -674,3 +674,23 @@ def test_claiming_someone_elses_chat_repeats_nothing_back(client):
     )
     assert refused.status_code == 404
     assert refused.json()["detail"] == "No chat was found."
+
+
+def test_deleting_a_chat_takes_its_sessions_and_no_other_chat_s(client):
+    """`--` is inside the thread-id charset, so a LIKE on `abc--` deleted the
+    session of another person's chat named `abc--x`, and one on `run:` the
+    unattended run's sessions when a chat named `run` went."""
+    from strands.types.session import Session, SessionType
+
+    from app import db
+    from app.agents.session_store import DatabaseSessionRepository, delete_thread_sessions
+    from app.services import chat_threads
+
+    repo = DatabaseSessionRepository()
+    chat_threads.claim_thread("abc--x", "bo")
+    for session_id in ("abc", "abc:scout", "abc--scout", "abc--x", "run:scout:2026-09-01"):
+        repo.create_session(Session(session_id=session_id, session_type=SessionType.AGENT))
+    delete_thread_sessions("abc")
+    delete_thread_sessions("run")
+    left = {r["session_id"] for r in db.query("SELECT session_id FROM sessions")}
+    assert left == {"abc--x", "run:scout:2026-09-01"}

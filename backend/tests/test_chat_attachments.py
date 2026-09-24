@@ -477,8 +477,11 @@ def test_an_attached_text_file_is_stored_as_a_pointer_to_the_file(client, monkey
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
     monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
     monkeypatch.setattr(team_agent, "_model", lambda **_: _SpendingModel())
+    from app.services import chat_threads
+
     aid = _upload(client, "roof.md", b"the roof leaks over bay 4")
     blocks, _ = _attachment_prompt("what is wrong?", [aid], "tester")
+    chat_threads.claim_thread("t-file", "tester")  # routes/chat.py claims before it builds
     team_agent.build_agent("t-file", "tester", personal_tools_for="tester")(blocks)
 
     def restored(owner: str) -> str:
@@ -490,9 +493,34 @@ def test_an_attached_text_file_is_stored_as_a_pointer_to_the_file(client, monkey
     assert "bay 4" in restored("tester")
     # a shared chat, the runner and a flock pass no owner (team_agent.build_agent)
     assert "bay 4" not in restored("")
+    # another person restores the name alone: the pointer is only text
+    assert "bay 4" not in restored("mallory")
+    # the model's answer and a summary can quote the file, so the session goes
+    # with it, and the chat's next turn starts fresh
     assert client.delete(f"/api/files/{aid}").status_code == 200
-    after = restored("tester")
-    assert "bay 4" not in after and "[attached file: roof.md]" in after
+    assert not db.query("SELECT 1 FROM sessions WHERE session_id = 't-file'")
+    assert "bay 4" not in restored("tester")
+
+
+def test_a_restore_with_no_owner_writes_the_pointer_back_unchanged(client, monkeypatch):
+    """The command bridge restores a session with no owner and can rewrite the
+    last message. Restored as a name marker, the pointer was gone for good
+    and the owner's next turn no longer had the file."""
+    from strands.types.session import SessionMessage
+
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr(team_agent, "_model", lambda **_: _SpendingModel())
+    aid = _upload(client, "roof.md", b"the roof leaks over bay 4")
+    blocks, _ = _attachment_prompt("what is wrong?", [aid], "tester")
+    team_agent.build_agent("t-bridge", "tester", personal_tools_for="tester")(blocks)
+    repo = session_store.DatabaseSessionRepository()
+    first = repo.list_messages("t-bridge", "default")[0]
+    repo.update_message("t-bridge", "default", SessionMessage.from_dict(first.to_dict()))
+    agent = team_agent.build_agent("t-bridge", "tester", personal_tools_for="tester")
+    assert "bay 4" in json.dumps(agent.messages)
 
 
 def test_an_image_description_is_stored_as_the_name_alone():

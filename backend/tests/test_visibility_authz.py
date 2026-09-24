@@ -968,15 +968,17 @@ _UNFILTERED_READS = {
     "absences.py::away_today": "capacity must be honest — see the comment there",
     "absences.py::weekday_overlap": "same",
     "my_data.py::list_private": (
-        "lists the caller's own private rows, by author: the one reader a private row has"
+        "lists the caller's own private rows by author, the one reader a private"
+        " row has, and passes them through the route's projection policy"
     ),
     "my_data.py::delete_private": (
         "locks one row by id and refuses it unless it is private and its author"
         " column names the actor; it reads no text"
     ),
     "my_data.py::export": (
-        "reads rows by the author column naming the caller, who reads their"
-        " own rows at every tier (scope.visible_filter's author arm)"
+        "reads the caller's own private rows by author, the one reader a private"
+        " row has, through the route's projection policy and, for tasks,"
+        " redact_task_relationships"
     ),
     "erasure.py::_private_rows": (
         "selects ids of one person's own private rows, by author, for a count"

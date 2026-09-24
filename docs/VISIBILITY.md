@@ -492,17 +492,23 @@ which would replay its earlier prompts.
 everything its agent read on every later turn.
 - An attached text file is stored in a session as a pointer, and each restore
   of its owner's own turn reads the file's current text
-  (`session_store._with_attached_text`). Deleting the file removes it from
-  every later turn. An image description is stored as the file name, like the
-  image bytes.
+  (`session_store._with_attached_text`). Another reader gets the pointer or
+  the name, never the text. The model's answers and a written summary can
+  still quote the file, so deleting it also clears every session of the
+  owner's chats that points at it (`uploads.delete_upload`); the chats stay.
+  An image description is stored as the file name, like the image bytes.
+  Sessions written before the pointer keep the text until their chat is
+  deleted or goes idle.
 - Deleting a room message also deletes the agent answers to it and clears the
   model session of every agent in the room. Each agent re-reads the room from
-  its join point on its next call, where the message is a placeholder. The
-  delete waits while any agent in the room is answering.
+  its join point on its next call, its own earlier answers included, where
+  the message is a placeholder. The delete waits while any agent in the room
+  is answering.
 - A chat with no activity for 90 days loses its model sessions
   (`retention.IDLE_SESSION_DAYS`). The chat stays, and its agent starts
-  fresh. This bounds how long a record deleted elsewhere stays in a
-  teammate's session, where their agent read it while they were allowed to.
+  fresh. For an idle chat, this bounds how long a record deleted elsewhere
+  stays in a teammate's session, where their agent read it while they were
+  allowed to. A chat in use keeps it until the chat is deleted.
 
 **Copies have horizons.** The daily prune (`services/retention.py`) removes
 copies of records that outlived their reason:
@@ -522,20 +528,26 @@ more days, and that is the longest any deletion takes.
 **A departed person's private data leaves 30 days after deactivation.**
 Deactivation stays reversible. After `erasure.GRACE_DAYS` the daily
 `erase-departed` job deletes what only that person could read: private-tier
-rows, solo chats and their sessions, attached files, memories addressed to
-them, private review proposals, notifications, and the 1:1 notes they wrote
-(`services/erasure.py`). Crew and team records keep the name, because the
-ledger names the person forever and cannot be rewritten. No button erases
-early, so a wrong deactivation always has 30 days to be undone. With the
-14-day backup horizon, the data is gone from every copy 44 days after
-deactivation.
+rows, solo chats and their sessions, chat folders, shared chats where they are
+the only person left with no invitation pending, attached files, memories
+addressed to them, proposals reviewed privately for them, notifications, and
+the 1:1 notes they wrote (`services/erasure.py`). A crew review stays: its crew
+reads and judges it. The job runs on the date the roster shows and again every
+day after, so what reaches the account later goes too. Crew and team records
+keep the name, because the ledger names the person forever and cannot be
+rewritten. No button erases early, so a wrong deactivation always has 30 days
+to be undone. With the 14-day backup horizon, the data is gone from every copy
+44 days after deactivation.
 
 **You can see and delete what is yours alone.** Settings → Your data counts
 what only you can read and deletes one of your private records at a time
 (`services/my_data.py`). It never deletes a shared record, because others can
-rely on it. Your download holds the records you wrote, your solo chats,
+rely on it. Your download holds your private records, your solo chats,
 memories addressed to you and the 1:1 notes you wrote, and it names your files
-without their contents. All of it needs a strong identity.
+without their contents. The list and the download pass the workplace's
+projection policy per row, like every other read, and a task's links to
+records you can no longer read are redacted. All of it needs a strong
+identity.
 
 **Who left is an administrator's list.** `/api/users?all=1` adds deactivated
 teammates for an administrator only (`deps.is_administrator`), because the

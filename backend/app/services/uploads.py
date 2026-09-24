@@ -292,5 +292,17 @@ def delete_upload(artifact_id: int, owner: str) -> dict:
         # beside an empty volume) is exactly the row somebody needs to delete
         # to free a stuck quota. Refusing it there would trap them.
         artifact_files.delete_after_commit(path)
+        # A chat session holds the file as a pointer (agents/session_store.py),
+        # but the model's answers and a written summary can quote it, and
+        # neither names the file. So every session of the owner's own chats
+        # that points at it goes: the chat stays, and its next turn starts
+        # fresh. The pointer text is fixed, so the search is exact.
+        db.execute(
+            "DELETE FROM sessions WHERE session_id IN ("
+            " SELECT DISTINCT m.session_id FROM session_messages m"
+            " JOIN chat_threads t ON t.id = split_part(m.session_id, ':', 1)"
+            " WHERE t.owner = ? AND t.kind = 'solo' AND strpos(m.payload, ?) > 0)",
+            (owner, f"[attached file #{artifact_id}: "),
+        )
         db.log_activity(owner, "delete_file", f"artifact #{artifact_id} ({row['size']} bytes)")
         return {"id": artifact_id, "deleted": True}

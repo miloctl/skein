@@ -506,12 +506,17 @@ def logout_url(id_token: str, return_to: str) -> str:
     """Where to send the browser to end its provider session too
     (RP-initiated logout), or "" to stay local.
 
-    The endpoint comes from discovery only, never a setting: this URL carries
-    the ID token, and a setting that moved it would send that token somewhere
-    new (the settings-tier rule in CLAUDE.md). Called after the local session
-    is revoked, so a provider outage leaves a completed local sign-out."""
-    if not id_token:
-        return ""
+    The endpoint comes from discovery only, never a setting: this URL can
+    carry the ID token, and a setting that moved it would send that token
+    somewhere new (the settings-tier rule in CLAUDE.md). Called after the
+    local session is revoked, so a provider outage leaves a completed local
+    sign-out.
+
+    With no ID token (an expired session, pruned with its tokens) the URL
+    still names the client, and the provider asks the person to confirm.
+    The hint is left out as well when the configured audience is the client
+    id: an ID token's audience is the client, so there it passes validate()
+    as an API bearer, and a URL puts it in the address bar and the history."""
     try:
         endpoint = str(metadata().get("end_session_endpoint", "") or "")
         if not endpoint:
@@ -524,13 +529,10 @@ def logout_url(id_token: str, return_to: str) -> str:
     except Exception as exc:
         log.warning("provider sign-out skipped (%s)", exc.__class__.__name__)
         return ""
-    query = urllib.parse.urlencode(
-        {
-            "id_token_hint": id_token,
-            "post_logout_redirect_uri": return_to,
-            "client_id": config.OIDC_CLIENT_ID,
-        }
-    )
+    params = {"post_logout_redirect_uri": return_to, "client_id": config.OIDC_CLIENT_ID}
+    if id_token and config.OIDC_AUDIENCE != config.OIDC_CLIENT_ID:
+        params = {"id_token_hint": id_token, **params}
+    query = urllib.parse.urlencode(params)
     return f"{safe}{'&' if '?' in safe else '?'}{query}"
 
 

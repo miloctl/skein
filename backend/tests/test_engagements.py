@@ -34,9 +34,11 @@ def test_same_day_handoff_after_rename_stays_one_row(client, fresh_db):
     fresh_db.execute("UPDATE engagements SET name = 'New Name' WHERE id = ?", (eng["id"],))
     second = handoff.generate_handoff(eng["id"], actor="tester")
     assert second["artifact_id"] == first["artifact_id"]
-    assert second["path"] != first["path"]
-    assert not Path(first["path"]).exists()
+    assert second["file"] != first["file"]
+    # the answer names the file; the row holds where it is
+    assert "/" not in first["file"]
     rows = fresh_db.query("SELECT id, path, content_sha256 FROM artifacts WHERE kind = 'handoff'")
+    assert not (Path(rows[0]["path"]).parent / first["file"]).exists()
     assert len(rows) == 1
     assert rows[0]["content_sha256"] == artifact_files.content_sha256(
         Path(rows[0]["path"]).read_bytes()

@@ -7,7 +7,7 @@ import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
-from app import config, oidc
+from app import config, db, oidc
 from app.services import api_keys, browser_sessions, users
 
 ORIGIN = "https://ui.test"
@@ -257,6 +257,40 @@ def test_signing_out_also_ends_the_provider_session(browser, monkeypatch, path):
         "client_id": ["skein-web"],
     }
     assert "Max-Age=0" in response.headers["set-cookie"]
+
+
+def test_the_provider_sign_out_leaves_the_id_token_out_where_it_would_be_a_bearer(
+    browser, monkeypatch
+):
+    """With the audience set to the client id, an ID token passes validate()
+    as an API bearer, and the sign-out URL put it in the address bar."""
+    from urllib.parse import parse_qs, urlsplit
+
+    info = _oidc_sign_in(browser, monkeypatch)
+    monkeypatch.setattr(config, "OIDC_AUDIENCE", "skein-web")
+    monkeypatch.setattr(
+        oidc, "metadata", lambda: {"end_session_endpoint": "https://idp.test/logout"}
+    )
+    response = browser.delete("/api/auth/session", headers={"X-Skein-CSRF": info["csrf_token"]})
+    query = parse_qs(urlsplit(response.json()["logout_url"]).query)
+    assert "id_token_hint" not in query and query["client_id"] == ["skein-web"]
+
+
+def test_signing_out_after_the_session_expired_still_reaches_the_provider(browser, monkeypatch):
+    """The prune deletes an expired session with its ID token, and the gate
+    still offers Sign out: without the provider step, the next person at the
+    browser signs straight back in."""
+    from urllib.parse import parse_qs, urlsplit
+
+    info = _oidc_sign_in(browser, monkeypatch)
+    db.execute("DELETE FROM browser_sessions")
+    monkeypatch.setattr(
+        oidc, "metadata", lambda: {"end_session_endpoint": "https://idp.test/logout"}
+    )
+    response = browser.delete("/api/auth/session", headers={"X-Skein-CSRF": info["csrf_token"]})
+    assert response.status_code == 200, response.text
+    query = parse_qs(urlsplit(response.json()["logout_url"]).query)
+    assert query == {"post_logout_redirect_uri": [ORIGIN + "/"], "client_id": ["skein-web"]}
 
 
 def test_signing_out_stays_local_when_the_provider_publishes_no_endpoint(browser, monkeypatch):
