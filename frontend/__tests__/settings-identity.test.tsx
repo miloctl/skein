@@ -512,6 +512,19 @@ describe("Settings identity states", () => {
     }
   });
 
+  it("offers a key request to a signed-in person who has no key", async () => {
+    // A browser sign-in is strong but cannot mint a key (POST /api/keys
+    // refuses a session), so the request is its only way to one.
+    const saved = state.identity;
+    state.identity = { ...saved, strong: true, keys_minted: 0 };
+    try {
+      render(<SettingsPage />);
+      expect(await screen.findByRole("button", { name: "Request a key" })).toBeTruthy();
+    } finally {
+      state.identity = saved;
+    }
+  });
+
   it("keeps growth interests to you until you share them", async () => {
     state.interests = { interests: "RAG evaluation", shared: false };
     try {

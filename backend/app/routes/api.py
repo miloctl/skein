@@ -1669,8 +1669,10 @@ class KeyIn(BaseModel):
     label: str = Field("", max_length=100)
 
 
-# Key mutation requires StrongUser. A validated deployment sign-in can create
-# its first key for the CLI. In trusted-header mode, use app.bootstrap_key:
+# Key mutation requires StrongUser. A validated deployment sign-in sent as a
+# bearer token can create its first key for the CLI. A browser session cannot
+# (below), so Settings offers it POST /api/keys/request instead. In
+# trusted-header mode, use app.bootstrap_key:
 # minting on X-User alone lets anyone who can reach the API become anyone.
 
 

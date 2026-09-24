@@ -1466,7 +1466,10 @@ export default function SettingsPage() {
                     </span>
                   )}
                 </p>
-                {who !== null && !strong && (
+                {/* A browser sign-in is strong but cannot mint a key (POST
+                    /api/keys refuses a session), so with no key yet the
+                    request below is its only way to one. */}
+                {who !== null && (!strong || who.keys_minted === 0) && (
                   <div className="mb-3 rounded-lg bg-raised p-3 text-sm">
                     {currentUser === "anonymous" ? (
                       <p>

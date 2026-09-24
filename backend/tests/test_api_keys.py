@@ -2,6 +2,8 @@
 
 from datetime import UTC
 
+import pytest
+
 
 def _bootstrap(owner="tester", label="test"):
     # first key comes from the out-of-band bootstrap (python -m app.bootstrap_key)
@@ -163,3 +165,16 @@ def test_a_key_request_reaches_the_named_administrators_only(client, fresh_db, m
     notes = fresh_db.query('SELECT "user", message FROM notifications')
     assert sorted(n["user"] for n in notes) == ["lee", "ops"]
     assert client.post("/api/keys/request", headers={"X-User": "dana"}).json()["already_pending"]
+
+
+def test_a_sign_in_name_can_request_a_key_and_a_shell_word_cannot(fresh_db):
+    """An OIDC user name is often an email address, and "@" refused every
+    such person. Shell metacharacters stay refused: the notice is written to
+    be pasted into a root shell."""
+    from app.services import api_keys
+
+    api_keys.request_key("ava.lee@example.com")
+    notes = fresh_db.query("SELECT message FROM notifications")
+    assert any("bootstrap_key ava.lee@example.com" in n["message"] for n in notes)
+    with pytest.raises(ValueError, match="mint command"):
+        api_keys.request_key("ava;reboot")
