@@ -921,6 +921,17 @@ def add_shared_chat_agent(
             f" and it stays silent until a participant calls @{agent}.",
             now,
         )
+        if not share_history:
+            # a re-added agent keeps its model session otherwise, and the next
+            # turn replays every earlier prompt: the pre-join history the
+            # system message just told every member it cannot read
+            db.execute(
+                "DELETE FROM sessions WHERE session_id IN (?, ?)",
+                (
+                    persona_session_id(thread_id, agent),
+                    f"{thread_id}{_LEGACY_PERSONA_SEP}{agent}",
+                ),
+            )
         db.execute(
             "INSERT INTO chat_members"
             " (thread_id, person, role, joined_at, left_at, added_by, last_read_message_id,"

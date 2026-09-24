@@ -11,12 +11,15 @@ CREATE TABLE one_on_one_pairs (
     created_at text NOT NULL,
     accepted_at text,
     ended_at text,
+    -- who ended it: a lead whose pair the subject ended waits
+    -- pairings.REASK_DAYS before asking again
+    ended_by text,
     last_brief_at text,
     CHECK (lead <> subject)
 );
 
--- one open pair per direction: a second proposal while one is open would
--- let a declined lead ask again under a new id
+-- one open pair per direction. It says nothing about ended pairs: the
+-- re-ask cooldown after a subject declines is pairings.propose's
 CREATE UNIQUE INDEX one_on_one_pairs_open
     ON one_on_one_pairs (lead, subject) WHERE status <> 'ended';
 CREATE INDEX one_on_one_pairs_subject ON one_on_one_pairs (subject) WHERE status <> 'ended';

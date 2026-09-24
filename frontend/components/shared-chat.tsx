@@ -363,9 +363,14 @@ export function SharedChat({
     }
   }, [detail?.id]);
 
+  // keyed on OPENING a confirmation, not on the action object: ticking
+  // "Also share the earlier messages" replaces the object, and focus jumping
+  // to the confirm button let the next Space add the agent with the history
+  const accessOpened = accessAction?.kind ?? "";
+  const accessTrigger = accessAction?.trigger;
   useEffect(() => {
-    if (accessAction) confirmRef.current?.focus();
-  }, [accessAction]);
+    if (accessOpened) confirmRef.current?.focus();
+  }, [accessOpened, accessTrigger]);
 
   useEffect(() => {
     if (deleteConfirm) deleteConfirmRef.current?.focus();
@@ -1171,12 +1176,12 @@ export function SharedChat({
               <h3 id="shared-chat-access-confirm-title" className="text-sm font-semibold text-ink">
                 Confirm access change
               </h3>
-              <p className="mt-1 text-xs text-danger">
+              <p id="shared-chat-access-consequence" className="mt-1 text-xs text-danger">
                 {accessActionCopy(accessAction).message}
               </p>
               {accessAction.kind === "add-agent" ? (
                 <>
-                  <p className="mt-1 text-xs text-danger">
+                  <p id="shared-chat-access-provider" className="mt-1 text-xs text-danger">
                     The messages it reads go to the configured model provider.
                     Every member sees which messages it can read.
                   </p>
@@ -1197,6 +1202,11 @@ export function SharedChat({
                   ref={confirmRef}
                   type="button"
                   disabled={busy}
+                  aria-describedby={
+                    accessAction.kind === "add-agent"
+                      ? "shared-chat-access-consequence shared-chat-access-provider"
+                      : "shared-chat-access-consequence"
+                  }
                   onClick={confirmAccessAction}
                   className="min-h-8 rounded-lg bg-danger-solid px-2.5 py-1 text-xs font-medium text-white"
                 >

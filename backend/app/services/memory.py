@@ -107,7 +107,7 @@ def forget(memory_id: int, *, actor: str, origin: str = "human", requester: str 
     addressed to can forget it (an unaddressed one, anyone with write scope),
     and the removal itself is on the record. An administrator has no override:
     a wrong or injected memory aimed at someone else is that person's to
-    remove, or a deactivation's."""
+    remove. Deactivation does not remove it."""
     from .search import deindex_record
 
     # one transaction: a row delete that commits without its index delete

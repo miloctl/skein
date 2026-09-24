@@ -215,7 +215,7 @@ describe("the 1:1 identity boundary", () => {
     render(<PeoplePage />);
     expect(await screen.findByText("dana asks to prepare 1:1s with you.")).toBeTruthy();
     expect(screen.getByText(/lee prepares 1:1s with you\. Last opened your brief: never\./)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    fireEvent.click(screen.getByRole("button", { name: "Accept the 1:1 pairing with dana" }));
     await waitFor(() =>
       expect(identity.posts).toContainEqual({ path: "/api/private/pairs/7/accept", body: undefined }),
     );

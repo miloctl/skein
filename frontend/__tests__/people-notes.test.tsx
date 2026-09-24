@@ -7,6 +7,15 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/api")>(),
   api: (path: string, init?: RequestInit) => {
     if (path === "/api/whoami") return Promise.resolve({ strong: state.strong });
+    // accepted pairings, so each brief opens (services/pairings.py)
+    if (path === "/api/private/pairs")
+      return Promise.resolve({
+        leading: [
+          { id: 1, subject: "alice", status: "accepted" },
+          { id: 2, subject: "bob", status: "accepted" },
+        ],
+        subject_of: [],
+      });
     if (path === "/api/users") return Promise.resolve([
       { name: "alice", kind: "human" }, { name: "bob", kind: "human" },
     ]);

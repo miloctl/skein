@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   data: { outgoing: [] as unknown[], incoming: [] as unknown[] },
   posts: [] as { path: string; body?: string }[],
+  fail: false,
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -18,7 +19,9 @@ vi.mock("@/lib/api", async (importOriginal) => {
         state.posts.push({ path, body: init.body });
         return Promise.resolve({ id: 3, status: "pending" });
       }
-      return Promise.resolve(state.data);
+      return state.fail
+        ? Promise.reject(new Error("Cannot reach the backend."))
+        : Promise.resolve(state.data);
     },
   };
 });
@@ -28,6 +31,7 @@ import { MergeRequestsCard } from "@/components/merge-requests-card";
 beforeEach(() => {
   state.data = { outgoing: [], incoming: [] };
   state.posts = [];
+  state.fail = false;
 });
 
 describe("merge requests", () => {
@@ -51,7 +55,9 @@ describe("merge requests", () => {
       incoming: [{ id: 9, source: "ava2", target: "ava", created_at: "2026-09-23" }],
     };
     render(<MergeRequestsCard me="ava" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Confirm…" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Confirm the merge request from ava2" }),
+    );
     const merge = screen.getByRole("button", { name: "Merge ava2 into ava" });
     const consequence = document.getElementById(merge.getAttribute("aria-describedby") ?? "");
     expect(consequence?.textContent).toMatch(/private notes, chats, memories and\s+files/);
@@ -62,4 +68,11 @@ describe("merge requests", () => {
       expect(state.posts).toContainEqual({ path: "/api/merge-requests/9/confirm", body: undefined }),
     );
   });
+
+  it("says so when the requests cannot be read", async () => {
+    state.fail = true;
+    render(<MergeRequestsCard me="ava" />);
+    expect(await screen.findByText(/Cannot reach the backend/)).toBeTruthy();
+  });
 });
+

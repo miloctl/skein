@@ -82,9 +82,10 @@ describe("page help", () => {
     );
   });
 
-  it("gives People useful local help when no guide card matches", async () => {
+  it("gives a weak caller on People the sign-in guidance beside its cards", async () => {
+    // the 1:1 pairing card links /people, so a running instance has one card
     state.pathname = "/people";
-    state.cardCount = 0;
+    state.cardCount = 1;
     render(<PageHelp />);
     fireEvent.click(screen.getByRole("button", { name: "Help for this page" }));
 

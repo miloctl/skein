@@ -473,6 +473,11 @@ Only that merge runs `rename_user(consented=True)`, which moves everything,
 the 1:1 journal, notifications and the OIDC binding included. Keys and
 browser sessions are still revoked. A request keeps the names it was made
 with, and a rename cancels a pending one that names the renamed account.
+A request is one strong call, which a stolen key can make, so the source
+account gets a notice, a request lapses after 7 days, and a deactivation or
+a key revocation of either account (or revoke-all) cancels it. An
+administrator's merge ends the source's 1:1 pairings instead of carrying
+the subject's consent to another account.
 
 **A room agent reads from its join point.** Each call sends what a room
 agent reads to the model provider, and the earlier messages were written for
@@ -480,6 +485,8 @@ the people in the room. So a new agent starts at the system message that
 records its addition (`chat_members.history_from`). The steward can share the
 earlier messages when adding it, and that system message says which, so every
 member sees the choice. Agents added before this rule keep the whole history.
+An agent added again without the history also loses its model session,
+which would replay its earlier prompts.
 
 **Trusted-header mode says what it cannot keep private.** A name there is
 whatever a caller types, so a person's own records are only as private as the
@@ -518,7 +525,9 @@ identity could read every other person's PRIVATE standup and promise rows in
 full. It now filters on the READER, never on the subject. The gathering
 itself is a profile, so a lead also needs a pairing the subject accepted
 (`services/pairings.py`), and the subject sees each lead and when they last
-opened the brief. The author's 1:1 journal needs no pairing.
+opened the brief. The author's 1:1 journal needs no pairing. Deactivation
+ends a person's pairings, and a lead the subject declined waits 7 days to
+ask again.
 
 ## What phase 3 solved
 

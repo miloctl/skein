@@ -82,3 +82,90 @@ def test_either_account_can_stop_a_merge_request(fresh_db):
     )
     with pytest.raises(db.NotFound):
         merges.confirm(second["id"], actor="ava")
+
+
+def test_a_merge_request_cannot_outlive_the_credentials_that_filed_it(fresh_db):
+    """A request is one strong call, which a stolen key can make. It stayed
+    confirmable after revoke-all and deactivation, and its source never heard."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.services import api_keys
+
+    for name in ("ava", "ava2", "mal", "cy"):
+        users.ensure_user(name)
+    filed = merges.request("mal", actor="ava2")
+    assert db.query_one(
+        "SELECT 1 FROM notifications WHERE \"user\" = 'ava2' AND message LIKE 'A request to merge%'"
+    )
+    api_keys.revoke_all_keys(actor="ops")
+    with pytest.raises(db.NotFound):
+        merges.confirm(filed["id"], actor="mal")
+    # deactivation cancels it too, and confirm refuses an inactive account
+    again = merges.request("mal", actor="ava2")
+    users.set_active("ava2", False, actor="ops")
+    with pytest.raises(db.NotFound):
+        merges.confirm(again["id"], actor="mal")
+    users.set_active("ava2", True, actor="ops")
+    third = merges.request("mal", actor="ava2")
+    db.execute("UPDATE users SET active = 0 WHERE name = 'mal'")
+    with pytest.raises(ValueError, match="deactivated"):
+        merges.confirm(third["id"], actor="mal")
+    db.execute("UPDATE users SET active = 1 WHERE name = 'mal'")
+    # a lapsed request cannot be confirmed, and does not block a new one
+    old = (datetime.now(UTC) - timedelta(days=merges.EXPIRY_DAYS + 1)).isoformat(timespec="seconds")
+    db.execute("UPDATE merge_requests SET created_at = ? WHERE id = ?", (old, third["id"]))
+    with pytest.raises(ValueError, match="older than"):
+        merges.confirm(third["id"], actor="mal")
+    assert merges.list_for("mal")["incoming"] == []
+    assert merges.request("cy", actor="ava2")["status"] == "pending"
+
+
+def test_a_merge_moves_nothing_further_than_its_source_agreed(fresh_db):
+    """A merge into an account that had itself asked to merge elsewhere
+    carried the first source's data to a third account."""
+    for name in ("ava", "ava2", "cy", "dan"):
+        users.ensure_user(name)
+    onward = merges.request("cy", actor="ava")
+    inward = merges.request("ava", actor="ava2")
+    merges.confirm(inward["id"], actor="ava")
+    assert (
+        db.query_one("SELECT status FROM merge_requests WHERE id = ?", (onward["id"],))["status"]
+        == "cancelled"
+    )
+    # a rename of either named account cancels a pending request too
+    pending = merges.request("dan", actor="cy")
+    users.rename_user("dan", "daniel", actor="dan")
+    assert (
+        db.query_one("SELECT status FROM merge_requests WHERE id = ?", (pending["id"],))["status"]
+        == "cancelled"
+    )
+
+
+def test_same_issuer_accounts_are_refused_when_asked_not_when_confirmed(fresh_db):
+    """Refused only at confirm, the request stayed pending and blocked every
+    later one from its source."""
+    for name in ("ava", "ava2"):
+        users.ensure_user(name)
+    for name, subject in (("ava", "sub-a"), ("ava2", "sub-b")):
+        row = db.query_one("SELECT id FROM users WHERE name = ?", (name,))
+        db.execute(
+            "INSERT INTO oidc_identities (issuer, subject, user_id, display_name, created_by,"
+            " created_at) VALUES ('https://idp', ?, ?, ?, 'ops', ?)",
+            (subject, row["id"], name, db.now()),
+        )
+    with pytest.raises(ValueError, match="same identity provider"):
+        merges.request("ava", actor="ava2")
+    assert not db.query_one("SELECT 1 FROM merge_requests")
+
+
+def test_a_consented_merge_moves_the_sources_notifications(fresh_db):
+    for name in ("ava", "ava2", "bob"):
+        users.ensure_user(name)
+    from app.services.notifications import notify
+
+    notify("ava2", "ZZNOTICEZZ", tier="immediate")
+    merges.confirm(merges.request("ava", actor="ava2")["id"], actor="ava")
+    assert (
+        db.query_one("SELECT \"user\" FROM notifications WHERE message = 'ZZNOTICEZZ'")["user"]
+        == "ava"
+    )

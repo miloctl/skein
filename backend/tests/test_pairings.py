@@ -63,3 +63,48 @@ def test_a_merge_folds_pairings(fresh_db):
     users.rename_user("ava", "ava2", actor="ops", expected_merge=True)
     rows = db.query("SELECT lead, subject FROM one_on_one_pairs WHERE status <> 'ended'")
     assert rows == [{"lead": "ava2", "subject": "bob"}]
+
+
+def test_an_administrator_merge_carries_no_pairing_consent(client, fresh_db):
+    """bob accepted ava as a lead. An administrator merging ava into cy handed
+    that consent to cy, whom bob never accepted."""
+    for name in ("ava", "bob", "cy"):
+        users.ensure_user(name)
+    pairings.accept(pairings.propose("bob", actor="ava", role="lead")["id"], actor="bob")
+    users.rename_user("ava", "cy", actor="ops", expected_merge=True)
+    assert _brief(client, _strong(client, "cy"), "bob").status_code == 403
+
+
+def test_a_declined_lead_waits_before_asking_again(fresh_db):
+    """Each ask sends an immediate notice, and a declined lead could re-ask
+    without limit."""
+    for name in ("ava", "bob"):
+        users.ensure_user(name)
+    first = pairings.propose("bob", actor="ava", role="lead")
+    pairings.end(first["id"], actor="bob")
+    import pytest
+
+    with pytest.raises(ValueError, match="in the last 7 days"):
+        pairings.propose("bob", actor="ava", role="lead")
+    # the lead ending their own ask is no refusal of them
+    users.ensure_user("cy")
+    own = pairings.propose("cy", actor="ava", role="lead")
+    pairings.end(own["id"], actor="ava")
+    assert pairings.propose("cy", actor="ava", role="lead")["status"] == "proposed"
+
+
+def test_deactivation_ends_a_persons_pairings(client, fresh_db):
+    for name in ("ava", "bob"):
+        users.ensure_user(name)
+    pairings.propose("ava", actor="bob", role="subject")
+    users.set_active("bob", False, actor="ops")
+    assert _brief(client, _strong(client, "ava"), "bob").status_code == 403
+
+
+def test_only_your_exact_account_skips_the_pairing(fresh_db):
+    """A legacy fold-duplicate ("Mira" and "mira") is another account."""
+    import pytest
+
+    with pytest.raises(PermissionError):
+        pairings.record_brief("Mira", "mira")
+    pairings.record_brief("mira", "mira")

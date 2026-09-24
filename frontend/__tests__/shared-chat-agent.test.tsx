@@ -134,10 +134,20 @@ describe("one governed shared-chat agent", () => {
     expect(
       screen.getByText(/The messages it reads go to the configured model provider\./),
     ).toBeTruthy();
-    // sharing the earlier messages is a deliberate step the text follows
-    fireEvent.click(
-      screen.getByRole("checkbox", { name: "Also share the earlier messages with Backend Architect" }),
-    );
+    // sharing the earlier messages is a deliberate step the text follows, and
+    // ticking the box keeps focus on it: a jump to the confirm button let the
+    // next Space add the agent with the history
+    const share = screen.getByRole("checkbox", {
+      name: "Also share the earlier messages with Backend Architect",
+    });
+    act(() => share.focus());
+    fireEvent.click(share);
+    await waitFor(() => expect(document.activeElement).toBe(share));
+    expect(
+      screen
+        .getByRole("button", { name: "Add Backend Architect to this private chat" })
+        .getAttribute("aria-describedby"),
+    ).toBe("shared-chat-access-consequence shared-chat-access-provider");
     expect(
       screen.getByText(
         "Backend Architect can read the earlier messages of this chat when a participant calls @backend-architect.",

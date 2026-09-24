@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Card as Section } from "@/components/card";
-import { actionError, api } from "@/lib/api";
+import { actionError, api, loadError } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 
 type Request = { id: number; source: string; target: string; created_at: string };
@@ -17,11 +17,17 @@ export function MergeRequestsCard({ me }: { me: string }) {
   const [target, setTarget] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState<number | null>(null);
+  // inline, not only in the status line: with the list unknown the form is
+  // hidden, and a card that shows nothing claims there is nothing
+  const [loadFailed, setLoadFailed] = useState("");
 
   const load = useCallback(() => {
     api<{ outgoing: Request[]; incoming: Request[] }>("/api/merge-requests")
-      .then(setData)
-      .catch((e) => reportStatus(actionError(e)));
+      .then((next) => {
+        setData(next);
+        setLoadFailed("");
+      })
+      .catch((e) => setLoadFailed(loadError(e)));
   }, []);
   useEffect(load, [load]);
 
@@ -34,6 +40,8 @@ export function MergeRequestsCard({ me }: { me: string }) {
       setConfirming(null);
       setTarget("");
       load();
+      // the row that held the button leaves: focus goes to the card's text
+      setTimeout(() => document.getElementById("merge-requests-intro")?.focus(), 0);
     } catch (e) {
       reportStatus(actionError(e));
     } finally {
@@ -43,13 +51,14 @@ export function MergeRequestsCard({ me }: { me: string }) {
 
   return (
     <Section title="Merge a duplicate account" headingLevel={3}>
-      <p className="mb-3 text-sm text-ink-3">
+      <p id="merge-requests-intro" tabIndex={-1} className="mb-3 text-sm text-ink-3 outline-none">
         If you have two accounts, sign in as the one to remove and ask to merge
         it into the other. Then sign in as the other to confirm. Everything
         moves to the account you keep: private notes, chats, memories, files,
         rooms, crews, and the sign-in. The keys of the removed account stop
         working.
       </p>
+      {loadFailed ? <p className="mb-2 text-sm text-danger">{loadFailed}</p> : null}
       <ul className="mb-3 space-y-2 text-sm">
         {(data?.outgoing ?? []).map((r) => (
           <li key={r.id} className="flex flex-wrap items-center justify-between gap-2">
@@ -85,7 +94,11 @@ export function MergeRequestsCard({ me }: { me: string }) {
                   Merge {r.source} into {me}
                 </button>
                 <button
-                  onClick={() => setConfirming(null)}
+                  onClick={() => {
+                    setConfirming(null);
+                    // back to the button that opened this confirmation
+                    setTimeout(() => document.getElementById(`confirm-merge-${r.id}`)?.focus(), 0);
+                  }}
                   className="rounded px-2 py-0.5 text-xs text-ink-3 hover:text-ink"
                 >
                   Cancel
@@ -97,6 +110,8 @@ export function MergeRequestsCard({ me }: { me: string }) {
               <span>{r.source} asks to merge that account into yours.</span>
               <span className="flex gap-1">
                 <button
+                  id={`confirm-merge-${r.id}`}
+                  aria-label={`Confirm the merge request from ${r.source}`}
                   onClick={() => setConfirming(r.id)}
                   className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
                 >
