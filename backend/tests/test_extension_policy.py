@@ -3301,6 +3301,50 @@ def test_legacy_unbound_agent_review_cannot_bypass_workplace_policy(fresh_db):
     ) == {"id": proposal["id"], "status": "rejected"}
 
 
+def test_a_deactivated_requesters_proposal_can_still_be_rejected(fresh_db, monkeypatch):
+    from app import config
+    from app.agents.identity import reset_requester_identity, set_requester_identity
+    from app.extensions.core import core_module
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import review, scope, users
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    registry = ExtensionRegistry.build((core_module(),))
+    users.ensure_user("requester")
+    users.ensure_user("manager")
+    policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("requester"))
+    requester_token = set_requester_identity("requester")
+    try:
+        proposal = json.loads(
+            gated_write(
+                "task",
+                "create",
+                {"title": "left the team"},
+                lambda: pytest.fail("a reviewed write executed before approval"),
+            )
+        )
+    finally:
+        reset_requester_identity(requester_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+    users.set_active("requester", False)
+
+    rejected = review.reject_change(
+        proposal["id"],
+        "requester left",
+        actor="manager",
+        strong=True,
+        viewer=scope.Viewer("manager", True),
+        policy_registry=registry,
+    )
+    assert rejected["status"] == "rejected"
+    row = fresh_db.query_one(
+        "SELECT reviewer_qualifications FROM pending_changes WHERE id = ?", (proposal["id"],)
+    )
+    assert json.loads(row["reviewer_qualifications"])["stale_contract"] is True
+
+
 def test_core_agent_approval_refuses_a_deactivated_requester(fresh_db):
     from app.agents.identity import reset_requester_identity, set_requester_identity
     from app.extensions.policy import reset_policy_subject, set_policy_subject

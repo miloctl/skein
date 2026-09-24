@@ -1267,13 +1267,23 @@ def _reject_change_locked(
     _assert_judgeable(change, viewer)
     if change["status"] != "pending":
         raise ValueError(f"change #{change_id} already {change['status']}")
-    _revalidate_policy(
-        change,
-        policy_registry,
-        reviewer_groups,
-        reviewer_capabilities,
-        approving=False,
-    )
+    # A rejection executes nothing, so a proposal whose policy can no longer
+    # be recomputed (requester or agent deactivated, task relinked, module
+    # removed) settles as stale. Raising here leaves it in the queue forever,
+    # refused by Approve and Reject alike.
+    try:
+        with db.savepoint():
+            _revalidate_policy(
+                change,
+                policy_registry,
+                reviewer_groups,
+                reviewer_capabilities,
+                approving=False,
+            )
+    except (KeyError, TypeError, ValueError, PermissionError, PublicError):
+        change["approver_groups"] = "[]"
+        change["approver_capabilities"] = "[]"
+        change["_stale_contract"] = True
     qualifications: dict[str, Any] = _check_policy_approver(
         change,
         reviewer_groups,
