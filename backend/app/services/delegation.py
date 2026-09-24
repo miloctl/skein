@@ -874,6 +874,12 @@ def review_authority(*, actor: str = "scheduler") -> dict:
     streak; demotions to review fire on a strong-verdict rejection streak.
     The system only proposes — a human approves, and agents can never
     approve anything, so there is no self-promotion path."""
+    # Approving one takes an administrator (review.approve_change). With no
+    # SKEIN_ADMINS and no admin group, only trusted-header has any
+    # (routes/deps.py::_is_admin), so elsewhere a filed proposal could only
+    # be rejected, under a notice that says to approve it.
+    if not (config.ADMINS or config.OIDC_ADMIN_GROUP or config.AUTH_MODE == "trusted-header"):
+        return {"filed": 0, "proposals": []}
     filed = []
     # don't refile what's pending, and don't nag weekly about what a human
     # just declined — a rejection buys 28 days of silence for that pair
