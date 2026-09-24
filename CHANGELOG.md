@@ -18,6 +18,15 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+### Behavior
+
+### Operations
+
+## 0.6.6 — 2026-09-24
+
+### Contracts
+
+- `GET /api/settings/reasoning` returns the team reasoning level: `level`, `override`, `levels` (the names the team model declares), `ignored`, and `applies`. `POST /api/settings/reasoning` with `{"level": "<name>"}` sets it, and an empty `level` clears it. Each row of the `GET /api/settings/model` menu carries `reasoning`, the list of level names that model declares. Level params are never served. The GET requires a named identity, and the POST requires an administrator. These endpoints require core `0.6.6` or later. Extension API `1.0.0` is unchanged.
 - The REST create models refuse an unknown field with a 422: tasks, notes, questions, decisions, standups, events, blockers, intake, capture, engagements, lessons, promises, milestones, absences, private notes, `POST /api/notifications/read`, `POST /api/users/{name}/rename`, and `POST /api/week/plan`. An unknown field was dropped, so a misspelled `visibility` filed a row at the workspace tier. A client that sends extra fields to these routes must stop sending them.
 - An `/api` request body over 1 MB returns 413 before it is parsed, with or without a Content-Length. Multipart uploads, the forge webhook, and the remote MCP endpoint keep their own limits.
 - Event rows from `/api/events`, the digest, and My Day carry `starts_local` and `ends_local`, the times on the team clock. `starts_at` and `ends_at` are UTC.
@@ -30,6 +39,10 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- A `SKEIN_MODELS` entry can declare reasoning levels. An administrator sets the team level on **Settings → AI runtime → Reasoning (team)**, and a person sets a level for one solo chat with `/reasoning <level>`. `/reasoning` lists the levels of the model of the chat and names the level in force. `/reasoning default` returns the chat to the team level. A turn uses the level of the chat, then the team level, whichever the model of the turn declares, else the default of the model.
+- Only the main solo chat turn, including an `/as` persona turn, sends a level. Titles, planners, consults, flocks, the vision sidecar, the unattended runner, agent turns in shared chats, and long-chat summaries do not.
+- A long-chat summary now runs on the model without the reasoning level and keeps no reasoning block. A summary that an older session stored with a reasoning block loses that block when the session is restored. The SDK stores a summary as a user message, and Anthropic and Bedrock refuse a reasoning block there, so every later turn of that chat failed.
+- The In force summary on Settings and `skein model` add a Reasoning row. When the team level sets an output cap, the Output cap row says so and names Reasoning (team) as the source, and the Parameters row counts the level params. The field guide adds two cards: **Pick how much the model reasons in one chat** and **Set the team reasoning level**.
 - Event times without an offset are the team's clock, stored as UTC. The calendar feed writes UTC times with `Z` and a `DTSTAMP`, keeps 90 days of past events, and skips an event whose end is before its start. All-day events reach the digest and My Day at and west of UTC.
 - Findings, blockers, intake, portfolio, and spend: a re-fired finding loses the disposition of the older one. Resolving one blocker no longer unblocks a task that another blocker still holds, and a blocker on a done or void task leaves it closed. An experiment cannot be accepted without an engagement. Void work counts as finished. Monthly spend and budgets use the team's month, and the weekly spend chart starts on Monday.
 - Search filters by kind before it cuts the result list, and memory recall reads past the first 20 matches. Promise and engagement edits reach the search index. Adoption findings take the last digest slots.
@@ -75,6 +88,9 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+- A `SKEIN_MODELS` entry accepts `reasoning`: a map from level names (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`) to the request params each level sends. Level params pass the same refusals as `params` and merge after them. Inside `extra_body`, `extra_query`, `additional_args`, `additional_request_fields`, and `options`, a level merges one level deep, so the other fields there stay. A `null` in a level removes the key it names, because thinking models refuse the temperature a persona or `SKEIN_MODEL_PARAMS` can send. README "Reasoning levels" has one recipe per provider. Roll the image before or with the ConfigMap: an older server reads `reasoning` as an unknown field and voids the menu.
+- A level whose `budget_tokens` is at or above the output cap of its request voids the menu at startup, and `/api/health` names the level. The check reads the merged request and the cap that the provider sends. On `openai` and `openai_compatible` it runs only when params set `max_completion_tokens` or `max_tokens`.
+- Migration `032_chat_thread_reasoning.sql` adds `chat_threads.reasoning`. It adds a column with a default and rewrites no rows.
 - Migration `033_chat_message_reference_indexes.sql` indexes the foreign keys to `chat_messages`. Migration `034_mcp_oauth_browser_binding.sql` adds a column to `mcp_oauth_flows`. Migration `035_released_names.sql` adds `released_names`, which records the names that renames and merges free. Migration `036_absence_dates_shared.sql` adds `absences.dates_shared`, false for every existing row, so an existing private window stops counting in capacity and planning until its person shares the dates. Migration `037_growth_interests_shared.sql` adds `users.growth_shared`, false for every existing row. Migration `038_one_on_one_pairs.sql` adds `one_on_one_pairs`. No pairing exists after the upgrade, so every lead asks again. Migration `039_merge_requests.sql` adds `merge_requests`. Migration `040_chat_member_history_from.sql` adds `chat_members.history_from`, 0 for every existing member. None rewrites rows. A name freed before this release is not recorded.
 - Events filed before this release in a zone other than UTC were stored as typed, and now read as UTC. Each shows shifted by the zone offset. Delete those events and add them again.
 - `rss` left the `SKEIN_EXTRA_TOOLS` allowlist: the model chose its URL and request headers with no egress filter, and feedparser opens a local path. A deployment that lists it logs a refusal and loads the other tools.
@@ -87,25 +103,6 @@ keeps its existing `minimum_core` and needs no change.
 - The retention prune runs daily at 04:00 instead of monthly. Migration `041_pending_change_text_cleared.sql` adds `pending_changes.text_cleared_at`.
 - The backup mirror keeps 14 dumps, the same count as local, instead of 30. The first backup after the upgrade deletes the older mirror dumps. Copy any you must keep before you upgrade.
 - Same-day backup retries mirror the partial backup instead of dumping again. The nightly chain check streams the ledger in batches. Retention prunes interval-job receipts.
-
-## 0.6.6 — 2026-09-23
-
-### Contracts
-
-- `GET /api/settings/reasoning` returns the team reasoning level: `level`, `override`, `levels` (the names the team model declares), `ignored`, and `applies`. `POST /api/settings/reasoning` with `{"level": "<name>"}` sets it, and an empty `level` clears it. Each row of the `GET /api/settings/model` menu carries `reasoning`, the list of level names that model declares. Level params are never served. The GET requires a named identity, and the POST requires an administrator. These endpoints require core `0.6.6` or later. Extension API `1.0.0` is unchanged.
-
-### Behavior
-
-- A `SKEIN_MODELS` entry can declare reasoning levels. An administrator sets the team level on **Settings → AI runtime → Reasoning (team)**, and a person sets a level for one solo chat with `/reasoning <level>`. `/reasoning` lists the levels of the model of the chat and names the level in force. `/reasoning default` returns the chat to the team level. A turn uses the level of the chat, then the team level, whichever the model of the turn declares, else the default of the model.
-- Only the main solo chat turn, including an `/as` persona turn, sends a level. Titles, planners, consults, flocks, the vision sidecar, the unattended runner, agent turns in shared chats, and long-chat summaries do not.
-- A long-chat summary now runs on the model without the reasoning level and keeps no reasoning block. A summary that an older session stored with a reasoning block loses that block when the session is restored. The SDK stores a summary as a user message, and Anthropic and Bedrock refuse a reasoning block there, so every later turn of that chat failed.
-- The In force summary on Settings and `skein model` add a Reasoning row. When the team level sets an output cap, the Output cap row says so and names Reasoning (team) as the source, and the Parameters row counts the level params. The field guide adds two cards: **Pick how much the model reasons in one chat** and **Set the team reasoning level**.
-
-### Operations
-
-- A `SKEIN_MODELS` entry accepts `reasoning`: a map from level names (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`) to the request params each level sends. Level params pass the same refusals as `params` and merge after them. Inside `extra_body`, `extra_query`, `additional_args`, `additional_request_fields`, and `options`, a level merges one level deep, so the other fields there stay. A `null` in a level removes the key it names, because thinking models refuse the temperature a persona or `SKEIN_MODEL_PARAMS` can send. README "Reasoning levels" has one recipe per provider. Roll the image before or with the ConfigMap: an older server reads `reasoning` as an unknown field and voids the menu.
-- A level whose `budget_tokens` is at or above the output cap of its request voids the menu at startup, and `/api/health` names the level. The check reads the merged request and the cap that the provider sends. On `openai` and `openai_compatible` it runs only when params set `max_completion_tokens` or `max_tokens`.
-- Migration `032_chat_thread_reasoning.sql` adds `chat_threads.reasoning`. It adds a column with a default and rewrites no rows.
 
 ## 0.6.5 — 2026-09-22
 
