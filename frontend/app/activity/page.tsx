@@ -1,5 +1,6 @@
 "use client";
 
+import { WeakIdentityNotice } from "@/components/weak-identity-notice";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api, loadError } from "@/lib/api";
@@ -129,6 +130,7 @@ export default function ActivityPage() {
         </label>
       </div>
 
+      <WeakIdentityNotice className="mb-3" />
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
       {/* Before `loaded` this rendered nothing — no rows, no empty state, no
           spinner. The ledger feed is the largest read in the app, so the
