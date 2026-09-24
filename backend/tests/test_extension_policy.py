@@ -3437,6 +3437,18 @@ def test_stock_app_approves_an_oidc_requesters_agent_proposal(fresh_db, monkeypa
     assert approved["status"] == "approved"
 
 
+def test_unrefreshed_oidc_groups_never_reach_a_resumed_handler(fresh_db):
+    from app.extensions.core import core_module
+    from app.services import users
+
+    users.ensure_user("mira")
+    subject = PolicySubject(
+        "mira", groups=("finance",), strong=True, source="oidc", refresh_required=True
+    )
+    refreshed = ExtensionRegistry.build((core_module(),)).refresh_subject(subject)
+    assert refreshed.groups == ()
+
+
 def test_profile_resolver_cannot_mask_unavailable_group_directory(fresh_db):
     from app.services import users
 
