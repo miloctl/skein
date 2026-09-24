@@ -908,12 +908,18 @@ def rename_user(
     actor: str = "system",
     expected_merge: bool | None = None,
     _identity_repair: bool = False,
+    consented: bool = False,
 ) -> dict:
     """Rename (or merge, when `new` already exists) a roster entry across
     every attribution column — the fix for 'Mira' vs 'mira'. History moves;
     the old row is deleted (merge) or renamed in place. Strong identity
     required at the route; team-visible tables only (the private schema is scoped
-    by author name, so the author keeps access by renaming there too)."""
+    by author name, so the author keeps access by renaming there too).
+
+    `consented` is a merge both accounts agreed to (services/merges.py: the
+    source asked, the target confirmed). It is the one merge that may carry
+    data only the source can read, and it moves the source's 1:1 journal,
+    OIDC binding and notifications too. Every other caller leaves it False."""
     old, new = _rename_names(old, new)
     # rename must honor the same identity walls ensure_user enforces —
     # otherwise it's the back door around the bench reservation and the
@@ -930,7 +936,7 @@ def rename_user(
     # refusing the rename.
     from . import private_notes as _pn
 
-    if actor != old and _pn.author_has_notes(old):
+    if actor != old and not consented and _pn.author_has_notes(old):
         raise ValueError(
             f"'{old}' has private 1:1 notes, and only they can move them."
             f" Ask {old} to rename their own account."
@@ -944,7 +950,7 @@ def rename_user(
     # two ways a merge gains its caller something are refused inside the
     # transaction: a merge INTO the caller, and one whose source holds data
     # only its owner can read. The source's keys are revoked, never moved.
-    if target and actor == old:
+    if target and actor == old and not consented:
         raise ValueError(
             f"'{new}' already names an account. A merge into another account"
             " cannot be self-directed. Ask a teammate to run it."
@@ -964,13 +970,13 @@ def rename_user(
         if not current:
             raise db.NotFound("no user has that name")
         target = _validate_rename_target(old, new, current, identity_repair=_identity_repair)
-        if target and fold(new) == fold(actor):
+        if target and fold(new) == fold(actor) and not consented:
             # the merge moves the source's history, files and chats to the
             # target: into the caller's own account, the caller takes them
             raise ValueError(
                 "A merge into your own account is refused. Ask another administrator to run it."
             )
-        if target and _holds_personal_data(old):
+        if target and not consented and _holds_personal_data(old):
             raise ValueError(
                 "The account holds data that only its owner can read. A merge by another"
                 " person is refused. Deactivate the account instead."
@@ -1013,15 +1019,23 @@ def rename_user(
                     "These users have different OIDC subjects from the same issuer."
                     " Do not merge them."
                 )
-            # Deleted, not moved, and before the old roster row goes (the
-            # foreign key). Moved, the source's IdP subject signed in as the
-            # target and read everything the target holds. The same person
-            # signs in again, and whoever runs the server binds the subject
-            # with app.bind_oidc.
-            db.execute("DELETE FROM oidc_identities WHERE user_id = ?", (current["id"],))
-            # The source's notifications quote rows the source could read. A
-            # merge that moved them handed them to the target's reader.
-            db.execute('DELETE FROM notifications WHERE "user" = ?', (old,))
+            # Without consent: deleted, not moved, and before the old roster
+            # row goes (the foreign key). Moved, the source's IdP subject
+            # signed in as the target and read everything the target holds.
+            # The same person signs in again, and whoever runs the server
+            # binds the subject with app.bind_oidc.
+            if consented:
+                # both halves agreed they are one person: the binding moves
+                db.execute(
+                    "UPDATE oidc_identities SET user_id = ? WHERE user_id = ?",
+                    (target["id"], current["id"]),
+                )
+            else:
+                db.execute("DELETE FROM oidc_identities WHERE user_id = ?", (current["id"],))
+                # The source's notifications quote rows the source could read.
+                # A merge that moved them handed them to the target's reader.
+                # With consent the reader is the same person, and they move.
+                db.execute('DELETE FROM notifications WHERE "user" = ?', (old,))
         # unique-keyed tables first: fold rather than collide
         # tool_usage (day, user, surface): sum counts into the target's rows
         db.execute(
@@ -1053,6 +1067,15 @@ def rename_user(
             " (SELECT 1 FROM agent_authority n WHERE n.entity = agent_authority.entity"
             " AND n.agent = ?)",
             (old, new),
+        )
+        # merge_requests keeps the names it was made with: a settled one is the
+        # receipt of what a consented merge moved, and rewriting its source
+        # to the target would erase which account that was. A pending one
+        # naming a renamed account can no longer be confirmed as asked.
+        db.execute(
+            "UPDATE merge_requests SET status = 'cancelled', settled_at = ?"
+            " WHERE status = 'pending' AND (source = ? OR target = ?)",
+            (db.now(), old, old),
         )
         # one_on_one_pairs: a pair between the two halves of one person would
         # pair them with themselves (CHECK lead <> subject), and an open pair
@@ -1257,7 +1280,7 @@ def rename_user(
         # are the one renaming — the guard above refuses a third-party rename
         # that would need this, so reaching here with actor != old means
         # nothing to move.
-        private_moved = actor == old
+        private_moved = actor == old or consented
         if private_moved:
             _pn.rename_author(old, new)
     detail = f"{old} -> {new} ({'merged' if target else 'renamed'}, {sum(moved.values())} rows)"
@@ -1270,7 +1293,8 @@ def rename_user(
         from .scope import is_machine
 
         # not to a person's `<name>-mcp` agent, which follows every rename
-        if actor != old and not is_machine(actor) and not is_agent(new):
+        # nor to the target of a merge they confirmed themselves
+        if actor not in (old, new) and not is_machine(actor) and not is_agent(new):
             from .notifications import notify
 
             notify(

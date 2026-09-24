@@ -464,6 +464,16 @@ hide the row. A capture that assigns a question to a teammate goes to the
 roster when no tier is sent, because that question cannot be private.
 Nothing here narrows a row.
 
+**A merge that carries private data takes both accounts.** An administrator's
+merge is refused while the source holds data only it can read
+(`users._holds_personal_data`): the reader of the result would be a person
+the owner never chose. Signed in as the source, the person asks to merge into
+the target; signed in as the target, they confirm (`services/merges.py`).
+Only that merge runs `rename_user(consented=True)`, which moves everything,
+the 1:1 journal, notifications and the OIDC binding included. Keys and
+browser sessions are still revoked. A request keeps the names it was made
+with, and a rename cancels a pending one that names the renamed account.
+
 **Administrator actions.** The activity log shows an actor's rows to that
 actor alone, so an action an administrator takes on someone else also sends a
 notice. A rename, a merge into an account, and a deactivation or reactivation

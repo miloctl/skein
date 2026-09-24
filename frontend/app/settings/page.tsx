@@ -27,6 +27,7 @@ import { timeAgo } from "@/lib/time";
 import { copyText } from "@/lib/clipboard";
 import { Card as Section } from "@/components/card";
 import { AttachedFilesCard } from "@/components/attached-files-card";
+import { MergeRequestsCard } from "@/components/merge-requests-card";
 import { BackupCard } from "@/components/backup-card";
 import { OperationsCard } from "@/components/operations-card";
 import { CrewsCard } from "@/components/crews-card";
@@ -1952,6 +1953,9 @@ export default function SettingsPage() {
               </Section>
 
               <AttachedFilesCard headingLevel={3} />
+
+              {/* StrongUser routes: a weak name can neither ask nor confirm */}
+              {strong && who?.user ? <MergeRequestsCard me={who.user} /> : null}
 
               <Section title="Guidance" headingLevel={3}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
