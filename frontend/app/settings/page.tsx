@@ -28,6 +28,7 @@ import { copyText } from "@/lib/clipboard";
 import { Card as Section } from "@/components/card";
 import { AttachedFilesCard } from "@/components/attached-files-card";
 import { MergeRequestsCard } from "@/components/merge-requests-card";
+import { MyDataCard } from "@/components/my-data-card";
 import { BackupCard } from "@/components/backup-card";
 import { OperationsCard } from "@/components/operations-card";
 import { CrewsCard } from "@/components/crews-card";
@@ -1985,6 +1986,10 @@ export default function SettingsPage() {
               </Section>
 
               <AttachedFilesCard headingLevel={3} />
+
+              {/* StrongUser routes (services/my_data.py): a weak name is
+                  whatever the caller typed */}
+              {strong ? <MyDataCard /> : null}
 
               {/* StrongUser routes: a weak name can neither ask nor confirm */}
               {strong && who?.user ? <MergeRequestsCard me={who.user} /> : null}

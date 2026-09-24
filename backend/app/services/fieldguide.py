@@ -187,6 +187,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     ),
     "one_on_one_pairing": lambda u: _act(u, "propose_pairing") or _act(u, "accept_pairing"),
     "chat_attachment": lambda u: _act(u, "upload_file"),
+    "my_data": lambda u: _act(u, "export_my_data") or _act(u, "delete_private_record"),
     # mark-only: the document write is signed by the AGENT, so the ledger
     # carries no per-person row. routes/api.py::get_artifact marks it when
     # a person opens a document on Reports.

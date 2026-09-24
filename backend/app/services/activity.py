@@ -1087,6 +1087,8 @@ VERBS: dict[str, tuple[str, str]] = {
     "revoke_browser_session": ("signed out of a browser", "normal"),
     "revoke_all_browser_sessions": ("signed out of every browser", "normal"),
     "erase_private_data": ("erased a deactivated person's private data", "loud"),
+    "delete_private_record": ("deleted one of their private records", "normal"),
+    "export_my_data": ("exported their own data", "normal"),
     "create_api_key": ("minted an API key", "loud"),
     "revoke_api_key": ("revoked an API key", "loud"),
     "revoke_all_api_keys": ("revoked every API key", "loud"),

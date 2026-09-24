@@ -169,6 +169,20 @@ def author_note_count(author: str) -> int:
     return int(row["n"])
 
 
+def export_author(author: str) -> list[dict]:
+    """Every note of this author, for their own export (services/my_data.py).
+    Audited like any other read of the journal."""
+    _ready()
+    with db.transaction():
+        rows = db.query(
+            "SELECT id, person, kind, body, created_at FROM private.notes"
+            " WHERE author = ? ORDER BY id",
+            (author,),
+        )
+        _audit(author, "export", None)
+    return [dict(r) for r in rows]
+
+
 def erase_author(author: str) -> int:
     """Every note and audit row of a departed author (services/erasure.py).
     Notes other authors wrote about them stay: those are the other author's."""
