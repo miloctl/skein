@@ -96,7 +96,10 @@ describe("My Day", () => {
     }
     expect(updates.closest("[hidden], details")).toBeNull();
     expect(updates.closest("#recent-changes")).not.toBeNull();
-    expect(mocks.deltaReads).toBe(1);
+    // RecentChanges mounts once the briefing lands, and its read runs in a
+    // passive effect after the heading commits: on a slow runner the heading
+    // is found first, so wait for the read rather than assert it at once
+    await waitFor(() => expect(mocks.deltaReads).toBe(1));
     expect(mocks.deltaMarks).toBe(0);
     fireEvent.click(screen.getByRole("button", { name: /Show team context/ }));
     fireEvent.click(screen.getByRole("button", { name: /Hide team context/ }));
