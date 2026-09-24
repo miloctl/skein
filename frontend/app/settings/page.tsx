@@ -91,6 +91,23 @@ function isWriteTimeout(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
+// services/users.py::public_users: erase_on and erased come with an
+// inactive person's row, which only an administrator lists
+type RosterRow = {
+  name: string;
+  kind: string;
+  active: number;
+  erase_on?: string | null;
+  erased?: boolean;
+};
+
+// services/erasure.py::GRACE_DAYS: the confirmation names the date before the
+// server has one to report
+const ERASE_GRACE_DAYS = 30;
+function eraseDate(): string {
+  return new Date(Date.now() + ERASE_GRACE_DAYS * 86_400_000).toISOString().slice(0, 10);
+}
+
 type WhoAmI = {
   user: string;
   strong: boolean;
@@ -956,12 +973,10 @@ export default function SettingsPage() {
     };
   }, [refresh]);
 
-  const [roster, setRoster] = useState<
-    { name: string; kind: string; active: number }[] | null
-  >(null);
+  const [roster, setRoster] = useState<RosterRow[] | null>(null);
   const [rosterError, setRosterError] = useState("");
   const loadRoster = useCallback(() => {
-    api<{ name: string; kind: string; active: number }[]>("/api/users?all=1")
+    api<RosterRow[]>("/api/users?all=1")
       .then((users) => {
         setRoster(users.filter((user) => user.name !== "anonymous"));
         setRosterError("");
@@ -1060,7 +1075,7 @@ export default function SettingsPage() {
   const adminAccessMessage =
     whoError || (who === null ? "Checking identity…" : adminRequirement);
 
-  const rosterRows = (list: { name: string; kind: string; active: number }[]) =>
+  const rosterRows = (list: RosterRow[]) =>
     list.map((u) => (
       <li
         key={u.name}
@@ -1077,6 +1092,13 @@ export default function SettingsPage() {
           {!u.active && (
             <span className="ml-1.5 rounded-full bg-raised px-1.5 py-px font-mono text-[10px] text-ink-3">
               inactive
+            </span>
+          )}
+          {!u.active && (u.erased || u.erase_on) && (
+            <span className="ml-1.5 text-xs text-ink-3">
+              {u.erased
+                ? "Private data deleted."
+                : `Private data is deleted on ${u.erase_on}.`}
             </span>
           )}
         </span>
@@ -1211,8 +1233,8 @@ export default function SettingsPage() {
                   className="text-ink-3"
                 >
                   {accessConfirmation.active
-                    ? `Reactivate ${u.name}? ${u.name} will regain access. Revoked personal API keys will stay revoked. Create a new key if ${u.name} needs one.`
-                    : `Deactivate ${u.name}? ${u.name} will lose access. History will stay. All personal API keys for ${u.name} will be revoked.`}
+                    ? `Reactivate ${u.name}? ${u.name} will regain access. Revoked personal API keys will stay revoked. Create a new key if ${u.name} needs one.${u.erased ? ` The data only ${u.name} could read was deleted and does not come back.` : ""}`
+                    : `Deactivate ${u.name}? ${u.name} will lose access. History will stay. All personal API keys for ${u.name} will be revoked.${u.kind === "agent" ? "" : ` On ${eraseDate()}, Skein deletes the data only ${u.name} can read: private records, solo chats, attached files, memories and 1:1 notes. Reactivate ${u.name} before then to keep it.`}`}
                 </span>
                 <span className="flex items-center gap-1">
                   <button

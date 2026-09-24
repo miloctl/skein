@@ -569,8 +569,6 @@ def delete_thread(thread_id: str, owner: str) -> dict:
     """Remove the thread, its transcript, the model-side sessions (including
     per-persona session variants) AND its flock traces — a deleted chat is
     gone."""
-    from ..agents.session_store import delete_thread_sessions
-
     _own(thread_id, owner)
     # A turn in flight closes by logging its reply and its session. Deleted
     # under it, the chat came back with one orphan message, and the orphan
@@ -586,6 +584,17 @@ def delete_thread(thread_id: str, owner: str) -> dict:
         ),
     ):
         raise db.Conflict("This chat is answering a message. Wait for the reply, then delete it.")
+    remove_thread(thread_id)
+    db.log_activity(owner, "delete_chat", f"thread {thread_id}")
+    return {"id": thread_id, "deleted": True}
+
+
+def remove_thread(thread_id: str) -> None:
+    """A thread and everything that copies it, with no ownership check and no
+    ledger row: delete_thread checks and records the owner's delete, and
+    erasure.erase records its own."""
+    from ..agents.session_store import delete_thread_sessions
+
     db.execute("DELETE FROM chat_messages WHERE thread_id = ?", (thread_id,))
     db.execute("DELETE FROM chat_threads WHERE id = ?", (thread_id,))
     # a trace names the person, the thread, every member and what each spent,
@@ -600,8 +609,6 @@ def delete_thread(thread_id: str, owner: str) -> dict:
     for pattern in (f"session_{thread_id}", f"session_{thread_id}{_LEGACY_PERSONA_SEP}*"):
         for path in config.SESSIONS_DIR.glob(pattern):
             shutil.rmtree(path, ignore_errors=True)
-    db.log_activity(owner, "delete_chat", f"thread {thread_id}")
-    return {"id": thread_id, "deleted": True}
 
 
 SHARED_PREFIX = "shared-"

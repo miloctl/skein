@@ -10,7 +10,8 @@ const roster = [
   { name: "operator", kind: "human", active: 1 },
   { name: "Ava", kind: "human", active: 1 },
   { name: "Bo", kind: "human", active: 1 },
-  { name: "Dana", kind: "human", active: 0 },
+  { name: "Dana", kind: "human", active: 0, erase_on: "2026-10-20", erased: false },
+  { name: "Eli", kind: "human", active: 0, erase_on: "2026-08-01", erased: true },
 ];
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -210,6 +211,27 @@ describe("Settings roster confirmations", () => {
         body: JSON.stringify({ active: false }),
       }),
     );
+  });
+
+  it("names the date the deactivated person's private data is deleted", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-24T12:00:00Z"));
+    try {
+      render(<SettingsPage />);
+      const row = await rowFor("Ava");
+      fireEvent.click(row.getByRole("button", { name: "deactivate…" }));
+      // services/erasure.py::GRACE_DAYS after today
+      row.getByText(
+        /On 2026-10-24, Skein deletes the data only Ava can read.*Reactivate Ava before then to keep it/,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+    expect((await rowFor("Dana")).getByText("Private data is deleted on 2026-10-20.")).toBeTruthy();
+    const erased = await rowFor("Eli");
+    expect(erased.getByText("Private data deleted.")).toBeTruthy();
+    fireEvent.click(erased.getByRole("button", { name: "reactivate…" }));
+    erased.getByText(/The data only Eli could read was deleted and does not come back/);
   });
 
   it("states that reactivation does not restore revoked keys", async () => {

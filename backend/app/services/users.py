@@ -746,6 +746,13 @@ def public_users(requester: str, active_only: bool = True) -> list[dict]:
         profile["growth_interests"] = row["growth_interests"] if own or row["growth_shared"] else ""
         if own:
             profile["theme"] = row["theme"]
+        if not row["active"] and row["kind"] == "human":
+            # only an administrator lists inactive rows (routes/api.py
+            # get_users), and the roster there shows when the erase runs
+            from .erasure import erase_on
+
+            profile["erase_on"] = erase_on(row["deactivated_at"]) if row["deactivated_at"] else None
+            profile["erased"] = bool(row["erased_at"])
         result.append(profile)
     return result
 
@@ -858,38 +865,19 @@ def _rename_names(old: str, new: str) -> tuple[str, str]:
 
 
 def _holds_personal_data(name: str) -> bool:
-    """Whether `name` holds data that only they can read: private-tier rows,
-    solo chats, addressed memories, private review proposals, attached files,
-    or MCP servers. A merge
-    moves all of it to the target account, so a merge run by anyone else
-    hands it to a person the owner never chose. Returns a boolean and no
-    content.
+    """Whether `name` holds data that only they can read and a merge would
+    carry (erasure.MERGE_CARRIED): private-tier rows, solo chats, addressed
+    memories, private review proposals, attached files, or MCP servers. A
+    merge moves all of it to the target account, so a merge run by anyone
+    else hands it to a person the owner never chose. Returns a boolean and
+    no content.
 
     Shared-chat membership is deliberately absent: the merge folds it
     (tests/test_shared_chat.py pins that), and whether a merge may carry a
     person into a room needs the room's consent, a product decision."""
-    from . import scope
+    from .erasure import MERGE_CARRIED, holdings
 
-    probes: list[tuple[str, tuple]] = [
-        (
-            f'SELECT 1 FROM {table} WHERE visibility = ? AND "{column}" = ? LIMIT 1',  # noqa: S608 — table and column from scope.CLASSIFIED
-            (scope.PRIVATE, name),
-        )
-        for table, column in scope.CLASSIFIED.items()
-    ]
-    probes += [
-        ("SELECT 1 FROM chat_threads WHERE owner = ? AND kind = 'solo' LIMIT 1", (name,)),
-        ('SELECT 1 FROM memories WHERE "user" = ? LIMIT 1', (name,)),
-        # a proposal private to them: chat text, their own rows (_gate.py)
-        (
-            "SELECT 1 FROM pending_changes WHERE review_owner = ?"
-            " AND review_visibility != 'workspace' LIMIT 1",
-            (name,),
-        ),
-        ("SELECT 1 FROM artifacts WHERE kind = 'upload' AND created_by = ? LIMIT 1", (name,)),
-        ("SELECT 1 FROM mcp_servers WHERE owner = ? LIMIT 1", (name,)),
-    ]
-    return any(db.query_one(sql, params) for sql, params in probes)
+    return any(n for kind, n in holdings(name).items() if kind in MERGE_CARRIED)
 
 
 def _mcp_agent_row(person: str) -> str:
@@ -1452,7 +1440,8 @@ def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
     context pack — and every API key they own is revoked, so deactivation
     IS the offboarding switch for strong identity too. Reactivation does
     not resurrect keys (mint fresh ones). Strong identity required at the
-    route.
+    route. erasure.GRACE_DAYS after a human's deactivation, the erase job
+    deletes what only they could read; reactivating before then stops it.
 
     The claim above holds because routes/deps.py::_refuse_inactive and the
     perimeter middleware both consult is_active. Revoking keys alone left the
@@ -1502,7 +1491,20 @@ def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
                     " WHERE requested_by = ? AND status = 'pending'",
                     (db.now(), name),
                 )
-        db.execute("UPDATE users SET active = ? WHERE name = ?", (1 if active else 0, name))
+        # the erase clock (services/erasure.py): a deactivation of an account
+        # already inactive keeps its date, and reactivation stops the clock
+        if active:
+            db.execute(
+                "UPDATE users SET active = 1, deactivated_at = NULL, erased_at = NULL"
+                " WHERE name = ?",
+                (name,),
+            )
+        else:
+            db.execute(
+                "UPDATE users SET active = 0, deactivated_at = COALESCE(deactivated_at, ?)"
+                " WHERE name = ?",
+                (db.now(), name),
+            )
         revoked = 0
         if not active:
             from .api_keys import revoke_keys_for
@@ -1542,4 +1544,10 @@ def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
                 tier="immediate",
                 link="/settings",
             )
-    return {"name": name, "active": bool(active), "keys_revoked": revoked}
+    result = {"name": name, "active": bool(active), "keys_revoked": revoked}
+    if not active and row["kind"] == "human":
+        from .erasure import erase_on
+
+        stamped = db.query_row("SELECT deactivated_at FROM users WHERE name = ?", (name,))
+        result["erase_on"] = erase_on(stamped["deactivated_at"])
+    return result
