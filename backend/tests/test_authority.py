@@ -35,6 +35,30 @@ def test_authority_review_files_promotion_and_applies(client, fresh_db, monkeypa
     assert ledger["actor"] == "tester"
 
 
+def test_authority_review_files_nothing_that_no_administrator_can_approve(
+    client, fresh_db, monkeypatch
+):
+    """Approving an authority change takes an administrator. In api-key and
+    oidc modes with no SKEIN_ADMINS and no admin group there is none, so each
+    filed proposal waited forever under a notice that said to approve it."""
+    from app import config
+    from app.services import delegation, review, users
+
+    users.ensure_user("scribe", kind="agent")
+    headers = _strong(client)
+    for i in range(5):
+        p = review.propose_change(
+            "note", "create", {"topic": f"t{i}", "content": "c"}, actor="scribe"
+        )
+        client.post(f"/api/review/{p['id']}/approve", json={}, headers=headers)
+    monkeypatch.setattr(config, "AUTH_MODE", "api-key")
+    monkeypatch.setattr(config, "ADMINS", frozenset())
+    monkeypatch.setattr(config, "OIDC_ADMIN_GROUP", "")
+    assert delegation.review_authority(actor="scheduler")["filed"] == 0
+    monkeypatch.setattr(config, "ADMINS", frozenset({"ava"}))
+    assert delegation.review_authority(actor="scheduler")["filed"] == 1
+
+
 def test_authority_verdicts_need_strong_human_identity(client, fresh_db):
     from app.services import review, users
 
