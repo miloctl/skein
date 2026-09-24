@@ -143,6 +143,12 @@ def _retention_prune():
     return prune(actor="scheduler")
 
 
+def _erase_departed():
+    from .erasure import erase_due
+
+    return erase_due()
+
+
 JOBS: tuple[JobSpec, ...] = (
     # Retry opt-ins belong beside the body. Transactional sweeps, unique
     # snapshots, and backup_if_stale can repeat without another effect.
@@ -271,6 +277,16 @@ JOBS: tuple[JobSpec, ...] = (
         {"trigger": "cron", "hour": 4, "minute": 0},
         24,
         True,
+    ),
+    # each erasure is its own transaction and skips an erased account, so a
+    # retry repeats nothing
+    JobSpec(
+        "erase-departed",
+        _erase_departed,
+        {"trigger": "cron", "hour": 4, "minute": 20},
+        24,
+        True,
+        retry_safe=True,
     ),
 )
 

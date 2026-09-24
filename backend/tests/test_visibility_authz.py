@@ -697,10 +697,6 @@ _UNFILTERED_READS = {
         "decides which indexed rows may go to the embeddings service: reads the"
         " tier and author columns and returns ids, never content"
     ),
-    "users.py::_holds_personal_data": (
-        "asks whether a person owns private-tier rows so a merge can be REFUSED;"
-        " returns a boolean and no content, like private_notes.author_has_notes"
-    ),
     "leases.py::lock_fences": (
         "dynamic table names are limited to LEASED_TABLES, all operational"
         " execution rows. Reads only an acquisition deadline, filtered by"
@@ -966,6 +962,14 @@ _UNFILTERED_READS = {
     # --- deliberate carve-outs, argued where the code lives ---
     "absences.py::away_today": "capacity must be honest — see the comment there",
     "absences.py::weekday_overlap": "same",
+    "erasure.py::_private_rows": (
+        "selects ids of one person's own private rows, by author, for a count"
+        " or for the erase that deletes them; no row text reaches a reader"
+    ),
+    "erasure.py::erase": (
+        "deletes the ids _private_rows selected, for a deactivated person past"
+        " the grace period; the ledger row carries a count"
+    ),
     "retention.py::_prune_digests": (
         "deletes digest rows past their horizon and returns only their file"
         " paths, which it deletes; no row text reaches a reader"

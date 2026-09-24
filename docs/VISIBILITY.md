@@ -519,6 +519,17 @@ The local backups and the off-site mirror both keep 14 dumps
 (`admin.BACKUP_KEEP`). A record deleted today can live in older dumps for 14
 more days, and that is the longest any deletion takes.
 
+**A departed person's private data leaves 30 days after deactivation.**
+Deactivation stays reversible. After `erasure.GRACE_DAYS` the daily
+`erase-departed` job deletes what only that person could read: private-tier
+rows, solo chats and their sessions, attached files, memories addressed to
+them, private review proposals, notifications, and the 1:1 notes they wrote
+(`services/erasure.py`). Crew and team records keep the name, because the
+ledger names the person forever and cannot be rewritten. No button erases
+early, so a wrong deactivation always has 30 days to be undone. With the
+14-day backup horizon, the data is gone from every copy 44 days after
+deactivation.
+
 **Who left is an administrator's list.** `/api/users?all=1` adds deactivated
 teammates for an administrator only (`deps.is_administrator`), because the
 Settings roster reverses a deactivation there. Everyone else gets the active

@@ -160,6 +160,25 @@ def author_has_notes(author: str) -> bool:
     return row is not None
 
 
+def author_note_count(author: str) -> int:
+    """How many notes this author holds: a count and no content, for the
+    author's own summary and services/erasure.py."""
+    _ready()
+    with db.transaction():
+        row = db.query_row("SELECT COUNT(*) AS n FROM private.notes WHERE author = ?", (author,))
+    return int(row["n"])
+
+
+def erase_author(author: str) -> int:
+    """Every note and audit row of a departed author (services/erasure.py).
+    Notes other authors wrote about them stay: those are the other author's."""
+    _ready()
+    with db.transaction():
+        n = db.execute_rowcount("DELETE FROM private.notes WHERE author = ?", (author,))
+        db.execute("DELETE FROM private.audit WHERE author = ?", (author,))
+    return n
+
+
 def rename_author(old: str, new: str) -> None:
     """Move OWNERSHIP: the author's own notes and audit trail. Access is keyed
     by author name, so only the author may trigger this — see the guard in
