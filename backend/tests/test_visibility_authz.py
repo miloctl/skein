@@ -442,6 +442,11 @@ _EXEMPT_FILES = {
 # name -> why the guard does not belong. An absence with no reason reads as an
 # oversight to the next reader (CLAUDE.md).
 _EXEMPT_FUNCTIONS = {
+    "my_data.py::delete_private": (
+        "deletes one row by id only where it is private and its author column"
+        " names the actor, the one reader of a private row; the refusal is"
+        " scope.missing, the same sentence an absent row gets"
+    ),
     "sharing.py::share_with_team": (
         "widens one row by id only where its author column names the actor, the"
         " one reader of a private row; the refusal is scope.missing, the same"
@@ -962,6 +967,17 @@ _UNFILTERED_READS = {
     # --- deliberate carve-outs, argued where the code lives ---
     "absences.py::away_today": "capacity must be honest — see the comment there",
     "absences.py::weekday_overlap": "same",
+    "my_data.py::list_private": (
+        "lists the caller's own private rows, by author: the one reader a private row has"
+    ),
+    "my_data.py::delete_private": (
+        "locks one row by id and refuses it unless it is private and its author"
+        " column names the actor; it reads no text"
+    ),
+    "my_data.py::export": (
+        "reads rows by the author column naming the caller, who reads their"
+        " own rows at every tier (scope.visible_filter's author arm)"
+    ),
     "erasure.py::_private_rows": (
         "selects ids of one person's own private rows, by author, for a count"
         " or for the erase that deletes them; no row text reaches a reader"

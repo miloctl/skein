@@ -2,6 +2,7 @@
 alongside agent tools — both go through app.services)."""
 
 import asyncio
+import json
 import secrets
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
@@ -45,6 +46,7 @@ from ..services import (
     mcp_servers,
     memory,
     merges,
+    my_data,
     notifications,
     personas,
     planning,
@@ -1097,6 +1099,34 @@ def delete_file(artifact_id: int, user: CurrentUser):
     # the `delete` bucket, like every other destructive REST write
     ratelimit.check("delete", user)
     return uploads.delete_upload(artifact_id, user)
+
+
+@router.get("/my-data")
+def get_my_data(user: StrongUser):
+    """Counts, by kind, of what only you can read (services/my_data.py)."""
+    return my_data.summary(user)
+
+
+@router.get("/my-data/export")
+def export_my_data(user: StrongUser):
+    ratelimit.check("my_export", user)
+    filename = f"skein-my-data-{db.today().isoformat()}.json"
+    return Response(
+        content=json.dumps(my_data.export(user), indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/my-data/{kind}")
+def list_my_private(kind: str, user: StrongUser):
+    return my_data.list_private(kind, user)
+
+
+@router.delete("/my-data/{kind}/{row_id}")
+def delete_my_private(kind: str, row_id: int, user: StrongUser):
+    ratelimit.check("delete", user)
+    return my_data.delete_private(kind, row_id, actor=user)
 
 
 @router.get("/files/{artifact_id}/download")

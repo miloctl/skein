@@ -94,6 +94,8 @@ LIMITS = {
     "upload": 12,
     "verify": 2,  # full-chain walk over an unpruned table — the priciest read
     "export": 2,  # one snapshot materializes every portable work table
+    # a person's own export reads every record they wrote and every chat
+    "my_export": 2,
     "backup": 2,  # pg_dump plus an optional second dump and mirror copy
     # per-row provenance. Ids are a dense integer space and this answers about
     # ONE row, so an uncapped GET is the mechanism that turns a per-row
@@ -146,6 +148,7 @@ NAMED = {
     "signin": "sign-ins",
     "verify": "chain checks",
     "export": "exports",
+    "my_export": "exports of your data",
     "backup": "database backups",
     "artifact": "digests and readouts",
     "ritual": "rituals",

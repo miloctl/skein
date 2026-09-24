@@ -530,6 +530,13 @@ early, so a wrong deactivation always has 30 days to be undone. With the
 14-day backup horizon, the data is gone from every copy 44 days after
 deactivation.
 
+**You can see and delete what is yours alone.** Settings → Your data counts
+what only you can read and deletes one of your private records at a time
+(`services/my_data.py`). It never deletes a shared record, because others can
+rely on it. Your download holds the records you wrote, your solo chats,
+memories addressed to you and the 1:1 notes you wrote, and it names your files
+without their contents. All of it needs a strong identity.
+
 **Who left is an administrator's list.** `/api/users?all=1` adds deactivated
 teammates for an administrator only (`deps.is_administrator`), because the
 Settings roster reverses a deactivation there. Everyone else gets the active
