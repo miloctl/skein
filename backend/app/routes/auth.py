@@ -249,35 +249,42 @@ def get_session(request: Request, response: Response):
     )
 
 
-@router.delete("/sessions", status_code=204)
+@router.delete("/sessions")
 def delete_every_session(request: Request, response: Response):
     """Sign out of every browser. The CSRF binding is required, not optional
     as on DELETE /session: a cross-site request must not end a person's
     sessions everywhere."""
-    require_browser_origin(request)
+    origin = require_browser_origin(request)
     settings = auth_settings(request)
     if settings.auth_error:
         raise HTTPException(503, settings.auth_error)
     cookie = request.cookies.get(browser_sessions.COOKIE_NAME, "")
     if not browser_sessions.validate_binding(cookie, request.headers.get(CSRF_HEADER, "")):
         raise browser_sessions.SessionChanged()
+    id_token = browser_sessions.id_token_for(cookie)
     browser_sessions.revoke_all(cookie, mode=settings.auth_mode)
     response.delete_cookie(
         browser_sessions.COOKIE_NAME, path="/", secure=True, httponly=True, samesite="lax"
     )
     response.headers["Cache-Control"] = "no-store"
+    return {"logout_url": oidc.logout_url(id_token, origin + "/")}
 
 
-@router.delete("/session", status_code=204)
+@router.delete("/session")
 def delete_session(request: Request, response: Response):
-    require_browser_origin(request)
+    """Sign out of this browser. logout_url, when the provider publishes a
+    sign-out endpoint, is where the browser goes next to end its provider
+    session as well."""
+    origin = require_browser_origin(request)
     cookie = request.cookies.get(browser_sessions.COOKIE_NAME, "")
     if browser_sessions.csrf_token(cookie) and not browser_sessions.validate_binding(
         cookie, request.headers.get(CSRF_HEADER, "")
     ):
         raise browser_sessions.SessionChanged()
+    id_token = browser_sessions.id_token_for(cookie)
     browser_sessions.revoke(cookie)
     response.delete_cookie(
         browser_sessions.COOKIE_NAME, path="/", secure=True, httponly=True, samesite="lax"
     )
     response.headers["Cache-Control"] = "no-store"
+    return {"logout_url": oidc.logout_url(id_token, origin + "/")}

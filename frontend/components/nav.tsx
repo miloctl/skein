@@ -403,8 +403,9 @@ export function Nav({ children }: { children?: React.ReactNode }) {
                         setMenuOpen(false);
                         if (signedIn) {
                           try {
-                            await signOut();
-                            window.location.assign("/");
+                            // signOut already left for the provider's
+                            // sign-out page, which returns here
+                            if (!(await signOut())) window.location.assign("/");
                           } catch (error) {
                             reportStatus(actionError(error));
                           }

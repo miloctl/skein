@@ -36,6 +36,9 @@ _public_jwk.update({"kid": KEY_ID, "use": "sig", "alg": "RS256"})
 # code -> the username it was issued for. The walk drives one sign-in at a
 # time, so a dict with no expiry is enough; a real provider must not do this.
 _codes: dict[str, str] = {}
+# who signed out here, in order: the walk reads it at /logouts to prove the
+# backend sent the browser to end this provider session with its ID token
+_logouts: list[str] = []
 
 
 def groups_for(user: str) -> list[str]:
@@ -66,8 +69,29 @@ class Handler(BaseHTTPRequestHandler):
                     "authorization_endpoint": f"{ISSUER}/authorize",
                     "token_endpoint": f"{ISSUER}/token",
                     "jwks_uri": f"{ISSUER}/jwks",
+                    "end_session_endpoint": f"{ISSUER}/logout",
                 },
             )
+            return
+        if url.path == "/logout":
+            query = parse_qs(url.query)
+            hint = (query.get("id_token_hint") or [""])[0]
+            back = (query.get("post_logout_redirect_uri") or [""])[0]
+            try:
+                # verified with this provider's own key, like a real one does
+                claims = jwt.decode(
+                    hint, _key.public_key(), algorithms=["RS256"], options={"verify_aud": False}
+                )
+            except jwt.PyJWTError:
+                self._send(400, {"error": "invalid_request"})
+                return
+            _logouts.append(str(claims["sub"]))
+            self.send_response(302)
+            self.send_header("Location", back)
+            self.end_headers()
+            return
+        if url.path == "/logouts":
+            self._send(200, {"subjects": _logouts})
             return
         if url.path == "/jwks":
             self._send(200, {"keys": [_public_jwk]})
@@ -113,7 +137,27 @@ class Handler(BaseHTTPRequestHandler):
             algorithm="RS256",
             headers={"kid": KEY_ID},
         )
-        self._send(200, {"access_token": token, "token_type": "Bearer", "expires_in": 3600})
+        id_token = jwt.encode(
+            {
+                "iss": ISSUER,
+                "aud": form.get("client_id", ""),
+                "sub": user,
+                "iat": now,
+                "exp": now + 3600,
+            },
+            _key,
+            algorithm="RS256",
+            headers={"kid": KEY_ID},
+        )
+        self._send(
+            200,
+            {
+                "access_token": token,
+                "id_token": id_token,
+                "token_type": "Bearer",
+                "expires_in": 3600,
+            },
+        )
 
     def log_message(self, *_args: object) -> None:
         """Quiet: playwright prints this server's stdout on every run."""

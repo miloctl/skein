@@ -69,6 +69,37 @@ describe("cookie identity coordination without credential fallback", () => {
     expect(auth.sessionEnd()).toBe("signed-out");
   });
 
+  it("ends the provider session after the local one when the server names where", async () => {
+    const assign = vi.fn();
+    const real = window.location;
+    Object.defineProperty(window, "location", { configurable: true, value: { ...real, assign } });
+    try {
+      for (const [logoutUrl, expected] of [
+        ["https://idp.example.com/logout?id_token_hint=t", "https://idp.example.com/logout?id_token_hint=t"],
+        // a javascript: URL would run in this tab
+        ["javascript:alert(1)", null],
+      ] as const) {
+        assign.mockClear();
+        cookie = person();
+        const auth = await import("@/lib/auth");
+        await auth.bootstrapSession();
+        const original = vi.mocked(fetch).getMockImplementation()!;
+        vi.mocked(fetch).mockImplementation((url, init) =>
+          String(url).endsWith("/auth/session") && init?.method === "DELETE"
+            ? Promise.resolve(json({ logout_url: logoutUrl }))
+            : original(url, init),
+        );
+        await auth.signOut();
+        expect(auth.isSignedIn()).toBe(false);
+        if (expected) expect(assign).toHaveBeenCalledWith(expected);
+        else expect(assign).not.toHaveBeenCalled();
+        vi.mocked(fetch).mockImplementation(original);
+      }
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: real });
+    }
+  });
+
   it("does not start an older sign-in whose configuration arrives after logout", async () => {
     vi.stubGlobal("crypto", webcrypto);
     const config = deferred<Response>(); const started = deferred<void>();

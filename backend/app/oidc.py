@@ -502,6 +502,38 @@ def userinfo_url() -> str:
     return _endpoint(config.OIDC_USERINFO_URL, "userinfo_endpoint", "SKEIN_OIDC_USERINFO_URL")
 
 
+def logout_url(id_token: str, return_to: str) -> str:
+    """Where to send the browser to end its provider session too
+    (RP-initiated logout), or "" to stay local.
+
+    The endpoint comes from discovery only, never a setting: this URL carries
+    the ID token, and a setting that moved it would send that token somewhere
+    new (the settings-tier rule in CLAUDE.md). Called after the local session
+    is revoked, so a provider outage leaves a completed local sign-out."""
+    if not id_token:
+        return ""
+    try:
+        endpoint = str(metadata().get("end_session_endpoint", "") or "")
+        if not endpoint:
+            return ""
+        safe = _web_url(
+            endpoint,
+            "the discovery document's end_session_endpoint",
+            allow_loopback=_issuer_allows_loopback(),
+        )
+    except Exception as exc:
+        log.warning("provider sign-out skipped (%s)", exc.__class__.__name__)
+        return ""
+    query = urllib.parse.urlencode(
+        {
+            "id_token_hint": id_token,
+            "post_logout_redirect_uri": return_to,
+            "client_id": config.OIDC_CLIENT_ID,
+        }
+    )
+    return f"{safe}{'&' if '?' in safe else '?'}{query}"
+
+
 def _fetch_userinfo(access_token: str) -> dict[str, Any]:
     try:
         url = userinfo_url()

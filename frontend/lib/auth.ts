@@ -319,10 +319,13 @@ async function runCompleteSignIn(search: string): Promise<string> {
 }
 
 // everywhere ends every browser session of this person, this one included
-// (DELETE /api/auth/sessions, routes/auth.py)
-export async function signOut(everywhere = false): Promise<void> {
+// (DELETE /api/auth/sessions, routes/auth.py). Resolves true when the tab is
+// leaving for the provider's sign-out page: a caller that navigates next
+// would cancel that navigation, and the provider session would survive.
+export async function signOut(everywhere = false): Promise<boolean> {
   const expected = newGeneration();
   blockWeakFallback = true;
+  let providerLogout = "";
   // Hide private content immediately while a prior cookie-changing request
   // releases the lock. Logout then reads that request's actual cookie.
   publish({ ...session, authenticated: false, strong: false, status: "loading", error: "" });
@@ -334,6 +337,12 @@ export async function signOut(everywhere = false): Promise<void> {
       await sessionRequest(everywhere ? "/api/auth/sessions" : "/api/auth/session", { method: "DELETE",
         headers: current.csrf_token ? { "X-Skein-CSRF": current.csrf_token } : {} }, async (res) => {
         if (!res.ok) throw await responseError(res);
+        // routes/auth.py: where the provider ends its own session, or "".
+        // A web URL only: a javascript: or data: URL would run in this tab.
+        // http reaches here only for a loopback issuer (oidc._web_url).
+        const body: unknown = res.status === 204 ? {} : await res.json().catch(() => ({}));
+        const url = (body as { logout_url?: unknown }).logout_url;
+        if (typeof url === "string" && /^https?:\/\//.test(url)) providerLogout = url;
       });
       checkGeneration(expected);
       blockWeakFallback = false;
@@ -344,6 +353,10 @@ export async function signOut(everywhere = false): Promise<void> {
       publish({ ...ANONYMOUS, status: "ready", error: "" });
       window.localStorage.setItem(SESSION_EVENT_KEY, randomString(16));
     });
+    // after the local sign-out is complete: the provider page is a
+    // navigation away, and it returns to this app signed out
+    if (providerLogout) window.location.assign(providerLogout);
+    return Boolean(providerLogout);
   } catch (error) {
     if (sessionGeneration() === expected)
       publish({ ...session, status: "unavailable", error: errorMessage(error) });
