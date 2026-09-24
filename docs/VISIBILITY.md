@@ -409,8 +409,9 @@ their approval is what shares the result. `review.requester_judges` is the
 one rule, and the gate, the stock and extension tools, and remote MCP tools
 all call it. The team reviews instead when the run is unattended, when the
 identity is weak (a weak viewer reads no private row), when
-`SKEIN_REVIEW_SEPARATION=1` is on, or when policy names approvers. The
-proposal record stays private after the verdict. The row it made has its
+`SKEIN_REVIEW_SEPARATION=1` is on, or when policy names approvers. A
+proposal from a shared chat follows the same rule for the member who sent
+the message. The proposal record stays private after the verdict. The row it made has its
 own tier.
 
 The agent changes only rows its requester can read: the gate refuses a
