@@ -321,6 +321,20 @@ def propose_engagement_memory(
             " memory filed against it. Move the engagement to a crew, or"
             " remember the fact for the team instead."
         )
+    if eng["visibility"] == scope.CREW:
+        from .users import fold, is_active
+
+        # The same dead end one step wider: the author may not approve
+        # (review._check_team_memory_approver) and only members read a crew
+        # row, so a crew with no other active person has no approver. A
+        # deactivated member keeps their crew row (users.set_active).
+        members = db.query("SELECT person FROM crew_members WHERE crew_id = ?", (eng["crew_id"],))
+        if not any(fold(m["person"]) != fold(actor) and is_active(m["person"]) for m in members):
+            raise ValueError(
+                "This crew has no other member, so no second person can review a"
+                " memory filed against it. Add a member to the crew, or remember"
+                " the fact for the team instead."
+            )
     return propose_change(
         "memory",
         "create",
