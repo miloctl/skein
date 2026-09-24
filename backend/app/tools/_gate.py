@@ -33,7 +33,7 @@ from ..extensions.policy import (
     current_policy_subject,
     policy_input_data,
 )
-from ..services import blockers, lexicon, review, scope, wording, work
+from ..services import blockers, lexicon, review, scope, users, wording, work
 from ..services.delegation import authority_status
 
 # irreversible verbs ALWAYS go through the review inbox, even with
@@ -298,6 +298,24 @@ def _gated_write_locked(
     # and approver groups too (review._check_separation,
     # review._check_policy_approver).
     review_owner = review.personal_owner(entity, action, payload, entity_id)
+    # Only the owner can judge a personal row's review, and a trusted-header
+    # name with no key reads no private row. Filed, the review is listed to
+    # nobody while the agent reports it queued. Refuse it here with the fix,
+    # the way tools/portfolio.py::add_absence refuses a private window.
+    # A nameless Viewer is weak only on a person's own turn: a shared chat
+    # runs its strong requester under scope.NOBODY (shared_chat_agents.py),
+    # and a resumed core tool sets no viewer (agents/core_tools.py).
+    viewer = requester_viewer()
+    if (
+        review_owner
+        and isinstance(viewer, scope.Viewer)
+        and not viewer.name
+        and not workspace_only_tools()
+        and users.fold(review_owner) == users.fold(requester_identity())
+    ):
+        detail = wording.strong_identity_required("Approving a change to your own record")
+        receipts.record("refused", entity, detail, actor=actor)
+        return json.dumps({"error": detail})
     private_review = (
         workspace_only_tools()
         or bool(review_owner)
