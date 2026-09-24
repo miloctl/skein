@@ -133,6 +133,7 @@ EXEMPT: dict[str, str] = {
     # A spent sign-in budget must not prevent logout. This origin/CSRF-bound
     # endpoint only revokes its cookie, has no body or remote work, and is idempotent.
     "DELETE /api/auth/session": "origin/CSRF-bound local session revocation",
+    "DELETE /api/auth/sessions": "origin/CSRF-bound revocation of the caller's own sessions",
     # --- known cost, no cap yet: these are the census's own open rows and the
     # reason it is a ratchet rather than a one-time sweep ---
     "POST /api/findings/run": "UNCAPPED: a full rule-engine sweep on demand",

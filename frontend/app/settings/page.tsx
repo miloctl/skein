@@ -1521,6 +1521,16 @@ export default function SettingsPage() {
                 {(browserSession.csrf_token || sessionEnd() === "expired") && <button type="button" className="mb-3 rounded border border-line px-3 py-1.5 text-sm" onClick={() => {
                   signOut().catch((error) => { setKeyError(true); setKeyStatus(actionError(error)); });
                 }}>Sign out of this browser</button>}
+                {browserSession.authenticated && browserSession.csrf_token ? (
+                  <div className="mb-3">
+                    <button type="button" aria-describedby="sign-out-everywhere-help" className="rounded border border-line px-3 py-1.5 text-sm" onClick={() => {
+                      signOut(true).catch((error) => { setKeyError(true); setKeyStatus(actionError(error)); });
+                    }}>Sign out of every browser</button>
+                    <p id="sign-out-everywhere-help" className="mt-1 text-xs text-ink-3">
+                      Ends your session in every browser, this one included. Use it if a device with your session is lost. Your API keys keep working.
+                    </p>
+                  </div>
+                ) : null}
                 <label htmlFor="personal-api-key" className="mb-1 block text-xs text-ink-3">Personal API key</label>
                 <div className="flex gap-2">
                   <input

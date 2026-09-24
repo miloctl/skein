@@ -196,6 +196,13 @@ def _export_writer(path: Path, max_bytes: int):
         yield _ExportWriter(file, max_bytes)
 
 
+# Recovery units kept locally AND on the mirror. One count, because a record
+# deleted today lives on in every older dump, and the longer of the two
+# counts is how long a deletion or an erasure really takes
+# (services/retention.py).
+BACKUP_KEEP = 14
+
+
 def _backups_dir() -> Path:
     directory = Path(os.getenv("SKEIN_BACKUP_DIR", "") or Path(config.DATA_DIR) / "backups")
     directory.mkdir(parents=True, exist_ok=True)
@@ -397,7 +404,7 @@ def _held_backup_file_lock():
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
-def backup(*, keep: int = 14, actor: str | None = None) -> dict:
+def backup(*, keep: int = BACKUP_KEEP, actor: str | None = None) -> dict:
     """Serialize the complete dated backup workflow across threads and workers."""
     with _held_backup_lock():
         return _backup(keep=keep, actor=actor)
@@ -522,7 +529,7 @@ def mirror_dir() -> Path | None:
 
 def _mirror(dest: Path, mdir: Path) -> str | None:
     """Copy one core public-schema dump to an existing configured mirror."""
-    _harden_retained_backups(mdir, 30)
+    _harden_retained_backups(mdir, BACKUP_KEEP)
     prefix = dest.name.split("-", 1)[0]
     for stale in mdir.glob(f"{prefix}-*.dump.*.tmp"):
         stale.unlink(missing_ok=True)
@@ -544,7 +551,7 @@ def _mirror(dest: Path, mdir: Path) -> str | None:
         mirrored.chmod(0o600)
         _sync_file(mirrored)
         match = _BACKUP_FILE.fullmatch(dest.name)
-        _harden_retained_backups(mdir, 30, current=match.group(2) if match else "")
+        _harden_retained_backups(mdir, BACKUP_KEEP, current=match.group(2) if match else "")
         return str(mirrored)
     except Exception as exc:
         log.warning("backup mirror to %s failed: %s", mdir, exc)
@@ -603,7 +610,7 @@ def backup_if_stale() -> dict:
             # by count then deleted earlier days: a mirror left unmounted
             # through a crash loop emptied the history.
             return _mirror_existing(done, mirror_status, mirror)
-        return _backup(keep=14, actor=None)
+        return _backup(keep=BACKUP_KEEP, actor=None)
 
 
 def _mirror_existing(dump: Path, mirror_status: str, mirror: Path | None) -> dict:

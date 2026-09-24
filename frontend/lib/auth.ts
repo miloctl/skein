@@ -318,7 +318,9 @@ async function runCompleteSignIn(search: string): Promise<string> {
   return localPath(flow.returnTo || "/");
 }
 
-export async function signOut(): Promise<void> {
+// everywhere ends every browser session of this person, this one included
+// (DELETE /api/auth/sessions, routes/auth.py)
+export async function signOut(everywhere = false): Promise<void> {
   const expected = newGeneration();
   blockWeakFallback = true;
   // Hide private content immediately while a prior cookie-changing request
@@ -329,7 +331,7 @@ export async function signOut(): Promise<void> {
       checkGeneration(expected);
       const current = await readSession();
       checkGeneration(expected);
-      await sessionRequest("/api/auth/session", { method: "DELETE",
+      await sessionRequest(everywhere ? "/api/auth/sessions" : "/api/auth/session", { method: "DELETE",
         headers: current.csrf_token ? { "X-Skein-CSRF": current.csrf_token } : {} }, async (res) => {
         if (!res.ok) throw await responseError(res);
       });

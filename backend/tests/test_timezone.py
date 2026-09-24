@@ -219,7 +219,7 @@ def test_local_day_buckets_evening_work_under_the_day_it_was_written(monkeypatch
 def test_east_of_utc_moves_the_day_forward(monkeypatch):
     """Every other test here is west of UTC, where today() lags the UTC day.
     East of it the sign flips, and that is the direction the retention-prune
-    month key gets wrong."""
+    day key gets wrong."""
     _reload(monkeypatch, "Asia/Tokyo")
     fixed = datetime(2026, 9, 1, 4, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
 
@@ -229,8 +229,8 @@ def test_east_of_utc_moves_the_day_forward(monkeypatch):
             return fixed.astimezone(tz) if tz else fixed
 
     monkeypatch.setattr(db, "datetime", _Fixed)
-    assert db.today().isoformat()[:7] == "2026-09"  # the month the prune claims
-    assert db.now()[:7] == "2026-08"  # still August in UTC
+    assert db.today().isoformat() == "2026-09-01"  # the day the prune claims
+    assert db.now()[:10] == "2026-08-31"  # still the day before in UTC
 
 
 def test_health_reports_a_bad_zone_over_http(client, monkeypatch):

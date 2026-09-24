@@ -33,6 +33,7 @@ Sign out revokes the server session and expires the cookie without contacting th
 - `POST /api/auth/token` accepts an authorization code, verifier, and pinned callback URI. It returns session metadata, never provider tokens. Browser-supplied refresh tokens are refused.
 - `POST /api/auth/session/key` accepts a deliberately entered personal API key once and returns the same session metadata.
 - `DELETE /api/auth/session` revokes the session and clears the cookie. It requires an approved Origin and the cookie-bound CSRF value when a cookie exists.
+- `DELETE /api/auth/sessions` revokes every browser session of the cookie's person, this one included, and clears the cookie (Settings → Sign out of every browser). It always requires an approved Origin and the cookie-bound CSRF value. API keys are not touched.
 
 Browser fetches use `credentials: include`. Every protected cookie-authenticated request carries `X-Skein-CSRF`, including reads, uploads, downloads, chat streams, and page-close preference saves. This is also an identity binding: a stale tab cannot send work as a different account after the cookie changes.
 

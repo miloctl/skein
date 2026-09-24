@@ -142,6 +142,27 @@ def test_logout_revokes_and_clears_without_provider_access(browser, monkeypatch)
     assert browser_sessions.metadata(cookie, mode="trusted-header")["authenticated"] is False
 
 
+def test_signing_out_everywhere_ends_every_session_of_that_person_only(browser):
+    """A lost laptop kept its session for up to 8 hours: signing out on
+    another browser ended that browser's session alone."""
+    elsewhere = browser_sessions.create_key_session(_key(), mode="trusted-header").cookie
+    teammate = browser_sessions.create_key_session(_key("bo"), mode="trusted-header").cookie
+    info, _ = _login(browser)
+    here = browser.cookies.get(browser_sessions.COOKIE_NAME)
+
+    def signed_in(cookie: str) -> bool:
+        return browser_sessions.metadata(cookie, mode="trusted-header")["authenticated"]
+
+    # a cross-site request carries the cookie and never the header
+    assert browser.delete("/api/auth/sessions").status_code == 403
+    assert signed_in(elsewhere)
+    response = browser.delete("/api/auth/sessions", headers={"X-Skein-CSRF": info["csrf_token"]})
+    assert response.status_code == 204
+    assert "Max-Age=0" in response.headers["set-cookie"]
+    assert not signed_in(elsewhere) and not signed_in(here)
+    assert signed_in(teammate)
+
+
 def test_bootstrap_does_not_clear_a_newer_cookie(browser):
     browser.cookies.set(browser_sessions.COOKIE_NAME, "expired-cookie", domain="api.test", path="/")
     response = browser.get("/api/auth/session")

@@ -222,7 +222,9 @@ def test_mirror_retention_keeps_manual_recovery_points(fresh_db, tmp_path, monke
         for path in mirror.glob("platform-*.dump")
         if admin._DATED_BACKUP.fullmatch(path.name.removeprefix("platform-"))
     ]
-    assert len(dated) == 30
+    # the local count: a deleted record lives on in every older dump, so a
+    # longer mirror count is a longer life for every deletion
+    assert len(dated) == admin.BACKUP_KEEP == 14
 
 
 def test_mirror_hardens_and_bounds_legacy_database_files(fresh_db, tmp_path, monkeypatch):
@@ -241,14 +243,14 @@ def test_mirror_hardens_and_bounds_legacy_database_files(fresh_db, tmp_path, mon
 
     result = admin.backup()
     legacy = list(mirror.glob("platform-*.db"))
-    assert len(legacy) == 29
+    assert len(legacy) == admin.BACKUP_KEEP - 1
     assert Path(result["mirrored_platform_path"]).exists()
     units = {
         match.group(2)
         for path in mirror.iterdir()
         if (match := admin._BACKUP_FILE.fullmatch(path.name))
     }
-    assert len(units) == 30
+    assert len(units) == admin.BACKUP_KEEP
     assert all(path.stat().st_mode & 0o077 == 0 for path in legacy)
     assert not stale.exists()
 

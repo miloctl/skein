@@ -268,8 +268,8 @@ JOBS: tuple[JobSpec, ...] = (
     JobSpec(
         "retention-prune",
         _retention_prune,
-        {"trigger": "cron", "day": 1, "hour": 4, "minute": 0},
-        744,
+        {"trigger": "cron", "hour": 4, "minute": 0},
+        24,
         True,
     ),
 )

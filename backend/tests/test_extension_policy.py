@@ -6620,6 +6620,25 @@ def test_a_personal_read_runs_under_policy_only_after_one_approval(fresh_db, mon
     assert remote.called is True
     assert fresh_db.query_one("SELECT 1 FROM pending_changes WHERE status = 'pending'") is None
 
+    # Past the horizon the prune clears the call's arguments and result, and
+    # the approval must survive it: mcp_tools._first_use_approved matches the
+    # server, tool and version the cleared invocation keeps.
+    from app.services import retention
+
+    fresh_db.execute(
+        "UPDATE pending_changes SET reviewed_at = ? WHERE id = ?",
+        (retention._cutoff(retention.DERIVED_COPY_DAYS + 1), pending["id"]),
+    )
+    assert retention.prune(actor="tester")["pending_changes"] == 1
+    stored = fresh_db.query_row(
+        "SELECT invocation, result FROM extension_review_invocations WHERE change_id = ?",
+        (pending["id"],),
+    )
+    assert "first" not in stored["invocation"] and stored["result"] == "{}"
+    remote.called = False
+    assert call({"q": "third"})[-1]["status"] == "success"
+    assert remote.called is True
+
 
 def test_a_personal_call_that_policy_sends_to_approvers_stays_readable_to_them(
     fresh_db, monkeypatch

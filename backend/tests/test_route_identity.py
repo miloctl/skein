@@ -124,5 +124,6 @@ def test_every_mutating_route_resolves_a_caller():
         ("POST", "/api/auth/token"),
         ("POST", "/api/auth/session/key"),  # the submitted key proves the new identity
         ("DELETE", "/api/auth/session"),  # cookie/CSRF revocation also works after expiry
+        ("DELETE", "/api/auth/sessions"),  # the cookie names the person, CSRF is required
         ("POST", "/api/webhooks/forge"),
     }
