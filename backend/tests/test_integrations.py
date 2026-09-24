@@ -610,7 +610,7 @@ def test_personal_tools_reach_only_the_turn_their_owner_drives(fresh_db, monkeyp
     from app import config
     from app.agents import team_agent
     from app.agents.team_agent import build_agent
-    from app.services import mcp_servers
+    from app.services import mcp_servers, scope
 
     class FakeModel:
         stateful = False
@@ -639,12 +639,15 @@ def test_personal_tools_reach_only_the_turn_their_owner_drives(fresh_db, monkeyp
         agent = build_agent("t-personal", "ava", **kwargs)
         return {getattr(t, "tool_name", "") for t in agent.tool_registry.registry.values()}
 
-    names(personal_tools_for="ava")
+    ava = scope.Viewer("ava", True)
+    names(personal_tools_for="ava", viewer=ava)
     _settle_personal(m)
-    assert "notes_ping" in names(personal_tools_for="ava")
+    assert "notes_ping" in names(personal_tools_for="ava", viewer=ava)
     assert "notes_ping" not in names()
-    assert "notes_ping" not in names(personal_tools_for="ava", stateless=True)
-    assert "notes_ping" not in names(personal_tools_for="bo")
+    assert "notes_ping" not in names(personal_tools_for="ava", viewer=ava, stateless=True)
+    assert "notes_ping" not in names(personal_tools_for="bo", viewer=ava)
+    # trusted-header: "X-User: ava" is typed by the caller, not proven
+    assert "notes_ping" not in names(personal_tools_for="ava", viewer=scope.Viewer("ava", False))
 
 
 def test_a_failed_personal_server_recovers_off_the_chat_path(fresh_db, monkeypatch, clean_mcp):

@@ -1578,11 +1578,14 @@ def build_agent(
         # never sees it. A flock member holding them would write to a third
         # party while its trace row reports it proposed nothing.
         tools += mcp_tools({_tool_name(item) for item in tools})
-    if personal_tools_for and not stateless:
+    if personal_tools_for and not stateless and getattr(viewer, "name", "") == personal_tools_for:
         # Servers this person registered in Settings. Only the turn they
         # drive names them here (routes/chat.py): a flock member, a shared
         # chat, the unattended runner and the MCP actor never pass this, so
         # one person's credential cannot serve another person's prompt.
+        # The viewer check is the same rule for trusted-header: X-User is
+        # whatever the caller typed, and a weak Viewer carries no name, so
+        # a bare "X-User: ava" never drives ava's sealed credential.
         # Names are taken AFTER the env MCP tools joined, so a prefixed
         # personal tool cannot shadow an env one.
         from .mcp_tools import personal_mcp_tools
