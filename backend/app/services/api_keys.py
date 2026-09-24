@@ -42,7 +42,9 @@ def create_key(owner: str, label: str = "", *, at_server: bool = False) -> dict:
     return {"id": kid, "key": key, "label": label, "note": "store this now — it is not shown again"}
 
 
-_SAFE_NAME = re.compile(r"[\w .\-]{1,64}")
+# "@" and "+" for sign-in names, which are often email addresses. Neither is
+# a shell metacharacter, and shlex.quote leaves both bare.
+_SAFE_NAME = re.compile(r"[\w .@+\-]{1,64}")
 
 
 def request_key(user: str) -> dict:
@@ -57,7 +59,7 @@ def request_key(user: str) -> dict:
     if not user or user == "anonymous":
         raise ValueError("pick your name first — the key is minted for it")
     if not _SAFE_NAME.fullmatch(user):
-        raise ValueError("that name cannot go in a mint command — letters, digits, . - _ only")
+        raise ValueError("that name cannot go in a mint command — letters, digits, . - _ @ + only")
     prefix = f"{user} requests a personal API key"
     message = (
         f"{prefix} (self-asserted name — check that the request really comes from"
