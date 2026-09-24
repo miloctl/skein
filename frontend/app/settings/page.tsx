@@ -1550,7 +1550,7 @@ export default function SettingsPage() {
                       signOut(true).catch((error) => { setKeyError(true); setKeyStatus(actionError(error)); });
                     }}>Sign out of every browser</button>
                     <p id="sign-out-everywhere-help" className="mt-1 text-xs text-ink-3">
-                      Ends your session in every browser, this one included. Use it if a device with your session is lost. Your API keys keep working.
+                      Ends your session in every browser, this one included. Use it if a device with your session is lost. Your API keys keep working. If you sign in with a company login, that device can sign in again while the company login stays open there. Ask whoever runs the company login to end your sessions.
                     </p>
                   </div>
                 ) : null}

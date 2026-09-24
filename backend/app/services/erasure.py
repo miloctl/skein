@@ -50,7 +50,8 @@ _ENGAGEMENT_LINKS = ("tasks", "milestones", "memories", "chat_threads")
 
 # kinds a merge carries into the target account. Notifications are deleted
 # by an administrator's merge, and the 1:1 journal has its own refusal
-# (users.rename_user), so neither decides the merge refusal.
+# (users.rename_user), so neither decides the merge refusal. Rooms left to
+# one member and folder names were never part of that refusal either.
 MERGE_CARRIED = frozenset({*scope.CLASSIFIED, "solo_chats", "private_proposals", "mcp_servers"})
 
 
@@ -72,9 +73,24 @@ def _queries(name: str) -> dict[str, tuple[str, tuple]]:
         "SELECT id FROM chat_threads WHERE owner = ? AND kind = 'solo'",
         (name,),
     )
+    # a room whose other people all left, with no invitation pending, is
+    # readable by this person alone: an invitation accepted later would
+    # grant the whole transcript, so a pending one keeps the room
+    queries["rooms_alone"] = (
+        "SELECT t.id FROM chat_threads t JOIN chat_members m ON m.thread_id = t.id"
+        " WHERE t.kind = 'shared' AND m.person = ? AND m.left_at IS NULL"
+        " AND NOT EXISTS (SELECT 1 FROM chat_members o JOIN users u ON u.name = o.person"
+        "   WHERE o.thread_id = t.id AND o.person != m.person AND o.left_at IS NULL"
+        "   AND u.kind = 'human')"
+        " AND NOT EXISTS (SELECT 1 FROM chat_invitations i"
+        "   WHERE i.thread_id = t.id AND i.status = 'pending')",
+        (name,),
+    )
+    queries["chat_folders"] = ("SELECT name AS id FROM chat_folders WHERE owner = ?", (name,))
+    # 'private' only: a crew review names an owner too, and its crew reads and
+    # judges it (review._governing_tier)
     queries["private_proposals"] = (
-        "SELECT id FROM pending_changes WHERE review_owner = ?"
-        " AND review_visibility != 'workspace'",
+        "SELECT id FROM pending_changes WHERE review_owner = ? AND review_visibility = 'private'",
         (name,),
     )
     queries["mcp_servers"] = ("SELECT id FROM mcp_servers WHERE owner = ?", (name,))
@@ -96,13 +112,27 @@ def holdings(name: str) -> dict[str, int]:
 
 
 def erase_on(deactivated_at: str) -> str:
-    """The UTC date the erase job erases an account deactivated then."""
+    """The UTC date the erase job first erases an account deactivated then.
+    _due_before makes that the day of the first erase, so the roster and the
+    deactivate confirmation can say "on"."""
     return (datetime.fromisoformat(deactivated_at) + timedelta(days=GRACE_DAYS)).date().isoformat()
 
 
+def _due_before() -> str:
+    """Deactivations earlier than this are due today. erase_on(d) <= today
+    holds exactly when d is before the start of the UTC day GRACE_DAYS - 1
+    days ago."""
+    start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    return (start - timedelta(days=GRACE_DAYS - 1)).isoformat(timespec="seconds")
+
+
 def erase(name: str, *, actor: str = "scheduler") -> dict[str, int]:
-    """Delete what only `name` could read. Refuses an active account: the
-    grace period and the deactivation are what make this safe to run."""
+    """Delete what only `name` could read, and return what went, by kind.
+    Empty when the account is not due or holds nothing.
+
+    The due check runs again under the identity lock: erase_due reads its
+    list before any lock, and a reactivation between the two must keep the
+    account's data."""
     from . import chat_threads, private_notes, users
     from .search import deindex_record
 
@@ -112,13 +142,23 @@ def erase(name: str, *, actor: str = "scheduler") -> dict[str, int]:
         # that rename_user takes first
         db.name_lock(db.LOCK_UPLOAD, name)
         person = db.query_one("SELECT * FROM users WHERE name = ? FOR UPDATE", (name,))
-        if not person or person["kind"] != "human" or person["active"]:
-            raise ValueError("Only a deactivated person's data can be erased.")
+        if (
+            not person
+            or person["kind"] != "human"
+            or person["active"]
+            or not person["deactivated_at"]
+            or person["deactivated_at"] >= _due_before()
+        ):
+            return {}
         queries = _queries(name)
         chats = [str(r["id"]) for r in db.query(*queries["solo_chats"])]
-        for thread_id in chats:
+        rooms = [str(r["id"]) for r in db.query(*queries["rooms_alone"])]
+        for thread_id in (*chats, *rooms):
             chat_threads.remove_thread(thread_id)
-        erased: dict[str, int] = {"solo_chats": len(chats)}
+        erased: dict[str, int] = {"solo_chats": len(chats), "rooms_alone": len(rooms)}
+        erased["chat_folders"] = db.execute_rowcount(
+            "DELETE FROM chat_folders WHERE owner = ?", (name,)
+        )
         for table in _ORDER:
             ids = [int(r["id"]) for r in db.query(*queries[table])]
             if not ids:
@@ -135,8 +175,14 @@ def erase(name: str, *, actor: str = "scheduler") -> dict[str, int]:
             )
             if table == "artifacts":
                 for row in rows:
-                    if row["path"]:
+                    if not row["path"]:
+                        continue
+                    try:
                         artifact_files.delete_after_commit(Path(row["path"]))
+                    except RuntimeError:
+                        # a stored path outside the artifact root (a moved or
+                        # restored volume) must not keep every other row alive
+                        log.warning("erase: artifact #%s is outside the artifact root", row["id"])
             if table == "memories":
                 for row in rows:
                     deindex_record("memory", int(row["id"]))
@@ -159,34 +205,38 @@ def erase(name: str, *, actor: str = "scheduler") -> dict[str, int]:
         erased["journal_notes"] = private_notes.erase_author(name)
         # growth interests the person never shared, and their own theme
         db.execute(
-            "UPDATE users SET erased_at = ?, theme = '',"
+            "UPDATE users SET erased_at = COALESCE(erased_at, ?), theme = '',"
             " growth_interests = CASE WHEN growth_shared THEN growth_interests ELSE '' END"
             " WHERE id = ?",
             (db.now(), person["id"]),
         )
         total = sum(erased.values())
-        db.log_activity(actor, "erase_private_data", f"{name}: {total} record(s)")
+        # a later run finds only what reached the account since, often nothing
+        if total:
+            db.log_activity(actor, "erase_private_data", f"{name}: {total} record(s)")
     return {kind: n for kind, n in erased.items() if n}
 
 
 def erase_due() -> dict:
-    """Erase every account deactivated GRACE_DAYS ago or more. Each person
-    is their own transaction, so one failure leaves the others erased; the
-    failure still fails the job, which records it (jobs.run_job) and retries
-    it tomorrow."""
-    cutoff = (datetime.now(UTC) - timedelta(days=GRACE_DAYS)).isoformat(timespec="seconds")
+    """Erase every account whose erase date has come, and again on every
+    later day: a notification, a memory addressed to the person, or a room
+    whose other members left can reach the account after its first erase.
+
+    Each person is their own transaction, so one failure leaves the others
+    erased. The failure still fails the job, which records it (jobs.run_job)
+    and retries tomorrow."""
     due = db.query(
-        "SELECT name FROM users WHERE kind = 'human' AND active = 0 AND erased_at IS NULL"
-        " AND deactivated_at IS NOT NULL AND deactivated_at <= ? ORDER BY id",
-        (cutoff,),
+        "SELECT name FROM users WHERE kind = 'human' AND active = 0"
+        " AND deactivated_at IS NOT NULL AND deactivated_at < ? ORDER BY id",
+        (_due_before(),),
     )
-    failed = 0
+    erased = failed = 0
     for row in due:
         try:
-            erase(str(row["name"]))
+            erased += bool(erase(str(row["name"])))
         except Exception:
             log.exception("erasing a deactivated account failed")
             failed += 1
     if failed:
         raise RuntimeError(f"{failed} of {len(due)} deactivated accounts could not be erased.")
-    return {"erased": len(due)}
+    return {"erased": erased}

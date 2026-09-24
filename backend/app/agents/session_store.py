@@ -282,7 +282,8 @@ def _without_attachment_bytes(payload: dict) -> dict:
 
 def _with_attached_text(payload: dict, owner: str) -> dict:
     """The reverse of the text-file pointer: the file's current text while
-    `owner` still owns it, otherwise its name alone.
+    `owner` still owns it, its name alone once it is gone, and the pointer
+    itself for any other reader.
 
     Owner-scoped because the pointer is only text. A person who types one
     into their own chat reaches their own file, and nothing else."""
@@ -300,19 +301,28 @@ def _with_attached_text(payload: dict, owner: str) -> dict:
 
 
 def _current_text(artifact_id: int, name: str, owner: str) -> dict:
+    """The pointer itself, unchanged, when no owner restores it or the file
+    cannot be read right now. A restore can be written back: the command
+    bridge (agents/session_log.py) and a guardrail rewrite a message through
+    update_message, and a name marker written there ends the file's way back
+    into a turn for good."""
     from ..services import handoff, uploads
 
+    pointer = {"text": f"[attached file #{artifact_id}: {name}]"}
     if not owner:
-        return _name_marker(name)
+        return pointer
     try:
         row = uploads.owned_upload(artifact_id, owner)
-        if row["path"].rsplit(".", 1)[-1].lower() not in TEXT_FORMATS:
-            return _name_marker(name)
-        return attached_file_block(artifact_id, row["title"], uploads.upload_bytes(row))
-    except (db.NotFound, handoff.ArtifactUnreadable):
-        # deleted, moved to another owner, or unreadable on disk: the turn
-        # goes on with the name, as it does for an image or a PDF
+    except db.NotFound:
+        # deleted, or another person's file: the turn goes on with the name,
+        # as it does for an image or a PDF
         return _name_marker(name)
+    if row["path"].rsplit(".", 1)[-1].lower() not in TEXT_FORMATS:
+        return _name_marker(name)
+    try:
+        return attached_file_block(artifact_id, row["title"], uploads.upload_bytes(row))
+    except handoff.ArtifactUnreadable:
+        return pointer
 
 
 # Backstop for paths the context offloader does not ride (plugin disabled,
@@ -532,24 +542,30 @@ class DatabaseSessionRepository(SessionRepository):
         )
 
 
+# The sessions of one thread: its own, a persona session (`<thread>:<slug>`,
+# chat_threads.PERSONA_SEP, exactly one colon), or one minted before that
+# separator (`<thread>--<slug>`). The legacy form needs care: `--` is inside
+# the thread-id charset, so `abc--x` can be another person's whole chat.
+# A run id (run:<agent>:<date>) has two colons and matches none of these.
+# Placeholders: the thread id, five times.
+_THREAD_SESSION = (
+    "(session_id = ?"
+    " OR (session_id ~ '^[^:]+:[^:]+$' AND split_part(session_id, ':', 1) = ?)"
+    " OR (strpos(session_id, ':') = 0 AND left(session_id, length(?) + 2) = ? || '--'"
+    "   AND strpos(substr(session_id, length(?) + 3), '--') = 0"
+    "   AND NOT EXISTS (SELECT 1 FROM chat_threads other WHERE other.id = session_id)))"
+)
+
+
 def delete_thread_sessions(thread_id: str) -> None:
     """A deleted chat's model-side sessions, including the per-persona
-    variants chat_threads.persona_session_id names. Cascades take the agents,
-    messages, and multi-agent state.
+    variants chat_threads.persona_session_id names (_THREAD_SESSION). Cascades
+    take the agents, messages, and multi-agent state.
 
-    ESCAPE, because `_` is a LIKE single-character wildcard and the thread-id
-    charset allows it: deleting a thread named `a_b` matched — and destroyed —
-    another owner's `axb` persona sessions. Both separators are swept: `:`
-    is what chat.py mints now, `--` is what threads created before it carry.
-    """
-    from ..services.chat_threads import _LEGACY_PERSONA_SEP, PERSONA_SEP
-
-    safe = thread_id.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    db.execute(
-        "DELETE FROM sessions WHERE session_id = ?"
-        " OR session_id LIKE ? ESCAPE '\\' OR session_id LIKE ? ESCAPE '\\'",
-        (thread_id, f"{safe}{PERSONA_SEP}%", f"{safe}{_LEGACY_PERSONA_SEP}%"),
-    )
+    Equality and fixed patterns, never LIKE on the thread id: `_` is a LIKE
+    wildcard inside the thread-id charset, and deleting `a_b` destroyed
+    another owner's `axb` persona sessions."""
+    db.execute(f"DELETE FROM sessions WHERE {_THREAD_SESSION}", (thread_id,) * 5)  # noqa: S608 — a module constant
 
 
 def import_file_sessions() -> None:

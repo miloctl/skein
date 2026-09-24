@@ -2465,6 +2465,9 @@ def test_a_deleted_message_leaves_the_room_agents_and_their_answers(client, monk
     assert _shared_prompt_block("human", "mira", sent["id"], "[deleted]") in body
     assert _shared_prompt_block("human", "mira", later["id"], "the lobby opens at nine") in body
     assert "4471" not in body
+    # its own answers came from the session that is gone, so the room supplies
+    # them: the deleted one as a placeholder
+    assert _shared_prompt_block("agent", agent, reply_id, "[deleted]") in body
 
 
 def test_a_message_delete_waits_for_any_running_agent_in_the_room(client):

@@ -191,7 +191,9 @@ def generate_handoff(
             db.log_activity(
                 actor, "generate_handoff", f"engagement #{engagement_id} -> artifact #{aid}"
             )
-        return {"artifact_id": aid, "path": str(path), "markdown": markdown}
+        # the file's name, never its path: the answer reaches the caller and an
+        # agent's transcript, and an absolute path maps the server's disk
+        return {"artifact_id": aid, "file": path.name, "markdown": markdown}
 
 
 class ArtifactUnreadable(RuntimeError):

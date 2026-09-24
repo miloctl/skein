@@ -267,7 +267,8 @@ def delete_every_session(request: Request, response: Response):
         browser_sessions.COOKIE_NAME, path="/", secure=True, httponly=True, samesite="lax"
     )
     response.headers["Cache-Control"] = "no-store"
-    return {"logout_url": oidc.logout_url(id_token, origin + "/")}
+    provider = settings.auth_mode == "oidc"
+    return {"logout_url": oidc.logout_url(id_token, origin + "/") if provider else ""}
 
 
 @router.delete("/session")
@@ -276,6 +277,8 @@ def delete_session(request: Request, response: Response):
     sign-out endpoint, is where the browser goes next to end its provider
     session as well."""
     origin = require_browser_origin(request)
+    # the mode only: sign-out must work while authentication is misconfigured
+    settings = auth_settings(request)
     cookie = request.cookies.get(browser_sessions.COOKIE_NAME, "")
     if browser_sessions.csrf_token(cookie) and not browser_sessions.validate_binding(
         cookie, request.headers.get(CSRF_HEADER, "")
@@ -287,4 +290,5 @@ def delete_session(request: Request, response: Response):
         browser_sessions.COOKIE_NAME, path="/", secure=True, httponly=True, samesite="lax"
     )
     response.headers["Cache-Control"] = "no-store"
-    return {"logout_url": oidc.logout_url(id_token, origin + "/")}
+    provider = settings.auth_mode == "oidc"
+    return {"logout_url": oidc.logout_url(id_token, origin + "/") if provider else ""}

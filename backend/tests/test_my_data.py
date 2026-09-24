@@ -12,6 +12,7 @@ from conftest import _strong
 
 from app import db
 from app.services import my_data, private_notes, scope
+from app.services.projection_policy import ProjectionPolicy
 
 
 def test_the_label_map_and_the_own_surfaces_cover_every_scoped_table():
@@ -98,8 +99,8 @@ def test_the_export_holds_the_person_s_own_data_and_no_file_contents(client):
     assert response.status_code == 200
     assert response.headers["content-disposition"].startswith("attachment;")
     body = response.json()
-    todays = {row["today"] for row in body["records"]["standups"]}
-    assert todays == {"private plan", "team update"}
+    # private records only: a shared one is the team's, and its readers change
+    assert [row["today"] for row in body["records"]["standups"]] == ["private plan"]
     assert [f["title"] for f in body["files"]] == ["cv.md"]
     assert "resume bytes" not in response.text and "bo's plan" not in response.text
     assert [c["id"] for c in body["chats"]] == ["ava-chat"] and body["chats"][0]["messages"]
@@ -107,3 +108,91 @@ def test_the_export_holds_the_person_s_own_data_and_no_file_contents(client):
     assert db.query_one("SELECT 1 FROM private.audit WHERE author = 'ava' AND action = 'export'")
     ledger = db.query_row("SELECT detail FROM activity WHERE action = 'export_my_data'")
     assert "plan" not in json.dumps(ledger)
+
+
+class _DenyRegulated(ProjectionPolicy):
+    """A workplace rule that denies regulated projects on REST reads."""
+
+    def permits(self, entity, entity_id, attributes):
+        return attributes.get("project_type") != "regulated"
+
+
+def _policy(person: str) -> ProjectionPolicy:
+    return _DenyRegulated(None, None, "skein.rest.get.my-data", "rest", scope.Viewer(person, True))
+
+
+def test_the_list_and_the_export_pass_the_workplace_policy(client):
+    """Every other read of a regulated project's rows passes the workplace
+    policy. The export asked only who wrote them."""
+    ava = _strong(client, "ava")
+    regulated = client.post(
+        "/api/engagements",
+        json={"name": "Audit prep", "project_class": "regulated", "visibility": "private"},
+        headers=ava,
+    ).json()["id"]
+    client.post(
+        "/api/engagements",
+        json={"name": "Side project", "visibility": "private"},
+        headers=ava,
+    )
+    client.post(
+        "/api/tasks",
+        json={"title": "regulated draft", "visibility": "private", "engagement_id": regulated},
+        headers=ava,
+    )
+    listed = my_data.list_private("engagements", "ava", _policy("ava"))
+    assert [row["label"] for row in listed] == ["Side project"]
+    body = my_data.export("ava", _policy("ava"))
+    assert [row["name"] for row in body["records"]["engagements"]] == ["Side project"]
+    assert body["records"]["tasks"] == []
+
+
+def test_a_delete_refuses_a_record_others_point_at(client):
+    """An allocation cascades with its engagement and names another person's
+    time, and a superseded decision names its successor: deleting under them
+    took the first and stranded the second."""
+    from app.services import collab, engagements
+
+    ava = _strong(client, "ava")
+    engagement = client.post(
+        "/api/engagements", json={"name": "Side project", "visibility": "private"}, headers=ava
+    ).json()["id"]
+    engagements.allocate("ava", engagement, 50, actor="ava")
+    assert client.delete(f"/api/my-data/engagements/{engagement}", headers=ava).status_code == 400
+    assert db.query_one("SELECT 1 FROM allocations WHERE engagement_id = ?", (engagement,))
+
+    first = collab.record_decision("Ship weekly", "yes", actor="ava", visibility="private")["id"]
+    second = collab.supersede_decision(first, "Ship daily", "yes", actor="ava")["id"]
+    db.execute("UPDATE decisions SET visibility = 'private' WHERE id = ?", (second,))
+    assert client.delete(f"/api/my-data/decisions/{second}", headers=ava).status_code == 400
+
+
+def test_a_private_handoff_is_listed_deleted_and_counted_apart_from_files(client):
+    """A handoff made for a private engagement is private, and it was counted
+    under Attached files, where nothing lists or deletes it."""
+    ava = _strong(client, "ava")
+    engagement = client.post(
+        "/api/engagements", json={"name": "Side project", "visibility": "private"}, headers=ava
+    ).json()["id"]
+    handoff = client.post(f"/api/engagements/{engagement}/handoff", headers=ava).json()
+    client.post(
+        "/api/files",
+        files={"file": ("cv.md", io.BytesIO(b"resume"), "text/plain")},
+        headers=ava,
+    )
+    counts = client.get("/api/my-data", headers=ava).json()["counts"]
+    assert (counts["uploads"], counts["artifacts"]) == (1, 1)
+    listed = client.get("/api/my-data/artifacts", headers=ava).json()
+    assert [row["id"] for row in listed] == [handoff["artifact_id"]]
+    path = db.query_row("SELECT path FROM artifacts WHERE id = ?", (handoff["artifact_id"],))[
+        "path"
+    ]
+    assert (
+        client.delete(f"/api/my-data/artifacts/{handoff['artifact_id']}", headers=ava).status_code
+        == 200
+    )
+    from pathlib import Path
+
+    assert not Path(path).exists()
+    upload = db.query_row("SELECT id FROM artifacts WHERE kind = 'upload'")["id"]
+    assert client.delete(f"/api/my-data/artifacts/{upload}", headers=ava).status_code == 404

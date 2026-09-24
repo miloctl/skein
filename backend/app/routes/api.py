@@ -1107,20 +1107,37 @@ def get_my_data(user: StrongUser):
     return my_data.summary(user)
 
 
+def _my_data_policy(request: Request, subject, viewer) -> projection_policy.ProjectionPolicy:
+    """The per-row workplace gate the other composite reads apply: a rule
+    that denies a project's rows on REST reads denies them in your data too."""
+    return projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.my-data",
+        "rest",
+        viewer,
+    )
+
+
 @router.get("/my-data/export")
-def export_my_data(user: StrongUser):
+def export_my_data(
+    user: StrongUser, viewer: ViewerDep, request: Request, subject: PolicySubjectDep
+):
     ratelimit.check("my_export", user)
     filename = f"skein-my-data-{db.today().isoformat()}.json"
+    body = my_data.export(user, _my_data_policy(request, subject, viewer))
     return Response(
-        content=json.dumps(my_data.export(user), indent=2),
+        content=json.dumps(body, indent=2),
         media_type="application/json",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
 @router.get("/my-data/{kind}")
-def list_my_private(kind: str, user: StrongUser):
-    return my_data.list_private(kind, user)
+def list_my_private(
+    kind: str, user: StrongUser, viewer: ViewerDep, request: Request, subject: PolicySubjectDep
+):
+    return my_data.list_private(kind, user, _my_data_policy(request, subject, viewer))
 
 
 @router.delete("/my-data/{kind}/{row_id}")

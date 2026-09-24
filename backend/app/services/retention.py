@@ -233,17 +233,7 @@ def prune(*, actor: str = "scheduler") -> dict:
         # turn, a record deleted since included. An idle chat's sessions go
         # and the chat stays: the next turn starts fresh, and a room agent
         # re-reads the room from its join point (shared_chat_agents._prompt).
-        # The separators are chat_threads.PERSONA_SEP and its legacy form,
-        # the same match session_store.delete_thread_sessions uses.
-        # `[^:]+$` keeps an unattended run's id (run:<agent>:<date>, which
-        # starts like the persona session of a chat named "run") out of it.
-        # Thread ids are [A-Za-z0-9_-] (chat_threads._THREAD_ID), so t.id
-        # carries no regex operator.
-        "sessions": db.execute_rowcount(
-            "DELETE FROM sessions s USING chat_threads t WHERE t.updated_at < ?"
-            " AND (s.session_id = t.id OR s.session_id ~ ('^' || t.id || '(:|--)[^:]+$'))",
-            (_cutoff(IDLE_SESSION_DAYS),),
-        )
+        "sessions": _prune_idle_sessions()
         # agent_runner and agent_wakeups name these; the date lives in the
         # SDK's own session payload, since the table has no column for it
         + db.execute_rowcount(
@@ -251,13 +241,16 @@ def prune(*, actor: str = "scheduler") -> dict:
             " AND payload::jsonb ->> 'created_at' < ?",
             (_cutoff(RUNNER_SESSION_DAYS),),
         ),
-        "artifacts": _prune_digests(),
-        "context_packs": _prune_pack_versions(),
+        # in users.rename_user's table order (_ATTRIBUTION): a rename walks
+        # these the same way, and two transactions that lock them in
+        # opposite orders deadlock
         "pending_changes": _clear_settled_proposals(),
         "usage_log": db.execute_rowcount(
             "UPDATE usage_log SET requested_by = '' WHERE requested_by <> '' AND created_at < ?",
             (_cutoff(USAGE_NAME_DAYS),),
         ),
+        "artifacts": _prune_digests(),
+        "context_packs": _prune_pack_versions(),
         # orphans only, never by age: the (entity, entity_id, person) key is
         # the notify-once promise, and an age prune would let an edit of an
         # old row ping the same person again. AUTOINCREMENT ids never come
@@ -333,9 +326,13 @@ def _clear_settled_proposals() -> int:
     version, which mcp_tools._first_use_approved matches: without them the
     tool asks for approval again."""
     keys = _tier_keys()
+    # A remote call whose completion is unknown keeps everything: reconciling
+    # it needs its arguments, and the review list names it by its summary.
     rows = db.query(
         "SELECT id, payload FROM pending_changes WHERE status IN ('approved', 'rejected')"
-        " AND reviewed_at < ? AND text_cleared_at IS NULL",
+        " AND reviewed_at < ? AND text_cleared_at IS NULL"
+        " AND NOT EXISTS (SELECT 1 FROM extension_review_invocations i"
+        "   WHERE i.change_id = pending_changes.id AND i.status = 'completion_unknown')",
         (_cutoff(DERIVED_COPY_DAYS),),
     )
     now = db.now()
@@ -345,17 +342,49 @@ def _clear_settled_proposals() -> int:
         except ValueError:
             payload = {}
         kept = {k: v for k, v in payload.items() if k in keys} if isinstance(payload, dict) else {}
-        db.execute(
-            "UPDATE pending_changes SET payload = ?, summary = '', text_cleared_at = ? WHERE id = ?",
-            (json.dumps(kept), now, row["id"]),
-        )
-        # completion_unknown keeps its arguments: reconciling it needs them
+        # the invocation first, the order erasure.erase deletes them in. Any
+        # status but completion_unknown: an automatic rejection
+        # (review.approve_change) settles the proposal and leaves its
+        # invocation 'pending'.
         db.execute(
             "UPDATE extension_review_invocations SET result = '{}', invocation = CASE"
             " WHEN kind = 'mcp_tool' THEN jsonb_build_object("
             " 'server', invocation::jsonb -> 'server', 'tool', invocation::jsonb -> 'tool',"
             " 'version', invocation::jsonb -> 'version')::text ELSE '{}' END"
-            " WHERE change_id = ? AND status IN ('approved', 'rejected')",
+            " WHERE change_id = ? AND status <> 'completion_unknown'",
             (row["id"],),
         )
+        db.execute(
+            "UPDATE pending_changes SET payload = ?, summary = '', text_cleared_at = ? WHERE id = ?",
+            (json.dumps(kept), now, row["id"]),
+        )
     return len(rows)
+
+
+def _prune_idle_sessions() -> int:
+    """The sessions of every chat idle past IDLE_SESSION_DAYS, matched the way
+    session_store._THREAD_SESSION matches one thread's. One equality per
+    form, so each is a hash join: a pattern built from each thread id was
+    compiled again for every (session, thread) pair, a minute per thousand
+    idle chats."""
+    cutoff = _cutoff(IDLE_SESSION_DAYS)
+    own = db.execute_rowcount(
+        "DELETE FROM sessions s USING chat_threads t WHERE t.updated_at < ? AND s.session_id = t.id",
+        (cutoff,),
+    )
+    persona = db.execute_rowcount(
+        "DELETE FROM sessions s USING chat_threads t WHERE t.updated_at < ?"
+        " AND s.session_id ~ '^[^:]+:[^:]+$' AND split_part(s.session_id, ':', 1) = t.id",
+        (cutoff,),
+    )
+    # sessions minted before PERSONA_SEP, few by now, so a pairwise match
+    # over them alone is cheap; `abc--x` stays when it is a chat of its own
+    legacy = db.execute_rowcount(
+        "DELETE FROM sessions s USING chat_threads t WHERE t.updated_at < ?"
+        " AND strpos(s.session_id, ':') = 0 AND strpos(s.session_id, '--') > 0"
+        " AND left(s.session_id, length(t.id) + 2) = t.id || '--'"
+        " AND strpos(substr(s.session_id, length(t.id) + 3), '--') = 0"
+        " AND NOT EXISTS (SELECT 1 FROM chat_threads o WHERE o.id = s.session_id)",
+        (cutoff,),
+    )
+    return own + persona + legacy
