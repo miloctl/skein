@@ -612,6 +612,10 @@ UNSCOPED: dict[str, str] = {
         "the private shared-chat access list itself. Scoping it by its own"
         " membership would be circular."
     ),
+    "one_on_one_pairs": (
+        "who may pull whose 1:1 brief; read by its two participants only"
+        " (services/pairings.py), never listed for anyone else"
+    ),
     "chat_messages": (
         "reached only through a solo owner claim or an active private shared-chat membership"
     ),

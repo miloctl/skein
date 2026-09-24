@@ -185,6 +185,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     "share_record": lambda u: (
         _act(u, "share_with_team") or _act(u, "share_absence") or _act(u, "share_growth_interests")
     ),
+    "one_on_one_pairing": lambda u: _act(u, "propose_pairing") or _act(u, "accept_pairing"),
     "chat_attachment": lambda u: _act(u, "upload_file"),
     # mark-only: the document write is signed by the AGENT, so the ledger
     # carries no per-person row. routes/api.py::get_artifact marks it when

@@ -810,6 +810,8 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     # behind silently drops the person out of every crew they could read
     "crew_members": ("person", "created_by"),
     "crews": ("created_by",),
+    # a pairing follows its people; merge folding is in rename_user
+    "one_on_one_pairs": ("lead", "subject", "proposed_by"),
     "chat_folders": ("owner",),
     "absences": ("created_by", "person"),
     "task_worklog": ("author",),
@@ -1052,6 +1054,22 @@ def rename_user(
             " AND n.agent = ?)",
             (old, new),
         )
+        # one_on_one_pairs: a pair between the two halves of one person would
+        # pair them with themselves (CHECK lead <> subject), and an open pair
+        # both halves hold with one teammate is one pair twice
+        # (one_on_one_pairs_open). The target's wins. No-ops for a rename.
+        db.execute(
+            "DELETE FROM one_on_one_pairs WHERE (lead = ? AND subject = ?)"
+            " OR (lead = ? AND subject = ?)",
+            (old, new, new, old),
+        )
+        for column, other in (("lead", "subject"), ("subject", "lead")):
+            db.execute(
+                f"DELETE FROM one_on_one_pairs WHERE status <> 'ended' AND {column} = ?"  # noqa: S608 — column from a fixed pair
+                f" AND EXISTS (SELECT 1 FROM one_on_one_pairs n WHERE n.status <> 'ended'"
+                f" AND n.{column} = ? AND n.{other} = one_on_one_pairs.{other})",
+                (old, new),
+            )
         # crew_members (crew_id, person): the target's row wins, but a STEWARD
         # row is kept over a member one — merging two halves of one person
         # must not quietly demote them out of a crew they steward. Two rows

@@ -56,6 +56,7 @@ KEPT = {
     "extension_command_receipts": "extension write receipts: provenance",
     "forge_receipts": "permanent repository/event/raw-payload fingerprints and delivery-ID bindings: pruning re-enables replay after human edits",
     "memories": "owner-forgettable (memory.forget), never age-pruned",
+    "one_on_one_pairs": "consent records: a participant ends a pairing, never an age prune",
     "search_index": _DERIVED,
     "embeddings": _DERIVED,
     "context_packs": "versioned pack registry: one row per content change, kept forever",

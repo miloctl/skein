@@ -24,6 +24,15 @@ def _setup_key(client, fresh_db):
     return {"Authorization": f"Bearer {key}"}
 
 
+def _dana_lets_manager_prepare():
+    """A brief needs the subject's accepted pairing (services/pairings.py)."""
+    from app.services import pairings, users
+
+    for name in ("dana", "manager"):
+        users.ensure_user(name)
+    pairings.propose("manager", actor="dana", role="subject")
+
+
 def _write_private(client, fresh_db):
     headers = _setup_key(client, fresh_db)
     r = client.post(
@@ -273,6 +282,7 @@ def test_brief_pulls_are_bounded(client, fresh_db, monkeypatch):
     from app import ratelimit
 
     headers = _setup_key(client, fresh_db)
+    _dana_lets_manager_prepare()
     assert client.get(f"/api/private/brief/{'x' * 65}", headers=headers).status_code == 422
     monkeypatch.setitem(ratelimit.LIMITS, "brief", 2)
     ratelimit.reset()
@@ -286,6 +296,7 @@ def test_brief_pulls_are_bounded(client, fresh_db, monkeypatch):
 
 def test_brief_degrades_to_empty(client, fresh_db):
     headers = _setup_key(client, fresh_db)
+    _dana_lets_manager_prepare()
     r = client.get("/api/private/brief/dana", headers=headers)
     assert r.status_code == 200
     b = r.json()

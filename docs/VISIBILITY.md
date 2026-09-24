@@ -490,7 +490,10 @@ A third, found in the phase 3-6 review and closed with them:
 `GET /api/private/brief/{person}` took a free path parameter with no manager
 relation behind it, and its six queries were unfiltered — so every strong
 identity could read every other person's PRIVATE standup and promise rows in
-full. It now filters on the READER, never on the subject.
+full. It now filters on the READER, never on the subject. The gathering
+itself is a profile, so a lead also needs a pairing the subject accepted
+(`services/pairings.py`), and the subject sees each lead and when they last
+opened the brief. The author's 1:1 journal needs no pairing.
 
 ## What phase 3 solved
 

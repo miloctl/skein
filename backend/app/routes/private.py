@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .. import ratelimit
 from ..extensions.fastapi import PolicyAPIRoute
-from ..services import private_notes
+from ..services import pairings, private_notes
 from .deps import StrongUser, ViewerDep
 
 router = APIRouter(prefix="/api/private", route_class=PolicyAPIRoute)
@@ -49,6 +49,37 @@ def get_audit(user: StrongUser):
     return private_notes.list_audit(user)
 
 
+class PairIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    person: str = Field(max_length=64)
+    # the caller's side: "lead" asks to pull `person`'s brief, "subject" lets
+    # `person` pull the caller's
+    role: str = Field(max_length=10)
+
+
+@router.get("/pairs")
+def get_pairs(user: StrongUser):
+    return pairings.list_pairs(user)
+
+
+@router.post("/pairs")
+def post_pair(body: PairIn, user: StrongUser):
+    ratelimit.check("write", user)
+    return pairings.propose(body.person, actor=user, role=body.role)
+
+
+@router.post("/pairs/{pair_id}/accept")
+def accept_pair(pair_id: int, user: StrongUser):
+    ratelimit.check("write", user)
+    return pairings.accept(pair_id, actor=user)
+
+
+@router.post("/pairs/{pair_id}/end")
+def end_pair(pair_id: int, user: StrongUser):
+    ratelimit.check("write", user)
+    return pairings.end(pair_id, actor=user)
+
+
 @router.get("/brief/{person}")
 def get_brief(
     user: StrongUser,
@@ -56,8 +87,11 @@ def get_brief(
     person: str = PathParam(max_length=64),
     days: int = 14,
 ):
-    # a read that writes: every pull files a private audit row
+    # a read that writes: every pull files a private audit row, and stamps
+    # the pull the subject sees (pairings.record_brief refuses without an
+    # accepted pairing)
     ratelimit.check("brief", user)
+    pairings.record_brief(user, person)
     private_notes.audit_brief(user, person)
     brief = private_notes.one_on_one_brief(person, days=days, viewer=viewer)
     gap = private_notes.feedback_gap_days(user, person)

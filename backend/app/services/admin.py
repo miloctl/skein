@@ -102,6 +102,8 @@ EXCLUDED = frozenset(
         # mention delivery/dedupe rows can point at private entities but have no
         # visibility column of their own
         "mention_log",
+        # who prepares 1:1s with whom is between those two people
+        "one_on_one_pairs",
         # owner-scoped conversation state stays out of portable exports on
         # purpose; the pg_dump backups still carry it
         "chat_threads",
