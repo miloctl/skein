@@ -44,6 +44,7 @@ from ..services import (
     intervention,
     mcp_servers,
     memory,
+    merges,
     notifications,
     personas,
     planning,
@@ -1310,6 +1311,37 @@ def post_growth_interests(body: GrowthIn, user: CurrentUser):
 def get_growth_interests(user: CurrentUser):
     # write-only fields can't be reviewed or cleared — prefill needs this
     return users.get_growth_interests(user)
+
+
+class MergeRequestIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    target: str = Field(max_length=64)
+
+
+# StrongUser on all four: a merge moves data only its owner can read, so the
+# ask and the confirmation each need the account's own credential
+@router.get("/merge-requests")
+def get_merge_requests(user: StrongUser):
+    return merges.list_for(user)
+
+
+@router.post("/merge-requests")
+def post_merge_request(body: MergeRequestIn, user: StrongUser):
+    ratelimit.check("write", user)
+    return merges.request(body.target, actor=user)
+
+
+@router.post("/merge-requests/{request_id}/confirm")
+def confirm_merge_request(request_id: int, user: StrongUser):
+    ratelimit.check("write", user)
+    return merges.confirm(request_id, actor=user)
+
+
+@router.post("/merge-requests/{request_id}/settle")
+def settle_merge_request(request_id: int, user: StrongUser):
+    """Cancel (the source) or decline (the target)."""
+    ratelimit.check("write", user)
+    return merges.settle(request_id, actor=user)
 
 
 @router.post("/users/growth-interests/share")

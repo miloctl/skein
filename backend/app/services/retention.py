@@ -57,6 +57,7 @@ KEPT = {
     "forge_receipts": "permanent repository/event/raw-payload fingerprints and delivery-ID bindings: pruning re-enables replay after human edits",
     "memories": "owner-forgettable (memory.forget), never age-pruned",
     "one_on_one_pairs": "consent records: a participant ends a pairing, never an age prune",
+    "merge_requests": "consent records for a merge that moved private data, kept as its receipt",
     "search_index": _DERIVED,
     "embeddings": _DERIVED,
     "context_packs": "versioned pack registry: one row per content change, kept forever",

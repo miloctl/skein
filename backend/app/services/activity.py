@@ -1066,6 +1066,9 @@ VERBS: dict[str, tuple[str, str]] = {
     "propose_pairing": ("proposed a 1:1 pairing", "quiet"),
     "accept_pairing": ("accepted a 1:1 pairing", "quiet"),
     "end_pairing": ("ended a 1:1 pairing", "quiet"),
+    "request_merge": ("asked to merge an account", "normal"),
+    "cancel_merge": ("cancelled a merge request", "quiet"),
+    "decline_merge": ("declined a merge request", "normal"),
     "add_promise": ("made a promise", "normal"),
     # the other direction: somebody outside the team owes US this one
     "await_promise": ("recorded a promise made to the team", "normal"),
