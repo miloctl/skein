@@ -500,6 +500,47 @@ def test_every_producer_files_an_addressed_memory_privately(client, fresh_db, mo
     assert "ZZMCPZZ" not in stats and "ZZREASONZZ" not in stats
 
 
+def test_a_weak_requesters_personal_review_is_refused_not_stranded(fresh_db, monkeypatch):
+    """A trusted-header name with no key reads no private row, and a memory
+    about a person is theirs alone (review._addressed). Filed, the review was
+    listed to nobody while the agent said "queued for human review"."""
+    from app import config
+    from app.agents import identity
+    from app.services import memory, scope, users
+    from app.tools.memory import forget_memory, remember
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    users.ensure_user("mira")
+    kept = memory.remember("ZZKEPTZZ", user="mira", actor="mira")
+    tokens = (
+        identity.set_requester_identity("mira"),
+        identity.set_requester_viewer(scope.Viewer("mira", False)),
+    )
+    try:
+        filed = json.loads(remember("ZZWEAKZZ standing context"))
+        forgot = json.loads(forget_memory(int(kept["id"])))
+    finally:
+        identity.reset_requester_viewer(tokens[1])
+        identity.reset_requester_identity(tokens[0])
+    assert "strong identity" in filed["error"]
+    assert "strong identity" in forgot["error"]
+    assert fresh_db.query("SELECT id FROM pending_changes") == []
+
+    # a shared chat runs its strong requester under scope.NOBODY
+    tokens = (
+        identity.set_requester_identity("mira"),
+        identity.set_requester_viewer(scope.NOBODY),
+        identity.set_workspace_only_tools(True),
+    )
+    try:
+        shared = json.loads(remember("ZZSHAREDZZ standing context"))
+    finally:
+        identity.set_workspace_only_tools(False)
+        identity.reset_requester_viewer(tokens[1])
+        identity.reset_requester_identity(tokens[0])
+    assert shared["status"] == "pending"
+
+
 def test_the_export_keeps_an_agents_own_memories(fresh_db):
     """Over stdio the MCP server addresses a memory to the agent itself. That
     is no person's private data, and an export that dropped it lost it."""
