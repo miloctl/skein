@@ -1689,7 +1689,9 @@ export default function Dashboard() {
                 key={m.id}
                 id={`milestone-${m.id}`}
                 tabIndex={-1}
-                className={`flex items-center justify-between gap-2 text-sm ${HASH_TARGET}`}
+                // wraps: with its visibility badge the title side outgrew a
+                // 320px row and pushed the status pill off the page
+                className={`flex flex-wrap items-center justify-between gap-2 text-sm ${HASH_TARGET}`}
               >
                 <span>
                   <span className="text-ink-3">#{m.id}</span> {m.title}
