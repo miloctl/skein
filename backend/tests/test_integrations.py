@@ -548,6 +548,16 @@ def _personal_client(monkeypatch, m, seen: list[str]):
             self.tool_spec = {"name": name, "inputSchema": {}}
             self.mcp_tool = None
 
+        async def stream(self, tool_use, _invocation_state, **_kwargs):
+            yield {
+                "type": "tool_result",
+                "tool_result": {
+                    "status": "success",
+                    "toolUseId": tool_use["toolUseId"],
+                    "content": [{"text": "pong"}],
+                },
+            }
+
     class FakeClient:
         def __init__(self, factory, prefix=None, **_kwargs):
             self.prefix = prefix
@@ -652,7 +662,7 @@ def test_personal_tools_reach_only_the_turn_their_owner_drives(fresh_db, monkeyp
 
 def test_a_failed_personal_server_recovers_off_the_chat_path(fresh_db, monkeypatch, clean_mcp):
     """Initial discovery and retry both run outside the chat path. Backoff
-    survives the env path, and review reads the cache without connecting."""
+    survives the env path, and review never waits on a connect."""
     import time
 
     from app.services import mcp_servers
@@ -707,9 +717,17 @@ def test_a_failed_personal_server_recovers_off_the_chat_path(fresh_db, monkeypat
 
     assert m._governed("notes_ping", sid).server_id == sid
     m.forget(sid)
+    started = time.monotonic()
+    with pytest.raises(m.MCPServerConnecting):
+        m._governed("notes_ping", sid)
+    assert time.monotonic() - started < 1, "the reviewed path waited on a connect"
+    _settle_personal(m)
+    assert len(attempts) == 3 and m._governed("notes_ping", sid).server_id == sid
+    fresh_db.execute("DELETE FROM mcp_servers")
+    m.forget(sid)
     with pytest.raises(ValueError):
         m._governed("notes_ping", sid)
-    assert len(attempts) == 2, "the reviewed path opened a connection"
+    assert len(attempts) == 3, "the reviewed path opened a deleted server"
 
 
 def test_derived_metadata_reads_annotations_and_bounds_personal_descriptions(clean_mcp):
@@ -741,3 +759,69 @@ def test_derived_metadata_reads_annotations_and_bounds_personal_descriptions(cle
     personal = m.GovernedMCPTool(long, same, "personal:ava:s", "personal")
     assert len(personal.tool_spec["description"]) == m._PERSONAL_DESCRIPTION_CHARS
     assert len(m.GovernedMCPTool(long, same, "s").tool_spec["description"]) == 5000
+
+
+def test_a_cold_personal_server_warms_on_approval_and_answers_retry(
+    client, fresh_db, monkeypatch, clean_mcp
+):
+    """The connection cache is per process. After a restart, or on a replica
+    that never served the owner's turn, approval answered "Request a new
+    review", and the new review failed the same way."""
+    import asyncio
+
+    from conftest import _strong
+
+    from app.agents import identity
+    from app.extensions.policy import (
+        PolicySubject,
+        reset_policy_engine,
+        reset_policy_subject,
+        set_policy_engine,
+        set_policy_subject,
+    )
+    from app.services import mcp_servers, scope, users
+
+    m = clean_mcp
+    _personal_client(monkeypatch, m, [])
+    monkeypatch.setattr("app.config.MCP_SERVERS", "")
+    users.ensure_user("ava")
+    mcp_servers.add("ava", "notes", "https://notes.example/mcp", actor="ava")
+    m.personal_mcp_tools("ava")
+    _settle_personal(m)
+    [tool] = m.personal_mcp_tools("ava")
+    tokens = (
+        set_policy_engine(client.app.state.skein_registry.policy_engine),
+        set_policy_subject(PolicySubject("ava", strong=True)),
+        identity.set_requester_identity("ava"),
+        identity.set_requester_viewer(scope.Viewer("ava", True)),
+    )
+
+    async def call():
+        use = {"toolUseId": "t1", "name": tool.tool_name, "input": {}}
+        return [event async for event in tool.stream(use, {})]
+
+    try:
+        asyncio.run(call())
+    finally:
+        identity.reset_requester_viewer(tokens[3])
+        identity.reset_requester_identity(tokens[2])
+        reset_policy_subject(tokens[1])
+        reset_policy_engine(tokens[0])
+    pending = fresh_db.query_one(
+        "SELECT id FROM pending_changes WHERE entity = 'extension_mcp_tool' AND status = 'pending'"
+    )
+    ava = _strong(client, "ava")
+    sid = "personal:ava:notes"
+
+    m._connections.pop(sid)  # a restart, or a replica the owner never used
+    cold = client.post(f"/api/review/{pending['id']}/approve", json={"note": ""}, headers=ava)
+    assert (cold.status_code, cold.headers.get("Retry-After")) == (503, "10"), cold.text
+    _settle_personal(m)
+    m._connections.pop(sid)
+    batch = client.post("/api/review/approve-batch", json={"ids": [pending["id"]]}, headers=ava)
+    assert batch.status_code == 200, batch.text
+    assert batch.json()["results"][0]["status"] == "error"
+    _settle_personal(m)
+    warm = client.post(f"/api/review/{pending['id']}/approve", json={"note": ""}, headers=ava)
+    assert warm.status_code == 200, warm.text
+    assert (warm.json()["status"], warm.json()["result"]["status"]) == ("approved", "completed")

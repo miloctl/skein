@@ -20,6 +20,7 @@ from ..extensions.fastapi import (
     enforce_decision,
 )
 from ..extensions.policy import PolicyDecision, PolicyEffect
+from ..public.errors import PublicError
 from ..services import (
     absences,
     activity,
@@ -3830,6 +3831,10 @@ def post_approve_batch(
             results.append(result)
         except ValueError as exc:
             results.append({"id": cid, "status": "error", "detail": str(exc)})
+        except PublicError as exc:
+            # Per item for the reason below. A retryable one
+            # (agents/mcp_tools.py::MCPServerConnecting) says when to retry.
+            results.append({"id": cid, "status": "error", "detail": exc.detail})
         except PermissionError as exc:
             # Per item, never a batch-level 403: earlier ids in this loop have
             # already committed, so an aborting handler would hide a partial
@@ -3963,8 +3968,6 @@ def post_instantiate(
     definition_digest = playbooks.definition_digest(playbook)
     evaluated = dict(getattr(request.state, "skein_playbook_policy_context", {}))
     if evaluated.get("definition_digest") != definition_digest:
-        from ..public.errors import PublicError
-
         raise PublicError(
             "PLAYBOOK_CHANGED",
             "The selected playbook changed during this request. Retry the request.",

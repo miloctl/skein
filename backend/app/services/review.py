@@ -959,6 +959,11 @@ def _revalidate_policy(
             change["_stale_contract"] = True
             return None
         except (KeyError, TypeError, ValueError, PublicError) as exc:
+            # A retryable error (agents/mcp_tools.py::MCPServerConnecting)
+            # clears on its own. "Request a new review" sent the reviewer to
+            # a new proposal that fails the same way.
+            if approving and isinstance(exc, PublicError) and exc.retryable:
+                raise
             if approving:
                 raise PermissionError(
                     "The reviewed extension contract cannot be refreshed. Request a new review."
