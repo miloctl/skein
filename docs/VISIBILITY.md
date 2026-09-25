@@ -435,7 +435,10 @@ reason a private review holds only while its owner can read the target row
 row, meaning a memory addressed to a person, a forget of one, or a create
 that declares the private tier (a standup or time away), is judged by its
 person alone (`review.personal_owner`), under separated duties and approver
-groups too, because nobody else can read it. The team "Review needed" notice
+groups too, because nobody else can read it. Any other proposal governed at
+the private tier, such as a policy-reviewed tool call on a private row, is
+approved by its owner under separated duties for the same reason. Approver
+groups still apply to it. The team "Review needed" notice
 goes out only when the proposal's row is at the workspace tier.
 
 **Time away counts for the team only as far as its person chose.** A window

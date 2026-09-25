@@ -619,7 +619,9 @@ including every memory that is addressed to nobody.
 
 `SKEIN_REVIEW_SEPARATION=1` applies the same rule to every proposal without a
 policy rule: the person a proposal came from cannot approve it. The two
-checks compose, and both must pass. Rejection stays open to every qualified
+checks compose, and both must pass. A proposal governed at the private tier
+is the exception to separation: only its owner can read it, so its owner
+approves it. A tool call on a resource classified `private` is one. Rejection stays open to every qualified
 reviewer, because a rule that traps a proposal in the queue is worse than one
 person declining it.
 The review service supplies the exact current decision to the executor. The
