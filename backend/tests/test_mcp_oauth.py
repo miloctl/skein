@@ -552,6 +552,36 @@ def test_the_grant_is_bridged_to_the_browser_and_the_connect_completes(client, s
     assert db.query("SELECT * FROM mcp_oauth_flows") == []
 
 
+def test_a_sign_in_moves_the_stamp_and_a_refresh_does_not(fresh_db, sealed):
+    """A sign-in kept the row's stamp, so a connection in another process
+    kept its old grant, refreshed with it, failed, and marked the server
+    signed out again over the fresh sign-in."""
+    from mcp.shared.auth import OAuthToken
+
+    from app import db
+    from app.agents.mcp_oauth import FLOW_SECONDS, _Flow, _SealedStorage
+    from app.services import mcp_servers
+
+    row = mcp_servers.add("ava", "jira", "https://jira.example/mcp", auth="oauth", actor="ava")
+    old = "2000-01-01T00:00:00+00:00"
+    db.execute("UPDATE mcp_servers SET updated_at = ? WHERE id = ?", (old, row["id"]))
+    claim = mcp_servers.claim_oauth(row["id"], "ava", FLOW_SECONDS)
+    connecting = {"stamp": old}
+    grant = _SealedStorage(row["id"], row["server_id"], _Flow(row["server_id"], claim), connecting)
+    asyncio.run(grant.set_tokens(OAuthToken(access_token="a1", refresh_token="r1")))
+    stamp = db.query_one("SELECT updated_at FROM mcp_servers WHERE id = ?", (row["id"],))
+    assert stamp["updated_at"] != old
+    # the sign-in's own connection keeps the new stamp, or it is discarded
+    assert connecting["stamp"] == stamp["updated_at"]
+
+    mcp_servers.release_oauth(claim)
+    refresh = _SealedStorage(row["id"], row["server_id"], None, {"stamp": stamp["updated_at"]})
+    asyncio.run(refresh.get_tokens())
+    asyncio.run(refresh.set_tokens(OAuthToken(access_token="a2", refresh_token="r1")))
+    after = db.query_one("SELECT updated_at FROM mcp_servers WHERE id = ?", (row["id"],))
+    assert after == stamp, "a refresh must not make every process reconnect"
+
+
 def test_tokens_are_sealed_and_never_shown(client, sealed):
     from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
@@ -998,3 +1028,24 @@ def test_a_start_against_a_dead_server_returns_when_the_connect_gives_up(
     with pytest.raises(ValueError):
         mcp_oauth.start(row["server_id"], server)
     assert time.monotonic() - started < 3
+
+
+def test_a_sign_in_with_no_free_connect_slot_says_busy(fresh_db, sealed, monkeypatch):
+    """With every connect slot held, the sign-in said "The server did not ask
+    for a sign-in. Check that the URL is an MCP server that uses OAuth", sending
+    the person to check a URL that was fine."""
+    from app.agents import mcp_oauth, mcp_tools
+    from app.services import mcp_servers
+
+    row = mcp_servers.add("ava", "jira", "https://jira.example/mcp", auth="oauth", actor="ava")
+    sid, server = mcp_servers.entry_for(row["id"], "ava")
+    server["oauth_redirect_uri"] = "https://skein.example/cb"
+    monkeypatch.setitem(mcp_tools._owner_connects, "ava", mcp_tools._PER_OWNER_CONNECTS)
+    with pytest.raises(mcp_tools.MCPServerNotReady) as busy:
+        mcp_oauth.start(sid, server)
+    assert (busy.value.code, busy.value.status_code) == ("MCP_CONNECT_BUSY", 503)
+    # the claim is released, so the person can sign in once a slot frees
+    deadline = time.monotonic() + 3
+    while fresh_db.query("SELECT * FROM mcp_oauth_flows") and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert fresh_db.query("SELECT * FROM mcp_oauth_flows") == []

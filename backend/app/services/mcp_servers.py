@@ -390,8 +390,14 @@ def store_oauth(
     claim: str = "",
     tokens: str = "",
     client: str = "",
-) -> None:
-    """A refresh must not overwrite a newer grant from another process."""
+) -> str:
+    """A refresh must not overwrite a newer grant from another process.
+
+    Returns the row's new stamp after an interactive (claimed) grant, else
+    "". A sign-in changes the stamp so every other process drops its
+    connection and reconnects with the new tokens: kept, a connection there
+    refreshed with its old grant, failed, and marked the server signed out
+    again (agents/mcp_oauth.py redirect)."""
     with db.transaction():
         _owned_oauth(sid, owner)
         active = db.query_one(
@@ -408,13 +414,16 @@ def store_oauth(
         # connection in another process can still try to refresh the old client.
         if client and not claim:
             raise ValueError("A sign-in is required. Start it from Settings.")
+        stamp = db.now() if tokens and claim else ""
         if tokens:
             db.execute(
-                "UPDATE mcp_servers SET oauth_tokens_sealed = ?, oauth_signin_required = FALSE WHERE id = ?",
-                (credentials.seal(tokens), sid),
+                "UPDATE mcp_servers SET oauth_tokens_sealed = ?, oauth_signin_required = FALSE,"
+                " updated_at = COALESCE(NULLIF(?, ''), updated_at) WHERE id = ?",
+                (credentials.seal(tokens), stamp, sid),
             )
         if client:
             db.execute(
                 "UPDATE mcp_servers SET oauth_client_sealed = ? WHERE id = ?",
                 (credentials.seal(client), sid),
             )
+        return stamp

@@ -730,7 +730,7 @@ def test_a_failed_personal_server_recovers_off_the_chat_path(fresh_db, monkeypat
     assert len(attempts) == 3 and m._governed("notes_ping", sid).server_id == sid
     # another pod took the delete, so this pod still holds the connection
     fresh_db.execute("DELETE FROM mcp_servers")
-    with pytest.raises(ValueError):
+    with pytest.raises(m.MCPServerNotReady, match="Reject the proposal"):
         m._governed("notes_ping", sid)
     assert sid not in m._connections, "a deleted server's credential stayed usable"
     assert len(attempts) == 3, "the reviewed path opened a deleted server"

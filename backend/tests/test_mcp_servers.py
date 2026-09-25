@@ -212,6 +212,50 @@ def test_personal_discovery_has_a_process_wide_bound(fresh_db, sealed, monkeypat
     assert _settled(ids[mcp_servers.LIMIT])["connected"] is True
 
 
+def test_one_owner_cannot_hold_every_connect_slot(fresh_db, sealed, monkeypatch):
+    """An OAuth sign-in holds its slot while the person decides, so one
+    person's abandoned sign-ins took all of them, and every other person's
+    approval said "Skein started to connect it" while nothing started."""
+    from app.agents import mcp_tools
+    from app.services import mcp_servers
+
+    release = threading.Event()
+    entered: list[str] = []
+
+    class SlowClient(FakeClient):
+        def __enter__(self):
+            entered.append(self.url)
+            assert release.wait(5)
+            return self
+
+    monkeypatch.setattr("strands.tools.mcp.MCPClient", SlowClient)
+    try:
+        for n in range(3):
+            mcp_servers.add("ava", f"notes{n}", f"https://notes{n}.example/mcp", actor="ava")
+        mcp_tools.personal_mcp_tools("ava")
+        deadline = time.monotonic() + 2
+        while len(entered) < mcp_tools._PER_OWNER_CONNECTS and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert len(mcp_tools._opening) == mcp_tools._PER_OWNER_CONNECTS
+        waiting = next(
+            sid for sid, _ in mcp_servers.entries_for("ava") if sid not in mcp_tools._opening
+        )
+        with pytest.raises(mcp_tools.MCPServerNotReady) as busy:
+            mcp_tools._governed("notes_search", waiting)
+        assert busy.value.code == "MCP_CONNECT_BUSY"
+        # another person still gets a slot
+        bo = mcp_servers.add("bo", "wiki", "https://wiki.example/mcp", actor="bo")
+        mcp_tools.personal_mcp_tools("bo")
+        assert bo["server_id"] in mcp_tools._opening
+    finally:
+        release.set()
+        deadline = time.monotonic() + 3
+        while mcp_tools._opening and time.monotonic() < deadline:
+            time.sleep(0.01)
+    assert mcp_tools._personal_slots._value == mcp_servers.LIMIT
+    assert mcp_tools._owner_connects == {}
+
+
 @pytest.mark.parametrize(
     "invalidation", ["delete", "replace", "rename", "shutdown", "other_pod_delete"]
 )

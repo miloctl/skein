@@ -41,6 +41,8 @@ class _Flow:
     code: str = ""
     iss: str | None = None
     error: str = ""
+    # no connect slot was free (mcp_tools.open_personal returned False)
+    busy: bool = False
     url_ready: threading.Event = field(default_factory=threading.Event)
     done: threading.Event = field(default_factory=threading.Event)
 
@@ -63,10 +65,16 @@ def _await_code(flow: _Flow) -> None:
 class _SealedStorage:
     """A grant owns registration; later refreshes compare the stored grant."""
 
-    def __init__(self, row_id: int, server_id: str, flow: _Flow | None = None) -> None:
+    def __init__(
+        self, row_id: int, server_id: str, flow: _Flow | None = None, server: dict | None = None
+    ) -> None:
         self.row_id = row_id
         self.owner = server_id.removeprefix("personal:").rsplit(":", 1)[0]
         self.flow = flow
+        # the dict mcp_tools connects with: its "stamp" becomes the new
+        # connection's stamp and is what _publish_personal compares with the
+        # row, so a sign-in that changed the row must change it too
+        self.server = server
         self._expected: tuple[str, str] | None = None
 
     def _load(self) -> tuple[str, str]:
@@ -84,13 +92,15 @@ class _SealedStorage:
     async def set_tokens(self, tokens: OAuthToken) -> None:
         encoded = tokens.model_dump_json(by_alias=True)
         expected = self._load()
-        mcp_servers.store_oauth(
+        stamp = mcp_servers.store_oauth(
             self.row_id,
             self.owner,
             expected,
             claim=self.flow.claim if self.flow else "",
             tokens=encoded,
         )
+        if stamp and self.server is not None:
+            self.server["stamp"] = stamp
         self._expected = (encoded, expected[1])
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
@@ -169,7 +179,7 @@ def provider(server: dict) -> OAuthClientProvider:
     return _Provider(
         server["url"],
         metadata,
-        _SealedStorage(int(server["id"]), server_id, flow),
+        _SealedStorage(int(server["id"]), server_id, flow, server),
         redirect,
         callback,
     )
@@ -190,7 +200,8 @@ def start(server_id: str, server: dict) -> str:
 
     def run() -> None:
         try:
-            mcp_tools.open_personal(server_id, {**server, "flow": flow})
+            if not mcp_tools.open_personal(server_id, {**server, "flow": flow}):
+                flow.busy = True
         finally:
             flow.done.set()
             try:
@@ -209,6 +220,13 @@ def start(server_id: str, server: dict) -> str:
         raise
     deadline = time.monotonic() + _URL_WAIT_SECONDS
     while not flow.url_ready.wait(0.1):
+        if flow.busy:
+            raise mcp_tools.MCPServerNotReady(
+                "MCP_CONNECT_BUSY",
+                "Skein is connecting other MCP servers right now. Wait 30 seconds,"
+                " then sign in again.",
+                retry_after=30,
+            )
         if flow.done.is_set() or time.monotonic() > deadline:
             raise ValueError(
                 "The server did not ask for a sign-in. Check that the URL is an MCP server"
