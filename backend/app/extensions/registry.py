@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -75,19 +76,21 @@ class DirectoryOutage(DirectoryUnavailable):
     record of, and that stays a refusal (docs/EXTENSIONS.md)."""
 
 
-# A verdict calls resolvers inside its transaction, holding the rows it
-# reviews. Other writers wait db.TRANSACTION_LOCK_TIMEOUT (5s) for those rows,
-# so a resolver slower than that would make their writes fail.
-_RESOLVER_SECONDS = 3.0
+# A verdict refreshes the requester inside its transaction, holding the rows
+# it reviews, and an extension approval refreshes twice (the revalidation and
+# the executor). Other writers wait db.TRANSACTION_LOCK_TIMEOUT (5s) for those
+# rows, so every resolver of one refresh shares this budget, and two
+# refreshes fit under the timeout.
+_REFRESH_SECONDS = 2.0
 
 
 def _resolve(
-    resolver: Callable[[str], Mapping[str, Any] | None], name: str
+    resolver: Callable[[str], Mapping[str, Any] | None], name: str, deadline: float
 ) -> Mapping[str, Any] | None:
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="skein-directory")
     future = executor.submit(resolver, name)
     try:
-        return future.result(timeout=_RESOLVER_SECONDS)
+        return future.result(timeout=max(0.0, deadline - time.monotonic()))
     except Exception as exc:
         # every failure, a timeout included: a ValueError from a resolver
         # would otherwise reach the reject path as a stale contract and clear
@@ -177,6 +180,7 @@ class ExtensionRegistry:
         groups = tuple(subject.groups)
         active = True
         groups_resolved = False
+        deadline = time.monotonic() + _REFRESH_SECONDS
         group_resolver = next(
             (
                 contribution
@@ -188,7 +192,7 @@ class ExtensionRegistry:
         for contribution in self.identities:
             if contribution.resolver is None:
                 continue
-            value = _resolve(contribution.resolver, subject.name)
+            value = _resolve(contribution.resolver, subject.name, deadline)
             if value is None:
                 continue
             active = active and bool(value.get("active", True))

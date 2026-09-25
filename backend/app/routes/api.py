@@ -20,6 +20,7 @@ from ..extensions.fastapi import (
     enforce_decision,
 )
 from ..extensions.policy import PolicyDecision, PolicyEffect
+from ..extensions.registry import DirectoryOutage
 from ..public.errors import PublicError
 from ..services import (
     absences,
@@ -3860,6 +3861,10 @@ def post_approve_batch(
             # Per item for the reason below. A retryable one
             # (agents/mcp_tools.py::MCPServerNotReady) says when to retry.
             results.append({"id": cid, "status": "error", "detail": exc.detail})
+        except DirectoryOutage as exc:
+            # before PermissionError, which it subclasses: a directory that
+            # cannot answer is a retry, and the item is not forbidden
+            results.append({"id": cid, "status": "error", "detail": str(exc)})
         except db.BUSY_ERRORS:
             # Per item for the reason below: one busy row (a held lock, a
             # full pool) must not hide which earlier ids already applied.
