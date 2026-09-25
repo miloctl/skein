@@ -14,7 +14,7 @@ test -x "$deployment/10-app-role.sh"
 test -x "$deployment/20-atlas-schema.sh"
 grep -q -- "--single-transaction" "$deployment/10-app-role.sh"
 grep -q "ext_atlas_extension" "$deployment/20-atlas-schema.sh"
-grep -q "skein_agents-0.6.6-py3-none-any.whl" "$deployment/Dockerfile"
+grep -q "skein_agents-0.6.7-py3-none-any.whl" "$deployment/Dockerfile"
 grep -q "atlas_skein_extension-2.0.0-py3-none-any.whl" "$deployment/Dockerfile"
 grep -q "id=pip-config.*required=true" "$deployment/Dockerfile"
 grep -q "id=npm-config.*required=true" "$deployment/Frontend.Dockerfile"
@@ -96,8 +96,8 @@ for overlay in example-prod example-dev; do
   "$python" "$root/scripts/contract/validate_probes.py" \
     "$rendered" skein-backend backend skein-frontend frontend --require-digests
   if [ "$overlay" = example-prod ]; then
-    grep -Fq 'image: registry.example.com/skein/skein:0.6.6@sha256:' "$rendered"
-    grep -Fq 'image: registry.example.com/skein/skein-frontend:0.6.6-prod@sha256:' "$rendered"
+    grep -Fq 'image: registry.example.com/skein/skein:0.6.7@sha256:' "$rendered"
+    grep -Fq 'image: registry.example.com/skein/skein-frontend:0.6.7-prod@sha256:' "$rendered"
     grep -q "port: 5353" "$rendered"  # OpenShift DNS pods; 53 alone breaks every lookup
   fi
   if [ "$overlay" = example-dev ]; then

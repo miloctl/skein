@@ -28,7 +28,7 @@ RUN --mount=type=secret,id=pip-config,target=/etc/pip.conf,required=true \
     PIP_CONFIG_FILE=/etc/pip.conf \
     pip install --no-cache-dir --require-hashes -r /tmp/requirements.lock
 COPY skein-agents.lock /tmp/skein-agents.lock
-COPY dist/skein_agents-0.6.6-py3-none-any.whl /tmp/skein/skein_agents-0.6.6-py3-none-any.whl
+COPY dist/skein_agents-0.6.7-py3-none-any.whl /tmp/skein/skein_agents-0.6.7-py3-none-any.whl
 COPY dist/atlas_skein_extension-2.0.0-py3-none-any.whl /tmp/atlas_skein_extension-2.0.0-py3-none-any.whl
 # The Skein wheel comes from outside this repository, so it installs only
 # through its pinned digest. The Atlas wheel is built from this tree.

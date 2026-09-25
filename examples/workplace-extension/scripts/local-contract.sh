@@ -143,9 +143,9 @@ from pathlib import Path
 
 root = Path(sys.argv[1])
 expected = {
-    "skein_agents-0.6.6-py3-none-any.whl",
+    "skein_agents-0.6.7-py3-none-any.whl",
     "miloctl-skein-extension-api-1.0.0.tgz",
-    "miloctl-skein-frontend-host-0.6.6.tgz",
+    "miloctl-skein-frontend-host-0.6.7.tgz",
 }
 entries = {}
 manifest = root / "SHA256SUMS"
@@ -168,17 +168,17 @@ for name, digest in entries.items():
     if not artifact.is_file() or hashlib.sha256(artifact.read_bytes()).hexdigest() != digest:
         raise SystemExit("local-contract: A shared Skein artifact does not match SHA256SUMS.")
 PY
-    cp "$artifact_root/skein_agents-0.6.6-py3-none-any.whl" "$artifacts/"
+    cp "$artifact_root/skein_agents-0.6.7-py3-none-any.whl" "$artifacts/"
     cp "$artifact_root/miloctl-skein-extension-api-1.0.0.tgz" "$artifacts/"
-    cp "$artifact_root/miloctl-skein-frontend-host-0.6.6.tgz" "$artifacts/"
+    cp "$artifact_root/miloctl-skein-frontend-host-0.6.7.tgz" "$artifacts/"
 fi
 UV_PYTHON=python3.12 uv build --quiet --wheel --out-dir "$artifacts" "$stage"
 
 for artifact in \
-    skein_agents-0.6.6-py3-none-any.whl \
+    skein_agents-0.6.7-py3-none-any.whl \
     atlas_skein_extension-2.0.0-py3-none-any.whl \
     miloctl-skein-extension-api-1.0.0.tgz \
-    miloctl-skein-frontend-host-0.6.6.tgz; do
+    miloctl-skein-frontend-host-0.6.7.tgz; do
     test -f "$artifacts/$artifact"
 done
 artifact_count="$(find "$artifacts" -maxdepth 1 -type f ! -name '.*' | wc -l)"
@@ -193,7 +193,7 @@ artifact_count="$(find "$artifacts" -maxdepth 1 -type f ! -name '.*' | wc -l)"
 cp "$artifacts"/* "$stage/dist/"
 # skein-agents.lock pins the published wheel, and this contract stages its
 # own. The staging copy pins the staged bytes, or the image build refuses them.
-core_digest="$(sha256sum "$artifacts/skein_agents-0.6.6-py3-none-any.whl" | cut -d' ' -f1)"
+core_digest="$(sha256sum "$artifacts/skein_agents-0.6.7-py3-none-any.whl" | cut -d' ' -f1)"
 sed "s/--hash=sha256:[0-9a-f]\{64\}/--hash=sha256:$core_digest/" \
     "$stage/skein-agents.lock" >"$tmp/skein-agents.lock"
 mv "$tmp/skein-agents.lock" "$stage/skein-agents.lock"
@@ -226,7 +226,7 @@ UV_CACHE_DIR="$tmp/uv-cache" uv pip install --quiet \
     --python "$venv/bin/python" --require-hashes -r "$stage/requirements-test.lock"
 UV_CACHE_DIR="$tmp/uv-cache" uv pip install --quiet \
     --python "$venv/bin/python" --no-deps \
-    "$artifacts/skein_agents-0.6.6-py3-none-any.whl" \
+    "$artifacts/skein_agents-0.6.7-py3-none-any.whl" \
     "$artifacts/atlas_skein_extension-2.0.0-py3-none-any.whl"
 uv pip check --python "$venv/bin/python"
 "$venv/bin/python" -m mypy \

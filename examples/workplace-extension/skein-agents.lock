@@ -3,5 +3,5 @@
 # this file, so both refuse any other bytes. The zero digest refuses every
 # wheel: replace it with the sha256 of the published file before the first
 # build (deployment/README.md says where to read it).
-skein-agents==0.6.6 \
+skein-agents==0.6.7 \
     --hash=sha256:0000000000000000000000000000000000000000000000000000000000000000
