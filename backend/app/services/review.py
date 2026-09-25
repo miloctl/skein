@@ -1276,6 +1276,8 @@ def _reject_change_locked(
     # be recomputed (requester or agent deactivated, task relinked, module
     # removed) settles as stale. Raising here leaves it in the queue forever,
     # refused by Approve and Reject alike.
+    from ..extensions.registry import DirectoryUnavailable
+
     try:
         with db.savepoint():
             _revalidate_policy(
@@ -1285,6 +1287,11 @@ def _reject_change_locked(
                 reviewer_capabilities,
                 approving=False,
             )
+    except DirectoryUnavailable:
+        # The requester still exists, so the stored requirement holds.
+        # Clearing it let anyone reject gated work while the directory was
+        # down.
+        change["_stale_contract"] = True
     except (KeyError, TypeError, ValueError, PermissionError, PublicError):
         change["approver_groups"] = "[]"
         change["approver_capabilities"] = "[]"
@@ -1299,7 +1306,12 @@ def _reject_change_locked(
     # symmetric with approve: a non-sponsor reject feeds rejection streaks
     # (demotion input), so it needs the same reason-on-record
     sponsor = _sponsor_override(change, actor, note)
-    _claim(change_id, "rejected", note, actor, strong, override=bool(sponsor))
+    # A stale verdict judged a contract that can no longer run, not the
+    # agent's work, so it must not count toward a demotion streak
+    # (delegation.trust_scores counts reviewed_strong rows). approve_change's
+    # auto-rejections clear it for the same reason.
+    counts = strong and not change.get("_stale_contract")
+    _claim(change_id, "rejected", note, actor, counts, override=bool(sponsor))
     db.execute(
         "UPDATE pending_changes SET reviewer_qualifications = ? WHERE id = ?",
         (json.dumps(qualifications), change_id),

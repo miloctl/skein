@@ -3340,9 +3340,81 @@ def test_a_deactivated_requesters_proposal_can_still_be_rejected(fresh_db, monke
     )
     assert rejected["status"] == "rejected"
     row = fresh_db.query_one(
-        "SELECT reviewer_qualifications FROM pending_changes WHERE id = ?", (proposal["id"],)
+        "SELECT reviewer_qualifications, reviewed_strong FROM pending_changes WHERE id = ?",
+        (proposal["id"],),
     )
     assert json.loads(row["reviewer_qualifications"])["stale_contract"] is True
+    # delegation.trust_scores counts strong verdicts toward a demotion streak
+    assert row["reviewed_strong"] == 0
+
+
+def test_a_directory_outage_keeps_the_approver_requirement_on_reject(fresh_db):
+    """Clearing the requirement on any refresh failure let a reviewer outside
+    the approver group reject gated work while the directory was down."""
+    from app.agents.identity import reset_requester_identity, set_requester_identity
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import review, scope, users
+
+    directory = {"up": True}
+
+    def finance_reviews(request: PolicyInput):
+        if request.action == "task.create":
+            return PolicyDecision(PolicyEffect.REVIEW, approver_groups=("finance",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.7.0",
+        identities=(
+            IdentityContribution(
+                "acme.workplace.directory",
+                lambda _name, _groups, _strong: {},
+                resolver=lambda _name: {"groups": ()} if directory["up"] else None,
+                resolves_groups=True,
+            ),
+        ),
+        policies=(PolicyContribution("acme.workplace.finance", finance_reviews),),
+    )
+    registry = ExtensionRegistry.build((module,))
+    for name in ("requester", "manager", "lead"):
+        users.ensure_user(name)
+    policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(
+        PolicySubject("requester", strong=True, source="oidc", refresh_required=True)
+    )
+    requester_token = set_requester_identity("requester")
+    try:
+        proposal = json.loads(
+            gated_write(
+                "task",
+                "create",
+                {"title": "gated"},
+                lambda: pytest.fail("a reviewed write executed before approval"),
+            )
+        )
+    finally:
+        reset_requester_identity(requester_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+    directory["up"] = False
+
+    def reject(actor, groups):
+        return review.reject_change(
+            proposal["id"],
+            "not now",
+            actor=actor,
+            strong=True,
+            viewer=scope.Viewer(actor, True),
+            reviewer_groups=groups,
+            policy_registry=registry,
+        )
+
+    with pytest.raises(PermissionError, match="configured workplace approver"):
+        reject("manager", ())
+    assert reject("lead", ("finance",))["status"] == "rejected"
 
 
 def test_core_agent_approval_refuses_a_deactivated_requester(fresh_db):

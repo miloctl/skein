@@ -59,6 +59,12 @@ def _version(value: str, label: str) -> tuple[int, int, int]:
     return int(parts[0]), int(parts[1]), int(parts[2])
 
 
+class DirectoryUnavailable(PermissionError):
+    """No directory resolver confirmed the requester's groups. Unlike an
+    inactive requester, the proposal's approver requirement still stands:
+    review._reject_change_locked keeps it instead of clearing it."""
+
+
 @dataclass(frozen=True)
 class ExtensionRegistry:
     """The validated contributions for one application instance."""
@@ -165,7 +171,9 @@ class ExtensionRegistry:
             # stock core app), no code reads the groups, and refusing leaves
             # every OIDC requester's proposal unapprovable.
             if self.identities or self.policies or self.tools or self.workflow_actions:
-                raise PermissionError("The requester directory identity could not be refreshed.")
+                raise DirectoryUnavailable(
+                    "The requester directory identity could not be refreshed."
+                )
             groups = ()
         if not active:
             raise PermissionError("The requester identity is no longer active.")
