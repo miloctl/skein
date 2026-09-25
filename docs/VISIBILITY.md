@@ -422,7 +422,8 @@ their data. The proposal record stays private after the verdict. The row it made
 own tier.
 
 A named administrator can list every pending proposal that no active person
-can read (`GET /api/review/stranded`, shown in Settings → Operations). The
+can read, or whose target row was deleted (`GET /api/review/stranded`, shown
+in Settings → Operations). The
 list gives each proposal's id, kind, age and a reason, never its summary or
 payload, so a private proposal's words stay with its owner. The fallback
 administrator of trusted-header mode cannot open it.

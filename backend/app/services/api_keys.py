@@ -81,15 +81,18 @@ def request_key(user: str, *, strong: bool = False) -> dict:
     # the roster's spelling: SKEIN_ADMINS=Casey names roster `casey`
     # (deps.is_named_admin folds), and a notice to the literal spelling
     # reaches nobody
-    # a deactivated administrator reads nothing, so a notice to them reaches
-    # nobody while the requester reads that whoever runs the server has it.
-    # A name with no roster row yet stays: that person reads it on sign-in
-    # (the rule routes/deps.py::administrator_possible applies).
-    from .users import fold, is_active, list_users
+    # a deactivated administrator, or a name a rename freed, reads nothing,
+    # so a notice to them reaches nobody while the requester reads that
+    # whoever runs the server has it. A name with no roster row yet stays:
+    # that person reads it on sign-in if they sign in with the SKEIN_ADMINS
+    # spelling (notifications match the name exactly, and there is no roster
+    # row yet to fold against). The rule routes/deps.py::administrator_possible
+    # applies.
+    from .users import fold, is_claimable, list_users
 
     roster = {fold(u["name"]): u["name"] for u in list_users()}
     recipients = sorted(
-        {roster.get(fold(name), name) for name in config.ADMINS if is_active(name)}
+        {roster.get(fold(name), name) for name in config.ADMINS if is_claimable(name)}
     ) or ["team"]
     marks = ", ".join("?" for _ in recipients)
     with db.transaction():

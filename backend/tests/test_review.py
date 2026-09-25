@@ -861,6 +861,45 @@ def test_rejecting_a_proposal_whose_target_is_gone_judges_nobody(fresh_db):
     assert row["reviewed_strong"] == 0
 
 
+def test_a_proposal_whose_target_is_deleted_settles_instead_of_hiding(
+    client, fresh_db, monkeypatch
+):
+    """The policy refresh read the deleted row and raised, so approval never
+    reached the auto-reject, the proposal stayed pending, and every queue
+    hides a deleted target: nobody saw it, and the stranded list missed it."""
+    from app import config
+    from app.services import collab, users
+    from app.tools._gate import gated_write
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    monkeypatch.setattr(config, "ADMINS", frozenset({"ops"}))
+    for name in ("mira", "ops"):
+        users.ensure_user(name)
+    note = collab.save_note("vendor", "call on Friday", actor="ops")
+    # a weak requester's proposal goes to the team review, where a deleted
+    # target hides it from everyone
+    with _turn("mira", strong=False):
+        edit = json.loads(
+            gated_write(
+                "note_edit", "update", {"content": "call on Monday"}, lambda: {}, note["id"]
+            )
+        )
+    collab.delete_note(note["id"], actor="ops")
+    ops = _strong(client, "ops")
+    listed = client.get("/api/review/stranded", headers=ops).json()
+    assert [row["id"] for row in listed] == [edit["id"]]
+    assert listed[0]["reason"].startswith("The record it changes was deleted")
+
+    approved = client.post(f"/api/review/{edit['id']}/approve", json={}, headers=ops)
+    assert approved.status_code == 400, approved.text
+    assert "auto-rejected" in approved.json()["detail"]
+    row = db.query_one(
+        "SELECT status, reviewed_by, reviewed_strong FROM pending_changes WHERE id = ?",
+        (edit["id"],),
+    )
+    assert row == {"status": "rejected", "reviewed_by": "ops", "reviewed_strong": 0}
+
+
 def test_a_busy_database_is_a_retry_not_a_bad_request(client, fresh_db):
     """A lock timeout in the apply answered 400 with Postgres's locked-tuple
     text, and in batch approve it aborted the whole batch, hiding the ids

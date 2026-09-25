@@ -3752,6 +3752,66 @@ def test_a_deactivated_requesters_proposal_can_still_be_rejected(fresh_db, monke
     assert row["reviewed_strong"] == 0
 
 
+def test_a_rejection_the_policy_forced_does_not_count_against_the_agent(fresh_db, monkeypatch):
+    """Once the policy denies a proposal, approval is refused and a rejection
+    is the only verdict left. It judged the policy, not the agent's work, and
+    counted, it walked the agent toward a demotion."""
+    from app import config
+    from app.agents.identity import reset_requester_identity, set_requester_identity
+    from app.extensions.core import core_module
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import review, scope, users
+
+    denied = {"now": False}
+
+    def switchable(request: PolicyInput):
+        if request.action == "task.create" and denied["now"]:
+            return PolicyDecision(PolicyEffect.DENY, ("Tasks are frozen.",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.freeze",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.7.0",
+        policies=(PolicyContribution("acme.freeze.policy", switchable),),
+    )
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    registry = ExtensionRegistry.build((core_module(), module))
+    users.ensure_user("requester")
+    users.ensure_user("manager")
+    policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("requester"))
+    requester_token = set_requester_identity("requester")
+    try:
+        proposal = json.loads(
+            gated_write(
+                "task",
+                "create",
+                {"title": "frozen later"},
+                lambda: pytest.fail("a reviewed write executed before approval"),
+            )
+        )
+    finally:
+        reset_requester_identity(requester_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+    denied["now"] = True
+    manager = {"actor": "manager", "strong": True, "viewer": scope.Viewer("manager", True)}
+
+    with pytest.raises(PermissionError, match="policy denies"):
+        review.approve_change(proposal["id"], policy_registry=registry, **manager)
+    review.reject_change(proposal["id"], "frozen", policy_registry=registry, **manager)
+
+    row = fresh_db.query_one(
+        "SELECT reviewer_qualifications, reviewed_strong FROM pending_changes WHERE id = ?",
+        (proposal["id"],),
+    )
+    assert json.loads(row["reviewer_qualifications"])["stale_contract"] is True
+    assert row["reviewed_strong"] == 0
+
+
 def test_the_owner_can_withdraw_a_private_proposal_that_gained_an_approver(fresh_db, monkeypatch):
     """A proposal filed private to its requester later needed an approver
     group: the owner lacked it and the approvers could not read the proposal,
