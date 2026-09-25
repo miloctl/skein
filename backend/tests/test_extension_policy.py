@@ -3348,6 +3348,72 @@ def test_a_deactivated_requesters_proposal_can_still_be_rejected(fresh_db, monke
     assert row["reviewed_strong"] == 0
 
 
+def test_the_owner_can_withdraw_a_private_proposal_that_gained_an_approver(fresh_db, monkeypatch):
+    """A proposal filed private to its requester later needed an approver
+    group: the owner lacked it and the approvers could not read the proposal,
+    so nobody could settle it."""
+    from conftest import _turn
+
+    from app import config
+    from app.services import review, users
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    rule = {"compliance": False}
+
+    def compliance_reviews(request: PolicyInput):
+        if request.action == "task.create" and rule["compliance"]:
+            return PolicyDecision(PolicyEffect.REVIEW, approver_groups=("compliance",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.7.0",
+        policies=(PolicyContribution("acme.workplace.compliance", compliance_reviews),),
+    )
+    registry = ExtensionRegistry.build((module,))
+    for name in ("mira", "lead"):
+        users.ensure_user(name)
+    policy_token = set_policy_engine(registry.policy_engine)
+    try:
+        with _turn("mira"):
+            proposal = json.loads(
+                gated_write(
+                    "task",
+                    "create",
+                    {"title": "regulated"},
+                    lambda: pytest.fail("a reviewed write executed before approval"),
+                )
+            )
+    finally:
+        reset_policy_engine(policy_token)
+    rule["compliance"] = True
+
+    def verdict(verb, actor, groups=()):
+        call = review.approve_change if verb == "approve" else review.reject_change
+        return call(
+            proposal["id"],
+            actor=actor,
+            strong=True,
+            viewer=scope.Viewer(actor, True),
+            reviewer_groups=groups,
+            policy_registry=registry,
+        )
+
+    with pytest.raises(PermissionError, match="Reject it to withdraw it"):
+        verdict("approve", "mira")
+    with pytest.raises(db.NotFound):
+        verdict("approve", "lead", ("compliance",))
+    assert verdict("reject", "mira")["status"] == "rejected"
+    row = fresh_db.query_one(
+        "SELECT reviewed_strong FROM pending_changes WHERE id = ?", (proposal["id"],)
+    )
+    # the owner judged the new requirement, not the agent's work
+    assert row["reviewed_strong"] == 0
+
+
 def test_a_directory_outage_keeps_the_approver_requirement_on_reject(fresh_db):
     """Clearing the requirement on any refresh failure let a reviewer outside
     the approver group reject gated work while the directory was down."""
@@ -6770,6 +6836,96 @@ def test_a_personal_remote_write_needs_a_human_even_under_permit(fresh_db, monke
     )
     assert approved["result"]["status"] == "completed"
     assert personal_remote.called is True
+
+
+def test_a_personal_remote_call_never_falls_open_to_any_teammate(fresh_db, monkeypatch):
+    """A security rule filed the call for the workspace. When the rule
+    stopped naming approvers, any teammate could approve it, run it on the
+    owner's credential and read the result. A reviewer who could never judge
+    it also started the owner's connection, and so did a rejection."""
+    from app.agents import mcp_tools as mcp_module
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.agents.mcp_tools import GovernedMCPTool, execute_reviewed_mcp
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import review, users
+
+    rule = {"security": True}
+
+    def security_reviews(request: PolicyInput):
+        if request.action == "mcp:write" and rule["security"]:
+            return PolicyDecision(PolicyEffect.REVIEW, approver_groups=("security",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.7.0",
+        policies=(PolicyContribution("acme.workplace.security", security_reviews),),
+    )
+    registry = ExtensionRegistry.build((module,))
+    metadata = _mcp_metadata(effect="write", risk="high", policy_action="mcp:write")
+    remote = _RemoteTool()
+    sid = "personal:requester:atlas"
+    tool = GovernedMCPTool(remote, metadata, sid, "personal")
+    for name in ("requester", "manager", "lead"):
+        users.ensure_user(name)
+    policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(registry.refresh_subject(PolicySubject("requester")))
+    agent_token = set_agent_identity("agent")
+
+    async def run(n):
+        use = {"toolUseId": f"mcp-{n}", "name": "atlas_remote", "input": {"k": n}}
+        return [event async for event in tool.stream(use, {"agent": object(), "request_state": {}})]
+
+    try:
+        asyncio.run(run(1))
+        asyncio.run(run(2))
+    finally:
+        reset_agent_identity(agent_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+    first, second = (
+        row["id"]
+        for row in fresh_db.query(
+            "SELECT id FROM pending_changes WHERE entity = 'extension_mcp_tool' ORDER BY id"
+        )
+    )
+    warmed: list[str] = []
+    monkeypatch.setattr(mcp_module, "personal_mcp_tools", lambda owner, *_a: warmed.append(owner))
+    stamp = _personal_row(monkeypatch)  # registered, but not connected in this process
+
+    def verdict(verb, change_id, actor, groups=()):
+        call = review.approve_change if verb == "approve" else review.reject_change
+        kwargs = {"extension_executor": resume} if verb == "approve" else {}
+        return call(
+            change_id,
+            actor=actor,
+            strong=True,
+            viewer=scope.Viewer(actor, True),
+            reviewer_groups=groups,
+            policy_registry=registry,
+            **kwargs,
+        )
+
+    def resume(invocation, _change_id):
+        return asyncio.run(execute_reviewed_mcp(invocation, registry))
+
+    with pytest.raises(PermissionError, match="owner's MCP sign-in"):
+        verdict("approve", first, "manager")
+    assert warmed == [], "a reviewer who can never judge the call connected it"
+    assert verdict("reject", second, "requester")["status"] == "rejected"
+    assert warmed == [], "a rejection connected the owner's server"
+
+    mcp_module._connections[sid] = mcp_module._MCPConnection(
+        sid, object(), (tool,), 1, "personal", stamp
+    )
+    rule["security"] = False
+    with pytest.raises(PermissionError, match="owner's MCP sign-in"):
+        verdict("approve", first, "lead", ("security",))
+    assert remote.called is False
+    assert verdict("approve", first, "requester")["result"]["status"] == "completed"
 
 
 def test_a_personal_read_runs_under_policy_only_after_one_approval(fresh_db, monkeypatch):

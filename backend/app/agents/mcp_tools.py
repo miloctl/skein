@@ -461,12 +461,12 @@ def _agent_name() -> str:
 
 
 def reviewed_policy_contract(
-    invocation: dict[str, Any], subject
+    invocation: dict[str, Any], subject, *, warm: bool = True
 ) -> tuple[PolicyInput, dict[str, Any], bool]:
     """Resolve the current governed contract for one pending MCP verdict."""
     name = str(invocation.get("tool") or "")
     server = str(invocation.get("server") or "")
-    governed = _governed(name, server)
+    governed = _governed(name, server, warm=warm)
     tool_use = _json_mapping(invocation.get("tool_use"))
     actor = str(invocation.get("agent") or "")
     request = PolicyInput(
@@ -502,7 +502,7 @@ class MCPServerNotReady(PublicError):
         self.retry_after = retry_after
 
 
-def _not_ready(owner: str, server: str, row: dict) -> MCPServerNotReady:
+def _not_ready(owner: str, server: str, row: dict, *, warm: bool) -> MCPServerNotReady:
     if row.get("auth") == "oauth" and (not row.get("signed_in") or row.get("signin_required")):
         # the rule GET /api/mcp/servers uses for sign_in_required
         return MCPServerNotReady(
@@ -510,7 +510,8 @@ def _not_ready(owner: str, server: str, row: dict) -> MCPServerNotReady:
             "The MCP server for this tool needs a new sign-in. Its owner must sign in"
             " again in Settings, then approve again.",
         )
-    personal_mcp_tools(owner)
+    if warm:
+        personal_mcp_tools(owner)
     with _lock:
         opening = server in _opening
         retry = _retry_state.get(server)
@@ -530,14 +531,15 @@ def _not_ready(owner: str, server: str, row: dict) -> MCPServerNotReady:
     )
 
 
-def _governed(name: str, server: str) -> GovernedMCPTool:
+def _governed(name: str, server: str, *, warm: bool = True) -> GovernedMCPTool:
     """The currently composed wrapper for one (server, tool). A personal
     server is looked up in the cache only, never opened here: this runs in
     the REVIEWER's request, inside the approval transaction with the proposal
     row held (services/review.py), and a connect there would pin that hold
     for the whole startup timeout. A server that is not ready answers
     MCPServerNotReady, and a cold one starts its owner's background
-    discovery first. The connection cache is per process: without this, a
+    discovery first unless the caller passes warm=False (a rejection runs
+    nothing, so it never needs the connection). The connection cache is per process: without this, a
     restart or another replica refuses the approval until the owner chats
     there."""
     if _is_personal(server):
@@ -554,7 +556,7 @@ def _governed(name: str, server: str) -> GovernedMCPTool:
         with _lock:
             connection = _connections.get(server)
         if connection is None or connection.stamp != row["stamp"]:
-            raise _not_ready(owner, server, row)
+            raise _not_ready(owner, server, row, warm=warm)
         pool = list(connection.tools)
     else:
         pool = mcp_tools()

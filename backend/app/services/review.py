@@ -514,6 +514,69 @@ def _check_policy_approver(
     }
 
 
+def _personal_mcp_owner(change: dict) -> str:
+    """The owner of the personal MCP server a proposed call runs on, or "".
+    Its server id is personal:<owner>:<name> (services/mcp_servers.py)."""
+    if change.get("entity") != "extension_mcp_tool":
+        return ""
+    try:
+        payload = json.loads(change.get("payload") or "{}")
+    except ValueError:
+        return ""
+    server = str(payload.get("server") or "") if isinstance(payload, dict) else ""
+    if not server.startswith("personal:"):
+        return ""
+    return server[len("personal:") :].rsplit(":", 1)[0]
+
+
+def _check_personal_mcp_judge(
+    change: dict,
+    actor: str,
+    groups: tuple[str, ...],
+    capabilities: tuple[str, ...],
+) -> None:
+    """A personal MCP call runs on its owner's sealed credential and returns
+    their data, so only its owner or a reviewer the policy names can judge
+    it. An empty requirement opens it to nobody else: at the workspace tier
+    any teammate could run the call and read the result.
+
+    Callers run it before _revalidate_policy too, on the stored requirement:
+    that refresh starts the owner's connection (agents/mcp_tools.py::
+    _governed), and a reviewer who can never judge the call must not cause
+    one."""
+    owner = _personal_mcp_owner(change)
+    if not owner:
+        return
+    from ..identity_names import fold_identity
+
+    if fold_identity(actor) == fold_identity(owner):
+        return
+    required_groups = set(json.loads(change.get("approver_groups") or "[]"))
+    required_capabilities = set(json.loads(change.get("approver_capabilities") or "[]"))
+    if (
+        not (required_groups or required_capabilities)
+        or required_groups - set(groups)
+        or required_capabilities - set(capabilities)
+    ):
+        raise PermissionError(
+            "This call runs on its owner's MCP sign-in. Only its owner or a"
+            " configured workplace approver can judge it."
+        )
+
+
+def _withdraws(change: dict, actor: str) -> bool:
+    """Whether the actor owns this private review. They can always reject
+    (withdraw) it: a requirement added after filing, by a relink or a policy
+    change, names approvers who cannot read a private review, so without
+    this nobody could settle it."""
+    if change.get("review_visibility") != scope.PRIVATE:
+        return False
+    from ..identity_names import fold_identity
+
+    owner = fold_identity(str(change.get("review_owner") or ""))
+    return bool(owner) and owner == fold_identity(actor)
+
+
 def _sponsor_of(change: dict) -> str:
     """The task's CURRENT sponsor for a task_completion proposal ('' for
     everything else) — looked up at verdict time, so a re-delegation moves
@@ -700,19 +763,31 @@ def _approve_change_locked(
     # isn't told to fetch a note for a verdict that already happened
     if change["status"] != "pending":
         raise ValueError(f"change #{change_id} already {change['status']}")
+    _check_personal_mcp_judge(change, actor, reviewer_groups, reviewer_capabilities)
     approval_grant = _revalidate_policy(
         change,
         policy_registry,
         reviewer_groups,
         reviewer_capabilities,
     )
+    # again on the requirement the refresh recomputed: one that is now empty
+    # leaves the call to its owner
+    _check_personal_mcp_judge(change, actor, reviewer_groups, reviewer_capabilities)
     _check_separation(change, actor)
     _check_team_memory_approver(change, actor)
-    qualifications: dict[str, Any] = _check_policy_approver(
-        change,
-        reviewer_groups,
-        reviewer_capabilities,
-    )
+    try:
+        qualifications: dict[str, Any] = _check_policy_approver(
+            change,
+            reviewer_groups,
+            reviewer_capabilities,
+        )
+    except PermissionError:
+        if _withdraws(change, actor):
+            raise PermissionError(
+                "This proposal now needs a configured workplace approver, who cannot"
+                " see a private proposal. Reject it to withdraw it, then ask again."
+            ) from None
+        raise
     # The direct authority endpoint requires an administrator. The proposal
     # path must not be the weaker door to the same kill switch.
     if change["entity"] == "authority":
@@ -1157,9 +1232,11 @@ def _current_extension_review(
     if kind == "mcp_tool":
         from ..agents.mcp_tools import reviewed_policy_contract
 
+        # Rejection runs nothing, so it never starts the owner's connection.
         request, contract, version_matches = reviewed_policy_contract(
             invocation,
             current.subject,
+            warm=approving,
         )
         if not version_matches and approving:
             raise PermissionError("The reviewed remote tool contract changed.")
@@ -1287,6 +1364,7 @@ def _reject_change_locked(
     # refused by Approve and Reject alike.
     from ..extensions.registry import DirectoryUnavailable
 
+    _check_personal_mcp_judge(change, actor, reviewer_groups, reviewer_capabilities)
     try:
         with db.savepoint():
             _revalidate_policy(
@@ -1305,11 +1383,16 @@ def _reject_change_locked(
         change["approver_groups"] = "[]"
         change["approver_capabilities"] = "[]"
         change["_stale_contract"] = True
-    qualifications: dict[str, Any] = _check_policy_approver(
-        change,
-        reviewer_groups,
-        reviewer_capabilities,
-    )
+    try:
+        qualifications: dict[str, Any] = _check_policy_approver(
+            change,
+            reviewer_groups,
+            reviewer_capabilities,
+        )
+    except PermissionError:
+        if not _withdraws(change, actor):
+            raise
+        qualifications = {"withdrawn_by_owner": True}
     if change.get("_stale_contract"):
         qualifications["stale_contract"] = True
     # symmetric with approve: a non-sponsor reject feeds rejection streaks
@@ -1319,7 +1402,13 @@ def _reject_change_locked(
     # agent's work, so it must not count toward a demotion streak
     # (delegation.trust_scores counts reviewed_strong rows). approve_change's
     # auto-rejections clear it for the same reason.
-    counts = strong and not change.get("_stale_contract")
+    counts = (
+        strong
+        and not change.get("_stale_contract")
+        # an owner withdrawing a request they may no longer approve judged
+        # the requirement, not the agent's work
+        and not qualifications.get("withdrawn_by_owner")
+    )
     _claim(change_id, "rejected", note, actor, counts, override=bool(sponsor))
     db.execute(
         "UPDATE pending_changes SET reviewer_qualifications = ? WHERE id = ?",
