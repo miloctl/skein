@@ -26,7 +26,7 @@ from .extensions.contracts import (
 )
 from .extensions.core import core_module
 from .extensions.fastapi import contributed_route_policy, enforce_mutation_policy
-from .extensions.registry import validate_core_tool_names
+from .extensions.registry import DirectoryOutage, validate_core_tool_names
 from .identity_names import (
     activate_runtime_machine_subjects,
     deactivate_runtime_machine_subjects,
@@ -888,6 +888,14 @@ async def not_found_handler(request: Request, exc: db.NotFound):
     return JSONResponse(status_code=404, content={"detail": str(exc)})
 
 
+async def directory_outage_handler(request: Request, exc: Exception):
+    # LOAD, not a refusal: the directory could not answer, and the identical
+    # request succeeds once it does. A 403 told the reviewer they may not.
+    return JSONResponse(
+        status_code=503, content={"detail": str(exc)}, headers={"Retry-After": "30"}
+    )
+
+
 async def permission_error_handler(request: Request, exc: PermissionError):
     if exc.errno is not None or exc.filename is not None:
         # OS permission failures describe server storage, not the caller's
@@ -1245,6 +1253,7 @@ def create_app(
     application.add_exception_handler(db.NotFound, cast(Any, not_found_handler))
     application.add_exception_handler(db.Conflict, cast(Any, conflict_error_handler))
     application.add_exception_handler(PermissionError, cast(Any, permission_error_handler))
+    application.add_exception_handler(DirectoryOutage, cast(Any, directory_outage_handler))
     application.add_exception_handler(
         psycopg.OperationalError, cast(Any, database_operation_error_handler)
     )

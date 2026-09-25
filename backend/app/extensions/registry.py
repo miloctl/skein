@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from inspect import iscoroutinefunction
+from typing import Any
 
 from ..identity_names import CORE_MACHINE_SUBJECTS
 from .contracts import (
@@ -63,6 +66,39 @@ class DirectoryUnavailable(PermissionError):
     """No directory resolver confirmed the requester's groups. Unlike an
     inactive requester, the proposal's approver requirement still stands:
     review._reject_change_locked keeps it instead of clearing it."""
+
+
+class DirectoryOutage(DirectoryUnavailable):
+    """A resolver raised or ran past its deadline, so the directory could not
+    answer. The identical request can succeed on a retry, and main.py answers
+    503 with Retry-After. A resolver returns None for a person it has no
+    record of, and that stays a refusal (docs/EXTENSIONS.md)."""
+
+
+# A verdict calls resolvers inside its transaction, holding the rows it
+# reviews. Other writers wait db.TRANSACTION_LOCK_TIMEOUT (5s) for those rows,
+# so a resolver slower than that made their writes fail.
+_RESOLVER_SECONDS = 3.0
+
+
+def _resolve(
+    resolver: Callable[[str], Mapping[str, Any] | None], name: str
+) -> Mapping[str, Any] | None:
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="skein-directory")
+    future = executor.submit(resolver, name)
+    try:
+        return future.result(timeout=_RESOLVER_SECONDS)
+    except Exception as exc:
+        # every failure, a timeout included: a resolver that raised a
+        # ValueError reached the reject path as a stale contract and cleared
+        # the approver requirement
+        future.cancel()
+        raise DirectoryOutage(
+            "The directory service did not answer, so Skein cannot check the"
+            " requester's groups. Wait 30 seconds, then try again."
+        ) from exc
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 @dataclass(frozen=True)
@@ -152,7 +188,7 @@ class ExtensionRegistry:
         for contribution in self.identities:
             if contribution.resolver is None:
                 continue
-            value = contribution.resolver(subject.name)
+            value = _resolve(contribution.resolver, subject.name)
             if value is None:
                 continue
             active = active and bool(value.get("active", True))
