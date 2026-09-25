@@ -413,6 +413,55 @@ def test_authorized_manager_resumes_the_exact_reviewed_tool_call(fresh_db):
     assert json.loads(stored["result"])["status"] == "completed"
 
 
+def test_separated_duties_let_the_owner_approve_a_call_on_their_private_row(fresh_db, monkeypatch):
+    """A tool call on a private row is reviewed at the private tier, which
+    its owner alone can read. Refused under separation, it waited for an
+    approver who cannot exist, and the owner's only way out was a rejection
+    that counted against the agent."""
+    from app import config
+    from app.extensions.policy import PolicyResource
+    from app.extensions.tools import execute_reviewed_tool
+    from app.services import review, scope, users
+
+    monkeypatch.setattr(config, "REVIEW_SEPARATION", True)
+    users.ensure_user("requester")
+    users.ensure_user("manager")
+    registry = ExtensionRegistry.build((_module(),))
+    queued = asyncio.run(
+        execute_tool(
+            registry.tools[0],
+            {"external_id": "ATLAS-PRIVATE"},
+            ToolCallContext(
+                PolicySubject("requester", strong=True),
+                "acme.workplace.delivery",
+                resource=PolicyResource(type="note", id="7", classification=scope.PRIVATE),
+            ),
+            registry.policy_engine,
+        )
+    )
+    assert fresh_db.query_one(
+        "SELECT review_visibility FROM pending_changes WHERE id = ?", (queued.review_id,)
+    ) == {"review_visibility": scope.PRIVATE}
+
+    def verdict(actor):
+        return review.approve_change(
+            queued.review_id,
+            actor=actor,
+            strong=True,
+            viewer=scope.Viewer(actor, True),
+            reviewer_groups=("delivery-managers",),
+            reviewer_capabilities=("acme.approve-atlas",),
+            extension_executor=lambda invocation, _id: asyncio.run(
+                execute_reviewed_tool(registry.tools[0], invocation, registry)
+            ).model_dump(mode="json"),
+            policy_registry=registry,
+        )
+
+    with pytest.raises(db.NotFound):
+        verdict("manager")
+    assert verdict("requester")["execution_status"] == "approved"
+
+
 def test_reviewed_tool_writes_through_the_public_facade(fresh_db, monkeypatch):
     from app import db
     from app.extensions.tools import execute_reviewed_tool

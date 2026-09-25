@@ -141,7 +141,8 @@ def personal_owner(entity: str, action: str, payload: dict, entity_id: int = 0) 
     everyone. Read from the payload or the target row, never from
     review_visibility: a proposal reviewed privately for its requester
     (requester_judges) is not therefore a personal row, and exempting it
-    from separation or approver groups would let the requester bypass both.
+    from approver groups would let the requester bypass them.
+    _check_separation exempts the whole private tier on its own terms.
     A memory addressed to an agent is no person's (_addressed)."""
     from .users import is_agent
 
@@ -443,21 +444,17 @@ def _check_separation(change: dict, actor: str) -> None:
     originators = {
         fold_identity(str(change.get(column) or "")) for column in ("requested_by", "proposed_by")
     }
-    # A personal row (personal_owner) and a personal MCP call, which runs on
-    # its owner's own credential, are readable by that one person
-    # (_addressed, mcp_tools.py): refused here, the proposal waits for an
-    # approver who cannot exist.
+    # A personal row (personal_owner) and any proposal governed at the
+    # private tier (a personal MCP call, a governed tool call on a private
+    # row) are readable by that one person (_assert_judgeable): refused
+    # here, the proposal waits for an approver who cannot exist, and the
+    # owner's only way out is a rejection that counts against the agent.
     owner = _personal_owner_of(change)
     if owner and fold_identity(owner) == folded:
         return
-    if change["entity"] == "extension_mcp_tool":
-        tier = _governing_tier(change)
-        if (
-            isinstance(tier, tuple)
-            and tier[0] == scope.PRIVATE
-            and fold_identity(tier[2]) == folded
-        ):
-            return
+    tier = _governing_tier(change)
+    if isinstance(tier, tuple) and tier[0] == scope.PRIVATE and fold_identity(tier[2]) == folded:
+        return
     if folded and folded in originators:
         raise PermissionError(
             "This proposal came from you. Separated review duties are on,"
