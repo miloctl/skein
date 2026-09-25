@@ -73,6 +73,11 @@ _generation = 0
 _RETRY_BASE_SECONDS = 30.0
 _RETRY_MAX_SECONDS = 300.0
 _retry_state: dict[str, tuple[int, float]] = {}
+# Personal servers whose last open_personal found no free connect slot.
+# Read from _retry_state instead, a server that failed once before looks
+# like a connect in progress, and the reviewer reads "Skein started to
+# connect it" while nothing started.
+_busy: set[str] = set()
 # The per-call timeout bounds TIME, not volume: a server that streams inside
 # its deadline can still hand the model megabytes, blowing the context or
 # silently burning SKEIN_AGENT_DAILY_TOKENS on an unattended run. Measured in
@@ -613,8 +618,8 @@ def _not_ready(owner: str, server: str, row: dict, *, warm: bool) -> MCPServerNo
     with _lock:
         opening = server in _opening
         retry = _retry_state.get(server)
-    if not opening and retry is not None and retry[0] == 0:
-        # open_personal found no free connect slot (the only (0, 0.0) entry)
+        busy = server in _busy
+    if not opening and busy:
         return MCPServerNotReady(
             "MCP_CONNECT_BUSY",
             "Skein is connecting other MCP servers right now, so this one waits its"
@@ -1085,6 +1090,7 @@ def forget_owner(person: str, *, exact: bool = False) -> None:
             _opening.pop(s, None)
             _retry_state.pop(s, None)
             _timeout_strikes.pop(s, None)
+            _busy.discard(s)
     _close_in_thread(doomed)
 
 
@@ -1149,8 +1155,8 @@ def _publish_personal(entries: list[tuple[str, dict]], generation: int, owner: s
 def open_personal(server_id: str, server: dict, *, background: bool = False) -> bool:
     """The OAuth sign-in thread waits for its grant. Discovery never holds a
     REST worker or an agent build, including the first connection attempt.
-    False when no connect slot is free: the server keeps a (0, 0.0) retry
-    entry, which _not_ready and mcp_oauth.start report as busy."""
+    False when no connect slot is free: the server joins _busy, which
+    _not_ready reports, and keeps a retry entry so status() lists it."""
     owner = str(server.get("owner") or "")
     with _lock:
         if server_id in _opening or server_id in _connections:
@@ -1159,7 +1165,9 @@ def open_personal(server_id: str, server: dict, *, background: bool = False) -> 
             blocking=False
         ):
             _retry_state.setdefault(server_id, (0, 0.0))
+            _busy.add(server_id)
             return False
+        _busy.discard(server_id)
         _owner_connects[owner] = _owner_connects.get(owner, 0) + 1
         _opening[server_id] = server
         generation = _generation
@@ -1591,6 +1599,7 @@ def shutdown_mcp() -> None:
         _retry_state.clear()
         _timeout_strikes.clear()
         _opening.clear()
+        _busy.clear()
         _tools = None
     for client in doomed:
         with contextlib.suppress(Exception):
