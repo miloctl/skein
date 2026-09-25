@@ -172,7 +172,7 @@ def test_users_autoregister_on_first_write_not_read(client):
     assert "newperson" in names
 
 
-def test_admin_backup_and_export(client):
+def test_admin_backup_and_export(client, monkeypatch):
     # backup and export are admin surfaces: strong identity required
     assert client.post("/api/admin/backup").status_code == 403
     assert client.get("/api/admin/export").status_code == 403
@@ -193,6 +193,13 @@ def test_admin_backup_and_export(client):
     assert "/" not in legacy_body["path"]
     assert legacy.headers["cache-control"] == "private, no-store"
 
+    # the download carries other people's crew rows, and a trusted-header
+    # key holder is an administrator only by the fallback
+    fallback = client.get("/api/admin/export/download", headers={"Authorization": f"Bearer {key}"})
+    assert fallback.status_code == 403
+    from app import config
+
+    monkeypatch.setattr(config, "ADMINS", frozenset({"tester"}))
     response = client.get("/api/admin/export/download", headers={"Authorization": f"Bearer {key}"})
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/json")
@@ -223,7 +230,11 @@ def test_admin_backup_and_export(client):
     ]
 
 
-def test_export_filename_header_is_visible_to_the_browser(client):
+def test_export_filename_header_is_visible_to_the_browser(client, monkeypatch):
+    from app import config
+
+    # the export carries other people's rows: a named administrator reads it
+    monkeypatch.setattr(config, "ADMINS", frozenset({"tester"}))
     from app.services.api_keys import create_key
 
     key = create_key("tester", "t")["key"]
@@ -240,6 +251,10 @@ def test_export_filename_header_is_visible_to_the_browser(client):
 
 
 def test_browser_export_refuses_an_unbounded_blob(client, monkeypatch):
+    from app import config
+
+    # the export carries other people's rows: a named administrator reads it
+    monkeypatch.setattr(config, "ADMINS", frozenset({"tester"}))
     from app import db
     from app.services import admin
     from app.services.api_keys import create_key

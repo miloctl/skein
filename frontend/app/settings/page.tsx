@@ -2692,6 +2692,7 @@ export default function SettingsPage() {
 
               <BackupCard
                 canAdminister={canAdminister}
+                namedAdmin={who?.admin ?? false}
                 accessMessage={adminAccessMessage}
                 headingLevel={3}
               />

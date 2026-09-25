@@ -1278,6 +1278,13 @@ def _named_admin_reader(user: str, request: Request) -> bool:
     )
 
 
+def _require_named_admin(user: str, request: Request, action: str) -> None:
+    """Refuse a read of other people's data to anyone but a named
+    administrator (_named_admin_reader)."""
+    if not _named_admin_reader(user, request):
+        raise HTTPException(status_code=403, detail=wording.not_named_administrator(user, action))
+
+
 @router.get("/crews")
 def get_crews(user: CurrentUser, viewer: ViewerDep, request: Request, all: bool = False):
     admin = _named_admin_reader(user, request)
@@ -1818,10 +1825,12 @@ def get_mcp_oauth_callback(
 
 
 @router.get("/admin/keys")
-def get_all_keys(user: AdminUser):
+def get_all_keys(user: AdminUser, request: Request):
     # key metadata (owners, prefixes, last use) is admin surface — one
-    # teammate must not enumerate another's credentials; matches revoke-all
-    # and /admin/export
+    # teammate must not enumerate another's credentials. A named
+    # administrator only: under the trusted-header fallback every key holder
+    # is an administrator.
+    _require_named_admin(user, request, "list every person's keys")
     return api_keys.list_all_keys()
 
 
@@ -2209,10 +2218,7 @@ def get_review_stranded(user: StrongUser, request: Request):
     must not reach it."""
     from .deps import _app_setting
 
-    if not _named_admin_reader(user, request):
-        raise HTTPException(
-            status_code=403, detail=wording.not_administrator(user, "list stranded proposals")
-        )
+    _require_named_admin(user, request, "list stranded proposals")
     with db.read_transaction():
         return review.stranded_proposals(_app_setting(request, "auth_mode", config.AUTH_MODE))
 
@@ -2276,8 +2282,7 @@ def delete_feedback(feedback_id: int, user: CurrentUser):
 # misclassified captures, the operator's evaluation work
 @router.get("/eval/capture")
 def get_eval_capture(user: AdminUser, request: Request):
-    if not _named_admin_reader(user, request):
-        raise HTTPException(403, wording.not_administrator(user))
+    _require_named_admin(user, request, "read the capture replay")
     return feedback.eval_capture()
 
 
@@ -4126,6 +4131,10 @@ def get_export(response: Response, user: AdminUser):
 
 @router.get("/admin/export/download")
 def download_export(request: Request, user: AdminUser):
+    # the file carries other people's crew rows (services/admin.py builds it
+    # with every crew), and under the trusted-header fallback every key
+    # holder is an administrator
+    _require_named_admin(user, request, "download the portable export")
     if request.headers.get("range"):
         raise HTTPException(416, "This export cannot resume. Start a new download.")
     ratelimit.check("export", "portable-export")

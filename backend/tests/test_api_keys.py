@@ -61,17 +61,24 @@ def test_api_key_lifecycle_and_attribution(client):
     assert out  # earlier keyed write succeeded
 
 
-def test_admin_key_visibility_and_kill_switch(client):
+def test_admin_key_visibility_and_kill_switch(client, monkeypatch):
+    from app import config
+
     boot = _bootstrap()
     other = _bootstrap("other-person", "one")
+    strong = {"Authorization": f"Bearer {boot['key']}"}
 
     # key metadata is admin surface now — weak identity is a 403
     assert client.get("/api/admin/keys").status_code == 403
-    all_keys = client.get(
-        "/api/admin/keys", headers={"Authorization": f"Bearer {boot['key']}"}
-    ).json()
+    # every person's key labels and last use: under the trusted-header
+    # fallback every key holder is an administrator, so this read takes one
+    # named in SKEIN_ADMINS
+    assert client.get("/api/admin/keys", headers=strong).status_code == 403
+    monkeypatch.setattr(config, "ADMINS", frozenset({"tester"}))
+    all_keys = client.get("/api/admin/keys", headers=strong).json()
     owners = {k["owner"] for k in all_keys}
     assert "other-person" in owners
+    monkeypatch.setattr(config, "ADMINS", frozenset())
 
     # the kill switch requires strong identity — a spoofed header can't nuke keys
     assert client.post("/api/admin/keys/revoke-all").status_code == 403
