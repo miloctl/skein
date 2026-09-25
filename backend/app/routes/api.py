@@ -1287,9 +1287,19 @@ def _named_admin_reader(user: str, request: Request) -> bool:
 
 def _require_named_admin(user: str, request: Request, action: str) -> None:
     """Refuse a read of other people's data to anyone but a named
-    administrator (_named_admin_reader)."""
+    administrator (_named_admin_reader). A teammate who is no administrator
+    at all reads not_administrator: "not named in SKEIN_ADMINS" is the
+    fallback administrator's refusal, and to anyone else it reads as though
+    only the list were missing a name."""
+    from .deps import is_administrator
+
     if not _named_admin_reader(user, request):
-        raise HTTPException(status_code=403, detail=wording.not_named_administrator(user, action))
+        detail = (
+            wording.not_named_administrator(user, action)
+            if is_administrator(user, request)
+            else wording.not_administrator(user, action)
+        )
+        raise HTTPException(status_code=403, detail=detail)
 
 
 @router.get("/crews")

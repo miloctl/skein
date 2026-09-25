@@ -106,7 +106,7 @@ def test_api_key_satisfies_shared_token_gate(client, monkeypatch):
 def test_key_request_rejects_anonymous(client):
     r = client.post("/api/keys/request", headers={"X-User": ""})
     assert r.status_code == 400
-    assert "pick your name" in r.json()["detail"]
+    assert "No name is picked" in r.json()["detail"]
 
 
 def test_key_request_refiles_after_notification_read(client):

@@ -32,7 +32,17 @@ export const loadError = (error: unknown) =>
 export const actionError = (error: unknown) =>
   isUnreachable(error) ? backendUnreachable(error) : detail(error);
 
-export async function errorFromResponse(res: Response): Promise<Error> {
+/** A refusal the backend answered. `status` tells "not yours to see" (403)
+ *  apart from a fault, which the message alone cannot. */
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+export async function errorFromResponse(res: Response): Promise<ApiError> {
   let message = `${res.status} ${res.statusText}`;
   try {
     const body = await res.json();
@@ -40,7 +50,7 @@ export async function errorFromResponse(res: Response): Promise<Error> {
     if (typeof served === "string") message = served;
     else if (served !== undefined) message = JSON.stringify(served);
   } catch {}
-  return new Error(message);
+  return new ApiError(message, res.status);
 }
 
 const USER_KEY = "skein-user";

@@ -1497,8 +1497,10 @@ export default function SettingsPage() {
                   <div className="mb-3 rounded-lg bg-raised p-3 text-sm">
                     {currentUser === "anonymous" ? (
                       <p>
-                        Pick your name under <b>Identity</b> first — your key is
-                        minted for that name.
+                        {/* the same words as api_keys.request_key's refusal */}
+                        No name is picked, and a key is minted for one name.
+                        Pick your name under <b>Identity</b> in Settings, then
+                        request a key.
                       </p>
                     ) : (
                       <>
@@ -1588,17 +1590,17 @@ export default function SettingsPage() {
                     Sign in with key
                   </button>
                 </div>
-                {keyStatus && (
-                  <p
-                    role={keyError ? "alert" : "status"}
-                    aria-live="polite"
-                    className={
-                      "mt-2 text-sm" + (keyError ? " text-danger" : "")
-                    }
-                  >
-                    {keyStatus}
-                  </p>
-                )}
+                {/* always mounted: a live region added together with its
+                    text is often not announced by a screen reader */}
+                <p
+                  role={keyError ? "alert" : "status"}
+                  aria-live="polite"
+                  className={
+                    keyStatus ? "mt-2 text-sm" + (keyError ? " text-danger" : "") : ""
+                  }
+                >
+                  {keyStatus}
+                </p>
                 <p className="mt-2 text-xs text-ink-3">
                   The key is used once to start a browser session. This browser does not store it. The CLI and git hooks still use a personal API key.
                 </p>

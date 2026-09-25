@@ -33,8 +33,10 @@ const healthy = {
   },
 };
 let response = structuredClone(healthy);
-// null: the request fails, as it does for anyone but a named administrator
+// null: the request fails with this status, 403 for anyone but a named
+// administrator
 let stranded: unknown = null;
+let strandedStatus = 403;
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
@@ -43,7 +45,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
     api: (path: string) =>
       path === "/api/review/stranded"
         ? stranded === null
-          ? Promise.reject(new Error("forbidden"))
+          ? Promise.reject(new real.ApiError("refused", strandedStatus))
           : Promise.resolve(stranded)
         : Promise.resolve(response),
   };
@@ -55,6 +57,7 @@ describe("OperationsCard", () => {
   beforeEach(() => {
     response = structuredClone(healthy);
     stranded = null;
+    strandedStatus = 403;
   });
 
   it("lists the proposals nobody can settle to a named administrator", async () => {
@@ -81,6 +84,20 @@ describe("OperationsCard", () => {
   it("stays all clear when the stranded list is not the reader's to see", async () => {
     render(<OperationsCard />);
     expect(await screen.findByText(/The loom hums/)).toBeTruthy();
+    // the fixture has one unverified row
+    expect(document.body.textContent).toContain("1 newer row awaits the next verify run");
+  });
+
+  it.each([
+    ["a server fault", () => (strandedStatus = 503)],
+    ["a body that is not a list", () => (stranded = { detail: "moved" })],
+  ])("never reads %s as an all-clear", async (_label, arrange) => {
+    arrange();
+    render(<OperationsCard />);
+    expect(
+      await screen.findByText("The stranded-proposal list did not load. Reload this page."),
+    ).toBeTruthy();
+    expect(screen.queryByText(/The loom hums/)).toBeNull();
   });
 
   it("reports a chain tip that contradicts the integrity marks", async () => {
