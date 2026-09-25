@@ -55,9 +55,9 @@ tar --exclude=node_modules --exclude=dist --exclude=.skein -cf - \
 extension="$tmp"
 mkdir -p "$extension/dist"
 if [ -n "${SKEIN_RELEASE_DIST:-}" ]; then
-    cp "$SKEIN_RELEASE_DIST/skein_agents-0.6.6-py3-none-any.whl" "$extension/dist/"
+    cp "$SKEIN_RELEASE_DIST/skein_agents-0.6.7-py3-none-any.whl" "$extension/dist/"
     cp "$SKEIN_RELEASE_DIST/miloctl-skein-extension-api-1.0.0.tgz" "$extension/dist/"
-    cp "$SKEIN_RELEASE_DIST/miloctl-skein-frontend-host-0.6.6.tgz" "$extension/dist/"
+    cp "$SKEIN_RELEASE_DIST/miloctl-skein-frontend-host-0.6.7.tgz" "$extension/dist/"
 else
     UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
         uv build --quiet --wheel --out-dir "$extension/dist" backend
@@ -268,7 +268,7 @@ docker exec -i "$backend_container" python - <<'PY'
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-assert version("skein-agents") == "0.6.6"
+assert version("skein-agents") == "0.6.7"
 assert version("atlas-skein-extension") == "2.0.0"
 try:
     version("skein")

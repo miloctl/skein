@@ -166,7 +166,7 @@ Keep `replace-registry-host=npmjs`. The `always` value rewrites local `file:` ta
 Pin the backend wheel by its digest in `skein-agents.lock`. Copy the SHA256 value of the `py3-none-any` wheel from the **Download files** list of the `skein-agents` release on pypi.org. Do not copy it from a pip error. The `finalize-release` workflow compared those PyPI bytes with the tested release artifact before it created the release tag.
 
 ```text
-skein-agents==0.6.6 \
+skein-agents==0.6.7 \
     --hash=sha256:<published wheel sha256>
 ```
 
@@ -183,15 +183,15 @@ Pack the two npm packages into stable local files:
 
 ```sh
 npm pack @miloctl/skein-extension-api@1.0.0 --pack-destination dist
-npm pack @miloctl/skein-frontend-host@0.6.6 --pack-destination dist
+npm pack @miloctl/skein-frontend-host@0.6.7 --pack-destination dist
 ```
 
 The expected files are:
 
 ```text
-dist/skein_agents-0.6.6-py3-none-any.whl
+dist/skein_agents-0.6.7-py3-none-any.whl
 dist/miloctl-skein-extension-api-1.0.0.tgz
-dist/miloctl-skein-frontend-host-0.6.6.tgz
+dist/miloctl-skein-frontend-host-0.6.7.tgz
 ```
 
 Remove old files from `dist` before you stage a new release. An old artifact with the same package family can enter a wildcard build.
@@ -280,7 +280,7 @@ uv build --wheel --out-dir dist .
 Set `requirements.in` to the two exact first-party wheels:
 
 ```text
-./dist/skein_agents-0.6.6-py3-none-any.whl
+./dist/skein_agents-0.6.7-py3-none-any.whl
 ./dist/workplace_skein_extension-1.0.0-py3-none-any.whl
 ```
 
@@ -301,7 +301,7 @@ Install the lock before the first-party wheels:
 ```sh
 python -m pip install --require-hashes -r requirements.lock
 python -m pip install --no-deps \
-  dist/skein_agents-0.6.6-py3-none-any.whl \
+  dist/skein_agents-0.6.7-py3-none-any.whl \
   dist/workplace_skein_extension-1.0.0-py3-none-any.whl
 python -m pip check
 ```
@@ -314,7 +314,7 @@ Set `requirements-test.in` to the same wheels. Enable the private package test e
 
 ```text
 -c requirements.lock
-./dist/skein_agents-0.6.6-py3-none-any.whl
+./dist/skein_agents-0.6.7-py3-none-any.whl
 ./dist/workplace_skein_extension-1.0.0-py3-none-any.whl[test]
 ```
 
@@ -337,7 +337,7 @@ uv venv --python 3.12 .venv-test
 uv pip install --python .venv-test/bin/python \
   --require-hashes -r requirements-test.lock
 uv pip install --python .venv-test/bin/python --no-deps \
-  dist/skein_agents-0.6.6-py3-none-any.whl \
+  dist/skein_agents-0.6.7-py3-none-any.whl \
   dist/workplace_skein_extension-1.0.0-py3-none-any.whl
 uv pip check --python .venv-test/bin/python
 ```
@@ -368,7 +368,7 @@ Create the workplace root `package.json`:
   },
   "dependencies": {
     "@miloctl/skein-extension-api": "file:dist/miloctl-skein-extension-api-1.0.0.tgz",
-    "@miloctl/skein-frontend-host": "file:dist/miloctl-skein-frontend-host-0.6.6.tgz",
+    "@miloctl/skein-frontend-host": "file:dist/miloctl-skein-frontend-host-0.6.7.tgz",
     "next": "16.3.4",
     "react": "19.2.4",
     "react-dom": "19.2.4"

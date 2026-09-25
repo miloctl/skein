@@ -35,7 +35,7 @@ python -m pip download --no-deps --require-hashes --dest dist \
   -r skein-agents.lock \
   --index-url https://pypi.org/simple
 npm pack @miloctl/skein-extension-api@1.0.0 --pack-destination dist
-npm pack @miloctl/skein-frontend-host@0.6.6 --pack-destination dist
+npm pack @miloctl/skein-frontend-host@0.6.7 --pack-destination dist
 ```
 
 The `@miloctl` npm packages are public on npmjs.com. No registry token is needed.
@@ -48,7 +48,7 @@ The `@miloctl` npm packages are public on npmjs.com. No registry token is needed
 
 Do not copy the digest from the pip error. The error shows the digest of the file that pip received, not the digest that the release published.
 
-The Dockerfiles require the exact `0.6.6`, `1.0.0`, and `2.0.0` artifact names. A clean `dist` directory prevents an old artifact from entering the build. The Dockerfiles pin each base image by digest. Before deployment, replace each zero application-image digest with the digest from the reviewed registry image.
+The Dockerfiles require the exact `0.6.7`, `1.0.0`, and `2.0.0` artifact names. A clean `dist` directory prevents an old artifact from entering the build. The Dockerfiles pin each base image by digest. Before deployment, replace each zero application-image digest with the digest from the reviewed registry image.
 
 Regenerate `package-lock.json` with Node 22 after an npm artifact changes bytes. Regenerate each Python lock after its dependency graph changes.
 

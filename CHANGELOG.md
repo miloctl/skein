@@ -22,6 +22,46 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+## 0.6.7 — 2026-09-25
+
+### Contracts
+
+- `GET /api/review/stranded` lists every pending proposal that no active person can approve or reject, as `id`, `entity`, `action`, `created_at` and `reason`, never its summary or payload. It lists a proposal that no active person can read, a team proposal whose target row was deleted, and an authority change when no active administrator can exist. It answers a named administrator only (a name in `SKEIN_ADMINS`, or the `SKEIN_OIDC_ADMIN_GROUP` group) and requires core `0.6.7` or later.
+- `execution_status` on an approve response, a batch row and a settled review row can be `failed`: an extension or remote MCP tool call that did not complete. `completion_unknown` still means a write that can have run.
+- Approve and batch approve classify their failures. A busy database (a lock timeout, a deadlock, a serialization failure), a directory resolver that did not answer, and an MCP server that is not ready answer 503 with `Retry-After`. The MCP codes are `MCP_SERVER_CONNECTING`, `MCP_SERVER_UNAVAILABLE`, `MCP_CONNECT_BUSY` and `MCP_CONNECTION_CLOSED`. `MCP_SIGN_IN_REQUIRED` and `MCP_SERVER_DELETED` answer 409. A fault in the server's own state answers 500 without its text, where it answered 400 with it. Batch approve gives every id one result row and never stops at a failed item.
+- `POST /api/mcp/servers/{server_id}/sign-in` answers 503 `MCP_SERVER_UNAVAILABLE` with `Retry-After` when the connect got no answer, 503 `MCP_CONNECT_BUSY` when no connect slot is free, and 503 `MCP_SIGN_IN_SLOW` when the server took too long to start the sign-in. A server that answered but is not an OAuth MCP server still answers 400.
+- `GET /api/provenance/{kind}/{id}` answers 404 for an absent row of every kind. It answered 500 for `question_assign`, `memory`, `intake` and `note_edit`.
+- These reads require a named administrator, and the trusted-header fallback administrator gets 403: `GET /api/admin/export/download`, `GET /api/admin/keys`, `GET /api/eval/capture`, `GET /api/feedback` for everyone's feedback, crew member lists, and another person's `<name>-mcp` record in `/api/agents`, `/api/agents/trust`, `/api/agents/{agent}/inbox`, `/api/review/stats` and `/api/review/season`.
+- Rejecting an authority change requires a strong administrator, the same as approving one.
+- `POST /api/keys/request` accepts a signed-in person without a key. A name in a mint command must start with a letter, a digit or `_`, and can contain `@` and `+`.
+- The Skein MCP server adds `forget_memory`. It is annotated destructive and always files a proposal that a person approves.
+- Extension directory resolvers: an OIDC requester is refreshed through the directory resolver whenever the composition has an identity mapper, a policy rule, a tool handler or a workflow action, because each of them reads the requester. Without a resolver, such a composition refuses the verdict. A composition with none of them (the stock core app) skips the refresh and drops the saved groups. One refresh has 2 seconds in total, and a resolver that raises or runs out of time is a `DirectoryOutage` (503 with `Retry-After`). A resolver that returns `None` for a person still refuses.
+- Extension API `1.0.0` is unchanged.
+
+### Behavior
+
+- A stock OIDC deployment can approve an agent's proposals again. Every approval of an agent proposal from a signed-in person failed with "The requester directory identity could not be refreshed."
+- Dead-end proposals: a proposal whose policy can no longer be recomputed (its requester or agent deactivated, its task moved, its module removed) can be rejected. A strong requester can always withdraw their own request while they can read the record it changes. Approving a proposal whose target was deleted rejects it on the record. A team memory or an engagement memory that no other active person can approve is refused when it is filed, with the fix. The authority job files nothing when no active administrator can approve it: none is named, every named person is deactivated or renamed, or the auth mode admits nobody.
+- Settings → Operations lists the stranded proposals to a named administrator, with a fix for each. If the list does not load, the card says so and does not show its all-clear line.
+- Trust streaks count only verdicts on the agent's work. A rejection that nobody chose does not count: a rejection of a deleted target, of a changed contract, of an action the current policy now denies, or of a proposal whose policy cannot be recomputed. A requester's withdrawal and an owner's drop of their own personal MCP call do not count either. Review-only extension calls keep their counts but have no streak, so they file no promotion that can never apply.
+- Separated duties (`SKEIN_REVIEW_SEPARATION=1`): the owner of a proposal at the private tier approves it, because nobody else can read it. A shared-chat proposal follows the same rule as a solo one, so separation or policy approvers send it to the team review.
+- Personal MCP servers: a trusted-header name with no key cannot use another person's personal servers. A call is judged by its owner or by a reviewer that the current policy names, and a reviewer who cannot judge it starts no connection. Approving a call on a server this process has not connected starts the connect and answers when to try again, with the real state: connecting, in a retry wait, waiting for a free connect slot, signed out, or deleted. One owner holds at most 2 of the 8 connect slots of a process, and a connect that never finishes gives its slot back. A closed session, a deleted or edited server, and a server re-added under the same name are noticed on every call and on every replica.
+- Remote MCP results: a remote failure that the SDK returns as a result is a failed read, or a write whose completion is unknown. It was recorded as a completed write in the ledger. The model reads "The write can have run, so its completion is unknown. Do not retry it." for such a write, because providers drop the completion status. A turn stopped during a write records the write as completion unknown. The review page says "the call did not complete" for a failed call and names every id of a mixed batch.
+- Memories: a plain `/remember` saves your own memory, also in a chat linked to an engagement, and recall brings it back with that engagement's work. `/remember team:` shares: in a linked chat it files the engagement proposal, elsewhere the team proposal, and both need a key or a sign-in. In a linked chat, workplace policy decides `/remember` with the engagement's tier and project type.
+- A shared-chat agent can post standups, record time away and assign questions.
+- An agent create in a crew is refused with the true reason: only crew members create records in a crew, and an agent is not a crew member.
+- Key requests: a signed-in person without a key can request one on Settings. The request goes to the active named administrators, or to the team when there is none. Settings prints a mint command only for a name that every shell keeps intact, quoted for bash, sh and PowerShell.
+- A deadlock or serialization failure is a busy database that a retry fixes, so it answers 503 instead of 500, or 400 with Postgres text in an approval. Approving a task completion and closing the task directly no longer deadlock, and neither do approving a create and renaming its engagement.
+- A document for an engagement that does not exist is refused by name instead of failing with a 500 on every approval.
+
+### Operations
+
+- Migration `043_extension_review_failed.sql` adds `failed` to the allowed statuses of `extension_review_invocations`. It rewrites no rows.
+- Write each `SKEIN_ADMINS` name the way that person signs in. Skein matches the case after the first sign-in, but a key request sent before it goes to the exact spelling in the list. A deactivated name, and a name that a rename freed, count as no administrator.
+- In trusted-header mode with no `SKEIN_ADMINS`, every key holder is still an administrator for settings and backups, but the export download, the key list, the capture replay, everyone's feedback, crew member lists, crew-steward repair and the stranded list need a name in `SKEIN_ADMINS`. `deploy/k8s/OPERATOR.md` lists them.
+- A deployment that composes an identity mapper, a policy rule, a tool handler or a workflow action for OIDC users needs a directory resolver, or agent proposals from signed-in people cannot be approved. The stock app needs none.
+- After the upgrade, a named administrator can check Settings → Operations for proposals that no one can settle.
+
 ## 0.6.6 — 2026-09-24
 
 ### Contracts
