@@ -3839,6 +3839,16 @@ def post_approve_batch(
             # Per item for the reason below. A retryable one
             # (agents/mcp_tools.py::MCPServerNotReady) says when to retry.
             results.append({"id": cid, "status": "error", "detail": exc.detail})
+        except db.BUSY_ERRORS:
+            # Per item for the reason below: one busy row (a held lock, a
+            # full pool) must not hide which earlier ids already applied.
+            results.append(
+                {
+                    "id": cid,
+                    "status": "error",
+                    "detail": "The database is busy. Wait 5 seconds, then approve this item again.",
+                }
+            )
         except PermissionError as exc:
             # Per item, never a batch-level 403: earlier ids in this loop have
             # already committed, so an aborting handler would hide a partial

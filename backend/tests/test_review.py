@@ -841,6 +841,77 @@ def test_the_requester_approves_their_own_proposal_by_default(fresh_db):
     assert review.approve_change(proposal["id"], actor="mira")["status"] == "approved"
 
 
+def test_rejecting_a_proposal_whose_target_is_gone_judges_nobody(fresh_db):
+    """Approving it settles the proposal as auto-rejected with no strong
+    verdict, but rejecting it counted toward the agent's demotion streak."""
+    from app.services import collab, review, scope, users
+
+    users.ensure_user("scribe", kind="agent")
+    users.ensure_user("ops")
+    note = collab.save_note("vendor", "call on Friday", actor="ops")
+    edit = review.propose_change(
+        "note_edit", "update", {"content": "call on Monday"}, entity_id=note["id"], actor="scribe"
+    )
+    collab.delete_note(note["id"], actor="ops")
+    review.reject_change(
+        edit["id"], "moot", actor="ops", strong=True, viewer=scope.Viewer("ops", True)
+    )
+    row = db.query_one("SELECT reviewed_strong FROM pending_changes WHERE id = ?", (edit["id"],))
+    assert row["reviewed_strong"] == 0
+
+
+def test_a_busy_database_is_a_retry_not_a_bad_request(client, fresh_db):
+    """A lock timeout in the apply answered 400 with Postgres's locked-tuple
+    text, and in batch approve it aborted the whole batch, hiding the ids
+    that had already applied."""
+    from threading import Event, Thread
+
+    from app.services import collab, review, users
+
+    for name in ("ava", "bob", "ops"):
+        users.ensure_user(name)
+    question = collab.ask_question("which vendor?", "ava", actor="ava")
+
+    def proposal():
+        return review.propose_change(
+            "question_assign",
+            "update",
+            {"assigned_to": "bob"},
+            entity_id=question["id"],
+            actor="agent",
+        )["id"]
+
+    free = review.propose_change("note", "create", {"topic": "t", "content": "c"}, actor="agent")
+    locked = proposal()
+    holding, release = Event(), Event()
+
+    def hold_the_question():
+        with db.transaction():
+            db.query("SELECT id FROM questions WHERE id = ? FOR UPDATE", (question["id"],))
+            holding.set()
+            release.wait(timeout=30)
+
+    holder = Thread(target=hold_the_question)
+    holder.start()
+    try:
+        assert holding.wait(timeout=5)
+        ops = _strong(client, "ops")
+        single = client.post(f"/api/review/{locked}/approve", json={"note": ""}, headers=ops)
+        assert (single.status_code, single.headers.get("Retry-After")) == (503, "5"), single.text
+        assert "relation" not in single.text
+        batch = client.post(
+            "/api/review/approve-batch", json={"ids": [free["id"], locked]}, headers=ops
+        )
+        assert batch.status_code == 200, batch.text
+        statuses = {row["id"]: row["status"] for row in batch.json()["results"]}
+        assert statuses == {free["id"]: "approved", locked: "error"}
+    finally:
+        release.set()
+        holder.join(timeout=10)
+    note = db.query_one("SELECT review_note FROM pending_changes WHERE id = ?", (locked,))
+    assert "relation" not in note["review_note"]
+
+
 def test_separated_duties_refuse_the_person_the_proposal_came_from(fresh_db, monkeypatch):
     from app import config
     from app.services import review
