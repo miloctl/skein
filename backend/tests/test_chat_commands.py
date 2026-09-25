@@ -195,8 +195,9 @@ def test_remember_in_a_linked_thread_files_an_engagement_proposal(client):
     (services/memory.py::propose_engagement_memory) instead of the direct
     team-wide write."""
     from app import db
-    from app.services import engagements
+    from app.services import engagements, users
 
+    users.ensure_user("bo")  # a second person to approve it
     eid = engagements.create_engagement("Atlas", actor="tester")["id"]
     # claim the thread, then link it — the same order the UI produces
     _read_chat(client, "hello")
