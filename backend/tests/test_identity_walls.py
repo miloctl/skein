@@ -191,17 +191,19 @@ def test_a_freed_name_cannot_be_claimed_by_a_new_person(client, fresh_db):
     assert owner["review_owner"] == "ava.smith"
 
 
-def test_a_person_agent_record_is_its_owners(client, fresh_db, monkeypatch):
+@pytest.mark.parametrize("admins", [frozenset({"ops"}), frozenset()])
+def test_a_person_agent_record_is_its_owners(client, fresh_db, monkeypatch, admins):
     """`<person>-mcp` is one person acting. Its actions, verdicts, reviewer
     notes and last-seen time reached every teammate on five surfaces while
-    the trust page already withheld them."""
+    the trust page already withheld them. With no administrator named, the
+    trusted-header fallback made every key holder an administrator, and so
+    a reader of all of it."""
     from conftest import _strong
 
     from app import config
     from app.services import review, users
 
-    # with no administrator named, trusted-header makes every key holder one
-    monkeypatch.setattr(config, "ADMINS", frozenset({"ops"}))
+    monkeypatch.setattr(config, "ADMINS", admins)
 
     for name in ("alice", "bob"):
         users.ensure_user(name)
@@ -215,7 +217,14 @@ def test_a_person_agent_record_is_its_owners(client, fresh_db, monkeypatch):
     def mentions(path, headers):
         return "alice-mcp" in client.get(path, headers=headers).text
 
-    for path in ("/api/activity/feed", "/api/agents", "/api/review/stats", "/api/review/season"):
+    surfaces = (
+        "/api/activity/feed",
+        "/api/agents",
+        "/api/agents/trust",
+        "/api/review/stats",
+        "/api/review/season",
+    )
+    for path in surfaces:
         assert not mentions(path, bob), path
     # the verdict and its reviewer note are that person's judgment
     for path in ("/api/review/stats", "/api/review?status=rejected"):
