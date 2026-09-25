@@ -678,3 +678,31 @@ def test_a_privately_reviewed_forget_of_a_team_memory_keeps_its_approvers(fresh_
     )
     row = fresh_db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change["id"],))
     assert review._check_policy_approver(row, (), ())["matched_groups"] == []
+
+
+def test_an_mcp_agent_can_have_its_own_memory_forgotten(fresh_db):
+    """Over stdio a memory is addressed to the agent itself. No page lists it
+    (recall reads by person) and no MCP tool could remove it, so a wrong one
+    steered the agent for good."""
+    from app import mcp_server
+    from app.extensions.core import core_module
+    from app.extensions.registry import ExtensionRegistry
+    from app.services import memory, review, scope, users
+
+    users.ensure_user("mcp-agent", kind="agent")
+    users.ensure_user("ops")
+    kept = memory.remember("ZZSTALEZZ wrong fact", user="mcp-agent", actor="mcp-agent")
+    token = mcp_server._current_actor.set("mcp-agent")
+    try:
+        filed = json.loads(mcp_server.forget_memory(kept["id"]))
+    finally:
+        mcp_server._current_actor.reset(token)
+    assert filed["status"] == "pending"
+    review.approve_change(
+        filed["id"],
+        actor="ops",
+        strong=True,
+        viewer=scope.Viewer("ops", True),
+        policy_registry=ExtensionRegistry.build((core_module(),)),
+    )
+    assert memory.get_memory(kept["id"], user="mcp-agent") is None

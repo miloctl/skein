@@ -120,7 +120,7 @@ def test_stdio_process_discovers_calls_and_reads_resources(fresh_db, tmp_path):
                     initialized = await session.initialize()
                     assert initialized.server_info.name == "skein"
                     tools = (await session.list_tools()).tools
-                    assert len(tools) == 23
+                    assert len(tools) == 24
                     result = await session.call_tool("list_tasks", {})
                     assert not result.is_error, _text(result)
                     assert [row["id"] for row in json.loads(_text(result))] == [task["id"]]
@@ -141,7 +141,7 @@ def test_tools_are_listed_with_annotations(fresh_db):
 
     tools = _session(_key("ava"), scenario)
     by_name = {tool.name: tool for tool in tools}
-    assert len(tools) == 23
+    assert len(tools) == 24
     assert by_name["get_my_day"].annotations.read_only_hint is True
     assert by_name["capture"].annotations.read_only_hint is False
     assert by_name["capture"].annotations.destructive_hint is False

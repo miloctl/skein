@@ -104,6 +104,7 @@ WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False)
 IDEMPOTENT_WRITE = ToolAnnotations(
     read_only_hint=False, destructive_hint=False, idempotent_hint=True
 )
+DESTRUCTIVE = ToolAnnotations(read_only_hint=False, destructive_hint=True)
 
 
 # The MCP actor has its own variable, distinct from the chat agent identity
@@ -608,6 +609,38 @@ def remember(content: str, topic: str = "") -> str:
         {"content": content, "topic": topic, "user": _person()},
         lambda: memory.remember(content, topic, user=_person(), actor=_actor(), origin="agent"),
         summary=f"remember{f' [{topic}]' if topic else ''}: {content[:80]}",
+        actor=_actor(),
+    )
+
+
+@_tool(DESTRUCTIVE)
+def forget_memory(memory_id: int) -> str:
+    """Remove a wrong or outdated memory for good. Always a proposal a human
+    approves. Over stdio the memories are this agent's own, and no page lists
+    them (memory.recall reads by person), so this tool is the only way to
+    remove one."""
+    requester = _person()
+    row = memory.get_memory(memory_id, user=requester)
+    if not row:
+        return json.dumps({"error": f"no memory #{memory_id}"})
+    return gated_write(
+        "memory_forget",
+        "update",
+        {},
+        lambda: memory.forget(memory_id, actor=_actor(), origin="agent", requester=requester),
+        entity_id=memory_id,
+        # the same egress rule as tools/memory.py::forget_memory: the review
+        # queue and its notice carry this line, and a deletion must not
+        # republish a workspace memory's body under a narrower tier
+        summary=(
+            f"forget memory #{memory_id}"
+            if row["user"]
+            else scope.detail(
+                row["visibility"],
+                f"forget memory #{memory_id}",
+                f"[{row['topic']}]: {row['content'][:80]}",
+            )
+        ),
         actor=_actor(),
     )
 
