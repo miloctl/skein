@@ -3493,6 +3493,22 @@ def test_unrefreshed_oidc_groups_never_reach_a_resumed_handler(fresh_db):
     assert refreshed.groups == ()
 
 
+def test_a_tool_only_composition_still_requires_the_directory(fresh_db):
+    """A tool handler reads subject.groups. Emptied, a handler that refuses
+    "contractors" ran for a contractor; kept, a lost group still granted."""
+    from app.extensions.core import core_module
+    from app.services import users
+
+    users.ensure_user("mira")
+    tools_only = replace(_module(), policies=(), identities=())
+    assert tools_only.tools
+    subject = PolicySubject(
+        "mira", groups=("contractors",), strong=True, source="oidc", refresh_required=True
+    )
+    with pytest.raises(PermissionError, match="could not be refreshed"):
+        ExtensionRegistry.build((core_module(), tools_only)).refresh_subject(subject)
+
+
 def test_profile_resolver_cannot_mask_unavailable_group_directory(fresh_db):
     from app.services import users
 
