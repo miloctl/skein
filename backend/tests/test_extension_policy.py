@@ -462,6 +462,46 @@ def test_separated_duties_let_the_owner_approve_a_call_on_their_private_row(fres
     assert verdict("requester")["execution_status"] == "approved"
 
 
+def test_approved_extension_calls_never_file_a_promotion(fresh_db):
+    """set_authority refuses a review-only extension entity, so a promotion
+    filed from its streak waited in the queue and failed on every approval."""
+    from app.extensions.tools import execute_reviewed_tool
+    from app.services import delegation, review, scope, users
+
+    users.ensure_user("acme.workplace.delivery", kind="agent")
+    users.ensure_user("manager")
+    registry = ExtensionRegistry.build((_module(),))
+    for index in range(delegation.TRUST_STREAK):
+        queued = asyncio.run(
+            execute_tool(
+                registry.tools[0],
+                {"external_id": f"ATLAS-{index}"},
+                ToolCallContext(PolicySubject("requester"), "acme.workplace.delivery"),
+                registry.policy_engine,
+            )
+        )
+        review.approve_change(
+            queued.review_id,
+            actor="manager",
+            strong=True,
+            viewer=scope.Viewer("manager", True),
+            reviewer_groups=("delivery-managers",),
+            reviewer_capabilities=("acme.approve-atlas",),
+            extension_executor=lambda invocation, _id: asyncio.run(
+                execute_reviewed_tool(registry.tools[0], invocation, registry)
+            ).model_dump(mode="json"),
+            policy_registry=registry,
+        )
+
+    row = next(r for r in delegation.trust_scores() if r["entity"] == "extension_tool")
+    assert (row["approved"], row["recent_streak"], row["suggestion"]) == (
+        delegation.TRUST_STREAK,
+        0,
+        "",
+    )
+    assert delegation.review_authority(auth_mode="trusted-header")["filed"] == 0
+
+
 def test_reviewed_tool_writes_through_the_public_facade(fresh_db, monkeypatch):
     from app import db
     from app.extensions.tools import execute_reviewed_tool

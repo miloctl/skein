@@ -731,14 +731,25 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
     # authority proposals per pair — the Approvals page went from 122 queries
     # to 202 the moment agents started earning streaks.
     judged = _judged_pairs(_authority_cutoff())
+    from .lexicon import REVIEW_ONLY
+
+    review_only = {entity for entity, _action in REVIEW_ONLY}
     for r in rows:
         # promotion suggestions count only strong-identity verdicts — a
-        # spoofed X-User must not be able to walk an agent to autonomous
-        recent = db.query(
-            "SELECT status FROM pending_changes WHERE proposed_by = ? AND entity = ?"
-            " AND status != 'pending' AND reviewed_strong = 1 AND reviewed_override = 0"
-            " ORDER BY reviewed_at DESC NULLS LAST, id DESC LIMIT ?",
-            (r["agent"], r["entity"], TRUST_STREAK),
+        # spoofed X-User must not be able to walk an agent to autonomous.
+        # A review-only extension entity has no streak: set_authority refuses
+        # it, so a filed promotion wedges in the queue, and a personal MCP
+        # owner's approvals count while their rejections do not
+        # (review.reject_change), so its streak only climbs.
+        recent = (
+            []
+            if r["entity"] in review_only
+            else db.query(
+                "SELECT status FROM pending_changes WHERE proposed_by = ? AND entity = ?"
+                " AND status != 'pending' AND reviewed_strong = 1 AND reviewed_override = 0"
+                " ORDER BY reviewed_at DESC NULLS LAST, id DESC LIMIT ?",
+                (r["agent"], r["entity"], TRUST_STREAK),
+            )
         )
         r["last_verified_verdict"] = recent[0]["status"] if recent else ""
         streak = 0
