@@ -516,7 +516,12 @@ def _check_policy_approver(
 
 def _personal_mcp_owner(change: dict) -> str:
     """The owner of the personal MCP server a proposed call runs on, or "".
-    Its server id is personal:<owner>:<name> (services/mcp_servers.py)."""
+
+    requested_by, not the name inside the payload's personal:<owner>:<name>
+    server id: a personal tool joins only its owner's own turn
+    (team_agent.build_agent), so the requester IS the owner, and
+    users.rename_user moves requested_by but never rewrites the payload.
+    Read from the payload, a renamed owner would be refused both verdicts."""
     if change.get("entity") != "extension_mcp_tool":
         return ""
     try:
@@ -526,7 +531,7 @@ def _personal_mcp_owner(change: dict) -> str:
     server = str(payload.get("server") or "") if isinstance(payload, dict) else ""
     if not server.startswith("personal:"):
         return ""
-    return server[len("personal:") :].rsplit(":", 1)[0]
+    return str(change.get("requested_by") or "") or server[len("personal:") :].rsplit(":", 1)[0]
 
 
 def _check_personal_mcp_judge(

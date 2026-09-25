@@ -7008,6 +7008,53 @@ def test_a_personal_remote_call_never_falls_open_to_any_teammate(fresh_db, monke
     assert verdict("approve", first, "requester")["result"]["status"] == "completed"
 
 
+def test_a_renamed_owner_can_still_withdraw_a_personal_call(fresh_db, monkeypatch):
+    """The owner came from the payload's personal:<owner>:<name> server id,
+    which a rename never rewrites: the renamed owner was refused both
+    verdicts, and everyone else could not read the proposal."""
+    from app.agents import mcp_tools as mcp_module
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.agents.mcp_tools import GovernedMCPTool
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import review, users
+
+    registry = ExtensionRegistry.build(())
+    metadata = _mcp_metadata(effect="write", risk="high", policy_action="mcp:write")
+    tool = GovernedMCPTool(_RemoteTool(), metadata, "personal:requester:atlas", "personal")
+    monkeypatch.setattr(mcp_module, "_connections", {})
+    users.ensure_user("requester")
+    _live_personal(monkeypatch, tool)
+    tokens = (
+        set_policy_engine(registry.policy_engine),
+        set_policy_subject(PolicySubject("requester", strong=True)),
+        set_agent_identity("agent"),
+    )
+
+    async def run():
+        use = {"toolUseId": "mcp-1", "name": "atlas_remote", "input": {}}
+        return [event async for event in tool.stream(use, {})]
+
+    try:
+        asyncio.run(run())
+    finally:
+        reset_agent_identity(tokens[2])
+        reset_policy_subject(tokens[1])
+        reset_policy_engine(tokens[0])
+    pending = fresh_db.query_one(
+        "SELECT id FROM pending_changes WHERE entity = 'extension_mcp_tool' AND status = 'pending'"
+    )
+    users.rename_user("requester", "requester2", actor="ops")
+    rejected = review.reject_change(
+        pending["id"],
+        "not needed",
+        actor="requester2",
+        strong=True,
+        viewer=scope.Viewer("requester2", True),
+        policy_registry=registry,
+    )
+    assert rejected["status"] == "rejected"
+
+
 def test_a_personal_read_runs_under_policy_only_after_one_approval(fresh_db, monkeypatch):
     """Annotations are the server's claim, so a personal read is reviewed
     once per (server, tool, version). After that approval, a call with a
