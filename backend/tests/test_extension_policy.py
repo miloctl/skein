@@ -2614,7 +2614,19 @@ def test_mcp_tools_need_complete_metadata_and_pass_through_policy(
         extension_executor=resume,
         policy_registry=registry,
     )
-    assert approved["result"]["status"] == ("completed" if remote_status == "success" else "failed")
+    # MCPClient returns a remote failure as a result, never an exception.
+    # A write can have run in part before it failed, so it must not read as
+    # completed in the review record or the ledger.
+    outcome = "completed" if remote_status == "success" else "completion_unknown"
+    assert approved["result"]["status"] == outcome
+    assert approved["execution_status"] == (
+        "approved" if remote_status == "success" else "completion_unknown"
+    )
+    ledger = [
+        row["detail"]
+        for row in fresh_db.query("SELECT detail FROM activity WHERE action = 'external_tool'")
+    ]
+    assert ("atlas_remote completed" in ledger) is (remote_status == "success")
     result = approved["result"]["events"][-1]["tool_result"]
     assert result["status"] == remote_status
     assert result["content"] == [{"text": "public documentation result"}]
@@ -2683,6 +2695,85 @@ def test_governed_mcp_failure_logs_only_the_exception_class(fresh_db, caplog):
     assert events[-1]["status"] == "error"
     assert canary not in caplog.text
     assert "RuntimeError" in caplog.text
+
+
+def test_a_reviewed_read_that_fails_is_not_recorded_as_done(fresh_db, monkeypatch):
+    from app.agents import mcp_tools as mcp_module
+    from app.agents.mcp_tools import GovernedMCPTool, execute_reviewed_mcp
+    from app.services import review, users
+
+    class Refusing(_RemoteTool):
+        async def stream(self, tool_use, invocation_state, **kwargs):
+            yield {
+                "type": "tool_result",
+                "tool_result": {
+                    "status": "error",
+                    "toolUseId": tool_use["toolUseId"],
+                    "content": [{"text": "Tool execution failed: upstream closed"}],
+                },
+            }
+
+    governed = GovernedMCPTool(
+        Refusing(),
+        _mcp_metadata(
+            policy_action="atlas.update", risk="high", allowed_agents=("acme.workplace.delivery",)
+        ),
+        "atlas-server",
+    )
+    _run_governed(governed)
+    pending = fresh_db.query_one(
+        "SELECT change_id FROM extension_review_invocations WHERE kind = 'mcp_tool'"
+    )
+    assert pending is not None
+    users.ensure_user("manager")
+    monkeypatch.setattr(mcp_module, "_tools", [governed])
+    registry = ExtensionRegistry.build((_module(),))
+
+    approved = review.approve_change(
+        pending["change_id"],
+        actor="manager",
+        reviewer_groups=("delivery-managers",),
+        reviewer_capabilities=("acme.approve-atlas",),
+        extension_executor=lambda invocation, _id: asyncio.run(
+            execute_reviewed_mcp(invocation, registry)
+        ),
+        policy_registry=registry,
+    )
+
+    assert approved["execution_status"] == "failed"
+    assert fresh_db.query_one(
+        "SELECT status FROM extension_review_invocations WHERE change_id = ?",
+        (pending["change_id"],),
+    ) == {"status": "failed"}
+    settled = review.list_changes("approved", scope.Viewer("manager", True))
+    assert (
+        next(row for row in settled if row["id"] == pending["change_id"])["execution_status"]
+        == "failed"
+    )
+
+
+def test_a_remote_error_result_on_a_read_is_a_failed_call(fresh_db):
+    from app.agents.mcp_tools import GovernedMCPTool
+
+    class Refusing(_RemoteTool):
+        async def stream(self, tool_use, invocation_state, **kwargs):
+            yield {
+                "type": "tool_result",
+                "tool_result": {
+                    "status": "error",
+                    "toolUseId": tool_use["toolUseId"],
+                    "content": [{"text": "Tool execution failed: upstream closed"}],
+                },
+            }
+
+    governed = GovernedMCPTool(Refusing(), _mcp_metadata(timeout_seconds=5), "atlas-server")
+    result = _run_governed(governed)[-1]["tool_result"]
+
+    assert result["completionStatus"] == "failed"
+    assert result["content"] == [{"text": "Tool execution failed: upstream closed"}]
+    assert fresh_db.query_one("SELECT detail FROM activity WHERE action = 'external_tool'") == {
+        "detail": "atlas_remote failed (remote_error)"
+    }
 
 
 def test_mcp_tool_result_volume_is_bounded(fresh_db):

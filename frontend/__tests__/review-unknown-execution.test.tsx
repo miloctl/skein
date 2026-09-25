@@ -16,6 +16,7 @@ const proposal = {
 };
 let pending = [proposal];
 let history: Record<string, unknown>[] = [];
+let outcome = "completion_unknown";
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
@@ -36,12 +37,12 @@ vi.mock("@/lib/api", async (importOriginal) => {
             status: "approved",
             reviewed_by: "mira",
             reviewed_override: 0,
-            execution_status: "completion_unknown",
+            execution_status: outcome,
           },
         ];
         return Promise.resolve({
           status: "approved",
-          execution_status: "completion_unknown",
+          execution_status: outcome,
         });
       }
       return Promise.resolve([]);
@@ -56,6 +57,7 @@ import { StatusRegion } from "@/components/status-region";
 beforeEach(() => {
   pending = [proposal];
   history = [];
+  outcome = "completion_unknown";
 });
 
 describe("reviewed execution with unknown completion", () => {
@@ -82,5 +84,31 @@ describe("reviewed execution with unknown completion", () => {
     );
     expect(document.body.textContent).toContain("Approved by mira");
     expect(screen.queryByText("run a governed stock tool", { selector: "h2" })).toBeNull();
+  });
+
+  it("says a failed remote call changed nothing", async () => {
+    outcome = "failed";
+    render(
+      <>
+        <ReviewPage />
+        <StatusRegion />
+      </>,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Approve proposal #41: run a governed stock tool",
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "Proposal #41 was approved, but the remote call failed. Nothing changed.",
+      ),
+    );
+    await waitFor(() =>
+      expect(document.body.textContent).toContain(
+        "The remote call failed. Nothing changed. #41",
+      ),
+    );
+    expect(document.body.textContent).not.toContain("✅ #41");
   });
 });
