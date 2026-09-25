@@ -3414,14 +3414,27 @@ def test_the_owner_can_withdraw_a_private_proposal_that_gained_an_approver(fresh
     assert row["reviewed_strong"] == 0
 
 
-def test_a_directory_outage_keeps_the_approver_requirement_on_reject(fresh_db):
+@pytest.mark.parametrize("outage", ["no record", "raises", "hangs"])
+def test_a_directory_outage_keeps_the_approver_requirement_on_reject(fresh_db, outage):
     """Clearing the requirement on any refresh failure let a reviewer outside
-    the approver group reject gated work while the directory was down."""
+    the approver group reject gated work while the directory was down. A
+    resolver that raised (an HTML error page for JSON) reached that path as a
+    stale contract, and one that hung held the reviewed rows past the lock
+    timeout other writers wait for."""
     from app.agents.identity import reset_requester_identity, set_requester_identity
     from app.extensions.policy import reset_policy_subject, set_policy_subject
     from app.services import review, scope, users
 
     directory = {"up": True}
+
+    def resolver(_name):
+        if directory["up"]:
+            return {"groups": ()}
+        if outage == "raises":
+            raise json.JSONDecodeError("Expecting value", "<html>", 0)
+        if outage == "hangs":
+            time.sleep(4)
+        return None
 
     def finance_reviews(request: PolicyInput):
         if request.action == "task.create":
@@ -3438,7 +3451,7 @@ def test_a_directory_outage_keeps_the_approver_requirement_on_reject(fresh_db):
             IdentityContribution(
                 "acme.workplace.directory",
                 lambda _name, _groups, _strong: {},
-                resolver=lambda _name: {"groups": ()} if directory["up"] else None,
+                resolver=resolver,
                 resolves_groups=True,
             ),
         ),
@@ -3478,6 +3491,12 @@ def test_a_directory_outage_keeps_the_approver_requirement_on_reject(fresh_db):
             policy_registry=registry,
         )
 
+    if outage != "no record":
+        started = time.monotonic()
+        with TestClient(create_app(modules=(module,)), headers={"X-User": "lead"}) as client:
+            response = client.post(f"/api/review/{proposal['id']}/approve", json={"note": ""})
+        assert (response.status_code, response.headers.get("Retry-After")) == (503, "30")
+        assert time.monotonic() - started < 4.5, "the directory call ran past its deadline"
     with pytest.raises(PermissionError, match="configured workplace approver"):
         reject("manager", ())
     assert reject("lead", ("finance",))["status"] == "rejected"
@@ -6869,6 +6888,8 @@ def test_a_personal_remote_call_never_falls_open_to_any_teammate(fresh_db, monke
     remote = _RemoteTool()
     sid = "personal:requester:atlas"
     tool = GovernedMCPTool(remote, metadata, sid, "personal")
+    # this process's connection cache, empty: earlier tests leave entries
+    monkeypatch.setattr(mcp_module, "_connections", {})
     for name in ("requester", "manager", "lead"):
         users.ensure_user(name)
     policy_token = set_policy_engine(registry.policy_engine)
@@ -6915,8 +6936,15 @@ def test_a_personal_remote_call_never_falls_open_to_any_teammate(fresh_db, monke
     with pytest.raises(PermissionError, match="owner's MCP sign-in"):
         verdict("approve", first, "manager")
     assert warmed == [], "a reviewer who can never judge the call connected it"
+    # the owner withdraws a call the security rule still gates
     assert verdict("reject", second, "requester")["status"] == "rejected"
     assert warmed == [], "a rejection connected the owner's server"
+    withdrawn = fresh_db.query_one(
+        "SELECT reviewed_strong, reviewer_qualifications FROM pending_changes WHERE id = ?",
+        (second,),
+    )
+    assert withdrawn["reviewed_strong"] == 0
+    assert json.loads(withdrawn["reviewer_qualifications"])["withdrawn_by_owner"] is True
 
     mcp_module._connections[sid] = mcp_module._MCPConnection(
         sid, object(), (tool,), 1, "personal", stamp

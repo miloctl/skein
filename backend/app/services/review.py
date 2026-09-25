@@ -564,17 +564,30 @@ def _check_personal_mcp_judge(
         )
 
 
-def _withdraws(change: dict, actor: str) -> bool:
-    """Whether the actor owns this private review. They can always reject
-    (withdraw) it: a requirement added after filing, by a relink or a policy
-    change, names approvers who cannot read a private review, so without
-    this nobody could settle it."""
+def _owns_private(change: dict, actor: str) -> bool:
+    """Whether the actor owns this private review, which approvers cannot read."""
     if change.get("review_visibility") != scope.PRIVATE:
         return False
     from ..identity_names import fold_identity
 
     owner = fold_identity(str(change.get("review_owner") or ""))
     return bool(owner) and owner == fold_identity(actor)
+
+
+def _withdraws(change: dict, actor: str, strong: bool) -> bool:
+    """Whether a strong actor is withdrawing their own request, which a
+    rejection can always do: it runs nothing and judges nobody else's work.
+    Without it, a requirement added after filing (a relink, a policy change)
+    stranded a private review that its approvers cannot read, and the owner
+    of a personal MCP call could not drop their own call."""
+    if not strong:
+        return False
+    from ..identity_names import fold_identity
+
+    folded = fold_identity(actor)
+    if _owns_private(change, actor) or fold_identity(_personal_mcp_owner(change)) == folded:
+        return True
+    return fold_identity(str(change.get("requested_by") or "")) == folded
 
 
 def _sponsor_of(change: dict) -> str:
@@ -782,7 +795,7 @@ def _approve_change_locked(
             reviewer_capabilities,
         )
     except PermissionError:
-        if _withdraws(change, actor):
+        if _owns_private(change, actor):
             raise PermissionError(
                 "This proposal now needs a configured workplace approver, who cannot"
                 " see a private proposal. Reject it to withdraw it, then ask again."
@@ -1010,20 +1023,12 @@ def _revalidate_policy(
         # workplace module (including its directory resolver) cannot strand a
         # durable proposal forever. Approval still requires a current
         # directory identity and remains closed.
+        # A rejection's failures here propagate: _reject_change_locked is
+        # the one place that settles them, and it decides whether the stored
+        # approver requirement stands.
         if not approving:
             saved_current = policy_input_from_data(policy_data, saved_subject)
-            try:
-                _current_extension_review(
-                    change,
-                    registry,
-                    saved_current,
-                    approving=False,
-                )
-            except (KeyError, TypeError, ValueError, PermissionError, PublicError):
-                change["approver_groups"] = "[]"
-                change["approver_capabilities"] = "[]"
-                change["_stale_contract"] = True
-                return None
+            _current_extension_review(change, registry, saved_current, approving=False)
         subject = registry.refresh_subject(saved_subject)
         current = policy_input_from_data(policy_data, subject)
         try:
@@ -1033,29 +1038,17 @@ def _revalidate_policy(
                 current,
                 approving=approving,
             )
-        except PermissionError:
-            if approving:
-                raise
-            change["approver_groups"] = "[]"
-            change["approver_capabilities"] = "[]"
-            change["_stale_contract"] = True
-            return None
         except (KeyError, TypeError, ValueError, PublicError) as exc:
             from ..agents.mcp_tools import MCPServerNotReady
 
             # It names its own fix (wait, or sign in again). "Request a new
             # review" sends the reviewer to a new proposal that fails the
             # same way.
-            if approving and isinstance(exc, MCPServerNotReady):
+            if not approving or isinstance(exc, MCPServerNotReady):
                 raise
-            if approving:
-                raise PermissionError(
-                    "The reviewed extension contract cannot be refreshed. Request a new review."
-                ) from exc
-            change["approver_groups"] = "[]"
-            change["approver_capabilities"] = "[]"
-            change["_stale_contract"] = True
-            return None
+            raise PermissionError(
+                "The reviewed extension contract cannot be refreshed. Request a new review."
+            ) from exc
         decision = state.decision or registry.policy_engine.decide(state.request)
         if decision.effect == PolicyEffect.DENY and approving:
             raise PermissionError("The current workplace policy denies this reviewed action.")
@@ -1372,6 +1365,7 @@ def _reject_change_locked(
     # be recomputed (requester or agent deactivated, task relinked, module
     # removed) settles as stale. Raising here leaves it in the queue forever,
     # refused by Approve and Reject alike.
+    from ..agents.mcp_tools import MCPServerNotReady
     from ..extensions.registry import DirectoryUnavailable
 
     _check_personal_mcp_judge(change, actor, reviewer_groups, reviewer_capabilities)
@@ -1384,10 +1378,10 @@ def _reject_change_locked(
                 reviewer_capabilities,
                 approving=False,
             )
-    except DirectoryUnavailable:
-        # The requester still exists, so the stored requirement holds.
-        # Clearing it let anyone reject gated work while the directory was
-        # down.
+    except (DirectoryUnavailable, MCPServerNotReady):
+        # Nothing is gone: the directory or the owner's MCP server cannot
+        # answer right now, so the stored requirement holds. Clearing it lets
+        # anyone reject gated work while either one is down.
         change["_stale_contract"] = True
     except (KeyError, TypeError, ValueError, PermissionError, PublicError):
         change["approver_groups"] = "[]"
@@ -1400,7 +1394,7 @@ def _reject_change_locked(
             reviewer_capabilities,
         )
     except PermissionError:
-        if not _withdraws(change, actor):
+        if not _withdraws(change, actor, strong):
             raise
         qualifications = {"withdrawn_by_owner": True}
     if change.get("_stale_contract"):

@@ -386,6 +386,12 @@ requester.
 Skein stores the original authentication strength and
 never increases it during refresh. Skein also rejects an inactive local user.
 
+A resolver returns `None` for a person the directory has no record of. It
+raises when the directory cannot answer. Skein gives each resolver call 3
+seconds. A raise or a timeout answers 503 with `Retry-After`, because the same
+request can succeed later. A `None` answer is a refusal. In both cases a
+rejection keeps the proposal's approver requirement.
+
 Exactly one identity contribution can own group refresh. Set
 `resolves_groups=True` on that directory resolver. Its resolver must
 return a `groups` key. An empty tuple is a successful group refresh. A

@@ -411,9 +411,10 @@ all call it. The team reviews instead when the run is unattended, when the
 identity is weak (a weak viewer reads no private row), when
 `SKEIN_REVIEW_SEPARATION=1` is on, or when policy names approvers. A
 proposal from a shared chat follows the same rule for the member who sent
-the message. Its owner can always withdraw (reject) a private proposal. If a relink or a
-policy change later names approvers, the owner is told to withdraw it and ask
-again, because approvers cannot read a private proposal. A call to a personal
+the message. A requester with a key or a sign-in can always withdraw (reject)
+their own request, whatever its tier. If a relink or a policy change later
+names approvers for a private proposal, its owner is told to withdraw it and
+ask again, because approvers cannot read a private proposal. A call to a personal
 MCP server is judged by its owner or by a reviewer the policy names, never by
 any other teammate, because it runs on the owner's credential and returns
 their data. The proposal record stays private after the verdict. The row it made has its
