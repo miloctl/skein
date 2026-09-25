@@ -33,6 +33,7 @@ from ..extensions.policy import (
     current_policy_engine,
     current_policy_subject,
 )
+from ..public.errors import PublicError
 from ..services import scope
 from ..services.mcp_servers import LIMIT as _PERSONAL_CONNECT_LIMIT
 from .core_tools import portable_state
@@ -486,17 +487,44 @@ def reviewed_policy_contract(
     return request, contract, str(invocation.get("version") or "") == governed.metadata.version
 
 
+class MCPServerConnecting(PublicError):
+    """A personal server that is registered but not connected in this
+    process: after a restart, or on a replica that never served its owner's
+    turn. The identical approval succeeds once discovery finishes."""
+
+    retry_after = 10
+
+    def __init__(self) -> None:
+        super().__init__(
+            "MCP_SERVER_CONNECTING",
+            "The MCP server for this tool is not connected yet. Skein started to"
+            " connect it. Wait 10 seconds, then approve again.",
+            status_code=503,
+            retryable=True,
+        )
+
+
 def _governed(name: str, server: str) -> GovernedMCPTool:
     """The currently composed wrapper for one (server, tool). A personal
-    server is looked up in the cache only, never opened: this runs in the
-    REVIEWER's request, inside the approval transaction with the proposal
+    server is looked up in the cache only, never opened here: this runs in
+    the REVIEWER's request, inside the approval transaction with the proposal
     row held (services/review.py), and a connect there would pin that hold
-    for the whole startup timeout. A cold personal server fails the
-    approval as "not currently composed"; the owner's next turn reconnects
-    it and the reviewer approves again."""
+    for the whole startup timeout. A cold personal server starts its owner's
+    background discovery and answers MCPServerConnecting, which
+    review._revalidate_policy lets through as a retryable 503. Only the
+    connection cache is per process, so a restart or another replica would
+    otherwise refuse the approval until the owner happened to chat there."""
     if _is_personal(server):
         with _lock:
             connection = _connections.get(server)
+        if connection is None:
+            owner = server[len(PERSONAL) + 1 :].rsplit(":", 1)[0]
+            from ..services.mcp_servers import entries_for
+
+            row = dict(entries_for(owner)).get(server)
+            if row is not None and (row.get("auth") != "oauth" or row.get("signed_in")):
+                personal_mcp_tools(owner)
+                raise MCPServerConnecting()
         pool = list(connection.tools) if connection else []
     else:
         pool = mcp_tools()
