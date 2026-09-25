@@ -619,7 +619,7 @@ knots:
     set: bends
     role: any
     pitch: A fact learned on one piece of work, recalled in chats about that work and nowhere else.
-    how: Link a chat to an engagement from the sidebar menu. That chat then recalls the engagement's own memories on top of the team's. Filing one back is a proposal that a teammate other than you approves.
+    how: "Link a chat to an engagement from the sidebar menu. That chat then recalls the engagement's own memories on top of the team's. In that chat, /remember saves a fact for you alone. To add a fact for the engagement, send /remember team: and the fact. A teammate other than you approves it."
     link: /chat
     since: 2026-08-10
 
