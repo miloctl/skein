@@ -622,9 +622,14 @@ export default function ReviewPage() {
       const unknown = r.results.filter(
         (x) => x.execution_status === "completion_unknown",
       );
+      const failed = r.results.filter((x) => x.execution_status === "failed");
       if (unknown.length > 0) {
         reportStatus(
           `Approval recorded for ${unknown.map((x) => `#${x.id}`).join(", ")}, but remote completion is unknown. Do not retry the action.`,
+        );
+      } else if (failed.length > 0) {
+        reportStatus(
+          `Approval recorded for ${failed.map((x) => `#${x.id}`).join(", ")}, but the remote call failed. Nothing changed.`,
         );
       }
       setSelected(new Set());
@@ -655,6 +660,10 @@ export default function ReviewPage() {
       if (result.execution_status === "completion_unknown") {
         reportStatus(
           `Proposal #${id} was approved, but remote completion is unknown. Do not retry the action.`,
+        );
+      } else if (result.execution_status === "failed") {
+        reportStatus(
+          `Proposal #${id} was approved, but the remote call failed. Nothing changed.`,
         );
       } else {
         reportStatus(
@@ -1043,11 +1052,13 @@ export default function ReviewPage() {
               .map((c) => (
               <li
                 key={c.id}
-                className={`text-xs ${c.execution_status === "completion_unknown" ? "text-danger" : "text-ink-3"}`}
+                className={`text-xs ${c.execution_status === "completion_unknown" || c.execution_status === "failed" ? "text-danger" : "text-ink-3"}`}
               >
                 {c.execution_status === "completion_unknown"
                   ? "Completion unknown — do not retry. "
-                  : "✅ "}
+                  : c.execution_status === "failed"
+                    ? "The remote call failed. Nothing changed. "
+                    : "✅ "}
                 #{c.id}{" "}
                 {c.text_cleared_at
                   ? "The text was deleted after 180 days."

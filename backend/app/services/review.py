@@ -688,9 +688,14 @@ def _assert_judgeable(change: dict, viewer: scope.Viewer) -> None:
         raise db.NotFound(f"pending change #{change['id']} not found")
 
 
-def _extension_execution_status(result: dict) -> str:
+def _extension_execution_status(result: dict, kind: str) -> str:
     if result.get("status") == "completion_unknown":
         return "completion_unknown"
+    # Only the tool executors have a closed status vocabulary. A public
+    # command returns the row it wrote, and a task row's own status is not
+    # an execution outcome.
+    if kind in ("mcp_tool", "tool") and result.get("status") in ("failed", "timed_out", "refused"):
+        return "failed"
     workflow = result.get("workflow")
     if isinstance(workflow, dict) and workflow.get("status") == "completion_unknown":
         return "completion_unknown"
@@ -837,6 +842,7 @@ def _approve_change_locked(
         if stored is None:
             raise ValueError("the reviewed extension invocation is missing")
         invocation = json.loads(stored["invocation"])
+        invocation_kind = str(stored["kind"])
         if approval_grant is not None:
             from ..extensions.policy import policy_decision_data
 
@@ -864,7 +870,7 @@ def _approve_change_locked(
                 if executor is None:
                     raise ValueError("the extension review executor is missing")
                 result = executor(invocation, change_id)
-                execution_status = _extension_execution_status(result)
+                execution_status = _extension_execution_status(result, invocation_kind)
                 db.execute(
                     "UPDATE extension_review_invocations SET status = ?, result = ?,"
                     " error_code = ?, executed_at = ? WHERE change_id = ?",
@@ -1019,7 +1025,7 @@ def _approve_change_locked(
     _clear_review_ping(change_id)
     response = {"id": change_id, "status": "approved", "result": result}
     if is_extension:
-        response["execution_status"] = _extension_execution_status(result)
+        response["execution_status"] = _extension_execution_status(result, invocation_kind)
         response["execution_error_code"] = _extension_error_code(result)
     return response
 

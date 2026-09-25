@@ -480,6 +480,20 @@ class GovernedMCPTool(AgentTool):
         # passed everything for a bare {"type": "object"}.
         last = events[-1] if events else None
         result = last.get("tool_result", last) if isinstance(last, dict) else last
+        if isinstance(result, dict) and result.get("status") == "error":
+            # MCPClient.call_tool_async catches its own transport faults and
+            # the server's isError answers and returns them as a result, so
+            # the except clauses above never see them. A write can have run
+            # in part before it failed: completion unknown, never "wrote".
+            completion_status = (
+                "completion_unknown" if self.metadata.effect == "write" else "failed"
+            )
+            record("failed", self.tool_name, completion_status, actor=actor)
+            _audit_mcp(actor, self.tool_name, completion_status, "remote_error")
+            result["completionStatus"] = completion_status
+            for event in events:
+                yield event
+            return
         if not events or not _schema_matches(result, self.metadata.output_schema):
             record("failed", self.tool_name, "invalid output", actor=actor)
             completion_status = (
