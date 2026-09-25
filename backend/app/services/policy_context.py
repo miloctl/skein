@@ -11,6 +11,12 @@ _TABLES = {
     "task": ("tasks", "engagement_id"),
     "milestone": ("milestones", "engagement_id"),
     "question": ("questions", ""),
+    # Without these three the gate classified them as nothing, and a shared
+    # chat, which writes workspace rows only (tools/_gate.py), refused every
+    # standup, time-away window and question assignment its tools offer.
+    "question_assign": ("questions", ""),
+    "standup": ("standups", ""),
+    "absence": ("absences", ""),
     "decision": ("decisions", ""),
     "document": ("artifacts", "engagement_id"),
     "document_edit": ("artifacts", "engagement_id"),

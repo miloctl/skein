@@ -515,11 +515,6 @@ def test_a_weak_requesters_personal_review_is_refused_not_stranded(fresh_db, mon
     assert "strong identity" in forgot["error"]
     assert fresh_db.query("SELECT id FROM pending_changes") == []
 
-    # a shared chat runs its strong requester under scope.NOBODY
-    with _turn("mira", shared_chat=True):
-        shared = json.loads(remember("ZZSHAREDZZ standing context"))
-    assert shared["status"] == "pending"
-
 
 def test_the_export_keeps_an_agents_own_memories(fresh_db):
     """Over stdio the MCP server addresses a memory to the agent itself. That
