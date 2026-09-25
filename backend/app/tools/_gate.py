@@ -21,6 +21,7 @@ from ..agents.identity import (
     agent_identity,
     requester_identity,
     requester_viewer,
+    strong_requester,
     workspace_only_tools,
 )
 from ..extensions.policy import (
@@ -302,26 +303,18 @@ def _gated_write_locked(
     # name with no key reads no private row. Filed, the review is listed to
     # nobody while the agent reports it queued. Refuse it here with the fix,
     # the way tools/portfolio.py::add_absence refuses a private window.
-    # A nameless Viewer is weak only on a person's own turn: a shared chat
-    # runs its strong requester under scope.NOBODY (shared_chat_agents.py),
-    # and a resumed core tool sets no viewer (agents/core_tools.py).
-    viewer = requester_viewer()
+    strong = strong_requester()
     if (
         review_owner
-        and isinstance(viewer, scope.Viewer)
-        and not viewer.name
-        and not workspace_only_tools()
+        and not strong
+        and requester_identity()
         and users.fold(review_owner) == users.fold(requester_identity())
     ):
         detail = wording.strong_identity_required("Approving a change to your own record")
         receipts.record("refused", entity, detail, actor=actor)
         return json.dumps({"error": detail})
-    # A shared chat's requester is strong (StrongUser starts one) but runs
-    # under scope.NOBODY, so the name comes from requester_identity there.
-    # Forcing its review private whatever the rule said left it with no
-    # approver under separated duties or policy-named approvers.
     private_review = bool(review_owner) or review.requester_judges(
-        requester_identity() if workspace_only_tools() else getattr(viewer, "name", ""),
+        strong,
         decision.approver_groups,
         decision.approver_capabilities,
     )

@@ -442,6 +442,34 @@ def client(fresh_db):
         assert shared_chat_agents.wait_for_idle(), "shared-chat agent worker did not stop"
 
 
+@contextlib.contextmanager
+def _turn(name: str, *, strong: bool = True, shared_chat: bool = False):
+    """A requester's turn as a door sets it (routes/chat.py, mcp_server.py,
+    services/shared_chat_agents.py): the name, the READ Viewer, and the
+    policy subject that carries the credential's strength. The gate reads
+    strength from the subject alone (agents/identity.py::strong_requester),
+    so a test that sets a strong Viewer without it simulates a weak caller."""
+    from app.agents import identity
+    from app.extensions.policy import PolicySubject, reset_policy_subject, set_policy_subject
+    from app.services import scope
+
+    viewer = scope.NOBODY if shared_chat else scope.Viewer(name, strong)
+    tokens = (
+        identity.set_requester_identity(name),
+        identity.set_requester_viewer(viewer),
+        set_policy_subject(PolicySubject(name, strong=strong)),
+    )
+    previous = identity.workspace_only_tools()
+    identity.set_workspace_only_tools(shared_chat)
+    try:
+        yield
+    finally:
+        identity.set_workspace_only_tools(previous)
+        reset_policy_subject(tokens[2])
+        identity.reset_requester_viewer(tokens[1])
+        identity.reset_requester_identity(tokens[0])
+
+
 def _strong(client=None, name="tester"):
     from app.services.api_keys import create_key
 

@@ -5,7 +5,7 @@ from typing import Any
 
 from strands import tool
 
-from ..agents.identity import agent_identity, requester_viewer
+from ..agents.identity import agent_identity, strong_requester, workspace_only_tools
 from ..services import collab, scope, users
 from ._gate import gated_write
 
@@ -148,8 +148,9 @@ def post_standup(
     """
     # "only the author" only where the author is the strong requester: a
     # weak viewer reads no private row, and a private standup about
-    # somebody else reaches a person who never asked for it
-    strong = getattr(requester_viewer(), "name", "")
+    # somebody else reaches a person who never asked for it. A shared chat
+    # writes workspace rows only (tools/_gate.py refuses the rest).
+    strong = "" if workspace_only_tools() else strong_requester()
     private = not share_with_team and bool(strong) and users.fold(author) == users.fold(strong)
     payload: dict[str, Any] = {
         "author": author,
