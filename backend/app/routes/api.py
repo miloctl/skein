@@ -154,7 +154,13 @@ def _require_resource_policy(
     """Authorize one visible domain resource in the caller's read snapshot."""
     attributes = policy_context.existing_scoped(entity, entity_id, viewer)
     if not attributes:
-        raise scope.missing(f"{entity}s", entity_id)
+        # the table, not the entity: `question_assign` + "s" is no key of
+        # scope.NOUN, and the KeyError answered 500 for an id the caller sent.
+        # NOUN holds the classified tables only (tests/test_scope.py).
+        table = policy_context.table_of(entity)
+        if table in scope.NOUN:
+            raise scope.missing(table, entity_id)
+        raise db.NotFound(f"no {entity} #{entity_id}")
     enforce_decision(
         decide(
             request,

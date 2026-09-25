@@ -1167,6 +1167,32 @@ def test_an_agents_proposal_is_the_requesters_to_judge_first(client, fresh_db, m
     assert filed("separated")["review_visibility"] == "workspace"
 
 
+def test_an_agent_create_in_a_crew_is_refused_with_the_true_reason(fresh_db, monkeypatch):
+    """An agent is in no crew, and the apply runs as the agent. Resolved as
+    the agent, the refusal read "no engagement #1" for an engagement the
+    person can see, or blamed a policy no administrator can change."""
+    from app import config
+    from app.services import crews, engagements, users
+    from app.tools._gate import gated_write
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    users.ensure_user("mira")
+    crew = crews.create_crew("ops", actor="mira")
+    eid = engagements.create_engagement(
+        "Atlas", actor="mira", visibility="crew", crew_id=crew["id"]
+    )["id"]
+    with _turn("mira"):
+        refusals = [
+            json.loads(
+                gated_write("promise", "create", {"promise": "ship", "engagement_id": eid}, dict)
+            ),
+            json.loads(gated_write("task", "create", {"title": "t1", "engagement_id": eid}, dict)),
+        ]
+    for refusal in refusals:
+        assert refusal["error"].startswith("Only crew members can create records in a crew")
+    assert db.query("SELECT id FROM pending_changes") == []
+
+
 def test_an_agent_changes_only_rows_its_requester_can_read(client, fresh_db, monkeypatch):
     """A proposal private to its requester was judged on the review tier
     alone: a person in no crew approved, by id, their agent's edit to a crew

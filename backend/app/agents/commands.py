@@ -517,6 +517,12 @@ async def _remember(
     yield _tool_event("remember")
     try:
         if args.lower().startswith("team:"):
+            # the same bar as POST /api/memories/{id}/share and
+            # POST /api/engagements/{id}/memory: the proposal quotes the fact
+            # to its readers under this name, and a typed name is anybody's
+            if not viewer.name:
+                yield {"data": wording.strong_identity_required("Sharing a memory")}
+                return
             if not engagement_id:
                 p = await run_in_threadpool(
                     lambda: memory.propose_team_memory(args[5:], actor=user),
@@ -525,11 +531,6 @@ async def _remember(
                     "data": f"Filed as proposal #{p['id']}. Another teammate approves it in"
                     " Inbox → Approvals before it steers the agent for everyone."
                 }
-                return
-            # the same bar as POST /api/engagements/{id}/memory: the proposal
-            # quotes the fact to the engagement's readers under this name
-            if not viewer.name:
-                yield {"data": wording.strong_identity_required("Sharing a memory")}
                 return
             # Always a proposal (services/memory.py::propose_engagement_memory
             # says why), never the direct write below.
@@ -544,13 +545,18 @@ async def _remember(
                     ),
                 )
             except ValueError as exc:
-                # its advice to "remember the fact for the team" means
-                # /remember team:, which here files for this engagement again
-                yield {
-                    "data": f"{exc} In this chat, /remember team: files for this engagement."
-                    " To share the fact with the whole team, send /remember without team:,"
-                    " then choose Share with the team on it in Agents → Memory."
-                }
+                # A private or crew engagement's refusal advises "remember the
+                # fact for the team", which /remember team: here does not do.
+                # Any other refusal gets no such advice: a one-person team's
+                # share fails the same way.
+                how = (
+                    " In this chat, /remember team: files for this engagement. To share"
+                    " the fact with the whole team, send /remember without team:, then"
+                    " choose Share with the team on it in Agents → Memory."
+                    if linked.get("classification") in (scope.PRIVATE, scope.CREW)
+                    else ""
+                )
+                yield {"data": f"{exc}{how}"}
                 return
             yield {
                 "data": f"Filed as proposal #{p['id']} for this thread's engagement."

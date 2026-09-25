@@ -67,6 +67,12 @@ def supports_resource(entity: str) -> bool:
     return entity in _TABLES or entity in _UNSCOPED_RESOURCES
 
 
+def table_of(entity: str) -> str:
+    """The table a supported resource lives in, or "" for an unknown one."""
+    selected = _TABLES.get(entity)
+    return selected[0] if selected is not None else _UNSCOPED_RESOURCES.get(entity, "")
+
+
 def resource_row(entity: str, entity_id: int) -> dict | None:
     """Load one row through the closed policy resource table map.
 
@@ -79,9 +85,8 @@ def resource_row(entity: str, entity_id: int) -> dict | None:
     """
     if entity_id <= 0:
         return None
-    selected = _TABLES.get(entity)
-    table = selected[0] if selected is not None else _UNSCOPED_RESOURCES.get(entity)
-    if table is None:
+    table = table_of(entity)
+    if not table:
         return None
     return db.query_one(
         f"SELECT * FROM {table} WHERE id = ?",  # noqa: S608 -- closed table map
