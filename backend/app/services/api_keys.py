@@ -81,15 +81,16 @@ def request_key(user: str, *, strong: bool = False) -> dict:
     # the roster's spelling: SKEIN_ADMINS=Casey names roster `casey`
     # (deps.is_named_admin folds), and a notice to the literal spelling
     # reaches nobody
-    from .users import fold, list_users
+    # a deactivated administrator reads nothing, so a notice to them reaches
+    # nobody while the requester reads that whoever runs the server has it.
+    # A name with no roster row yet stays: that person reads it on sign-in
+    # (the rule routes/deps.py::administrator_possible applies).
+    from .users import fold, is_active, list_users
 
-    # active roster rows only (list_users): a notice to a deactivated or
-    # unknown administrator reaches nobody while the requester reads that
-    # whoever runs the server has it
     roster = {fold(u["name"]): u["name"] for u in list_users()}
-    recipients = sorted({roster[fold(name)] for name in config.ADMINS if fold(name) in roster}) or [
-        "team"
-    ]
+    recipients = sorted(
+        {roster.get(fold(name), name) for name in config.ADMINS if is_active(name)}
+    ) or ["team"]
     marks = ", ".join("?" for _ in recipients)
     with db.transaction():
         db.name_lock(db.LOCK_KEY_REQUEST, user)
