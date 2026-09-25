@@ -6662,6 +6662,32 @@ def test_capability_requests_are_bounded_by_action_count(fresh_db):
     assert response.status_code == 400
 
 
+def _personal_row(monkeypatch, owner: str = "requester", name: str = "atlas") -> str:
+    """The mcp_servers row a personal connection belongs to, and its stamp.
+    mcp_tools._governed reads the row on every call, which is how another
+    pod's delete reaches this one."""
+    import socket
+
+    from app.services import mcp_servers, users
+
+    real = socket.getaddrinfo
+
+    def resolve(host, port, *args, **kwargs):
+        if isinstance(host, str) and host.endswith(".example"):
+            return [
+                (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.5", port))
+            ]
+        return real(host, port, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    users.ensure_user(owner)
+    mcp_servers.add(owner, name, f"https://{name}.example/mcp", actor=owner)
+    row = db.query_one(
+        "SELECT updated_at FROM mcp_servers WHERE owner = ? AND name = ?", (owner, name)
+    )
+    return str(row["updated_at"])
+
+
 def test_a_personal_remote_write_needs_a_human_even_under_permit(fresh_db, monkeypatch):
     """The owner of a personal server classified nothing, so a PERMIT from the
     engine (here: the authority default with SKEIN_AGENT_REVIEW off) still
@@ -6714,7 +6740,12 @@ def test_a_personal_remote_write_needs_a_human_even_under_permit(fresh_db, monke
     users.ensure_user("requester")
     # the approval path reads the connection cache and never connects
     mcp_module._connections["personal:requester:atlas"] = mcp_module._MCPConnection(
-        "personal:requester:atlas", object(), (personal_tool,), 1, "personal"
+        "personal:requester:atlas",
+        object(),
+        (personal_tool,),
+        1,
+        "personal",
+        _personal_row(monkeypatch),
     )
 
     def resume(invocation, _change_id):
@@ -6758,7 +6789,9 @@ def test_a_personal_read_runs_under_policy_only_after_one_approval(fresh_db, mon
     remote = _RemoteTool()
     sid = "personal:requester:atlas"
     tool = GovernedMCPTool(remote, metadata, sid, "personal")
-    mcp_module._connections[sid] = mcp_module._MCPConnection(sid, object(), (tool,), 1, "personal")
+    mcp_module._connections[sid] = mcp_module._MCPConnection(
+        sid, object(), (tool,), 1, "personal", _personal_row(monkeypatch)
+    )
 
     async def run(payload):
         return [

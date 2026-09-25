@@ -869,6 +869,13 @@ def _approve_change_locked(
                 " error_code = 'EXECUTION_FAILED' WHERE change_id = ?",
                 (change_id,),
             )
+        from ..agents.mcp_tools import MCPServerNotReady
+
+        # The connection can drop between _revalidate_policy and the call
+        # (another request's forget or deadline strike). That is a 503 with
+        # Retry-After, not a 400 that reads as a bad request.
+        if isinstance(exc, MCPServerNotReady):
+            return _ApprovalFailure(exc)
         return _ApprovalFailure(
             ValueError(f"could not apply {change['entity']}.{change['action']}: {exc}")
         )
@@ -959,10 +966,12 @@ def _revalidate_policy(
             change["_stale_contract"] = True
             return None
         except (KeyError, TypeError, ValueError, PublicError) as exc:
-            # A retryable error (agents/mcp_tools.py::MCPServerConnecting)
-            # clears on its own. "Request a new review" sent the reviewer to
-            # a new proposal that fails the same way.
-            if approving and isinstance(exc, PublicError) and exc.retryable:
+            from ..agents.mcp_tools import MCPServerNotReady
+
+            # It names its own fix (wait, or sign in again). "Request a new
+            # review" sends the reviewer to a new proposal that fails the
+            # same way.
+            if approving and isinstance(exc, MCPServerNotReady):
                 raise
             if approving:
                 raise PermissionError(

@@ -3833,7 +3833,7 @@ def post_approve_batch(
             results.append({"id": cid, "status": "error", "detail": str(exc)})
         except PublicError as exc:
             # Per item for the reason below. A retryable one
-            # (agents/mcp_tools.py::MCPServerConnecting) says when to retry.
+            # (agents/mcp_tools.py::MCPServerNotReady) says when to retry.
             results.append({"id": cid, "status": "error", "detail": exc.detail})
         except PermissionError as exc:
             # Per item, never a batch-level 403: earlier ids in this loop have

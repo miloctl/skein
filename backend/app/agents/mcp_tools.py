@@ -36,6 +36,7 @@ from ..extensions.policy import (
 from ..public.errors import PublicError
 from ..services import scope
 from ..services.mcp_servers import LIMIT as _PERSONAL_CONNECT_LIMIT
+from ..services.wording import count
 from .core_tools import portable_state
 
 log = logging.getLogger(__name__)
@@ -487,21 +488,46 @@ def reviewed_policy_contract(
     return request, contract, str(invocation.get("version") or "") == governed.metadata.version
 
 
-class MCPServerConnecting(PublicError):
-    """A personal server that is registered but not connected in this
-    process: after a restart, or on a replica that never served its owner's
-    turn. The identical approval succeeds once discovery finishes."""
+class MCPServerNotReady(PublicError):
+    """A registered personal server that this process cannot use yet: not
+    connected here (after a restart, or on a replica that never served its
+    owner's turn), backing off after a failed connect, or signed out.
+    review._revalidate_policy and the apply step pass it through, so the
+    reviewer reads what to do instead of "Request a new review"."""
 
-    retry_after = 10
-
-    def __init__(self) -> None:
+    def __init__(self, code: str, detail: str, *, retry_after: int = 0) -> None:
         super().__init__(
-            "MCP_SERVER_CONNECTING",
-            "The MCP server for this tool is not connected yet. Skein started to"
-            " connect it. Wait 10 seconds, then approve again.",
-            status_code=503,
-            retryable=True,
+            code, detail, status_code=503 if retry_after else 409, retryable=bool(retry_after)
         )
+        self.retry_after = retry_after
+
+
+def _not_ready(owner: str, server: str, row: dict) -> MCPServerNotReady:
+    if row.get("auth") == "oauth" and (not row.get("signed_in") or row.get("signin_required")):
+        # the rule GET /api/mcp/servers uses for sign_in_required
+        return MCPServerNotReady(
+            "MCP_SIGN_IN_REQUIRED",
+            "The MCP server for this tool needs a new sign-in. Its owner must sign in"
+            " again in Settings, then approve again.",
+        )
+    personal_mcp_tools(owner)
+    with _lock:
+        opening = server in _opening
+        retry = _retry_state.get(server)
+    wait = 0 if opening or retry is None else int(retry[1] - time.monotonic())
+    if wait > 0:
+        return MCPServerNotReady(
+            "MCP_SERVER_UNAVAILABLE",
+            f"The MCP server for this tool did not answer. Skein tries it again in"
+            f" {count(wait, 'second')}. Approve again after that, or reject the proposal.",
+            retry_after=wait,
+        )
+    return MCPServerNotReady(
+        "MCP_SERVER_CONNECTING",
+        "The MCP server for this tool is not connected yet. Skein started to"
+        " connect it. Wait 10 seconds, then approve again.",
+        retry_after=10,
+    )
 
 
 def _governed(name: str, server: str) -> GovernedMCPTool:
@@ -509,23 +535,27 @@ def _governed(name: str, server: str) -> GovernedMCPTool:
     server is looked up in the cache only, never opened here: this runs in
     the REVIEWER's request, inside the approval transaction with the proposal
     row held (services/review.py), and a connect there would pin that hold
-    for the whole startup timeout. A cold personal server starts its owner's
-    background discovery and answers MCPServerConnecting, which
-    review._revalidate_policy lets through as a retryable 503. Only the
-    connection cache is per process, so a restart or another replica would
-    otherwise refuse the approval until the owner happened to chat there."""
+    for the whole startup timeout. A server that is not ready answers
+    MCPServerNotReady, and a cold one starts its owner's background
+    discovery first. The connection cache is per process: without this, a
+    restart or another replica refuses the approval until the owner chats
+    there."""
     if _is_personal(server):
+        owner = server[len(PERSONAL) + 1 :].rsplit(":", 1)[0]
+        from ..services.mcp_servers import entries_for
+
+        # Read the row on a cache hit too: forget() runs only on the pod that
+        # took the delete, so another pod still holds the deleted credential
+        # and would run the call against the old URL.
+        row = dict(entries_for(owner)).get(server)
+        if row is None:
+            forget(server)
+            raise ValueError("the reviewed remote tool is not currently composed")
         with _lock:
             connection = _connections.get(server)
-        if connection is None:
-            owner = server[len(PERSONAL) + 1 :].rsplit(":", 1)[0]
-            from ..services.mcp_servers import entries_for
-
-            row = dict(entries_for(owner)).get(server)
-            if row is not None and (row.get("auth") != "oauth" or row.get("signed_in")):
-                personal_mcp_tools(owner)
-                raise MCPServerConnecting()
-        pool = list(connection.tools) if connection else []
+        if connection is None or connection.stamp != row["stamp"]:
+            raise _not_ready(owner, server, row)
+        pool = list(connection.tools)
     else:
         pool = mcp_tools()
     for item in pool:
@@ -1012,7 +1042,9 @@ def personal_mcp_tools(person: str, reserved_names: set[str] | None = None) -> l
         for server_id, server in entries:
             if server_id in _connections or server_id in _opening:
                 continue
-            if server.get("auth") == "oauth" and not server.get("signed_in"):
+            if server.get("auth") == "oauth" and (
+                not server.get("signed_in") or server.get("signin_required")
+            ):
                 # nothing to connect with until the person signs in
                 # (agents/mcp_oauth.py start); a connect here would only
                 # meet the authorization demand and refuse it

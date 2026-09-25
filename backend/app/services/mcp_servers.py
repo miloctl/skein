@@ -203,6 +203,7 @@ def _entry(row: dict) -> tuple[str, dict]:
             if row["auth_token_sealed"] is not None
             else "",
             "signed_in": row["oauth_tokens_sealed"] is not None,
+            "signin_required": bool(row["oauth_signin_required"]),
             "oauth_redirect_uri": row["oauth_redirect_uri"],
             "derive": True,
             "tier": SCOPE,
