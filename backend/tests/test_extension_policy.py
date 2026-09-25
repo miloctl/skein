@@ -2718,7 +2718,13 @@ def test_mcp_tools_need_complete_metadata_and_pass_through_policy(
     assert ("atlas_remote completed" in ledger) is (remote_status == "success")
     result = approved["result"]["events"][-1]["tool_result"]
     assert result["status"] == remote_status
-    assert result["content"] == [{"text": "public documentation result"}]
+    # providers drop completionStatus, so a write the model reads as merely
+    # failed invites a retry: the text itself says not to
+    from app.agents.mcp_tools import _UNKNOWN_WRITE
+
+    assert result["content"] == [{"text": "public documentation result"}] + (
+        [] if remote_status == "success" else [{"text": _UNKNOWN_WRITE}]
+    )
     assert result["isError"] is (remote_status == "error")
     assert remote.called is True
 
@@ -2915,6 +2921,60 @@ def test_mcp_tool_result_volume_is_bounded(fresh_db):
     )
     events = _run_governed(governed)
     assert events[-1]["completionStatus"] == "completion_unknown"
+    assert "Do not retry it." in events[-1]["content"][0]["text"]
+
+
+def test_a_cancelled_write_leaves_a_completion_unknown_record(fresh_db):
+    """The stop button cancels the turn's task, and CancelledError passes
+    `except Exception`: a write whose request was already out left no
+    receipt and no ledger row."""
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.agents.mcp_tools import GovernedMCPTool
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+
+    class Hanging(_RemoteTool):
+        async def stream(self, tool_use, invocation_state, **kwargs):
+            started.set()
+            await asyncio.sleep(30)
+            yield {"toolUseId": tool_use["toolUseId"], "status": "success", "content": []}
+
+    started = asyncio.Event()
+    governed = GovernedMCPTool(
+        Hanging(),
+        _mcp_metadata(effect="write", policy_action="atlas.background.write", timeout_seconds=10),
+        "atlas-server",
+    )
+    registry = ExtensionRegistry.build((_module(),))
+    tokens = (
+        set_policy_engine(registry.policy_engine),
+        set_policy_subject(registry.refresh_subject(PolicySubject("requester"))),
+        set_agent_identity("acme.workplace.delivery"),
+    )
+
+    async def run():
+        async def drain():
+            return [
+                event
+                async for event in governed.stream(
+                    {"toolUseId": "mcp-c", "name": "atlas_remote", "input": {}}, {}
+                )
+            ]
+
+        task = asyncio.create_task(drain())
+        await started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    try:
+        asyncio.run(run())
+    finally:
+        reset_agent_identity(tokens[2])
+        reset_policy_subject(tokens[1])
+        reset_policy_engine(tokens[0])
+    assert fresh_db.query_one("SELECT detail FROM activity WHERE action = 'external_tool'") == {
+        "detail": "atlas_remote completion_unknown (cancelled)"
+    }
 
 
 def test_two_consecutive_timeouts_drop_a_hung_mcp_server(fresh_db):

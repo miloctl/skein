@@ -34,6 +34,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
         history = [
           {
             ...proposal,
+            entity: outcome === "failed" ? "extension_mcp_tool" : proposal.entity,
             status: "approved",
             reviewed_by: "mira",
             reviewed_override: 0,
@@ -45,6 +46,13 @@ vi.mock("@/lib/api", async (importOriginal) => {
           execution_status: outcome,
         });
       }
+      if (path === "/api/review/approve-batch")
+        return Promise.resolve({
+          results: [
+            { id: 41, status: "approved", execution_status: "completion_unknown" },
+            { id: 42, status: "approved", execution_status: "failed" },
+          ],
+        });
       return Promise.resolve([]);
     },
   };
@@ -86,7 +94,10 @@ describe("reviewed execution with unknown completion", () => {
     expect(screen.queryByText("run a governed stock tool", { selector: "h2" })).toBeNull();
   });
 
-  it("says a failed remote call changed nothing", async () => {
+  it("says a failed call did not complete, and never that nothing changed", async () => {
+    // the backend records "failed" for extension and remote MCP tool calls
+    // only (services/review.py::_extension_execution_status)
+    pending = [{ ...proposal, entity: "extension_mcp_tool", label: proposal.label }];
     outcome = "failed";
     render(
       <>
@@ -101,14 +112,38 @@ describe("reviewed execution with unknown completion", () => {
     );
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toContain(
-        "Proposal #41 was approved, but the remote call failed. Nothing changed.",
+        "Proposal #41 was approved, but the call did not complete.",
       ),
     );
     await waitFor(() =>
       expect(document.body.textContent).toContain(
-        "The remote call failed. Nothing changed. #41",
+        "The call did not complete. #41",
       ),
     );
     expect(document.body.textContent).not.toContain("✅ #41");
+    expect(document.body.textContent).not.toContain("Nothing changed");
+  });
+
+  it("names every id of a mixed batch", async () => {
+    pending = [
+      proposal,
+      { ...proposal, id: 42, entity: "extension_mcp_tool", summary: "read a page", label: "read a page" },
+    ];
+    render(
+      <>
+        <ReviewPage />
+        <StatusRegion />
+      </>,
+    );
+    fireEvent.click(
+      await screen.findByLabelText("Select #41 run a governed stock tool for batch approval"),
+    );
+    fireEvent.click(screen.getByLabelText("Select #42 read a page for batch approval"));
+    fireEvent.click(screen.getByRole("button", { name: "Approve selected" }));
+    await waitFor(() => {
+      const said = screen.getByRole("alert").textContent ?? "";
+      expect(said).toContain("#41, but remote completion is unknown");
+      expect(said).toContain("#42, but the call did not complete");
+    });
   });
 });

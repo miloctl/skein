@@ -1016,7 +1016,8 @@ def test_a_start_against_a_dead_server_returns_when_the_connect_gives_up(
 
     class Dead(FakeClient):
         def __enter__(self):
-            raise RuntimeError("unreachable")
+            # a refused port, as the transport raises it
+            raise ConnectionRefusedError(111, "Connection refused")
 
     import strands.tools.mcp as strands_mcp
 
@@ -1033,6 +1034,33 @@ def test_a_start_against_a_dead_server_returns_when_the_connect_gives_up(
     assert time.monotonic() - started < 3
     assert (down.value.code, down.value.status_code) == ("MCP_SERVER_UNAVAILABLE", 503)
     assert down.value.retry_after > 0
+
+
+def test_a_start_against_a_server_that_is_not_mcp_names_the_url(fresh_db, sealed, monkeypatch):
+    """A server that answered (a 404 page, anything that is not MCP) is a
+    wrong URL, and a retry fails the same way: 400 about the URL, never a
+    503 that says the server did not answer."""
+    from mcp.shared.exceptions import MCPError
+    from strands.types.exceptions import MCPClientInitializationError
+
+    from app.agents import mcp_oauth
+    from app.services import mcp_servers
+
+    class NotMCP(FakeClient):
+        def __enter__(self):
+            # the chain the real MCPClient raises for an HTTP 404 answer
+            try:
+                raise ExceptionGroup("session", [MCPError(-32600, "Session terminated")])
+            except ExceptionGroup as group:
+                raise MCPClientInitializationError("the client session is not running") from group
+
+    monkeypatch.setattr("strands.tools.mcp.MCPClient", NotMCP)
+    monkeypatch.setattr(mcp_oauth, "_URL_WAIT_SECONDS", 10.0)
+    row = mcp_servers.add("ava", "wiki", "https://wiki.example/mcp", auth="oauth", actor="ava")
+    _, server = mcp_servers.entry_for(row["id"], "ava")
+    server["oauth_redirect_uri"] = "https://skein.example/api/mcp/oauth/callback"
+    with pytest.raises(ValueError, match="uses OAuth"):
+        mcp_oauth.start(row["server_id"], server)
 
 
 def test_a_sign_in_with_no_free_connect_slot_says_busy(fresh_db, sealed, monkeypatch):
