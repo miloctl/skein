@@ -572,10 +572,11 @@ def test_a_sign_in_moves_the_stamp_and_a_refresh_does_not(fresh_db, sealed):
     stamp = db.query_one("SELECT updated_at FROM mcp_servers WHERE id = ?", (row["id"],))
     assert stamp["updated_at"] != old
     # the sign-in's own connection keeps the new stamp, or it is discarded
-    assert connecting["stamp"] == stamp["updated_at"]
+    entry = dict(mcp_servers.entries_for("ava"))[row["server_id"]]
+    assert connecting["stamp"] == entry["stamp"]
 
     mcp_servers.release_oauth(claim)
-    refresh = _SealedStorage(row["id"], row["server_id"], None, {"stamp": stamp["updated_at"]})
+    refresh = _SealedStorage(row["id"], row["server_id"], None, {"stamp": entry["stamp"]})
     asyncio.run(refresh.get_tokens())
     asyncio.run(refresh.set_tokens(OAuthToken(access_token="a2", refresh_token="r1")))
     after = db.query_one("SELECT updated_at FROM mcp_servers WHERE id = ?", (row["id"],))
