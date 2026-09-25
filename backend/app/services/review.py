@@ -945,11 +945,15 @@ def _approve_change_locked(
         # ANY OTHER failure (IntegrityError, lock timeout, stale state)
         # resets the claim — an approved-but-never-applied proposal would
         # vanish from the queue. The reviewer's note survives the reset.
+        busy = isinstance(exc, db.BUSY_ERRORS)
+        # a busy database's text carries Postgres internals (the locked tuple
+        # and relation), which neither the note nor the response may repeat
+        failure = "the database was busy" if busy else str(exc)
         db.execute(
             "UPDATE pending_changes SET status = 'pending', reviewed_by = NULL,"
             " reviewed_at = NULL, reviewed_strong = 0, reviewed_override = 0,"
             " reviewer_qualifications = '{}', review_note = ? WHERE id = ?",
-            (f"apply failed: {exc}" + (f" (reviewer note: {note})" if note else ""), change_id),
+            (f"apply failed: {failure}" + (f" (reviewer note: {note})" if note else ""), change_id),
         )
         if is_extension:
             db.execute(
@@ -959,10 +963,11 @@ def _approve_change_locked(
             )
         from ..agents.mcp_tools import MCPServerNotReady
 
-        # The connection can drop between _revalidate_policy and the call
-        # (another request's forget or deadline strike). That is a 503 with
-        # Retry-After, not a 400 that reads as a bad request.
-        if isinstance(exc, MCPServerNotReady):
+        # A busy database, and a connection that dropped between
+        # _revalidate_policy and the call (another request's forget or
+        # deadline strike), are 503 with Retry-After (main.py), not a 400
+        # that reads as a bad request.
+        if busy or isinstance(exc, MCPServerNotReady):
             return _ApprovalFailure(exc)
         return _ApprovalFailure(
             ValueError(f"could not apply {change['entity']}.{change['action']}: {exc}")
@@ -1354,6 +1359,11 @@ def _reject_change_locked(
     _assert_judgeable(change, viewer)
     if change["status"] != "pending":
         raise ValueError(f"change #{change_id} already {change['status']}")
+    # Its target is gone, so this verdict judges nothing the agent did:
+    # approve_change's target-vanished branch settles the same proposal with
+    # reviewed_strong = 0 for that reason.
+    if _governing_tier(change) == "gone":
+        change["_stale_contract"] = True
     # The same bar as approving one. A rejected demotion is a declined
     # safety brake, and delegation._judged_pairs mutes the pair for 28 days.
     if change["entity"] == "authority":
