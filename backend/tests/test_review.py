@@ -1174,3 +1174,46 @@ def test_an_agent_changes_only_rows_its_requester_can_read(client, fresh_db, mon
     assert db.query_one("SELECT content FROM notes WHERE id = ?", (note["id"],))["content"] == (
         "ZZCREWZZ"
     )
+
+
+def test_a_named_administrator_sees_the_proposals_nobody_can_settle(client, fresh_db, monkeypatch):
+    """Every dead end review had looked the same from outside: a pending
+    proposal nobody could see or settle. The review-stall insight skips rows
+    nobody can read, so it hid exactly these."""
+    from app import config
+    from app.services import review, scope, users
+
+    monkeypatch.setattr(config, "ADMINS", frozenset({"ops"}))
+    for name in ("ava", "bob", "ops"):
+        users.ensure_user(name)
+    users.ensure_user("scribe", kind="agent")
+    stuck = review.propose_change(
+        "note",
+        "create",
+        {"topic": "t", "content": "ZZPRIVATEZZ"},
+        summary="ZZPRIVATEZZ",
+        actor="scribe",
+        requested_by="ava",
+        review_visibility=scope.PRIVATE,
+        review_owner="ava",
+    )
+    review.propose_change("note", "create", {"topic": "t", "content": "c"}, actor="scribe")
+    users.set_active("ava", False)
+
+    listed = client.get("/api/review/stranded", headers=_strong(client, "ops"))
+    assert listed.status_code == 200, listed.text
+    assert [(row["id"], row["reason"]) for row in listed.json()] == [
+        (stuck["id"], "No active person can read it.")
+    ]
+    assert "ZZPRIVATEZZ" not in listed.text
+    assert client.get("/api/review/stranded", headers=_strong(client, "bob")).status_code == 403
+
+    authority = review.propose_change(
+        "authority",
+        "create",
+        {"agent": "scribe", "entity": "note", "level": "notify", "expected_current": "review"},
+        actor="scheduler",
+        origin="agent",
+    )
+    monkeypatch.setattr(config, "ADMINS", frozenset())
+    assert authority["id"] in [row["id"] for row in review.stranded_proposals("api-key")]

@@ -1592,6 +1592,47 @@ def mark_seen(
     return {"seen": n}
 
 
+def stranded_proposals(auth_mode: str = "") -> list[dict]:
+    """Pending proposals that no active person can settle: a check for the
+    dead end every earlier fix in this module closed one case of.
+
+    Reports only. It decides readability with the rule _assert_judgeable
+    applies, for every active person as a strong viewer, so it cannot drift
+    from the verdict endpoints. It cannot see IdP groups, which exist only
+    in a sign-in, so it never reports a proposal as stranded for its
+    approver groups alone. The result carries no summary or payload: a
+    private proposal's words stay with its owner."""
+    from ..routes.deps import administrator_possible
+    from .users import is_agent, list_users
+
+    viewers = [scope.Viewer(u["name"], True) for u in list_users() if not is_agent(u["name"])]
+    no_admin = not administrator_possible(auth_mode or config.AUTH_MODE)
+    stranded = []
+    for change in db.query(
+        "SELECT * FROM pending_changes WHERE status = 'pending' ORDER BY id LIMIT 1000"
+    ):
+        reason = ""
+        if change["entity"] == "authority" and no_admin:
+            reason = "No administrator can exist in this auth mode, and only one can judge it."
+        else:
+            tier = _governing_tier(change)
+            if isinstance(tier, tuple) and not any(
+                scope.can_read(tier[0], tier[1], viewer, tier[2]) for viewer in viewers
+            ):
+                reason = "No active person can read it."
+        if reason:
+            stranded.append(
+                {
+                    "id": change["id"],
+                    "entity": change["entity"],
+                    "action": change["action"],
+                    "created_at": change["created_at"],
+                    "reason": reason,
+                }
+            )
+    return stranded
+
+
 def review_stats(viewer: scope.Viewer = scope.NOBODY, *, admin: bool = False) -> dict:
     """The review inbox as a flywheel: every verdict is a labeled example.
     These stats show which proposal types earn trust and which waste reviewer

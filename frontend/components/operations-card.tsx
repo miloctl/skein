@@ -99,9 +99,37 @@ function isHealth(value: unknown): value is Health {
  *  A failed latest attempt appears before its job becomes stale. Full ledger
  *  verification stays in Insights because its cost grows with every row.
  */
+type Stranded = { id: number; entity: string; action: string; reason: string };
+
+function isStranded(value: unknown): value is Stranded[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (row) =>
+        row &&
+        typeof row === "object" &&
+        typeof row.id === "number" &&
+        typeof row.entity === "string" &&
+        typeof row.action === "string" &&
+        typeof row.reason === "string",
+    )
+  );
+}
+
 export function OperationsCard({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
   const [h, setH] = useState<Health | null>(null);
   const [error, setError] = useState("");
+  const [stranded, setStranded] = useState<Stranded[]>([]);
+
+  useEffect(() => {
+    // A named administrator only (routes/api.py get_review_stranded): for
+    // everyone else the request fails, and this card shows nothing for it.
+    api<unknown>("/api/review/stranded")
+      .then((body) => {
+        if (isStranded(body)) setStranded(body);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     // the shape is tested, not assumed: an older backend behind a newer
@@ -143,6 +171,7 @@ export function OperationsCard({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
   const chainMarkFault = h ? h.activity_chain.marks_ok !== true : false;
   const allClear =
     h &&
+    stranded.length === 0 &&
     faults.length === 0 &&
     staleJobs.length === 0 &&
     failedJobs.length === 0 &&
@@ -172,6 +201,22 @@ export function OperationsCard({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
                 <li key={f}>{f}</li>
               ))}
             </ul>
+          ) : null}
+          {stranded.length > 0 ? (
+            <div className="mb-3 text-sm text-danger">
+              <p>
+                {stranded.length === 1
+                  ? "No one can approve or reject this pending proposal:"
+                  : `No one can approve or reject these ${stranded.length} pending proposals:`}
+              </p>
+              <ul className="mt-1 space-y-1">
+                {stranded.map((row) => (
+                  <li key={row.id}>
+                    #{row.id} {row.entity}.{row.action}: {row.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
           ) : null}
           {chainMarkFault ? (
             <p className="mb-3 text-sm text-danger">
