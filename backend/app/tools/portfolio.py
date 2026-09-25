@@ -8,7 +8,13 @@ from strands import tool
 
 from .. import db
 from ..agents import receipts
-from ..agents.identity import agent_identity, requester_identity, requester_viewer
+from ..agents.identity import (
+    agent_identity,
+    requester_identity,
+    requester_viewer,
+    strong_requester,
+    workspace_only_tools,
+)
 from ..extensions.policy import (
     PolicyEffect,
     PolicyInput,
@@ -502,7 +508,9 @@ def add_absence(
     # strong identity: a weak viewer reads no private row, and a private
     # window about somebody else is refused at apply
     # (scope.assert_readable_by), where the proposal would wait forever.
-    strong = getattr(requester_viewer(), "name", "")
+    # A shared chat writes workspace rows only (tools/_gate.py refuses the
+    # rest), so its strong member files a window the team sees.
+    strong = "" if workspace_only_tools() else strong_requester()
     own = bool(strong) and users.fold(person) == users.fold(strong)
     team_sees = team_sees or ("nothing" if own else "details")
     if team_sees != "details" and not own:

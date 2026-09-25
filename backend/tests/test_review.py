@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from conftest import _delegated_task, _strong
+from conftest import _delegated_task, _strong, _turn
 
 from app import db
 
@@ -859,12 +859,33 @@ def test_separated_duties_refuse_the_person_the_proposal_came_from(fresh_db, mon
     assert review.approve_change(proposal["id"], actor="hana")["status"] == "approved"
 
 
+def test_requester_strength_is_the_credentials_not_the_viewers(fresh_db):
+    """The gate guessed strength from the read Viewer, which a shared chat
+    sets to scope.NOBODY for a strong member and a resumed tool leaves unset."""
+    from app.agents import identity
+    from app.services import scope
+
+    with _turn("ava", shared_chat=True):
+        assert identity.strong_requester() == "ava"
+    with _turn("ava", strong=False):
+        viewer = identity.set_requester_viewer(scope.Viewer("ava", True))
+        try:
+            assert identity.strong_requester() == ""
+        finally:
+            identity.reset_requester_viewer(viewer)
+    # a name with no subject: nothing proved it
+    requester = identity.set_requester_identity("ava")
+    try:
+        assert identity.strong_requester() == ""
+    finally:
+        identity.reset_requester_identity(requester)
+
+
 def test_separated_duties_send_a_shared_chat_proposal_to_the_team(fresh_db, monkeypatch):
     """A shared-chat proposal was private to its requester whatever the
     setting, and separation refuses that requester, so nobody could approve
     it. The requester_judges rule decides the audience here too."""
     from app import config
-    from app.agents import identity
     from app.extensions.core import core_module
     from app.extensions.registry import ExtensionRegistry
     from app.services import review, scope, users
@@ -874,20 +895,10 @@ def test_separated_duties_send_a_shared_chat_proposal_to_the_team(fresh_db, monk
     monkeypatch.setattr(config, "REVIEW_SEPARATION", True)
     users.ensure_user("mira")
     users.ensure_user("bob")
-    # the context shared_chat_agents.py sets for a member's turn
-    tokens = (
-        identity.set_requester_identity("mira"),
-        identity.set_requester_viewer(scope.NOBODY),
-        identity.set_workspace_only_tools(True),
-    )
-    try:
+    with _turn("mira", shared_chat=True):
         filed = json.loads(
             gated_write("task", "create", {"title": "from the group"}, lambda: {"id": 0})
         )
-    finally:
-        identity.set_workspace_only_tools(False)
-        identity.reset_requester_viewer(tokens[1])
-        identity.reset_requester_identity(tokens[0])
     approved = review.approve_change(
         filed["id"],
         actor="bob",
@@ -1000,10 +1011,9 @@ def test_an_agents_proposal_is_the_requesters_to_judge_first(client, fresh_db, m
     """A proposal from a person's chat went to the team queue: every teammate
     read its payload, the words of that chat, and got a notice quoting it."""
     from app import config
-    from app.agents import identity
     from app.extensions import PolicyDecision, PolicyEffect
     from app.extensions.policy import PolicyEngine, reset_policy_engine, set_policy_engine
-    from app.services import scope, users
+    from app.services import users
     from app.tools._gate import gated_write
 
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
@@ -1011,14 +1021,9 @@ def test_an_agents_proposal_is_the_requesters_to_judge_first(client, fresh_db, m
         users.ensure_user(name)
 
     def filed(text, *, strong=True):
-        requester = identity.set_requester_identity("ava")
-        viewer = identity.set_requester_viewer(scope.Viewer("ava", strong))
-        try:
+        with _turn("ava", strong=strong):
             payload = {"question": text, "asked_by": "ava"}
             out = gated_write("question", "create", payload, lambda: {"id": 0})
-        finally:
-            identity.reset_requester_viewer(viewer)
-            identity.reset_requester_identity(requester)
         return fresh_db.query_one(
             "SELECT id, review_visibility, review_owner FROM pending_changes WHERE id = ?",
             (json.loads(out)["id"],),

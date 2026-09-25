@@ -3,7 +3,7 @@ purpose (services/sharing.py). Never narrower."""
 
 import json
 
-from conftest import _strong
+from conftest import _strong, _turn
 
 from app import config
 from app.agents import identity
@@ -56,20 +56,13 @@ def test_an_agents_standup_starts_private_and_forks_no_unreadable_blocker(fresh_
     try:
         # no requester (an unattended run): nobody asked for "only me"
         unattended = json.loads(post_standup(author="ava", today="ZZ0ZZ"))
-        tokens = (
-            identity.set_requester_identity("ava"),
-            identity.set_requester_viewer(scope.Viewer("ava", True)),
-        )
-        try:
+        with _turn("ava"):
             private = json.loads(post_standup(author="ava", today="ZZ1ZZ", blockers="vendor"))
             shared = json.loads(
                 post_standup(author="ava", today="ZZ2ZZ", blockers="vendor", share_with_team=True)
             )
             # a standup about somebody else never goes to them unasked
             other = json.loads(post_standup(author="bob", today="ZZ3ZZ"))
-        finally:
-            identity.reset_requester_viewer(tokens[1])
-            identity.reset_requester_identity(tokens[0])
     finally:
         identity.reset_agent_identity(token)
     tiers = {

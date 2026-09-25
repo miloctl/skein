@@ -43,6 +43,25 @@ def reset_requester_identity(token: Token) -> None:
     _current_requester.reset(token)
 
 
+def strong_requester() -> str:
+    """The requester's name when a key or a validated sign-in proved it, else "".
+
+    Read from the turn's policy subject, which every door builds from the
+    credential it checked (routes/chat.py and mcp_server.py via
+    extensions/fastapi.py::subject_for, shared_chat_agents.py from the saved
+    member). Never infer it from the requester Viewer below: that is a READ
+    scope, and a shared chat reads as scope.NOBODY for a strong member while
+    a resumed core tool sets no Viewer at all.
+    """
+    from ..extensions.policy import current_policy_subject
+
+    subject = current_policy_subject()
+    requester = requester_identity()
+    if not requester or subject.kind != "human" or not subject.strong:
+        return ""
+    return requester if subject.name == requester else ""
+
+
 # The requesting human's Viewer, for the turn. Set beside the name above and
 # read by the tool surface.
 #

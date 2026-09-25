@@ -214,10 +214,9 @@ def test_time_away_reaches_the_team_as_far_as_its_person_chose(client, fresh_db,
     and staffing what-ifs although nobody chose to share them."""
     from datetime import timedelta
 
-    from conftest import _strong
+    from conftest import _strong, _turn
 
     from app import config, db
-    from app.agents import identity
     from app.services import absences, intake, portfolio, users, weekly, work
     from app.tools.portfolio import add_absence as absence_tool
 
@@ -279,15 +278,8 @@ def test_time_away_reaches_the_team_as_far_as_its_person_chose(client, fresh_db,
 
     # the agent tool files the requester's own window at the narrowest tier
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
-    tokens = (
-        identity.set_requester_identity("bob"),
-        identity.set_requester_viewer(_viewer("bob")),
-    )
-    try:
+    with _turn("bob"):
         filed = json.loads(absence_tool(person="bob", **window, kind="focus"))
-    finally:
-        identity.reset_requester_viewer(tokens[1])
-        identity.reset_requester_identity(tokens[0])
     approved = client.post(f"/api/review/{filed['id']}/approve", json={}, headers=headers["bob"])
     assert approved.status_code == 200
     row = fresh_db.query_one("SELECT visibility, dates_shared FROM absences WHERE kind = 'focus'")
@@ -298,10 +290,9 @@ def test_an_agents_only_me_window_is_its_persons_to_judge(client, fresh_db, monk
     """Under separated duties, approver groups or a weak requester, an "only
     me" window went to the team review: nobody could approve it, and every
     teammate's notice quoted its kind and dates."""
-    from conftest import _strong
+    from conftest import _strong, _turn
 
     from app import config
-    from app.agents import identity
     from app.extensions import PolicyDecision, PolicyEffect
     from app.extensions.policy import PolicyEngine, reset_policy_engine, set_policy_engine
     from app.services import review, users
@@ -314,15 +305,8 @@ def test_an_agents_only_me_window_is_its_persons_to_judge(client, fresh_db, monk
     window = {"starts_on": "2026-10-05", "ends_on": "2026-10-09"}
 
     def filed(person, strong=True, **args):
-        tokens = (
-            identity.set_requester_identity("ava"),
-            identity.set_requester_viewer(_viewer("ava") if strong else _weak()),
-        )
-        try:
+        with _turn("ava", strong=strong):
             return json.loads(absence_tool(person=person, kind="focus", **window, **args))
-        finally:
-            identity.reset_requester_viewer(tokens[1])
-            identity.reset_requester_identity(tokens[0])
 
     engine = set_policy_engine(
         PolicyEngine(
@@ -387,9 +371,3 @@ def test_an_agents_only_me_window_is_its_persons_to_judge(client, fresh_db, monk
         fresh_db.query_one("SELECT visibility FROM absences WHERE kind = 'pto'")["visibility"]
         == "workspace"
     )
-
-
-def _weak():
-    from app.services import scope
-
-    return scope.Viewer("ava", False)

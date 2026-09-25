@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import _strong
+from conftest import _strong, _turn
 
 
 def _approve_latest(client):
@@ -118,11 +118,10 @@ def test_targeted_forget_approval_uses_requester_and_preserves_agent_provenance(
     m = memory.remember("ZZREMOVEDBODYZZ", topic="ZZREMOVEDTOPICZZ", user="ava", actor="ava")
     before = fresh_db.query_one("SELECT MAX(id) AS id FROM activity")["id"]
     agent_token = identity.set_agent_identity("scribe")
-    requester_token = identity.set_requester_identity("ava")
     try:
-        proposal = json.loads(forget_memory(memory_id=m["id"]))
+        with _turn("ava"):
+            proposal = json.loads(forget_memory(memory_id=m["id"]))
     finally:
-        identity.reset_requester_identity(requester_token)
         identity.reset_agent_identity(agent_token)
     assert proposal["status"] == "pending"
     # only the addressee reads or judges a proposal about her memory
@@ -372,11 +371,10 @@ def test_an_agent_memory_from_a_turn_stays_with_the_person_who_drove_it(
     for name in ("alice", "bob"):
         users.ensure_user(name)
     agent = identity.set_agent_identity("scribe")
-    requester = identity.set_requester_identity("alice")
     try:
-        proposal = json.loads(remember(content="ZZHEALTHZZ note", about_user="bob"))
+        with _turn("alice"):
+            proposal = json.loads(remember(content="ZZHEALTHZZ note", about_user="bob"))
     finally:
-        identity.reset_requester_identity(requester)
         identity.reset_agent_identity(agent)
     assert proposal["note"] == "queued for human review"
     bob = _strong(client, "bob")
@@ -434,11 +432,10 @@ def test_the_addressee_approves_her_own_memory_under_separated_review(
     users.ensure_user("scribe", kind="agent")
     users.ensure_user("ava")
     agent = identity.set_agent_identity("scribe")
-    requester = identity.set_requester_identity("ava")
     try:
-        proposal = json.loads(remember(content="ZZSEPARATEDZZ"))
+        with _turn("ava"):
+            proposal = json.loads(remember(content="ZZSEPARATEDZZ"))
     finally:
-        identity.reset_requester_identity(requester)
         identity.reset_agent_identity(agent)
     approved = client.post(
         f"/api/review/{proposal['id']}/approve", json={}, headers=_strong(client, "ava")
@@ -505,39 +502,22 @@ def test_a_weak_requesters_personal_review_is_refused_not_stranded(fresh_db, mon
     about a person is theirs alone (review._addressed). Filed, the review was
     listed to nobody while the agent said "queued for human review"."""
     from app import config
-    from app.agents import identity
-    from app.services import memory, scope, users
+    from app.services import memory, users
     from app.tools.memory import forget_memory, remember
 
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
     users.ensure_user("mira")
     kept = memory.remember("ZZKEPTZZ", user="mira", actor="mira")
-    tokens = (
-        identity.set_requester_identity("mira"),
-        identity.set_requester_viewer(scope.Viewer("mira", False)),
-    )
-    try:
+    with _turn("mira", strong=False):
         filed = json.loads(remember("ZZWEAKZZ standing context"))
         forgot = json.loads(forget_memory(int(kept["id"])))
-    finally:
-        identity.reset_requester_viewer(tokens[1])
-        identity.reset_requester_identity(tokens[0])
     assert "strong identity" in filed["error"]
     assert "strong identity" in forgot["error"]
     assert fresh_db.query("SELECT id FROM pending_changes") == []
 
     # a shared chat runs its strong requester under scope.NOBODY
-    tokens = (
-        identity.set_requester_identity("mira"),
-        identity.set_requester_viewer(scope.NOBODY),
-        identity.set_workspace_only_tools(True),
-    )
-    try:
+    with _turn("mira", shared_chat=True):
         shared = json.loads(remember("ZZSHAREDZZ standing context"))
-    finally:
-        identity.set_workspace_only_tools(False)
-        identity.reset_requester_viewer(tokens[1])
-        identity.reset_requester_identity(tokens[0])
     assert shared["status"] == "pending"
 
 
