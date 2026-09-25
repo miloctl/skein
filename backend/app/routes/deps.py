@@ -373,11 +373,18 @@ def administrator_possible(auth_mode: str) -> bool:
     oidc mode, and a configured group closes the trusted-header fallback.
     delegation.review_authority files nothing when this is False: an
     authority change only an administrator can approve would wait forever."""
-    if config.ADMINS:
+    from ..services.users import is_active
+
+    # a deactivated name is refused at every door, so a list of them names
+    # nobody; is_active is True for a name with no roster row yet, who can
+    # still sign in
+    if any(is_active(name) for name in config.ADMINS):
         return True
     if config.OIDC_ADMIN_GROUP:
         return auth_mode == "oidc"
-    return auth_mode == "trusted-header"
+    # any SKEIN_ADMINS value, even one naming only deactivated people,
+    # closes the trusted-header fallback in _is_admin
+    return auth_mode == "trusted-header" and not config.ADMINS
 
 
 def is_administrator(user: str, request: Request) -> bool:

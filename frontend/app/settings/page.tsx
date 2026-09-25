@@ -1527,7 +1527,7 @@ export default function SettingsPage() {
                                 r.already_pending
                                   ? "Already asked. The request is still waiting for whoever runs the server."
                                   : r.to_team
-                                    ? "Asked. No administrator is named, so every teammate now has the request and the exact command."
+                                    ? "Asked. No active administrator is named, so every teammate now has the request and the exact command."
                                     : "Asked. Whoever runs the server now has the request and the exact command.",
                               );
                             } catch (e) {

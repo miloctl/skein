@@ -83,8 +83,13 @@ def request_key(user: str, *, strong: bool = False) -> dict:
     # reaches nobody
     from .users import fold, list_users
 
+    # active roster rows only (list_users): a notice to a deactivated or
+    # unknown administrator reaches nobody while the requester reads that
+    # whoever runs the server has it
     roster = {fold(u["name"]): u["name"] for u in list_users()}
-    recipients = sorted({roster.get(fold(name), name) for name in config.ADMINS}) or ["team"]
+    recipients = sorted({roster[fold(name)] for name in config.ADMINS if fold(name) in roster}) or [
+        "team"
+    ]
     marks = ", ".join("?" for _ in recipients)
     with db.transaction():
         db.name_lock(db.LOCK_KEY_REQUEST, user)
