@@ -873,7 +873,11 @@ def test_oidc_sign_in_cannot_claim_an_agent_identity(client, monkeypatch, fresh_
 def test_admin_surfaces_stay_open_to_key_holders_by_default(client):
     # trusted-header + empty SKEIN_ADMINS = the historical scarcity model,
     # where holding a hand-minted key IS the admin bar
-    assert client.get("/api/admin/keys", headers=_key()).status_code == 200
+    key = _key()
+    assert client.get("/api/settings/tuning", headers=key).status_code == 200
+    # ...for settings, not for reading other people's data: every person's
+    # keys take an administrator named in SKEIN_ADMINS
+    assert client.get("/api/admin/keys", headers=key).status_code == 403
 
 
 def test_admins_list_closes_admin_surfaces_to_other_key_holders(client, monkeypatch):

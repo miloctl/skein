@@ -1202,9 +1202,8 @@ def test_a_named_administrator_sees_the_proposals_nobody_can_settle(client, fres
 
     listed = client.get("/api/review/stranded", headers=_strong(client, "ops"))
     assert listed.status_code == 200, listed.text
-    assert [(row["id"], row["reason"]) for row in listed.json()] == [
-        (stuck["id"], "No active person can read it.")
-    ]
+    assert [row["id"] for row in listed.json()] == [stuck["id"]]
+    assert listed.json()[0]["reason"].startswith("No active person can read it.")
     assert "ZZPRIVATEZZ" not in listed.text
     assert client.get("/api/review/stranded", headers=_strong(client, "bob")).status_code == 403
 
@@ -1217,3 +1216,27 @@ def test_a_named_administrator_sees_the_proposals_nobody_can_settle(client, fres
     )
     monkeypatch.setattr(config, "ADMINS", frozenset())
     assert authority["id"] in [row["id"] for row in review.stranded_proposals("api-key")]
+
+
+def test_the_stranded_check_reads_past_its_first_page(fresh_db, monkeypatch):
+    """It read the oldest 1,000 pending rows only, so a stranded proposal
+    behind them never appeared."""
+    from app.services import review, scope, users
+
+    monkeypatch.setattr(review, "_STRANDED_PAGE", 2)
+    users.ensure_user("ava")
+    users.ensure_user("scribe", kind="agent")
+    stuck = [
+        review.propose_change(
+            "note",
+            "create",
+            {"topic": "t", "content": "c"},
+            actor="scribe",
+            requested_by="ava",
+            review_visibility=scope.PRIVATE,
+            review_owner="ava",
+        )["id"]
+        for _ in range(3)
+    ]
+    users.set_active("ava", False)
+    assert [row["id"] for row in review.stranded_proposals()] == stuck

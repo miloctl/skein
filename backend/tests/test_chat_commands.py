@@ -384,3 +384,19 @@ def test_a_failing_command_never_shows_the_raw_server_error(client, monkeypatch)
     out = _read_chat(client, "/help")
     assert '"type": "error"' in out
     assert "10.0.0.5" not in out and "skein" not in out.split('"error"', 1)[1]
+
+
+def test_a_linked_team_memory_refusal_names_a_route_that_works(client):
+    """In a linked chat, the refusal said to "remember the fact for the team",
+    and /remember team: there files for the engagement again."""
+    from conftest import _strong
+
+    from app.services import engagements, scope
+
+    eid = engagements.create_engagement("Solo", actor="tester", visibility=scope.PRIVATE)["id"]
+    _read_chat(client, "hello")
+    client.patch("/api/chats/t", json={"engagement_id": eid})
+    body = {"thread_id": "t", "message": "/remember team: the vendor is late"}
+    with client.stream("POST", "/api/chat", json=body, headers=_strong(client)) as resp:
+        out = resp.read().decode()
+    assert "send /remember without team:" in out

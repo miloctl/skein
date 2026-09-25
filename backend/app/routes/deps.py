@@ -350,10 +350,11 @@ def verify_forge_signature(body: bytes, signature: str) -> None:
 def _is_admin(user: str, groups: list[str], request: Request | None = None) -> bool:
     """SKEIN_ADMINS names administrators; in oidc mode an IdP group
     (SKEIN_OIDC_ADMIN_GROUP) grants it too. With NEITHER configured,
-    trusted-header mode lets every key holder administer — the historical
-    scarcity model, right where the operator mints each key by hand. api-key
-    and oidc modes hand out credentials freely, so there the fallback stays
-    closed until SKEIN_ADMINS is set.
+    trusted-header mode lets every key holder administer: there a key is the
+    only strong identity, and a person holds one only because the operator
+    minted it. In api-key and oidc modes every person signs in or holds a
+    key, so the same fallback would make everyone an administrator, and it
+    stays closed until SKEIN_ADMINS is set.
 
     Names match case-insensitively, the way resolve_teammate matches the
     roster: SKEIN_ADMINS=Casey must not lock out the roster's `casey`. Group

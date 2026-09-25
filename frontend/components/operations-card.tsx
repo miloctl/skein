@@ -94,11 +94,6 @@ function isHealth(value: unknown): value is Health {
   );
 }
 
-/** The authenticated health report for scheduled work and stored marks.
- *
- *  A failed latest attempt appears before its job becomes stale. Full ledger
- *  verification stays in Insights because its cost grows with every row.
- */
 type Stranded = { id: number; entity: string; action: string; reason: string };
 
 function isStranded(value: unknown): value is Stranded[] {
@@ -116,6 +111,12 @@ function isStranded(value: unknown): value is Stranded[] {
   );
 }
 
+/** The authenticated health report for scheduled work and stored marks,
+ *  and for a named administrator the proposals nobody can settle.
+ *
+ *  A failed latest attempt appears before its job becomes stale. Full ledger
+ *  verification stays in Insights because its cost grows with every row.
+ */
 export function OperationsCard({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
   const [h, setH] = useState<Health | null>(null);
   const [error, setError] = useState("");
@@ -181,8 +182,26 @@ export function OperationsCard({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
     <Section title="Operations (team)" headingLevel={headingLevel}>
       <p className="mb-3 text-sm text-ink-3">
         Scheduler status and stored faults from the authenticated health report.
-        Full activity-chain verification appears in Insights.
+        Full activity-chain verification appears in Insights. A named
+        administrator also sees the pending proposals that nobody can approve
+        or reject.
       </p>
+      {stranded.length > 0 ? (
+        <div className="mb-3 text-sm text-danger">
+          <p>
+            {stranded.length === 1
+              ? "No one can approve or reject this pending proposal:"
+              : `No one can approve or reject these ${stranded.length} pending proposals:`}
+          </p>
+          <ul className="mt-1 space-y-1">
+            {stranded.map((row) => (
+              <li key={row.id}>
+                #{row.id} {row.entity}.{row.action}: {row.reason}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {error ? (
         <p className="text-sm text-danger">{error}</p>
       ) : h === null ? (
@@ -201,22 +220,6 @@ export function OperationsCard({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
                 <li key={f}>{f}</li>
               ))}
             </ul>
-          ) : null}
-          {stranded.length > 0 ? (
-            <div className="mb-3 text-sm text-danger">
-              <p>
-                {stranded.length === 1
-                  ? "No one can approve or reject this pending proposal:"
-                  : `No one can approve or reject these ${stranded.length} pending proposals:`}
-              </p>
-              <ul className="mt-1 space-y-1">
-                {stranded.map((row) => (
-                  <li key={row.id}>
-                    #{row.id} {row.entity}.{row.action}: {row.reason}
-                  </li>
-                ))}
-              </ul>
-            </div>
           ) : null}
           {chainMarkFault ? (
             <p className="mb-3 text-sm text-danger">

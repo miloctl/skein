@@ -583,8 +583,9 @@ def _owns_private(change: dict, actor: str) -> bool:
 
 
 def _withdraws(change: dict, actor: str, strong: bool) -> bool:
-    """Whether a strong actor is withdrawing their own request, which a
-    rejection can always do: it runs nothing and judges nobody else's work.
+    """Whether a strong actor is withdrawing their own request. A rejection
+    can do that whenever they can still read the proposal (_assert_judgeable
+    runs first): it runs nothing and judges nobody else's work.
     Without it, a requirement added after filing (a relink, a policy change)
     strands a private review that its approvers cannot read, and the owner
     of a personal MCP call cannot drop their own call."""
@@ -1625,44 +1626,57 @@ def mark_seen(
     return {"seen": n}
 
 
-def stranded_proposals(auth_mode: str = "") -> list[dict]:
-    """Pending proposals that no active person can settle: a check for the
-    dead end every earlier fix in this module closed one case of.
+# rows per query: the check pages through every pending row, and one
+# unbounded read would hold the whole queue in memory
+_STRANDED_PAGE = 500
 
-    Reports only. It decides readability with the rule _assert_judgeable
-    applies, for every active person as a strong viewer, so it cannot drift
-    from the verdict endpoints. It cannot see IdP groups, which exist only
-    in a sign-in, so it never reports a proposal as stranded for its
-    approver groups alone. The result carries no summary or payload: a
-    private proposal's words stay with its owner."""
+
+def stranded_proposals(auth_mode: str = "") -> list[dict]:
+    """Every pending proposal that no active person can settle.
+
+    Reports only. Readability uses the rule _assert_judgeable applies, for
+    every active person as a strong viewer. It cannot see IdP groups, which
+    exist only in a sign-in, so approver groups alone never make a proposal
+    stranded here. The result carries no summary or payload: a private
+    proposal's words stay with its owner."""
     from ..routes.deps import administrator_possible
     from .users import is_agent, list_users
 
     viewers = [scope.Viewer(u["name"], True) for u in list_users() if not is_agent(u["name"])]
     no_admin = not administrator_possible(auth_mode or config.AUTH_MODE)
     stranded = []
-    for change in db.query(
-        "SELECT * FROM pending_changes WHERE status = 'pending' ORDER BY id LIMIT 1000"
+    last = 0
+    while batch := db.query(
+        "SELECT * FROM pending_changes WHERE status = 'pending' AND id > ? ORDER BY id LIMIT ?",
+        (last, _STRANDED_PAGE),
     ):
-        reason = ""
-        if change["entity"] == "authority" and no_admin:
-            reason = "No administrator can exist in this auth mode, and only one can judge it."
-        else:
-            tier = _governing_tier(change)
-            if isinstance(tier, tuple) and not any(
-                scope.can_read(tier[0], tier[1], viewer, tier[2]) for viewer in viewers
-            ):
-                reason = "No active person can read it."
-        if reason:
-            stranded.append(
-                {
-                    "id": change["id"],
-                    "entity": change["entity"],
-                    "action": change["action"],
-                    "created_at": change["created_at"],
-                    "reason": reason,
-                }
-            )
+        last = batch[-1]["id"]
+        for change in batch:
+            reason = ""
+            if change["entity"] == "authority" and no_admin:
+                reason = (
+                    "Only an administrator can judge it, and none can exist in this"
+                    " auth mode. Name an active person in SKEIN_ADMINS."
+                )
+            else:
+                tier = _governing_tier(change)
+                if isinstance(tier, tuple) and not any(
+                    scope.can_read(tier[0], tier[1], viewer, tier[2]) for viewer in viewers
+                ):
+                    reason = (
+                        "No active person can read it. Reactivate the person it belongs"
+                        " to, or add a member to its crew."
+                    )
+            if reason:
+                stranded.append(
+                    {
+                        "id": change["id"],
+                        "entity": change["entity"],
+                        "action": change["action"],
+                        "created_at": change["created_at"],
+                        "reason": reason,
+                    }
+                )
     return stranded
 
 

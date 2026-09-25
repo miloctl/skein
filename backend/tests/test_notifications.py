@@ -95,7 +95,8 @@ def test_unsupported_notification_source_is_unclassified(fresh_db):
     row = notifications.notify(
         "mira",
         "A legacy source changed.",
-        source_entity="standup",
+        # a kind a retired release wrote, which policy_context no longer knows
+        source_entity="retired_kind",
         source_id=123,
     )
     stored = fresh_db.query_one("SELECT * FROM notifications WHERE id = ?", (row["id"],))

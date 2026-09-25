@@ -69,6 +69,15 @@ describe("OperationsCard", () => {
     expect(screen.queryByText(/The loom hums/)).toBeNull();
   });
 
+  it("lists the stranded proposals even when the health report fails", async () => {
+    stranded = [
+      { id: 7, entity: "memory", action: "create", reason: "No active person can read it." },
+    ];
+    response = { broken: true } as unknown as typeof response;
+    render(<OperationsCard />);
+    expect(await screen.findByText(/#7 memory\.create/)).toBeTruthy();
+  });
+
   it("stays all clear when the stranded list is not the reader's to see", async () => {
     render(<OperationsCard />);
     expect(await screen.findByText(/The loom hums/)).toBeTruthy();

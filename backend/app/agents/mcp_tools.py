@@ -1169,6 +1169,45 @@ def open_personal(server_id: str, server: dict, *, background: bool = False) -> 
     return True
 
 
+# How often _sweep_personal rechecks every cached personal connection.
+_SWEEP_SECONDS = 60.0
+_last_sweep = 0.0
+
+
+def _sweep_personal() -> None:
+    """Close cached personal connections whose row is gone or changed, for
+    every owner, at most once per _SWEEP_SECONDS. personal_mcp_tools
+    rechecks only the owner whose turn runs, and forget_owner runs only on
+    the pod that took a rename or deactivation (which delete or move the
+    rows), so without this another pod keeps that owner's authenticated
+    session open until it restarts."""
+    global _last_sweep
+    from ..services.mcp_servers import entries_for
+
+    now = time.monotonic()
+    with _lock:
+        if now - _last_sweep < _SWEEP_SECONDS:
+            return
+        _last_sweep = now
+        owners = {
+            server_id[len(PERSONAL) + 1 :].rsplit(":", 1)[0]
+            for server_id in _connections
+            if _is_personal(server_id)
+        }
+    current: dict[str, dict] = {}
+    for owner in owners:
+        current.update(entries_for(owner))
+    close_after = []
+    with _lock:
+        for server_id in [s for s in _connections if _is_personal(s)]:
+            row = current.get(server_id)
+            if row is None or row["stamp"] != _connections[server_id].stamp:
+                close_after.append(_connections.pop(server_id).client)
+                _retry_state.pop(server_id, None)
+                _timeout_strikes.pop(server_id, None)
+    _close_in_thread(close_after)
+
+
 def personal_mcp_tools(person: str, reserved_names: set[str] | None = None) -> list:
     """Tools from the servers `person` registered (services/mcp_servers.py).
     Only the turn that person drives receives them: build_agent attaches
@@ -1179,6 +1218,7 @@ def personal_mcp_tools(person: str, reserved_names: set[str] | None = None) -> l
         return []
     from ..services.mcp_servers import entries_for
 
+    _sweep_personal()
     entries = entries_for(person)
     wanted = dict(entries)
     mine = PERSONAL + ":" + person + ":"

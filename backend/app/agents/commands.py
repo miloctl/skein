@@ -520,15 +520,25 @@ async def _remember(
                 return
             # Always a proposal (services/memory.py::propose_engagement_memory
             # says why), never the direct write below.
-            p = await run_in_threadpool(
-                lambda: memory.propose_engagement_memory(
-                    engagement_id,
-                    args[5:],
-                    thread_id=access.thread_id if access else "",
-                    actor=user,
-                    viewer=viewer,
-                ),
-            )
+            try:
+                p = await run_in_threadpool(
+                    lambda: memory.propose_engagement_memory(
+                        engagement_id,
+                        args[5:],
+                        thread_id=access.thread_id if access else "",
+                        actor=user,
+                        viewer=viewer,
+                    ),
+                )
+            except ValueError as exc:
+                # its advice to "remember the fact for the team" means
+                # /remember team:, which here files for this engagement again
+                yield {
+                    "data": f"{exc} In this chat, /remember team: files for this engagement."
+                    " To share the fact with the whole team, send /remember without team:,"
+                    " then choose Share with the team on it in Agents → Memory."
+                }
+                return
             yield {
                 "data": f"Filed as proposal #{p['id']} for this thread's engagement."
                 " A teammate other than you approves it in Inbox → Approvals"

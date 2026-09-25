@@ -412,13 +412,20 @@ identity is weak (a weak viewer reads no private row), when
 `SKEIN_REVIEW_SEPARATION=1` is on, or when policy names approvers. A
 proposal from a shared chat follows the same rule for the member who sent
 the message. A requester with a key or a sign-in can always withdraw (reject)
-their own request, whatever its tier. If a relink or a policy change later
+their own request, whatever its tier, while they can still read the record it
+changes. If a relink or a policy change later
 names approvers for a private proposal, its owner is told to withdraw it and
 ask again, because approvers cannot read a private proposal. A call to a personal
 MCP server is judged by its owner or by a reviewer the policy names, never by
 any other teammate, because it runs on the owner's credential and returns
 their data. The proposal record stays private after the verdict. The row it made has its
 own tier.
+
+A named administrator can list every pending proposal that no active person
+can read (`GET /api/review/stranded`, shown in Settings → Operations). The
+list gives each proposal's id, kind, age and a reason, never its summary or
+payload, so a private proposal's words stay with its owner. The fallback
+administrator of trusted-header mode cannot open it.
 
 The agent changes only rows its requester can read: the gate refuses a
 write to a row a strong requester cannot open, because the apply runs as
