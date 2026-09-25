@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
+from strands.types.exceptions import MCPClientInitializationError
 from strands.types.tools import AgentTool
 
 from .. import config
@@ -84,6 +85,12 @@ _opening: dict[str, dict] = {}
 # Hold a slot until the worker exits, even after forget/shutdown invalidates
 # its publication. Otherwise repeated add/delete calls bypass the process cap.
 _personal_slots = threading.BoundedSemaphore(_PERSONAL_CONNECT_LIMIT)
+# How many of those slots one owner's connects may hold at once. An OAuth
+# sign-in holds its slot while it waits up to mcp_oauth.FLOW_SECONDS for the
+# person, so without this one person's abandoned sign-ins took every slot
+# and every other person's server waited behind them.
+_PER_OWNER_CONNECTS = 2
+_owner_connects: dict[str, int] = {}
 # The SDK's list_tools_sync waits on a future with no deadline, and a server
 # that answers initialize then streams keepalives never resolves it. Every
 # connect runs bounded so a hostile or broken server cannot pin the thread
@@ -105,28 +112,31 @@ def _deadline_strike(server_id: str) -> None:
     so every later call pays the full timeout again. The second consecutive
     hit drops the connection; the retry path in mcp_tools() then owns
     recovery with its existing backoff."""
-    global _tools
-    close_client = None
     with _lock:
         strikes = _timeout_strikes.get(server_id, 0) + 1
         _timeout_strikes[server_id] = strikes
         if strikes < _TIMEOUT_TRIP:
             return
         _timeout_strikes.pop(server_id, None)
+    _drop_connection(server_id, "consecutive timeouts")
+
+
+def _drop_connection(server_id: str, reason: str) -> None:
+    global _tools
+    with _lock:
         connection = _connections.pop(server_id, None)
         if connection is None:
             return
-        close_client = connection.client
         if connection.tier == "system":
             _tools = None
         # Seed the backoff HERE: without a retry_at in the future, the next
         # mcp_tools() call treats this server as ready and reconnects in the
         # FOREGROUND — inside an agent build, on a chat turn, against the
-        # server just proven hung (the exact hold the background-retry
+        # server just proven broken (the exact hold the background-retry
         # comment in mcp_tools() forbids).
         _retry_state[server_id] = (1, time.monotonic() + _RETRY_BASE_SECONDS)
-    log.warning("MCP server '%s' dropped after consecutive timeouts", server_id)
-    _close_in_thread([close_client])
+    log.warning("MCP server '%s' dropped after %s", server_id, reason)
+    _close_in_thread([connection.client])
 
 
 def _close_quietly(client) -> None:
@@ -212,6 +222,17 @@ class GovernedMCPTool(AgentTool):
             if self.metadata.effect == "write":
                 _audit_mcp(actor, self.tool_name, "refused", "agent_not_allowed")
             yield _refusal(tool_use, "This agent is not allowed to use the remote tool.")
+            return
+        if self.tier == PERSONAL and not await asyncio.to_thread(
+            _personal_row_is_current, self.server_id
+        ):
+            record("refused", self.tool_name, "server changed", actor=actor)
+            yield _refusal(
+                tool_use,
+                "The MCP server for this tool changed or was deleted, so the call did"
+                " not run. Ask again.",
+                completion_status="failed",
+            )
             return
         missing = set(self.metadata.required_capabilities) - set(subject.capabilities)
         if missing:
@@ -385,6 +406,22 @@ class GovernedMCPTool(AgentTool):
                 completion_status=completion_status,
             )
             return
+        except MCPClientInitializationError:
+            # MCPClient.call_tool_async checks its session before it sends,
+            # so the call never ran: failed, never completion unknown. The
+            # session does not come back, so the connection is dropped and
+            # rebuilt with the retry backoff. Kept, every later call on this
+            # process failed the same way while Settings showed "connected".
+            record("failed", self.tool_name, "failed", actor=actor)
+            _audit_mcp(actor, self.tool_name, "failed", "session_closed")
+            _drop_connection(self.server_id, "a closed session")
+            yield _refusal(
+                tool_use,
+                "The connection to the remote tool's server closed, so the call did not"
+                " run. Skein reconnects it. Try again in 30 seconds.",
+                completion_status="failed",
+            )
+            return
         except Exception as exc:
             declared = str(getattr(exc, "code", ""))
             code = declared if declared in self.metadata.error_codes else "remote_error"
@@ -433,6 +470,23 @@ class GovernedMCPTool(AgentTool):
             _audit_mcp(actor, self.tool_name, "completed")
         for event in events:
             yield event
+
+
+def _personal_row_is_current(server_id: str) -> bool:
+    """Whether the row this process connected with still exists unchanged.
+    forget() runs only on the pod that took a delete or an edit, so a turn on
+    another pod that already holds the tool otherwise kept calling the old
+    URL with the deleted credential until the turn ended."""
+    from ..services.mcp_servers import entries_for
+
+    owner = server_id[len(PERSONAL) + 1 :].rsplit(":", 1)[0]
+    row = dict(entries_for(owner)).get(server_id)
+    if row is None:
+        forget(server_id)
+        return False
+    with _lock:
+        connection = _connections.get(server_id)
+    return connection is not None and connection.stamp == row["stamp"]
 
 
 def _first_use_approved(server: str, tool: str, version: str) -> bool:
@@ -489,9 +543,10 @@ def reviewed_policy_contract(
 
 
 class MCPServerNotReady(PublicError):
-    """A registered personal server that this process cannot use yet: not
-    connected here (after a restart, or on a replica that never served its
-    owner's turn), backing off after a failed connect, or signed out.
+    """A personal server that this process cannot use: not connected here
+    (after a restart, or on a replica that never served its owner's turn),
+    backing off after a failed connect, waiting for a connect slot, signed
+    out, or deleted.
     review._revalidate_policy and the apply step pass it through, so the
     reviewer reads what to do instead of "Request a new review"."""
 
@@ -515,6 +570,14 @@ def _not_ready(owner: str, server: str, row: dict, *, warm: bool) -> MCPServerNo
     with _lock:
         opening = server in _opening
         retry = _retry_state.get(server)
+    if not opening and retry is not None and retry[0] == 0:
+        # open_personal found no free connect slot (the only (0, 0.0) entry)
+        return MCPServerNotReady(
+            "MCP_CONNECT_BUSY",
+            "Skein is connecting other MCP servers right now, so this one waits its"
+            " turn. Wait 10 seconds, then approve again.",
+            retry_after=10,
+        )
     wait = 0 if opening or retry is None else int(retry[1] - time.monotonic())
     if wait > 0:
         return MCPServerNotReady(
@@ -552,7 +615,13 @@ def _governed(name: str, server: str, *, warm: bool = True) -> GovernedMCPTool:
         row = dict(entries_for(owner)).get(server)
         if row is None:
             forget(server)
-            raise ValueError("the reviewed remote tool is not currently composed")
+            # "Request a new review" cannot help: a new review needs the
+            # server too. Rejecting is the one way this proposal leaves.
+            raise MCPServerNotReady(
+                "MCP_SERVER_DELETED",
+                "The MCP server for this tool was deleted, so the call cannot run."
+                " Reject the proposal.",
+            )
         with _lock:
             connection = _connections.get(server)
         if connection is None or connection.stamp != row["stamp"]:
@@ -936,7 +1005,17 @@ def forget_owner(person: str, *, exact: bool = False) -> None:
     _close_in_thread(doomed)
 
 
-def _publish_personal(entries: list[tuple[str, dict]], generation: int) -> None:
+def _release_slot(owner: str) -> None:
+    with _lock:
+        held = _owner_connects.get(owner, 0) - 1
+        if held > 0:
+            _owner_connects[owner] = held
+        else:
+            _owner_connects.pop(owner, None)
+    _personal_slots.release()
+
+
+def _publish_personal(entries: list[tuple[str, dict]], generation: int, owner: str) -> None:
     from ..services.mcp_servers import entries_for
 
     try:
@@ -981,27 +1060,33 @@ def _publish_personal(entries: list[tuple[str, dict]], generation: int) -> None:
                 _schedule_retry(server_id)
         _close_in_thread(close_after)
     finally:
-        _personal_slots.release()
+        _release_slot(owner)
 
 
-def open_personal(server_id: str, server: dict, *, background: bool = False) -> None:
+def open_personal(server_id: str, server: dict, *, background: bool = False) -> bool:
     """The OAuth sign-in thread waits for its grant. Discovery never holds a
-    REST worker or an agent build, including the first connection attempt."""
+    REST worker or an agent build, including the first connection attempt.
+    False when no connect slot is free: the server keeps a (0, 0.0) retry
+    entry, which _not_ready and mcp_oauth.start report as busy."""
+    owner = str(server.get("owner") or "")
     with _lock:
         if server_id in _opening or server_id in _connections:
-            return
-        if not _personal_slots.acquire(blocking=False):
+            return True
+        if _owner_connects.get(owner, 0) >= _PER_OWNER_CONNECTS or not _personal_slots.acquire(
+            blocking=False
+        ):
             _retry_state.setdefault(server_id, (0, 0.0))
-            return
+            return False
+        _owner_connects[owner] = _owner_connects.get(owner, 0) + 1
         _opening[server_id] = server
         generation = _generation
     if not background:
-        _publish_personal([(server_id, server)], generation)
-        return
+        _publish_personal([(server_id, server)], generation, owner)
+        return True
     try:
         threading.Thread(
             target=_publish_personal,
-            args=([(server_id, server)], generation),
+            args=([(server_id, server)], generation, owner),
             daemon=True,
             name="skein-mcp-retry",
         ).start()
@@ -1010,8 +1095,9 @@ def open_personal(server_id: str, server: dict, *, background: bool = False) -> 
             if _opening.get(server_id) is server:
                 del _opening[server_id]
                 _schedule_retry(server_id)
-        _personal_slots.release()
+        _release_slot(owner)
         log.warning("MCP retry thread failed to start — MCP will retry (%s)", type(exc).__name__)
+    return True
 
 
 def personal_mcp_tools(person: str, reserved_names: set[str] | None = None) -> list:

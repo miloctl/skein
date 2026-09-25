@@ -2805,6 +2805,34 @@ def test_two_consecutive_timeouts_drop_a_hung_mcp_server(fresh_db):
         mcp_module._tools = None
 
 
+def test_a_closed_mcp_session_is_dropped_and_reported_as_not_run(fresh_db, monkeypatch):
+    """A session that ended stayed cached: every later call failed as
+    "completion unknown" although the SDK refuses before it sends, and
+    Settings kept showing the server as connected."""
+    from strands.types.exceptions import MCPClientInitializationError
+
+    from app.agents import mcp_tools as mcp_module
+    from app.agents.mcp_tools import GovernedMCPTool, _MCPConnection
+
+    class Closed(_RemoteTool):
+        async def stream(self, tool_use, invocation_state, **kwargs):
+            raise MCPClientInitializationError("the client session is not running")
+            yield {}
+
+    class FakeClient:
+        def __exit__(self, *args):
+            return None
+
+    monkeypatch.setattr(mcp_module, "_connections", {})
+    monkeypatch.setattr(mcp_module, "_retry_state", {})
+    mcp_module._connections["atlas-server"] = _MCPConnection("atlas-server", FakeClient(), ())
+    governed = GovernedMCPTool(Closed(), _mcp_metadata(effect="write", risk="high"), "atlas-server")
+    assert _run_governed(governed)[-1]["completionStatus"] == "failed"
+    assert "atlas-server" not in mcp_module._connections
+    failures, retry_at = mcp_module._retry_state["atlas-server"]
+    assert failures == 1 and retry_at > time.monotonic()
+
+
 def test_review_verdict_supplies_the_current_grant_to_mcp_tool(fresh_db, monkeypatch):
     from app.agents import mcp_tools as mcp_module
     from app.agents.identity import reset_agent_identity, set_agent_identity
@@ -6773,13 +6801,44 @@ def _personal_row(monkeypatch, owner: str = "requester", name: str = "atlas") ->
     return str(row["updated_at"])
 
 
+def _live_personal(monkeypatch, tool) -> str:
+    """A personal server as a turn sees it: its row, and this process's
+    connection with the row's stamp (mcp_tools._personal_row_is_current
+    refuses a call without both). Returns the stamp."""
+    from app.agents import mcp_tools as mcp_module
+
+    _, owner, name = tool.server_id.split(":")
+    stamp = _personal_row(monkeypatch, owner=owner, name=name)
+    monkeypatch.setitem(
+        mcp_module._connections,
+        tool.server_id,
+        mcp_module._MCPConnection(tool.server_id, object(), (tool,), 1, "personal", stamp),
+    )
+    return stamp
+
+
+def test_a_personal_call_stops_once_another_pod_deleted_the_server(fresh_db, monkeypatch):
+    """forget() runs only on the pod that took the delete, so a turn on
+    another pod kept calling the deleted server with its old credential."""
+    from app.agents import mcp_tools as mcp_module
+    from app.agents.mcp_tools import GovernedMCPTool
+
+    remote = _RemoteTool()
+    tool = GovernedMCPTool(remote, _mcp_metadata(), "personal:requester:atlas", "personal")
+    _live_personal(monkeypatch, tool)
+    fresh_db.execute("DELETE FROM mcp_servers")
+    events = _run_governed(tool)
+    assert events[-1]["completionStatus"] == "failed"
+    assert remote.called is False
+    assert tool.server_id not in mcp_module._connections
+
+
 def test_a_personal_remote_write_needs_a_human_even_under_permit(fresh_db, monkeypatch):
     """The owner of a personal server classified nothing, so a PERMIT from the
     engine (here: the authority default with SKEIN_AGENT_REVIEW off) still
     opens a proposal — and the approval replays against the engine's own
     decision, so it is not stale."""
     from app import config
-    from app.agents import mcp_tools as mcp_module
     from app.agents.identity import reset_agent_identity, set_agent_identity
     from app.agents.mcp_tools import GovernedMCPTool, execute_reviewed_mcp
     from app.extensions.policy import reset_policy_subject, set_policy_subject
@@ -6793,6 +6852,7 @@ def test_a_personal_remote_write_needs_a_human_even_under_permit(fresh_db, monke
     personal_tool = GovernedMCPTool(
         personal_remote, metadata, "personal:requester:atlas", "personal"
     )
+    _live_personal(monkeypatch, personal_tool)
     policy_token = set_policy_engine(registry.policy_engine)
     subject_token = set_policy_subject(registry.refresh_subject(PolicySubject("requester")))
     agent_token = set_agent_identity("agent")
@@ -6823,15 +6883,6 @@ def test_a_personal_remote_write_needs_a_human_even_under_permit(fresh_db, monke
     assert pending is not None
     users.ensure_user("manager")
     users.ensure_user("requester")
-    # the approval path reads the connection cache and never connects
-    mcp_module._connections["personal:requester:atlas"] = mcp_module._MCPConnection(
-        "personal:requester:atlas",
-        object(),
-        (personal_tool,),
-        1,
-        "personal",
-        _personal_row(monkeypatch),
-    )
 
     def resume(invocation, _change_id):
         return asyncio.run(execute_reviewed_mcp(invocation, registry))
@@ -6892,6 +6943,7 @@ def test_a_personal_remote_call_never_falls_open_to_any_teammate(fresh_db, monke
     monkeypatch.setattr(mcp_module, "_connections", {})
     for name in ("requester", "manager", "lead"):
         users.ensure_user(name)
+    stamp = _live_personal(monkeypatch, tool)
     policy_token = set_policy_engine(registry.policy_engine)
     subject_token = set_policy_subject(registry.refresh_subject(PolicySubject("requester")))
     agent_token = set_agent_identity("agent")
@@ -6915,7 +6967,7 @@ def test_a_personal_remote_call_never_falls_open_to_any_teammate(fresh_db, monke
     )
     warmed: list[str] = []
     monkeypatch.setattr(mcp_module, "personal_mcp_tools", lambda owner, *_a: warmed.append(owner))
-    stamp = _personal_row(monkeypatch)  # registered, but not connected in this process
+    mcp_module._connections.pop(sid)  # registered, but not connected in this process
 
     def verdict(verb, change_id, actor, groups=()):
         call = review.approve_change if verb == "approve" else review.reject_change
@@ -7063,6 +7115,7 @@ def test_a_personal_call_that_policy_sends_to_approvers_stays_readable_to_them(
     )
     metadata = _mcp_metadata(effect="write", risk="high", policy_action="mcp:write")
     tool = GovernedMCPTool(_RemoteTool(), metadata, "personal:requester:atlas", "personal")
+    _live_personal(monkeypatch, tool)
     policy_token = set_policy_engine(engine)
     subject_token = set_policy_subject(PolicySubject("requester"))
     agent_token = set_agent_identity("agent")
