@@ -367,6 +367,19 @@ def _is_admin(user: str, groups: list[str], request: Request | None = None) -> b
     )
 
 
+def administrator_possible(auth_mode: str) -> bool:
+    """Whether any caller can pass _is_admin in this mode. Keys and key-backed
+    browser sessions carry no IdP groups, so the admin group grants only in
+    oidc mode, and a configured group closes the trusted-header fallback.
+    delegation.review_authority files nothing when this is False: an
+    authority change only an administrator can approve would wait forever."""
+    if config.ADMINS:
+        return True
+    if config.OIDC_ADMIN_GROUP:
+        return auth_mode == "oidc"
+    return auth_mode == "trusted-header"
+
+
 def is_administrator(user: str, request: Request) -> bool:
     """Whether this resolved request passed the AdminUser identity rules."""
     return bool(getattr(request.state, "strong_auth", False)) and _is_admin(

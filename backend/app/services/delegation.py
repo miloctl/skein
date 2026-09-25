@@ -874,11 +874,14 @@ def review_authority(*, actor: str = "scheduler") -> dict:
     streak; demotions to review fire on a strong-verdict rejection streak.
     The system only proposes — a human approves, and agents can never
     approve anything, so there is no self-promotion path."""
-    # Approving one takes an administrator (review.approve_change). With no
-    # SKEIN_ADMINS and no admin group, only trusted-header has any
-    # (routes/deps.py::_is_admin), so elsewhere a filed proposal could only
-    # be rejected, under a notice that says to approve it.
-    if not (config.ADMINS or config.OIDC_ADMIN_GROUP or config.AUTH_MODE == "trusted-header"):
+    # Approving one takes an administrator (review.approve_change), and a
+    # filed proposal nobody can approve waits under a notice that says to
+    # approve it. config.AUTH_MODE, not the app setting routes/deps.py reads:
+    # the job context carries no settings, so a create_app(settings) that
+    # overrides auth_mode is not seen here.
+    from ..routes.deps import administrator_possible
+
+    if not administrator_possible(config.AUTH_MODE):
         return {"filed": 0, "proposals": []}
     filed = []
     # don't refile what's pending, and don't nag weekly about what a human

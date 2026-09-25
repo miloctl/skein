@@ -35,6 +35,24 @@ def test_authority_review_files_promotion_and_applies(client, fresh_db, monkeypa
     assert ledger["actor"] == "tester"
 
 
+@pytest.mark.parametrize("mode", ["trusted-header", "api-key", "oidc"])
+@pytest.mark.parametrize("admins", [frozenset(), frozenset({"ops"})])
+@pytest.mark.parametrize("group", ["", "skein-admins"])
+def test_administrator_possible_matches_the_admin_rule(monkeypatch, mode, admins, group):
+    """review_authority keys on this predicate. It said yes for an admin
+    group outside oidc, where keys carry no groups and nobody is an admin."""
+    from app import config
+    from app.routes.deps import _is_admin, administrator_possible
+
+    monkeypatch.setattr(config, "AUTH_MODE", mode)
+    monkeypatch.setattr(config, "ADMINS", admins)
+    monkeypatch.setattr(config, "OIDC_ADMIN_GROUP", group)
+    # every caller shape: a named admin, a group member (groups exist only
+    # on an oidc sign-in), and any other key holder
+    callers = [("ops", []), ("ava", [group] if group and mode == "oidc" else [])]
+    assert administrator_possible(mode) == any(_is_admin(u, g) for u, g in callers)
+
+
 def test_authority_review_files_nothing_that_no_administrator_can_approve(
     client, fresh_db, monkeypatch
 ):
