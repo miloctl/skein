@@ -188,6 +188,10 @@ def delete_for(person: str, *, actor: str = "system") -> int:
     return len(rows)
 
 
+def _stamp(row_id: int, updated_at: str) -> str:
+    return f"{row_id}:{updated_at}"
+
+
 def _entry(row: dict) -> tuple[str, dict]:
     sid = server_id(row["owner"], row["name"])
     return (
@@ -207,7 +211,11 @@ def _entry(row: dict) -> tuple[str, dict]:
             "oauth_redirect_uri": row["oauth_redirect_uri"],
             "derive": True,
             "tier": SCOPE,
-            "stamp": row["updated_at"],
+            # the row id as well as updated_at, which has one-second
+            # resolution: a delete and re-add of one name within a second
+            # keeps the time, and every stamp check in agents/mcp_tools.py
+            # would keep the deleted server's connection and credential
+            "stamp": _stamp(row["id"], row["updated_at"]),
         },
     )
 
@@ -426,4 +434,4 @@ def store_oauth(
                 "UPDATE mcp_servers SET oauth_client_sealed = ? WHERE id = ?",
                 (credentials.seal(client), sid),
             )
-        return stamp
+        return _stamp(sid, stamp) if stamp else ""

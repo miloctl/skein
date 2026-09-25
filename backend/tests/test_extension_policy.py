@@ -6794,11 +6794,8 @@ def _personal_row(monkeypatch, owner: str = "requester", name: str = "atlas") ->
 
     monkeypatch.setattr(socket, "getaddrinfo", resolve)
     users.ensure_user(owner)
-    mcp_servers.add(owner, name, f"https://{name}.example/mcp", actor=owner)
-    row = db.query_one(
-        "SELECT updated_at FROM mcp_servers WHERE owner = ? AND name = ?", (owner, name)
-    )
-    return str(row["updated_at"])
+    row = mcp_servers.add(owner, name, f"https://{name}.example/mcp", actor=owner)
+    return str(dict(mcp_servers.entries_for(owner))[row["server_id"]]["stamp"])
 
 
 def _live_personal(monkeypatch, tool) -> str:
@@ -6831,6 +6828,25 @@ def test_a_personal_call_stops_once_another_pod_deleted_the_server(fresh_db, mon
     assert events[-1]["completionStatus"] == "failed"
     assert remote.called is False
     assert tool.server_id not in mcp_module._connections
+
+
+def test_a_server_deleted_and_added_again_in_one_second_is_a_new_server(fresh_db, monkeypatch):
+    """updated_at has one-second resolution, so a delete and re-add of one
+    name within a second kept the stamp, and a pod that missed the delete
+    kept the old connection and its credential."""
+    from app.agents.mcp_tools import GovernedMCPTool
+    from app.services import mcp_servers
+
+    remote = _RemoteTool()
+    tool = GovernedMCPTool(remote, _mcp_metadata(), "personal:requester:atlas", "personal")
+    _live_personal(monkeypatch, tool)
+    old = fresh_db.query_one("SELECT updated_at FROM mcp_servers")["updated_at"]
+    fresh_db.execute("DELETE FROM mcp_servers")  # on another pod: no forget() here
+    mcp_servers.add("requester", "atlas", "https://atlas.example/mcp", actor="requester")
+    fresh_db.execute("UPDATE mcp_servers SET updated_at = ?", (old,))
+    events = _run_governed(tool)
+    assert events[-1]["completionStatus"] == "failed"
+    assert remote.called is False
 
 
 def test_a_personal_remote_write_needs_a_human_even_under_permit(fresh_db, monkeypatch):
