@@ -63,6 +63,17 @@ def not_administrator(user: str, action: str = "") -> str:
     )
 
 
+def not_named_administrator(user: str, action: str) -> str:
+    """The refusal for a read of other people's data by an administrator who
+    is one only by the trusted-header fallback (routes/deps.py::_is_admin):
+    not_administrator would contradict whoami, which says they are one."""
+    return (
+        f"'{user}' is not named in SKEIN_ADMINS and cannot {action}. Only a named"
+        " administrator can read other people's data. Ask whoever runs the server"
+        " to add the name to SKEIN_ADMINS."
+    )
+
+
 def quoted(text: str, width: int = 0) -> str:
     """User text on its way into a generated sentence, wrapped in the quoted frame.
 

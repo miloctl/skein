@@ -135,6 +135,15 @@ describe("BackupCard", () => {
     expect(screen.queryByText(/Database backup complete locally/)).toBeNull();
   });
 
+  it("offers the export download to a named administrator only", () => {
+    // the export carries other people's crew work, and the server refuses it
+    // to an administrator by the trusted-header fallback alone
+    render(<BackupCard canAdminister={true} accessMessage="" />);
+    expect(screen.getByRole("button", { name: "Back up now" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Download export" })).toBeNull();
+    expect(screen.getByText(/named in SKEIN_ADMINS can download the export/)).toBeTruthy();
+  });
+
   it("downloads the authenticated response body without JSON reserialization", async () => {
     const clicked: string[] = [];
     const realCreate = document.createElement.bind(document);
@@ -158,7 +167,7 @@ describe("BackupCard", () => {
       }),
     );
 
-    render(<BackupCard canAdminister={true} accessMessage="" />);
+    render(<BackupCard canAdminister={true} namedAdmin={true} accessMessage="" />);
     fireEvent.click(screen.getByRole("button", { name: "Download export" }));
     await screen.findByText(/Export saved as skein-export-/);
 
@@ -196,7 +205,7 @@ describe("BackupCard", () => {
       ),
     );
 
-    render(<BackupCard canAdminister={true} accessMessage="" />);
+    render(<BackupCard canAdminister={true} namedAdmin={true} accessMessage="" />);
     fireEvent.click(screen.getByRole("button", { name: "Download export" }));
     expect(
       await screen.findByText("The export failed. Check the server log."),

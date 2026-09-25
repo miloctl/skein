@@ -28,10 +28,15 @@ type BackupResult = {
  *  distinct from database recovery and from the artifact volume. */
 export function BackupCard({
   canAdminister,
+  namedAdmin = false,
   accessMessage,
   headingLevel = 2,
 }: {
   canAdminister: boolean;
+  // named in SKEIN_ADMINS or the admin group (whoami `admin`): the export
+  // carries other people's crew rows, so GET /api/admin/export/download
+  // refuses an administrator by the trusted-header fallback alone
+  namedAdmin?: boolean;
   accessMessage: string;
   headingLevel?: 2 | 3;
 }) {
@@ -120,14 +125,21 @@ export function BackupCard({
           >
             {busy === "backup" ? "Backing up…" : "Back up now"}
           </button>
-          <button
-            type="button"
-            onClick={downloadExport}
-            disabled={!!busy}
-            className="rounded border border-edge px-3 py-1.5 text-sm hover:bg-raised disabled:opacity-50"
-          >
-            {busy === "export" ? "Exporting…" : "Download export"}
-          </button>
+          {namedAdmin ? (
+            <button
+              type="button"
+              onClick={downloadExport}
+              disabled={!!busy}
+              className="rounded border border-edge px-3 py-1.5 text-sm hover:bg-raised disabled:opacity-50"
+            >
+              {busy === "export" ? "Exporting…" : "Download export"}
+            </button>
+          ) : (
+            <span className="text-sm text-ink-3">
+              Only an administrator named in SKEIN_ADMINS can download the
+              export, because it contains other people&apos;s crew work.
+            </span>
+          )}
         </div>
       ) : (
         <p role="status" className="text-sm text-ink-3">
