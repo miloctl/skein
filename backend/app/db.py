@@ -50,8 +50,11 @@ UniqueViolation = psycopg.errors.UniqueViolation
 # not retry", the opposite of the truth.
 #
 # The TYPE carries the classification, so nothing here parses a message.
-# TransactionRollback is the 40xxx family (serialization failure, deadlock
-# detected); PoolTimeout is the same condition seen from the pool — every
+# TransactionRollback is the 40xxx family, but psycopg 3.3 raises its two
+# common members, SerializationFailure (40001) and DeadlockDetected (40P01),
+# as OperationalError subclasses, not TransactionRollback ones: with the
+# family alone listed, a deadlock answers 500, or 400 inside an approval
+# with the Postgres text. PoolTimeout is the same condition seen from the pool, every
 # connection in use. Ordinary faults (bad SQL, a missing column) are
 # ProgrammingError and stay 500s.
 class ResourceBusy(RuntimeError):
@@ -61,6 +64,8 @@ class ResourceBusy(RuntimeError):
 BUSY_ERRORS: tuple[type[Exception], ...] = (
     ResourceBusy,
     psycopg.errors.TransactionRollback,
+    psycopg.errors.SerializationFailure,
+    psycopg.errors.DeadlockDetected,
     psycopg.errors.LockNotAvailable,
     PoolTimeout,
 )
