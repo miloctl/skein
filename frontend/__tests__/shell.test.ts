@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { shellQuote } from "@/lib/shell";
+import { commandName } from "@/lib/shell";
 
-describe("shellQuote", () => {
-  it("keeps a plain or email-shaped name bare, as shlex.quote does", () => {
-    expect(shellQuote("ava.lee+ops@example.com")).toBe("ava.lee+ops@example.com");
+describe("commandName", () => {
+  it("prints a name the backend accepts the way shlex.quote does", () => {
+    expect(commandName("ava.lee+ops@example.com")).toBe("ava.lee+ops@example.com");
+    expect(commandName("ava lee")).toBe("'ava lee'");
+    expect(commandName("ava", "-mcp")).toBe("ava-mcp");
   });
 
-  it("quotes a name the shell would split or expand", () => {
-    expect(shellQuote("ava lee")).toBe("'ava lee'");
-    expect(shellQuote("@true")).toBe("'@true'");
-    expect(shellQuote("o'brien")).toBe(`'o'"'"'brien'`);
+  it("refuses a name no quoting keeps safe in PowerShell", () => {
+    // a quote inside the name split it in PowerShell and ran what followed
+    for (const name of ["o'brien", "x’;echo INJECTED;’", 'a"b', "@true", "-h"]) {
+      expect(commandName(name)).toBeNull();
+    }
   });
 });

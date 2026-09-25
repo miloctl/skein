@@ -528,6 +528,19 @@ describe("Settings identity states", () => {
     }
   });
 
+  it("shows no mint command for a name a shell can change", async () => {
+    // PowerShell read the quote in "o'brien" as the end of the string
+    const saved = state.identity;
+    state.identity = { ...saved, user: "o'brien", strong: true, keys_minted: 0 };
+    try {
+      render(<SettingsPage />);
+      expect(await screen.findByText(/shows no command for it/)).toBeTruthy();
+      expect(screen.queryByText(/app\.bootstrap_key .*brien/)).toBeNull();
+    } finally {
+      state.identity = saved;
+    }
+  });
+
   it("keeps growth interests to you until you share them", async () => {
     state.interests = { interests: "RAG evaluation", shared: false };
     try {

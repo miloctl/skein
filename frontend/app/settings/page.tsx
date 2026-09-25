@@ -22,7 +22,7 @@ import {
 import { authConfig, sessionEnd, sessionSnapshot, signInWithKey, signOut, subscribeSession, trustedHeaderIdentity } from "@/lib/auth";
 import { startFirstWatch } from "@/lib/first-watch";
 import { subscribeIdentity } from "@/lib/shared-chats";
-import { shellQuote } from "@/lib/shell";
+import { commandName } from "@/lib/shell";
 import { reportStatus } from "@/lib/status";
 import { timeAgo } from "@/lib/time";
 import { copyText } from "@/lib/clipboard";
@@ -409,6 +409,29 @@ function ModelSummaryBlock({ summary }: { summary: ModelSummary }) {
         ))}
       </dl>
     </div>
+  );
+}
+
+function MintCommand({ name }: { name: string }) {
+  const word = commandName(name);
+  if (!word) {
+    return (
+      <p className="text-xs text-ink-3">
+        Your name has characters that a shell can change, so this page shows
+        no command for it. Whoever runs the server must type the name into{" "}
+        <code>python -m app.bootstrap_key</code>.
+      </p>
+    );
+  }
+  return (
+    <>
+      <CopyLine text={`python -m app.bootstrap_key ${word}`} label="server key command" />
+      <p className="mt-2 text-xs text-ink-3">
+        Docker:{" "}
+        <code>docker compose exec backend python -m app.bootstrap_key {word}</code>{" "}
+        — the key prints once.
+      </p>
+    </>
   );
 }
 
@@ -1518,18 +1541,7 @@ export default function SettingsPage() {
                             I run the server — show me the command
                           </summary>
                           <div className="mt-2">
-                            <CopyLine
-                              text={`python -m app.bootstrap_key ${shellQuote(currentUser)}`}
-                              label="server key command"
-                            />
-                            <p className="mt-2 text-xs text-ink-3">
-                              Docker:{" "}
-                              <code>
-                                docker compose exec backend python -m
-                                app.bootstrap_key {shellQuote(currentUser)}
-                              </code>{" "}
-                              — the key prints once.
-                            </p>
+                            <MintCommand name={currentUser} />
                           </div>
                         </details>
                       </>
@@ -2127,7 +2139,7 @@ export default function SettingsPage() {
                   Inside the cluster, over stdio:
                 </p>
                 <CopyLine
-                  text={`claude mcp add skein -- env SKEIN_MCP_USER=${shellQuote(`${currentUser === "anonymous" ? "you" : currentUser}-mcp`)} <path-to-backend>/.venv/bin/python -m app.mcp_server`}
+                  text={`claude mcp add skein -- env SKEIN_MCP_USER=${commandName(currentUser === "anonymous" ? "you" : currentUser, "-mcp") ?? "<your-name>-mcp"} <path-to-backend>/.venv/bin/python -m app.mcp_server`}
                   label="Claude Code registration over stdio"
                 />
                 <p className="mb-1 mt-3 text-xs font-medium text-ink-3">
