@@ -744,6 +744,26 @@ def approve_change(
     return result
 
 
+def _settle_vanished(change: dict, actor: str, missing: str) -> _ApprovalFailure:
+    """Reject a proposal whose target row is deleted. reviewed_strong is
+    cleared for the same reason as the terminal branch in
+    _approve_change_locked: nobody judged this work, so it must not reach
+    the streak."""
+    db.execute(
+        "UPDATE pending_changes SET status = 'rejected', reviewed_by = ?, reviewed_at = ?,"
+        " reviewed_strong = 0, review_note = ? WHERE id = ?",
+        (actor, db.now(), f"auto-rejected — target vanished: {missing}", change["id"]),
+    )
+    db.log_activity(actor, "reject_change", f"#{change['id']} (target vanished)")
+    _clear_review_ping(change["id"])
+    return _ApprovalFailure(
+        ValueError(
+            f"could not apply {change['entity']}.{change['action']}: {missing}"
+            " — proposal auto-rejected (its target no longer exists)"
+        )
+    )
+
+
 def _approve_change_locked(
     change_id: int,
     note: str = "",
@@ -792,6 +812,11 @@ def _approve_change_locked(
     # isn't told to fetch a note for a verdict that already happened
     if change["status"] != "pending":
         raise ValueError(f"change #{change_id} already {change['status']}")
+    # Before the policy refresh: it reads the deleted row
+    # (policy_context.for_change) and raises NotFound, so the proposal stayed
+    # pending, and _readable lists a deleted target to nobody.
+    if _target_tier(change) == "gone":
+        return _settle_vanished(change, actor, "the record was deleted")
     _check_personal_mcp_judge(change, actor, reviewer_groups, reviewer_capabilities, strong)
     approval_grant = _revalidate_policy(
         change,
@@ -924,21 +949,7 @@ def _approve_change_locked(
         # the proposal's own target vanished (event cancelled via REST, row
         # hard-deleted): re-approving can never succeed, so a pending reset
         # would boomerang forever — settle it as rejected, on the record
-        # reviewed_strong cleared for the same reason as the terminal branch
-        # below: nobody judged this work, so it must not reach the streak.
-        db.execute(
-            "UPDATE pending_changes SET status = 'rejected', reviewed_strong = 0,"
-            " review_note = ? WHERE id = ?",
-            (f"auto-rejected — target vanished: {exc}", change_id),
-        )
-        db.log_activity(actor, "reject_change", f"#{change_id} (target vanished)")
-        _clear_review_ping(change_id)
-        return _ApprovalFailure(
-            ValueError(
-                f"could not apply {change['entity']}.{change['action']}: {exc}"
-                " — proposal auto-rejected (its target no longer exists)"
-            )
-        )
+        return _settle_vanished(change, actor, str(exc))
     except db.TerminalReject as exc:
         # a permanent policy block (an agent's own delegated-done proposal):
         # re-approving can never succeed, so settle it rejected like a vanished
@@ -1091,8 +1102,8 @@ def _revalidate_policy(
                 "The reviewed extension contract cannot be refreshed. Request a new review."
             ) from exc
         decision = state.decision or registry.policy_engine.decide(state.request)
-        if decision.effect == PolicyEffect.DENY and approving:
-            raise PermissionError("The current workplace policy denies this reviewed action.")
+        if decision.effect == PolicyEffect.DENY:
+            _moot(change, approving, "The current workplace policy denies this reviewed action.")
         # The next qualification check must use current requirements. Reusing
         # the proposal-time group would let a removed group reject work or
         # require a reviewer to hold both the old and new grants.
@@ -1180,8 +1191,8 @@ def _revalidate_policy(
         ),
     )
     decision = registry.policy_engine.decide(current)
-    if decision.effect == PolicyEffect.DENY and approving:
-        raise PermissionError("The current workplace policy denies this reviewed action.")
+    if decision.effect == PolicyEffect.DENY:
+        _moot(change, approving, "The current workplace policy denies this reviewed action.")
     change["approver_groups"] = json.dumps(
         decision.approver_groups if decision.effect == PolicyEffect.REVIEW else ()
     )
@@ -1192,8 +1203,9 @@ def _revalidate_policy(
 
 
 def _moot(change: dict, approving: bool, reason: str) -> None:
-    """A contract that can no longer run. Approval refuses it. A rejection of
-    it judged nothing the agent did, so it is marked stale and does not count
+    """A contract that can no longer run: it changed, or the current policy
+    denies it. Approval refuses it. A rejection of it judged nothing the
+    agent did, so it is marked stale and does not count
     toward a demotion streak (delegation.trust_scores); unmarked, it would
     count as a strong verdict on the agent's work."""
     if approving:
@@ -1415,7 +1427,7 @@ def _reject_change_locked(
     # Its target is gone, so this verdict judges nothing the agent did:
     # approve_change's target-vanished branch settles the same proposal with
     # reviewed_strong = 0 for that reason.
-    if _governing_tier(change) == "gone":
+    if _target_tier(change) == "gone":
         change["_stale_contract"] = True
     # The same bar as approving one. A rejected demotion is a declined
     # safety brake, and delegation._judged_pairs mutes the pair for 28 days.
@@ -1680,18 +1692,23 @@ def stranded_proposals(auth_mode: str = "") -> list[dict]:
             reason = ""
             if change["entity"] == "authority" and no_admin:
                 reason = (
-                    "Only an administrator can judge it, and none can exist in this"
-                    " auth mode. Name an active person in SKEIN_ADMINS."
+                    "Only an administrator can approve or reject it, and no active"
+                    " administrator exists. Name an active person in SKEIN_ADMINS."
                 )
-            else:
-                tier = _governing_tier(change)
-                if isinstance(tier, tuple) and not any(
-                    scope.can_read(tier[0], tier[1], viewer, tier[2]) for viewer in viewers
-                ):
-                    reason = (
-                        "No active person can read it. Reactivate the person it belongs"
-                        " to, or add a member to its crew."
-                    )
+            elif (tier := _governing_tier(change)) == "gone":
+                # _readable drops a deleted target from every queue. A private
+                # review of one stays with its owner (_private_review_tier).
+                reason = (
+                    "The record it changes was deleted, so it cannot apply."
+                    f" Reject it with POST /api/review/{change['id']}/reject."
+                )
+            elif isinstance(tier, tuple) and not any(
+                scope.can_read(tier[0], tier[1], viewer, tier[2]) for viewer in viewers
+            ):
+                reason = (
+                    "No active person can read it. Reactivate the person it belongs"
+                    " to, or add a member to its crew."
+                )
             if reason:
                 stranded.append(
                     {

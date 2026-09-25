@@ -704,6 +704,20 @@ def is_active(name: str) -> bool:
     return all(r["active"] for r in rows)
 
 
+def is_claimable(name: str) -> bool:
+    """Whether a person can pass a door under this name: is_active, and not
+    a name a rename freed that no roster row holds now. refuse_released_name
+    keeps everyone off that name, so an SKEIN_ADMINS entry naming it names
+    nobody, and an authority change waiting for that administrator waits
+    forever (routes/deps.py::administrator_possible)."""
+    if not is_active(name):
+        return False
+    target = fold(name)
+    if any(fold(r["name"]) == target for r in db.query("SELECT name FROM users")):
+        return True
+    return db.query_one("SELECT 1 FROM released_names WHERE folded = ?", (target,)) is None
+
+
 def resolve_teammate(
     name: str, actor: str = "", label: str = "name", allow_team: bool = True
 ) -> str:

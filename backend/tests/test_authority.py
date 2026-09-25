@@ -99,6 +99,31 @@ def test_a_list_of_deactivated_administrators_names_nobody(client, fresh_db, mon
     assert api_keys.request_key("ava")["to_team"] is True
 
 
+def test_a_renamed_only_administrator_names_nobody(client, fresh_db, monkeypatch):
+    """A rename frees the old name, and nobody can claim it again. Named in
+    SKEIN_ADMINS, it still counted as an administrator who could sign in, so
+    authority changes waited for a verdict nobody could give."""
+    from app import config
+    from app.routes.deps import administrator_possible
+    from app.services import api_keys, review, users
+
+    monkeypatch.setattr(config, "ADMINS", frozenset({"boss"}))
+    users.ensure_user("boss")
+    users.ensure_user("ava")
+    users.rename_user("boss", "boss2", actor="boss", consented=True)
+
+    assert not administrator_possible("api-key")
+    authority = review.propose_change(
+        "authority",
+        "create",
+        {"agent": "scribe", "entity": "note", "level": "review", "expected_current": "notify"},
+        actor="scheduler",
+        origin="agent",
+    )
+    assert authority["id"] in [row["id"] for row in review.stranded_proposals("api-key")]
+    assert api_keys.request_key("ava")["to_team"] is True
+
+
 def test_the_authority_job_reads_the_composed_auth_mode(client, fresh_db, monkeypatch):
     """The job read config.AUTH_MODE, so an app composed with its own
     settings (create_app(settings)) filed proposals its administrators
