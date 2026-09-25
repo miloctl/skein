@@ -513,6 +513,13 @@ def add_absence(
     strong = "" if workspace_only_tools() else strong_requester()
     own = bool(strong) and users.fold(person) == users.fold(strong)
     team_sees = team_sees or ("nothing" if own else "details")
+    if team_sees != "details" and workspace_only_tools():
+        return json.dumps(
+            {
+                "error": "In a shared chat, time away is recorded for the whole team."
+                ' Use team_sees "details", or record it in your own chat.'
+            }
+        )
     if team_sees != "details" and not own:
         return json.dumps(
             {

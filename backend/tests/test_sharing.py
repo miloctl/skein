@@ -124,3 +124,29 @@ def test_a_strong_capture_that_asks_a_teammate_goes_to_the_roster(client, fresh_
     assert out.status_code == 200
     row = fresh_db.query_one("SELECT visibility FROM questions WHERE id = ?", (out.json()["id"],))
     assert row["visibility"] == "workspace"
+
+
+def test_a_shared_chat_agent_can_file_standups_time_away_and_assignments(fresh_db):
+    """The gate classified standups, time away and question assignments as
+    nothing, so a shared chat, which writes workspace rows only, refused all
+    three although its tool list offers them, with a reason that was false."""
+    from app.services import collab
+    from app.tools.collab import assign_question, post_standup
+    from app.tools.portfolio import add_absence
+
+    for name in ("mira", "bob"):
+        users.ensure_user(name)
+    question = collab.ask_question("which vendor?", "mira", actor="mira")
+    window = {"starts_on": "2026-10-05", "ends_on": "2026-10-09"}
+    with _turn("mira", shared_chat=True):
+        results = {
+            "standup": json.loads(post_standup(author="mira", today="ZZ1ZZ")),
+            "absence": json.loads(add_absence(person="mira", kind="pto", **window)),
+            "assign": json.loads(assign_question(question["id"], "bob")),
+            "private window": json.loads(
+                add_absence(person="mira", kind="focus", team_sees="nothing", **window)
+            ),
+        }
+    for tool in ("standup", "absence", "assign"):
+        assert results[tool].get("status") == "pending", (tool, results[tool])
+    assert "shared chat" in results["private window"]["error"]

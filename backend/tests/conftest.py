@@ -448,7 +448,10 @@ def _turn(name: str, *, strong: bool = True, shared_chat: bool = False):
     services/shared_chat_agents.py): the name, the READ Viewer, and the
     policy subject that carries the credential's strength. The gate reads
     strength from the subject alone (agents/identity.py::strong_requester),
-    so a test that sets a strong Viewer without it simulates a weak caller."""
+    so a test that sets a strong Viewer without it simulates a weak caller.
+    A shared chat also forces review. Its audience policy wrapper
+    (shared_chat_agents._AudiencePolicy) is not reproduced: a test that
+    depends on it runs the real worker."""
     from app.agents import identity
     from app.extensions.policy import PolicySubject, reset_policy_subject, set_policy_subject
     from app.services import scope
@@ -461,9 +464,14 @@ def _turn(name: str, *, strong: bool = True, shared_chat: bool = False):
     )
     previous = identity.workspace_only_tools()
     identity.set_workspace_only_tools(shared_chat)
+    # a shared chat's writes are always proposals (shared_chat_agents.py),
+    # whatever SKEIN_AGENT_REVIEW says
+    previous_review = identity.force_review()
+    identity.set_force_review(previous_review or shared_chat)
     try:
         yield
     finally:
+        identity.set_force_review(previous_review)
         identity.set_workspace_only_tools(previous)
         reset_policy_subject(tokens[2])
         identity.reset_requester_viewer(tokens[1])
