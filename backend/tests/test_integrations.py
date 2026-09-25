@@ -904,3 +904,24 @@ def test_a_shared_server_that_is_down_is_not_ready_and_loads_off_the_verdict(
         m._governed("fake-tool", "a")
     assert backing_off.value.code == "MCP_SERVER_UNAVAILABLE"
     assert backing_off.value.retry_after > 10
+
+
+def test_a_turn_closes_another_owners_connection_once_its_row_is_gone(
+    fresh_db, monkeypatch, clean_mcp
+):
+    """A rename or deactivation on another pod deletes or moves the owner's
+    rows, and nothing on this pod rechecked them until that owner's own next
+    turn, so the owner's authenticated session stayed open."""
+    from app.services import mcp_servers
+
+    m = clean_mcp
+    _personal_client(monkeypatch, m, [])
+    monkeypatch.setattr("app.config.MCP_SERVERS", "")
+    mcp_servers.add("ava", "notes", "https://notes.example/mcp", actor="ava")
+    m.personal_mcp_tools("ava")
+    _settle_personal(m)
+    assert "personal:ava:notes" in m._connections
+    fresh_db.execute("DELETE FROM mcp_servers WHERE owner = 'ava'")  # on another pod
+    monkeypatch.setattr(m, "_last_sweep", 0.0)
+    m.personal_mcp_tools("bo")
+    assert "personal:ava:notes" not in m._connections

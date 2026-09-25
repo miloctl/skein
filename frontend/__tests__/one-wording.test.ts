@@ -48,7 +48,7 @@ describe("one condition, one wording across surfaces", () => {
       "Already asked. The request is still waiting for whoever runs the server.",
       "Asked. Whoever runs the server now has the request and the exact command.",
       // SKEIN_ADMINS unset: the nudge went to the team (services/api_keys.py)
-      "Asked. No administrator is named, so every teammate now has the request and the exact command.",
+      "Asked. No active administrator is named, so every teammate now has the request and the exact command.",
     ];
     for (const page of ["app/settings/page.tsx", "app/people/page.tsx"]) {
       const source = readFileSync(join(ROOT, page), "utf8");
