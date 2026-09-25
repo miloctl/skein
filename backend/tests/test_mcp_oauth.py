@@ -1050,3 +1050,34 @@ def test_a_sign_in_with_no_free_connect_slot_says_busy(fresh_db, sealed, monkeyp
     while fresh_db.query("SELECT * FROM mcp_oauth_flows") and time.monotonic() < deadline:
         time.sleep(0.05)
     assert fresh_db.query("SELECT * FROM mcp_oauth_flows") == []
+
+
+def test_a_slow_sign_in_start_lets_the_person_try_again(fresh_db, sealed, monkeypatch):
+    """Discovery slower than the wait for the authorization URL answered "the
+    server did not ask for a sign-in", and kept the claim, so the retry said
+    "already in progress, finish it first" for up to five minutes."""
+    from app.agents import mcp_oauth, mcp_tools
+    from app.services import mcp_servers
+
+    release = threading.Event()
+
+    class Slow(FakeClient):
+        def __enter__(self):
+            release.wait(10)
+            return super().__enter__()
+
+    monkeypatch.setattr("strands.tools.mcp.MCPClient", Slow)
+    monkeypatch.setattr(mcp_oauth, "_URL_WAIT_SECONDS", 0.3)
+    row = mcp_servers.add("ava", "jira", "https://jira.example/mcp", auth="oauth", actor="ava")
+    sid, server = mcp_servers.entry_for(row["id"], "ava")
+    server["oauth_redirect_uri"] = "https://skein.example/cb"
+    try:
+        with pytest.raises(mcp_tools.MCPServerNotReady) as slow:
+            mcp_oauth.start(sid, server)
+        assert (slow.value.code, slow.value.status_code) == ("MCP_SIGN_IN_SLOW", 503)
+        assert fresh_db.query("SELECT * FROM mcp_oauth_flows") == []
+        # the person can start again at once, not "already in progress"
+        with pytest.raises(mcp_tools.MCPServerNotReady):
+            mcp_oauth.start(sid, server)
+    finally:
+        release.set()
