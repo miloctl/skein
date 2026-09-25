@@ -212,6 +212,37 @@ def test_personal_discovery_has_a_process_wide_bound(fresh_db, sealed, monkeypat
     assert _settled(ids[mcp_servers.LIMIT])["connected"] is True
 
 
+def test_a_connect_that_never_finishes_gives_its_slot_back(fresh_db, sealed, monkeypatch):
+    """The SDK's startup timeout ends in a thread join with no deadline, so a
+    server that never answered initialize held its connect slot until the
+    process restarted, and the owner's approvals said "wait 10 seconds"."""
+    from app.agents import mcp_tools
+    from app.services import mcp_servers
+
+    release = threading.Event()
+
+    class Hung(FakeClient):
+        def __enter__(self):
+            release.wait(10)
+            return self
+
+    monkeypatch.setattr("strands.tools.mcp.MCPClient", Hung)
+    monkeypatch.setattr(mcp_tools, "_STARTUP_SECONDS", 0.2)
+    monkeypatch.setattr(mcp_tools, "_ENTER_GRACE_SECONDS", 0.1)
+    try:
+        row = mcp_servers.add("ava", "notes", "https://notes.example/mcp", actor="ava")
+        mcp_tools.personal_mcp_tools("ava")
+        deadline = time.monotonic() + 3
+        while mcp_tools._opening and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert not mcp_tools._opening
+        assert mcp_tools._owner_connects == {}
+        assert mcp_tools._personal_slots._value == mcp_servers.LIMIT
+        assert row["server_id"] in mcp_tools._retry_state
+    finally:
+        release.set()
+
+
 def test_one_owner_cannot_hold_every_connect_slot(fresh_db, sealed, monkeypatch):
     """An OAuth sign-in holds its slot while the person decides, so one
     person's abandoned sign-ins took all of them, and every other person's

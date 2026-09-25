@@ -18,6 +18,7 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from functools import partial
 from typing import Any
@@ -97,6 +98,13 @@ _owner_connects: dict[str, int] = {}
 # connect runs bounded so a hostile or broken server cannot pin the thread
 # that carries a chat turn, a POST, or an approval.
 _LIST_TOOLS_SECONDS = 30.0
+# The SDK's own startup wait, and the extra time _enter_bounded allows past
+# it. The SDK's start() times out and then joins its session thread with no
+# deadline, so without this a server that never answers initialize holds
+# the connect slot (and the owner's share of them) until the process
+# restarts.
+_STARTUP_SECONDS = 30
+_ENTER_GRACE_SECONDS = 15.0
 # A hostile personal server can stuff every turn's context: the tool list
 # and each description are bounded, and the operator-classified env tier
 # stays as declared.
@@ -1325,7 +1333,7 @@ def _connect_servers(
             # collide. Env servers stay unprefixed: renaming their tools
             # would stale every pending proposal keyed on the old name.
             prefix = str(server.get("name") or "") if tier == PERSONAL else ""
-            startup = 30
+            startup = _STARTUP_SECONDS
             if tier == PERSONAL:
                 # re-checked at every connect, not only at add time: the
                 # host can resolve somewhere else once the row exists.
@@ -1358,7 +1366,7 @@ def _connect_servers(
                 if prefix
                 else MCPClient(transport)
             )
-            client.__enter__()
+            _enter_bounded(client, startup)
             entered = True
             found = _list_tools(client)
             if tier == PERSONAL and len(found) > _PERSONAL_TOOL_CAP:
@@ -1402,6 +1410,34 @@ def _connect_servers(
                     client.__exit__(None, None, None)
             log.warning("MCP server '%s' failed to connect (%s)", server_id, type(exc).__name__)
     return _composed_tools(connections), connections
+
+
+def _enter_bounded(client, startup: float) -> None:
+    """Open one client, giving up after its startup wait plus a grace. A
+    connect that finishes after the caller gave up is closed on its own
+    thread, so the session it opened does not outlive the attempt."""
+    gave_up = threading.Event()
+
+    def enter() -> None:
+        client.__enter__()
+        if gave_up.is_set():
+            with contextlib.suppress(Exception):
+                client.__exit__(None, None, None)
+
+    pool = ThreadPoolExecutor(1, thread_name_prefix="skein-mcp-enter")
+    future = pool.submit(enter)
+    try:
+        future.result(timeout=startup + _ENTER_GRACE_SECONDS)
+    except FutureTimeout as exc:
+        gave_up.set()
+        # it can finish between the timeout and the flag: close it here then
+        if future.done() and future.exception() is None:
+            with contextlib.suppress(Exception):
+                client.__exit__(None, None, None)
+        raise TimeoutError("the MCP server did not finish connecting") from exc
+    finally:
+        # wait=False: a hung connect keeps its worker, the caller does not
+        pool.shutdown(wait=False)
 
 
 def _list_tools(client) -> list:
