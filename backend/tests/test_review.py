@@ -422,7 +422,8 @@ def test_approve_survives_unexpected_exceptions(fresh_db, monkeypatch):
         raise RuntimeError("not a ValueError")
 
     monkeypatch.setattr(work, "create_task", explode)
-    with pytest.raises(ValueError, match="could not apply"):
+    # our own fault reaches main.py's 500 handler as it is, without its text
+    with pytest.raises(RuntimeError):
         review.approve_change(p["id"], actor="alice")
     row = fresh_db.query_row("SELECT * FROM pending_changes WHERE id = ?", (p["id"],))
     assert row["status"] == "pending"
@@ -1240,3 +1241,72 @@ def test_the_stranded_check_reads_past_its_first_page(fresh_db, monkeypatch):
     ]
     users.set_active("ava", False)
     assert [row["id"] for row in review.stranded_proposals()] == stuck
+
+
+def test_a_deadlocked_database_is_a_retry_and_a_completion_holds_its_task(
+    client, fresh_db, monkeypatch
+):
+    """psycopg 3.3 raises DeadlockDetected and SerializationFailure as
+    OperationalError subclasses, not TransactionRollback ones, so a deadlock
+    answered 500, or 400 with the Postgres text inside an approval. Approving
+    a task completion also locked the task after the proposal row, the
+    reverse of a direct close, which is how the two deadlocked."""
+    import psycopg
+    from conftest import _delegated_task
+
+    from app.services import delegation, memory, policy_context
+
+    held: list[tuple[str, int]] = []
+    hold = policy_context.hold_resource
+
+    def spy(entity, entity_id):
+        held.append((entity, entity_id))
+        return hold(entity, entity_id)
+
+    monkeypatch.setattr(policy_context, "hold_resource", spy)
+    tid = _delegated_task(fresh_db)
+    delegation.claim_task(tid, actor="scout")
+    proposal = delegation.submit_completion(tid, "shipped it", actor="scout")["proposal_id"]
+
+    def deadlocked(*_args, **_kwargs):
+        raise psycopg.errors.DeadlockDetected("deadlock detected")
+
+    monkeypatch.setattr(delegation, "accept_completion", deadlocked)
+    mira = _strong(client, "mira")
+    approved = client.post(f"/api/review/{proposal}/approve", json={"note": ""}, headers=mira)
+    assert (approved.status_code, approved.headers.get("Retry-After")) == (503, "5")
+    assert "deadlock" not in approved.text
+    assert held and held[0] == ("task", tid)
+
+    def serialization(*_args, **_kwargs):
+        raise psycopg.errors.SerializationFailure("could not serialize access")
+
+    monkeypatch.setattr(memory, "recall", serialization)
+    listed = client.get("/api/memories", headers=mira)
+    assert (listed.status_code, listed.headers.get("Retry-After")) == (503, "5")
+
+
+def test_an_internal_apply_fault_keeps_its_text_out_of_the_answer(client, fresh_db, monkeypatch):
+    """Every unexpected apply error became a 400 carrying its text, so a
+    storage fault answered "Permission denied: '/srv/.../artifacts'" and the
+    path went into the review note too."""
+    from app.services import collab, review, users
+
+    users.ensure_user("scribe", kind="agent")
+    proposal = review.propose_change(
+        "note", "create", {"topic": "t", "content": "c"}, actor="scribe"
+    )
+
+    def storage_fault(*_args, **_kwargs):
+        raise PermissionError(13, "Permission denied", "/srv/skein/ZZPATHZZ/artifacts")
+
+    monkeypatch.setattr(collab, "save_note", storage_fault)
+    answer = client.post(
+        f"/api/review/{proposal['id']}/approve", json={"note": ""}, headers=_strong(client, "ops")
+    )
+    assert answer.status_code == 500, answer.text
+    assert "ZZPATHZZ" not in answer.text
+    row = db.query_one(
+        "SELECT status, review_note FROM pending_changes WHERE id = ?", (proposal["id"],)
+    )
+    assert row["status"] == "pending" and "ZZPATHZZ" not in row["review_note"]

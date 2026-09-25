@@ -3,6 +3,7 @@ approve. Approval applies the payload through the same service registry the
 rest of the platform uses, stamped origin='agent_verified'."""
 
 import json
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
@@ -766,8 +767,12 @@ def _approve_change_locked(
 
     # An update is about entity_id. A create's policy context comes from the
     # parent its payload names (policy_context.for_change), so hold that.
+    # task_completion is about its task: held under any other name, the
+    # apply locks the proposal row and then the task, the reverse of a
+    # direct close (work.update_task), and the two deadlock.
     if change.get("entity_id"):
-        policy_context.hold_resource(str(change["entity"]), int(change["entity_id"]))
+        held = "task" if change["entity"] == "task_completion" else str(change["entity"])
+        policy_context.hold_resource(held, int(change["entity_id"]))
     else:
         try:
             payload = json.loads(change.get("payload") or "{}")
@@ -955,9 +960,28 @@ def _approve_change_locked(
         # resets the claim — an approved-but-never-applied proposal would
         # vanish from the queue. The reviewer's note survives the reset.
         busy = isinstance(exc, db.BUSY_ERRORS)
-        # a busy database's text carries Postgres internals (the locked tuple
-        # and relation), which neither the note nor the response may repeat
-        failure = "the database was busy" if busy else str(exc)
+        from ..agents.mcp_tools import MCPServerNotReady
+        from ..extensions.registry import DirectoryOutage
+
+        # An input error's text is written for the reader (a TypeError is a
+        # proposal payload with a field its service does not take). Anything
+        # else is our own state (a storage fault, a bug) and its text can carry
+        # server paths or Postgres internals, which neither the note nor the
+        # response may repeat: main.py's handlers answer it without them.
+        said_for_reader = isinstance(exc, (ValueError, TypeError, PublicError)) or (
+            isinstance(exc, PermissionError) and exc.errno is None
+        )
+        failure = (
+            "the database was busy"
+            if busy
+            else str(exc)
+            if said_for_reader
+            else "an internal error. Read the server log"
+        )
+        if not busy and not said_for_reader:
+            logging.getLogger("skein.review").exception(
+                "apply failed for %s.%s", change["entity"], change["action"]
+            )
         db.execute(
             "UPDATE pending_changes SET status = 'pending', reviewed_by = NULL,"
             " reviewed_at = NULL, reviewed_strong = 0, reviewed_override = 0,"
@@ -970,15 +994,13 @@ def _approve_change_locked(
                 " error_code = 'EXECUTION_FAILED' WHERE change_id = ?",
                 (change_id,),
             )
-        from ..agents.mcp_tools import MCPServerNotReady
-        from ..extensions.registry import DirectoryOutage
-
         # A busy database, a connection that dropped between
         # _revalidate_policy and the call (another request's forget or
         # deadline strike), and a directory that stopped answering before
         # the executor's own requester refresh are 503 with Retry-After
-        # (main.py), not a 400 that reads as a bad request.
-        if busy or isinstance(exc, (MCPServerNotReady, DirectoryOutage)):
+        # (main.py), not a 400 that reads as a bad request. Our own faults
+        # go to main.py's handlers as they are: a 500 without internals.
+        if busy or not said_for_reader or isinstance(exc, (MCPServerNotReady, DirectoryOutage)):
             return _ApprovalFailure(exc)
         return _ApprovalFailure(
             ValueError(f"could not apply {change['entity']}.{change['action']}: {exc}")

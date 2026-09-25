@@ -459,7 +459,7 @@ def test_reviewed_tool_writes_through_the_public_facade(fresh_db, monkeypatch):
         return original_execute(sql, params)
 
     monkeypatch.setattr(db, "execute", fail_first_settlement)
-    with pytest.raises(ValueError, match="forced tool settlement failure"):
+    with pytest.raises(RuntimeError, match="forced tool settlement failure"):
         review.approve_change(
             queued.review_id,
             actor="manager",

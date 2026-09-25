@@ -859,12 +859,12 @@ workflow:
             return original_execute(sql, params)
 
         monkeypatch.setattr(db, "execute", fail_first_settlement)
-        first = client.post(
-            f"/api/review/{queued['review_id']}/approve",
-            headers={"X-User": "manager"},
-            json={"note": "First attempt."},
-        )
-        assert first.status_code == 400, first.text
+        with pytest.raises(RuntimeError, match="forced settlement failure"):
+            client.post(
+                f"/api/review/{queued['review_id']}/approve",
+                headers={"X-User": "manager"},
+                json={"note": "First attempt."},
+            )
         assert (
             fresh_db.query_one(
                 "SELECT id FROM tasks WHERE title = ?", ("Created by the reviewed workflow",)
