@@ -225,6 +225,38 @@ def test_remember_in_a_linked_thread_stays_personal_until_shared(client):
     assert "team:" not in row["payload"]
 
 
+def test_remember_in_a_linked_thread_decides_on_the_engagement(fresh_db):
+    """/remember asked the policy about an unlinked workspace memory, so a
+    rule that refuses memories on a regulated engagement passed from chat
+    while POST /api/engagements/{id}/memory refused."""
+    from fastapi.testclient import TestClient
+
+    from app.extensions import PolicyContribution, PolicyDecision, PolicyEffect, SkeinModule
+    from app.main import create_app
+    from app.services import engagements
+
+    def regulated_memories(request):
+        if request.action == "memory.create" and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated work keeps no memories.",))
+        return None
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.7.0",
+        policies=(PolicyContribution("atlas.workplace.memories", regulated_memories),),
+    )
+    eid = engagements.create_engagement("Ledger", "regulated", actor="mira")["id"]
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as governed:
+        _read_chat(governed, "hello")
+        governed.patch("/api/chats/t", json={"engagement_id": eid})
+        out = _read_chat(governed, "/remember the client audit is Tuesday")
+        assert "Workplace policy denied this action." in out
+        assert governed.get("/api/memories").json() == []
+
+
 def test_remember_in_an_unlinked_thread_stays_a_direct_team_memory(client):
     out = _read_chat(client, "/remember demos every Friday")
     assert "Remembered" in out

@@ -481,10 +481,33 @@ async def _remember(
     if args.lower().startswith("fb:"):
         yield {"data": wording.private_feedback_agent_refusal()}
         return
+    # In a thread linked to an engagement, the fact belongs to that
+    # engagement: recall brings it back when this work is discussed.
+    engagement_id = 0
+    if access and access.thread_id:
+        row = await run_in_threadpool(
+            db.query_one,
+            "SELECT engagement_id FROM chat_threads WHERE id = ? AND owner = ?",
+            (access.thread_id, user),
+        )
+        engagement_id = int(row["engagement_id"] or 0) if row else 0
+    # The engagement's tier and project type, the context
+    # POST /api/engagements/{id}/memory decides on. Decided as an unlinked
+    # workspace write, a rule that refuses memories on a regulated
+    # engagement passed from chat.
+    linked = (
+        await run_in_threadpool(policy_context.existing_scoped, "engagement", engagement_id, viewer)
+        if engagement_id
+        else {}
+    )
     refusal = _write_refusal(
         access,
         "memory.create",
-        PolicyResource("memory", classification=scope.WORKSPACE),
+        PolicyResource(
+            "memory",
+            project_type=linked.get("project_type", ""),
+            classification=linked.get("classification") or scope.WORKSPACE,
+        ),
         "remember",
         "medium",
     )
@@ -493,16 +516,6 @@ async def _remember(
         return
     yield _tool_event("remember")
     try:
-        # In a thread linked to an engagement, the fact belongs to that
-        # engagement: recall brings it back when this work is discussed.
-        engagement_id = 0
-        if access and access.thread_id:
-            row = await run_in_threadpool(
-                db.query_one,
-                "SELECT engagement_id FROM chat_threads WHERE id = ? AND owner = ?",
-                (access.thread_id, user),
-            )
-            engagement_id = int(row["engagement_id"] or 0) if row else 0
         if args.lower().startswith("team:"):
             if not engagement_id:
                 p = await run_in_threadpool(
