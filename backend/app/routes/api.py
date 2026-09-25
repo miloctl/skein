@@ -2201,6 +2201,22 @@ def post_reconfirm(decision_id: int, body: ReconfirmIn, user: CurrentUser):
     return collab.reconfirm_decision(decision_id, body.review_by, actor=user)
 
 
+@router.get("/review/stranded")
+def get_review_stranded(user: StrongUser, request: Request):
+    """Pending proposals no active person can settle. A named administrator
+    only (_named_admin_reader): the list names private proposals, so the
+    trusted-header fallback that makes every key holder an administrator
+    must not reach it."""
+    from .deps import _app_setting
+
+    if not _named_admin_reader(user, request):
+        raise HTTPException(
+            status_code=403, detail=wording.not_administrator(user, "list stranded proposals")
+        )
+    with db.read_transaction():
+        return review.stranded_proposals(_app_setting(request, "auth_mode", config.AUTH_MODE))
+
+
 @router.get("/review/stats")
 def get_review_stats(
     user: CurrentUser,

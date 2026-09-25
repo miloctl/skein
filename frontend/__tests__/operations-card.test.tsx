@@ -33,12 +33,19 @@ const healthy = {
   },
 };
 let response = structuredClone(healthy);
+// null: the request fails, as it does for anyone but a named administrator
+let stranded: unknown = null;
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...real,
-    api: () => Promise.resolve(response),
+    api: (path: string) =>
+      path === "/api/review/stranded"
+        ? stranded === null
+          ? Promise.reject(new Error("forbidden"))
+          : Promise.resolve(stranded)
+        : Promise.resolve(response),
   };
 });
 
@@ -47,6 +54,24 @@ import { OperationsCard } from "@/components/operations-card";
 describe("OperationsCard", () => {
   beforeEach(() => {
     response = structuredClone(healthy);
+    stranded = null;
+  });
+
+  it("lists the proposals nobody can settle to a named administrator", async () => {
+    stranded = [
+      { id: 12, entity: "note", action: "create", reason: "No active person can read it." },
+    ];
+    render(<OperationsCard />);
+    expect(
+      await screen.findByText(/#12 note\.create: No active person can read it\./),
+    ).toBeTruthy();
+    expect(screen.getByText(/No one can approve or reject this pending proposal/)).toBeTruthy();
+    expect(screen.queryByText(/The loom hums/)).toBeNull();
+  });
+
+  it("stays all clear when the stranded list is not the reader's to see", async () => {
+    render(<OperationsCard />);
+    expect(await screen.findByText(/The loom hums/)).toBeTruthy();
   });
 
   it("reports a chain tip that contradicts the integrity marks", async () => {
