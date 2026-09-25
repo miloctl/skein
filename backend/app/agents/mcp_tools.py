@@ -87,8 +87,8 @@ _opening: dict[str, dict] = {}
 _personal_slots = threading.BoundedSemaphore(_PERSONAL_CONNECT_LIMIT)
 # How many of those slots one owner's connects may hold at once. An OAuth
 # sign-in holds its slot while it waits up to mcp_oauth.FLOW_SECONDS for the
-# person, so without this one person's abandoned sign-ins took every slot
-# and every other person's server waited behind them.
+# person, so without this one person's abandoned sign-ins would take every
+# slot and every other person's server would wait behind them.
 _PER_OWNER_CONNECTS = 2
 _owner_connects: dict[str, int] = {}
 # The SDK's list_tools_sync waits on a future with no deadline, and a server
@@ -411,7 +411,7 @@ class GovernedMCPTool(AgentTool):
             # so the call never ran: failed, never completion unknown. The
             # session does not come back, so the connection is dropped and
             # rebuilt with the retry backoff. Kept, every later call on this
-            # process failed the same way while Settings showed "connected".
+            # process fails the same way while Settings shows "connected".
             record("failed", self.tool_name, "failed", actor=actor)
             _audit_mcp(actor, self.tool_name, "failed", "session_closed")
             _drop_connection(self.server_id, "a closed session")
@@ -475,8 +475,8 @@ class GovernedMCPTool(AgentTool):
 def _personal_row_is_current(server_id: str) -> bool:
     """Whether the row this process connected with still exists unchanged.
     forget() runs only on the pod that took a delete or an edit, so a turn on
-    another pod that already holds the tool otherwise kept calling the old
-    URL with the deleted credential until the turn ended."""
+    another pod that already holds the tool would otherwise keep calling the
+    old URL with the deleted credential until the turn ends."""
     from ..services.mcp_servers import entries_for
 
     owner = server_id[len(PERSONAL) + 1 :].rsplit(":", 1)[0]

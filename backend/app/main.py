@@ -87,6 +87,14 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
             return {"skipped": "this job run is already claimed", "run_id": run_id}
         from .public.work import _bind_execution_context
 
+        if contribution.name == "skein.core.authority-review":
+            # Whether an administrator can exist depends on the auth mode,
+            # and a create_app(settings) embedding sets that apart from the
+            # environment. The job context carries no settings, so the mode
+            # is handed over here.
+            from .services.delegation import review_authority
+
+            return review_authority(actor="scheduler", auth_mode=settings.auth_mode)
         if contribution.name == "skein.core.agent-run":
             # This core adapter needs the full trusted composition root. The
             # public JobExecutionContext stays narrow for private jobs, while
@@ -890,7 +898,7 @@ async def not_found_handler(request: Request, exc: db.NotFound):
 
 async def directory_outage_handler(request: Request, exc: Exception):
     # LOAD, not a refusal: the directory could not answer, and the identical
-    # request succeeds once it does. A 403 told the reviewer they may not.
+    # request succeeds once it does. A 403 would tell the reviewer they may not.
     return JSONResponse(
         status_code=503, content={"detail": str(exc)}, headers={"Retry-After": "30"}
     )

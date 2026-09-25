@@ -183,3 +183,13 @@ def test_a_sign_in_name_can_request_a_key_and_a_shell_word_cannot(fresh_db):
     for word in ("ava;reboot", "@true", "-h"):
         with pytest.raises(ValueError, match="server command that mints a key"):
             api_keys.request_key(word)
+
+
+def test_a_key_request_is_matched_by_the_exact_name(fresh_db):
+    """LIKE read "_" as a wildcard: after "axb" asked, a request from "a_b"
+    counted as already pending and reached nobody."""
+    from app.services import api_keys
+
+    assert api_keys.request_key("axb")["already_pending"] is False
+    assert api_keys.request_key("a_b")["already_pending"] is False
+    assert api_keys.request_key("a_b")["already_pending"] is True

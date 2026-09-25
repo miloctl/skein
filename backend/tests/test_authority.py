@@ -73,6 +73,34 @@ def test_rejecting_an_authority_change_takes_the_approvers_bar(fresh_db):
     assert reject("ops", strong=True, administrator=True)["status"] == "rejected"
 
 
+def test_the_authority_job_reads_the_composed_auth_mode(client, fresh_db, monkeypatch):
+    """The job read config.AUTH_MODE, so an app composed with its own
+    settings (create_app(settings)) filed proposals its administrators
+    could not approve, or none where one could."""
+    from dataclasses import replace
+
+    from app import config
+    from app.extensions import AppSettings, ExtensionRegistry
+    from app.extensions.core import core_module
+    from app.main import _job_specs
+    from app.services import review, users
+
+    users.ensure_user("scribe", kind="agent")
+    headers = _strong(client)
+    for i in range(5):
+        p = review.propose_change(
+            "note", "create", {"topic": f"t{i}", "content": "c"}, actor="scribe"
+        )
+        client.post(f"/api/review/{p['id']}/approve", json={}, headers=headers)
+    monkeypatch.setattr(config, "AUTH_MODE", "trusted-header")
+    monkeypatch.setattr(config, "ADMINS", frozenset())
+    monkeypatch.setattr(config, "OIDC_ADMIN_GROUP", "")
+    settings = replace(AppSettings.from_config(), auth_mode="api-key", scheduler_enabled=False)
+    specs = _job_specs(ExtensionRegistry.build((core_module(),)), settings)
+    job = next(spec for spec in specs if spec.name == "authority-review")
+    assert job.fn()["filed"] == 0
+
+
 @pytest.mark.parametrize("mode", ["trusted-header", "api-key", "oidc"])
 @pytest.mark.parametrize("admins", [frozenset(), frozenset({"ops"})])
 @pytest.mark.parametrize("group", ["", "skein-admins"])
