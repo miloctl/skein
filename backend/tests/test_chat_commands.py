@@ -188,30 +188,41 @@ def test_deterministic_writes_use_the_composed_workplace_policy(fresh_db):
         assert all(row["name"] != "blocked plan" for row in governed.get("/api/engagements").json())
 
 
-def test_remember_in_a_linked_thread_files_an_engagement_proposal(client):
-    """The loop the sidebar promised with no path that entered it: recall read
-    engagement memories and nothing could write one. In a linked thread,
-    /remember files the ALWAYS-a-proposal engagement memory
-    (services/memory.py::propose_engagement_memory) instead of the direct
-    team-wide write."""
-    from app import db
-    from app.services import engagements, users
+def test_remember_in_a_linked_thread_stays_personal_until_shared(client):
+    """A plain /remember in a linked thread filed the engagement proposal,
+    whose team notice quoted the speaker's words. It is the speaker's own
+    memory, recalled with that engagement. `team:` shares it, with the same
+    strong-identity bar as POST /api/engagements/{id}/memory."""
+    from conftest import _strong
 
-    users.ensure_user("bo")  # a second person to approve it
+    from app import db
+    from app.services import engagements, memory, scope, users
+
+    users.ensure_user("bo")  # a second person to approve the shared one
     eid = engagements.create_engagement("Atlas", actor="tester")["id"]
     # claim the thread, then link it — the same order the UI produces
     _read_chat(client, "hello")
     client.patch("/api/chats/t", json={"engagement_id": eid})
 
-    out = _read_chat(client, "/remember the client reads Thursday demos")
+    out = _read_chat(client, "/remember ZZTIREDZZ this week")
+    assert "Remembered" in out
+    assert db.query("SELECT id FROM pending_changes") == []
+    assert db.query("SELECT id FROM notifications WHERE message LIKE '%ZZTIREDZZ%'") == []
+    tester = scope.Viewer("tester", True)
+    recalled = memory.recall(user="tester", viewer=tester, engagement_id=eid)
+    assert [m["content"] for m in recalled] == ["ZZTIREDZZ this week"]
+
+    shared = "/remember team: the client reads Thursday demos"
+    assert "requires strong identity" in _read_chat(client, shared)
+    body = {"thread_id": "t", "message": shared}
+    with client.stream("POST", "/api/chat", json=body, headers=_strong(client)) as resp:
+        out = resp.read().decode()
     assert "proposal" in out and "Approvals" in out
-    assert "Remembered" not in out
     row = db.query_one(
         "SELECT payload FROM pending_changes WHERE entity = 'memory' AND status = 'pending'"
     )
     assert row is not None and "Thursday demos" in row["payload"]
-    # nothing wrote a memory directly — the write waits for the verdict
-    assert client.get("/api/memories").json() == []
+    assert "team:" not in row["payload"]
 
 
 def test_remember_in_an_unlinked_thread_stays_a_direct_team_memory(client):

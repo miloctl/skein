@@ -493,22 +493,8 @@ async def _remember(
         return
     yield _tool_event("remember")
     try:
-        if args.lower().startswith("team:"):
-            p = await run_in_threadpool(
-                lambda: memory.propose_team_memory(args[5:], actor=user),
-            )
-            yield {
-                "data": f"Filed as proposal #{p['id']}. Another teammate approves it in"
-                " Inbox → Approvals before it steers the agent for everyone."
-            }
-            return
-        # In a thread linked to an engagement, the fact files AGAINST that
-        # engagement — this was the loop the sidebar promised ("Filing one
-        # back is a proposal a person approves") with no path that entered
-        # it: recall read engagement memories and nothing could write one.
-        # Always through the proposal (services/memory.py says why: chat text
-        # is where a model's summary and a person's words are hard to tell
-        # apart), never the direct write below.
+        # In a thread linked to an engagement, the fact belongs to that
+        # engagement: recall brings it back when this work is discussed.
         engagement_id = 0
         if access and access.thread_id:
             row = await run_in_threadpool(
@@ -517,11 +503,27 @@ async def _remember(
                 (access.thread_id, user),
             )
             engagement_id = int(row["engagement_id"] or 0) if row else 0
-        if engagement_id:
+        if args.lower().startswith("team:"):
+            if not engagement_id:
+                p = await run_in_threadpool(
+                    lambda: memory.propose_team_memory(args[5:], actor=user),
+                )
+                yield {
+                    "data": f"Filed as proposal #{p['id']}. Another teammate approves it in"
+                    " Inbox → Approvals before it steers the agent for everyone."
+                }
+                return
+            # the same bar as POST /api/engagements/{id}/memory: the proposal
+            # quotes the fact to the engagement's readers under this name
+            if not viewer.name:
+                yield {"data": wording.strong_identity_required("Sharing a memory")}
+                return
+            # Always a proposal (services/memory.py::propose_engagement_memory
+            # says why), never the direct write below.
             p = await run_in_threadpool(
                 lambda: memory.propose_engagement_memory(
                     engagement_id,
-                    args,
+                    args[5:],
                     thread_id=access.thread_id if access else "",
                     actor=user,
                     viewer=viewer,
@@ -533,7 +535,12 @@ async def _remember(
                 " before it steers future conversations."
             }
             return
-        m = await run_in_threadpool(memory.remember, args, user=user, actor=user)
+        # A plain /remember is the speaker's own, linked thread or not
+        # (docs/VISIBILITY.md). Filed for the engagement, it would reach the
+        # team queue and a notice that quotes it.
+        m = await run_in_threadpool(
+            lambda: memory.remember(args, user=user, actor=user, engagement_id=engagement_id)
+        )
         from .. import config
 
         surfaced = (
