@@ -48,6 +48,9 @@ class _Flow:
     # start() stopped waiting for the authorization URL and released the
     # claim, so a person can start again at once
     abandoned: bool = False
+    # the connect failed without an answer from the server
+    # (mcp_tools._unreachable): down, not a wrong URL
+    unreachable: bool = False
     url_ready: threading.Event = field(default_factory=threading.Event)
     done: threading.Event = field(default_factory=threading.Event)
 
@@ -250,12 +253,13 @@ def start(server_id: str, server: dict) -> str:
             )
         if flow.done.is_set():
             with mcp_tools._lock:
-                connected = server_id in mcp_tools._connections
                 retry = mcp_tools._retry_state.get(server_id)
-            if not connected and retry and retry[0] > 0:
-                # The connect failed and a retry is set: the server is down
-                # or unreachable, which a retry fixes (503). Answered as a
-                # 400 about the URL, the person edits a URL that was fine.
+            if flow.unreachable and retry and retry[0] > 0:
+                # The connect got no answer and a retry is set: the server is
+                # down, which a retry fixes (503). Answered as a 400 about the
+                # URL, the person edits a URL that was fine. A server that
+                # answered (a 404, a page that is not MCP) keeps the 400: a
+                # retry of a wrong URL fails the same way.
                 wait = max(1, math.ceil(retry[1] - time.monotonic()))
                 raise mcp_tools.MCPServerNotReady(
                     "MCP_SERVER_UNAVAILABLE",

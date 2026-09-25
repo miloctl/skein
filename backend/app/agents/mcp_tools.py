@@ -405,12 +405,14 @@ class GovernedMCPTool(AgentTool):
                         raise _ResultTooLarge
                     events.append(event)
         except TimeoutError:
-            status = "completion unknown" if self.metadata.effect == "write" else "timed out"
-            record("failed", self.tool_name, status, actor=actor)
+            status = "completion_unknown" if self.metadata.effect == "write" else "timed_out"
+            record("failed", self.tool_name, status.replace("_", " "), actor=actor)
             _audit_mcp(actor, self.tool_name, "completion_unknown", "deadline_exceeded")
             _deadline_strike(self.server_id)
             yield _refusal(
-                tool_use, f"The remote tool {status}.", completion_status=status.replace(" ", "_")
+                tool_use,
+                _told("The remote tool did not answer in time.", status),
+                completion_status=status,
             )
             return
         except _ResultTooLarge:
@@ -423,7 +425,7 @@ class GovernedMCPTool(AgentTool):
             _audit_mcp(actor, self.tool_name, completion_status, "output_too_large")
             yield _refusal(
                 tool_use,
-                "The remote tool returned more data than Skein accepts.",
+                _told("The remote tool returned more data than Skein accepts.", completion_status),
                 completion_status=completion_status,
             )
             return
@@ -454,6 +456,15 @@ class GovernedMCPTool(AgentTool):
                 completion_status="failed",
             )
             return
+        except asyncio.CancelledError:
+            # The stop button cancels the turn's task (team_agent, chat), and
+            # CancelledError passes `except Exception`. The request can
+            # already be out, so a write without this leaves no receipt and
+            # no ledger row for a change that can have happened.
+            if self.metadata.effect == "write":
+                record("failed", self.tool_name, "completion unknown", actor=actor)
+                _audit_mcp(actor, self.tool_name, "completion_unknown", "cancelled")
+            raise
         except Exception as exc:
             declared = str(getattr(exc, "code", ""))
             code = declared if declared in self.metadata.error_codes else "remote_error"
@@ -469,7 +480,9 @@ class GovernedMCPTool(AgentTool):
             )
             yield _refusal(
                 tool_use,
-                "The remote tool failed. Read the server log for the cause.",
+                _told(
+                    "The remote tool failed. Read the server log for the cause.", completion_status
+                ),
                 completion_status=completion_status,
             )
             return
@@ -496,6 +509,11 @@ class GovernedMCPTool(AgentTool):
             record("failed", self.tool_name, completion_status, actor=actor)
             _audit_mcp(actor, self.tool_name, completion_status, "remote_error")
             result["completionStatus"] = completion_status
+            # Every provider drops completionStatus from the request, so the
+            # model reads only the SDK's "Tool execution failed: ...", which
+            # invites a retry of a write that can have run.
+            if completion_status == "completion_unknown":
+                result["content"] = [*(result.get("content") or []), {"text": _UNKNOWN_WRITE}]
             for event in events:
                 yield event
             return
@@ -507,7 +525,9 @@ class GovernedMCPTool(AgentTool):
             _audit_mcp(actor, self.tool_name, completion_status, "invalid_output")
             yield _refusal(
                 tool_use,
-                "The remote tool returned data outside its declared schema.",
+                _told(
+                    "The remote tool returned data outside its declared schema.", completion_status
+                ),
                 completion_status=completion_status,
             )
             return
@@ -827,6 +847,18 @@ def _schema_matches(value: Any, schema: dict[str, Any]) -> bool:
     if expected == "array" and isinstance(value, list) and isinstance(schema.get("items"), dict):
         return all(_schema_matches(item, schema["items"]) for item in value)
     return expected in checks
+
+
+# The one sentence for a write that can have run. Providers drop
+# completionStatus, so this text is all the model learns about it.
+_UNKNOWN_WRITE = (
+    "The write can have run, so its completion is unknown. Do not retry it."
+    " Check the remote system first."
+)
+
+
+def _told(detail: str, completion_status: str) -> str:
+    return f"{detail} {_UNKNOWN_WRITE}" if completion_status == "completion_unknown" else detail
 
 
 def _refusal(tool_use: dict, detail: str, *, completion_status: str = "failed") -> dict:
@@ -1493,7 +1525,37 @@ def _connect_servers(
                 with contextlib.suppress(Exception):
                     client.__exit__(None, None, None)
             log.warning("MCP server '%s' failed to connect (%s)", server_id, type(exc).__name__)
+            flow = server.get("flow")
+            if flow is not None:
+                flow.unreachable = _unreachable(exc)
     return _composed_tools(connections), connections
+
+
+def _unreachable(exc: BaseException) -> bool:
+    """Whether a failed connect never got an answer: refused, timed out, or
+    a name that did not resolve. The SDK wraps a server's answer (a 404, a
+    page that is not MCP) in MCPError inside an ExceptionGroup, and a
+    connect that gets nothing ends as OSError or a transport error."""
+    import httpx
+    import httpx2
+    from mcp.shared.exceptions import MCPError
+
+    stack: list[BaseException | None] = [exc]
+    seen: set[int] = set()
+    transport = False
+    while stack:
+        current = stack.pop()
+        if current is None or id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, MCPError):
+            return False
+        transport = transport or isinstance(
+            current, (OSError, httpx.TransportError, httpx2.TransportError)
+        )
+        stack += [current.__cause__, current.__context__]
+        stack += list(getattr(current, "exceptions", ()))
+    return transport
 
 
 def _enter_bounded(client, startup: float) -> None:

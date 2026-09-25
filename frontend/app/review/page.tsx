@@ -623,15 +623,16 @@ export default function ReviewPage() {
         (x) => x.execution_status === "completion_unknown",
       );
       const failed = r.results.filter((x) => x.execution_status === "failed");
-      if (unknown.length > 0) {
-        reportStatus(
-          `Approval recorded for ${unknown.map((x) => `#${x.id}`).join(", ")}, but remote completion is unknown. Do not retry the action.`,
-        );
-      } else if (failed.length > 0) {
-        reportStatus(
-          `Approval recorded for ${failed.map((x) => `#${x.id}`).join(", ")}, but the remote call failed. Nothing changed.`,
-        );
-      }
+      // both groups, never only the first: a batch can hold each
+      const outcomes = [
+        unknown.length > 0
+          ? `Approval recorded for ${unknown.map((x) => `#${x.id}`).join(", ")}, but remote completion is unknown. Do not retry the action.`
+          : "",
+        failed.length > 0
+          ? `Approval recorded for ${failed.map((x) => `#${x.id}`).join(", ")}, but the call did not complete.`
+          : "",
+      ].filter(Boolean);
+      if (outcomes.length > 0) reportStatus(outcomes.join(" "));
       setSelected(new Set());
       notifyAttentionChange();
       // only approved ids settled — forbidden/error rows remain in the queue
@@ -662,8 +663,10 @@ export default function ReviewPage() {
           `Proposal #${id} was approved, but remote completion is unknown. Do not retry the action.`,
         );
       } else if (result.execution_status === "failed") {
+        // not "nothing changed": a tool that declares itself a read can
+        // still have written before it failed (extensions/tools.py)
         reportStatus(
-          `Proposal #${id} was approved, but the remote call failed. Nothing changed.`,
+          `Proposal #${id} was approved, but the call did not complete.`,
         );
       } else {
         reportStatus(
@@ -1057,7 +1060,7 @@ export default function ReviewPage() {
                 {c.execution_status === "completion_unknown"
                   ? "Completion unknown — do not retry. "
                   : c.execution_status === "failed"
-                    ? "The remote call failed. Nothing changed. "
+                    ? "The call did not complete. "
                     : "✅ "}
                 #{c.id}{" "}
                 {c.text_cleared_at
