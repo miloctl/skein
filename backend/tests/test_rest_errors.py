@@ -246,6 +246,15 @@ def test_semantic_permission_refusal_stays_forbidden():
     assert response.body == b'{"detail":"Only a steward can do this."}'
 
 
+def test_provenance_of_an_absent_row_is_a_404_for_every_kind(client, fresh_db):
+    """The not-found sentence was built from the entity name plus "s", which
+    scope.NOUN does not hold for these kinds, so an id the caller sent
+    answered 500."""
+    for kind in ("question_assign", "memory", "intake", "note_edit", "allocation"):
+        response = client.get(f"/api/provenance/{kind}/999")
+        assert response.status_code == 404, (kind, response.text)
+
+
 def test_a_refusal_does_not_quote_the_rejected_value(client, fresh_db):
     """An error response never echoes what the caller sent (CLAUDE.md). Each
     of these quoted it: a path segment, a date string, or a duplicate name."""

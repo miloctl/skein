@@ -257,6 +257,44 @@ def test_remember_in_a_linked_thread_decides_on_the_engagement(fresh_db):
         assert governed.get("/api/memories").json() == []
 
 
+def test_remember_team_needs_a_proven_name_in_an_unlinked_thread(client):
+    """The share route and the linked-thread branch refused a typed name, but
+    an unlinked thread filed the proposal, and its team notice quoted the
+    fact under a name anybody can type."""
+    from app import db
+    from app.services import users
+
+    users.ensure_user("bo")  # a teammate who could approve it
+    out = _read_chat(client, "/remember team: demos every Friday")
+    assert "requires strong identity" in out
+    assert db.query("SELECT id FROM pending_changes") == []
+
+
+def test_remember_team_offers_the_team_share_only_where_it_works(client):
+    """In a one-person team the share to the whole team fails the same way,
+    so suggesting it sent the person to a second refusal."""
+    from conftest import _strong
+
+    from app.services import crews, engagements
+
+    def linked_share(engagement_id):
+        _read_chat(client, "hello")
+        client.patch("/api/chats/t", json={"engagement_id": engagement_id})
+        body = {"thread_id": "t", "message": "/remember team: demos every Friday"}
+        with client.stream("POST", "/api/chat", json=body, headers=_strong(client)) as resp:
+            return resp.read().decode()
+
+    alone = linked_share(engagements.create_engagement("Atlas", actor="tester")["id"])
+    assert "No other active teammate" in alone
+    assert "Share with the team" not in alone
+
+    crew = crews.create_crew("ops", actor="tester")
+    crewed = engagements.create_engagement(
+        "Beacon", actor="tester", visibility="crew", crew_id=crew["id"]
+    )["id"]
+    assert "Share with the team" in linked_share(crewed)
+
+
 def test_remember_in_an_unlinked_thread_stays_a_direct_team_memory(client):
     out = _read_chat(client, "/remember demos every Friday")
     assert "Remembered" in out

@@ -88,6 +88,27 @@ def effective_authority(actor: str, entity: str) -> tuple[str, bool]:
     return status["effective_level"], bool(status["review_expired"])
 
 
+def _creates_in_a_crew(payload: dict, requester: scope.Viewer) -> bool:
+    """Whether a create lands in a crew the requester can read: declared at
+    the crew tier, or under a crew-tier parent."""
+    from ..services import policy_context as domain_policy
+
+    if str(payload.get("visibility") or "") == scope.CREW:
+        return True
+    for key, parent in (
+        ("engagement_id", "engagement"),
+        ("milestone_id", "milestone"),
+        ("task_id", "task"),
+    ):
+        parent_id = str(payload.get(key) or "")
+        if parent_id.isdigit() and (
+            domain_policy.existing_scoped(parent, int(parent_id), requester).get("classification")
+            == scope.CREW
+        ):
+            return True
+    return False
+
+
 def gated_write(
     entity: str,
     action: str,
@@ -178,6 +199,22 @@ def _gated_write_locked(
         and not domain_policy.existing_scoped(entity, entity_id, requester)
     ):
         detail = "No record you can read was found."
+        receipts.record("refused", entity, detail, actor=actor)
+        return json.dumps({"error": detail})
+    # An agent is in no crew, and the apply runs as the agent, which
+    # crews.assert_writable refuses for a crew row. Resolved as the agent
+    # below, the refusal read "no engagement #N" for a record the person can
+    # see, or blamed a policy that no administrator can change.
+    if (
+        not entity_id
+        and isinstance(requester, scope.Viewer)
+        and requester.name
+        and _creates_in_a_crew(payload, requester)
+    ):
+        detail = (
+            "Only crew members can create records in a crew, and an agent is not a"
+            " crew member. Create this record yourself."
+        )
         receipts.record("refused", entity, detail, actor=actor)
         return json.dumps({"error": detail})
 
