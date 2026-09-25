@@ -33,6 +33,27 @@ def test_creates_a_readable_document(fresh_db):
     assert row["content_sha256"] == artifact_files.content_sha256(Path(row["path"]).read_bytes())
 
 
+def test_a_document_for_an_absent_engagement_is_refused_by_name(client, fresh_db):
+    """The foreign key caught it instead: approving the proposal answered
+    500, and every later approval answered 500 again."""
+    from conftest import _strong
+
+    from app.services import review, users
+
+    users.ensure_user("scribe", kind="agent")
+    proposal = review.propose_change(
+        "document",
+        "create",
+        {"title": "Plan", "content": "# Plan", "engagement_id": 999999},
+        actor="scribe",
+    )
+    answer = client.post(
+        f"/api/review/{proposal['id']}/approve", json={}, headers=_strong(client, "ops")
+    )
+    assert answer.status_code == 400, answer.text
+    assert "no engagement #999999" in answer.json()["detail"]
+
+
 def test_a_document_is_a_report_and_an_upload_is_not(client):
     """The reader on Work → Reports sees what agents wrote and never somebody
     else's attached file."""

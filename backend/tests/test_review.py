@@ -1379,3 +1379,97 @@ def test_an_internal_apply_fault_keeps_its_text_out_of_the_answer(client, fresh_
         "SELECT status, review_note FROM pending_changes WHERE id = ?", (proposal["id"],)
     )
     assert row["status"] == "pending" and "ZZPATHZZ" not in row["review_note"]
+
+
+def test_approving_a_create_holds_its_parents_in_the_rename_order(fresh_db, monkeypatch):
+    """The approval held the task's milestone, then its engagement. A rename
+    locks the engagement, then its milestones (engagements.update_engagement),
+    so the two deadlocked when they met."""
+    import threading
+    import time
+
+    from app.services import engagements, policy_context, review, work
+
+    eid = engagements.create_engagement("Atlas", actor="ops")["id"]
+    mid = work.create_milestone("Beta", project="Atlas", actor="ops")["id"]
+    proposal = review.propose_change(
+        "task",
+        "create",
+        {"title": "ship it", "milestone_id": mid, "engagement_id": eid},
+        actor="scribe",
+    )
+    held_milestone, renamed = threading.Event(), threading.Event()
+    real = policy_context.hold_resource
+
+    def pausing(entity, entity_id):
+        real(entity, entity_id)
+        if entity == "milestone" and threading.current_thread().name == "approver":
+            held_milestone.set()
+            # the rename starts and blocks on whichever lock this side holds
+            renamed.wait(1.5)
+
+    monkeypatch.setattr(policy_context, "hold_resource", pausing)
+    errors: list[BaseException] = []
+
+    def approve():
+        try:
+            review.approve_change(proposal["id"], actor="ops", strong=True)
+        except BaseException as exc:
+            errors.append(exc)
+
+    def rename():
+        assert held_milestone.wait(5)
+        try:
+            engagements.update_engagement(eid, name="Atlas Two", actor="ops")
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            renamed.set()
+
+    threads = [threading.Thread(target=approve, name="approver"), threading.Thread(target=rename)]
+    for thread in threads:
+        thread.start()
+    time.sleep(0)
+    for thread in threads:
+        thread.join(15)
+    assert errors == []
+    assert db.query_one("SELECT status FROM pending_changes WHERE id = ?", (proposal["id"],)) == {
+        "status": "approved"
+    }
+
+
+def test_one_internal_fault_does_not_abort_a_batch_approve(client, fresh_db, monkeypatch):
+    """The fault answered 500 for the whole batch: the item before it had
+    already committed but was never reported, and the one after it was never
+    tried. A storage fault in the batch also carried its server path."""
+    from app.services import collab, review, users
+
+    users.ensure_user("scribe", kind="agent")
+    first, storage, broken, last = (
+        review.propose_change("note", "create", {"topic": f"t{n}", "content": "c"}, actor="scribe")
+        for n in range(4)
+    )
+    real = collab.save_note
+
+    def faulty(topic, *args, **kwargs):
+        if topic == "t1":
+            raise PermissionError(13, "Permission denied", "/srv/skein/ZZPATHZZ/artifacts")
+        if topic == "t2":
+            raise KeyError("ZZINTERNALZZ")
+        return real(topic, *args, **kwargs)
+
+    monkeypatch.setattr(collab, "save_note", faulty)
+    answer = client.post(
+        "/api/review/approve-batch",
+        json={"ids": [first["id"], storage["id"], broken["id"], last["id"]]},
+        headers=_strong(client, "ops"),
+    )
+    assert answer.status_code == 200, answer.text
+    statuses = {row["id"]: row["status"] for row in answer.json()["results"]}
+    assert statuses == {
+        first["id"]: "approved",
+        storage["id"]: "error",
+        broken["id"]: "error",
+        last["id"]: "approved",
+    }
+    assert "ZZPATHZZ" not in answer.text and "ZZINTERNALZZ" not in answer.text

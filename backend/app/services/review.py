@@ -800,10 +800,13 @@ def _approve_change_locked(
             payload = json.loads(change.get("payload") or "{}")
         except ValueError:
             payload = {}
+        # top down, the order engagements.update_engagement locks a rename
+        # in (the engagement, then its milestones); bottom up, the two
+        # deadlock
         for key, parent in (
-            ("task_id", "task"),
-            ("milestone_id", "milestone"),
             ("engagement_id", "engagement"),
+            ("milestone_id", "milestone"),
+            ("task_id", "task"),
         ):
             if isinstance(payload, dict) and str(payload.get(key) or "").isdigit():
                 policy_context.hold_resource(parent, int(payload[key]))
