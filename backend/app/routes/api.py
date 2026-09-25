@@ -3,6 +3,7 @@ alongside agent tools — both go through app.services)."""
 
 import asyncio
 import json
+import logging
 import secrets
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
@@ -3895,7 +3896,32 @@ def post_approve_batch(
             # Per item, never a batch-level 403: earlier ids in this loop have
             # already committed, so an aborting handler would hide a partial
             # apply from the caller and skip every id after this one.
-            results.append({"id": cid, "status": "forbidden", "detail": str(exc)})
+            if exc.errno is not None or exc.filename is not None:
+                # a storage fault, not the caller's authority, and str(exc)
+                # carries a server path (main.py::permission_error_handler)
+                logging.getLogger("skein").exception("storage permission failure")
+                results.append(
+                    {
+                        "id": cid,
+                        "status": "error",
+                        "detail": "Skein cannot access its storage. Ask whoever runs"
+                        " the server to check storage permissions.",
+                    }
+                )
+            else:
+                results.append({"id": cid, "status": "forbidden", "detail": str(exc)})
+        except Exception:
+            # Per item for the same reason. review.approve_change raises our
+            # own faults unwrapped, and one that escapes the loop hides the ids
+            # that already applied and skips every id after it.
+            logging.getLogger("skein").exception("batch approve failed for #%s", cid)
+            results.append(
+                {
+                    "id": cid,
+                    "status": "error",
+                    "detail": "Something failed on the server. Read the server log for the cause.",
+                }
+            )
     return {"results": results}
 
 

@@ -82,6 +82,14 @@ def create_document(
     """
     _check_content(content)
     _check_source(source_id)
+    # checked, not left to the foreign key: its violation is a 500 that an
+    # approval repeats on every try, and the reader learns nothing
+    efrag, ep = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
+    if engagement_id and not db.query_one(
+        f"SELECT id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (engagement_id, *ep),
+    ):
+        raise ValueError(scope.missing_text("engagements", engagement_id))
     clean_title = title.strip()[:TITLE_LIMIT] or "Untitled document"
     with db.transaction():
         # The row is inserted before the file, because the file is named after
