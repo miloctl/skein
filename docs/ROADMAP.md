@@ -227,6 +227,18 @@ morning sweep, which notifies each delegated task's sponsor rather than filing
   Removing the package also drops its dependency tree from the image
   (`slack-bolt`, `botocore`, `pillow`, `rich`, `prompt-toolkit`, `dill`). The
   release note must tell operators that the variable is ignored.
+- **Agent edits of a requester's private row dead-end.** The gate files an
+  agent's update to a private row its requester can read (a `note_edit` on
+  their private note). The apply runs as the agent, `scope.assert_editable`
+  refuses a machine actor on a private row, and approval auto-rejects the
+  proposal as "target no longer exists". Refuse it at the gate with the true
+  reason, as `_gate._creates_in_a_crew` does for crew creates, after checking
+  which private updates do apply (a memory forget runs as its requester).
+- **A failed or unknown MCP review row has no error code.** The ledger row
+  says `remote_error` or `deadline_exceeded`, but
+  `extension_review_invocations.error_code` stays empty for `mcp_tool`,
+  because `mcp_tools._refusal` carries no code and `execute_reviewed_mcp`
+  returns none. Carry the audit code through the refusal.
 - Notify-tier writes link to an empty `/review`.
 - The review registry has no registration-time assertion on apply-handler
   signatures — a mismatched handler surfaces at apply time as a caught
@@ -249,6 +261,10 @@ D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped, without the proposed
 - **D4 MCP parity** — landed through `week` on 2026-09-02. Review approval
   over MCP stays deliberately absent, because an agent must not launder its
   own proposal.
+- **Test turns that match production.** `conftest._turn` leaves the agent
+  identity as "agent", not the persona, and does not apply the shared-chat
+  tool allowlist (`SHARED_CHAT_TOOLS`), so a test can call a tool the worker
+  never offers. Make it match `team_agent` and the shared-chat worker.
 - **F6** CLI argument grammar normalization. The commands that take an
   action word still validate their own combinations by hand in `main()`.
 - Use HTTPS for the browser stage in
@@ -321,6 +337,20 @@ settled (time zone, the auth bridge, `wip_by_person` egress) were dropped
 - **If HMAC is ever added to the activity chain** — changing the preimage
   invalidates every existing chain AND contradicts the append-only anchor
   log. Plan it as a logged genesis reset, never a migration.
+- **`statement_timeout` is not classified as load.** A cancelled query
+  (SQLSTATE 57014, `psycopg.errors.QueryCanceled`) answers 500, and a retry
+  with nothing changed succeeds. Neither the app nor `deploy/` sets
+  `statement_timeout`, so only an operator's setting or a cancelled backend
+  reaches it. If one is ever configured, map it to 503 with Retry-After
+  (`db.BUSY_ERRORS`), and decide how a query that always times out stays
+  visible as a fault.
+- **May an agent create records in a crew for a crew member?** An agent is
+  in no crew, so `crews.assert_writable` refuses it, and the gate refuses
+  such a create up front (`_gate._creates_in_a_crew`). Allowing it means the
+  gate, the approval re-check (`review._revalidate_policy`, which resolves as
+  the agent) and the apply all resolve crew membership as the requester, and
+  a crew row gets an agent author that no member added. Decide before
+  building.
 
 ## Insights & usage (from the 2026-08-02 buzz review)
 
