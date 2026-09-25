@@ -2601,7 +2601,7 @@ def test_mcp_tools_need_complete_metadata_and_pass_through_policy(
     )
     assert pending is not None
     users.ensure_user("manager")
-    monkeypatch.setattr(mcp_module, "mcp_tools", lambda: [governed])
+    monkeypatch.setattr(mcp_module, "_tools", [governed])
 
     def resume(invocation, _change_id):
         return asyncio.run(execute_reviewed_mcp(invocation, registry))
@@ -2908,7 +2908,7 @@ def test_review_verdict_supplies_the_current_grant_to_mcp_tool(fresh_db, monkeyp
         "SELECT id FROM pending_changes WHERE entity = 'extension_mcp_tool'"
     )
     required["group"] = "new-managers"
-    monkeypatch.setattr(mcp_module, "mcp_tools", lambda: [governed])
+    monkeypatch.setattr(mcp_module, "_tools", [governed])
     approved = review.approve_change(
         pending["id"],
         actor="manager",
@@ -3000,7 +3000,7 @@ def test_mcp_rejection_uses_current_tool_metadata(fresh_db, monkeypatch):
     pending = fresh_db.query_one(
         "SELECT id FROM pending_changes WHERE entity = 'extension_mcp_tool'"
     )
-    monkeypatch.setattr(mcp_module, "mcp_tools", lambda: [wrapper("2.0.0", "critical")])
+    monkeypatch.setattr(mcp_module, "_tools", [wrapper("2.0.0", "critical")])
 
     with pytest.raises(PermissionError, match="configured workplace approver"):
         review.reject_change(
@@ -5312,7 +5312,7 @@ def test_reviewed_mcp_call_is_bound_to_one_server(fresh_db, monkeypatch):
     second = _RemoteTool()
     server_a = GovernedMCPTool(first, metadata, "server-a")
     server_b = GovernedMCPTool(second, metadata, "server-b")
-    monkeypatch.setattr(mcp_module, "mcp_tools", lambda: [server_a, server_b])
+    monkeypatch.setattr(mcp_module, "_tools", [server_a, server_b])
     invocation = {
         "tool": "atlas_remote",
         "server": "server-b",
