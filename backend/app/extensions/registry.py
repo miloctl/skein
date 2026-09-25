@@ -158,13 +158,13 @@ class ExtensionRegistry:
                     f"Identity profile resolver {contribution.name!r} returned groups."
                 )
         if (subject.refresh_required or subject.groups) and not groups_resolved:
-            # An identity mapper or policy rule can turn a stale group into a
-            # grant or lift a deny, so either one requires the directory.
-            # Without both (the stock core app), refusing leaves every OIDC
-            # requester's proposal unapprovable. The saved groups are still
-            # dropped: a contributed tool handler reads subject.groups, and
-            # the saved ones can name a group the person has since lost.
-            if self.identities or self.policies:
+            # These four receive the requester (mapper groups, PolicyInput,
+            # ToolHandlerContext, WorkflowActionContext), and any of them can
+            # turn a stale group into a grant, or an emptied one into a lifted
+            # deny. So each requires the directory. With none composed (the
+            # stock core app), no code reads the groups, and refusing leaves
+            # every OIDC requester's proposal unapprovable.
+            if self.identities or self.policies or self.tools or self.workflow_actions:
                 raise PermissionError("The requester directory identity could not be refreshed.")
             groups = ()
         if not active:
