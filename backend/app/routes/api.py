@@ -1563,7 +1563,7 @@ def get_whoami(user: CurrentUser, request: Request):
 
 
 @router.post("/keys/request")
-def post_key_request(user: CurrentUser):
+def post_key_request(user: CurrentUser, request: Request):
     from ..services.api_keys import request_key
 
     # ABOVE the try, never inside it: RateLimited subclasses ValueError, so
@@ -1573,7 +1573,7 @@ def post_key_request(user: CurrentUser):
     # most likely to retry.
     ratelimit.check("keys_request", user)
     try:
-        return request_key(user)
+        return request_key(user, strong=bool(getattr(request.state, "strong_auth", False)))
     except db.NotFound:
         raise
     except ValueError as e:

@@ -173,8 +173,13 @@ def test_a_sign_in_name_can_request_a_key_and_a_shell_word_cannot(fresh_db):
     be pasted into a root shell."""
     from app.services import api_keys
 
-    api_keys.request_key("ava.lee@example.com")
+    api_keys.request_key("ava.lee@example.com", strong=True)
     notes = fresh_db.query("SELECT message FROM notifications")
     assert any("bootstrap_key ava.lee@example.com" in n["message"] for n in notes)
-    with pytest.raises(ValueError, match="mint command"):
-        api_keys.request_key("ava;reboot")
+    # a validated sign-in is not a self-asserted name
+    assert not any("self-asserted" in n["message"] for n in notes)
+    # PowerShell expands a leading "@" ("@true" becomes True), and a leading
+    # "-" reads as an option
+    for word in ("ava;reboot", "@true", "-h"):
+        with pytest.raises(ValueError, match="server command that mints a key"):
+            api_keys.request_key(word)
