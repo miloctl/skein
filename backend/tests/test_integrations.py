@@ -704,6 +704,11 @@ def test_a_failed_personal_server_recovers_off_the_chat_path(fresh_db, monkeypat
     assert sid in m._retry_state, "the env path with no servers wiped a personal backoff"
     assert m.personal_mcp_tools("ava") == [] and len(attempts) == 1
     assert [row["server_id"] for row in m.status() if not row["connected"]] == [sid]
+    # backing off: nothing starts, so the answer must not claim a connect
+    with pytest.raises(m.MCPServerNotReady) as backing_off:
+        m._governed("notes_ping", sid)
+    assert backing_off.value.code == "MCP_SERVER_UNAVAILABLE"
+    assert backing_off.value.retry_after > 10 and len(attempts) == 1
 
     m._retry_state[sid] = (1, 0)
     started = time.monotonic()
@@ -718,15 +723,16 @@ def test_a_failed_personal_server_recovers_off_the_chat_path(fresh_db, monkeypat
     assert m._governed("notes_ping", sid).server_id == sid
     m.forget(sid)
     started = time.monotonic()
-    with pytest.raises(m.MCPServerConnecting):
+    with pytest.raises(m.MCPServerNotReady):
         m._governed("notes_ping", sid)
     assert time.monotonic() - started < 1, "the reviewed path waited on a connect"
     _settle_personal(m)
     assert len(attempts) == 3 and m._governed("notes_ping", sid).server_id == sid
+    # another pod took the delete, so this pod still holds the connection
     fresh_db.execute("DELETE FROM mcp_servers")
-    m.forget(sid)
     with pytest.raises(ValueError):
         m._governed("notes_ping", sid)
+    assert sid not in m._connections, "a deleted server's credential stayed usable"
     assert len(attempts) == 3, "the reviewed path opened a deleted server"
 
 
@@ -822,6 +828,36 @@ def test_a_cold_personal_server_warms_on_approval_and_answers_retry(
     assert batch.status_code == 200, batch.text
     assert batch.json()["results"][0]["status"] == "error"
     _settle_personal(m)
+    execute = m.execute_reviewed_mcp
+
+    async def drop_then_execute(invocation, registry):
+        m._connections.pop(sid)  # another request's forget, after revalidation
+        return await execute(invocation, registry)
+
+    monkeypatch.setattr(m, "execute_reviewed_mcp", drop_then_execute)
+    dropped = client.post(f"/api/review/{pending['id']}/approve", json={"note": ""}, headers=ava)
+    assert dropped.status_code == 503, dropped.text
+    monkeypatch.setattr(m, "execute_reviewed_mcp", execute)
+    _settle_personal(m)
     warm = client.post(f"/api/review/{pending['id']}/approve", json={"note": ""}, headers=ava)
     assert warm.status_code == 200, warm.text
     assert (warm.json()["status"], warm.json()["result"]["status"]) == ("approved", "completed")
+
+
+def test_a_signed_out_oauth_server_asks_for_a_sign_in_not_a_retry(fresh_db, monkeypatch, clean_mcp):
+    """A failed refresh sets oauth_signin_required and keeps the sealed
+    tokens, so signed_in alone read as ready and every approval answered
+    "wait 10 seconds" for a server that could not connect."""
+    from cryptography.fernet import Fernet
+
+    from app.services import mcp_servers
+
+    m = clean_mcp
+    monkeypatch.setattr("app.config.CREDENTIAL_KEY", Fernet.generate_key().decode())
+    mcp_servers.add("ava", "wiki", "https://wiki.example/mcp", auth="oauth", actor="ava")
+    fresh_db.execute(
+        "UPDATE mcp_servers SET oauth_tokens_sealed = 'x', oauth_signin_required = TRUE"
+    )
+    with pytest.raises(m.MCPServerNotReady) as refused:
+        m._governed("wiki_search", "personal:ava:wiki")
+    assert (refused.value.code, refused.value.status_code) == ("MCP_SIGN_IN_REQUIRED", 409)
