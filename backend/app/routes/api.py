@@ -2210,7 +2210,7 @@ def get_review_stats(
 ):
     with db.read_transaction():
         _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.review.stats")
-        return review.review_stats(viewer, admin=is_administrator(user, request))
+        return review.review_stats(viewer, admin=_named_admin_reader(user, request))
 
 
 @router.get("/review/season")
@@ -2222,7 +2222,7 @@ def get_review_season(
 ):
     with db.read_transaction():
         _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.review.season")
-        return review.season_readout(user, admin=is_administrator(user, request))
+        return review.season_readout(user, admin=_named_admin_reader(user, request))
 
 
 class FeedbackIn(BaseModel):
@@ -2286,7 +2286,10 @@ def post_week_close(user: CurrentUser, force: bool = False):
 
 @router.get("/agents")
 def get_agents(user: CurrentUser, request: Request):
-    admin = is_administrator(user, request)
+    # _named_admin_reader, not is_administrator: another person's `-mcp`
+    # record is something an administrator READS (users.person_agent_visible),
+    # and the trusted-header fallback makes every key holder an administrator.
+    admin = _named_admin_reader(user, request)
     return [
         row
         for row in delegation.mission_control()
@@ -2524,8 +2527,8 @@ def get_agents_trust(user: CurrentUser, request: Request):
 
     # `<person>-mcp` is one person's agent, so its rejection streak is that
     # person's — the person-level judgment trust_scores exists to withhold.
-    # The owner and an administrator see it; nobody else does.
-    admin = is_administrator(user, request)
+    # The owner and a named administrator see it; nobody else does.
+    admin = _named_admin_reader(user, request)
     return [
         row
         for row in delegation.trust_scores()
@@ -2589,7 +2592,7 @@ def get_agent_inbox(
     # another person's `<name>-mcp` inbox holds their rejected proposals and
     # reviewer notes: it answers as an absent agent does, so it names nobody
     if not users.is_agent(agent) or not users.person_agent_visible(
-        agent, user, admin=is_administrator(user, request)
+        agent, user, admin=_named_admin_reader(user, request)
     ):
         # names no name: an error never echoes a rejected value back (CLAUDE.md)
         raise HTTPException(status_code=404, detail="no such agent. Check the name.")
