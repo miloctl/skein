@@ -117,15 +117,29 @@ function isStranded(value: unknown): value is Stranded[] {
  *  A failed latest attempt appears before its job becomes stale. Full ledger
  *  verification stays in Insights because its cost grows with every row.
  */
-export function OperationsCard({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
+export function OperationsCard({
+  headingLevel = 2,
+  namedAdmin = false,
+}: {
+  headingLevel?: 2 | 3;
+  // whoami `admin`, the test routes/api.py get_review_stranded applies.
+  // Asked by anyone else, the route answers 403, and the browser logs every
+  // 403 as a console error whatever this card catches.
+  namedAdmin?: boolean;
+}) {
   const [h, setH] = useState<Health | null>(null);
   const [error, setError] = useState("");
-  const [stranded, setStranded] = useState<Stranded[]>([]);
-  const [strandedError, setStrandedError] = useState("");
+  const [loadedStranded, setStranded] = useState<Stranded[]>([]);
+  const [loadedStrandedError, setStrandedError] = useState("");
+  // derived, not reset in the effect: a list loaded for an administrator
+  // must not outlive an identity change to someone who is not one
+  const stranded = namedAdmin ? loadedStranded : [];
+  const strandedError = namedAdmin ? loadedStrandedError : "";
 
   useEffect(() => {
-    // A named administrator only (routes/api.py get_review_stranded): for
-    // everyone else it answers 403, and this card shows nothing for it. Any
+    if (!namedAdmin) return;
+    // A 403 here is an administrator removed since whoami answered: the
+    // list is no longer theirs, and this card shows nothing for it. Any
     // other failure is a list the administrator did not get, and read as
     // empty it becomes the all-clear below.
     const failed = "The stranded-proposal list did not load. Reload this page.";
@@ -137,7 +151,7 @@ export function OperationsCard({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
       .catch((e) => {
         if (!(e instanceof ApiError && e.status === 403)) setStrandedError(failed);
       });
-  }, []);
+  }, [namedAdmin]);
 
   useEffect(() => {
     // the shape is tested, not assumed: an older backend behind a newer

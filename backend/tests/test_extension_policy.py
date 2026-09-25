@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import threading
 import time
 from dataclasses import dataclass, replace
 from types import SimpleNamespace
@@ -3950,6 +3951,9 @@ def test_a_directory_outage_keeps_the_approver_requirement_on_reject(fresh_db, o
     from app.services import review, scope, users
 
     directory = {"up": True}
+    # far past the 2-second refresh deadline, so the bound below holds on a
+    # slow CI runner and still fails if the call waits for the resolver
+    hang = threading.Event()
 
     def resolver(_name):
         if directory["up"]:
@@ -3957,7 +3961,7 @@ def test_a_directory_outage_keeps_the_approver_requirement_on_reject(fresh_db, o
         if outage == "raises":
             raise json.JSONDecodeError("Expecting value", "<html>", 0)
         if outage == "hangs":
-            time.sleep(4)
+            hang.wait(20)
         return None
 
     def finance_reviews(request: PolicyInput):
@@ -4015,15 +4019,19 @@ def test_a_directory_outage_keeps_the_approver_requirement_on_reject(fresh_db, o
             policy_registry=registry,
         )
 
-    if outage != "no record":
-        started = time.monotonic()
-        with TestClient(create_app(modules=(module,)), headers={"X-User": "lead"}) as client:
-            response = client.post(f"/api/review/{proposal['id']}/approve", json={"note": ""})
-        assert (response.status_code, response.headers.get("Retry-After")) == (503, "30")
-        assert time.monotonic() - started < 4.5, "the directory call ran past its deadline"
-    with pytest.raises(PermissionError, match="configured workplace approver"):
-        reject("manager", ())
-    assert reject("lead", ("finance",))["status"] == "rejected"
+    try:
+        if outage != "no record":
+            with TestClient(create_app(modules=(module,)), headers={"X-User": "lead"}) as client:
+                started = time.monotonic()
+                response = client.post(f"/api/review/{proposal['id']}/approve", json={"note": ""})
+                elapsed = time.monotonic() - started
+            assert (response.status_code, response.headers.get("Retry-After")) == (503, "30")
+            assert elapsed < 10, "the directory call ran past its deadline"
+        with pytest.raises(PermissionError, match="configured workplace approver"):
+            reject("manager", ())
+        assert reject("lead", ("finance",))["status"] == "rejected"
+    finally:
+        hang.set()
 
 
 def test_core_agent_approval_refuses_a_deactivated_requester(fresh_db):
