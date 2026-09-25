@@ -274,6 +274,12 @@ def test_one_owner_cannot_hold_every_connect_slot(fresh_db, sealed, monkeypatch)
         with pytest.raises(mcp_tools.MCPServerNotReady) as busy:
             mcp_tools._governed("notes_search", waiting)
         assert busy.value.code == "MCP_CONNECT_BUSY"
+        # a server that failed once, its backoff over: still busy, never
+        # "Skein started to connect it"
+        monkeypatch.setitem(mcp_tools._retry_state, waiting, (1, time.monotonic() - 1))
+        with pytest.raises(mcp_tools.MCPServerNotReady) as busy:
+            mcp_tools._governed("notes_search", waiting)
+        assert busy.value.code == "MCP_CONNECT_BUSY"
         # another person still gets a slot
         bo = mcp_servers.add("bo", "wiki", "https://wiki.example/mcp", actor="bo")
         mcp_tools.personal_mcp_tools("bo")

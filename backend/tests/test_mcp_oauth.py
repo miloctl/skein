@@ -1011,7 +1011,7 @@ def test_a_sign_in_thread_is_the_only_opener(fresh_db, sealed):
 def test_a_start_against_a_dead_server_returns_when_the_connect_gives_up(
     fresh_db, sealed, monkeypatch
 ):
-    from app.agents import mcp_oauth
+    from app.agents import mcp_oauth, mcp_tools
     from app.services import mcp_servers
 
     class Dead(FakeClient):
@@ -1026,9 +1026,13 @@ def test_a_start_against_a_dead_server_returns_when_the_connect_gives_up(
     _, server = mcp_servers.entry_for(row["id"], "ava")
     server["oauth_redirect_uri"] = "https://skein.example/api/mcp/oauth/callback"
     started = time.monotonic()
-    with pytest.raises(ValueError):
+    # the server is down, not the URL wrong: a retry fixes it, so 503 with
+    # the retry wait, never the 400 that sends the person to edit the URL
+    with pytest.raises(mcp_tools.MCPServerNotReady) as down:
         mcp_oauth.start(row["server_id"], server)
     assert time.monotonic() - started < 3
+    assert (down.value.code, down.value.status_code) == ("MCP_SERVER_UNAVAILABLE", 503)
+    assert down.value.retry_after > 0
 
 
 def test_a_sign_in_with_no_free_connect_slot_says_busy(fresh_db, sealed, monkeypatch):
@@ -1081,3 +1085,9 @@ def test_a_slow_sign_in_start_lets_the_person_try_again(fresh_db, sealed, monkey
             mcp_oauth.start(sid, server)
     finally:
         release.set()
+        # the released sign-ins still write their claim release; fresh_db
+        # drops the database under them otherwise ("being accessed by other
+        # users")
+        for thread in threading.enumerate():
+            if thread.name == "skein-mcp-oauth":
+                thread.join(10)

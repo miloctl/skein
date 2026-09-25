@@ -6,6 +6,7 @@ any process. The local flow only carries the waiting thread and browser URL.
 """
 
 import asyncio
+import math
 import threading
 import time
 from dataclasses import dataclass, field
@@ -23,6 +24,7 @@ from mcp.shared.auth import (
 from pydantic import AnyUrl
 
 from ..services import mcp_servers
+from ..services.wording import count
 
 # A sign-in the person never finishes must not hold its thread for good.
 FLOW_SECONDS = 300.0
@@ -247,6 +249,20 @@ def start(server_id: str, server: dict) -> str:
                 retry_after=60,
             )
         if flow.done.is_set():
+            with mcp_tools._lock:
+                connected = server_id in mcp_tools._connections
+                retry = mcp_tools._retry_state.get(server_id)
+            if not connected and retry and retry[0] > 0:
+                # The connect failed and a retry is set: the server is down
+                # or unreachable, which a retry fixes (503). Answered as a
+                # 400 about the URL, the person edits a URL that was fine.
+                wait = max(1, math.ceil(retry[1] - time.monotonic()))
+                raise mcp_tools.MCPServerNotReady(
+                    "MCP_SERVER_UNAVAILABLE",
+                    f"The MCP server did not answer. Wait {count(wait, 'second')}, then"
+                    " sign in again. If the sign-in fails again, check the server URL.",
+                    retry_after=wait,
+                )
             raise ValueError(
                 "The server did not ask for a sign-in. Check that the URL is an MCP server"
                 " that uses OAuth, then try again."
