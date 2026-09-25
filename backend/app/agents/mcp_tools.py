@@ -13,6 +13,7 @@ import contextlib
 import hashlib
 import json
 import logging
+import math
 import os
 import threading
 import time
@@ -578,7 +579,36 @@ def _not_ready(owner: str, server: str, row: dict, *, warm: bool) -> MCPServerNo
             " turn. Wait 10 seconds, then approve again.",
             retry_after=10,
         )
-    wait = 0 if opening or retry is None else int(retry[1] - time.monotonic())
+    # rounded up: truncated, a backoff with 0.4 seconds left reads as 0 and
+    # is reported as a connect that has started
+    wait = 0 if opening or retry is None else math.ceil(retry[1] - time.monotonic())
+    if wait > 0:
+        return MCPServerNotReady(
+            "MCP_SERVER_UNAVAILABLE",
+            f"The MCP server for this tool did not answer. Skein tries it again in"
+            f" {count(wait, 'second')}. Approve again after that, or reject the proposal.",
+            retry_after=wait,
+        )
+    return MCPServerNotReady(
+        "MCP_SERVER_CONNECTING",
+        "The MCP server for this tool is not connected yet. Skein started to"
+        " connect it. Wait 10 seconds, then approve again.",
+        retry_after=10,
+    )
+
+
+def _system_not_ready(server: str) -> MCPServerNotReady:
+    """A configured shared server this process has not connected. The load
+    runs on its own thread, as the retry path in mcp_tools() does."""
+    # read before the load starts: the answer describes this request, and a
+    # fast load that fails first would otherwise change it mid-reply
+    with _lock:
+        retry = _retry_state.get(server)
+    try:
+        threading.Thread(target=mcp_tools, daemon=True, name="skein-mcp-retry").start()
+    except RuntimeError:
+        log.warning("MCP load thread failed to start — MCP will retry")
+    wait = math.ceil(retry[1] - time.monotonic()) if retry else 0
     if wait > 0:
         return MCPServerNotReady(
             "MCP_SERVER_UNAVAILABLE",
@@ -628,7 +658,18 @@ def _governed(name: str, server: str, *, warm: bool = True) -> GovernedMCPTool:
             raise _not_ready(owner, server, row, warm=warm)
         pool = list(connection.tools)
     else:
-        pool = mcp_tools()
+        # The cache only, never mcp_tools(): before the first load that
+        # call connects every shared server in the foreground (up to the
+        # 30-second startup wait each), holding this verdict's database
+        # connection the whole time.
+        with _lock:
+            connected = any(c.server_id == server for c in _system_connections())
+            pool = list(_tools) if _tools is not None else _composed_tools(_system_connections())
+        if not connected and server in {server_id for server_id, _ in _server_entries()}:
+            # configured but down: "not composed" would clear the approver
+            # requirement on reject and tell the reviewer to request a new
+            # review that fails the same way until the server is back
+            raise _system_not_ready(server)
     for item in pool:
         if (
             isinstance(item, GovernedMCPTool)

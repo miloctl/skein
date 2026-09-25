@@ -709,6 +709,11 @@ def test_a_failed_personal_server_recovers_off_the_chat_path(fresh_db, monkeypat
         m._governed("notes_ping", sid)
     assert backing_off.value.code == "MCP_SERVER_UNAVAILABLE"
     assert backing_off.value.retry_after > 10 and len(attempts) == 1
+    # under a second left is still a backoff, never a connect that started
+    m._retry_state[sid] = (1, time.monotonic() + 0.4)
+    with pytest.raises(m.MCPServerNotReady) as almost:
+        m._governed("notes_ping", sid)
+    assert (almost.value.code, almost.value.retry_after) == ("MCP_SERVER_UNAVAILABLE", 1)
 
     m._retry_state[sid] = (1, 0)
     started = time.monotonic()
@@ -861,3 +866,41 @@ def test_a_signed_out_oauth_server_asks_for_a_sign_in_not_a_retry(fresh_db, monk
     with pytest.raises(m.MCPServerNotReady) as refused:
         m._governed("wiki_search", "personal:ava:wiki")
     assert (refused.value.code, refused.value.status_code) == ("MCP_SIGN_IN_REQUIRED", 409)
+
+
+def test_a_shared_server_that_is_down_is_not_ready_and_loads_off_the_verdict(
+    monkeypatch, clean_mcp
+):
+    """A configured shared server that was down read as "not composed":
+    reject cleared the approver requirement and approve said to request a
+    new review. Before the first load, the verdict also connected every
+    shared server on its own thread, inside its database transaction."""
+    import json
+    import threading
+    import time
+
+    from app import config
+
+    m = clean_mcp
+    monkeypatch.setattr(config, "MCP_SERVERS_ERROR", "")
+    monkeypatch.setattr(
+        config, "MCP_SERVERS", json.dumps([_mcp_server("a", "https://a.invalid/mcp", "fake-tool")])
+    )
+    loads: list[int] = []
+
+    def down(_entries):
+        loads.append(threading.get_ident())
+        return ([], [])
+
+    monkeypatch.setattr(m, "_connect_servers", down)
+    with pytest.raises(m.MCPServerNotReady) as first:
+        m._governed("fake-tool", "a")
+    assert (first.value.code, first.value.status_code) == ("MCP_SERVER_CONNECTING", 503)
+    deadline = time.monotonic() + 3
+    while "a" not in m._retry_state and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert loads and threading.get_ident() not in loads, "the verdict loaded in the foreground"
+    with pytest.raises(m.MCPServerNotReady) as backing_off:
+        m._governed("fake-tool", "a")
+    assert backing_off.value.code == "MCP_SERVER_UNAVAILABLE"
+    assert backing_off.value.retry_after > 10
