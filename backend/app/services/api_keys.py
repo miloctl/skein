@@ -59,7 +59,11 @@ def request_key(user: str, *, strong: bool = False) -> dict:
     to be copy-pasted into a root shell — the one place spoofable X-User text
     must never smuggle shell metacharacters."""
     if not user or user == "anonymous":
-        raise ValueError("pick your name first — the key is minted for it")
+        # the same words as Settings shows for this condition
+        raise ValueError(
+            "No name is picked, and a key is minted for one name. Pick your name"
+            " under Identity in Settings, then request a key."
+        )
     if not _SAFE_NAME.fullmatch(user):
         raise ValueError(
             "This name cannot go in the server command that mints a key. The name"

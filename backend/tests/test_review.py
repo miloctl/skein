@@ -1271,7 +1271,11 @@ def test_a_named_administrator_sees_the_proposals_nobody_can_settle(client, fres
     assert [row["id"] for row in listed.json()] == [stuck["id"]]
     assert listed.json()[0]["reason"].startswith("No active person can read it.")
     assert "ZZPRIVATEZZ" not in listed.text
-    assert client.get("/api/review/stranded", headers=_strong(client, "bob")).status_code == 403
+    # a teammate who is no administrator is told so, not that a list lacks
+    # their name, which is the fallback administrator's refusal
+    refused = client.get("/api/review/stranded", headers=_strong(client, "bob"))
+    assert refused.status_code == 403
+    assert refused.json()["detail"].startswith("'bob' is not an administrator")
 
     authority = review.propose_change(
         "authority",

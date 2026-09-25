@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { Card as Section } from "@/components/card";
-import { api, loadError } from "@/lib/api";
+import { api, ApiError, loadError } from "@/lib/api";
 import { timeAgo } from "@/lib/time";
 
 type Health = {
@@ -121,15 +121,22 @@ export function OperationsCard({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
   const [h, setH] = useState<Health | null>(null);
   const [error, setError] = useState("");
   const [stranded, setStranded] = useState<Stranded[]>([]);
+  const [strandedError, setStrandedError] = useState("");
 
   useEffect(() => {
     // A named administrator only (routes/api.py get_review_stranded): for
-    // everyone else the request fails, and this card shows nothing for it.
+    // everyone else it answers 403, and this card shows nothing for it. Any
+    // other failure is a list the administrator did not get, and read as
+    // empty it becomes the all-clear below.
+    const failed = "The stranded-proposal list did not load. Reload this page.";
     api<unknown>("/api/review/stranded")
       .then((body) => {
         if (isStranded(body)) setStranded(body);
+        else setStrandedError(failed);
       })
-      .catch(() => {});
+      .catch((e) => {
+        if (!(e instanceof ApiError && e.status === 403)) setStrandedError(failed);
+      });
   }, []);
 
   useEffect(() => {
@@ -173,6 +180,7 @@ export function OperationsCard({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
   const allClear =
     h &&
     stranded.length === 0 &&
+    !strandedError &&
     faults.length === 0 &&
     staleJobs.length === 0 &&
     failedJobs.length === 0 &&
@@ -186,6 +194,9 @@ export function OperationsCard({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
         administrator also sees the pending proposals that nobody can approve
         or reject.
       </p>
+      {strandedError ? (
+        <p className="mb-3 text-sm text-danger">{strandedError}</p>
+      ) : null}
       {stranded.length > 0 ? (
         <div className="mb-3 text-sm text-danger">
           <p>
@@ -256,7 +267,9 @@ export function OperationsCard({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
             Ledger: verified through {h.activity_chain.verified_through} of{" "}
             {h.activity_chain.latest}
             {h.activity_chain.unverified > 0
-              ? ` — ${h.activity_chain.unverified} newer rows await the next verify run`
+              ? h.activity_chain.unverified === 1
+                ? " — 1 newer row awaits the next verify run"
+                : ` — ${h.activity_chain.unverified} newer rows await the next verify run`
               : ""}
             . Timezone: {h.timezone}.
           </p>
