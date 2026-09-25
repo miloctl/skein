@@ -233,6 +233,31 @@ def memory_prompt(
     return "\n\nTeam memory (from prior conversations):\n" + "\n".join(lines)
 
 
+_NO_TEAMMATE = (
+    "No other active teammate can approve this memory, and a memory for the"
+    " team needs a second person to approve it. Add a teammate, or remember"
+    " the fact for yourself."
+)
+
+
+def _roster() -> list[str]:
+    from .users import list_users
+
+    return [u["name"] for u in list_users()]
+
+
+def _refuse_without_a_second_reviewer(people: list[str], actor: str, refusal: str) -> None:
+    """The author may not approve their own team or engagement memory
+    (review._check_team_memory_approver), so a proposal that no other active
+    person can read waits forever, with the author refused and nobody else
+    able to see it. A deactivated person keeps their roster and crew rows
+    (users.set_active), so activity is checked here."""
+    from .users import fold, is_active, is_agent
+
+    if not any(fold(p) != fold(actor) and not is_agent(p) and is_active(p) for p in people):
+        raise ValueError(refusal)
+
+
 def propose_team_memory(
     content: str = "", topic: str = "", *, actor: str, memory_id: int = 0
 ) -> dict:
@@ -268,6 +293,7 @@ def propose_team_memory(
             raise ValueError("nothing to remember")
         if len(content) > 2000 or len(topic) > 100:
             raise ValueError("keep memories under 2000 characters and topics under 100")
+        _refuse_without_a_second_reviewer(_roster(), actor, _NO_TEAMMATE)
         return propose_change(
             "memory",
             "create",
@@ -322,19 +348,17 @@ def propose_engagement_memory(
             " remember the fact for the team instead."
         )
     if eng["visibility"] == scope.CREW:
-        from .users import fold, is_active
-
-        # The same dead end one step wider: the author may not approve
-        # (review._check_team_memory_approver) and only members read a crew
-        # row, so a crew with no other active person has no approver. A
-        # deactivated member keeps their crew row (users.set_active).
+        # only members read a crew row
         members = db.query("SELECT person FROM crew_members WHERE crew_id = ?", (eng["crew_id"],))
-        if not any(fold(m["person"]) != fold(actor) and is_active(m["person"]) for m in members):
-            raise ValueError(
-                "This crew has no other member, so no second person can review a"
-                " memory filed against it. Add a member to the crew, or remember"
-                " the fact for the team instead."
-            )
+        _refuse_without_a_second_reviewer(
+            [m["person"] for m in members],
+            actor,
+            "This crew has no other active member, so no second person can review"
+            " a memory filed against it. Add a member to the crew, or remember the"
+            " fact for the team instead.",
+        )
+    else:
+        _refuse_without_a_second_reviewer(_roster(), actor, _NO_TEAMMATE)
     return propose_change(
         "memory",
         "create",

@@ -70,6 +70,7 @@ def test_filing_an_outcome_is_always_a_proposal(client, fresh_db):
     from app.services import engagements, users
 
     users.ensure_user("tester")
+    users.ensure_user("bo")  # a second person to approve it
     eng = engagements.create_engagement("Atlas", project_class="migration", actor="tester")
     r = client.post(
         f"/api/engagements/{eng['id']}/memory",
@@ -217,3 +218,21 @@ def test_a_crew_of_one_refuses_a_memory_nobody_could_review(client, fresh_db):
     users.set_active("bo", True)
     filed = memory.propose_engagement_memory(eng["id"], "a thought", actor="ava", viewer=ava)
     assert filed["status"] == "pending"
+
+
+def test_a_team_memory_needs_a_teammate_to_approve_it(fresh_db):
+    """The author may not approve a memory for the team, so in a one-person
+    deployment it waited with nobody able to approve it."""
+    from app.services import engagements, users
+
+    users.ensure_user("ava")
+    eng = engagements.create_engagement("Atlas", project_class="migration", actor="ava")
+    ava = scope.Viewer("ava", True)
+    with pytest.raises(ValueError, match="No other active teammate"):
+        memory.propose_team_memory("standups are asynchronous", actor="ava")
+    with pytest.raises(ValueError, match="No other active teammate"):
+        memory.propose_engagement_memory(eng["id"], "a thought", actor="ava", viewer=ava)
+    users.ensure_user("bo")
+    assert (
+        memory.propose_team_memory("standups are asynchronous", actor="ava")["status"] == "pending"
+    )
