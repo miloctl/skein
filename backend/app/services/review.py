@@ -539,6 +539,7 @@ def _check_personal_mcp_judge(
     actor: str,
     groups: tuple[str, ...],
     capabilities: tuple[str, ...],
+    strong: bool,
 ) -> None:
     """A personal MCP call runs on its owner's sealed credential and returns
     their data, so only its owner or a reviewer the policy names can judge
@@ -554,7 +555,9 @@ def _check_personal_mcp_judge(
         return
     from ..identity_names import fold_identity
 
-    if fold_identity(actor) == fold_identity(owner):
+    # the owner, proved: a bare X-User naming the owner on a proposal the
+    # team can read would otherwise pass and start the owner's connection
+    if strong and fold_identity(actor) == fold_identity(owner):
         return
     required_groups = set(json.loads(change.get("approver_groups") or "[]"))
     required_capabilities = set(json.loads(change.get("approver_capabilities") or "[]"))
@@ -781,7 +784,7 @@ def _approve_change_locked(
     # isn't told to fetch a note for a verdict that already happened
     if change["status"] != "pending":
         raise ValueError(f"change #{change_id} already {change['status']}")
-    _check_personal_mcp_judge(change, actor, reviewer_groups, reviewer_capabilities)
+    _check_personal_mcp_judge(change, actor, reviewer_groups, reviewer_capabilities, strong)
     approval_grant = _revalidate_policy(
         change,
         policy_registry,
@@ -790,7 +793,7 @@ def _approve_change_locked(
     )
     # again on the requirement the refresh recomputed: one that is now empty
     # leaves the call to its owner
-    _check_personal_mcp_judge(change, actor, reviewer_groups, reviewer_capabilities)
+    _check_personal_mcp_judge(change, actor, reviewer_groups, reviewer_capabilities, strong)
     _check_separation(change, actor)
     _check_team_memory_approver(change, actor)
     try:
@@ -967,12 +970,14 @@ def _approve_change_locked(
                 (change_id,),
             )
         from ..agents.mcp_tools import MCPServerNotReady
+        from ..extensions.registry import DirectoryOutage
 
-        # A busy database, and a connection that dropped between
+        # A busy database, a connection that dropped between
         # _revalidate_policy and the call (another request's forget or
-        # deadline strike), are 503 with Retry-After (main.py), not a 400
-        # that reads as a bad request.
-        if busy or isinstance(exc, MCPServerNotReady):
+        # deadline strike), and a directory that stopped answering before
+        # the executor's own requester refresh are 503 with Retry-After
+        # (main.py), not a 400 that reads as a bad request.
+        if busy or isinstance(exc, (MCPServerNotReady, DirectoryOutage)):
             return _ApprovalFailure(exc)
         return _ApprovalFailure(
             ValueError(f"could not apply {change['entity']}.{change['action']}: {exc}")
@@ -1119,20 +1124,25 @@ def _revalidate_policy(
         from . import playbooks
 
         expected_digest = str(expected["payload"].get("expected_definition_digest") or "")
-        if not expected_digest and approving:
-            raise PermissionError(
-                "The reviewed playbook has no content digest. Request a new review."
+        if not expected_digest:
+            _moot(
+                change,
+                approving,
+                "The reviewed playbook has no content digest. Request a new review.",
             )
-        if expected_digest and approving:
+        else:
             slug = str(expected["payload"].get("slug") or "")
             try:
                 definition = playbooks.get_playbook(slug)
-            except ValueError as exc:
-                raise PermissionError(
-                    "The reviewed playbook is no longer available. Request a new review."
-                ) from exc
-            if not playbooks.definition_digest_matches(expected_digest, definition):
-                raise PermissionError("The reviewed playbook changed. Request a new review.")
+            except ValueError:
+                _moot(
+                    change,
+                    approving,
+                    "The reviewed playbook is no longer available. Request a new review.",
+                )
+            else:
+                if not playbooks.definition_digest_matches(expected_digest, definition):
+                    _moot(change, approving, "The reviewed playbook changed. Request a new review.")
     current = replace(
         current,
         resource=PolicyResource(
@@ -1153,6 +1163,16 @@ def _revalidate_policy(
         decision.approver_capabilities if decision.effect == PolicyEffect.REVIEW else ()
     )
     return None
+
+
+def _moot(change: dict, approving: bool, reason: str) -> None:
+    """A contract that can no longer run. Approval refuses it. A rejection of
+    it judged nothing the agent did, so it is marked stale and does not count
+    toward a demotion streak (delegation.trust_scores); unmarked, it would
+    count as a strong verdict on the agent's work."""
+    if approving:
+        raise PermissionError(reason)
+    change["_stale_contract"] = True
 
 
 def _legacy_review_needs_binding(change: dict, registry) -> bool:
@@ -1201,8 +1221,8 @@ def _current_extension_review(
         )
     if kind == "tool":
         tool = registry.tool(str(invocation.get("tool") or ""))
-        if invocation.get("version") != tool.version and approving:
-            raise PermissionError("The reviewed tool contract changed.")
+        if invocation.get("version") != tool.version:
+            _moot(change, approving, "The reviewed tool contract changed.")
         arguments = invocation.get("arguments")
         if not isinstance(arguments, dict):
             raise PermissionError("The reviewed tool arguments are invalid.")
@@ -1241,21 +1261,23 @@ def _current_extension_review(
             current.subject,
             warm=approving,
         )
-        if not version_matches and approving:
-            raise PermissionError("The reviewed remote tool contract changed.")
+        if not version_matches:
+            _moot(change, approving, "The reviewed remote tool contract changed.")
         return _CurrentExtensionReview(request, contract)
     if kind == "workflow":
         from . import playbooks
 
         slug = str(invocation.get("playbook") or "")
         expected = str(invocation.get("definition_digest") or "")
-        if not expected and approving:
-            raise PermissionError(
-                "The reviewed playbook has no content digest. Request a new review."
+        if not expected:
+            _moot(
+                change,
+                approving,
+                "The reviewed playbook has no content digest. Request a new review.",
             )
         definition = playbooks.get_playbook(slug)
-        if expected and not playbooks.definition_digest_matches(expected, definition) and approving:
-            raise PermissionError("The reviewed playbook changed. Request a new review.")
+        if expected and not playbooks.definition_digest_matches(expected, definition):
+            _moot(change, approving, "The reviewed playbook changed. Request a new review.")
         project_type = str(definition.get("project_class") or slug)
         resource = replace(current.resource, project_type=project_type)
         request = replace(current, resource=resource)
@@ -1383,7 +1405,7 @@ def _reject_change_locked(
     from ..agents.mcp_tools import MCPServerNotReady
     from ..extensions.registry import DirectoryUnavailable
 
-    _check_personal_mcp_judge(change, actor, reviewer_groups, reviewer_capabilities)
+    _check_personal_mcp_judge(change, actor, reviewer_groups, reviewer_capabilities, strong)
     try:
         with db.savepoint():
             _revalidate_policy(
@@ -1421,12 +1443,18 @@ def _reject_change_locked(
     # agent's work, so it must not count toward a demotion streak
     # (delegation.trust_scores counts reviewed_strong rows). approve_change's
     # auto-rejections clear it for the same reason.
+    from ..identity_names import fold_identity
+
     counts = (
         strong
         and not change.get("_stale_contract")
         # an owner withdrawing a request they may no longer approve judged
         # the requirement, not the agent's work
         and not qualifications.get("withdrawn_by_owner")
+        # nor does an owner dropping their own personal MCP call: counted,
+        # it would depend on whether this process holds the connection (a
+        # cold one marks the rejection stale)
+        and fold_identity(_personal_mcp_owner(change)) != fold_identity(actor)
     )
     _claim(change_id, "rejected", note, actor, counts, override=bool(sponsor))
     db.execute(

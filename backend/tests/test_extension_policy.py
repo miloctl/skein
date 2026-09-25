@@ -3012,9 +3012,89 @@ def test_mcp_rejection_uses_current_tool_metadata(fresh_db, monkeypatch):
     assert review.reject_change(
         pending["id"],
         actor="manager",
+        strong=True,
         reviewer_groups=("critical-managers",),
         policy_registry=registry,
     ) == {"id": pending["id"], "status": "rejected"}
+    # the contract changed, so approval could never run it: rejecting it
+    # judged nothing the agent did (review._moot)
+    row = fresh_db.query_one(
+        "SELECT reviewed_strong FROM pending_changes WHERE id = ?", (pending["id"],)
+    )
+    assert row["reviewed_strong"] == 0
+
+
+def test_a_directory_outage_during_the_apply_is_a_retry(fresh_db, monkeypatch):
+    """The executor refreshes the requester a second time. A directory that
+    stopped answering by then was wrapped as a ValueError: 400 on approve,
+    and "forbidden" in batch approve, for a request that succeeds on retry."""
+    from conftest import _strong
+
+    from app.agents import mcp_tools as mcp_module
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.agents.mcp_tools import GovernedMCPTool
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.extensions.registry import DirectoryOutage
+    from app.routes import api
+    from app.services import users
+
+    def remote_reviews(request: PolicyInput):
+        if request.action == "atlas.remote.write":
+            return PolicyDecision(PolicyEffect.REVIEW)
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.7.0",
+        policies=(PolicyContribution("acme.workplace.remote-review", remote_reviews),),
+    )
+    registry = ExtensionRegistry.build((module,))
+    metadata = _mcp_metadata(effect="write", risk="high", policy_action="atlas.remote.write")
+    governed = GovernedMCPTool(_RemoteTool(), metadata, "atlas-server")
+    monkeypatch.setattr(mcp_module, "_tools", [governed])
+    for name in ("requester", "manager"):
+        users.ensure_user(name)
+    tokens = (
+        set_policy_engine(registry.policy_engine),
+        set_policy_subject(PolicySubject("requester")),
+        set_agent_identity("agent"),
+    )
+
+    async def queue(n):
+        use = {"toolUseId": f"mcp-{n}", "name": "atlas_remote", "input": {"n": n}}
+        return [event async for event in governed.stream(use, {})]
+
+    try:
+        asyncio.run(queue(1))
+        asyncio.run(queue(2))
+    finally:
+        reset_agent_identity(tokens[2])
+        reset_policy_subject(tokens[1])
+        reset_policy_engine(tokens[0])
+    first, second = (
+        row["id"]
+        for row in fresh_db.query(
+            "SELECT id FROM pending_changes WHERE entity = 'extension_mcp_tool' ORDER BY id"
+        )
+    )
+
+    def outage(*_args):
+        raise DirectoryOutage("The directory service did not answer. Wait 30 seconds.")
+
+    monkeypatch.setattr(api, "_execute_extension_review", outage)
+    with TestClient(create_app(modules=(module,))) as client:
+        manager = _strong(client, "manager")
+        single = client.post(f"/api/review/{first}/approve", json={"note": ""}, headers=manager)
+        assert (single.status_code, single.headers.get("Retry-After")) == (503, "30"), single.text
+        batch = client.post("/api/review/approve-batch", json={"ids": [second]}, headers=manager)
+        assert batch.json()["results"][0]["status"] == "error", batch.text
+    statuses = {
+        r["id"]: r["status"] for r in fresh_db.query("SELECT id, status FROM pending_changes")
+    }
+    assert statuses == {first: "pending", second: "pending"}
 
 
 def test_mcp_metadata_rejects_empty_actions_and_string_lists():
@@ -6916,6 +6996,7 @@ def test_a_personal_remote_write_needs_a_human_even_under_permit(fresh_db, monke
     approved = review.approve_change(
         pending["id"],
         actor="requester",
+        strong=True,
         viewer=scope.Viewer("requester", True),
         extension_executor=resume,
         policy_registry=registry,
@@ -7004,6 +7085,16 @@ def test_a_personal_remote_call_never_falls_open_to_any_teammate(fresh_db, monke
     with pytest.raises(PermissionError, match="owner's MCP sign-in"):
         verdict("approve", first, "manager")
     assert warmed == [], "a reviewer who can never judge the call connected it"
+    # a bare X-User naming the owner proves nothing
+    with pytest.raises(PermissionError, match="owner's MCP sign-in"):
+        review.approve_change(
+            first,
+            actor="requester",
+            strong=False,
+            viewer=scope.Viewer("requester", False),
+            policy_registry=registry,
+        )
+    assert warmed == [], "an unproven owner name connected the owner's server"
     # the owner withdraws a call the security rule still gates
     assert verdict("reject", second, "requester")["status"] == "rejected"
     assert warmed == [], "a rejection connected the owner's server"
@@ -7071,6 +7162,93 @@ def test_a_renamed_owner_can_still_withdraw_a_personal_call(fresh_db, monkeypatc
     assert rejected["status"] == "rejected"
 
 
+def test_an_owner_dropping_their_own_call_judges_nobody(fresh_db, monkeypatch):
+    """Counted, the owner's rejection depended on whether this process held
+    the connection: a cold one marked it stale, a warm one fed the agent's
+    demotion streak."""
+    from app import config
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.agents.mcp_tools import GovernedMCPTool
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import review, users
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", False)
+    registry = ExtensionRegistry.build(())
+    metadata = _mcp_metadata(effect="write", risk="high", policy_action="mcp:write")
+    tool = GovernedMCPTool(_RemoteTool(), metadata, "personal:requester:atlas", "personal")
+    users.ensure_user("requester")
+    _live_personal(monkeypatch, tool)
+    tokens = (
+        set_policy_engine(registry.policy_engine),
+        set_policy_subject(PolicySubject("requester", strong=True)),
+        set_agent_identity("agent"),
+    )
+
+    async def run():
+        use = {"toolUseId": "mcp-1", "name": "atlas_remote", "input": {}}
+        return [event async for event in tool.stream(use, {})]
+
+    try:
+        asyncio.run(run())
+    finally:
+        reset_agent_identity(tokens[2])
+        reset_policy_subject(tokens[1])
+        reset_policy_engine(tokens[0])
+    pending = fresh_db.query_one("SELECT id FROM pending_changes WHERE status = 'pending'")
+    review.reject_change(
+        pending["id"],
+        "not now",
+        actor="requester",
+        strong=True,
+        viewer=scope.Viewer("requester", True),
+        policy_registry=registry,
+    )
+    row = fresh_db.query_one(
+        "SELECT reviewed_strong FROM pending_changes WHERE id = ?", (pending["id"],)
+    )
+    assert row["reviewed_strong"] == 0
+
+
+def test_one_requester_refresh_shares_one_directory_budget(fresh_db):
+    """Each resolver had its own 3 seconds, so two slow ones held the rows an
+    approval reviews past the 5-second lock timeout other writers wait for."""
+    from app.extensions.registry import DirectoryOutage
+    from app.services import users
+
+    users.ensure_user("mira")
+
+    def slow(answer):
+        def resolver(_name):
+            time.sleep(1.5)
+            return answer
+
+        return resolver
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.7.0",
+        identities=(
+            IdentityContribution(
+                "acme.workplace.directory",
+                lambda *_args: {},
+                resolver=slow({"groups": ()}),
+                resolves_groups=True,
+            ),
+            IdentityContribution(
+                "acme.workplace.profile", lambda *_args: {}, resolver=slow({"active": True})
+            ),
+        ),
+    )
+    subject = PolicySubject("mira", strong=True, source="oidc", refresh_required=True)
+    started = time.monotonic()
+    with pytest.raises(DirectoryOutage):
+        ExtensionRegistry.build((module,)).refresh_subject(subject)
+    assert time.monotonic() - started < 2.6
+
+
 def test_a_personal_read_runs_under_policy_only_after_one_approval(fresh_db, monkeypatch):
     """Annotations are the server's claim, so a personal read is reviewed
     once per (server, tool, version). After that approval, a call with a
@@ -7125,6 +7303,7 @@ def test_a_personal_read_runs_under_policy_only_after_one_approval(fresh_db, mon
     approved = review.approve_change(
         pending["id"],
         actor="requester",
+        strong=True,
         viewer=scope.Viewer("requester", True),
         extension_executor=resume,
         policy_registry=registry,
