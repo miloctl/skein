@@ -73,6 +73,32 @@ def test_rejecting_an_authority_change_takes_the_approvers_bar(fresh_db):
     assert reject("ops", strong=True, administrator=True)["status"] == "rejected"
 
 
+def test_a_list_of_deactivated_administrators_names_nobody(client, fresh_db, monkeypatch):
+    """Every name in SKEIN_ADMINS deactivated: the job kept filing authority
+    changes nobody could judge, the stranded list missed them, and key
+    requests went to people who could not read them."""
+    from app import config
+    from app.routes.deps import administrator_possible
+    from app.services import api_keys, review, users
+
+    monkeypatch.setattr(config, "ADMINS", frozenset({"ops"}))
+    users.ensure_user("ops")
+    users.ensure_user("ava")
+    assert administrator_possible("api-key")
+    users.set_active("ops", False)
+    assert not administrator_possible("api-key")
+    authority = review.propose_change(
+        "authority",
+        "create",
+        {"agent": "scribe", "entity": "note", "level": "review", "expected_current": "notify"},
+        actor="scheduler",
+        origin="agent",
+    )
+    stranded = [row["id"] for row in review.stranded_proposals("api-key")]
+    assert authority["id"] in stranded
+    assert api_keys.request_key("ava")["to_team"] is True
+
+
 def test_the_authority_job_reads_the_composed_auth_mode(client, fresh_db, monkeypatch):
     """The job read config.AUTH_MODE, so an app composed with its own
     settings (create_app(settings)) filed proposals its administrators
@@ -104,7 +130,7 @@ def test_the_authority_job_reads_the_composed_auth_mode(client, fresh_db, monkey
 @pytest.mark.parametrize("mode", ["trusted-header", "api-key", "oidc"])
 @pytest.mark.parametrize("admins", [frozenset(), frozenset({"ops"})])
 @pytest.mark.parametrize("group", ["", "skein-admins"])
-def test_administrator_possible_matches_the_admin_rule(monkeypatch, mode, admins, group):
+def test_administrator_possible_matches_the_admin_rule(fresh_db, monkeypatch, mode, admins, group):
     """review_authority keys on this predicate. It said yes for an admin
     group outside oidc, where keys carry no groups and nobody is an admin."""
     from app import config

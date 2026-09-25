@@ -507,7 +507,7 @@ describe("Settings identity states", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Request a key" }));
       expect(
         await screen.findByText(
-          "Asked. No administrator is named, so every teammate now has the request and the exact command.",
+          "Asked. No active administrator is named, so every teammate now has the request and the exact command.",
         ),
       ).toBeTruthy();
     } finally {
