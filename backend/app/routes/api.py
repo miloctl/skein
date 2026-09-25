@@ -3698,6 +3698,7 @@ def post_reject(
         viewer=viewer,
         reviewer_groups=subject.groups,
         reviewer_capabilities=subject.capabilities,
+        administrator=is_administrator(user, request),
         policy_registry=request.app.state.skein_registry,
     )
 
