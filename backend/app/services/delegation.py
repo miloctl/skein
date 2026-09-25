@@ -868,7 +868,7 @@ def _authority_recently_judged(agent: str, entity: str) -> bool:
     return False
 
 
-def review_authority(*, actor: str = "scheduler") -> dict:
+def review_authority(*, actor: str = "scheduler", auth_mode: str = "") -> dict:
     """A2: turn earned trust into FILED PROPOSALS instead of a buried hint.
     Promotions climb one rung (review -> notify) on a strong-verdict approval
     streak; demotions to review fire on a strong-verdict rejection streak.
@@ -876,12 +876,11 @@ def review_authority(*, actor: str = "scheduler") -> dict:
     approve anything, so there is no self-promotion path."""
     # Approving one takes an administrator (review.approve_change), and a
     # filed proposal nobody can approve waits under a notice that says to
-    # approve it. config.AUTH_MODE, not the app setting routes/deps.py reads:
-    # the job context carries no settings, so a create_app(settings) that
-    # overrides auth_mode is not seen here.
+    # approve it. The scheduled job passes the composed auth mode (main.py
+    # _job_specs); a direct caller gets the environment's.
     from ..routes.deps import administrator_possible
 
-    if not administrator_possible(config.AUTH_MODE):
+    if not administrator_possible(auth_mode or config.AUTH_MODE):
         return {"filed": 0, "proposals": []}
     filed = []
     # don't refile what's pending, and don't nag weekly about what a human

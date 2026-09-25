@@ -1492,7 +1492,7 @@ export default function SettingsPage() {
                 </p>
                 {/* A browser sign-in is strong but cannot mint a key (POST
                     /api/keys refuses a session), so with no key yet the
-                    request below is its only way to one. */}
+                    request below is how this page gets one. */}
                 {who !== null && (!strong || who.keys_minted === 0) && (
                   <div className="mb-3 rounded-lg bg-raised p-3 text-sm">
                     {currentUser === "anonymous" ? (
@@ -1500,12 +1500,15 @@ export default function SettingsPage() {
                         Pick your name under <b>Identity</b> first — your key is
                         minted for that name.
                       </p>
-                    ) : who === null || who.keys_minted === 0 ? (
+                    ) : (
                       <>
                         <p className="mb-2">
-                          {who === null
-                            ? whoError || "Checking the key status…"
-                            : `No key exists for ${currentUser} yet — ask whoever runs the server to mint one and send it to you privately.`}
+                          {/* keys_minted is 0 for every caller without a key
+                              or a sign-in (routes/api.py whoami), so for one
+                              of them it cannot say whether a key exists */}
+                          {strong
+                            ? `No key exists for ${currentUser} yet. Ask whoever runs the server to mint one and send it to you privately.`
+                            : "If you have a key, paste it below. If you do not, request one. Whoever runs the server mints it and sends it to you privately."}
                         </p>
                         <button
                           onClick={async () => {
@@ -1545,18 +1548,11 @@ export default function SettingsPage() {
                           </div>
                         </details>
                       </>
-                    ) : (
-                      <p>
-                        A key exists for {who.user} — paste it below. A key
-                        shows only once. If you lost it, ask whoever runs the
-                        server to mint a new one (same command), or revoke old
-                        ones from the CLI.
-                      </p>
                     )}
                   </div>
                 )}
                 {strong ? <MyKeys /> : null}
-                <p className="mb-3 text-sm text-ink-3">Use the CLI or ask whoever runs the server to create a personal key for automation.</p>
+                <p className="mb-3 text-sm text-ink-3">Whoever runs the server mints personal keys for automation. A client that already holds a key can create another with <code>POST /api/keys</code>.</p>
                 {(browserSession.csrf_token || sessionEnd() === "expired") && <button type="button" className="mb-3 rounded border border-line px-3 py-1.5 text-sm" onClick={() => {
                   signOut().catch((error) => { setKeyError(true); setKeyStatus(actionError(error)); });
                 }}>Sign out of this browser</button>}

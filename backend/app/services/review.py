@@ -578,8 +578,8 @@ def _withdraws(change: dict, actor: str, strong: bool) -> bool:
     """Whether a strong actor is withdrawing their own request, which a
     rejection can always do: it runs nothing and judges nobody else's work.
     Without it, a requirement added after filing (a relink, a policy change)
-    stranded a private review that its approvers cannot read, and the owner
-    of a personal MCP call could not drop their own call."""
+    strands a private review that its approvers cannot read, and the owner
+    of a personal MCP call cannot drop their own call."""
     if not strong:
         return False
     from ..identity_names import fold_identity

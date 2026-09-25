@@ -45,8 +45,7 @@ def create_key(owner: str, label: str = "", *, at_server: bool = False) -> dict:
 # "@" and "+" for sign-in names, which are often email addresses. After the
 # first character both are literal in bash, sh, zsh and PowerShell, and
 # shlex.quote leaves them bare. The first character is a letter, digit or _:
-# PowerShell expands a leading "@" ("@true" became "True"), and a leading "-"
-# reads as an option in the mint command.
+# PowerShell expands a leading "@" (it turns "@true" into "True").
 _SAFE_NAME = re.compile(r"\w[\w .@+\-]{0,63}")
 
 
@@ -64,7 +63,7 @@ def request_key(user: str, *, strong: bool = False) -> dict:
     if not _SAFE_NAME.fullmatch(user):
         raise ValueError(
             "This name cannot go in the server command that mints a key. The name"
-            " must start with a letter or a digit and use only letters, digits,"
+            " must start with a letter, a digit, or _ and use only letters, digits,"
             " spaces, and . - _ @ +. Ask whoever runs the server to mint the key."
         )
     prefix = f"{user} requests a personal API key"
@@ -94,11 +93,14 @@ def request_key(user: str, *, strong: bool = False) -> dict:
         # — so one operator dismissing it means the ask was seen and the
         # requester may ask again. The per-person read (009) governs whose FEED
         # shows it; this governs whether a second request is a duplicate.
+        # starts_with, not LIKE: "_" is a wildcard there, so "a_b" would
+        # match an earlier request from "axb" and its own request would never
+        # be sent
         pending = db.query_one(
-            f'SELECT id FROM notifications WHERE "user" IN ({marks}) AND message LIKE ?'  # noqa: S608 — marks built above
+            f'SELECT id FROM notifications WHERE "user" IN ({marks}) AND starts_with(message, ?)'  # noqa: S608 — marks built above
             " AND read_at IS NULL"
             " AND id NOT IN (SELECT notification_id FROM notification_reads)",
-            (*recipients, prefix + "%"),
+            (*recipients, prefix),
         )
         # to_team: no administrator is named, so every teammate got the
         # nudge, and the confirmation says so rather than "whoever runs it"

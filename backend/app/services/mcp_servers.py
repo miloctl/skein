@@ -396,7 +396,7 @@ def store_oauth(
     Returns the row's new stamp after an interactive (claimed) grant, else
     "". A sign-in changes the stamp so every other process drops its
     connection and reconnects with the new tokens: kept, a connection there
-    refreshed with its old grant, failed, and marked the server signed out
+    would refresh with its old grant, fail, and mark the server signed out
     again (agents/mcp_oauth.py redirect)."""
     with db.transaction():
         _owned_oauth(sid, owner)

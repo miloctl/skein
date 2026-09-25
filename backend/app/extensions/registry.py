@@ -77,7 +77,7 @@ class DirectoryOutage(DirectoryUnavailable):
 
 # A verdict calls resolvers inside its transaction, holding the rows it
 # reviews. Other writers wait db.TRANSACTION_LOCK_TIMEOUT (5s) for those rows,
-# so a resolver slower than that made their writes fail.
+# so a resolver slower than that would make their writes fail.
 _RESOLVER_SECONDS = 3.0
 
 
@@ -89,8 +89,8 @@ def _resolve(
     try:
         return future.result(timeout=_RESOLVER_SECONDS)
     except Exception as exc:
-        # every failure, a timeout included: a resolver that raised a
-        # ValueError reached the reject path as a stale contract and cleared
+        # every failure, a timeout included: a ValueError from a resolver
+        # would otherwise reach the reject path as a stale contract and clear
         # the approver requirement
         future.cancel()
         raise DirectoryOutage(

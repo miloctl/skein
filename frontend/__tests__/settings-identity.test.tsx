@@ -501,6 +501,9 @@ describe("Settings identity states", () => {
     state.identity = { ...saved, strong: false, keys_minted: 0 };
     try {
       render(<SettingsPage />);
+      // whoami reports no key count to a caller who proved nothing, so the
+      // page cannot tell them that no key exists
+      expect(await screen.findByText(/If you have a key, paste it below/)).toBeTruthy();
       fireEvent.click(await screen.findByRole("button", { name: "Request a key" }));
       expect(
         await screen.findByText(
@@ -665,7 +668,8 @@ describe("Settings identity states", () => {
     await screen.findByText(/strong identity active as operator/);
     expect(screen.queryByRole("button", { name: "Create a personal API key" })).toBeNull();
     expect(state.requests.some(({ path, init }) => path === "/api/keys" && init?.method === "POST")).toBe(false);
-    expect(screen.getByText(/Use the CLI or ask whoever runs the server to create/)).toBeTruthy();
+    // the CLI has no key command, and a browser session cannot create a key
+    expect(screen.getByText(/Whoever runs the server mints personal keys for automation/)).toBeTruthy();
   });
 
   it.each(["oidc", "api-key"])("does not offer a self-asserted name in %s mode", async (mode) => {

@@ -4,7 +4,8 @@
 Setup:
     skein config --url http://localhost:8000 --key sk-skein-... [--user you]
     (first key: whoever runs the box mints it with
-       `python -m app.bootstrap_key <you>`; later keys via Settings)
+       `python -m app.bootstrap_key <you>`; later keys: the same command, or
+       POST /api/keys with a key you already hold)
     Env fallbacks: SKEIN_URL / SKEIN_API_URL, SKEIN_API_KEY
     (config file wins).
 
