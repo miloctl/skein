@@ -1314,6 +1314,7 @@ def reject_change(
     viewer: scope.Viewer = scope.NOBODY,
     reviewer_groups: tuple[str, ...] = (),
     reviewer_capabilities: tuple[str, ...] = (),
+    administrator: bool = False,
     policy_registry=None,
 ) -> dict:
     # Rejection is a durable policy verdict, settled by the same CAS approval
@@ -1334,6 +1335,7 @@ def reject_change(
             viewer=viewer,
             reviewer_groups=reviewer_groups,
             reviewer_capabilities=reviewer_capabilities,
+            administrator=administrator,
             policy_registry=policy_registry,
         )
 
@@ -1347,6 +1349,7 @@ def _reject_change_locked(
     viewer: scope.Viewer = scope.NOBODY,
     reviewer_groups: tuple[str, ...] = (),
     reviewer_capabilities: tuple[str, ...] = (),
+    administrator: bool = False,
     policy_registry=None,
 ) -> dict:
     _check_reviewer(actor)
@@ -1358,6 +1361,13 @@ def _reject_change_locked(
     _assert_judgeable(change, viewer)
     if change["status"] != "pending":
         raise ValueError(f"change #{change_id} already {change['status']}")
+    # The same bar as approving one. A rejected demotion is a declined
+    # safety brake, and delegation._judged_pairs mutes the pair for 28 days.
+    if change["entity"] == "authority":
+        if not strong:
+            raise ValueError(wording.strong_identity_required("Authority changes"))
+        if not administrator:
+            raise PermissionError(wording.not_administrator(actor, "reject an authority change"))
     # A rejection executes nothing, so a proposal whose policy can no longer
     # be recomputed (requester or agent deactivated, task relinked, module
     # removed) settles as stale. Raising here leaves it in the queue forever,

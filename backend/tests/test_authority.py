@@ -35,6 +35,44 @@ def test_authority_review_files_promotion_and_applies(client, fresh_db, monkeypa
     assert ledger["actor"] == "tester"
 
 
+def test_rejecting_an_authority_change_takes_the_approvers_bar(fresh_db):
+    """Approving one took a strong administrator, but anyone could reject a
+    demotion, and a rejection mutes the pair for 28 days."""
+    from app.services import review, scope, users
+
+    users.ensure_user("scribe", kind="agent")
+    for name in ("bob", "ops"):
+        users.ensure_user(name)
+    proposal = review.propose_change(
+        "authority",
+        "create",
+        {"agent": "scribe", "entity": "note", "level": "review", "expected_current": "notify"},
+        summary="authority: scribe/note notify -> review",
+        actor="scheduler",
+        origin="agent",
+    )
+
+    def reject(actor, *, strong, administrator):
+        return review.reject_change(
+            proposal["id"],
+            "not now",
+            actor=actor,
+            strong=strong,
+            viewer=scope.Viewer(actor, strong),
+            administrator=administrator,
+        )
+
+    with pytest.raises(ValueError, match="strong identity"):
+        reject("bob", strong=False, administrator=False)
+    with pytest.raises(PermissionError, match="not an administrator"):
+        reject("bob", strong=True, administrator=False)
+    status = fresh_db.query_one(
+        "SELECT status FROM pending_changes WHERE id = ?", (proposal["id"],)
+    )["status"]
+    assert status == "pending"
+    assert reject("ops", strong=True, administrator=True)["status"] == "rejected"
+
+
 @pytest.mark.parametrize("mode", ["trusted-header", "api-key", "oidc"])
 @pytest.mark.parametrize("admins", [frozenset(), frozenset({"ops"})])
 @pytest.mark.parametrize("group", ["", "skein-admins"])
