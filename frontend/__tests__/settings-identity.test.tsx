@@ -36,7 +36,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...real,
-    getUser: () => "operator",
+    getUser: () => state.identity.user,
     api: (path: string, init?: RequestInit) => {
       state.calls.push(path);
       state.requests.push({ path, init });
@@ -516,10 +516,13 @@ describe("Settings identity states", () => {
     // A browser sign-in is strong but cannot mint a key (POST /api/keys
     // refuses a session), so the request is its only way to one.
     const saved = state.identity;
-    state.identity = { ...saved, strong: true, keys_minted: 0 };
+    // a sign-in name can hold a space, and unquoted it split into a key for
+    // "ava" labelled "lee"
+    state.identity = { ...saved, user: "ava lee", strong: true, keys_minted: 0 };
     try {
       render(<SettingsPage />);
       expect(await screen.findByRole("button", { name: "Request a key" })).toBeTruthy();
+      expect(screen.getByText("python -m app.bootstrap_key 'ava lee'")).toBeTruthy();
     } finally {
       state.identity = saved;
     }

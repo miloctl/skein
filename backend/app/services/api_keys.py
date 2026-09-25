@@ -42,12 +42,15 @@ def create_key(owner: str, label: str = "", *, at_server: bool = False) -> dict:
     return {"id": kid, "key": key, "label": label, "note": "store this now — it is not shown again"}
 
 
-# "@" and "+" for sign-in names, which are often email addresses. Neither is
-# a shell metacharacter, and shlex.quote leaves both bare.
-_SAFE_NAME = re.compile(r"[\w .@+\-]{1,64}")
+# "@" and "+" for sign-in names, which are often email addresses. After the
+# first character both are literal in bash, sh, zsh and PowerShell, and
+# shlex.quote leaves them bare. The first character is a letter, digit or _:
+# PowerShell expands a leading "@" ("@true" became "True"), and a leading "-"
+# reads as an option in the mint command.
+_SAFE_NAME = re.compile(r"\w[\w .@+\-]{0,63}")
 
 
-def request_key(user: str) -> dict:
+def request_key(user: str, *, strong: bool = False) -> dict:
     """Self-serve ask: a key can only be minted at the server, but requesting
     one must not require finding the operator — this files a nudge with the
     exact command to the named administrators (SKEIN_ADMINS), or to the team
@@ -59,11 +62,19 @@ def request_key(user: str) -> dict:
     if not user or user == "anonymous":
         raise ValueError("pick your name first — the key is minted for it")
     if not _SAFE_NAME.fullmatch(user):
-        raise ValueError("that name cannot go in a mint command — letters, digits, . - _ @ + only")
+        raise ValueError(
+            "This name cannot go in the server command that mints a key. The name"
+            " must start with a letter or a digit and use only letters, digits,"
+            " spaces, and . - _ @ +. Ask whoever runs the server to mint the key."
+        )
     prefix = f"{user} requests a personal API key"
+    check = (
+        "a key or a sign-in proved the name"
+        if strong
+        else "self-asserted name — check that the request really comes from them"
+    )
     message = (
-        f"{prefix} (self-asserted name — check that the request really comes from"
-        f" them, then deliver the key out-of-band)"
+        f"{prefix} ({check}, then deliver the key out-of-band)"
         f" — mint: python -m app.bootstrap_key {shlex.quote(user)}"
     )
     from .. import config

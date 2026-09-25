@@ -22,6 +22,7 @@ import {
 import { authConfig, sessionEnd, sessionSnapshot, signInWithKey, signOut, subscribeSession, trustedHeaderIdentity } from "@/lib/auth";
 import { startFirstWatch } from "@/lib/first-watch";
 import { subscribeIdentity } from "@/lib/shared-chats";
+import { shellQuote } from "@/lib/shell";
 import { reportStatus } from "@/lib/status";
 import { timeAgo } from "@/lib/time";
 import { copyText } from "@/lib/clipboard";
@@ -1518,14 +1519,14 @@ export default function SettingsPage() {
                           </summary>
                           <div className="mt-2">
                             <CopyLine
-                              text={`python -m app.bootstrap_key ${currentUser}`}
+                              text={`python -m app.bootstrap_key ${shellQuote(currentUser)}`}
                               label="server key command"
                             />
                             <p className="mt-2 text-xs text-ink-3">
                               Docker:{" "}
                               <code>
                                 docker compose exec backend python -m
-                                app.bootstrap_key {currentUser}
+                                app.bootstrap_key {shellQuote(currentUser)}
                               </code>{" "}
                               — the key prints once.
                             </p>
@@ -2126,7 +2127,7 @@ export default function SettingsPage() {
                   Inside the cluster, over stdio:
                 </p>
                 <CopyLine
-                  text={`claude mcp add skein -- env SKEIN_MCP_USER=${currentUser === "anonymous" ? "you" : currentUser}-mcp <path-to-backend>/.venv/bin/python -m app.mcp_server`}
+                  text={`claude mcp add skein -- env SKEIN_MCP_USER=${shellQuote(`${currentUser === "anonymous" ? "you" : currentUser}-mcp`)} <path-to-backend>/.venv/bin/python -m app.mcp_server`}
                   label="Claude Code registration over stdio"
                 />
                 <p className="mb-1 mt-3 text-xs font-medium text-ink-3">
