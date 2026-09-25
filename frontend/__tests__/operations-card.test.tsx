@@ -37,17 +37,20 @@ let response = structuredClone(healthy);
 // administrator
 let stranded: unknown = null;
 let strandedStatus = 403;
+const requested: string[] = [];
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...real,
-    api: (path: string) =>
-      path === "/api/review/stranded"
+    api: (path: string) => {
+      requested.push(path);
+      return path === "/api/review/stranded"
         ? stranded === null
           ? Promise.reject(new real.ApiError("refused", strandedStatus))
           : Promise.resolve(stranded)
-        : Promise.resolve(response),
+        : Promise.resolve(response);
+    },
   };
 });
 
@@ -58,13 +61,14 @@ describe("OperationsCard", () => {
     response = structuredClone(healthy);
     stranded = null;
     strandedStatus = 403;
+    requested.length = 0;
   });
 
   it("lists the proposals nobody can settle to a named administrator", async () => {
     stranded = [
       { id: 12, entity: "note", action: "create", reason: "No active person can read it." },
     ];
-    render(<OperationsCard />);
+    render(<OperationsCard namedAdmin />);
     expect(
       await screen.findByText(/#12 note\.create: No active person can read it\./),
     ).toBeTruthy();
@@ -77,12 +81,20 @@ describe("OperationsCard", () => {
       { id: 7, entity: "memory", action: "create", reason: "No active person can read it." },
     ];
     response = { broken: true } as unknown as typeof response;
-    render(<OperationsCard />);
+    render(<OperationsCard namedAdmin />);
     expect(await screen.findByText(/#7 memory\.create/)).toBeTruthy();
   });
 
-  it("stays all clear when the stranded list is not the reader's to see", async () => {
+  it("never asks for the stranded list for anyone but a named administrator", async () => {
+    // the route answers them 403, and the browser logs every 403 as a
+    // console error, which the e2e suite refuses on every page
     render(<OperationsCard />);
+    expect(await screen.findByText(/The loom hums/)).toBeTruthy();
+    expect(requested).not.toContain("/api/review/stranded");
+  });
+
+  it("stays all clear when the stranded list is not the reader's to see", async () => {
+    render(<OperationsCard namedAdmin />);
     expect(await screen.findByText(/The loom hums/)).toBeTruthy();
     // the fixture has one unverified row
     expect(document.body.textContent).toContain("1 newer row awaits the next verify run");
@@ -93,7 +105,7 @@ describe("OperationsCard", () => {
     ["a body that is not a list", () => (stranded = { detail: "moved" })],
   ])("never reads %s as an all-clear", async (_label, arrange) => {
     arrange();
-    render(<OperationsCard />);
+    render(<OperationsCard namedAdmin />);
     expect(
       await screen.findByText("The stranded-proposal list did not load. Reload this page."),
     ).toBeTruthy();

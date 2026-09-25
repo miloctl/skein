@@ -2690,7 +2690,7 @@ export default function SettingsPage() {
               Team
             </h2>
             <div className="space-y-4">
-              <OperationsCard headingLevel={3} />
+              <OperationsCard headingLevel={3} namedAdmin={who?.admin ?? false} />
 
               <BackupCard
                 canAdminister={canAdminister}
