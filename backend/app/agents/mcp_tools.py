@@ -130,12 +130,15 @@ def _deadline_strike(server_id: str) -> None:
     _drop_connection(server_id, "consecutive timeouts")
 
 
-def _drop_connection(server_id: str, reason: str) -> None:
+def _drop_connection(server_id: str, reason: str, client: Any = None) -> None:
     global _tools
     with _lock:
-        connection = _connections.pop(server_id, None)
-        if connection is None:
+        connection = _connections.get(server_id)
+        # only the connection the failing tool came from: a newer one cached
+        # under the same id is healthy and stays
+        if connection is None or (client is not None and connection.client is not client):
             return
+        del _connections[server_id]
         if connection.tier == "system":
             _tools = None
         # Seed the backoff HERE: without a retry_at in the future, the next
@@ -179,6 +182,10 @@ class GovernedMCPTool(AgentTool):
         self.metadata = metadata
         self.server_id = server_id
         self.tier = tier
+        # the client this tool was listed from (_connect_servers sets it). A
+        # turn can hold a tool after its connection was replaced, and that
+        # tool must neither run on the replacement nor drop it.
+        self.client: Any = None
 
     @property
     def tool_name(self) -> str:
@@ -233,7 +240,7 @@ class GovernedMCPTool(AgentTool):
             yield _refusal(tool_use, "This agent is not allowed to use the remote tool.")
             return
         if self.tier == PERSONAL and not await asyncio.to_thread(
-            _personal_row_is_current, self.server_id
+            _personal_row_is_current, self.server_id, self.client
         ):
             record("refused", self.tool_name, "server changed", actor=actor)
             yield _refusal(
@@ -415,15 +422,26 @@ class GovernedMCPTool(AgentTool):
                 completion_status=completion_status,
             )
             return
-        except MCPClientInitializationError:
+        except MCPClientInitializationError as exc:
             # MCPClient.call_tool_async checks its session before it sends,
             # so the call never ran: failed, never completion unknown. The
             # session does not come back, so the connection is dropped and
             # rebuilt with the retry backoff. Kept, every later call on this
             # process fails the same way while Settings shows "connected".
+            _drop_connection(self.server_id, "a closed session", self.client)
+            if approved_fingerprint:
+                # a reviewed call: nothing ran, so the approval must not
+                # stand. services/review.py resets the proposal to pending
+                # and answers 503; recorded as approved, the review page
+                # would show a call that never happened as done.
+                raise MCPServerNotReady(
+                    "MCP_CONNECTION_CLOSED",
+                    "The connection to the MCP server for this tool closed, so the call"
+                    " did not run. Skein reconnects it. Wait 30 seconds, then approve again.",
+                    retry_after=int(_RETRY_BASE_SECONDS),
+                ) from exc
             record("failed", self.tool_name, "failed", actor=actor)
             _audit_mcp(actor, self.tool_name, "failed", "session_closed")
-            _drop_connection(self.server_id, "a closed session")
             yield _refusal(
                 tool_use,
                 "The connection to the remote tool's server closed, so the call did not"
@@ -481,7 +499,7 @@ class GovernedMCPTool(AgentTool):
             yield event
 
 
-def _personal_row_is_current(server_id: str) -> bool:
+def _personal_row_is_current(server_id: str, client: Any = None) -> bool:
     """Whether the row this process connected with still exists unchanged.
     forget() runs only on the pod that took a delete or an edit, so a turn on
     another pod that already holds the tool would otherwise keep calling the
@@ -495,7 +513,9 @@ def _personal_row_is_current(server_id: str) -> bool:
         return False
     with _lock:
         connection = _connections.get(server_id)
-    return connection is not None and connection.stamp == row["stamp"]
+    if connection is None or connection.stamp != row["stamp"]:
+        return False
+    return client is None or connection.client is client
 
 
 def _first_use_approved(server: str, tool: str, version: str) -> bool:
@@ -1387,7 +1407,9 @@ def _connect_servers(
                         server_id,
                     )
                     continue
-                accepted.append(GovernedMCPTool(remote_tool, metadata, server_id, tier))
+                governed = GovernedMCPTool(remote_tool, metadata, server_id, tier)
+                governed.client = client
+                accepted.append(governed)
             connections.append(
                 _MCPConnection(
                     server_id,

@@ -43,6 +43,9 @@ class _Flow:
     error: str = ""
     # no connect slot was free (mcp_tools.open_personal returned False)
     busy: bool = False
+    # start() stopped waiting for the authorization URL and released the
+    # claim, so a person can start again at once
+    abandoned: bool = False
     url_ready: threading.Event = field(default_factory=threading.Event)
     done: threading.Event = field(default_factory=threading.Event)
 
@@ -159,6 +162,10 @@ def provider(server: dict) -> OAuthClientProvider:
     )
 
     async def redirect(url: str) -> None:
+        if flow is not None and flow.abandoned:
+            # the person has moved on and may already hold a newer grant:
+            # marking the server signed out here would undo it
+            raise RuntimeError("the sign-in was abandoned")
         if flow is None or not flow.claim:
             mcp_servers.mark_oauth_sign_in(int(server["id"]), True)
             raise RuntimeError("sign-in required")
@@ -227,7 +234,19 @@ def start(server_id: str, server: dict) -> str:
                 " then sign in again.",
                 retry_after=30,
             )
-        if flow.done.is_set() or time.monotonic() > deadline:
+        if not flow.done.is_set() and time.monotonic() > deadline:
+            # Discovery is still running. Held, the claim tells the next
+            # attempt "already in progress, finish it first", which the
+            # person cannot do, for up to FLOW_SECONDS.
+            flow.abandoned = True
+            mcp_servers.release_oauth(claim)
+            raise mcp_tools.MCPServerNotReady(
+                "MCP_SIGN_IN_SLOW",
+                "The MCP server took too long to start the sign-in. Wait 60 seconds,"
+                " then sign in again.",
+                retry_after=60,
+            )
+        if flow.done.is_set():
             raise ValueError(
                 "The server did not ask for a sign-in. Check that the URL is an MCP server"
                 " that uses OAuth, then try again."

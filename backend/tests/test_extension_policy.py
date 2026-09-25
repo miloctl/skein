@@ -2833,6 +2833,47 @@ def test_a_closed_mcp_session_is_dropped_and_reported_as_not_run(fresh_db, monke
     assert failures == 1 and retry_at > time.monotonic()
 
 
+def test_a_tool_from_a_replaced_connection_neither_runs_nor_drops_the_new_one(
+    fresh_db, monkeypatch
+):
+    """A turn can hold a tool after its connection was replaced. Its closed
+    session dropped the healthy replacement cached under the same id, and
+    the next calls said the server changed although nothing had."""
+    from strands.types.exceptions import MCPClientInitializationError
+
+    from app.agents import mcp_tools as mcp_module
+    from app.agents.mcp_tools import GovernedMCPTool, _MCPConnection
+
+    class Closed(_RemoteTool):
+        async def stream(self, tool_use, invocation_state, **kwargs):
+            self.called = True
+            raise MCPClientInitializationError("the client session is not running")
+            yield {}
+
+    monkeypatch.setattr(mcp_module, "_connections", {})
+    monkeypatch.setattr(mcp_module, "_retry_state", {})
+
+    # a shared server: a stale tool's closed session leaves the new connection
+    stale = GovernedMCPTool(Closed(), _mcp_metadata(), "atlas-server")
+    stale.client = object()
+    replacement = object()
+    mcp_module._connections["atlas-server"] = _MCPConnection("atlas-server", replacement, ())
+    assert _run_governed(stale)[-1]["completionStatus"] == "failed"
+    assert mcp_module._connections["atlas-server"].client is replacement
+
+    # a personal server: a stale tool does not run on the replacement
+    remote = Closed()
+    old_tool = GovernedMCPTool(remote, _mcp_metadata(), "personal:requester:atlas", "personal")
+    stamp = _live_personal(monkeypatch, old_tool)
+    new_client = object()
+    mcp_module._connections[old_tool.server_id] = _MCPConnection(
+        old_tool.server_id, new_client, (), 1, "personal", stamp
+    )
+    assert _run_governed(old_tool)[-1]["completionStatus"] == "failed"
+    assert remote.called is False
+    assert mcp_module._connections[old_tool.server_id].client is new_client
+
+
 def test_review_verdict_supplies_the_current_grant_to_mcp_tool(fresh_db, monkeypatch):
     from app.agents import mcp_tools as mcp_module
     from app.agents.identity import reset_agent_identity, set_agent_identity
@@ -3095,6 +3136,81 @@ def test_a_directory_outage_during_the_apply_is_a_retry(fresh_db, monkeypatch):
         r["id"]: r["status"] for r in fresh_db.query("SELECT id, status FROM pending_changes")
     }
     assert statuses == {first: "pending", second: "pending"}
+
+
+def test_a_reviewed_call_that_did_not_run_stays_pending(fresh_db, monkeypatch):
+    """A closed session refuses before it sends, yet the approval was stored
+    as approved and the review page showed the call as done."""
+    from strands.types.exceptions import MCPClientInitializationError
+
+    from app.agents import mcp_tools as mcp_module
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.agents.mcp_tools import GovernedMCPTool, execute_reviewed_mcp
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import review, users
+
+    class Closing(_RemoteTool):
+        closed = False
+
+        async def stream(self, tool_use, invocation_state, **kwargs):
+            if self.closed:
+                raise MCPClientInitializationError("the client session is not running")
+            yield {"toolUseId": tool_use["toolUseId"], "status": "success", "content": []}
+
+    def remote_reviews(request: PolicyInput):
+        if request.action == "atlas.remote.write":
+            return PolicyDecision(PolicyEffect.REVIEW)
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.7.0",
+        policies=(PolicyContribution("acme.workplace.remote-review", remote_reviews),),
+    )
+    registry = ExtensionRegistry.build((module,))
+    remote = Closing()
+    metadata = _mcp_metadata(effect="write", risk="high", policy_action="atlas.remote.write")
+    governed = GovernedMCPTool(remote, metadata, "atlas-server")
+    monkeypatch.setattr(mcp_module, "_tools", [governed])
+    users.ensure_user("requester")
+    users.ensure_user("manager")
+    tokens = (
+        set_policy_engine(registry.policy_engine),
+        set_policy_subject(PolicySubject("requester")),
+        set_agent_identity("agent"),
+    )
+
+    async def queue():
+        use = {"toolUseId": "mcp-1", "name": "atlas_remote", "input": {}}
+        return [event async for event in governed.stream(use, {})]
+
+    try:
+        asyncio.run(queue())
+    finally:
+        reset_agent_identity(tokens[2])
+        reset_policy_subject(tokens[1])
+        reset_policy_engine(tokens[0])
+    pending = fresh_db.query_one("SELECT id FROM pending_changes WHERE status = 'pending'")
+    remote.closed = True
+    with pytest.raises(mcp_module.MCPServerNotReady) as closed:
+        review.approve_change(
+            pending["id"],
+            actor="manager",
+            strong=True,
+            viewer=scope.Viewer("manager", True),
+            extension_executor=lambda invocation, _id: asyncio.run(
+                execute_reviewed_mcp(invocation, registry)
+            ),
+            policy_registry=registry,
+        )
+    assert (closed.value.code, closed.value.status_code) == ("MCP_CONNECTION_CLOSED", 503)
+    status = fresh_db.query_one(
+        "SELECT status FROM pending_changes WHERE id = ?", (pending["id"],)
+    )["status"]
+    assert status == "pending"
 
 
 def test_mcp_metadata_rejects_empty_actions_and_string_lists():
@@ -6886,10 +7002,11 @@ def _live_personal(monkeypatch, tool) -> str:
 
     _, owner, name = tool.server_id.split(":")
     stamp = _personal_row(monkeypatch, owner=owner, name=name)
+    tool.client = object()  # what _connect_servers sets
     monkeypatch.setitem(
         mcp_module._connections,
         tool.server_id,
-        mcp_module._MCPConnection(tool.server_id, object(), (tool,), 1, "personal", stamp),
+        mcp_module._MCPConnection(tool.server_id, tool.client, (tool,), 1, "personal", stamp),
     )
     return stamp
 
@@ -7106,7 +7223,7 @@ def test_a_personal_remote_call_never_falls_open_to_any_teammate(fresh_db, monke
     assert json.loads(withdrawn["reviewer_qualifications"])["withdrawn_by_owner"] is True
 
     mcp_module._connections[sid] = mcp_module._MCPConnection(
-        sid, object(), (tool,), 1, "personal", stamp
+        sid, tool.client, (tool,), 1, "personal", stamp
     )
     rule["security"] = False
     with pytest.raises(PermissionError, match="owner's MCP sign-in"):
