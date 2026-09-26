@@ -902,9 +902,9 @@ def _holds_personal_data(name: str) -> bool:
     else hands it to a person the owner never chose. Returns a boolean and
     no content.
 
-    Shared-chat membership is deliberately absent: the merge folds it
-    (tests/test_shared_chat.py pins that), and whether a merge may carry a
-    person into a room needs the room's consent, a product decision."""
+    Shared-chat membership is deliberately absent: rename_user refuses a
+    non-consented merge of an active member on its own, and the consented
+    merge folds it (tests/test_shared_chat.py pins that)."""
     from .erasure import MERGE_CARRIED, holdings
 
     return any(n for kind, n in holdings(name).items() if kind in MERGE_CARRIED)
@@ -998,6 +998,25 @@ def rename_user(
             raise ValueError(
                 "The account holds data that only its owner can read. A merge by another"
                 " person is refused. Deactivate the account instead."
+            )
+        # Membership decides what a person reads. The fold below admits the
+        # target to every room the source is in, past a steward's removal:
+        # only the consented merge (services/merges.py) carries it.
+        if (
+            target
+            and not consented
+            and db.query_one(
+                "SELECT 1 FROM chat_members WHERE person = ? AND left_at IS NULL"
+                " UNION ALL SELECT 1 FROM chat_invitations WHERE person = ? AND status = 'pending'"
+                " UNION ALL SELECT 1 FROM crew_members WHERE person = ?"
+                " LIMIT 1",
+                (old, old, old),
+            )
+        ):
+            raise ValueError(
+                "The account is in a crew or a private shared chat. A merge by another"
+                " person is refused. Ask the person to request the merge, or deactivate"
+                " the account."
             )
         if expected_merge is not None and bool(target) != expected_merge:
             raise db.Conflict(
@@ -1537,14 +1556,21 @@ def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
             )
         revoked = 0
         if not active:
+            from ..agents.mcp_tools import forget_owner
             from .api_keys import revoke_keys_for
-            from .mcp_servers import delete_for
 
             revoked = revoke_keys_for(name, actor=actor)
             # Delete in this transaction so reactivation cannot restore an OIDC
             # browser session whose upstream tokens have not expired.
             db.execute("DELETE FROM browser_sessions WHERE user_id = ?", (row["id"],))
-            delete_for(name, actor=actor)
+            # The registrations stay through erasure.GRACE_DAYS like the rest
+            # of the account (erasure.erase deletes them): a wrong deactivation
+            # must be undoable. The live connections and any open OAuth
+            # sign-in go now: a callback that lands after this must not
+            # complete a grant for an account that can no longer act, and a
+            # personal tool joins no turn without the owner's key or sign-in.
+            db.execute("DELETE FROM mcp_oauth_flows WHERE owner = ?", (name,))
+            forget_owner(name)
             # a deactivated account's accepted consent must not keep its brief
             # open, nor let it keep pulling others' (pairings.record_brief)
             from .pairings import end_all_for

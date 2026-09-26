@@ -220,8 +220,10 @@ def test_concurrent_command_bridges_preserve_every_exchange(fresh_db, monkeypatc
     from app import config
     from app.agents import session_log
     from app.agents.session_store import DatabaseSessionRepository
+    from app.services import chat_threads
 
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    chat_threads.claim_thread("command-session", "tester")
     barrier = threading.Barrier(8)
 
     def append(index):

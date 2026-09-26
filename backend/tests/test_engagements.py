@@ -194,3 +194,28 @@ def test_the_ship_recap_counts_only_what_the_team_can_open(fresh_db):
     engagements.update_engagement(eng["id"], status="closed", conclusion="achieved", actor="ada")
     recap = fresh_db.query_one("SELECT content FROM notes WHERE topic = 'shipped-Borealis'")
     assert "1 tasks done" in recap["content"]
+
+
+def test_a_scoped_close_is_not_announced_and_a_workspace_count_is_workspace(fresh_db):
+    """The close notice goes to every roster member. A private engagement's
+    id, the fact of its close and its task count reached people who cannot
+    read it, and a workspace close counted other people's private tasks."""
+    from app.services import engagements, users, work
+
+    users.ensure_user("ava")
+    hidden = engagements.create_engagement("quiet", actor="ava", visibility="private")
+    work.create_task("mine", engagement_id=hidden["id"], actor="ava", visibility="private")
+    out = engagements.update_engagement(
+        hidden["id"], status="closed", conclusion="achieved", actor="ava"
+    )
+    assert "open_tasks" not in out
+    assert _unread_for(fresh_db, "team", "%open task%") is None
+
+    shared = engagements.create_engagement("loud", actor="ava")
+    work.create_task("team work", engagement_id=shared["id"], actor="ava")
+    work.create_task("my work", engagement_id=shared["id"], actor="ava", visibility="private")
+    out = engagements.update_engagement(
+        shared["id"], status="closed", conclusion="achieved", actor="ava"
+    )
+    assert out["open_tasks"] == 1
+    assert "1 open task" in _unread_for(fresh_db, "team", "%open task%")["message"]

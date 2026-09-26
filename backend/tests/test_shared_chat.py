@@ -146,7 +146,7 @@ def test_identity_merge_preserves_messages_with_the_same_sender_key(client):
     first = post_message(client, room["id"], mira, "From Mira", "shared-key")
     second = post_message(client, room["id"], dana, "From Dana", "shared-key")
 
-    users.rename_user("mira", "dana", actor="ops", expected_merge=True)
+    users.rename_user("mira", "dana", actor="ops", expected_merge=True, consented=True)
 
     messages = client.get(f"/api/shared-chats/{room['id']}/messages", headers=dana).json()
     assert [message["id"] for message in messages if message["author_kind"] == "human"] == [
@@ -350,6 +350,8 @@ def test_member_names_with_slashes_travel_in_the_request_body(client):
 
 
 def test_identity_merge_folds_members_and_pending_invitations(client):
+    """consented=True is the services/merges.py path: an administrator's own
+    merge of an active room member is refused (tests/test_users.py)."""
     from app.services import chat_threads
 
     room, mira = create_room(client)
@@ -371,7 +373,7 @@ def test_identity_merge_folds_members_and_pending_invitations(client):
     pending_room, pending_owner = create_room(client, owner="mira", title="Pending")
     invite(client, pending_room["id"], pending_owner, "dana")
     invite(client, pending_room["id"], pending_owner, "dana-alt")
-    users.rename_user("dana", "dana-alt", actor="ops", expected_merge=True)
+    users.rename_user("dana", "dana-alt", actor="ops", expected_merge=True, consented=True)
 
     members = client.get(f"/api/shared-chats/{room['id']}", headers=other).json()["members"]
     folded = [member for member in members if member["person"] == "dana-alt"]
@@ -399,7 +401,7 @@ def test_identity_merge_keeps_an_active_sole_steward_over_a_left_target(client):
     client.post(f"/api/shared-chats/invitations/{invitation['id']}/accept", headers=target)
     assert client.post(f"/api/shared-chats/{room['id']}/leave", headers=target).status_code == 200
 
-    users.rename_user("dana", "dana-alt", actor="ops", expected_merge=True)
+    users.rename_user("dana", "dana-alt", actor="ops", expected_merge=True, consented=True)
 
     merged = client.get(f"/api/shared-chats/{room['id']}", headers=target)
     assert merged.status_code == 200
@@ -411,7 +413,7 @@ def test_identity_merge_revokes_an_invitation_to_an_existing_active_member(clien
     auth("dana")
     invite(client, room["id"], target, "dana")
 
-    users.rename_user("dana", "dana-alt", actor="ops", expected_merge=True)
+    users.rename_user("dana", "dana-alt", actor="ops", expected_merge=True, consented=True)
 
     assert client.get("/api/shared-chats/invitations", headers=target).json() == []
     assert client.get(f"/api/shared-chats/{room['id']}", headers=target).json()["role"] == "steward"

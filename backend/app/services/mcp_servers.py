@@ -176,7 +176,8 @@ def delete(sid: int, person: str, *, actor: str) -> dict:
 
 
 def delete_for(person: str, *, actor: str = "system") -> int:
-    """The offboarding half of users.set_active(False), beside revoke_keys_for."""
+    """The erasure half of the account (erasure.erase): the rows and the live
+    connections. Deactivation keeps the rows through the grace."""
     from ..agents.mcp_tools import forget_owner
 
     rows = db.query(

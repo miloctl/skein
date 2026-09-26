@@ -870,7 +870,7 @@ def _refusal(tool_use: dict, detail: str, *, completion_status: str = "failed") 
     }
 
 
-def _derived_metadata(remote_tool) -> MCPToolMetadata:
+def _derived_metadata(remote_tool, server_row: int | None = None) -> MCPToolMetadata:
     """Classification from the server's own annotations, for a server whose
     registrant wrote no governance block. An unannotated tool is a write
     whose blast radius nobody declared, so it lands at the top of the risk
@@ -891,7 +891,14 @@ def _derived_metadata(remote_tool) -> MCPToolMetadata:
     # server craft a changed tool that keeps the approved version.
     dump = getattr(annotations, "model_dump", None)
     contract = json.dumps(
-        {"spec": remote_tool.tool_spec, "annotations": dump(mode="json") if dump else None},
+        {
+            "spec": remote_tool.tool_spec,
+            "annotations": dump(mode="json") if dump else None,
+            # a delete and same-name re-add is a new server (mcp_servers._entry
+            # stamps the row id): the approval one endpoint earned must not
+            # carry to the URL the next row names
+            "server_row": server_row,
+        },
         sort_keys=True,
         default=str,
     )
@@ -912,7 +919,7 @@ def _derived_metadata(remote_tool) -> MCPToolMetadata:
 
 def _metadata(server: dict, remote_tool) -> MCPToolMetadata | None:
     if server.get("derive"):
-        return _derived_metadata(remote_tool)
+        return _derived_metadata(remote_tool, server.get("id"))
     tool_name = str(remote_tool.tool_name)
     value = (server.get("tools") or {}).get(tool_name)
     required = {
@@ -976,14 +983,21 @@ def _audit_mcp(actor: str, tool: str, status: str, error_code: str = "") -> None
     record_tool_execution(actor=actor, tool=tool, status=status, error_code=error_code)
 
 
+def _registry_key(name: str) -> str:
+    # strands.tools.registry refuses an exact duplicate and a name that
+    # differs only by '-' versus '_': one such pair fails the whole
+    # Agent(tools=...) build, not only the colliding tool
+    return name.replace("-", "_")
+
+
 def _without_reserved(tools: list, reserved_names: set[str]) -> list:
-    collisions = sorted({str(getattr(tool, "tool_name", tool)) for tool in tools} & reserved_names)
-    if collisions:
-        log.error(
-            "MCP tool names collide with local tools and were omitted: %s",
-            ", ".join(collisions),
-        )
-    return [tool for tool in tools if str(getattr(tool, "tool_name", tool)) not in reserved_names]
+    reserved = {_registry_key(name) for name in reserved_names}
+    keys = [_registry_key(str(getattr(tool, "tool_name", tool))) for tool in tools]
+    counts = {key: keys.count(key) for key in keys}
+    dropped = sorted({key for key in keys if key in reserved or counts[key] > 1})
+    if dropped:
+        log.error("MCP tool names collide and were omitted: %s", ", ".join(dropped))
+    return [tool for tool, key in zip(tools, keys, strict=True) if key not in dropped]
 
 
 def _server_entries() -> list[tuple[str, dict]]:
@@ -1020,14 +1034,15 @@ def _composed_tools(connections) -> list:
     tools = [tool for connection in connections for tool in connection.tools]
     counts: dict[str, int] = {}
     for tool in tools:
-        counts[tool.tool_name] = counts.get(tool.tool_name, 0) + 1
+        key = _registry_key(tool.tool_name)
+        counts[key] = counts.get(key, 0) + 1
     duplicates = {name for name, count in counts.items() if count > 1}
     if duplicates:
         log.error(
             "MCP tool names collide across servers and were omitted: %s",
             ", ".join(sorted(duplicates)),
         )
-    return [tool for tool in tools if tool.tool_name not in duplicates]
+    return [tool for tool in tools if _registry_key(tool.tool_name) not in duplicates]
 
 
 def _finish_load(server_ids: set[str], configured_ids: set[str], generation: int) -> list:

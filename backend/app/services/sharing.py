@@ -11,7 +11,7 @@ private until its author shares it too (collab.post_standup)."""
 from collections.abc import Callable
 
 from .. import db
-from . import scope
+from . import scope, work
 from .search import index_record
 
 # table -> (search entity, the row's index text). Private rows are never
@@ -85,6 +85,21 @@ def share_with_team(table: str, row_id: int, *, actor: str) -> dict:
                     "This record belongs to work that fewer people can see."
                     " Share that work with the team first."
                 )
+        # the waiting_on link work.update_task holds to
+        # scope.assert_relationship_contains: without this a shared task named
+        # a crew or private row's type, id and state in portfolio.slip_forecast
+        if (
+            table == "tasks"
+            and row.get("waiting_on_type")
+            and row.get("waiting_on_id")
+            and not _parent_is_workspace(
+                work._WAITING_TABLES[row["waiting_on_type"]], int(row["waiting_on_id"])
+            )
+        ):
+            raise ValueError(
+                "This task waits on work that fewer people can see."
+                " Share that work with the team first, or remove the wait."
+            )
         db.execute(
             f"UPDATE {table} SET visibility = ?, crew_id = NULL WHERE id = ?",  # noqa: S608 — table from SHAREABLE
             (scope.WORKSPACE, row_id),

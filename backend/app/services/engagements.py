@@ -284,13 +284,19 @@ def _update_engagement_locked(
             lesson_proposal = _playbook_lesson(engagement_id, actor=actor)
         # closing over live work must be loud, not blocking: orphaned tasks
         # silently stop counting anywhere once their engagement is closed
+        # WORKSPACE_ONLY, as _ship_it_locked counts: the notice goes to every
+        # roster member, and a count that included private tasks told them
+        # how much hidden work a colleague holds
         open_tasks = db.query_one(
-            "SELECT COUNT(*) AS n FROM tasks WHERE status NOT IN ('done', 'void')"
+            f"SELECT COUNT(*) AS n FROM tasks WHERE {scope.WORKSPACE_ONLY}"  # noqa: S608 — scope constant
+            " AND status NOT IN ('done', 'void')"
             " AND (engagement_id = ? OR milestone_id IN"
             " (SELECT id FROM milestones WHERE engagement_id = ?))",
             (engagement_id, engagement_id),
         )
-        if open_tasks and open_tasks["n"]:
+        # a scoped engagement's closure is not announced: its id, the fact
+        # of its close and its task count reached people who cannot read it
+        if open_tasks and open_tasks["n"] and current["visibility"] == scope.WORKSPACE:
             from .notifications import notify
 
             notify(
@@ -304,6 +310,7 @@ def _update_engagement_locked(
                 # single authoritative source, so policy-aware readers treat
                 # it as unclassified instead of checking only the engagement.
             )
+        if open_tasks and open_tasks["n"]:
             return {
                 "id": engagement_id,
                 "updated": list(fields),

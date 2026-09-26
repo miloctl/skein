@@ -694,3 +694,35 @@ def test_deleting_a_chat_takes_its_sessions_and_no_other_chat_s(client):
     delete_thread_sessions("run")
     left = {r["session_id"] for r in db.query("SELECT session_id FROM sessions")}
     assert left == {"abc--x", "run:scout:2026-09-01"}
+
+
+def test_a_bridge_after_a_delete_writes_no_session_and_a_claim_starts_empty(
+    client, fresh_db, monkeypatch
+):
+    """A command turn holds no turn lease, so a delete can land while its
+    stream is open. The bridge then wrote a session no thread owned, which
+    delete, retention and erasure all miss, and the next claim of the id
+    replayed it into the claimant's turn."""
+    from strands.types.session import Session, SessionType
+
+    from app import config
+    from app.agents import session_log
+    from app.agents.session_store import DatabaseSessionRepository
+    from app.services import chat_threads
+
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    chat_threads.claim_thread("t-gone", "tester")
+    chat_threads.delete_thread("t-gone", "tester")
+    session_log.log_exchange("t-gone", "/help", "here is help")
+    assert fresh_db.query("SELECT 1 FROM sessions WHERE session_id = 't-gone'") == []
+
+    repo = DatabaseSessionRepository()
+    repo.create_session(Session(session_id="t-orphan", session_type=SessionType.AGENT))
+    assert fresh_db.query("SELECT 1 FROM sessions WHERE session_id = 't-orphan'")
+    chat_threads.claim_thread("t-orphan", "tester")
+    assert fresh_db.query("SELECT 1 FROM sessions WHERE session_id = 't-orphan'") == []
+    # an existing claim keeps its history
+    session_log.log_exchange("t-orphan", "/help", "again")
+    chat_threads.claim_thread("t-orphan", "tester")
+    assert fresh_db.query("SELECT 1 FROM sessions WHERE session_id = 't-orphan'")

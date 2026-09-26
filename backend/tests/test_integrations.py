@@ -925,3 +925,34 @@ def test_a_turn_closes_another_owners_connection_once_its_row_is_gone(
     monkeypatch.setattr(m, "_last_sweep", 0.0)
     m.personal_mcp_tools("bo")
     assert "personal:ava:notes" not in m._connections
+
+
+def test_first_use_approval_is_bound_to_the_server_row(clean_mcp):
+    """A delete and same-name re-add is a new server. The approval one
+    endpoint earned carried to whatever URL the next row named."""
+    from types import SimpleNamespace as NS
+
+    m = clean_mcp
+    remote = NS(tool_name="t", tool_spec={"name": "t"}, mcp_tool=None)
+    assert m._derived_metadata(remote, 1).version == m._derived_metadata(remote, 1).version
+    assert m._derived_metadata(remote, 1).version != m._derived_metadata(remote, 2).version
+    assert (
+        m._metadata({"derive": True, "id": 7}, remote).version
+        == m._derived_metadata(remote, 7).version
+    )
+
+
+def test_colliding_personal_tool_names_cost_only_themselves(clean_mcp):
+    """The Strands registry refuses an exact duplicate and a name that differs
+    only by '-' versus '_': one such pair failed the owner's whole agent
+    build, every turn, until the server was removed."""
+    from types import SimpleNamespace as NS
+
+    m = clean_mcp
+    tools = [NS(tool_name=n) for n in ("a-b", "a_b", "ping", "ping", "my-agent-inbox", "keep")]
+    kept = [t.tool_name for t in m._without_reserved(tools, {"my_agent_inbox"})]
+    assert kept == ["keep"]
+    composed = m._composed_tools(
+        [NS(tools=[NS(tool_name="x-y")]), NS(tools=[NS(tool_name="x_y"), NS(tool_name="z")])]
+    )
+    assert [t.tool_name for t in composed] == ["z"]

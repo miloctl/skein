@@ -3,6 +3,10 @@ exclusion, and the attribution map that must match the schema."""
 
 from pathlib import Path
 
+import pytest
+
+from app import db
+
 
 def test_merge_backfills_profile_fields_target_never_set(fresh_db):
     from app.services import users
@@ -123,9 +127,11 @@ def test_rename_user_merges_into_existing(client, fresh_db):
     assert len([u for u in users.list_users(active_only=False) if u["name"].lower() == "mira"]) == 1
 
 
-def test_rename_route_rejects_a_stale_merge_confirmation(client, fresh_db):
+def test_rename_route_rejects_a_stale_merge_confirmation(client, fresh_db, monkeypatch):
+    from app import config
     from app.services import api_keys, users
 
+    monkeypatch.setattr(config, "ADMINS", frozenset({"operator"}))
     for name in ("operator", "Ava", "Bo"):
         users.ensure_user(name)
     key = api_keys.create_key("operator", label="test")["key"]
@@ -144,9 +150,11 @@ def test_rename_route_rejects_a_stale_merge_confirmation(client, fresh_db):
     assert {"Ava", "Bo"} <= names
 
 
-def test_rename_route_keeps_the_existing_omitted_merge_contract(client, fresh_db):
+def test_rename_route_keeps_the_existing_omitted_merge_contract(client, fresh_db, monkeypatch):
+    from app import config
     from app.services import api_keys, users
 
+    monkeypatch.setattr(config, "ADMINS", frozenset({"operator"}))
     for name in ("operator", "Ava", "Bo"):
         users.ensure_user(name)
     key = api_keys.create_key("operator", label="test")["key"]
@@ -478,3 +486,65 @@ def test_growth_interests_stay_with_their_person_until_shared(client, fresh_db):
     users.rename_user("dup", "cy", actor="ops", expected_merge=True)
     assert users.get_growth_interests("cy") == {"interests": "ZZDUPZZ", "shared": True}
     assert json.dumps(client.get("/api/users", headers=bob).json()).count("ZZDUPZZ") == 1
+
+
+def test_roster_edits_take_the_named_administrator_test(client, fresh_db):
+    """A merge moves what a person reads and a deactivation starts the erasure
+    clock: neither is for the trusted-header fallback that makes every key
+    holder an administrator."""
+    from conftest import _strong
+
+    from app.services import users
+
+    users.ensure_user("bo")
+    strong = _strong(client, "ops")
+    renamed = client.post("/api/users/bo/rename", json={"new_name": "bob"}, headers=strong)
+    assert renamed.status_code == 403
+    assert "SKEIN_ADMINS" in renamed.json()["detail"]
+    stopped = client.post("/api/users/bo/active", json={"active": False}, headers=strong)
+    assert stopped.status_code == 403
+    assert "bo" in [u["name"] for u in users.list_users()]
+
+
+def test_an_administrator_cannot_merge_an_active_room_member(client, fresh_db):
+    """The fold admitted the target to every room the source was in, past a
+    steward's removal, with no room message: only the consented merge
+    (services/merges.py) carries membership."""
+    from app.services import chat_threads, users
+
+    for name in ("mira", "dana", "carol"):
+        users.ensure_user(name)
+    room = chat_threads.create_shared_chat("Launch room", "mira")
+    invitation = chat_threads.invite_to_shared_chat(room["id"], "mira", "dana", share_history=True)
+    # a pending invitation is membership the steward has offered
+    with pytest.raises(ValueError, match="crew or a private shared chat"):
+        users.rename_user("dana", "carol", actor="ops", expected_merge=True)
+    chat_threads.accept_shared_chat_invitation(invitation["id"], "dana")
+    with pytest.raises(ValueError, match="crew or a private shared chat"):
+        users.rename_user("dana", "carol", actor="ops", expected_merge=True)
+    assert db.query_one("SELECT 1 FROM chat_members WHERE person = 'carol'") is None
+    from app.services import crews
+
+    users.ensure_user("eve")
+    crew = crews.create_crew("Platform", actor="eve")
+    with pytest.raises(ValueError, match="crew or a private shared chat"):
+        users.rename_user("eve", "carol", actor="ops", expected_merge=True)
+    assert db.query_one("SELECT 1 FROM crew_members WHERE person = 'carol'") is None
+    assert crew["id"]
+
+
+def test_deactivation_keeps_personal_mcp_rows_through_the_grace(fresh_db, monkeypatch):
+    """A wrong deactivation must be undoable: the rows go with the account at
+    erasure, and only the live connections go at once."""
+    from cryptography.fernet import Fernet
+
+    from app import config
+    from app.services import mcp_servers, users
+
+    monkeypatch.setattr(config, "CREDENTIAL_KEY", Fernet.generate_key().decode())
+    users.ensure_user("ava")
+    mcp_servers.add("ava", "notes", "https://notes.example/mcp", actor="ava")
+    users.set_active("ava", False, actor="ops")
+    assert [row["name"] for row in mcp_servers.list_for("ava")] == ["notes"]
+    users.set_active("ava", True, actor="ops")
+    assert [row["name"] for row in mcp_servers.list_for("ava")] == ["notes"]

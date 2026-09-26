@@ -109,6 +109,27 @@ def _satisfied_targets(waits: list[dict]) -> set[tuple[str, int]]:
     return done
 
 
+def _workspace_targets(waits: list[dict]) -> set[tuple[str, int]]:
+    """(waiting_on_type, waiting_on_id) pairs whose row every roster member
+    can read. One IN query per target type, as _satisfied_targets."""
+    from .work import _WAITING_TABLES
+
+    by_type: dict[str, set[int]] = {}
+    for w in waits:
+        by_type.setdefault(w["waiting_on_type"], set()).add(w["waiting_on_id"])
+    shown: set[tuple[str, int]] = set()
+    for typ, ids in by_type.items():
+        marks = ", ".join("?" for _ in ids)
+        shown.update(
+            (typ, r["id"])
+            for r in db.query(
+                f"SELECT id FROM {_WAITING_TABLES[typ]} WHERE {WORKSPACE_ONLY} AND id IN ({marks})",  # noqa: S608 — closed table map, scope constant, placeholders built above
+                tuple(ids),
+            )
+        )
+    return shown
+
+
 def _linked_blockers(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     # BOTH sides of the join carry the filter. Only the blockers side would let
     # a workspace blocker on a crew task through, and only the tasks side would
@@ -611,18 +632,22 @@ def slip_forecast() -> dict:
         marks = ", ".join("?" for _ in open_ms)
         for w in db.query(
             # WORKSPACE_ONLY even though open_ms is already workspace-filtered:
-            # a PRIVATE task can link to a workspace milestone, and this emits
-            # the id it waits on into forecast_snapshots, which the daily job
-            # writes with no viewer. The forecast DATE is the median slip and
-            # does not read this list, so dropping the row costs an annotation
-            # and not a number.
+            # a PRIVATE task can link to a workspace milestone, and this list
+            # reaches every roster member on the portfolio page. The forecast
+            # DATE is the median slip and does not read this list, so dropping
+            # the row costs an annotation and not a number.
             f"SELECT id, milestone_id, waiting_on_type, waiting_on_id FROM tasks"  # noqa: S608 — placeholders built above, and scope.WORKSPACE_ONLY is a module constant
             f" WHERE {WORKSPACE_ONLY} AND milestone_id IN ({marks}) AND status NOT IN ('done', 'void')"
             f" AND waiting_on_type IS NOT NULL ORDER BY id",
             tuple(m["id"] for m in open_ms),
         ):
             waits_by.setdefault(w["milestone_id"], []).append(w)
-    satisfied = _satisfied_targets([w for ws in waits_by.values() for w in ws])
+    every_wait = [w for ws in waits_by.values() for w in ws]
+    satisfied = _satisfied_targets(every_wait)
+    # the target as well as the task: a task shared after it was linked names
+    # a crew or private row here (sharing.share_with_team refuses that now,
+    # and rows shared before it did stay linked)
+    shown = _workspace_targets(every_wait)
     forecasts = []
     for m in open_ms:
         forecast = (date.fromisoformat(m["due_date"]) + timedelta(days=round(applied))).isoformat()
@@ -630,6 +655,7 @@ def slip_forecast() -> dict:
             w
             for w in waits_by.get(m["id"], [])
             if (w["waiting_on_type"], w["waiting_on_id"]) not in satisfied
+            and (w["waiting_on_type"], w["waiting_on_id"]) in shown
         ]
         forecasts.append(
             {

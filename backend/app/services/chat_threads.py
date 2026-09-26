@@ -123,13 +123,24 @@ def claim_thread(thread_id: str, owner: str) -> str:
     if thread_id.startswith(DEFAULT_PREFIX) and thread_id != default_thread_id(owner):
         raise db.NotFound("No chat was found.")
     now = db.now()
-    db.execute(
-        "INSERT INTO chat_threads"
-        " (id, owner, title, created_at, updated_at, kind, created_by)"
-        " VALUES (?, ?, 'New chat', ?, ?, 'solo', ?)"
-        " ON CONFLICT DO NOTHING",
-        (thread_id, owner, now, now, owner),
-    )
+    with db.transaction():
+        claimed = db.execute_rowcount(
+            "INSERT INTO chat_threads"
+            " (id, owner, title, created_at, updated_at, kind, created_by)"
+            " VALUES (?, ?, 'New chat', ?, ?, 'solo', ?)"
+            " ON CONFLICT DO NOTHING",
+            (thread_id, owner, now, now, owner),
+        )
+        if claimed:
+            # A session stored under an id with no thread row belongs to
+            # nobody who can claim it: a pre-045 persona import, or a bridge
+            # that closed after its chat was deleted. build_agent restores
+            # whatever sits here into the claimant's turn, so the new claim
+            # starts empty. Not a 404: under the owner's own default- id that
+            # locked them out of their unnamed thread for good.
+            from ..agents.session_store import delete_thread_sessions
+
+            delete_thread_sessions(thread_id)
     row = db.query_one("SELECT owner, kind FROM chat_threads WHERE id = ?", (thread_id,))
     if not row or row["owner"] != owner or row["kind"] != "solo":
         raise db.NotFound("No chat was found.")
