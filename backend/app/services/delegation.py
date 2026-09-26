@@ -95,7 +95,15 @@ def delegate_task(
         # re-attributes. This call's advisory lock is transaction-scoped, so
         # taking the task row first and the identity second closes a deadlock
         # cycle with any concurrent rename touching the same task.
-        ensure_agent_identity(agent)
+        row = ensure_agent_identity(agent)
+        # A person's own MCP door (owner "mcp") is not a delegate: the party
+        # door below (list_worklog, claim, report) would then read a crew
+        # task to a person outside the crew through their remote calls, and
+        # the picker already says so (is_delegatable_agent_identity).
+        if not is_delegatable_agent_identity(str(row["name"]), str(row["identity_owner"] or "")):
+            raise ValueError(
+                "That agent identity cannot be delegated to. Pick an agent from the roster."
+            )
         # Then the hold, like submit_completion below: every check under this
         # read decides a write, and the event emitted at the end carries the
         # visibility read here. Without it a concurrent relink or visibility

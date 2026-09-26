@@ -1129,7 +1129,7 @@ export default function SettingsPage() {
             </span>
           )}
         </span>
-        {canAdminister && u.name !== who?.user && (
+        {who?.admin && u.name !== who?.user && (
           <span className="flex items-center gap-1.5">
             {renameConfirmation?.from === u.name ? (
               <span
@@ -1149,7 +1149,7 @@ export default function SettingsPage() {
                   className="text-ink-3"
                 >
                   {renameConfirmation.merge
-                    ? `Merge ${u.name} into ${renameConfirmation.to}? Team-visible attribution and crew memberships will be combined under ${renameConfirmation.to}. Active personal API keys for ${u.name} will stay active under ${renameConfirmation.to}. Existing activity history under each name will stay as written. This merge cannot later be separated.`
+                    ? `Merge ${u.name} into ${renameConfirmation.to}? Team-visible attribution moves to ${renameConfirmation.to}. If ${u.name} is in a crew or a private shared chat, or holds data only they can read, the merge is refused: ask ${u.name} to request it from Settings. Personal API keys for ${u.name} are revoked. Existing activity history under each name will stay as written. This merge cannot later be separated.`
                     : `Rename ${u.name} to ${renameConfirmation.to}? Team-visible attribution and crew memberships will move to ${renameConfirmation.to}. Existing activity history will stay under ${u.name}.`}
                 </span>
                 <span className="flex items-center gap-1">

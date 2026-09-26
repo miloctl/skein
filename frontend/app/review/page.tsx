@@ -22,7 +22,9 @@ import { VisibilityBadge } from "@/components/visibility-picker";
 // not be the bytes the reviewer read. The backend refuses them at proposal
 // time (services/review.py); a row filed before that lands here, and every
 // remaining one is shown as its code point rather than hidden.
-const INVISIBLE = /[\u200B\u200C\u2060\uFEFF\u202A-\u202E\u2066-\u2069\u{E0000}-\u{E007F}]/gu;
+// every Unicode format character (category Cf) except the joiner U+200D
+// that emoji sequences depend on; the same class as services/wording.py
+const INVISIBLE = /[\u00AD\u0600-\u0605\u061C\u06DD\u070F\u0890-\u0891\u08E2\u180E\u200B-\u200C\u200E-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u206F\uFEFF\uFFF9-\uFFFB\u{110BD}\u{110CD}\u{13430}-\u{1343F}\u{1BCA0}-\u{1BCA3}\u{1D173}-\u{1D17A}\u{E0001}\u{E0020}-\u{E007F}]/gu;
 
 function visible(text: string): string {
   return text.replace(

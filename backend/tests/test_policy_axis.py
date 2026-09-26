@@ -568,27 +568,23 @@ def test_every_bare_route_literal_is_accounted_for():
         "_require_resource_policy",
         "_require_engagement_policy",
         "_require_export_policy",
+        "_require_verdict_policy",
         "ProjectionPolicy(",
         "_engagement_policy(",
         "decide(",
     )
-    # every route under these literals reads or writes no project row
+    # every route under these literals reads or writes no project row. A
+    # literal whose routes read project rows and decide in their handlers
+    # (portfolio, search, attention, ...) is NOT listed: the helper check
+    # judges those, and listing them let a new undecided sibling pass.
     no_project_literals = {
         "absences",
         "adoption",
         "agents",
-        "ask",
-        "attention",
         "auth",
-        "briefing",
         "calendar.ics",
-        "capacity",
-        "capture",
         "chat",
-        "context-pack",
         "crews",
-        "decisions",
-        "delta",
         "eval",
         "extensions",
         "feedback",
@@ -599,25 +595,16 @@ def test_every_bare_route_literal_is_accounted_for():
         "growth",
         "health",
         "ingest",
-        "interventions",
         "keys",
         "mcp",
         "mcp-server",
         "merge-requests",
         "my-data",
-        "notes",
-        "notifications",
         "onboarding",
         "personas",
-        "planning",
         "playbooks",
-        "portfolio",
-        "provenance",
-        "pulse",
-        "questions",
         "ready",
         "readiness",
-        "search",
         "settings",
         "standups",
         "theme",
@@ -633,10 +620,8 @@ def test_every_bare_route_literal_is_accounted_for():
         ("POST", "/api/admin/keys/revoke-all"),
         ("POST", "/api/admin/backup"),
         ("GET", "/api/review/stranded"),
-        ("POST", "/api/review/{change_id}/approve"),
-        ("POST", "/api/review/{change_id}/reject"),
         ("POST", "/api/review/seen"),
-        ("POST", "/api/review/approve-batch"),
+        ("POST", "/api/notifications/read"),
         ("GET", "/api/chats"),
         ("GET", "/api/chats/folders"),
         ("POST", "/api/chats/folders"),
@@ -701,3 +686,31 @@ def test_every_bare_route_literal_is_accounted_for():
         unaccounted.append(f"{sorted(route.methods)} {route.path}")
     assert seen > 200, seen  # the walk reached the included routers
     assert not unaccounted, unaccounted
+
+
+def test_a_verdict_is_judged_on_the_target_rows_project(fresh_db):
+    """The queue and the diff withheld a denied project's proposal, and the
+    verdict route still applied it: the verdict writes the row."""
+    from app.services import review, work
+
+    _std, reg = _engagements("mallory")
+    reg_task = work.create_task(f"task {CANARY}", engagement_id=reg, actor="mallory")["id"]
+    change = review.propose_change(
+        "task",
+        "update",
+        {"title": "renamed by a denied reviewer"},
+        summary="reg proposal",
+        entity_id=reg_task,
+        actor="agent",
+        notify_team=False,
+    )["id"]
+    with TestClient(_app()) as c:
+        mallory = _strong(c, "mallory")
+        assert c.post(f"/api/review/{change}/approve", json={}, headers=mallory).status_code == 403
+        assert c.post(f"/api/review/{change}/reject", json={}, headers=mallory).status_code == 403
+        batch = c.post("/api/review/approve-batch", json={"ids": [change]}, headers=mallory)
+        assert batch.status_code == 200
+        assert all(r.get("status") != "approved" for r in batch.json()["results"]), batch.text
+    assert fresh_db.query_one("SELECT title FROM tasks WHERE id = ?", (reg_task,))[
+        "title"
+    ].endswith(CANARY)

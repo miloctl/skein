@@ -93,7 +93,7 @@ function accessActionCopy(action: AccessAction) {
   }
   return {
     message:
-      "You will lose access to every message in this chat. Your messages stay for the members. Delete the ones you want gone first. You need a new invitation to return.",
+      "You will lose access to every message in this chat. Your messages stay for the members. Delete the messages you want to remove first. You need a new invitation to return.",
     label: "Confirm: leave shared chat",
   };
 }

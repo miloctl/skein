@@ -51,15 +51,15 @@ def match_task(branch: str = "", title: str = "", body: str = "") -> int | None:
 
 
 def _reachable_task(task_id: int) -> dict | None:
-    """The task row, or None when the forge cannot see it. The forge has no
-    person behind it, so it reads the workspace tier (scope.NOBODY). Every
-    other reply on this path, a 404 from assert_editable, "already done", a
-    policy refusal, told the secret holder that the id is someone's private
-    or crew task and what state it is in, and ids are sequential."""
-    visible, params = scope.visible_filter(scope.NOBODY, "tasks")
+    """The task row, or None when it is private. A private task has one
+    reader, its author; every other reply on this path, a 404 from
+    assert_editable, "already done", a policy refusal, told the secret holder
+    that a sequential id is someone's private task and what state it is in.
+    A crew task keeps moving: its branch names are the crew's ordinary work,
+    and the forge secret is held by the repository's own administrators."""
     return db.query_one(
-        f"SELECT status, delegated_agent, forge_url FROM tasks WHERE id = ? AND {visible}",  # noqa: S608 — scope.visible_filter emits only bound marks
-        (task_id, *params),
+        "SELECT status, delegated_agent, forge_url FROM tasks WHERE id = ? AND visibility <> ?",
+        (task_id, scope.PRIVATE),
     )
 
 

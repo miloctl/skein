@@ -177,7 +177,7 @@ describe("Settings roster confirmations", () => {
     fireEvent.click(row.getByRole("button", { name: "save" }));
 
     const consequence = row.getByText(
-      /Team-visible attribution and crew memberships will be combined under Bo.*Active personal API keys for Ava will stay active under Bo.*Existing activity history under each name will stay as written.*This merge cannot later be separated/i,
+      /Team-visible attribution moves to Bo.*If Ava is in a crew or a private shared chat.*the merge is refused.*Personal API keys for Ava are revoked.*Existing activity history under each name will stay as written.*This merge cannot later be separated/i,
     );
     const confirm = row.getByRole("button", { name: "Merge Ava into Bo" });
     expect(confirm.getAttribute("aria-describedby")).toBe(consequence.id);

@@ -697,6 +697,14 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
 
 # file::function -> why this read needs no tier filter.
 _UNFILTERED_READS = {
+    "chat_threads.py::redact_room_engagement": (
+        "reads the project class and tier of an engagement _shared_details already"
+        " served at the workspace tier, and returns nothing of the row"
+    ),
+    "forge.py::_reachable_task": (
+        "the forge has no person behind it; the row is refused when private and"
+        " the reply names only the id the webhook sent (forge_event)"
+    ),
     "sharing.py::share_with_team": (
         "locks one row by id and refuses it unless its author column names the"
         " actor; the row's text goes only into the search index it is now"

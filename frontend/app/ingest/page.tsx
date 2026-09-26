@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 
 import { actionError, api } from "@/lib/api";
+import { subscribeSession, trustedHeaderIdentity } from "@/lib/auth";
 import { Shortcut } from "@/components/shortcut";
 
 type IngestResult = {
@@ -13,6 +14,8 @@ type IngestResult = {
 };
 
 export default function IngestPage() {
+  // a weak name reads no private row, so its proposals keep the team queue
+  const weak = useSyncExternalStore(subscribeSession, trustedHeaderIdentity, () => false);
   const [text, setText] = useState("");
   const [result, setResult] = useState<IngestResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -63,9 +66,11 @@ export default function IngestPage() {
         <code>decision:</code> or <code>decided:</code>, <code>blocked on</code>,{" "}
         <code>promised:</code>, <code>awaiting:</code>, <code>req:</code>, or{" "}
         <code>note:</code> become <b>review proposals</b>. Plain lines stay under{" "}
-        <b>Not captured</b>. Nothing is written directly. The proposals are
-        yours alone to approve, and each approval writes the record at the
-        tier it names. <code>fb:</code> lines are skipped and never stored.
+        <b>Not captured</b>. Nothing is written directly.{" "}
+        {weak
+          ? "The proposals go to the team review queue."
+          : "The proposals are yours alone to approve, and each approval writes the record at the tier it names."}{" "}
+        <code>fb:</code> lines are skipped and never stored.
       </p>
 
       <textarea

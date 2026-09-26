@@ -1506,3 +1506,16 @@ def test_a_proposal_carrying_invisible_characters_is_refused(fresh_db):
     assert ok["status"] == "pending"
     # rows filed before the check still reach packets: each one is shown
     assert wording.flatten("a‮b\U000e0041") == "a<U+202E>b<U+E0041>"
+
+
+def test_the_invisible_class_is_every_format_character_but_the_joiner():
+    """An enumeration missed the soft hyphen and the bidi marks; the class is
+    category Cf, minus the joiner emoji sequences depend on."""
+    import unicodedata
+
+    from app.services import wording
+
+    for code in range(0x110000):
+        char = chr(code)
+        expected = unicodedata.category(char) == "Cf" and code != 0x200D
+        assert bool(wording.INVISIBLE.fullmatch(char)) == expected, hex(code)

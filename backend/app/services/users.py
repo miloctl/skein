@@ -863,6 +863,13 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
 def _validate_rename_target(old: str, new: str, row: dict, *, identity_repair: bool) -> dict | None:
     """Validate every target rule before a core or private identity moves."""
     refuse_reserved_name(new)
+    # the door is minted by mcp_server._remote_actor alone; a HUMAN renamed
+    # to the suffix squats it the way ensure_human_identity refuses. An agent
+    # row keeps two documented moves: the cascade of a person's own door on
+    # their rename, and the SKEIN_MCP_USER recovery that frees a trapped name
+    # (tests/test_identity_walls.py).
+    if row.get("kind") == "human" and not identity_repair:
+        refuse_mcp_suffix(new)
     refuse_fold_collision(new, ignore=old)
     if _is_bench_slug(new):
         raise ValueError("the new name is reserved for a bench persona")

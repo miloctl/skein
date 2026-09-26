@@ -658,6 +658,15 @@ larger than its finding.
   overlay outside a single-tenant cluster.
 - **Sign-out URL carrying an ID token the API accepts** — only when the ID
   token's audience includes the API audience; an identity-provider fact.
+- **The embeddings notice on the MCP tools and the CLI** — the search box
+  and the `/search` reply say the query leaves the deployment; the MCP
+  `search_workspace` and recall tools and `skein search` carry a person's
+  typed query with no notice. Trigger: embeddings enabled on a deployment
+  whose people use the CLI or an MCP client.
+- **First-use review for system MCP servers, per person** — a system
+  server's read tools receive model-written arguments from every turn with
+  no review; the Settings card now says so. Trigger: a system server that
+  is not run by the same operator as Skein.
 - **A human invitation always shares the whole room history** — humans get
   no `history_from` join point, agents do. Trigger: the first steward who
   asks to invite someone from now on.

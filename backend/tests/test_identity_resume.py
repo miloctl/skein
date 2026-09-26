@@ -389,6 +389,10 @@ def test_the_mcp_suffix_is_reserved_on_the_folded_name(fresh_db):
     assert _remote_actor("ava") == "ava-mcp"
     row = fresh_db.query_one("SELECT identity_owner FROM users WHERE name = 'ava-mcp'")
     assert row["identity_owner"] == "mcp"
+    # and once minted it is still no delegate: the party door would read a
+    # crew task to ava through her remote calls
+    with pytest.raises(ValueError, match="cannot be delegated"):
+        delegation.delegate_task(task, "ava-mcp", "alice", actor="alice")
 
 
 def test_a_long_person_name_fails_closed_at_the_mcp_door(fresh_db):
@@ -418,3 +422,13 @@ def test_a_generic_row_under_the_suffix_is_not_the_persons_door(fresh_db):
     )
     with pytest.raises(ValueError):
         _remote_actor("bob")
+
+
+def test_a_rename_cannot_squat_the_door(fresh_db):
+    from app.services import users
+
+    for name in ("ava", "bob"):
+        users.ensure_user(name)
+    with pytest.raises(ValueError, match="reserved"):
+        users.rename_user("bob", "ava-mcp", actor="ops")
+    assert fresh_db.query("SELECT 1 FROM users WHERE name = 'ava-mcp'") == []

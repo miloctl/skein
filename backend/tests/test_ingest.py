@@ -153,3 +153,11 @@ def test_a_strong_pasters_proposals_are_theirs_alone(client, fresh_db):
     assert client.get("/api/review?status=pending", headers={"X-User": "bob"}).json() == []
     mine = client.get("/api/review?status=pending", headers=_strong(client, "manager")).json()
     assert len(mine) == 5
+
+
+def test_a_line_with_an_invisible_character_does_not_abandon_the_paste(client):
+    text = "todo: fix the login page\u200b later\ntodo: second line here is long enough"
+    r = client.post("/api/ingest", json={"text": text})
+    assert r.status_code == 200, r.text
+    assert [p["kind"] for p in r.json()["proposals"]] == ["task"]
+    assert any("login page" in line for line in r.json()["unclassified"])

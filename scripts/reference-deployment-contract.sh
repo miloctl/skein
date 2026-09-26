@@ -18,7 +18,8 @@ grep -q "ext_atlas_extension" "$deployment/20-atlas-schema.sh"
 # first statement: the application role can CREATE in public
 for script in "$deployment/10-app-role.sh" "$deployment/20-atlas-schema.sh" \
   "$root/deploy/postgres-init/10-app-role.sh"; do
-  if [[ "$(grep -A1 -- "<<-'EOSQL'" "$script" | tail -n1)" != *"SET search_path = pg_catalog, pg_temp;"* ]]; then
+  first="$(sed -n "/<<-'EOSQL'/,/^EOSQL/p" "$script" | sed '1d' | grep -v -E '^[[:space:]]*(--|$)' | head -n1)"
+  if [[ "$first" != *"SET search_path = pg_catalog, pg_temp;"* ]]; then
     echo "reference-deployment-contract: $script does not set search_path to pg_catalog first" >&2
     exit 1
   fi

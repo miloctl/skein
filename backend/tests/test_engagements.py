@@ -219,3 +219,17 @@ def test_a_scoped_close_is_not_announced_and_a_workspace_count_is_workspace(fres
     )
     assert out["open_tasks"] == 1
     assert "1 open task" in _unread_for(fresh_db, "team", "%open task%")["message"]
+
+
+def test_a_hidden_open_task_is_loud_to_its_author_on_close(fresh_db):
+    """The team notice counts the workspace tier; a private task's owner
+    must still hear that their task was orphaned."""
+    from app.services import engagements, users, work
+
+    for name in ("ava", "bo"):
+        users.ensure_user(name)
+    eng = engagements.create_engagement("loud", actor="ava")
+    work.create_task("mine", engagement_id=eng["id"], actor="bo", visibility="private")
+    engagements.update_engagement(eng["id"], status="closed", conclusion="achieved", actor="ava")
+    assert _unread_for(fresh_db, "team", "%open task%") is None
+    assert "1 open task of yours" in _unread_for(fresh_db, "bo", "%open task%")["message"]

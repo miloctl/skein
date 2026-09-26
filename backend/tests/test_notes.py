@@ -55,3 +55,30 @@ def test_notes_keyword_filter_ignores_case(client):
     for keyword in ("PostgreSQL", "postgresql", "POSTGRESQL", "postgres", "infra", "INFRA"):
         found = client.get(f"/api/notes?q={keyword}").json()
         assert [row["topic"] for row in found] == ["Infra"], keyword
+
+
+def test_an_agent_note_carries_the_requesters_own_name(fresh_db, monkeypatch):
+    """A note filed in a teammate's name was indexed as theirs, with no
+    delete for them."""
+    import json
+
+    from conftest import _turn
+
+    from app import config
+    from app.agents import identity
+    from app.services import users
+    from app.tools.collab import save_note
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", False)
+    for name in ("ava", "bob"):
+        users.ensure_user(name)
+    token = identity.set_agent_identity("scout")
+    try:
+        with _turn("ava", strong=True):
+            refused = json.loads(save_note(topic="runbook", content="step 1", author="bob"))
+            assert "your own name" in refused["error"]
+            own = json.loads(save_note(topic="runbook", content="step 1", author="ava"))
+            assert "error" not in own
+    finally:
+        identity.reset_agent_identity(token)
+    assert fresh_db.query("SELECT author FROM notes") == [{"author": "ava"}]

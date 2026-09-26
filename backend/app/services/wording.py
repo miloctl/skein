@@ -66,13 +66,13 @@ def not_administrator(user: str, action: str = "") -> str:
 
 
 def not_named_administrator(user: str, action: str) -> str:
-    """The refusal for a read of other people's data by an administrator who
-    is one only by the trusted-header fallback (routes/deps.py::_is_admin):
+    """The refusal for an action on other people's data by an administrator
+    who is one only by the trusted-header fallback (routes/deps.py::_is_admin):
     not_administrator would contradict whoami, which says they are one."""
     return (
         f"'{user}' is not named in SKEIN_ADMINS and cannot {action}. Only a named"
-        " administrator can read other people's data. Ask whoever runs the server"
-        " to add the name to SKEIN_ADMINS."
+        " administrator can. Ask whoever runs the server to add the name to"
+        " SKEIN_ADMINS."
     )
 
 
@@ -90,12 +90,15 @@ def quoted(text: str, width: int = 0) -> str:
     return "'" + flatten(text, width).replace("'", "\u2019") + "'"
 
 
-# Format characters that draw nothing: the zero-width set, the bidi
-# controls, and the tag block. U+200D is left out on purpose: emoji
-# sequences depend on it. review._refuse_invisible refuses new proposals
-# that carry one; flatten shows the rest as <U+XXXX>, so a packet a model
-# or a person reads carries no hidden sentence and no reversed clause.
-INVISIBLE = re.compile("[\u200b\u200c\u2060\ufeff\u202a-\u202e\u2066-\u2069\U000e0000-\U000e007f]")
+# Every Unicode format character (category Cf) except U+200D, the joiner
+# emoji sequences depend on. Generated from unicodedata, pinned by
+# tests/test_review.py; the CLI and frontend/app/review/page.tsx carry the
+# same class. review._refuse_invisible refuses new proposals that carry one;
+# flatten shows the rest as <U+XXXX>, so a packet a model or a person reads
+# carries no hidden sentence and no reversed clause.
+INVISIBLE = re.compile(
+    "[\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890-\u0891\u08e2\u180e\u200b-\u200c\u200e-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb\U000110bd\U000110cd\U00013430-\U0001343f\U0001bca0-\U0001bca3\U0001d173-\U0001d17a\U000e0001\U000e0020-\U000e007f]"
+)
 
 
 def visible(text: str) -> str:

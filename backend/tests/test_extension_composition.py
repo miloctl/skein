@@ -1912,10 +1912,7 @@ def test_inbound_mcp_policy_and_delegation_write_share_one_transaction(
     standard = engagements.create_engagement("MCP atomic standard", "standard")["id"]
     regulated = engagements.create_engagement("MCP atomic regulated", "regulated")["id"]
     task = work.create_task("MCP atomic task", engagement_id=standard)["id"]
-    # the door mints `<person>-mcp` on the first remote call; a delegation
-    # cannot create that row (users.ensure_agent_identity)
-    users.ensure_agent_identity("atomic-mcp", owner="mcp")
-    delegation.delegate_task(task, "atomic-mcp", "sponsor", actor="sponsor")
+    delegation.delegate_task(task, "atomic-bot", "sponsor", actor="sponsor", mint_authorized=True)
     policy_entered = Event()
     writer_attempted = Event()
     writer_done = Event()
@@ -1939,9 +1936,9 @@ def test_inbound_mcp_policy_and_delegation_write_share_one_transaction(
         )
         writer_done.set()
 
-    monkeypatch.setattr(mcp_server, "ACTOR", "atomic-mcp")
+    monkeypatch.setattr(mcp_server, "ACTOR", "atomic-bot")
     engine_token = set_policy_engine(PolicyEngine((policy_rule,)))
-    subject_token = set_policy_subject(PolicySubject("atomic-mcp", kind="agent"))
+    subject_token = set_policy_subject(PolicySubject("atomic-bot", kind="agent"))
     writer = Thread(target=relink)
     writer.start()
     try:

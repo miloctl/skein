@@ -120,8 +120,15 @@ def unappliable(entity: str, payload: dict, action: str = "create", *, entity_id
 
     Task fields use the service's static validator. Relationships and
     permissions remain apply-time checks: they can change before the verdict.
-    The ingester calls this for creates without an explicit action.
+    The ingester calls this for creates without an explicit action, and
+    reads the invisible-character refusal here too: raised from
+    propose_change it abandoned a whole paste over one line of Slack
+    residue, where the line belongs in the unclassified list instead.
     """
+    try:
+        _refuse_invisible(payload)
+    except ValueError as refusal:
+        return str(refusal)
     from .intake import DETAIL_LEN
     from .work import DESCRIPTION_LEN, TITLE_LEN
 
@@ -1620,6 +1627,19 @@ _DESTRUCTIVE_VIEW = {
     "memory_forget": ("topic", "content", "user"),
     "event_cancel": ("title", "starts_at", "attendees"),
 }
+
+
+def change_target(change_id: int) -> tuple[str, int]:
+    """The entity and row a pending change edits, or ("", 0) for a create.
+    routes/api.py judges the reviewer's own reach on that row before a
+    verdict: the list and the diff withheld a denied project's proposal, and
+    the verdict still applied it."""
+    change = db.query_one(
+        "SELECT entity, entity_id FROM pending_changes WHERE id = ?", (change_id,)
+    )
+    if not change:
+        raise db.NotFound(f"pending change #{change_id} not found")
+    return str(change["entity"]), int(change["entity_id"] or 0)
 
 
 def change_diff(
