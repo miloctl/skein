@@ -528,11 +528,12 @@ def add_absence(
         ends_on: Last day (YYYY-MM-DD).
         kind: pto (zeroes planning), oncall, or focus (advisory).
         note: Optional context.
-        team_sees: For the time away of the person you help: "nothing" (only
-            they see it, and planning ignores it), "dates" (planning counts
-            it, the kind and note stay hidden), or "details" (everyone on
-            the roster sees it). Leave it empty to use the narrowest choice.
-            A teammate's time away is always "details".
+        team_sees: "nothing" (only the person away sees it, and planning
+            ignores it), "dates" (planning counts it, the kind and note stay
+            with the person away), or "details" (everyone on the roster sees
+            it). Leave it empty to use the narrowest choice. For a teammate's
+            time away "nothing" is refused: the window is theirs, and the
+            team must be able to plan around it.
     """
     if team_sees not in ("", "nothing", "dates", "details"):
         return json.dumps({"error": 'team_sees must be "nothing", "dates" or "details"'})
@@ -544,7 +545,10 @@ def add_absence(
     # rest), so its strong member files a window the team sees.
     strong = "" if workspace_only_tools() else strong_requester()
     own = bool(strong) and users.fold(person) == users.fold(strong)
-    team_sees = team_sees or ("nothing" if own else "details")
+    # a strong requester files a teammate's window as theirs with the dates
+    # shared (absences.add_absence); a weak one reads no private row, so
+    # the roster is all it can file
+    team_sees = team_sees or ("nothing" if own else ("dates" if strong else "details"))
     if team_sees != "details" and workspace_only_tools():
         return json.dumps(
             {
@@ -552,11 +556,18 @@ def add_absence(
                 ' Use team_sees "details", or record it in your own chat.'
             }
         )
-    if team_sees != "details" and not own:
+    if team_sees != "details" and not strong:
+        return json.dumps(
+            {
+                "error": "Only a requester with a key or a sign-in can keep time away"
+                ' from the team. Use team_sees "details" for this window.'
+            }
+        )
+    if team_sees == "nothing" and not own:
         return json.dumps(
             {
                 "error": "Only the person away, with a key or a sign-in, can keep time away"
-                ' from the team. Use team_sees "details" for this window.'
+                ' from planning. Use team_sees "dates" or "details" for this window.'
             }
         )
     payload: dict[str, Any] = {

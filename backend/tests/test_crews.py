@@ -408,7 +408,9 @@ def test_a_rename_merge_folds_crew_membership(fresh_db):
     crew = crews.create_crew("Platform", actor="mira")
     crews.add_member(crew["id"], "ava", actor="mira")
 
-    out = users.rename_user("mira", "ava", actor="system")
+    # consented=True is the services/merges.py path: an administrator's own
+    # merge of a crew member is refused (tests/test_users.py)
+    out = users.rename_user("mira", "ava", actor="system", consented=True)
     assert out["merged"] is True
     # the steward row wins: a merge must not quietly demote the person
     assert crews.get_crew(crew["id"])["members"] == [{"person": "ava", "role": "steward"}]

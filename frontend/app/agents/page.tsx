@@ -608,6 +608,7 @@ export default function Agents() {
             >
               Inbox — {inboxFor}
             </h2>
+            <WeakIdentityNotice className="mb-2" />
             {inbox === null ? (
               <p className="text-sm text-ink-3">Loading the inbox…</p>
             ) : (
@@ -1268,6 +1269,7 @@ export default function Agents() {
               ))}
             </ul>
           )}
+          <WeakIdentityNotice className="mb-2" />
           {traces === null ? (
             errors.traces ? (
               failed("traces")

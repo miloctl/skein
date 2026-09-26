@@ -69,13 +69,25 @@ def lineage(entity: str, entity_id: int, viewer: scope.Viewer = scope.NOBODY) ->
     # sponsor's own acceptance verdict on the one entity the UI ships.
     kinds = _proposal_kinds(table)
     marks = ",".join("?" * len(kinds))
+    # No review_note and no requested_by: a note typed in a private review
+    # ("only because bob keeps stalling") and the name of who asked reached
+    # every reader of the resulting row. A review that was not workspace
+    # visible is its owner's alone here too.
     proposal = db.query_one(
-        "SELECT id, entity, action, proposed_by, requested_by, origin, created_at,"  # noqa: S608 — marks are bound
-        " reviewed_by, reviewed_at, reviewed_strong, reviewed_override, review_note"
+        "SELECT id, entity, action, proposed_by, origin, created_at,"  # noqa: S608 — marks are bound
+        " reviewed_by, reviewed_at, reviewed_strong, reviewed_override,"
+        " review_visibility, review_owner"
         f" FROM pending_changes WHERE result_id = ? AND entity IN ({marks})"
         " AND status = 'approved' ORDER BY id DESC LIMIT 1",
         (entity_id, *kinds),
     )
+    if proposal and proposal["review_visibility"] != scope.WORKSPACE:
+        owner = str(proposal["review_owner"] or "")
+        proposal = proposal if owner and viewer.name and owner == viewer.name else None
+    if proposal:
+        proposal = {
+            k: v for k, v in proposal.items() if k not in ("review_visibility", "review_owner")
+        }
 
     return {
         "origin": row["origin"],

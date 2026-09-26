@@ -725,7 +725,8 @@ def what_if(
     # workspace tier only, the rule absences.away_today states.
     for a in db.query(
         "SELECT person, visibility, starts_on, ends_on FROM absences"  # noqa: S608 — TEAM_SEES_DATES is a module constant
-        f" WHERE kind = 'pto' AND ends_on >= ? AND {TEAM_SEES_DATES} ORDER BY starts_on, person",
+        f" WHERE (kind = 'pto' OR visibility <> 'workspace') AND ends_on >= ? AND {TEAM_SEES_DATES}"
+        " ORDER BY starts_on, person",
         (today,),
     ):
         shown = "pto" if a["visibility"] == scope.WORKSPACE else "away"

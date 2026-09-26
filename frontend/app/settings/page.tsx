@@ -1,5 +1,7 @@
 "use client";
 
+import { WeakIdentityNotice } from "@/components/weak-identity-notice";
+
 import Link from "next/link";
 import {
   useCallback,
@@ -1607,6 +1609,7 @@ export default function SettingsPage() {
               </Section>
 
               <Section title="Growth interests (optional)" headingLevel={3}>
+                <WeakIdentityNotice className="mb-2" />
                 <p className="mb-2 text-sm text-ink-3">
                   You declare these yourself. Until you share them, only you can
                   see them. Shared interests appear on the roster and in

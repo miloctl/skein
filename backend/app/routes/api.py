@@ -4039,9 +4039,11 @@ class IngestIn(BaseModel):
 
 
 @router.post("/ingest")
-def post_ingest(body: IngestIn, user: CurrentUser):
+def post_ingest(body: IngestIn, user: CurrentUser, request: Request):
     ratelimit.check("ingest", user)
-    return ingest.ingest_notes(body.text, actor=user)
+    return ingest.ingest_notes(
+        body.text, actor=user, private=_personal_default(request) == scope.PRIVATE
+    )
 
 
 class BatchApproveIn(BaseModel):
@@ -4418,23 +4420,23 @@ def post_backup(user: AdminUser):
     return admin.backup(actor=user)
 
 
-def _require_export_policy(request: Request, subject: Any) -> None:
+def _require_export_policy(request: Request, subject: Any, user: str) -> None:
     # the export is one package: it cannot drop a denied project class without
     # changing its meaning, so it fails closed, like every other aggregate
     # (docs/EXTENSIONS.md). A named administrator is a roster role, not a
     # classification clearance (routes/deps.py::is_named_admin). Judged with
-    # the every-crew reader the file is built with (admin.export_viewer), or
-    # a crew-hidden regulated row passes.
+    # the reader the file is built with (admin.export_viewer), or a
+    # crew-hidden regulated row passes.
     with db.read_transaction():
         _require_opaque_project_policy(
-            request, subject, admin.export_viewer(), "skein.rest.get.admin.export"
+            request, subject, admin.export_viewer(user), "skein.rest.get.admin.export"
         )
 
 
 @router.get("/admin/export")
 def get_export(response: Response, request: Request, user: AdminUser, subject: PolicySubjectDep):
     """Legacy metadata response for browser bundles that predate file downloads."""
-    _require_export_policy(request, subject)
+    _require_export_policy(request, subject, user)
     ratelimit.check("export", "portable-export")
     result = admin.export(actor=user)
     result["path"] = result["path"].rsplit("/", 1)[-1]
@@ -4449,7 +4451,7 @@ def download_export(request: Request, user: AdminUser, subject: PolicySubjectDep
     # with every crew), and under the trusted-header fallback every key
     # holder is an administrator
     _require_named_admin(user, request, "download the portable export")
-    _require_export_policy(request, subject)
+    _require_export_policy(request, subject, user)
     if request.headers.get("range"):
         raise HTTPException(416, "This export cannot resume. Start a new download.")
     ratelimit.check("export", "portable-export")

@@ -47,6 +47,9 @@ DERIVED_COPY_DAYS = 180
 RUNNER_SESSION_DAYS = 30
 # usage_log keeps its cost forever; the requester's name leaves after a year
 USAGE_NAME_DAYS = 365
+# the legacy export file: a full copy of the workspace tier that kept deleted
+# rows for as long as the next export took to replace it
+EXPORT_FILE_DAYS = 14
 
 # Every public table carries one recorded retention decision: pruned here
 # (PRUNE_LABEL), pruned by cascade with its parent (CASCADED), or kept with
@@ -246,10 +249,14 @@ def prune(*, actor: str = "scheduler") -> dict:
         # opposite orders deadlock
         "pending_changes": _clear_settled_proposals(),
         "usage_log": db.execute_rowcount(
-            "UPDATE usage_log SET requested_by = '' WHERE requested_by <> '' AND created_at < ?",
+            # the thread id (sha256 of the name for the default thread) and
+            # the run ids relinked the row to the person after the name left
+            "UPDATE usage_log SET requested_by = '', thread_id = '', trigger_message_id = NULL,"
+            " chat_agent_run_id = NULL WHERE requested_by <> '' AND created_at < ?",
             (_cutoff(USAGE_NAME_DAYS),),
         ),
         "artifacts": _prune_digests(),
+        "exports": _prune_legacy_exports(),
         "context_packs": _prune_pack_versions(),
         # orphans only, never by age: the (entity, entity_id, person) key is
         # the notify-once promise, and an age prune would let an edit of an
@@ -273,6 +280,24 @@ def prune(*, actor: str = "scheduler") -> dict:
         ", ".join(gone) if gone else "nothing old enough to remove",
     )
     return removed
+
+
+def _prune_legacy_exports() -> int:
+    from datetime import UTC, datetime, timedelta
+    from pathlib import Path
+
+    from .. import config
+
+    directory = Path(config.DATA_DIR) / "exports"
+    if not directory.is_dir():
+        return 0
+    cutoff = (datetime.now(UTC) - timedelta(days=EXPORT_FILE_DAYS)).timestamp()
+    gone = 0
+    for path in directory.glob("export-*.json"):
+        if path.stat().st_mtime < cutoff:
+            path.unlink(missing_ok=True)
+            gone += 1
+    return gone
 
 
 def _prune_digests() -> int:

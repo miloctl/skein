@@ -627,3 +627,44 @@ shape sound and left these:
   an agent-owned key and acts as that agent, stdio has no remaining job.
   Trigger: a deployment that runs the stdio process in-cluster asks for a
   second one.
+
+## Left by the security and privacy audit (2026-09-26)
+
+The audit's confirmed records shipped in seven commits ending 2026-09-26.
+What stays open needs a deployment fact, an owner decision, or a change
+larger than its finding.
+
+- **Host allowlist for the open trusted-header door** — in trusted-header
+  mode with no `SKEIN_API_TOKEN` the backend answers any `Host`, so a
+  DNS-rebinding page is same-origin with an instance reached by address and
+  port (compose on a VM, `skein.sh`). The OpenShift Route refuses a foreign
+  Host on its own. Trigger: a compose or VM deployment that is not behind a
+  Host-routed proxy. Shape: an env-only `SKEIN_TRUSTED_HOSTS` list checked in
+  the perimeter (question 2 of the settings rule).
+- **A byte bound on outbound MCP response bodies** — the MCP SDK reads each
+  response whole after the client decompresses it, and Skein's 256 KiB cap
+  runs after parsing, on tool-call events only. A personal server can
+  answer `tools/list` with a compressed body many times its wire size.
+  Trigger: a measured memory limit on the API pod that a single turn can
+  reach. Shape: a client-side ceiling on the declared length and a refusal
+  of compressed encodings, ahead of the SDK's read.
+- **The trusted-proxy hop must be forced** — `SKEIN_TRUSTED_PROXIES` names
+  the hop whose `X-Forwarded-For` the rate buckets read, but nothing makes
+  traffic arrive through it; a direct peer picks any address's bucket.
+  Trigger: a deployment that exposes the backend Service outside the Route.
+- **example-dev overlay without an ingress NetworkPolicy** — its only
+  control is a router allowlist on the Routes; the credential-free backend
+  stays reachable on its ClusterIP and pod IP. Trigger: any use of that
+  overlay outside a single-tenant cluster.
+- **Sign-out URL carrying an ID token the API accepts** — only when the ID
+  token's audience includes the API audience; an identity-provider fact.
+- **A human invitation always shares the whole room history** — humans get
+  no `history_from` join point, agents do. Trigger: the first steward who
+  asks to invite someone from now on.
+- **Room read cursors are shown to every member** — a per-person setting,
+  default off. Trigger: a member asks not to be seen reading.
+- **Erasure leaves subject data the decision never listed** — journal notes
+  other leads wrote about the person, their `private.audit` rows, the
+  `api_keys` owner and label, the ended pairing, and 365 days of
+  `usage_log`. Mentions and adoption counters now go. The rest is an owner
+  decision: each is another author's record or an audit trail.

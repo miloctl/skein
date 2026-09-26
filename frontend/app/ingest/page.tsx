@@ -63,8 +63,9 @@ export default function IngestPage() {
         <code>decision:</code> or <code>decided:</code>, <code>blocked on</code>,{" "}
         <code>promised:</code>, <code>awaiting:</code>, <code>req:</code>, or{" "}
         <code>note:</code> become <b>review proposals</b>. Plain lines stay under{" "}
-        <b>Not captured</b>. Nothing is written directly. <code>fb:</code> lines
-        are skipped and never stored.
+        <b>Not captured</b>. Nothing is written directly. The proposals are
+        yours alone to approve, and each approval writes the record at the
+        tier it names. <code>fb:</code> lines are skipped and never stored.
       </p>
 
       <textarea

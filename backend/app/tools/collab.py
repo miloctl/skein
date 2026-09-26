@@ -146,12 +146,15 @@ def post_standup(
             team to see it. A standup for anybody but the person you help
             is visible to everyone on the roster.
     """
-    # "only the author" only where the author is the strong requester: a
-    # weak viewer reads no private row, and a private standup about
-    # somebody else reaches a person who never asked for it. A shared chat
-    # writes workspace rows only (tools/_gate.py refuses the rest).
+    # "only the author" where the author is the strong requester: a weak
+    # viewer reads no private row. A standup in SOMEBODY ELSE's name is
+    # theirs: private to them, so they judge the proposal (review.
+    # personal_owner) and the roster does not read words put in their
+    # mouth. A shared chat writes workspace rows only (tools/_gate.py
+    # refuses the rest).
     strong = "" if workspace_only_tools() else strong_requester()
-    private = not share_with_team and bool(strong) and users.fold(author) == users.fold(strong)
+    own = bool(strong) and users.fold(author) == users.fold(strong)
+    private = (not share_with_team and own) or (bool(strong) and not own)
     payload: dict[str, Any] = {
         "author": author,
         "yesterday": yesterday,
@@ -186,6 +189,11 @@ def save_note(topic: str, content: str, author: str = "") -> str:
         content: The knowledge to persist.
         author: Who wrote it.
     """
+    # a note in a teammate's name is indexed as theirs and has no delete
+    # for them; the writer is the requester, or the agent itself
+    strong = "" if workspace_only_tools() else strong_requester()
+    if author and strong and users.fold(author) != users.fold(strong):
+        return json.dumps({"error": "A note carries your own name. Leave author empty."})
     payload: dict[str, Any] = {"topic": topic, "content": content, "author": author}
     return gated_write(
         "note",

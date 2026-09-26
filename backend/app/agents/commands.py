@@ -226,6 +226,10 @@ async def _search(
             )
 
     hits = await run_in_threadpool(read_search)
+    if config.EMBED_READY:
+        # the search box carries this notice (docs/VISIBILITY.md); the
+        # command is the other place a person types a query
+        yield {"data": "The query text is sent to the embeddings provider.\n\n"}
     if not hits:
         yield {"data": f"No matches for “{args}”."}
     else:

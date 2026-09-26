@@ -738,7 +738,7 @@ UNSCOPED: dict[str, str] = {
     "tool_usage": "adoption counters, no content",
     "usage_log": "token spend, no content",
     "users": "the roster. Hiding a teammate's existence is not a tier, it is a different product.",
-    "feedback": "pulse votes are stored without an author on purpose (services/feedback.py)",
+    "feedback": "pulse votes and feature votes carry no author on purpose (services/feedback.py)",
     "flock_traces": (
         "slugs, timings and token counts, never message text — and the row"
         " names its owner, so flocks.list_traces takes one and filters on it"

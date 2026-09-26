@@ -267,7 +267,7 @@ identifier, never a body.** Pin it with a test.
 |---|---|
 | `search_index` (FTS5) | Private rows are never indexed at all — `index_record` looks the tier up itself rather than trusting 20 call sites. The FTS table gains NO tier column (it cannot get one cheaply): `search()` over-fetches 4x, then `visible_hits` checks each hit's SOURCE row by primary key. |
 | `search_ids` | `_short_id_hit` (`services/search.py::_short_id_hit`) resolves `task 42` straight to a row with no authorization. It takes the same filter. |
-| `embeddings` | `_embed` sends `text[:8000]` to `EMBED_BASE_URL` for workspace rows only, and no memory addressed to a person (`search._embeddable`, used by `index_record` and the `embed-reconcile` repair). Crew rows stay in the local FTS index and never reach it. Every search query also goes there, and the search box says so when embeddings are on (`semantic_search` on `/api/health`). |
+| `embeddings` | `_embed` sends `text[:8000]` to `EMBED_BASE_URL` for workspace rows only, and no memory addressed to a person (`search._embeddable`, used by `index_record` and the `embed-reconcile` repair). Crew rows stay in the local FTS index and never reach it. Every search query also goes there, from the search box, the `/search` command, the agent and MCP search tools, memory recall and the CLI. The search box and the `/search` reply say so when embeddings are on (`semantic_search` on `/api/health`); the tool paths carry the model's own query, not a person's typed words. |
 | `memories` | Closed in phase 4. `recall()` applies BOTH the `user` filter and the tier on every branch (`services/memory.py::recall`) — the query branch used to apply neither, so one person's search answered out of another person's memories, and `memory_prompt` injects the result into a system prompt. |
 | `notifications` | Every team-wide `notify("team", ...)` that quotes a scoped row's text is gated on the workspace tier (the blocker funeral, the stale-decision sweep, ship-it, the unlinked-milestone warning), and a per-person notify checks the recipient can read the row. |
 | `admin.export` | Private rows are excluded structurally. Crew rows stay. Tables that can copy private text without a visibility column are excluded. Each new table takes an explicit `admin.TABLES` or `admin.EXCLUDED` classification. Artifact metadata stays, but absolute storage paths do not. |
@@ -549,7 +549,11 @@ copies of records that outlived their reason:
 
 The local backups and the off-site mirror both keep 14 dumps
 (`admin.BACKUP_KEEP`). A record deleted today can live in older dumps for 14
-more days, and that is the longest any deletion takes.
+more days when backups run daily; the keep is a count, so when backups stop
+the last 14 never age out. Outside that horizon sit the copies no job prunes:
+the model sessions of a chat still in use, the manual dump the runbook makes
+(delete it once the recovery point is verified), a storage snapshot of the
+artifact volume, and a crew pack's newest version.
 
 **A departed person's private data leaves 30 days after deactivation.**
 Deactivation stays reversible. After `erasure.GRACE_DAYS` the daily
@@ -562,8 +566,8 @@ reads and judges it. The job runs on the date the roster shows and again every
 day after, so what reaches the account later goes too. Crew and team records
 keep the name, because the ledger names the person forever and cannot be
 rewritten. No button erases early, so a wrong deactivation always has 30 days
-to be undone. With the 14-day backup horizon, the data is gone from every copy
-44 days after deactivation.
+to be undone. With daily backups and the 14-day horizon, the data is gone from
+the dumps 44 days after deactivation; the copies named above outlive that.
 
 **You can see and delete what is yours alone.** Settings → Your data counts
 what only you can read and deletes one of your private records at a time

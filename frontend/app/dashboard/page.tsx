@@ -423,9 +423,9 @@ function AbsenceForm({
     (v) => TEAM_SEES.includes(v as TeamSees) && (strong || v === "details"),
   );
   const me = useSyncExternalStore(subscribeUser, getUser, () => "");
-  // A window about somebody else cannot be private (scope.assert_readable_by),
-  // so the three choices are for your own time away only. The server picks
-  // the roster for a teammate's when the request names no tier.
+  // The three choices are for your own time away only. A window filed for
+  // a teammate is theirs with the dates shared (absences.add_absence) when
+  // the request names no tier, and they are told.
   const own =
     strong &&
     (!draft.person.trim() || draft.person.trim().toLowerCase() === me.toLowerCase());
@@ -520,7 +520,9 @@ function AbsenceForm({
         </label>
       ) : (
         <span className="self-center text-xs text-ink-3">
-          Visible to everyone on the roster
+          {strong
+            ? "The team sees the dates. The kind and note stay with the person away."
+            : "Visible to everyone on the roster"}
         </span>
       )}
       <button

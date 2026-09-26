@@ -438,6 +438,9 @@ Record the digest with the storage snapshot identifier in the recovery record.
 This manual command does not append a digest to `activity-anchors.log`.
 Keep all writers stopped until the storage snapshot completes.
 This full manual dump needs the same access controls as the database.
+It matches no retention pattern, so nothing prunes it: delete it once the
+recovery point it was made for is verified, or it holds every private row for
+as long as the file exists.
 
 ### Disposable local restore contract
 

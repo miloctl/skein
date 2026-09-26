@@ -361,9 +361,10 @@ def get_my_day() -> str:
 
 
 @_tool(WRITE)
-def capture(text: str) -> str:
+def capture(text: str, share_with_team: bool = False) -> str:
     """Quick-capture freeform text; auto-routed to task / question / note /
-    decision / blocker / promise (e.g. 'todo: ship the API', 'blocked on vendor')."""
+    decision / blocker / promise (e.g. 'todo: ship the API', 'blocked on vendor').
+    Only you see the record unless share_with_team is true."""
     ratelimit.check("capture", _actor())
     # Route through the SAME gate every other MCP writer uses, on the entity
     # the text classifies to. Checking only `forbidden` honored the kill
@@ -382,12 +383,17 @@ def capture(text: str) -> str:
     # refuse at the surface; this was the one writer that did not.
     if capture_svc.is_private_feedback(text):
         return json.dumps({"error": wording.private_feedback_agent_refusal()})
-    kind, entity, payload = capture_svc.plan(text, actor=_actor(), origin="agent")
+    # the person's own words, as `remember` files them. Private only with a
+    # person behind the call: over stdio _person() is the agent, and a row
+    # created by an agent at the private tier is readable by nobody.
+    tier = scope.PRIVATE if requester_identity() and not share_with_team else scope.WORKSPACE
+    kind, entity, payload = capture_svc.plan(text, actor=_person(), origin="agent")
+    payload["visibility"] = tier
     return gated_write(
         entity,
         "create",
         payload,
-        lambda: capture_svc.capture(text, actor=_actor(), origin="agent"),
+        lambda: capture_svc.capture(text, actor=_person(), origin="agent", visibility=tier),
         summary=f"capture ({kind}): {text.strip()[:80]}",
         actor=_actor(),
     )

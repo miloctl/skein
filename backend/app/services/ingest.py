@@ -9,7 +9,7 @@ review queue. The raw transcript is not persisted."""
 import re
 
 from .. import db
-from . import review
+from . import review, scope
 from .capture import PATTERNS, PREFIX
 
 MAX_BYTES = 64 * 1024
@@ -71,7 +71,10 @@ def _payload(kind: str, body: str, actor: str) -> dict:
 _ENTITY = {"request": "intake", "awaiting": "promise"}
 
 
-def ingest_notes(text: str, *, actor: str) -> dict:
+def ingest_notes(text: str, *, actor: str, private: bool = False) -> dict:
+    """`private` is the REST personal default: a strong caller's proposals are
+    theirs alone to approve. A weak name reads no private row, so its
+    proposals stay in the team queue with the team notice."""
     if not text.strip():
         raise ValueError("nothing to ingest")
     if len(text.encode()) > MAX_BYTES:
@@ -117,6 +120,11 @@ def ingest_notes(text: str, *, actor: str) -> dict:
             actor=actor,
             origin="human",
             notify_team=False,
+            # the paster's alone: the payloads reached every reader of the
+            # queue before anyone approved them, and an approval is the
+            # share, at the tier the paster picks
+            review_visibility=scope.PRIVATE if private else scope.WORKSPACE,
+            review_owner=actor if private else "",
         )
         proposals.append({"id": p["id"], "kind": kind, "line": line[:80]})
 
@@ -125,7 +133,7 @@ def ingest_notes(text: str, *, actor: str) -> dict:
         "ingest_notes",
         f"{len(proposals)} proposal{'' if len(proposals) == 1 else 's'} from pasted notes",
     )
-    if proposals:
+    if proposals and not private:
         from .notifications import notify
 
         notify(

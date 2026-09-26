@@ -103,7 +103,7 @@ describe("time away audience", () => {
     await screen.findByRole("combobox", { name: "Who can see this time away" });
     fill("bob");
     expect(screen.queryByRole("combobox", { name: "Who can see this time away" })).toBeNull();
-    expect(screen.getByText("Visible to everyone on the roster")).toBeTruthy();
+    expect(screen.getByText("The team sees the dates. The kind and note stay with the person away.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     await waitFor(() => expect(posted()).toHaveLength(1));
     expect(posted()[0]).not.toHaveProperty("visibility");
