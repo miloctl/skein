@@ -17,12 +17,26 @@ import { timeAgo } from "@/lib/time";
 import { emptyState } from "@/lib/whimsy";
 import { VisibilityBadge } from "@/components/visibility-picker";
 
+// A format character draws nothing (the tag block, zero-width spaces) or
+// reorders the line (a bidi override), so the bytes a verdict applies would
+// not be the bytes the reviewer read. The backend refuses them at proposal
+// time (services/review.py); a row filed before that lands here, and every
+// remaining one is shown as its code point rather than hidden.
+const INVISIBLE = /[\u200B\u200C\u2060\uFEFF\u202A-\u202E\u2066-\u2069\u{E0000}-\u{E007F}]/gu;
+
+function visible(text: string): string {
+  return text.replace(
+    INVISIBLE,
+    (ch) => `<U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}>`,
+  );
+}
+
 function cell(v: unknown): string {
   if (v === null || v === undefined || v === "") return "—";
   // a reviewer reads these values to decide — JSON.stringify put `[2]` in
   // front of them for the weekly plan's task list
   if (Array.isArray(v)) return v.length ? v.map(cell).join(", ") : "—";
-  return typeof v === "object" ? JSON.stringify(v) : String(v);
+  return visible(typeof v === "object" ? JSON.stringify(v) : String(v));
 }
 
 type Diff = {

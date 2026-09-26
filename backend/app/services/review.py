@@ -32,6 +32,26 @@ class _ApprovalFailure:
     error: Exception
 
 
+# The verdict binds bytes, and the card shows glyphs. These format characters
+# draw nothing: a bidi override made the approved text state the opposite of
+# what the reviewer read, and a tag-block sentence rode into the context pack
+# under agent_verified provenance. wording.INVISIBLE is the same set; the
+# review page renders each one as <U+XXXX> for rows filed before this check.
+def _refuse_invisible(value, path: str = "payload") -> None:
+    if isinstance(value, str):
+        if wording.INVISIBLE.search(value):
+            raise ValueError(
+                f"The proposal has an invisible format character in {path}."
+                " Remove it, then propose again."
+            )
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _refuse_invisible(item, f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _refuse_invisible(item, f"{path}[{index}]")
+
+
 def _registry() -> dict:
     from . import (
         absences,
@@ -281,6 +301,8 @@ def _propose_change_locked(
     # HERE, not in one producer: the agent gate (tools/_gate.py) and the notes
     # ingester both file proposals, and a guard in either one leaves the other
     # storing rows that can never be approved.
+    _refuse_invisible(payload)
+    _refuse_invisible(summary, "summary")
     refusal = unappliable(entity, payload, action, entity_id=entity_id)
     if refusal:
         raise ValueError(refusal)

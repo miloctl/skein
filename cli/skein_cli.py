@@ -99,11 +99,15 @@ def save_config(cfg: dict) -> None:
 # terminal through print(), and an ESC or CSI in a task title can clear the
 # screen, retitle the window, or write the clipboard (OSC 52).
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+# Format characters the terminal draws as nothing: a bidi override reverses
+# a clause on screen, and a tag-block sentence is invisible. Each one prints
+# as its code point, so `skein review` shows the bytes a verdict binds.
+_INVISIBLE = re.compile("[\u200b\u200c\u2060\ufeff\u202a-\u202e\u2066-\u2069\U000e0000-\U000e007f]")
 
 
 def _printable(value):
     if isinstance(value, str):
-        return _CONTROL.sub("", value)
+        return _INVISIBLE.sub(lambda m: f"<U+{ord(m.group(0)):04X}>", _CONTROL.sub("", value))
     if isinstance(value, list):
         return [_printable(item) for item in value]
     if isinstance(value, dict):
@@ -847,6 +851,30 @@ def cmd_absences(args):
         print("nobody is scheduled away")
 
 
+def _print_proposal(c, diff=None):
+    """The whole proposal, not the summary line: the verdict binds the
+    payload bytes, and the terminal was the one surface that approved
+    text the reviewer never saw."""
+    sponsor = f" · sponsor {c['sponsor']}" if c.get("sponsor") else ""
+    asked = f" · asked by {c['requested_by']}" if c.get("requested_by") else ""
+    print(f"#{c['id']} {c['summary']} (by {c['proposed_by']}{asked}{sponsor})")
+    target = f" #{c['entity_id']}" if c.get("entity_id") else ""
+    print(f"    {c.get('action', '')} {c.get('entity', '')}{target}")
+    current = (diff or {}).get("diff") or {}
+    for field, value in (c.get("payload") or {}).items():
+        before = current.get("current", {}).get(field) if current else None
+        was = f" (was: {_field(before)})" if current and before not in (None, "") else ""
+        print(f"    {field}: {_field(value)}{was}")
+
+
+def _field(value):
+    if value is None or value == "":
+        return "—"
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
 def cmd_review(args):
     keyless = not (load_config().get("key") or os.getenv("SKEIN_API_KEY"))
     if args.action in ("approve", "reject"):
@@ -855,6 +883,18 @@ def cmd_review(args):
                 "error: configure who you are first (`skein config --user you`"
                 " or --key) — an anonymous verdict helps nobody"
             )
+        if args.action == "approve":
+            # print what the verdict applies BEFORE it lands; a pending row
+            # that the list cannot show is refused by the server below
+            rows = api("GET", f"/api/review?status=pending&after={args.id - 1}&limit=1")
+            row = rows[0] if rows and rows[0].get("id") == args.id else None
+            if row:
+                diff = (
+                    api("GET", f"/api/review/{args.id}/diff")
+                    if row.get("action") == "update"
+                    else None
+                )
+                _print_proposal(row, diff)
         out = api("POST", f"/api/review/{args.id}/{args.action}", {"note": args.note})
         print(f"proposal #{args.id} {out['status']}")
         if keyless:
@@ -867,9 +907,7 @@ def cmd_review(args):
     limit = int(getattr(args, "limit", 50) or 50)
     rows = api("GET", f"/api/review?status=pending&after={after}&limit={limit}")
     for c in rows:
-        sponsor = f" · sponsor {c['sponsor']}" if c.get("sponsor") else ""
-        asked = f" · asked by {c['requested_by']}" if c.get("requested_by") else ""
-        print(f"#{c['id']} {c['summary']} (by {c['proposed_by']}{asked}{sponsor})")
+        _print_proposal(c)
     if not rows:
         print("review queue is empty")
     elif len(rows) == limit:
