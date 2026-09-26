@@ -129,11 +129,11 @@ def test_evidence_gap_fires_on_delegated_work_with_no_worklog(fresh_db, monkeypa
     users.ensure_user("mira")
 
     bare = work.create_task(title="accepted on trust", actor="mira")
-    delegation.delegate_task(bare["id"], "scout", "mira", actor="mira")
+    delegation.delegate_task(bare["id"], "scout", "mira", actor="mira", mint_authorized=True)
     work.update_task(bare["id"], status="done", actor="mira")
 
     noted = work.create_task(title="accepted with notes", actor="mira")
-    delegation.delegate_task(noted["id"], "scout", "mira", actor="mira")
+    delegation.delegate_task(noted["id"], "scout", "mira", actor="mira", mint_authorized=True)
     delegation.report_progress(noted["id"], "probe scaffolded, tests pass", actor="scout")
     work.update_task(noted["id"], status="done", actor="mira")
 
@@ -299,7 +299,9 @@ def test_task_abandoned_fires_on_spike_then_silence_only(client, fresh_db):
     ensure_user("research-agent", kind="agent")
     ensure_user("sponsor", kind="human")
     t = work.create_task("port the exporter", actor="sponsor")
-    delegation.delegate_task(t["id"], agent="research-agent", sponsor="sponsor", actor="sponsor")
+    delegation.delegate_task(
+        t["id"], agent="research-agent", sponsor="sponsor", actor="sponsor", mint_authorized=True
+    )
     for actor in ("research-agent", "sponsor", "research-agent"):
         delegation.report_progress(t["id"], "moved it forward", actor=actor)
     # recently active: not abandoned, whatever the note count

@@ -1645,7 +1645,9 @@ def test_rest_agent_inbox_conceals_a_delegated_task_with_hidden_legacy_parent(
         crew_id=crew_id,
     )["id"]
     task = work.create_task("Legacy visible delegated child", actor="manager")["id"]
-    delegation.delegate_task(task, "research-agent", "manager", actor="manager")
+    delegation.delegate_task(
+        task, "research-agent", "manager", actor="manager", mint_authorized=True
+    )
     fresh_db.execute("UPDATE tasks SET engagement_id = ? WHERE id = ?", (hidden, task))
     observed = []
 
@@ -6438,7 +6440,9 @@ def test_unkeyed_derivatives_fail_closed_for_an_exact_denied_task(fresh_db):
     users.ensure_user("sponsor")
     work.create_task("Padding task for distinct project and task IDs")
     task = work.create_task("ID DENIED NOTIFICATION CANARY", actor="sponsor")["id"]
-    delegation.delegate_task(task, "research-agent", "sponsor", actor="sponsor")
+    delegation.delegate_task(
+        task, "research-agent", "sponsor", actor="sponsor", mint_authorized=True
+    )
     mentions.scan("task", task, "@research-agent", actor="sponsor")
     users.ensure_agent_identity("mcp-reader", owner="mcp")
     mentions.scan("task", task, "@mcp-reader", actor="sponsor")
@@ -7076,7 +7080,9 @@ def test_stock_composites_filter_or_refuse_denied_projects(fresh_db):
         visibility="crew",
         crew_id=crew_id,
     )["id"]
-    delegation.delegate_task(delegated, "research-agent", "sponsor", actor="sponsor")
+    delegation.delegate_task(
+        delegated, "research-agent", "sponsor", actor="sponsor", mint_authorized=True
+    )
     users.ensure_user("secret-staff")
     engagements.allocate("secret-staff", crew_project, 80, actor="sponsor")
     intake_request = intake.submit_request("Stock standard staffing", project_class="standard")[

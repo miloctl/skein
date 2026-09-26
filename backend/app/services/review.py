@@ -942,6 +942,10 @@ def _approve_change_locked(
                     # roster, and absences.add_absence now reads no tier as
                     # "only the person away"
                     payload.setdefault("visibility", scope.WORKSPACE)
+                if change["entity"] == "delegation":
+                    # a new agent identity is minted only on a strong verdict
+                    # (services/delegation.py::delegate_task)
+                    payload["mint_authorized"] = bool(strong)
                 if change["action"] == "update":
                     result = fn(
                         change["entity_id"], **payload, actor=author, origin="agent_verified"

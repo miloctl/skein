@@ -172,7 +172,9 @@ def main() -> None:
     dt = work.create_task(
         title="Summarize competitor pricing pages", assignee="research-agent", actor="mario"
     )
-    delegation.delegate_task(dt["id"], "research-agent", "mario", actor="mario")
+    delegation.delegate_task(
+        dt["id"], "research-agent", "mario", actor="mario", mint_authorized=True
+    )
     delegation.claim_task(dt["id"], actor="research-agent")
     delegation.report_progress(
         dt["id"], "pulled 4 of 6 pricing pages; two need JS rendering", actor="research-agent"

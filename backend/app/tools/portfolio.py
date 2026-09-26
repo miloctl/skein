@@ -205,7 +205,14 @@ def delegate_task(
         "create",
         payload,
         summary=f"delegate task #{task_id} to {agent}",
-        direct=lambda: delegation.delegate_task(**payload, actor=agent_identity(), origin="agent"),
+        direct=lambda: delegation.delegate_task(
+            **payload,
+            actor=agent_identity(),
+            origin="agent",
+            # a NEW agent identity needs the requester's proven credential,
+            # the bar POST /api/tasks/{id}/delegate applies
+            mint_authorized=bool(strong_requester()),
+        ),
     )
 
 
@@ -378,6 +385,22 @@ def mark_promise(promise_id: int, status: str) -> str:
     )
 
 
+def _delegation_reach(task_id: int) -> str:
+    """The party door (delegation.list_worklog, claim_task, report_progress,
+    submit_completion) opens for the delegated agent whatever the tier says.
+    In a chat turn a HUMAN drives that agent: `/as <persona>` hands anyone the
+    persona's identity, so the door must also be the requester's read
+    (work.get_task through existing_scoped), which the gate and the REST twin
+    already apply. No requester (the unattended runner, the scheduler) keeps
+    the party path. Returns the refusal text, or "" when the read holds."""
+    rv = requester_viewer()
+    if not isinstance(rv, scope.Viewer):
+        return ""
+    if policy_context.existing_scoped("task", task_id, rv):
+        return ""
+    return scope.missing_text("tasks", task_id)
+
+
 @tool
 def claim_delegated_task(task_id: int) -> str:
     """Pick up a task delegated to you: flips it to in_progress and tells
@@ -389,6 +412,8 @@ def claim_delegated_task(task_id: int) -> str:
     # the delegation loop bypasses the generic gate on purpose (sponsor-bound
     # verdicts, not the authority matrix) — so it must record its own
     # receipts, or the UI cannot state that the write happened
+    if refusal := _delegation_reach(task_id):
+        return json.dumps({"error": refusal})
     try:
         result = delegation.claim_task(task_id, actor=agent_identity())
         receipts.record("wrote", "task", f"claimed delegated task #{task_id}", task_id)
@@ -407,6 +432,8 @@ def report_progress(task_id: int, note: str) -> str:
         task_id: ID of the task.
         note: What you did / found / decided since the last note.
     """
+    if refusal := _delegation_reach(task_id):
+        return json.dumps({"error": refusal})
     try:
         result = delegation.report_progress(task_id, note, actor=agent_identity())
         receipts.record("wrote", "worklog", f"progress on task #{task_id}: {note[:80]}", task_id)
@@ -436,8 +463,11 @@ def read_worklog(task_id: int, limit: int = 20) -> str:
     # actor=, so the delegation itself is the door: an agent holds no crew
     # membership, so on a crew task the tier filter alone would refuse the
     # worklog this agent is WRITING (services/delegation.py::list_worklog).
-    # The viewer stays NOBODY — the workspace tier — for every other task, and
-    # nothing here is ever unfiltered.
+    # The viewer stays NOBODY — the workspace tier — for every other task. In
+    # a human-driven turn the requester's own read comes first
+    # (_delegation_reach), or a persona hands its party rights to anyone.
+    if refusal := _delegation_reach(task_id):
+        return json.dumps({"error": refusal})
     try:
         notes = delegation.list_worklog(task_id, limit, actor=agent_identity())
         # a read, so no receipt: receipts record WRITES, and the gate-coverage
@@ -460,6 +490,8 @@ def submit_for_acceptance(task_id: int, summary: str) -> str:
     """
     from ..agents.identity import requester_identity
 
+    if refusal := _delegation_reach(task_id):
+        return json.dumps({"error": refusal})
     try:
         result = delegation.submit_completion(
             task_id, summary, actor=agent_identity(), requested_by=requester_identity()

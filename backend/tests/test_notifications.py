@@ -211,7 +211,9 @@ def test_task_notification_text_and_policy_snapshot_share_one_write(
     )["id"]
     task = work.create_task("SNAPSHOT TITLE BEFORE", engagement_id=standard, actor="sponsor")["id"]
     if operation in {"claim", "submit"}:
-        delegation.delegate_task(task, "research-agent", "sponsor", actor="sponsor")
+        delegation.delegate_task(
+            task, "research-agent", "sponsor", actor="sponsor", mint_authorized=True
+        )
     if operation == "submit":
         delegation.claim_task(task, actor="research-agent")
     fresh_db.execute("DELETE FROM notifications")
@@ -244,7 +246,9 @@ def test_task_notification_text_and_policy_snapshot_share_one_write(
     writer = Thread(target=relink)
     writer.start()
     if operation == "delegate":
-        delegation.delegate_task(task, "research-agent", "sponsor", actor="sponsor")
+        delegation.delegate_task(
+            task, "research-agent", "sponsor", actor="sponsor", mint_authorized=True
+        )
     elif operation == "claim":
         delegation.claim_task(task, actor="research-agent")
     else:

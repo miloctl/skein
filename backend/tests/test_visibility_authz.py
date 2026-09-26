@@ -125,7 +125,9 @@ def _mutations(r):
         ),
         (
             "delegation.delegate_task",
-            lambda a: delegation.delegate_task(r["task"], "helper", "ava", actor=a),
+            lambda a: delegation.delegate_task(
+                r["task"], "helper", "ava", actor=a, mint_authorized=True
+            ),
         ),
     ]
 

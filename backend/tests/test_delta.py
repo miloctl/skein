@@ -726,7 +726,7 @@ def test_acceptance_is_sponsored_scoped_and_keeps_receipt(client):
     task = work.create_task(
         "Crew-only acceptance", visibility="crew", crew_id=crew["id"], actor="ava"
     )
-    delegation.delegate_task(task["id"], "scout", "ava", actor="ava")
+    delegation.delegate_task(task["id"], "scout", "ava", actor="ava", mint_authorized=True)
     delegation.claim_task(task["id"], actor="scout")
     proposal = delegation.submit_completion(task["id"], "Ready", actor="scout")
     assert _preview(client)["items"] == []

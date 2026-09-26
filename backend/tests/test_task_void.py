@@ -71,7 +71,7 @@ def test_void_is_refused_on_a_delegated_task(client, fresh_db):
     from app.services import delegation
 
     tid = _mk(client, title="delegated work")
-    delegation.delegate_task(tid, "scout", "tester", actor="tester")
+    delegation.delegate_task(tid, "scout", "tester", actor="tester", mint_authorized=True)
     r = client.patch(f"/api/tasks/{tid}", json={"status": "void"})
     assert r.status_code == 400
     assert "end the delegation first" in r.json()["detail"]

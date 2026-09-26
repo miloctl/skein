@@ -71,14 +71,16 @@ def refuse_mcp_suffix(name: str) -> None:
     through (mcp_server.remote_app), derived, never chosen. A human row with
     that name locks the person out of MCP for good and lets a picker
     squat another person's agent, so the suffix is not a human name."""
-    if name.strip().lower().endswith(MCP_SUFFIX):
+    # fold, not lower: a soft hyphen or zero-width joiner inside the suffix
+    # reads as `-mcp` on every surface and folds to it at the identity lock
+    if fold(name).endswith(MCP_SUFFIX):
         raise ValueError("a name that ends in -mcp is reserved for MCP agent identities")
 
 
 def is_person_agent(name: str) -> bool:
     """`<person>-mcp`: the agent a person's own MCP calls act through
     (refuse_mcp_suffix reserves the suffix for it)."""
-    return str(name).strip().lower().endswith(MCP_SUFFIX)
+    return fold(str(name)).endswith(MCP_SUFFIX)
 
 
 def person_agent_visible(agent: str, viewer: str, *, admin: bool = False) -> bool:
@@ -477,6 +479,17 @@ def ensure_agent_identity(name: str, *, owner: str = GENERIC_AGENT_OWNER) -> dic
                 "that name belongs to configured content that needs an application restart"
             )
         existing = db.query_one("SELECT * FROM users WHERE name = ?", (normalized,))
+        # `<person>-mcp` is minted by mcp_server._remote_actor alone (owner
+        # "mcp"): a delegation or an authority row that named `bob-mcp` before
+        # bob's first MCP call created a generic row that bob's remote calls
+        # then acted through, with the delegation's party rights on a crew
+        # task. Once the door has minted it, any caller can name it.
+        if (
+            is_person_agent(normalized)
+            and owner != "mcp"
+            and not (existing is not None and existing["identity_owner"] == "mcp")
+        ):
+            raise ValueError("a name that ends in -mcp is reserved for MCP agent identities")
         if existing is not None and existing["kind"] != "agent":
             raise ValueError(f"'{normalized}' is already owned by a human identity")
         if folded in {fold(item) for item in CORE_MACHINE_SUBJECTS}:
@@ -502,7 +515,10 @@ def ensure_agent_identity(name: str, *, owner: str = GENERIC_AGENT_OWNER) -> dic
             )
             current_owner = GENERIC_AGENT_OWNER
             row = db.query_row("SELECT * FROM users WHERE name = ?", (normalized,))
-        if current_owner != expected_owner:
+        # a person's door row (owner "mcp") is a legitimate delegate and
+        # authority holder, so a generic caller naming it gets the row back
+        door = current_owner == "mcp" and expected_owner == GENERIC_AGENT_OWNER
+        if current_owner != expected_owner and not door:
             raise ValueError(f"'{normalized}' is already owned by another machine identity")
         return row
 
