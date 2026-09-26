@@ -558,16 +558,30 @@ def delete_event(event_id: int, user: CurrentUser):
 
 
 @router.get("/activity")
-def get_activity(user: CurrentUser):
-    return collab.recent_activity(user)
+def get_activity(user: CurrentUser, viewer: ViewerDep, request: Request, subject: PolicySubjectDep):
+    # ledger detail is free text that names rows of every project ("#4 title"),
+    # written by the scheduler and agents; a chained row cannot be rewritten,
+    # so the reader fails closed under a workplace rule like GET /api/findings
+    with db.read_transaction():
+        _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.activity")
+        return collab.recent_activity(user)
 
 
 @router.get("/activity/feed")
-def get_activity_feed(user: CurrentUser, before: int = 0, limit: int = 50):
+def get_activity_feed(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    before: int = 0,
+    limit: int = 50,
+):
     """The rendered feed: agent and system actions plus your own. The scope is
     enforced in the service — there is no parameter for another person."""
     fieldguide.mark(user, "activity_feed")
-    return activity.feed(user, limit=limit, before=before)
+    with db.read_transaction():
+        _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.activity.feed")
+        return activity.feed(user, limit=limit, before=before)
 
 
 @router.get("/activity/verify")
@@ -798,14 +812,56 @@ _SHARE_KINDS = {
 }
 
 
+# the policy entity of each project-linked kind; the others carry no project
+_SHARE_POLICY_ENTITY = {
+    "tasks": "task",
+    "blockers": "blocker",
+    "promises": "promise",
+    "requests": "intake",
+}
+
+
 @router.post("/share/{kind}/{row_id}")
-def share_row(kind: str, row_id: int, user: StrongUser):
+def share_row(
+    kind: str,
+    row_id: int,
+    user: StrongUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     """StrongUser: a weak name reads no private row, and must not widen one."""
     ratelimit.check("write", user)
     if kind not in _SHARE_KINDS:
         raise HTTPException(404, "This kind of record cannot be shared.")
+    entity = _SHARE_POLICY_ENTITY.get(kind)
     try:
-        return sharing.share_with_team(_SHARE_KINDS[kind], row_id, actor=user)
+        with db.transaction():
+            if entity:
+                # the generic gate judges the literal `share` on an empty
+                # resource; PATCH of the same row is judged on its project,
+                # and a widening must not pass where an edit is refused. The
+                # collection resolver: a blocker's project is its task's
+                # (existing_scoped gives a blocker no project).
+                policy_context.hold_resource(entity, row_id)
+                context = policy_context.resource_contexts([(entity, row_id)], viewer).get(
+                    (entity, row_id)
+                )
+                if not context:
+                    raise scope.missing(_SHARE_KINDS[kind], row_id)
+                enforce_decision(
+                    decide(
+                        request,
+                        subject,
+                        "skein.rest.post.share",
+                        entity,
+                        resource_id=str(row_id),
+                        project_type=context.get("project_type", ""),
+                        classification=context.get("classification", ""),
+                        attributes=context,
+                    )
+                )
+            return sharing.share_with_team(_SHARE_KINDS[kind], row_id, actor=user)
     except db.NotFound:
         raise
     except ValueError as e:
@@ -957,6 +1013,18 @@ def _artifact_page(
     visible: list[dict] = []
     scan_before = before
     exhausted = False
+    # computed once: an engagement-less row is a composite of every project
+    # or unclassified text, and its context is empty (see get_artifact)
+    composite_policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.artifacts",
+        "rest",
+        viewer,
+    )
+    composites_permitted = (
+        composite_policy.allows_all_projects() and composite_policy.allows_unclassified()
+    )
     while len(visible) <= handoff.LIST_LIMIT:
         rows = handoff.list_artifacts(
             engagement_id,
@@ -974,7 +1042,7 @@ def _artifact_page(
             _permitted_collection(
                 request,
                 subject,
-                rows,
+                [row for row in rows if composites_permitted or row.get("engagement_id")],
                 {row_id: value for (_entity, row_id), value in contexts.items()},
                 action="skein.rest.get.artifacts",
                 resource_type="artifact",
@@ -1037,6 +1105,11 @@ def get_artifact(
             "artifact",
             artifact_id,
         )
+        if handoff.is_engagement_less(artifact_id, viewer):
+            # an engagement-less artifact composes every project (readout,
+            # digest, ritual) or is unclassified text (document): its row
+            # resolves to an empty project, so judge it as its producer does
+            _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.artifacts")
         review_route_permitted = (
             decide(request, subject, "skein.rest.get.review", "review").effect
             == PolicyEffect.PERMIT
@@ -2112,12 +2185,17 @@ def post_week_plan(
     subject: PolicySubjectDep,
 ):
     with db.transaction():
+        permitted: list[int] = []
         for task_id in body.task_ids:
             try:
-                task = work.get_task(task_id, viewer)
+                # the WRITE path's context, as patch_task uses: judged on the
+                # actor name, so a weak caller's own private task is decided
+                # rather than skipped (get_task on a weak Viewer cannot read
+                # it, and the skipped id was still written by apply_plan)
+                policy_context.hold_resource("task", task_id)
+                attributes = work.task_update_policy_context(task_id, {}, actor=user)
             except (db.NotFound, ValueError):
                 continue
-            attributes = work.task_read_policy_context(task, viewer)
             enforce_decision(
                 decide(
                     request,
@@ -2130,7 +2208,8 @@ def post_week_plan(
                     attributes=attributes,
                 )
             )
-        return weekly.apply_plan(body.week or weekly.current_week(), body.task_ids, actor=user)
+            permitted.append(task_id)
+        return weekly.apply_plan(body.week or weekly.current_week(), permitted, actor=user)
 
 
 @router.get("/promises")
@@ -2179,10 +2258,14 @@ def post_promise(body: PromiseIn, user: CurrentUser):
 
 
 class PromiseStatusIn(BaseModel):
+    # forbid: a stray engagement_id in the body used to select the project the
+    # generic gate judged (extensions/fastapi.py); the handler never read it
+    model_config = ConfigDict(extra="forbid")
     status: str = Field(max_length=20)
 
 
 class PromiseEditIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     promise: str = Field("", max_length=500)
     due_date: str = Field("", max_length=10)
     to_whom: str = Field("", max_length=120)
@@ -2312,14 +2395,37 @@ def get_eval_capture(user: AdminUser, request: Request):
 # runs unforced too, so a manual Monday click after the 06:30 job is a no-op
 # that says so rather than a second notification for everybody.
 @router.post("/rituals/week-open")
-def post_week_open(user: CurrentUser, force: bool = False):
+def post_week_open(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    force: bool = False,
+):
     ratelimit.check("ritual", user)  # each run notifies people — cap the amplifier
+    # the ritual quotes promise, decision, question and task text of every
+    # workspace project into an artifact and returns it: an aggregate that
+    # cannot drop a denied project fails closed, outside the write transaction
+    with db.read_transaction():
+        _require_opaque_project_policy(
+            request, subject, viewer, "skein.rest.post.rituals.week-open"
+        )
     return rituals.week_open(actor=user, force=force)
 
 
 @router.post("/rituals/week-close")
-def post_week_close(user: CurrentUser, force: bool = False):
+def post_week_close(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    force: bool = False,
+):
     ratelimit.check("ritual", user)
+    with db.read_transaction():
+        _require_opaque_project_policy(
+            request, subject, viewer, "skein.rest.post.rituals.week-close"
+        )
     return rituals.week_close(actor=user, force=force)
 
 
@@ -2787,10 +2893,13 @@ def get_adoption(user: CurrentUser, weeks: int = 4):
 
 
 @router.get("/insights")
-def get_insights(user: CurrentUser):
+def get_insights(user: CurrentUser, viewer: ViewerDep, request: Request, subject: PolicySubjectDep):
     from ..services import insights as insights_svc
 
-    return insights_svc.insights()
+    # embeds the same finding rows GET /api/findings refuses
+    with db.read_transaction():
+        _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.insights")
+        return insights_svc.insights()
 
 
 @router.get("/findings")
@@ -2830,11 +2939,23 @@ def _require_chain_finding_strong_identity(finding_id: int, request: Request) ->
 
 @router.post("/findings/{finding_id}/disposition")
 def post_finding_disposition(
-    finding_id: int, body: FindingDispositionIn, user: CurrentUser, request: Request
+    finding_id: int,
+    body: FindingDispositionIn,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
 ):
     from ..services import insights as insights_svc
 
     _require_chain_finding_strong_identity(finding_id, request)
+    # a finding's subject is a row of some project; the reader of the list
+    # already fails closed under a workplace rule, and silencing one must not
+    # pass where reading it is refused
+    with db.read_transaction():
+        _require_opaque_project_policy(
+            request, subject, viewer, "skein.rest.post.findings.disposition"
+        )
     return insights_svc.disposition_finding(
         finding_id, body.disposition, body.reason, body.deferred_until, actor=user
     )
@@ -2846,22 +2967,39 @@ class ConvertIn(BaseModel):
 
 
 @router.post("/findings/{finding_id}/convert")
-def post_finding_convert(finding_id: int, body: ConvertIn, user: CurrentUser, request: Request):
+def post_finding_convert(
+    finding_id: int,
+    body: ConvertIn,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     from ..services import insights as insights_svc
 
     _require_chain_finding_strong_identity(finding_id, request)
+    # the copy is a workspace row whose title is the finding message, with
+    # no project of its own: nothing downstream can withhold it, so the
+    # conversion fails closed under a workplace rule
+    with db.read_transaction():
+        _require_opaque_project_policy(request, subject, viewer, "skein.rest.post.findings.convert")
     return insights_svc.convert_finding(finding_id, body.kind, body.title, actor=user)
 
 
 @router.post("/findings/run")
-def post_findings_run(user: CurrentUser):
+def post_findings_run(
+    user: CurrentUser, viewer: ViewerDep, request: Request, subject: PolicySubjectDep
+):
     from ..services import insights as insights_svc
 
+    # returns every finding fired this week, quoting rows of every project
+    with db.read_transaction():
+        _require_opaque_project_policy(request, subject, viewer, "skein.rest.post.findings.run")
     return insights_svc.run_findings(actor=user)
 
 
 @router.get("/usage")
-def get_usage(user: CurrentUser, viewer: ViewerDep):
+def get_usage(user: CurrentUser, viewer: ViewerDep, request: Request, subject: PolicySubjectDep):
     """Token and estimated-cost accounting. Costs are estimates from the
     operator's price table; unpriced_calls says how much each sum cannot see."""
     # ONE window for the whole card: the header names the calendar month, so
@@ -2869,6 +3007,16 @@ def get_usage(user: CurrentUser, viewer: ViewerDep):
     # engagement split under that header were three call counts nobody could
     # reconcile.
     month_start = usage.month_start()
+    # the engagement split names every tier-visible engagement with its spend
+    with db.read_transaction():
+        _require_opaque_project_policy(
+            request,
+            subject,
+            viewer,
+            "skein.rest.get.usage",
+            unclassified_inputs=False,
+            resource_types=("engagement",),
+        )
     return {
         "models": usage.usage_summary(since=month_start),
         "engagements": usage.engagement_costs(since=month_start, viewer=viewer),
@@ -3164,17 +3312,41 @@ class OutcomeIn(BaseModel):
 
 
 @router.get("/stakeholders")
-def get_stakeholders(user: CurrentUser, viewer: ViewerDep):
+def get_stakeholders(
+    user: CurrentUser, viewer: ViewerDep, request: Request, subject: PolicySubjectDep
+):
     """Open threads with people outside the roster. Read-only: every row is
     already written by somebody doing ordinary work (services/stakeholders.py)."""
-    return stakeholders.open_threads(viewer)
+    with db.read_transaction():
+        _require_opaque_project_policy(
+            request,
+            subject,
+            viewer,
+            "skein.rest.get.stakeholders",
+            unclassified_inputs=False,
+            resource_types=("promise", "intake"),
+        )
+        return stakeholders.open_threads(viewer)
 
 
 @router.get("/events/{event_id}/stakeholders")
-def get_event_stakeholders(event_id: int, user: CurrentUser, viewer: ViewerDep):
+def get_event_stakeholders(
+    event_id: int, user: CurrentUser, viewer: ViewerDep, request: Request, subject: PolicySubjectDep
+):
     """What is open with the outside people attending this meeting — useful in
     the hour before you speak to them, which a digest of everything is not."""
-    return stakeholders.brief_for_event(event_id, viewer)
+    # the generic gate judges the event row only; the brief carries promise,
+    # intake and question rows of every project the attendees touch
+    with db.read_transaction():
+        _require_opaque_project_policy(
+            request,
+            subject,
+            viewer,
+            "skein.rest.get.events.stakeholders",
+            unclassified_inputs=False,
+            resource_types=("promise", "intake"),
+        )
+        return stakeholders.brief_for_event(event_id, viewer)
 
 
 @router.post("/events/{event_id}/outcome")
@@ -3825,8 +3997,29 @@ class BatchApproveIn(BaseModel):
 
 
 @router.get("/review/{change_id}/diff")
-def get_review_diff(change_id: int, user: CurrentUser, viewer: ViewerDep):
-    return review.change_diff(change_id, viewer)
+def get_review_diff(
+    change_id: int,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    with db.read_transaction():
+        # the same decision GET /api/review makes on the list: the diff of a
+        # proposal the queue withholds must not answer either
+        policy = projection_policy.ProjectionPolicy(
+            request.app.state.skein_registry.policy_engine,
+            subject,
+            "skein.rest.get.review.diff",
+            "rest",
+            viewer,
+        )
+        return review.change_diff(
+            change_id,
+            viewer,
+            resource_filter=policy.permits,
+            allow_unclassified=policy.allows_unclassified(),
+        )
 
 
 class SeenIn(BaseModel):
@@ -4110,8 +4303,12 @@ def post_handoff(engagement_id: int, user: CurrentUser, viewer: ViewerDep):
 
 
 @router.post("/digest")
-def post_digest(user: CurrentUser):
+def post_digest(user: CurrentUser, viewer: ViewerDep, request: Request, subject: PolicySubjectDep):
     ratelimit.check("artifact", user)
+    # fail closed like /api/portfolio/readout; the narrator call inside
+    # publish_digest stays outside any write transaction
+    with db.read_transaction():
+        _require_opaque_project_policy(request, subject, viewer, "skein.rest.post.digest")
     return digest.publish_digest(actor=user)
 
 
@@ -4165,9 +4362,23 @@ def post_backup(user: AdminUser):
     return admin.backup(actor=user)
 
 
+def _require_export_policy(request: Request, subject: Any) -> None:
+    # the export is one package: it cannot drop a denied project class without
+    # changing its meaning, so it fails closed, like every other aggregate
+    # (docs/EXTENSIONS.md). A named administrator is a roster role, not a
+    # classification clearance (routes/deps.py::is_named_admin). Judged with
+    # the every-crew reader the file is built with (admin.export_viewer), or
+    # a crew-hidden regulated row passes.
+    with db.read_transaction():
+        _require_opaque_project_policy(
+            request, subject, admin.export_viewer(), "skein.rest.get.admin.export"
+        )
+
+
 @router.get("/admin/export")
-def get_export(response: Response, user: AdminUser):
+def get_export(response: Response, request: Request, user: AdminUser, subject: PolicySubjectDep):
     """Legacy metadata response for browser bundles that predate file downloads."""
+    _require_export_policy(request, subject)
     ratelimit.check("export", "portable-export")
     result = admin.export(actor=user)
     result["path"] = result["path"].rsplit("/", 1)[-1]
@@ -4177,11 +4388,12 @@ def get_export(response: Response, user: AdminUser):
 
 
 @router.get("/admin/export/download")
-def download_export(request: Request, user: AdminUser):
+def download_export(request: Request, user: AdminUser, subject: PolicySubjectDep):
     # the file carries other people's crew rows (services/admin.py builds it
     # with every crew), and under the trusted-header fallback every key
     # holder is an administrator
     _require_named_admin(user, request, "download the portable export")
+    _require_export_policy(request, subject)
     if request.headers.get("range"):
         raise HTTPException(416, "This export cannot resume. Start a new download.")
     ratelimit.check("export", "portable-export")

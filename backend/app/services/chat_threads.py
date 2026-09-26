@@ -717,7 +717,7 @@ def _public_message(row: dict) -> dict:
     }
 
 
-def _shared_details(thread_id: str, person: str) -> dict:
+def _shared_details(thread_id: str, person: str, *, resource_filter=None) -> dict:
     thread, member = _require_member(thread_id, person)
     member_rows = db.query(
         "SELECT m.person, m.role, m.joined_at, m.last_read_message_id,"
@@ -746,12 +746,28 @@ def _shared_details(thread_id: str, person: str) -> dict:
     ]
     engagement = (
         db.query_one(
-            f"SELECT name FROM engagements WHERE id = ? AND {scope.WORKSPACE_ONLY}",  # noqa: S608 — fixed scope fragment
+            f"SELECT id, name, project_class, visibility FROM engagements"  # noqa: S608 — fixed scope fragment
+            f" WHERE id = ? AND {scope.WORKSPACE_ONLY}",
             (thread["engagement_id"],),
         )
         if thread.get("engagement_id")
         else None
     )
+    if (
+        engagement
+        and resource_filter is not None
+        and not resource_filter(
+            "engagement",
+            int(engagement["id"]),
+            {
+                "project_type": str(engagement.get("project_class") or ""),
+                "classification": str(engagement.get("visibility") or ""),
+            },
+        )
+    ):
+        # the same per-row decision GET /api/engagements makes (routes/api.py):
+        # a denied engagement is reported as no link, never by name
+        engagement = None
     pending = (
         db.query(
             "SELECT id, person, invited_by, created_at FROM chat_invitations"
@@ -769,7 +785,7 @@ def _shared_details(thread_id: str, person: str) -> dict:
         "created_at": thread["created_at"],
         "updated_at": thread["updated_at"],
         "archived_at": thread.get("archived_at"),
-        "engagement_id": thread.get("engagement_id"),
+        "engagement_id": thread.get("engagement_id") if engagement else None,
         "engagement_name": str((engagement or {}).get("name") or ""),
         "viewer": person,
         "role": member["role"],
@@ -839,8 +855,8 @@ def unread_shared_count(person: str) -> int:
     return int(row["waiting"]) if row else 0
 
 
-def get_shared_chat(thread_id: str, person: str) -> dict:
-    return _shared_details(thread_id, person)
+def get_shared_chat(thread_id: str, person: str, *, resource_filter=None) -> dict:
+    return _shared_details(thread_id, person, resource_filter=resource_filter)
 
 
 def add_shared_chat_agent(
@@ -1490,6 +1506,7 @@ def update_shared_chat(
     *,
     title: str | None = None,
     engagement_id: int | None = None,
+    resource_filter=None,
 ) -> dict:
     if title is None and engagement_id is None:
         raise ValueError("one shared-chat field is required")
@@ -1520,4 +1537,4 @@ def update_shared_chat(
                 (linked["id"] if linked else None, now, thread_id),
             )
             db.log_activity(actor, "link_shared_chat_engagement", f"thread {thread_id}")
-    return _shared_details(thread_id, actor)
+    return _shared_details(thread_id, actor, resource_filter=resource_filter)

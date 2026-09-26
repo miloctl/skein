@@ -3,13 +3,13 @@ journal. Everything here requires strong identity (StrongUser) — the
 X-User header is never enough. No agent tool, MCP tool, or review-registry
 entry may reference these records."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi import Path as PathParam
 from pydantic import BaseModel, ConfigDict, Field
 
-from .. import ratelimit
-from ..extensions.fastapi import PolicyAPIRoute
-from ..services import pairings, private_notes
+from .. import db, ratelimit
+from ..extensions.fastapi import PolicyAPIRoute, PolicySubjectDep
+from ..services import pairings, private_notes, projection_policy
 from .deps import StrongUser, ViewerDep
 
 router = APIRouter(prefix="/api/private", route_class=PolicyAPIRoute)
@@ -84,6 +84,8 @@ def end_pair(pair_id: int, user: StrongUser):
 def get_brief(
     user: StrongUser,
     viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
     person: str = PathParam(max_length=64),
     days: int = 14,
 ):
@@ -93,7 +95,18 @@ def get_brief(
     ratelimit.check("brief", user)
     pairings.record_brief(user, person)
     private_notes.audit_brief(user, person)
-    brief = private_notes.one_on_one_brief(person, days=days, viewer=viewer)
+    # the generic gate judges the literal `private` on an empty resource; the
+    # brief's task, blocker and promise rows are judged per row here, as
+    # GET /api/tasks, /api/blockers and /api/promises judge them
+    policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.private.brief",
+        "rest",
+        viewer,
+    )
+    with db.read_transaction():
+        brief = private_notes.one_on_one_brief(person, days=days, viewer=viewer, policy=policy)
     gap = private_notes.feedback_gap_days(user, person)
     brief["feedback_gap_days"] = gap
     brief["nudge"] = (

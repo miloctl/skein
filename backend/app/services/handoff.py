@@ -207,6 +207,19 @@ class ArtifactUnreadable(RuntimeError):
     """
 
 
+def is_engagement_less(artifact_id: int, viewer: scope.Viewer) -> bool:
+    """True for a visible row with no engagement: a composite of every project
+    (readout, digest, ritual) or unclassified text (document). Its policy
+    context resolves to an empty project, so the reader judges it as an
+    aggregate (routes/api.py::get_artifact)."""
+    frag, params = scope.visible_filter(viewer, "artifacts")
+    row = db.query_one(
+        f"SELECT engagement_id FROM artifacts WHERE id = ? AND {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (artifact_id, *params),
+    )
+    return row is not None and row["engagement_id"] is None
+
+
 def read_artifact(
     artifact_id: int,
     viewer: scope.Viewer = scope.NOBODY,
