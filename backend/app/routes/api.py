@@ -1365,7 +1365,7 @@ def _named_admin_reader(user: str, request: Request) -> bool:
 
 
 def _require_named_admin(user: str, request: Request, action: str) -> None:
-    """Refuse a read of other people's data to anyone but a named
+    """Refuse an action on other people's data to anyone but a named
     administrator (_named_admin_reader). A teammate who is no administrator
     at all reads not_administrator: "not named in SKEIN_ADMINS" is the
     fallback administrator's refusal, and to anyone else it reads as though
@@ -3930,6 +3930,7 @@ def post_approve(
     subject: PolicySubjectDep,
 ):
     strong = bool(getattr(request.state, "strong_auth", False))
+    _require_verdict_policy(request, subject, viewer, change_id, "skein.rest.post.review.approve")
     return review.approve_change(
         change_id,
         body.note,
@@ -3946,6 +3947,32 @@ def post_approve(
     )
 
 
+def _require_verdict_policy(
+    request: Request, subject: Any, viewer: scope.Viewer, change_id: int, action: str
+) -> None:
+    """A verdict writes the target row: judged on that row's project like the
+    list and the diff, or a reader the rule denies approved what both
+    withheld. A row the viewer cannot see at all is left to review's own
+    tier checks; a create names no row yet."""
+    entity, entity_id = review.change_target(change_id)
+    if not entity_id or not policy_context.supports_resource(entity):
+        return
+    attributes = policy_context.existing_scoped(entity, entity_id, viewer)
+    if attributes:
+        enforce_decision(
+            decide(
+                request,
+                subject,
+                action,
+                entity,
+                resource_id=str(entity_id),
+                project_type=attributes.get("project_type", ""),
+                classification=attributes.get("classification", ""),
+                attributes=attributes,
+            )
+        )
+
+
 @router.post("/review/{change_id}/reject")
 def post_reject(
     change_id: int,
@@ -3956,6 +3983,7 @@ def post_reject(
     subject: PolicySubjectDep,
 ):
     strong = bool(getattr(request.state, "strong_auth", False))
+    _require_verdict_policy(request, subject, viewer, change_id, "skein.rest.post.review.reject")
     return review.reject_change(
         change_id,
         body.note,
@@ -4101,6 +4129,7 @@ def post_approve_batch(
     # skipped. Every id the model accepted gets exactly one result row.
     for cid in body.ids:
         try:
+            _require_verdict_policy(request, subject, viewer, cid, "skein.rest.post.review.approve")
             r = review.approve_change(
                 cid,
                 actor=user,

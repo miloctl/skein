@@ -728,6 +728,29 @@ def _public_message(row: dict) -> dict:
     }
 
 
+def redact_room_engagement(details: dict, resource_filter) -> dict:
+    """The rule _shared_details applies at read, for the write routes that
+    answer with the same details: a create, a member or agent change, an
+    accepted invitation, an archive. Each one carried a denied engagement's
+    id and name past the filter the read route holds."""
+    if not details.get("engagement_id"):
+        return details
+    engagement = db.query_one(
+        "SELECT project_class, visibility FROM engagements WHERE id = ?",
+        (details["engagement_id"],),
+    )
+    if engagement and resource_filter(
+        "engagement",
+        int(details["engagement_id"]),
+        {
+            "project_type": str(engagement.get("project_class") or ""),
+            "classification": str(engagement.get("visibility") or ""),
+        },
+    ):
+        return details
+    return {**details, "engagement_id": None, "engagement_name": ""}
+
+
 def _shared_details(thread_id: str, person: str, *, resource_filter=None) -> dict:
     thread, member = _require_member(thread_id, person)
     member_rows = db.query(

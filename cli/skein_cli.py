@@ -102,7 +102,9 @@ _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 # Format characters the terminal draws as nothing: a bidi override reverses
 # a clause on screen, and a tag-block sentence is invisible. Each one prints
 # as its code point, so `skein review` shows the bytes a verdict binds.
-_INVISIBLE = re.compile("[\u200b\u200c\u2060\ufeff\u202a-\u202e\u2066-\u2069\U000e0000-\U000e007f]")
+_INVISIBLE = re.compile(
+    "[\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890-\u0891\u08e2\u180e\u200b-\u200c\u200e-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb\U000110bd\U000110cd\U00013430-\U0001343f\U0001bca0-\U0001bca3\U0001d173-\U0001d17a\U000e0001\U000e0020-\U000e007f]"
+)  # category Cf minus U+200D, as services/wording.py
 
 
 def _printable(value):

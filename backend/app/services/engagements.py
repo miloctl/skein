@@ -4,7 +4,7 @@ lessons captured at retro time."""
 import logging
 
 from .. import db
-from . import scope
+from . import scope, wording
 from .search import index_record
 
 STATUSES = ("proposed", "active", "closing", "closed")
@@ -295,10 +295,24 @@ def _update_engagement_locked(
             (engagement_id, engagement_id),
         )
         # a scoped engagement's closure is not announced: its id, the fact
-        # of its close and its task count reached people who cannot read it
-        if open_tasks and open_tasks["n"] and current["visibility"] == scope.WORKSPACE:
-            from .notifications import notify
+        # of its close and its task count reached people who cannot read it.
+        # A hidden open task is still loud, to its own author alone.
+        from .notifications import notify
 
+        for owner in db.query(
+            f"SELECT created_by, COUNT(*) AS n FROM tasks WHERE NOT ({scope.WORKSPACE_ONLY})"  # noqa: S608 — scope constant
+            " AND status NOT IN ('done', 'void') AND (engagement_id = ? OR milestone_id IN"
+            " (SELECT id FROM milestones WHERE engagement_id = ?)) GROUP BY created_by",
+            (engagement_id, engagement_id),
+        ):
+            notify(
+                str(owner["created_by"]),
+                f"Engagement #{engagement_id} closed with {wording.count(int(owner['n']), 'open task')}"
+                f" of yours. Rehome or close {'it' if owner['n'] == 1 else 'them'}.",
+                tier="digest",
+                link="/dashboard",
+            )
+        if open_tasks and open_tasks["n"] and current["visibility"] == scope.WORKSPACE:
             notify(
                 "team",
                 f"Engagement #{engagement_id} closed with {open_tasks['n']}"

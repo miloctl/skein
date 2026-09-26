@@ -172,3 +172,25 @@ def test_mock_agent_promise_capture_ack(client):
     rows = client.get("/api/promises").json()
     assert len(rows) == 1
     assert "report to legal" in rows[0]["promise"]
+
+
+def test_a_strong_requesters_mock_line_is_theirs_alone(client, fresh_db):
+    """Under the keyless mock provider every freeform line became a workspace
+    note the whole roster read; the REST capture default is "only you" for a
+    strong caller, and the mock path takes the same one."""
+    from conftest import _strong
+
+    client.post(
+        "/api/chat",
+        json={"thread_id": "t-strong", "message": "todo: file the claim"},
+        headers=_strong(client, "ava"),
+    )
+    client.post(
+        "/api/chat",
+        json={"thread_id": "t-weak", "message": "todo: file the other claim"},
+        headers={"X-User": "bo"},
+    )
+    tiers = {
+        r["title"]: r["visibility"] for r in fresh_db.query("SELECT title, visibility FROM tasks")
+    }
+    assert tiers == {"file the claim": "private", "file the other claim": "workspace"}

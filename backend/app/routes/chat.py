@@ -355,9 +355,15 @@ class SharedMemberRoleIn(SharedMemberIn):
 
 
 @router.post("/api/shared-chats")
-def post_shared_chat(body: SharedChatIn, user: StrongUser):
+def post_shared_chat(
+    body: SharedChatIn,
+    user: StrongUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     ratelimit.check("write", user)
-    return chat_threads.create_shared_chat(body.title, user)
+    return _room(request, subject, viewer, chat_threads.create_shared_chat(body.title, user))
 
 
 @router.get("/api/shared-chats")
@@ -371,15 +377,30 @@ def get_shared_chat_invitations(user: StrongUser):
 
 
 @router.post("/api/shared-chats/invitations/{invitation_id}/accept")
-def accept_shared_chat_invitation(invitation_id: int, user: StrongUser):
+def accept_shared_chat_invitation(
+    invitation_id: int,
+    user: StrongUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     ratelimit.check("write", user)
-    return chat_threads.accept_shared_chat_invitation(invitation_id, user)
+    return _room(
+        request, subject, viewer, chat_threads.accept_shared_chat_invitation(invitation_id, user)
+    )
 
 
 @router.post("/api/shared-chats/invitations/{invitation_id}/decline")
 def decline_shared_chat_invitation(invitation_id: int, user: StrongUser):
     ratelimit.check("write", user)
     return chat_threads.decline_shared_chat_invitation(invitation_id, user)
+
+
+def _room(request: Request, subject, viewer, details: dict) -> dict:
+    """A write route that answers with the room's details holds the same
+    engagement decision as GET /api/shared-chats/{id}."""
+    policy = _engagement_policy(request, subject, viewer, "skein.rest.get.shared-chats")
+    return chat_threads.redact_room_engagement(details, policy.permits)
 
 
 def _engagement_policy(request: Request, subject, viewer, action: str):
@@ -417,13 +438,22 @@ def get_shared_chat(
 
 
 @router.post("/api/shared-chats/{thread_id}/agents")
-def post_shared_chat_agent(thread_id: str, body: SharedAgentIn, user: StrongUser):
+def post_shared_chat_agent(
+    thread_id: str,
+    body: SharedAgentIn,
+    user: StrongUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     ratelimit.check("write", user)
-    return chat_threads.add_shared_chat_agent(
-        thread_id,
-        user,
-        body.agent,
-        share_history=body.share_history,
+    return _room(
+        request,
+        subject,
+        viewer,
+        chat_threads.add_shared_chat_agent(
+            thread_id, user, body.agent, share_history=body.share_history
+        ),
     )
 
 
@@ -538,9 +568,21 @@ def delete_shared_chat_member(thread_id: str, body: SharedMemberIn, user: Strong
 
 
 @router.post("/api/shared-chats/{thread_id}/members/role")
-def post_shared_chat_member_role(thread_id: str, body: SharedMemberRoleIn, user: StrongUser):
+def post_shared_chat_member_role(
+    thread_id: str,
+    body: SharedMemberRoleIn,
+    user: StrongUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     ratelimit.check("write", user)
-    return chat_threads.set_shared_member_role(thread_id, user, body.person, body.role)
+    return _room(
+        request,
+        subject,
+        viewer,
+        chat_threads.set_shared_member_role(thread_id, user, body.person, body.role),
+    )
 
 
 @router.post("/api/shared-chats/{thread_id}/leave")
@@ -550,15 +592,23 @@ def post_shared_chat_leave(thread_id: str, user: StrongUser):
 
 
 @router.post("/api/shared-chats/{thread_id}/archive")
-def post_shared_chat_archive(thread_id: str, user: StrongUser):
+def post_shared_chat_archive(
+    thread_id: str, user: StrongUser, viewer: ViewerDep, request: Request, subject: PolicySubjectDep
+):
     ratelimit.check("delete", user)
-    return chat_threads.set_shared_chat_archived(thread_id, user, True)
+    return _room(
+        request, subject, viewer, chat_threads.set_shared_chat_archived(thread_id, user, True)
+    )
 
 
 @router.post("/api/shared-chats/{thread_id}/restore")
-def post_shared_chat_restore(thread_id: str, user: StrongUser):
+def post_shared_chat_restore(
+    thread_id: str, user: StrongUser, viewer: ViewerDep, request: Request, subject: PolicySubjectDep
+):
     ratelimit.check("write", user)
-    return chat_threads.set_shared_chat_archived(thread_id, user, False)
+    return _room(
+        request, subject, viewer, chat_threads.set_shared_chat_archived(thread_id, user, False)
+    )
 
 
 @router.get("/api/chats/{thread_id}/messages")

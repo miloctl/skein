@@ -1123,8 +1123,10 @@ def forget(server_id: str) -> None:
 
 def forget_owner(person: str, *, exact: bool = False) -> None:
     """Drop every cached connection of one owner (deactivation, rename): a
-    connection holds the unsealed token, and the row that authorised it is
-    gone. Cross-pod, the row check in personal_mcp_tools catches up."""
+    connection holds the unsealed token, and the owner can no longer act
+    through it (a deactivated owner keeps the rows through the grace, a
+    renamed one gets them under the new name). Cross-pod, the row check in
+    personal_mcp_tools catches up."""
     prefix = person if exact else f"{PERSONAL}:{person}:"
     with _lock:
         ids = [
