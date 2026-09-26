@@ -541,9 +541,15 @@ Local success does not replace the target-cluster role and storage handoff.
            DELETE FROM public.mcp_oauth_flows;
        END IF;
        IF to_regclass('public.mcp_servers') IS NOT NULL THEN
+           DELETE FROM public.mcp_servers WHERE scope = 'personal';
            UPDATE public.mcp_servers
            SET auth_token_sealed = NULL, oauth_tokens_sealed = NULL,
                oauth_client_sealed = NULL;
+       END IF;
+       IF to_regclass('public.merge_requests') IS NOT NULL THEN
+           UPDATE public.merge_requests
+           SET status = 'cancelled', settled_at = recovered_at
+           WHERE status = 'pending';
        END IF;
        IF to_regclass('public.chat_agent_runs') IS NOT NULL THEN
            UPDATE public.chat_agent_runs
@@ -571,9 +577,10 @@ Local success does not replace the target-cluster role and storage handoff.
    sign-in flows. Older copies can hold unsealed authorization codes. Delete all flow
    rows before startup, including rows that have not expired. These deletions require
    new sign-ins without changing the credential-sealing key. Personal MCP server
-   rows are kept, but their bearer tokens and OAuth sign-ins are removed: a
-   token revoked or a server deleted after the backup must not come back
-   usable. Each owner enters the token or signs in again.
+   rows are deleted: a server its owner removed after the backup must not come
+   back, and its tool list must not reach a model before the owner registers
+   it again. Pending account merge requests are cancelled: a request withdrawn
+   after the backup must not be confirmable from the restored copy.
 
    `completion_unknown` means the outcome needs operator reconciliation.
    Even a restored `pending` request can have executed after the backup point.

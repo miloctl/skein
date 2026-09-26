@@ -216,6 +216,14 @@ name for twenty tables cannot work.
 
 ### Refusals are 404
 
+One accepted disclosure: an engagement name is refused against every
+engagement, hidden ones included, on create and on rename. Milestones name
+their engagement by that string and usage rolls up by it, so two engagements
+cannot share a name whatever their tiers. A refusal therefore confirms that a
+guessed name exists somewhere, and nothing more: no id, tier, owner or
+content. The rename route carries the write rate cap so a name walk is as
+slow as any other write.
+
 `app/main.py`'s NotFound handler already decided it: *"an owner-scoped miss is a 404 too,
 because any other status confirms the row exists."* Raise `db.NotFound`
 and the correct status arrives with no new handler. A 403 belongs only

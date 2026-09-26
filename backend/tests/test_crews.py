@@ -158,14 +158,19 @@ def test_editing_a_crew_needs_strong_identity(client, fresh_db):
 
 
 def test_reading_crews_is_open_to_the_roster(client, fresh_db):
-    """Who is in which crew is not itself scoped — a picker in every create
-    form reads it, and hiding it would only hide the consequence of a choice
-    the writer is about to make."""
+    """Crew names are open to the roster: a picker in every create form
+    reads them. Which crews a person is IN is shared inside the crew, so
+    /crews/mine answers the strong viewer only: a weak X-User name is
+    whatever the caller typed, and answering it rebuilt every crew's member
+    list from the public roster."""
+    from conftest import _strong
+
     users.ensure_user("ava")
     crews.create_crew("Platform", actor="ava")
     listed = client.get("/api/crews").json()
     assert [c["name"] for c in listed] == ["Platform"]
-    assert client.get("/api/crews/mine", headers={"X-User": "ava"}).json() == [listed[0]["id"]]
+    assert client.get("/api/crews/mine", headers=_strong(client, "ava")).json() == [listed[0]["id"]]
+    assert client.get("/api/crews/mine", headers={"X-User": "ava"}).json() == []
     assert client.get("/api/crews/mine", headers={"X-User": "bo"}).json() == []
 
 

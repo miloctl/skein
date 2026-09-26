@@ -529,7 +529,10 @@ def test_offboarding_and_rename_carry_the_rows(client, sealed):
     assert [r["owner"] for r in db.query("SELECT owner FROM mcp_servers")] == ["avery"]
     assert mcp_servers.list_for("avery")[0]["server_id"] == "personal:avery:jira"
     users.set_active("avery", False, actor="admin")
-    assert db.query("SELECT 1 FROM mcp_servers") == []
+    # the rows stay through erasure.GRACE_DAYS (a wrong deactivation must be
+    # undoable); only the live connection goes
+    assert [r["owner"] for r in db.query("SELECT owner FROM mcp_servers")] == ["avery"]
+    assert "personal:avery:jira" not in mcp_tools._connections
 
 
 def test_a_personal_tool_version_covers_its_whole_contract():

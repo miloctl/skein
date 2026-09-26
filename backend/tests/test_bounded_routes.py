@@ -108,7 +108,6 @@ EXEMPT: dict[str, str] = {
     "POST /api/notifications/read": "idempotent flag flip on rows the caller owns",
     # --- edits of a row that already exists: no growth, and the parity test
     # bounds the field sizes ---
-    "PATCH /api/engagements/{engagement_id}": "edits one existing row",
     "PATCH /api/intake/{request_id}": "edits one existing row",
     "PATCH /api/promises/{promise_id}": "edits one existing row",
     "POST /api/blockers/{blocker_id}/resolve": "terminal flip on one existing row",

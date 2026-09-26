@@ -335,11 +335,13 @@ def test_the_session_bridge_seeds_the_configured_manager(fresh_db, monkeypatch):
     """A command-first thread on a summarize deployment used to be seeded with
     sliding state, killing it the moment the agent first replied."""
     from app.agents import session_log
+    from app.services import chat_threads
 
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
     monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
     monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
 
+    chat_threads.claim_thread("t-bridge", "tester")
     session_log.log_exchange("t-bridge", "/help", "here is help")
     assert _stored_state("t-bridge")["__name__"] == "SummarizingConversationManager"
 
@@ -352,12 +354,14 @@ def test_concurrent_bridge_writes_keep_every_exchange(fresh_db, monkeypatch):
     import threading
 
     from app.agents import session_log
+    from app.services import chat_threads
 
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
     monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
 
     workers, per_worker = 6, 10
     failures: list[BaseException] = []
+    chat_threads.claim_thread("t-race", "tester")
 
     def hammer(w: int) -> None:
         try:

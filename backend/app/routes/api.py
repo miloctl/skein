@@ -1264,8 +1264,11 @@ class UserRenameIn(BaseModel):
 
 
 @router.post("/users/{name}/rename")
-def post_user_rename(name: str, body: UserRenameIn, user: AdminUser):
-    # rename/merge moves attribution history — administrators only
+def post_user_rename(name: str, body: UserRenameIn, request: Request, user: AdminUser):
+    # a merge moves what a person reads (rooms, crews, private rows): the
+    # named-administrator test, never the trusted-header fallback that makes
+    # every key holder an administrator
+    _require_named_admin(user, request, "rename or merge an account")
     return users.rename_user(name, body.new_name, actor=user, expected_merge=body.merge)
 
 
@@ -1274,9 +1277,11 @@ class UserActiveIn(BaseModel):
 
 
 @router.post("/users/{name}/active")
-def post_user_active(name: str, body: UserActiveIn, user: AdminUser):
+def post_user_active(name: str, body: UserActiveIn, request: Request, user: AdminUser):
     # roster edits are admin surface — one teammate must not be able to
-    # deactivate another
+    # deactivate another, and deactivation starts the erasure clock, so it
+    # takes the named-administrator test rather than the key-holder fallback
+    _require_named_admin(user, request, "deactivate or reactivate an account")
     return users.set_active(name, body.active, actor=user)
 
 
@@ -1383,10 +1388,11 @@ def get_crews(user: CurrentUser, viewer: ViewerDep, request: Request, all: bool 
 
 
 @router.get("/crews/mine")
-def get_my_crews(user: CurrentUser):
-    """Self-scoped by construction: the only person parameter is the caller.
-    There is deliberately no way to read another person's crew list."""
-    return crews.crews_of(user)
+def get_my_crews(viewer: ViewerDep):
+    """The strong viewer's crews, the bar _crew_for holds for member lists.
+    In trusted-header mode a weak X-User name is whatever the caller typed,
+    and answering it rebuilt every crew's member list from the roster."""
+    return list(viewer.crew_ids)
 
 
 @router.get("/crews/{crew_id}")
@@ -4200,6 +4206,10 @@ class EngagementPatch(BaseModel):
 
 @router.patch("/engagements/{engagement_id}")
 def patch_engagement(engagement_id: int, body: EngagementPatch, user: CurrentUser):
+    # a rename is refused against every engagement name, hidden ones included
+    # (docs/VISIBILITY.md, engagement names): the same cap as the create
+    # routes, so a name walk is as slow as any other write
+    ratelimit.check("write", user)
     return engagements.update_engagement(engagement_id, **body.model_dump(), actor=user)
 
 

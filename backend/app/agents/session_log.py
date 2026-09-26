@@ -61,6 +61,14 @@ def _append_exchange(thread_id: str, user_text: str, assistant_text: str) -> Non
             (f"chat-turn:{thread_id}",),
         ):
             return
+        # A command or /flock turn holds no turn lease, so DELETE /api/chats/{id}
+        # can land while its stream is open. Without the row the bridge wrote a
+        # session no thread owns: delete, retention and erasure all reach
+        # sessions through chat_threads, and the next claim of the id replayed
+        # it. FOR SHARE makes a concurrent delete wait for this commit, and
+        # its session delete then removes the rows written here.
+        if not db.query_one("SELECT 1 FROM chat_threads WHERE id = ? FOR SHARE", (thread_id,)):
+            return
         messages: list = []
         if repo.read_agent(thread_id, _AGENT_ID) is None:
             # a command-first thread must not lose its opening exchange

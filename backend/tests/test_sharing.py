@@ -3,6 +3,7 @@ purpose (services/sharing.py). Never narrower."""
 
 import json
 
+import pytest
 from conftest import _strong, _turn
 
 from app import config
@@ -150,3 +151,44 @@ def test_a_shared_chat_agent_can_file_standups_time_away_and_assignments(fresh_d
     for tool in ("standup", "absence", "assign"):
         assert results[tool].get("status") == "pending", (tool, results[tool])
     assert "shared chat" in results["private window"]["error"]
+
+
+def test_a_share_holds_the_waiting_on_link_to_the_team_tier(client, fresh_db):
+    """update_task holds a task's wait to scope.assert_relationship_contains,
+    and share_with_team did not: a shared task named a crew blocker's type,
+    id and state to the roster in portfolio.slip_forecast."""
+    from app.services import crews, portfolio, sharing, work
+
+    users.ensure_user("ava")
+    crew = crews.create_crew("Platform", actor="ava")
+    client.post("/api/engagements", json={"name": "Apollo"}, headers=_strong(client, "ava"))
+    milestone = client.post(
+        "/api/milestones",
+        json={"title": "m1", "project": "Apollo", "due_date": "2030-01-01"},
+        headers=_strong(client, "ava"),
+    ).json()
+    blocker = client.post(
+        "/api/blockers",
+        json={"title": "vendor", "visibility": "crew", "crew_id": crew["id"]},
+        headers=_strong(client, "ava"),
+    ).json()
+    task = work.create_task(
+        "waits", milestone_id=milestone["id"], actor="ava", visibility="crew", crew_id=crew["id"]
+    )
+    work.update_task(task["id"], waiting_on=f"blocker:{blocker['id']}", actor="ava")
+    with pytest.raises(ValueError, match="fewer people can see"):
+        sharing.share_with_team("tasks", task["id"], actor="ava")
+    shared = client.post(f"/api/share/tasks/{task['id']}", headers=_strong(client, "ava"))
+    assert shared.status_code == 400
+    # a task shared before the check stays linked: the forecast still withholds it
+    fresh_db.execute(
+        "UPDATE tasks SET visibility = 'workspace', crew_id = NULL WHERE id = ?", (task["id"],)
+    )
+    waits = [w for f in portfolio.slip_forecast()["forecasts"] for w in f["waiting_on"]]
+    assert waits == []
+    fresh_db.execute(
+        "UPDATE tasks SET visibility = 'crew', crew_id = ? WHERE id = ?", (crew["id"], task["id"])
+    )
+    work.update_task(task["id"], waiting_on="-", actor="ava")
+    cleared = client.post(f"/api/share/tasks/{task['id']}", headers=_strong(client, "ava"))
+    assert cleared.status_code == 200

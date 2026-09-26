@@ -16,6 +16,8 @@ from conftest import authored_repo_root
 from cryptography.fernet import Fernet
 from psycopg.conninfo import conninfo_to_dict
 
+from app import db
+
 ROOT = authored_repo_root(Path(__file__))
 README = ROOT / "deploy/k8s/README.md"
 OPERATOR = ROOT / "deploy/k8s/OPERATOR.md"
@@ -335,10 +337,11 @@ def test_preboot_fence_stops_all_restored_agent_requests(fresh_db, monkeypatch):
         assert activity.verify_chain()["ok"] is True
 
 
-def test_preboot_fence_strips_restored_personal_mcp_credentials(scratch_db, tmp_path, monkeypatch):
-    """A restore brings back every personal MCP server the backup held, with
-    the sealed token still usable under the unchanged key: a server its owner
-    deleted after the backup came back and its first chat turn connected."""
+def test_preboot_fence_removes_restored_personal_mcp_servers(scratch_db, tmp_path, monkeypatch):
+    """A restore brings back every personal MCP server the backup held: a
+    server its owner deleted after the backup came back, and with only its
+    credentials stripped its tool list still reached the model on the first
+    chat turn. The row goes; the owner registers the server again."""
     from app.services import admin, mcp_servers
 
     _oidc_session(monkeypatch)  # sets a throwaway SKEIN_CREDENTIAL_KEY
@@ -377,9 +380,26 @@ def test_preboot_fence_strips_restored_personal_mcp_credentials(scratch_db, tmp_
     )
     _apply_fence()
 
-    [(_sid, entry)] = mcp_servers.entries_for("restore-owner")
-    assert entry["name"] == "leaked"
-    assert entry["auth_token"] == "" and entry["signed_in"] is False
+    assert mcp_servers.entries_for("restore-owner") == []
+    assert mcp_servers.list_for("restore-owner") == []
+
+
+def test_preboot_fence_cancels_restored_pending_merge_requests(scratch_db):
+    """A merge request withdrawn after the backup point came back pending,
+    and the target's confirm moved everything only the source could read to
+    another teammate, against withdrawn consent."""
+    from app.services import merges, users
+
+    for name in ("source", "target"):
+        users.ensure_user(name)
+    asked = merges.request("target", actor="source")
+    _apply_fence()
+    row = scratch_db.query_one(
+        "SELECT status, settled_at FROM merge_requests WHERE id = ?", (asked["id"],)
+    )
+    assert row["status"] == "cancelled" and row["settled_at"]
+    with pytest.raises(db.NotFound):
+        merges.confirm(asked["id"], actor="target")
 
 
 def test_preboot_fence_accepts_backups_before_session_and_queue_tables(scratch_db):

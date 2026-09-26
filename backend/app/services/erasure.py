@@ -199,9 +199,9 @@ def erase(name: str, *, actor: str = "scheduler") -> dict[str, int]:
             'DELETE FROM notifications WHERE "user" = ?', (name,)
         )
         db.execute('DELETE FROM notification_reads WHERE "user" = ?', (name,))
-        erased["mcp_servers"] = db.execute_rowcount(
-            "DELETE FROM mcp_servers WHERE owner = ?", (name,)
-        )
+        from .mcp_servers import delete_for
+
+        erased["mcp_servers"] = delete_for(name, actor=actor)
         erased["journal_notes"] = private_notes.erase_author(name)
         # growth interests the person never shared, and their own theme
         db.execute(

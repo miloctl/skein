@@ -16,9 +16,15 @@ def _own_db(fresh_db):
     return fresh_db
 
 
-def _live(monkeypatch):
+def _live(monkeypatch, *threads: str):
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "anthropic")
     monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    # routes/chat.py claims the thread before anything else runs, and the
+    # bridge writes nothing for an id with no thread row
+    from app.services import chat_threads
+
+    for thread in threads:
+        chat_threads.claim_thread(thread, "tester")
 
 
 def _messages(thread):
@@ -30,7 +36,7 @@ def _nothing_stored():
 
 
 def test_command_first_thread_creates_session(monkeypatch):
-    _live(monkeypatch)
+    _live(monkeypatch, "t1")
     session_log.log_exchange("t1", "/briefing", "**My Day** — 3 tasks")
     stored = _messages("t1")
     assert [m.message_id for m in stored] == [0, 1]
@@ -41,7 +47,7 @@ def test_command_first_thread_creates_session(monkeypatch):
 
 
 def test_second_exchange_appends_after_existing(monkeypatch):
-    _live(monkeypatch)
+    _live(monkeypatch, "t2")
     session_log.log_exchange("t2", "/briefing", "briefing text")
     session_log.log_exchange("t2", "/search vendor", "1 match")
     stored = _messages("t2")
@@ -54,7 +60,7 @@ def test_agent_record_restores_on_next_turn(monkeypatch):
     restore validation, or the first real agent turn would blow up."""
     from strands.agent.conversation_manager import SlidingWindowConversationManager
 
-    _live(monkeypatch)
+    _live(monkeypatch, "t3")
     session_log.log_exchange("t3", "/playbooks", "the playbooks")
     agent = DatabaseSessionRepository().read_agent("t3", "default")
     assert agent is not None
@@ -76,13 +82,13 @@ def test_provider_error_writes_nothing(monkeypatch):
 
 
 def test_empty_output_writes_nothing(monkeypatch):
-    _live(monkeypatch)
+    _live(monkeypatch, "t6")
     session_log.log_exchange("t6", "/help", "   ")
     assert _nothing_stored()
 
 
 def test_fb_line_never_bridged(monkeypatch):
-    _live(monkeypatch)
+    _live(monkeypatch, "t7")
     session_log.log_exchange("t7", "/remember fb: dana — private thing", "refused")
     session_log.log_exchange("t7", "fb: dana — private thing", "refused")
     assert _nothing_stored()
@@ -93,7 +99,7 @@ def test_write_failure_is_swallowed_and_leaves_no_half_session(monkeypatch):
     session write failure only logs. And because the bridge write is ONE
     transaction, failure leaves no half-written session — the file store
     could strand an agent record with no messages."""
-    _live(monkeypatch)
+    _live(monkeypatch, "t8")
 
     def boom(self, *a, **k):
         raise OSError("disk full")
@@ -109,7 +115,7 @@ def test_stranded_user_turn_is_folded(monkeypatch):
     from strands.agent.conversation_manager import SlidingWindowConversationManager
     from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
 
-    _live(monkeypatch)
+    _live(monkeypatch, "t9")
     repo = DatabaseSessionRepository()
     repo.create_session(Session(session_id="t9", session_type=SessionType.AGENT))
     repo.create_agent(
