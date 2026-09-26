@@ -217,6 +217,15 @@ class ExtensionRegistry:
             groups = ()
         if not active:
             raise PermissionError("The requester identity is no longer active.")
+        # A weak trusted-header name proved no enterprise groups (fastapi.py
+        # subject_for, docs/EXTENSIONS.md). Adopting the directory's groups
+        # here hands the named person's groups to whoever typed the name, and
+        # services/review.py _revalidate_policy then empties the approver
+        # requirement it recomputes from them, so any second weak name can
+        # approve on every review kind. The resolver call above still applies
+        # its active flag: refresh can remove access, never add it.
+        if not subject.strong:
+            groups = ()
         # A stored weak identity must never become strong during review resume.
         # The mapper receives the assurance that was proved on the original
         # request. Directory refresh can remove access, but it cannot add a

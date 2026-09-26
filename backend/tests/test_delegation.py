@@ -17,7 +17,9 @@ def test_the_contract_travels_with_the_delegation(fresh_db, monkeypatch):
     users.ensure_user("mira")
     t = work.create_task(title="probe the API", actor="mira")
     with pytest.raises(ValueError, match="YYYY-MM-DD"):
-        delegation.delegate_task(t["id"], "scout", "mira", check_in_at="Wednesday", actor="mira")
+        delegation.delegate_task(
+            t["id"], "scout", "mira", check_in_at="Wednesday", actor="mira", mint_authorized=True
+        )
     delegation.delegate_task(
         t["id"],
         "scout",
@@ -25,6 +27,7 @@ def test_the_contract_travels_with_the_delegation(fresh_db, monkeypatch):
         acceptance_criteria="a runnable repro script",
         check_in_at="2026-09-01",
         actor="mira",
+        mint_authorized=True,
     )
 
     inbox = delegation.agent_inbox("scout")
@@ -57,7 +60,7 @@ def test_delegation_work_loop_end_to_end(client, fresh_db, monkeypatch):
     monkeypatch.setattr(config, "AGENT_REVIEW", False)  # loop must gate regardless
     users.ensure_user("mira")
     t = work.create_task(title="build the probe", actor="mira")
-    delegation.delegate_task(t["id"], "scout", "mira", actor="mira")
+    delegation.delegate_task(t["id"], "scout", "mira", actor="mira", mint_authorized=True)
     delegation.claim_task(t["id"], actor="scout")
     assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (t["id"],))["status"] == (
         "in_progress"
@@ -95,7 +98,7 @@ def test_claim_requires_the_delegated_agent(fresh_db):
 
     users.ensure_user("mira")
     t = work.create_task(title="x", actor="mira")
-    delegation.delegate_task(t["id"], "scout", "mira", actor="mira")
+    delegation.delegate_task(t["id"], "scout", "mira", actor="mira", mint_authorized=True)
     try:
         delegation.claim_task(t["id"], actor="other-agent")
         raise AssertionError("claim by a non-delegate succeeded")
@@ -330,7 +333,7 @@ def test_replacement_agent_completion_resolves_the_original_correction(client, f
         json={"note": "give this to a replacement"},
         headers=_strong(client, "mira"),
     )
-    delegation.delegate_task(tid, "fixer", "mira", actor="mira")
+    delegation.delegate_task(tid, "fixer", "mira", actor="mira", mint_authorized=True)
     replacement = delegation.submit_completion(tid, "replacement attempt", actor="fixer")[
         "proposal_id"
     ]
@@ -352,7 +355,9 @@ def test_agent_cannot_delegate_to_itself(fresh_db):
     from app.services import delegation
 
     with pytest.raises(ValueError, match="itself"):
-        delegation.delegate_task(t["id"], "scout", "mira", actor="scout", origin="agent")
+        delegation.delegate_task(
+            t["id"], "scout", "mira", actor="scout", origin="agent", mint_authorized=True
+        )
 
 
 def test_delegate_task_and_inbox(client, fresh_db):

@@ -37,6 +37,7 @@ from mcp.types import ToolAnnotations
 from . import db, ratelimit
 from .agents.identity import (
     requester_identity,
+    requester_viewer,
     reset_agent_identity,
     reset_requester_identity,
     reset_requester_viewer,
@@ -469,11 +470,19 @@ def read_worklog(task_id: int, limit: int = 20) -> str:
     try:
         # actor=_actor() is the door, and the limit is clamped in the service —
         # this twin passed the model's number straight into LIMIT, where a
-        # negative value is refused outright and a huge one is a full scan
+        # negative value is refused outright and a huge one is a full scan.
+        # The requester's Viewer (remote_app sets it) makes this read match
+        # the REST worklog read for every task the actor is not a party to.
+        rv = requester_viewer()
         return json.dumps(
             {
                 "task_id": task_id,
-                "worklog": delegation.list_worklog(task_id, limit, actor=_actor()),
+                "worklog": delegation.list_worklog(
+                    task_id,
+                    limit,
+                    viewer=rv if isinstance(rv, scope.Viewer) else scope.NOBODY,
+                    actor=_actor(),
+                ),
             }
         )
     except ValueError as exc:
@@ -902,7 +911,12 @@ def _remote_actor(user: str) -> str:
     from .services.users import MCP_SUFFIX, ensure_agent_identity
 
     name = f"{user}{MCP_SUFFIX}"
-    row = db.query_one("SELECT kind, active FROM users WHERE name = ?", (name,))
+    # ensure_agent_identity truncates at 64: a longer name reserved a row this
+    # lookup never found again, so deactivating or forbidding it never bound
+    # the actor (a 61 to 63 character person kept acting after both)
+    if len(name) > 64:
+        raise ValueError(UNAVAILABLE)
+    row = db.query_one("SELECT kind, active, identity_owner FROM users WHERE name = ?", (name,))
     if row is None:
         try:
             ensure_agent_identity(name, owner="mcp")
@@ -910,7 +924,9 @@ def _remote_actor(user: str) -> str:
             # the reason names the row; the caller gets the fixed sentence
             log.warning("MCP identity %r unavailable: %s", name, exc)
             raise ValueError(UNAVAILABLE) from None
-    elif row["kind"] != "agent" or not row["active"]:
+    elif row["kind"] != "agent" or not row["active"] or row["identity_owner"] != "mcp":
+        # a generic agent row under this name (minted before the suffix was
+        # reserved) is not the person's identity and must not act as it
         raise ValueError(UNAVAILABLE)
     return name
 

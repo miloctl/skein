@@ -421,7 +421,7 @@ def test_agent_run_spend_attributes_through_the_sole_delegation(fresh_db, monkey
     users.ensure_user("ava")
     eid = engagements.create_engagement("Atlas", actor="ava")["id"]
     t1 = work.create_task("scout the docs", engagement_id=eid, actor="ava")["id"]
-    delegation.delegate_task(t1, "scout", "ava", actor="ava")
+    delegation.delegate_task(t1, "scout", "ava", actor="ava", mint_authorized=True)
 
     assert usage.sole_delegation_engagement("scout") == eid
     usage.record_chat_usage(
@@ -437,7 +437,7 @@ def test_agent_run_spend_attributes_through_the_sole_delegation(fresh_db, monkey
 
     # a second open delegation OUTSIDE any engagement makes the run ambiguous
     t2 = work.create_task("loose end", actor="ava")["id"]
-    delegation.delegate_task(t2, "scout", "ava", actor="ava")
+    delegation.delegate_task(t2, "scout", "ava", actor="ava", mint_authorized=True)
     assert usage.sole_delegation_engagement("scout") == 0
 
 
@@ -449,7 +449,7 @@ def test_sole_delegation_resolves_through_the_milestone(fresh_db):
     mid = work.create_milestone("m1", actor="ava")["id"]
     work.update_milestone(mid, engagement_id=eid, actor="ava")
     tid = work.create_task("via milestone", milestone_id=mid, actor="ava")["id"]
-    delegation.delegate_task(tid, "scout", "ava", actor="ava")
+    delegation.delegate_task(tid, "scout", "ava", actor="ava", mint_authorized=True)
     assert usage.sole_delegation_engagement("scout") == eid
 
 

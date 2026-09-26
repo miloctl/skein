@@ -130,7 +130,7 @@ def test_stock_specialized_write_commits_before_the_terminal_event(fresh_db):
 
     users.ensure_user("mira")
     task = work.create_task("Terminal claim", actor="mira")
-    delegation.delegate_task(task["id"], "scout", "mira", actor="mira")
+    delegation.delegate_task(task["id"], "scout", "mira", actor="mira", mint_authorized=True)
     wrapper = GovernedCoreTool(_ClaimDelegate("claim_delegated_task"), effect="write", risk="high")
 
     async def run():

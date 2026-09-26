@@ -290,7 +290,9 @@ def test_caller_supplied_agent_names_cannot_mint_core_subjects(client, fresh_db,
     users.ensure_user("mira")
     task = work.create_task("reserved delegate", actor="mira")
     with pytest.raises(ValueError, match=r"reserved for the system|agent name is required"):
-        delegation.delegate_task(task["id"], name, sponsor="mira", actor="mira")
+        delegation.delegate_task(
+            task["id"], name, sponsor="mira", actor="mira", mint_authorized=True
+        )
     with pytest.raises(ValueError, match=r"reserved for the system|agent name is required"):
         delegation.set_authority(name, "note", "forbidden", actor="mira")
     assert fresh_db.query_one("SELECT 1 FROM users WHERE name = ?", (name,)) is None
@@ -579,7 +581,7 @@ def test_expired_matrix_grant_does_not_cancel_a_sponsor_delegation(fresh_db):
 
     users.ensure_user("mira")
     task = work.create_task(title="delegated exception", actor="mira")
-    delegation.delegate_task(task["id"], "scout", "mira", actor="mira")
+    delegation.delegate_task(task["id"], "scout", "mira", actor="mira", mint_authorized=True)
     delegation.set_authority("scout", "task", "autonomous", actor="mira")
     fresh_db.execute(
         "UPDATE agent_authority SET review_by = '2020-01-01'"
@@ -654,7 +656,7 @@ def test_a_generic_task_proposal_cannot_close_delegated_work(fresh_db):
     users.ensure_user("scout", kind="agent")
     users.ensure_user("mira")
     tid = work.create_task(title="probe", actor="mira")["id"]
-    delegation.delegate_task(tid, "scout", "mira", actor="mira")
+    delegation.delegate_task(tid, "scout", "mira", actor="mira", mint_authorized=True)
 
     p = review.propose_change("task", "update", {"status": "done"}, entity_id=tid, actor="scout")
     with pytest.raises(ValueError, match="delegated"):

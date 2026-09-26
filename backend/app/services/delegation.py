@@ -13,6 +13,7 @@ from .users import (
     ensure_agent_identity,
     fold,
     is_active,
+    is_agent,
     is_delegatable_agent_identity,
     refuse_ambiguous_identity,
 )
@@ -35,6 +36,7 @@ def delegate_task(
     check_in_at: str = "",
     actor: str = "system",
     origin: str = "human",
+    mint_authorized: bool = False,
 ) -> dict:
     if not agent.strip():
         raise ValueError("agent name is required")
@@ -73,6 +75,21 @@ def delegate_task(
             " before you delegate to it."
         )
     with db.transaction():
+        # Delegating to an EXISTING agent is ordinary work. A name that does
+        # not exist MINTS an agent identity, which routes/deps.py refuses at
+        # every door, so an unproven caller could register a teammate's name
+        # before they join and lock them out. The scarce credential is the bar
+        # (POST /api/keys), and it is checked HERE so the REST door, the agent
+        # tool and the review verdict all take it: the tool path minted for a
+        # weak trusted-header turn, and a weak verdict minted for a weak
+        # proposal, where the REST door refused the same caller.
+        if not mint_authorized and not is_agent(agent.strip()):
+            from . import wording
+
+            raise ValueError(
+                wording.strong_identity_required("Creating an agent identity")
+                + " You can also delegate to an agent that already exists."
+            )
         # Identity BEFORE the task row, because rename_user acquires in that
         # order: LOCK_IDENTITY first, then row locks on the tasks it
         # re-attributes. This call's advisory lock is transaction-scoped, so

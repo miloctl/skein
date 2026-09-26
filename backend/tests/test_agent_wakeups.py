@@ -258,6 +258,7 @@ def test_human_delegation_queues_but_agent_delegation_does_not(fresh_db):
         "sponsor",
         actor="sponsor",
         origin="human",
+        mint_authorized=True,
     )
     assert agent_wakeups.status("scout-agent")["status"] == "pending"
 
@@ -269,6 +270,7 @@ def test_human_delegation_queues_but_agent_delegation_does_not(fresh_db):
         "sponsor",
         actor="planner-agent",
         origin="agent",
+        mint_authorized=True,
     )
     assert agent_wakeups.status("scout-agent") is None
 
@@ -285,6 +287,7 @@ def test_readable_task_projection_carries_safe_wake_status(client, fresh_db):
         "tester",
         actor="tester",
         origin="human",
+        mint_authorized=True,
     )
 
     projected = client.get(f"/api/tasks/{task['id']}").json()["agent_wakeup"]
@@ -460,7 +463,7 @@ def _delegated(db):
 
     users.ensure_user("sponsor")
     task = work.create_task("Delegated", actor="sponsor")["id"]
-    delegation.delegate_task(task, "scout", "sponsor", actor="sponsor")
+    delegation.delegate_task(task, "scout", "sponsor", actor="sponsor", mint_authorized=True)
     assert (
         db.query_one("SELECT status FROM agent_wakeups WHERE agent = 'scout'")["status"]
         == "pending"
@@ -487,7 +490,7 @@ def test_a_deactivated_agent_cannot_be_delegated_to_again(fresh_db):
     users.set_active("scout", False, actor="admin")
     task = work.create_task("Delegated again", actor="sponsor")["id"]
     with pytest.raises(ValueError, match="deactivated"):
-        delegation.delegate_task(task, "scout", "sponsor", actor="sponsor")
+        delegation.delegate_task(task, "scout", "sponsor", actor="sponsor", mint_authorized=True)
     assert (
         fresh_db.query_one("SELECT status FROM agent_wakeups WHERE agent = 'scout'")["status"]
         == "refused"

@@ -49,7 +49,7 @@ def test_season_readout_reads_the_exit_trigger(fresh_db, monkeypatch):
     review.approve_change(p1["id"], actor="hana", strong=True)
     review.reject_change(p2["id"], "not yet", actor="hana")
     t = work.create_task(title="delegated", actor="hana")
-    delegation.delegate_task(t["id"], "agent-x", "hana", actor="hana")
+    delegation.delegate_task(t["id"], "agent-x", "hana", actor="hana", mint_authorized=True)
     work.update_task(t["id"], status="done", actor="hana")
 
     out = review.season_readout()

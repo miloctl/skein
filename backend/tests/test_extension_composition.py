@@ -1240,7 +1240,9 @@ def test_live_content_cannot_claim_composed_service_or_mcp_subjects(
         users.ensure_human_identity("sponsor")
         task = work.create_task("Pending content identity", actor="sponsor")
         with pytest.raises(ValueError, match="needs an application restart"):
-            delegation.delegate_task(task["id"], "Future-Agent", "sponsor", actor="sponsor")
+            delegation.delegate_task(
+                task["id"], "Future-Agent", "sponsor", actor="sponsor", mint_authorized=True
+            )
         with pytest.raises(ValueError, match="needs an application restart"):
             delegation.set_authority("FUTURE-AGENT", "task", "forbidden", actor="sponsor")
         users.ensure_human_identity("rename-source")
@@ -1856,7 +1858,9 @@ def test_inbound_mcp_delegation_uses_authoritative_crew_task_context(fresh_db, m
         visibility="crew",
         crew_id=crew["id"],
     )
-    delegation.delegate_task(task["id"], "crew-agent", "sponsor", actor="sponsor")
+    delegation.delegate_task(
+        task["id"], "crew-agent", "sponsor", actor="sponsor", mint_authorized=True
+    )
     observed: list[PolicyResource] = []
 
     def deny_crew_claim(request: PolicyInput):
@@ -1908,6 +1912,9 @@ def test_inbound_mcp_policy_and_delegation_write_share_one_transaction(
     standard = engagements.create_engagement("MCP atomic standard", "standard")["id"]
     regulated = engagements.create_engagement("MCP atomic regulated", "regulated")["id"]
     task = work.create_task("MCP atomic task", engagement_id=standard)["id"]
+    # the door mints `<person>-mcp` on the first remote call; a delegation
+    # cannot create that row (users.ensure_agent_identity)
+    users.ensure_agent_identity("atomic-mcp", owner="mcp")
     delegation.delegate_task(task, "atomic-mcp", "sponsor", actor="sponsor")
     policy_entered = Event()
     writer_attempted = Event()

@@ -25,7 +25,9 @@ def sponsored(fresh_db):
         visibility=scope.CREW,
         crew_id=crew["id"],
     )
-    delegation.delegate_task(task["id"], "research-agent", sponsor="sponsor", actor="sponsor")
+    delegation.delegate_task(
+        task["id"], "research-agent", sponsor="sponsor", actor="sponsor", mint_authorized=True
+    )
     delegation.claim_task(task["id"], actor="research-agent")
     delegation.report_progress(task["id"], "pulled 4 of 6 pages", actor="research-agent")
     delegation.submit_completion(task["id"], "all six done", actor="research-agent")
@@ -88,7 +90,11 @@ def test_a_handover_between_submit_and_verdict_is_named(sponsored):
     # the crew first (services/delegation.py::delegate_task refuses otherwise)
     crews.add_member(sponsored["crew"], "stand-in", actor="sponsor")
     delegation.delegate_task(
-        sponsored["task"], "research-agent", sponsor="stand-in", actor="sponsor"
+        sponsored["task"],
+        "research-agent",
+        sponsor="stand-in",
+        actor="sponsor",
+        mint_authorized=True,
     )
     ev = _evidence("stand-in")
     assert ev["sponsor_was"] == "sponsor"
@@ -115,6 +121,7 @@ def test_criteria_row_references_show_their_current_state(fresh_db):
             f"blocker #{blocker['id']} resolved, task #{named['id']} done,"
             f" task #9999 handled, PR #42 merged"
         ),
+        mint_authorized=True,
     )
     delegation.claim_task(task["id"], actor="research-agent")
     delegation.submit_completion(task["id"], "done", actor="research-agent")
@@ -142,6 +149,7 @@ def test_workplace_policy_can_hide_a_visible_criterion_reference(fresh_db):
         sponsor="sponsor",
         acceptance_criteria=f"task #{dependency['id']} done",
         actor="sponsor",
+        mint_authorized=True,
     )
     delegation.claim_task(task["id"], actor="research-agent")
     delegation.submit_completion(task["id"], "done", actor="research-agent")
@@ -169,6 +177,7 @@ def test_criteria_status_reads_are_batched_by_entity(fresh_db, monkeypatch):
         sponsor="sponsor",
         acceptance_criteria=", ".join(f"task #{row['id']} done" for row in dependencies),
         actor="sponsor",
+        mint_authorized=True,
     )
     delegation.claim_task(task["id"], actor="research-agent")
     delegation.submit_completion(task["id"], "done", actor="research-agent")
@@ -205,6 +214,7 @@ def test_a_criterion_naming_a_hidden_row_does_not_confirm_it(fresh_db):
         sponsor="sponsor",
         acceptance_criteria=f"task #{hidden['id']} done",
         actor="sponsor",
+        mint_authorized=True,
     )
     delegation.claim_task(task["id"], actor="research-agent")
     delegation.submit_completion(task["id"], "done", actor="research-agent")
@@ -224,6 +234,7 @@ def test_the_service_bounds_acceptance_criteria_on_every_door(fresh_db):
             sponsor="sponsor",
             actor="sponsor",
             acceptance_criteria="x" * 1001,
+            mint_authorized=True,
         )
 
 

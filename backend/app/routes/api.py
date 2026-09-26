@@ -2814,6 +2814,7 @@ def post_delegate(
             acceptance_criteria=body.acceptance_criteria,
             check_in_at=body.check_in_at,
             actor=user,
+            mint_authorized=bool(getattr(request.state, "strong_auth", False)),
         )
 
 
@@ -3663,10 +3664,16 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
             expected_definition_digest=str(invocation.get("definition_digest") or ""),
         )
         if workflow_result.get("workflow", {}).get("status") == "review_required":
+            # the step resumes through the step branch below, which re-decides
+            # playbook.create with this approval on record; kept as
+            # playbook_policy it re-ran this branch with no grants and queued
+            # the same step again
             return _queue_workflow_review(
                 workflow_result,
                 {
                     **invocation,
+                    "workflow_kind": "",
+                    "playbook_policy_approved": True,
                     "project_type": project_type,
                     "values": {"project_type": project_type},
                 },
@@ -3698,6 +3705,13 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
             raise ValueError("the reviewed workflow decision is incomplete")
         approved_decision = policy_decision_from_data(decision_data)
         approval_grants[reviewed_key] = reviewed_fingerprint
+        _require_current_playbook_create(
+            registry,
+            subject,
+            str(invocation.get("playbook") or ""),
+            definition,
+            reviewed=bool(invocation.get("playbook_policy_approved")),
+        )
         workflow_engine = WorkflowEngine(
             registry.workflow_actions,
             registry.policy_engine,
@@ -3737,6 +3751,38 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
             )
         return workflow_result
     raise ValueError("the extension review kind is not supported")
+
+
+def _require_current_playbook_create(
+    registry, subject, slug: str, definition: dict, *, reviewed: bool
+) -> None:
+    """Re-decide playbook.create for the refreshed requester before a resumed
+    workflow creates the engagement tree. A step reviewer qualifies for the
+    step only: without this, a requester whose create right was revoked after
+    filing (or a rule tightened to DENY) still got the engagement, its
+    milestones, tasks and events, and the workflow's write actions."""
+    from ..extensions.policy import PolicyInput, PolicyResource
+    from ..services.policy_context import playbook_context
+
+    domain = playbook_context(slug, definition)
+    decision = registry.policy_engine.decide(
+        PolicyInput(
+            subject,
+            "playbook.create",
+            PolicyResource(
+                "playbooks",
+                "",
+                domain.get("project_type", ""),
+                domain.get("classification", ""),
+                domain,
+            ),
+            "human",
+        )
+    )
+    if decision.effect == PolicyEffect.DENY or (
+        decision.effect == PolicyEffect.REVIEW and not reviewed
+    ):
+        raise PermissionError("The current workplace policy denies this reviewed action.")
 
 
 def _reviewed_playbook_definition(invocation: dict) -> dict:
