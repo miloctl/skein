@@ -6,6 +6,8 @@ Approvals, and a notification because each writer rebuilt the f-string by
 hand. One helper, so a new surface cannot reinvent the bug.
 """
 
+import re
+
 
 def count(n: int, word: str) -> str:
     """`3 tasks` / `1 task`. Regular -s plurals only — pass the plural form
@@ -88,6 +90,19 @@ def quoted(text: str, width: int = 0) -> str:
     return "'" + flatten(text, width).replace("'", "\u2019") + "'"
 
 
+# Format characters that draw nothing: the zero-width set, the bidi
+# controls, and the tag block. U+200D is left out on purpose: emoji
+# sequences depend on it. review._refuse_invisible refuses new proposals
+# that carry one; flatten shows the rest as <U+XXXX>, so a packet a model
+# or a person reads carries no hidden sentence and no reversed clause.
+INVISIBLE = re.compile("[\u200b\u200c\u2060\ufeff\u202a-\u202e\u2066-\u2069\U000e0000-\U000e007f]")
+
+
+def visible(text: str) -> str:
+    """Each invisible format character as its code point, in ASCII."""
+    return INVISIBLE.sub(lambda m: f"<U+{ord(m.group(0)):04X}>", text)
+
+
 def flatten(text: str, width: int = 0) -> str:
     """User text on its way into a MARKDOWN line, collapsed to one line.
 
@@ -100,5 +115,5 @@ def flatten(text: str, width: int = 0) -> str:
     markdown line has to pass it through here: digest, readout, handoff,
     rituals, context_pack.
     """
-    one = " ".join(str(text).split())
+    one = visible(" ".join(str(text).split()))
     return one[:width] if width else one

