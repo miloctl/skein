@@ -472,6 +472,9 @@ def test_health_reports_a_superuser_database_role(fresh_db, monkeypatch):
     from app import db
 
     monkeypatch.setattr(db, "query_one", lambda *a, **k: {"rolsuper": True})
+    # the local disposable server is a superuser, which pg_has_role reports
+    # as a member of every role
+    monkeypatch.setattr(db, "query", lambda *a, **k: [])
     warnings = db.privilege_warnings()
     assert warnings and "superuser" in warnings[0]
     assert "NOSUPERUSER" in warnings[0]

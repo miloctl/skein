@@ -43,8 +43,24 @@ export function MermaidDiagram({ code }: { code: string }) {
           startOnLoad: false,
           securityLevel: "strict",
           // an HTML label is a foreignObject holding real markup, which is the
-          // one thing the sanitizer above should never have to judge
+          // one thing the sanitizer above should never have to judge. Strict
+          // mode does NOT encode label HTML once HTML labels are on, and a
+          // `%%{init}%%` directive or front matter in the fence can turn them
+          // on: the fence is model output, and a <video src> label made the
+          // viewer's browser fetch a remote URL with no click. `secure` is
+          // mermaid's list of keys a directive may not change; its default
+          // omits these two.
           htmlLabels: false,
+          secure: [
+            "secure",
+            "securityLevel",
+            "startOnLoad",
+            "maxTextSize",
+            "suppressErrorRendering",
+            "maxEdges",
+            "htmlLabels",
+            "flowchart",
+          ],
           theme: "base",
           themeVariables: {
             background: read("--surface-card", "#ffffff"),

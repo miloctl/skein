@@ -14,6 +14,15 @@ test -x "$deployment/10-app-role.sh"
 test -x "$deployment/20-atlas-schema.sh"
 grep -q -- "--single-transaction" "$deployment/10-app-role.sh"
 grep -q "ext_atlas_extension" "$deployment/20-atlas-schema.sh"
+# every superuser heredoc pins name resolution to pg_catalog before its
+# first statement: the application role can CREATE in public
+for script in "$deployment/10-app-role.sh" "$deployment/20-atlas-schema.sh" \
+  "$root/deploy/postgres-init/10-app-role.sh"; do
+  if [[ "$(grep -A1 -- "<<-'EOSQL'" "$script" | tail -n1)" != *"SET search_path = pg_catalog, pg_temp;"* ]]; then
+    echo "reference-deployment-contract: $script does not set search_path to pg_catalog first" >&2
+    exit 1
+  fi
+done
 grep -q "skein_agents-0.6.7-py3-none-any.whl" "$deployment/Dockerfile"
 grep -q "atlas_skein_extension-2.0.0-py3-none-any.whl" "$deployment/Dockerfile"
 grep -q "id=pip-config.*required=true" "$deployment/Dockerfile"

@@ -186,8 +186,13 @@ data:
       "${connection[@]}" \
       -v app_user="$SKEIN_APP_USER" -v app_password="$SKEIN_APP_PASSWORD" \
       -v dbname="$POSTGRES_DB" <<-'EOSQL'
-        SELECT format('CREATE ROLE %I', :'app_user')
-        WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'app_user')
+        -- The application role can CREATE in public. A superuser re-run of this
+        -- script resolved format() through public first, so an IMMUTABLE
+        -- public.format(text, text) the application role wrote ran as the
+        -- superuser at plan time. pg_catalog first, and every call qualified.
+        SET search_path = pg_catalog, pg_temp;
+        SELECT pg_catalog.format('CREATE ROLE %I', :'app_user')
+        WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = :'app_user')
         \gexec
         ALTER ROLE :"app_user" LOGIN PASSWORD :'app_password'
             NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;

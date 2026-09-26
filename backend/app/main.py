@@ -32,7 +32,7 @@ from .identity_names import (
     deactivate_runtime_machine_subjects,
 )
 from .public.errors import PublicError
-from .services import handoff
+from .services import handoff, uploads
 from .services.activity import chain_health
 from .services.jobs import JOBS, JobSpec, job_health, run_job
 from .services.personas import unlisted_model_warnings
@@ -624,14 +624,23 @@ async def lifespan(app: FastAPI):
 # The largest field any JSON model takes is IngestIn.text, 70,000 characters:
 # at most about 420 KB escaped. The body is buffered and parsed BEFORE the
 # models' max_length checks run, so without this any caller, signed in or
-# not, can make the process hold a body of any size. Multipart is left to the
-# upload route, which has its own limit (services/uploads.py).
+# not, can make the process hold a body of any size.
 MAX_JSON_BODY = 1024 * 1024
+# The ROUTE picks the cap, never the caller's Content-Type: a multipart label
+# on a JSON route was read whole by Request.body() (64 MiB held per request,
+# with no credential). The allowance covers the multipart boundaries and part
+# headers around one file at services/uploads.py's own limit.
+UPLOAD_PATH = "/api/files"
+MAX_UPLOAD_BODY = uploads.MAX_UPLOAD_BYTES + 64 * 1024
 _TOO_LARGE = "The request body is too large. Send less than 1 MB."
+_UPLOAD_TOO_LARGE = (
+    "The request body is too large."
+    f" Send a file smaller than {uploads.MAX_UPLOAD_BYTES // (1024 * 1024)} MB."
+)
 
 
 class BodyCap:
-    """Refuse an /api body over MAX_JSON_BODY, declared or streamed."""
+    """Refuse an /api body over its route's cap, declared or streamed."""
 
     def __init__(self, app, exempt: frozenset[str] = frozenset()):
         self.app, self.exempt = app, exempt
@@ -644,11 +653,13 @@ class BodyCap:
         ):
             return await self.app(scope, receive, send)
         headers = dict(scope["headers"])
-        if headers.get(b"content-type", b"").startswith(b"multipart/form-data"):
-            return await self.app(scope, receive, send)
-        too_large = JSONResponse(status_code=413, content={"detail": _TOO_LARGE})
+        upload = scope["path"] == UPLOAD_PATH and scope["method"] == "POST"
+        limit = MAX_UPLOAD_BODY if upload else MAX_JSON_BODY
+        too_large = JSONResponse(
+            status_code=413, content={"detail": _UPLOAD_TOO_LARGE if upload else _TOO_LARGE}
+        )
         declared = headers.get(b"content-length", b"")
-        if declared.isdigit() and int(declared) > MAX_JSON_BODY:
+        if declared.isdigit() and int(declared) > limit:
             return await too_large(scope, receive, send)
         # A chunked body declares no length, so it is read here, up to the
         # cap, and replayed. Refusing from inside the app's own read does not
@@ -660,7 +671,7 @@ class BodyCap:
             if message["type"] != "http.request":
                 break
             seen += len(message.get("body", b""))
-            if seen > MAX_JSON_BODY:
+            if seen > limit:
                 return await too_large(scope, receive, send)
             if not message.get("more_body"):
                 break

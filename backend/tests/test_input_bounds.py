@@ -224,3 +224,27 @@ def test_the_access_log_keeps_no_search_terms(client):
         keep.filter(record)
     assert "secret" not in record.getMessage()
     assert "/api/search" in record.getMessage()
+
+
+def test_the_route_picks_the_body_cap_never_the_content_type(client):
+    """A multipart label on a JSON route was read whole by Request.body():
+    64 MiB held per request on the open sign-in route, with no credential.
+    The upload route keeps its own, larger cap."""
+    from app.main import MAX_UPLOAD_BODY
+
+    big = b"x" * (1024 * 1024 + 1)
+    for path in ("/api/ingest", "/api/auth/session/key"):
+        labelled = client.post(
+            path, content=big, headers={"content-type": "multipart/form-data; boundary=x"}
+        )
+        assert labelled.status_code == 413, path
+    upload = client.post(
+        "/api/files",
+        content=b"x" * (MAX_UPLOAD_BODY + 1),
+        headers={"content-type": "multipart/form-data; boundary=x"},
+    )
+    assert upload.status_code == 413
+    assert "MB" in upload.json()["detail"]
+    # a legitimate upload body above the JSON cap still reaches the route
+    files = {"file": ("big.txt", b"y" * (2 * 1024 * 1024), "text/plain")}
+    assert client.post("/api/files", files=files).status_code != 413

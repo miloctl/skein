@@ -286,8 +286,11 @@ def test_forge_policy_uses_task_context_and_write_risk(fresh_db, monkeypatch, pr
         policies=(PolicyContribution("acme.workplace.forge-context", protect_context),),
     )
     monkeypatch.setattr(config, "FORGE_WEBHOOK_SECRET", SECRET)
+    # a private task is absent to the forge BEFORE policy: a 403 here told
+    # the secret holder the id is someone's private task (forge._reachable_task)
+    refused = 200 if protected_field == "classification" else 403
     with TestClient(create_app(modules=(module,))) as client:
-        for task, status in ((ordinary, 200), (protected, 403)):
+        for task, status in ((ordinary, 200), (protected, refused)):
             body = json.dumps(_push(f"task/{task['id']}-policy")).encode()
             response = client.post(
                 "/api/webhooks/forge",
@@ -300,13 +303,19 @@ def test_forge_policy_uses_task_context_and_write_risk(fresh_db, monkeypatch, pr
                 },
             )
             assert response.status_code == status, response.text
+            if task is protected and protected_field == "classification":
+                assert response.json() == {"ignored": f"task #{task['id']} not found"}
     assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (ordinary["id"],)) == {
         "status": "in_progress"
     }
     assert fresh_db.query_one(
         "SELECT status, forge_url FROM tasks WHERE id = ?", (protected["id"],)
     ) == {"status": "todo", "forge_url": ""}
-    assert fresh_db.query("SELECT task_id FROM forge_receipts") == [{"task_id": ordinary["id"]}]
+    # the absent reply leaves the same receipt shape as a nonexistent id
+    receipts = fresh_db.query("SELECT task_id FROM forge_receipts ORDER BY created_at, delivery_id")
+    assert receipts == [{"task_id": ordinary["id"]}] + (
+        [{"task_id": None}] if protected_field == "classification" else []
+    )
 
 
 def test_title_only_pull_request_reference_finishes_task(signed, fresh_db):
@@ -958,3 +967,29 @@ def test_legacy_job_receipt_still_suppresses_delivery(signed, fresh_db):
         == "todo"
     )
     assert not fresh_db.query("SELECT * FROM forge_receipts")
+
+
+def test_a_task_the_forge_cannot_see_answers_as_absent(signed, fresh_db):
+    """The forge has no person behind it, so it reads the workspace tier.
+    A private todo answered 404 and a private done task answered "already
+    done": with sequential ids, the secret holder walked off which ids are
+    someone's private tasks and their state."""
+    from app.services import users, work
+
+    users.ensure_user("alice")
+    todo = work.create_task("alice private todo", visibility="private", actor="alice")["id"]
+    done = work.create_task("alice private done", visibility="private", actor="alice")["id"]
+    work.update_task(done, status="done", actor="alice")
+    absent = done + 1000
+    replies = {}
+    for tid in (absent, todo, done):
+        r = signed("push", _push(f"task/{tid}-probe"))
+        replies[tid] = (r.status_code, r.json())
+    assert replies[todo] == (200, {"ignored": f"task #{todo} not found"})
+    assert replies[done] == (200, {"ignored": f"task #{done} not found"})
+    assert replies[absent] == (200, {"ignored": f"task #{absent} not found"})
+    rows = {
+        r["id"]: r["status"]
+        for r in fresh_db.query("SELECT id, status FROM tasks WHERE id IN (?, ?)", (todo, done))
+    }
+    assert rows == {todo: "todo", done: "done"}

@@ -323,7 +323,8 @@ def pool() -> ConnectionPool[DictConnection]:
 
 
 def privilege_warnings() -> list[str]:
-    """A warning when the application connects as a database SUPERUSER.
+    """A warning when the application connects as a database SUPERUSER, or
+    as a member of the roles that reach the host without one.
 
     A superuser can COPY ... FROM PROGRAM, which runs shell commands on the
     database host, and pg_read_file, which reads its filesystem. That turns
@@ -338,6 +339,17 @@ def privilege_warnings() -> list[str]:
     """
     try:
         row = query_one("SELECT rolsuper FROM pg_roles WHERE rolname = current_user")
+        # the same reach without SUPERUSER: pg_execute_server_program runs
+        # COPY ... FROM PROGRAM, the other two read and write host files
+        granted = [
+            str(member["rolname"])
+            for member in query(
+                "SELECT rolname FROM pg_roles WHERE rolname IN"
+                " ('pg_execute_server_program', 'pg_read_server_files',"
+                " 'pg_write_server_files') AND pg_has_role(current_user, oid, 'MEMBER')"
+                " ORDER BY rolname"
+            )
+        ]
     except psycopg.Error:  # pragma: no cover — reported by the connection check
         return []
     if row and row["rolsuper"]:
@@ -345,6 +357,13 @@ def privilege_warnings() -> list[str]:
             "Skein connects to PostgreSQL as a superuser. A superuser can run"
             " shell commands on the database host through SQL. Create a role"
             " with NOSUPERUSER and put it in SKEIN_DB_USER or the database URL."
+        ]
+    if granted:
+        return [
+            f"Skein's database role is a member of {', '.join(granted)}. That"
+            " membership runs shell commands or reads and writes files on the"
+            " database host through SQL. Revoke it from the role in"
+            " SKEIN_DB_USER or the database URL."
         ]
     return []
 
