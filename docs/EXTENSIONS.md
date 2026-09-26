@@ -313,6 +313,16 @@ meaning. Skein checks every project domain that can affect these aggregates.
 This check includes hidden inputs whose names are masked in the response.
 The aggregate fails closed if policy denies one of these project domains.
 
+The generic REST gate keys its resource on the route's first path literal, so a
+route whose literal names no domain entity (`policy_context._ROUTE_ENTITIES`) is
+judged on an empty resource and must decide in its handler: the composites
+(digest, insights, findings, rituals, stakeholders, usage, activity), the
+widening writes (share, finding disposition and conversion, week plan), the
+chat and room engagement links, the 1:1 brief, engagement-less artifacts and the
+administrator export all do. `tests/test_policy_axis.py` pins each of them and
+lists every bare literal that carries no project row, so a new bare route is a
+deliberate entry there, never an omission.
+
 Migration 019 gives each new notification a source entity and source ID.
 Migration 020 also saves its creation-time policy context. Policy-aware
 readers check both the saved context and the current source before they return

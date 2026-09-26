@@ -1596,9 +1596,20 @@ _DESTRUCTIVE_VIEW = {
 }
 
 
-def change_diff(change_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
+def change_diff(
+    change_id: int,
+    viewer: scope.Viewer = scope.NOBODY,
+    *,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+    allow_unclassified: bool = True,
+) -> dict:
     """Before/after view for update proposals: current row values for exactly
     the fields the payload would change.
+
+    `resource_filter` is the workplace decision GET /api/review applies to the
+    queue (filter_policy_resources): a proposal the list withholds answers
+    `diff: None` here too, or the diff route hands a denied reader the target
+    row's current title and body.
 
     Filtered on the TARGET row, not on the proposal. `pending_changes` carries
     no tier of its own (scope.UNSCOPED) and this endpoint is CurrentUser, so
@@ -1612,6 +1623,10 @@ def change_diff(change_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     if not change:
         raise db.NotFound(f"pending change #{change_id} not found")
     _assert_judgeable(change, viewer)
+    if resource_filter is not None and not filter_policy_resources(
+        [dict(change)], resource_filter, allow_unclassified=allow_unclassified, viewer=viewer
+    ):
+        return {"id": change_id, "diff": None}
     table = _DIFF_TABLES.get(change["entity"])
     if change["action"] != "update" or not table or not change["entity_id"]:
         return {"id": change_id, "diff": None}

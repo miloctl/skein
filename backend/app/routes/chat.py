@@ -41,7 +41,7 @@ from ..agents.team_agent import (
     reset_team_model_snapshot,
     set_team_model_snapshot,
 )
-from ..extensions.fastapi import PolicyAPIRoute, subject_for
+from ..extensions.fastapi import PolicyAPIRoute, PolicySubjectDep, subject_for
 from ..extensions.policy import (
     PolicyEngine,
     PolicySubject,
@@ -59,6 +59,9 @@ from ..services import (
     leases,
     mentions,
     personas,
+    policy_context,
+    projection_policy,
+    scope,
     settings,
     uploads,
     wording,
@@ -379,9 +382,38 @@ def decline_shared_chat_invitation(invitation_id: int, user: StrongUser):
     return chat_threads.decline_shared_chat_invitation(invitation_id, user)
 
 
+def _engagement_policy(request: Request, subject, viewer, action: str):
+    return projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine, subject, action, "rest", viewer
+    )
+
+
+def _require_engagement_policy(
+    request: Request, subject, user: str, action: str, engagement_id: int
+):
+    # PolicyAPIRoute judges the literals `chats` and `shared-chats` on an empty
+    # resource (policy_context._ROUTE_ENTITIES has no such key). A link write
+    # attaches this thread's spend and memory context to the engagement, so it
+    # is judged on that row, as GET /api/engagements/{id}/brief is. Held first
+    # in the transaction, before the thread row (policy_context.hold_resource).
+    # The row is resolved with the owner's own reach (scope.Viewer.for_actor),
+    # the probe chat_threads.update_thread makes: a weak owner links their crew
+    # engagement in trusted-header mode (tests/test_chat_commands.py), and the
+    # decision here is about the engagement's project class, not its tier.
+    from .api import _require_resource_policy
+
+    policy_context.hold_resource("engagement", engagement_id)
+    _require_resource_policy(
+        request, subject, scope.Viewer.for_actor(user), action, "engagement", engagement_id
+    )
+
+
 @router.get("/api/shared-chats/{thread_id}")
-def get_shared_chat(thread_id: str, user: StrongUser):
-    return chat_threads.get_shared_chat(thread_id, user)
+def get_shared_chat(
+    thread_id: str, user: StrongUser, viewer: ViewerDep, request: Request, subject: PolicySubjectDep
+):
+    policy = _engagement_policy(request, subject, viewer, "skein.rest.get.shared-chats")
+    return chat_threads.get_shared_chat(thread_id, user, resource_filter=policy.permits)
 
 
 @router.post("/api/shared-chats/{thread_id}/agents")
@@ -411,14 +443,28 @@ def get_shared_chat_agent_runs(
 
 
 @router.patch("/api/shared-chats/{thread_id}")
-def patch_shared_chat(thread_id: str, body: SharedChatPatch, user: StrongUser):
+def patch_shared_chat(
+    thread_id: str,
+    body: SharedChatPatch,
+    user: StrongUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     ratelimit.check("write", user)
-    return chat_threads.update_shared_chat(
-        thread_id,
-        user,
-        title=body.title,
-        engagement_id=body.engagement_id,
-    )
+    policy = _engagement_policy(request, subject, viewer, "skein.rest.get.shared-chats")
+    with db.transaction():
+        if body.engagement_id:
+            _require_engagement_policy(
+                request, subject, user, "skein.rest.patch.shared-chats", body.engagement_id
+            )
+        return chat_threads.update_shared_chat(
+            thread_id,
+            user,
+            title=body.title,
+            engagement_id=body.engagement_id,
+            resource_filter=policy.permits,
+        )
 
 
 @router.get("/api/shared-chats/{thread_id}/messages")
@@ -534,11 +580,23 @@ def get_chat_message_page(
 
 
 @router.patch("/api/chats/{thread_id}")
-def patch_chat(thread_id: str, body: ChatPatch, user: CurrentUser):
+def patch_chat(
+    thread_id: str,
+    body: ChatPatch,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     ratelimit.check("write", user)
-    return chat_threads.update_thread(
-        thread_id, user, title=body.title, folder=body.folder, engagement_id=body.engagement_id
-    )
+    with db.transaction():
+        if body.engagement_id:
+            _require_engagement_policy(
+                request, subject, user, "skein.rest.patch.chats", body.engagement_id
+            )
+        return chat_threads.update_thread(
+            thread_id, user, title=body.title, folder=body.folder, engagement_id=body.engagement_id
+        )
 
 
 @router.delete("/api/chats/{thread_id}")

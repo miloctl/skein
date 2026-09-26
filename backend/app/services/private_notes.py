@@ -269,7 +269,9 @@ def audit_brief(author: str, person: str) -> None:
         _audit(author, f"brief:{person.strip()}", None)
 
 
-def one_on_one_brief(person: str, days: int = 14, viewer: scope.Viewer = scope.NOBODY) -> dict:
+def one_on_one_brief(
+    person: str, days: int = 14, viewer: scope.Viewer = scope.NOBODY, policy=None
+) -> dict:
     """Deterministic "since last time" brief, filtered to what the READER may
     see — not to what the subject wrote.
 
@@ -279,6 +281,11 @@ def one_on_one_brief(person: str, days: int = 14, viewer: scope.Viewer = scope.N
     promise rows in full, which defeats the private tier rather than the crew
     one. The viewer is the caller (routes/private.py), never the subject.
 
+    `policy` (services/projection_policy.ProjectionPolicy) is the workplace
+    decision the sibling collection reads apply per row: the pairing is the
+    subject's consent to the reader, and the composed rule still decides which
+    project's rows that reader gets, as GET /api/tasks does.
+
     Every section degrades to empty pre-adoption.
     """
     person = person.strip()
@@ -287,7 +294,7 @@ def one_on_one_brief(person: str, days: int = 14, viewer: scope.Viewer = scope.N
         t: scope.visible_filter(viewer, t)
         for t in ("standups", "blockers", "questions", "tasks", "promises")
     }
-    return {
+    brief = {
         "person": person,
         "since": since,
         "standups": db.query(
@@ -323,6 +330,15 @@ def one_on_one_brief(person: str, days: int = 14, viewer: scope.Viewer = scope.N
             (person, since, *f["promises"][1]),
         ),
     }
+    if policy is not None:
+        for key, entity in (
+            ("in_progress", "task"),
+            ("recently_done", "task"),
+            ("open_blockers", "blocker"),
+            ("promises_made", "promise"),
+        ):
+            brief[key] = policy.filter_rows(entity, brief[key])
+    return brief
 
 
 # a bare '-' only separates when whitespace-surrounded, so hyphenated names

@@ -13,7 +13,8 @@ from strands import tool
 
 from .. import db
 from ..agents.identity import agent_identity
-from ..services import documents, handoff, scope
+from ..extensions.policy import current_policy_engine, current_policy_subject
+from ..services import documents, handoff, projection_policy, scope
 from ._gate import gated_write
 
 
@@ -32,10 +33,33 @@ def read_artifact(artifact_id: int) -> str:
     # Both raises are answered as JSON rather than left to propagate: a tool
     # that raises kills the agent loop, and a missing id is the ordinary case
     # of a model guessing a number (tests/test_gate_coverage.py).
+    # the destination policy handoff.read_artifact's contract requires: the
+    # wrapper (agents/core_tools.py) judged the row on its linked engagement,
+    # which is empty for a readout, digest, ritual or loose document, so an
+    # engagement-less body is judged as its producer judges it (fail closed)
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(),
+        current_policy_subject(),
+        "skein.tool.read_artifact",
+        "agent_tool",
+        scope.NOBODY,
+        agent=agent_identity(),
+        tool="read_artifact",
+    )
     try:
-        row = handoff.read_artifact(artifact_id, scope.NOBODY)
+        row = handoff.read_artifact(
+            artifact_id,
+            scope.NOBODY,
+            resource_filter=policy.permits,
+            proposal_filter=policy.permits,
+            allow_unclassified_proposals=policy.allows_unclassified(),
+        )
     except (handoff.ArtifactUnreadable, db.NotFound) as e:
         return json.dumps({"error": str(e)})
+    if row.get("engagement_id") is None and not (
+        policy.allows_all_projects() and policy.allows_unclassified()
+    ):
+        return json.dumps({"error": "Skein policy denied this artifact."})
     return json.dumps(
         {
             "artifact_id": row["id"],

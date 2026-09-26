@@ -352,6 +352,32 @@ def enforce_mutation_policy(
         viewer = (
             scope.Viewer(subject.name, subject.strong) if subject.kind == "human" else scope.NOBODY
         )
+        if resource_id and "engagement_id" in payload:
+            # An existing row is judged on its CURRENT project first. The
+            # requested target below is what the handler may relink to, but a
+            # handler that ignores the field (promise status, event outcome)
+            # let the body's engagement_id pick the project the rule saw.
+            current = for_route_scoped(resource_type, resource_id, {}, viewer)
+            if current.get("current_relationship_conflict"):
+                try:
+                    missing_id = int(resource_id or 0)
+                except ValueError:
+                    missing_id = 0
+                raise scope.missing(resource_type, missing_id)
+            if current:
+                enforce_decision(
+                    request.app.state.skein_registry.policy_engine.decide(
+                        _policy_input(
+                            subject,
+                            action,
+                            resource_type,
+                            resource_id=resource_id,
+                            project_type=current.get("project_type", ""),
+                            classification=current.get("classification", ""),
+                            attributes=current,
+                        )
+                    )
+                )
         domain = for_route_scoped(resource_type, resource_id, payload, viewer)
         if domain.get("current_relationship_conflict"):
             try:

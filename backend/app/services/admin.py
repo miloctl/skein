@@ -639,6 +639,17 @@ def _mirror_existing(dump: Path, mirror_status: str, mirror: Path | None) -> dic
     }
 
 
+def export_viewer():
+    """The reader the export is built as: nameless, every crew (crew rows
+    stay, docs/VISIBILITY.md). routes/api.py judges the workplace policy of
+    the whole file against this same reader before building it."""
+    from . import scope
+
+    viewer = scope.Viewer("", False)
+    viewer.crew_ids = [row["id"] for row in db.query("SELECT id FROM crews")]
+    return viewer
+
+
 def _make_export(*, keep: int, actor: str, open_file: bool, max_bytes: int = 0):
     from . import scope, work
 
@@ -659,8 +670,7 @@ def _make_export(*, keep: int, actor: str, open_file: bool, max_bytes: int = 0):
         try:
             with _export_writer(tmp, max_bytes) as fh, db.read_transaction():
                 fh.write("{\n")
-                portable_viewer = scope.Viewer("", False)
-                portable_viewer.crew_ids = [row["id"] for row in db.query("SELECT id FROM crews")]
+                portable_viewer = export_viewer()
 
                 def visible_ids(table: str, ids: set[int]) -> set[int]:
                     found: set[int] = set()
