@@ -37,9 +37,12 @@ def add_absence(
     from the proposal's requested_by, never from the payload, and it lets that
     person's own window be private.
 
-    No `visibility` means the narrowest tier the filer can pick: only the
-    person away for their own window, everyone on the roster for a
-    teammate's (a private window about somebody else is refused below)."""
+    No `visibility` means the narrowest tier for the person away: their own
+    window is theirs alone, and a window a colleague files for them is
+    theirs with the dates shared (planning counts it, the kind and note
+    stay with them). The filer cannot read that row back, and the person
+    is told it was filed: a window filed about someone reached the whole
+    roster with no choice by the one away."""
     from .users import resolve_teammate
 
     person = resolve_teammate(person, actor, "person", allow_team=False)
@@ -60,15 +63,19 @@ def add_absence(
     # an open-ended window would zero someone out of planning forever
     if (date.fromisoformat(ends_on) - date.fromisoformat(starts_on)).days > 180:
         raise ValueError("windows are capped at 180 days — enter long leave in chunks")
+    own = person == (requester or actor)
     if visibility is None:
-        visibility = scope.PRIVATE if person == (requester or actor) else scope.WORKSPACE
+        visibility = scope.PRIVATE
+        dates_shared = dates_shared or not own
     with db.transaction():
         tier, crew = scope.resolve_write(visibility, crew_id, actor=actor)
         # CLASSIFIED keys absences on `person`, not on the filer. Without this,
         # a filer could scope a colleague's window to a tier where NOBODY can
         # read it — not the filer (wrong author column) and not the subject —
-        # while it still moves that person's capacity.
-        scope.assert_readable_by(tier, crew, person, label="person", author=requester or actor)
+        # while it still moves that person's capacity. The person away is
+        # the author for this check: their own private window is readable by
+        # them whoever typed it.
+        scope.assert_readable_by(tier, crew, person, label="person", author=person)
         aid = db.execute(
             "INSERT INTO absences (person, kind, starts_on, ends_on, note, origin,"
             " created_by, created_at, visibility, crew_id, dates_shared)"
@@ -93,6 +100,16 @@ def add_absence(
             "add_absence",
             scope.detail(tier, f"#{aid}", f"{person} {kind} {starts_on}..{ends_on}"),
         )
+        if not own:
+            from .notifications import notify
+
+            notify(
+                person,
+                f"{actor} recorded time away for you, {starts_on} to {ends_on}."
+                " Open My Day to change who sees it.",
+                tier="immediate",
+                link="/dashboard",
+            )
     return {"id": aid, "person": person, "kind": kind}
 
 
@@ -199,7 +216,10 @@ def weekday_overlap(person: str, week_monday: date) -> int:
     """Weekdays (Mon-Fri) of the given week covered by any pto absence."""
     week_days = [week_monday + timedelta(days=i) for i in range(5)]
     rows = db.query(
-        "SELECT starts_on, ends_on FROM absences WHERE person = ? AND kind = 'pto'"  # noqa: S608 — TEAM_SEES_DATES is a module constant
+        # a window whose kind is hidden counts like PTO: filtering on the
+        # kind told the week draft which hidden windows are PTO
+        "SELECT starts_on, ends_on FROM absences WHERE person = ?"  # noqa: S608 — TEAM_SEES_DATES is a module constant
+        " AND (kind = 'pto' OR visibility <> 'workspace')"
         f" AND starts_on <= ? AND ends_on >= ? AND {TEAM_SEES_DATES}",
         (person, week_days[-1].isoformat(), week_days[0].isoformat()),
     )

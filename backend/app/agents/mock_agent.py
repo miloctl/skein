@@ -12,9 +12,10 @@ if TYPE_CHECKING:
     from strands.types.content import ContentBlock
 
 from .. import ratelimit
-from ..services import capture
+from ..services import capture, scope
 from ..tools._gate import gated_write
 from . import commands, receipts
+from .identity import strong_requester
 
 
 class MockAgent:
@@ -67,7 +68,12 @@ class MockAgent:
             # question the agent asked, and Mira's notification named the
             # agent. origin="agent" still records which path wrote it.
             agent_actor = self.persona or "agent"
+            # the REST capture default (_personal_default): "only you" for a
+            # strong requester. Every freeform line here became a workspace
+            # note the whole roster read.
+            tier = scope.PRIVATE if strong_requester() else scope.WORKSPACE
             kind, entity, payload = capture.plan(text, actor=self.user, origin="agent")
+            payload["visibility"] = tier
             # Capture writes the database and search index. Running it on the
             # chat event loop would stall every open stream on a busy ledger.
             encoded = await run_in_threadpool(
@@ -75,7 +81,7 @@ class MockAgent:
                 entity,
                 "create",
                 payload,
-                lambda: capture.capture(text, actor=self.user, origin="agent"),
+                lambda: capture.capture(text, actor=self.user, origin="agent", visibility=tier),
                 summary=text[:160],
                 actor=agent_actor,
             )

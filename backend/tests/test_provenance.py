@@ -23,7 +23,9 @@ def test_an_approved_proposal_names_its_reviewer(client, fresh_db):
     assert chain["origin"] == "agent_verified"
     assert chain["created_by"] == "planner"  # authorship stays with the proposer
     assert chain["proposal"]["proposed_by"] == "planner"
-    assert chain["proposal"]["requested_by"] == "mira"
+    # who asked and the verdict note stay in the review: both reached every
+    # reader of the row, and the note was typed in a private review
+    assert "requested_by" not in chain["proposal"] and "review_note" not in chain["proposal"]
     assert chain["proposal"]["reviewed_by"] == "mira"
     assert chain["verdict_is_weak"] is False
 
@@ -107,3 +109,26 @@ def test_a_converted_task_names_the_finding_that_asked_for_it(client, fresh_db):
     task = work.get_task(made["id"], scope.Viewer("mira", True))
     assert task["source_finding"]["id"] == found[0]["id"]
     assert task["source_finding"]["message"] == found[0]["message"]
+
+
+def test_a_private_review_is_its_owners_alone_in_the_lineage(client, fresh_db):
+    from app.services import review, users
+
+    for name in ("mira", "carol"):
+        users.ensure_user(name)
+    p = review.propose_change(
+        "task",
+        "create",
+        {"title": "wire the gate"},
+        actor="planner",
+        requested_by="mira",
+        review_visibility=scope.PRIVATE,
+        review_owner="mira",
+    )
+    out = review.approve_change(
+        p["id"], actor="mira", strong=True, viewer=scope.Viewer("mira", True)
+    )
+    mine = provenance.lineage("task", out["result"]["id"], scope.Viewer("mira", True))
+    assert mine["proposal"]["id"] == p["id"]
+    theirs = provenance.lineage("task", out["result"]["id"], scope.Viewer("carol", True))
+    assert theirs["proposal"] is None

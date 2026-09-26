@@ -198,6 +198,12 @@ def erase(name: str, *, actor: str = "scheduler") -> dict[str, int]:
         erased["notifications"] = db.execute_rowcount(
             'DELETE FROM notifications WHERE "user" = ?', (name,)
         )
+        erased["mentions"] = db.execute_rowcount(
+            "DELETE FROM mention_log WHERE person = ? OR mentioned_by = ?", (name, name)
+        )
+        erased["tool_usage"] = db.execute_rowcount(
+            'DELETE FROM tool_usage WHERE "user" = ?', (name,)
+        )
         db.execute('DELETE FROM notification_reads WHERE "user" = ?', (name,))
         from .mcp_servers import delete_for
 

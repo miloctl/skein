@@ -662,14 +662,28 @@ def test_a_machine_actor_works_a_crew_row_but_never_a_private_one(fresh_db):
 
 
 def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
-    """CLASSIFIED keys absences on `person`, not the filer — a private absence
-    filed FOR someone else is readable by nobody and deletable by nobody,
-    while it still moves that person's capacity."""
+    """CLASSIFIED keys absences on `person`, not the filer: a scoped window
+    filed FOR someone else is theirs, readable and deletable by them whatever
+    the tier, while it moves their capacity. The person away is the author
+    for the tier check, so no window is readable by nobody."""
+    from app.services import crews
+
     users.ensure_user("ava")
     users.ensure_user("bo")
     absences.add_absence("ava", "2026-12-01", "2026-12-02", actor="ava", visibility="private")
-    with pytest.raises(ValueError, match="means one reader"):
-        absences.add_absence("bo", "2026-12-01", "2026-12-02", actor="ava", visibility="private")
+    filed = absences.add_absence(
+        "bo", "2026-12-01", "2026-12-02", actor="ava", visibility="private"
+    )
+    assert absences.list_absences("bo", viewer=scope.Viewer("bo", True))[0]["id"] == filed["id"]
+    assert absences.list_absences("bo", viewer=scope.Viewer("ava", True)) == []
+    crew = crews.create_crew("Platform", actor="ava")
+    scoped = absences.add_absence(
+        "bo", "2026-12-03", "2026-12-04", actor="ava", visibility="crew", crew_id=crew["id"]
+    )
+    mine = {a["id"] for a in absences.list_absences("bo", viewer=scope.Viewer("bo", True))}
+    assert {filed["id"], scoped["id"]} <= mine
+    theirs = {a["id"] for a in absences.list_absences("bo", viewer=scope.Viewer("ava", True))}
+    assert theirs == {scoped["id"]}
 
 
 # ---------------------------------------------------------------------------

@@ -25,12 +25,10 @@ type Lineage = {
   proposal: {
     id: number;
     proposed_by: string;
-    requested_by: string | null;
     reviewed_by: string | null;
     reviewed_at: string | null;
     reviewed_strong: number;
     reviewed_override: number;
-    review_note: string;
   } | null;
   verdict_is_weak: boolean;
   // no `detail`: it is the one column in `activity` that can carry a person's
@@ -117,7 +115,6 @@ export function Provenance({
           {d.proposal ? (
             <p>
               Proposal #{d.proposal.id} by {d.proposal.proposed_by}
-              {d.proposal.requested_by ? `, asked by ${d.proposal.requested_by}` : ""}
               {d.proposal.reviewed_by ? (
                 <>
                   {" "}

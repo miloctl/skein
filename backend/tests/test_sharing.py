@@ -62,7 +62,8 @@ def test_an_agents_standup_starts_private_and_forks_no_unreadable_blocker(fresh_
             shared = json.loads(
                 post_standup(author="ava", today="ZZ2ZZ", blockers="vendor", share_with_team=True)
             )
-            # a standup about somebody else never goes to them unasked
+            # a standup in somebody else's name is theirs: private to them,
+            # never the roster's words put in their mouth
             other = json.loads(post_standup(author="bob", today="ZZ3ZZ"))
     finally:
         identity.reset_agent_identity(token)
@@ -74,7 +75,7 @@ def test_an_agents_standup_starts_private_and_forks_no_unreadable_blocker(fresh_
         unattended["id"]: "workspace",
         private["id"]: "private",
         shared["id"]: "workspace",
-        other["id"]: "workspace",
+        other["id"]: "private",
     }
     blockers = fresh_db.query("SELECT source, visibility FROM blockers")
     assert blockers == [{"source": f"standup:{shared['id']}", "visibility": "workspace"}]

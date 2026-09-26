@@ -67,9 +67,11 @@ describe("sharing a memory with the team", () => {
     try {
       render(<AgentsPage />);
       await screen.findByRole("button", { name: "Forget memory: focus" });
+      // the memory card, the inbox and the flock traces each carry it
       expect(
-        screen.getByText(/Anyone who can reach this server can pick your name and read this\./),
-      ).toBeTruthy();
+        screen.getAllByText(/Anyone who can reach this server can pick your name and read this\./)
+          .length,
+      ).toBeGreaterThan(0);
     } finally {
       mocks.weakHeader = false;
     }

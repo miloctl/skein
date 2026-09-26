@@ -494,7 +494,7 @@ describe("private shared chat", () => {
 
     expect(
       screen.getByText(
-        "You will lose access to every message in this chat. You need a new invitation to return.",
+        "You will lose access to every message in this chat. Your messages stay for the members. Delete the ones you want gone first. You need a new invitation to return.",
       ),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Confirm: leave shared chat" }));

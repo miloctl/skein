@@ -111,7 +111,12 @@ def build_digest() -> str:
         ]
         lines.append("")
 
-    pending = db.query_one("SELECT COUNT(*) AS n FROM pending_changes WHERE status = 'pending'")
+    # the digest reaches every reader: a private or crew review is not
+    # the team's to count
+    pending = db.query_one(
+        "SELECT COUNT(*) AS n FROM pending_changes WHERE status = 'pending'"
+        " AND review_visibility = 'workspace'"
+    )
     events = schedule.team_day_events(_today())
     if _today().weekday() == 0:  # Monday: the one-question pulse
         lines.append(

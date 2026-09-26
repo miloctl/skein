@@ -639,14 +639,15 @@ def _mirror_existing(dump: Path, mirror_status: str, mirror: Path | None) -> dic
     }
 
 
-def export_viewer():
-    """The reader the export is built as: nameless, every crew (crew rows
-    stay, docs/VISIBILITY.md). routes/api.py judges the workplace policy of
-    the whole file against this same reader before building it."""
-    from . import scope
+def export_viewer(actor: str):
+    """The reader the export is built as: nameless, with the exporting
+    administrator's OWN crews. Every crew's rows went to an administrator
+    in none of them, which no crew chose. routes/api.py judges the workplace
+    policy of the whole file against this same reader before building it."""
+    from . import crews, scope
 
     viewer = scope.Viewer("", False)
-    viewer.crew_ids = [row["id"] for row in db.query("SELECT id FROM crews")]
+    viewer.crew_ids = crews.crews_of(actor)
     return viewer
 
 
@@ -670,7 +671,7 @@ def _make_export(*, keep: int, actor: str, open_file: bool, max_bytes: int = 0):
         try:
             with _export_writer(tmp, max_bytes) as fh, db.read_transaction():
                 fh.write("{\n")
-                portable_viewer = export_viewer()
+                portable_viewer = export_viewer(actor)
 
                 def visible_ids(table: str, ids: set[int]) -> set[int]:
                     found: set[int] = set()
@@ -699,11 +700,11 @@ def _make_export(*, keep: int, actor: str, open_file: bool, max_bytes: int = 0):
                         )
                         params = (scope.PRIVATE,)
                     else:
-                        where = (
-                            f" WHERE visibility != '{scope.PRIVATE}'"
-                            if table in scope.CLASSIFIED
-                            else ""
-                        )
+                        params = ()
+                        where = ""
+                        if table in scope.CLASSIFIED:
+                            frag, fp = scope.visible_filter(portable_viewer, table)
+                            where, params = f" WHERE {frag}", tuple(fp)
                         # a memory addressed to a person is theirs alone
                         # (review._addressed), and the exporting admin is
                         # somebody else. One addressed to an agent (the MCP
@@ -713,8 +714,7 @@ def _make_export(*, keep: int, actor: str, open_file: bool, max_bytes: int = 0):
                                 ' AND ("user" = \'\' OR "user" IN'
                                 " (SELECT name FROM users WHERE kind = 'agent'))"
                             )
-                        sql = f"SELECT * FROM {table}{where}"  # noqa: S608 — closed table set and private literal
-                        params = ()
+                        sql = f"SELECT * FROM {table}{where}"  # noqa: S608 — closed table set, scope emits bound SQL
                     if index:
                         fh.write(",\n")
                     json.dump(table, fh)
@@ -802,7 +802,19 @@ def _make_export(*, keep: int, actor: str, open_file: bool, max_bytes: int = 0):
             # ledger row reaches the exporting admin's feed alone
             from .notifications import notify
 
-            notify("team", f"{actor} exported the workspace data.", tier="immediate")
+            carried = ", ".join(
+                str(row["name"])
+                for row in db.query(
+                    "SELECT name FROM crews WHERE id = ANY(?) ORDER BY name",
+                    (list(portable_viewer.crew_ids),),
+                )
+            )
+            notify(
+                "team",
+                f"{actor} exported the workspace data"
+                + (f" and the rows of {carried}." if carried else "."),
+                tier="immediate",
+            )
         return path, counts, opened
 
 

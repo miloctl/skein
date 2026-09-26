@@ -527,3 +527,22 @@ def test_portable_export_excludes_private_and_operational_canaries(fresh_db):
     assert dump["artifacts"][0]["title"] == "portable artifact"
     assert "path" not in dump["artifacts"][0]
     assert "content_sha256" not in dump["artifacts"][0]
+
+
+def test_the_export_carries_the_exporting_administrators_own_crews(client, fresh_db):
+    """Every crew's rows went to an administrator in none of them, which no
+    crew chose. The notice names the crews the file does carry."""
+    from app.services import admin, crews, users, work
+
+    for name in ("ops", "ava"):
+        users.ensure_user(name)
+    mine = crews.create_crew("Mine", actor="ops")
+    theirs = crews.create_crew("Theirs", actor="ava")
+    work.create_task("ZZMINEZZ", actor="ops", visibility="crew", crew_id=mine["id"])
+    work.create_task("ZZTHEIRSZZ", actor="ava", visibility="crew", crew_id=theirs["id"])
+    assert admin.export_viewer("ops").crew_ids == [mine["id"]]
+    path, _counts, _opened = admin._make_export(keep=2, actor="ops", open_file=False)
+    body = path.read_text()
+    assert "ZZMINEZZ" in body and "ZZTHEIRSZZ" not in body
+    notice = fresh_db.query_one("SELECT message FROM notifications WHERE message LIKE '%exported%'")
+    assert "Mine" in notice["message"] and "Theirs" not in notice["message"]

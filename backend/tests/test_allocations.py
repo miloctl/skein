@@ -1,7 +1,7 @@
 """Capacity: allocations, absences, window awareness, and the what-if projection."""
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -98,7 +98,8 @@ def test_absences_shape_capacity_and_week_draft(client, fresh_db):
     )
     cap = client.get("/api/capacity").json()
     row = next(c for c in cap if c["person"] == "dana")
-    assert row["away"] == "pto"
+    # mira filed it: the window is dana's, the roster sees the dates only
+    assert row["away"] == "away"
     # week draft skips someone away most of the week
     work.create_task(title="never plan me", assignee="dana", actor="mira")
     monday = today - timedelta(days=today.weekday())
@@ -233,22 +234,20 @@ def test_time_away_reaches_the_team_as_far_as_its_person_chose(client, fresh_db,
         body = {"person": name, **window, "note": f"ZZ{name}ZZ", **extra}
         assert client.post("/api/absences", json=body, headers=headers[name]).status_code == 200
         work.create_task(title=f"work for {name}", assignee=name, actor="mira")
-    # a teammate's window takes no tier from the form: the roster sees it
+    # a teammate's window takes no tier from the form: it is theirs, with
+    # the dates shared, and they are told (absences.add_absence)
     body = {"person": "mira", **window}
     teammate = client.post("/api/absences", json=body, headers=headers["ava"]).json()
-    assert (
-        fresh_db.query_one("SELECT visibility FROM absences WHERE id = ?", (teammate["id"],))[
-            "visibility"
-        ]
-        == "workspace"
-    )
+    assert fresh_db.query_one(
+        "SELECT visibility, dates_shared FROM absences WHERE id = ?", (teammate["id"],)
+    ) == {"visibility": "private", "dates_shared": True}
 
-    assert absences.away_today() == {"bob": "away", "cy": "pto", "mira": "pto"}
+    assert absences.away_today() == {"bob": "away", "cy": "pto", "mira": "away"}
     week = f"{monday.isocalendar().year}-W{monday.isocalendar().week:02d}"
     skipped = {s["person"] for s in weekly.draft_plan(week)["skipped_absent"]}
     assert skipped == {"bob", "cy", "mira"}
     away = {a["person"]: a["kind"] for a in portfolio.capacity_ahead(1, _viewer("dana"))[0]["away"]}
-    assert away == {"bob": "away", "cy": "pto", "mira": "pto"}
+    assert away == {"bob": "away", "cy": "pto", "mira": "away"}
     request = intake.submit_request("Need hands", actor="mira")
     projection = {
         p["person"]: p["upcoming_absence"]
@@ -324,18 +323,17 @@ def test_an_agents_only_me_window_is_its_persons_to_judge(client, fresh_db, monk
         f"/api/review/{own['id']}/approve", json={}, headers=_strong(client, "ava")
     )
     assert approved.status_code == 200
-    # a teammate's window is the roster's, and "only me" for it is refused here,
-    # not left pending forever at apply
+    # a teammate's window is theirs with the dates shared; "only me" for it
+    # is refused here, not left pending forever at apply
     assert "error" in filed("bob", team_sees="nothing")
     teammate = filed("bob")
-    assert (
-        json.loads(
-            fresh_db.query_one(
-                "SELECT payload FROM pending_changes WHERE id = ?", (teammate["id"],)
-            )["payload"]
-        )["visibility"]
-        == "workspace"
+    assert "error" not in teammate, teammate
+    payload = json.loads(
+        fresh_db.query_one("SELECT payload FROM pending_changes WHERE id = ?", (teammate["id"],))[
+            "payload"
+        ]
     )
+    assert (payload["visibility"], payload.get("dates_shared")) == ("private", True)
     # a weak requester reads no private row
     weak = filed("ava", strong=False)
     assert (
@@ -371,3 +369,21 @@ def test_an_agents_only_me_window_is_its_persons_to_judge(client, fresh_db, monk
         fresh_db.query_one("SELECT visibility FROM absences WHERE kind = 'pto'")["visibility"]
         == "workspace"
     )
+
+
+def test_time_away_filed_for_a_teammate_is_theirs_with_the_dates_shared(fresh_db):
+    """A window about someone else landed at the workspace tier with no
+    choice by the person away, who was not told. Now it is theirs, planning
+    still counts the dates, and they hear about it."""
+    from app.services import absences, users
+
+    for name in ("mira", "lead"):
+        users.ensure_user(name)
+    out = absences.add_absence("mira", "2026-08-10", "2026-08-11", note="dentist", actor="lead")
+    row = fresh_db.query_one(
+        "SELECT visibility, dates_shared FROM absences WHERE id = ?", (out["id"],)
+    )
+    assert row == {"visibility": "private", "dates_shared": True}
+    told = fresh_db.query_one("SELECT message FROM notifications WHERE \"user\" = 'mira'")
+    assert "lead recorded time away for you" in told["message"]
+    assert absences.weekday_overlap("mira", date(2026, 8, 10))

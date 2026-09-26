@@ -134,3 +134,22 @@ def test_an_awaiting_proposal_applies_at_the_verdict(client):
 
     row = db.query_one("SELECT * FROM promises WHERE to_whom = 'legal'")
     assert row and row["direction"] == "received" and row["due_date"] == "2026-09-01"
+
+
+def test_a_strong_pasters_proposals_are_theirs_alone(client, fresh_db):
+    """The payloads reached every reader of the queue before anyone approved
+    them. A strong paster's proposals are private to them, with no team
+    notice; the approval is the share (a weak name reads no private row, so
+    its proposals keep the team queue)."""
+    from conftest import _strong
+
+    r = client.post("/api/ingest", json={"text": NOTES}, headers=_strong(client, "manager"))
+    assert r.status_code == 200 and len(r.json()["proposals"]) == 5
+    assert {
+        (p["review_visibility"], p["review_owner"])
+        for p in fresh_db.query("SELECT review_visibility, review_owner FROM pending_changes")
+    } == {("private", "manager")}
+    assert fresh_db.query("SELECT 1 FROM notifications WHERE message LIKE '%ingested%'") == []
+    assert client.get("/api/review?status=pending", headers={"X-User": "bob"}).json() == []
+    mine = client.get("/api/review?status=pending", headers=_strong(client, "manager")).json()
+    assert len(mine) == 5
