@@ -140,6 +140,30 @@ def _queue_owner(connection: dict) -> str:
     return hashlib.sha256(json.dumps(connection, sort_keys=True).encode()).hexdigest()
 
 
+class _SameOriginRedirect(urllib.request.HTTPRedirectHandler):
+    """urllib re-sends the Authorization header to whatever a 3xx names: a
+    proxy or a captured server answered a GET with a redirect and the
+    personal key went to another host, once over plaintext. A redirect that
+    leaves the configured scheme, host and port is an error."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        before = urllib.parse.urlsplit(req.full_url)
+        after = urllib.parse.urlsplit(urllib.parse.urljoin(req.full_url, newurl))
+        if (before.scheme, before.netloc) != (after.scheme, after.netloc):
+            raise urllib.error.HTTPError(
+                req.full_url,
+                code,
+                "the server redirected to another origin. Check the URL in `skein config`.",
+                headers,
+                fp,
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+# every urlopen below goes through it (tests replace urlopen itself)
+urllib.request.install_opener(urllib.request.build_opener(_SameOriginRedirect()))
+
+
 def _request(
     method: str,
     path: str,

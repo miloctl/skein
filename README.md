@@ -42,7 +42,7 @@ URL is directly linkable.
 | | `/intake` | Engagement front door — submit → RICE-lite score → accept/defer/decline → what-if staffing |
 | | `/ingest` | Paste meeting notes. A deterministic pass turns them into proposals you batch-approve |
 | **Team** | `/agents` | Agents as teammates — mission control, authority matrix, trust scores, agent inboxes |
-| | `/people` | Manager layer — 1:1 briefs and the private feedback journal. Needs strong sign-in, and the records never leave the `private` schema |
+| | `/people` | Manager layer — 1:1 briefs and the private feedback journal. Needs strong sign-in. The records leave the `private` schema only in the local database dump, the author's own export, and a merge both accounts agreed to |
 | | `/charter` | Decisions filtered to the charter category, each with a `review_by` date |
 | | `/activity` | The provenance ledger as one sentence per row, hash-chained and tamper-evident |
 | — | `/guide` | [Field guide](docs/FIELD-GUIDE.md) — every shipped feature as a card you tie by using it. The "what's new" surface |
@@ -141,7 +141,11 @@ overrides `SKEIN_OLLAMA_HOST` to `http://host.docker.internal:11434`
 installs bind 127.0.0.1 only**, which the gateway can't reach. Either fix the
 daemon (`sudo systemctl edit ollama` → `Environment="OLLAMA_HOST=0.0.0.0"`)
 or, without root, run the bundled bridge (`ops/ollama-bridge.py`, installable
-as a user systemd service) and point at port 11435.
+as a user systemd service) and point at port 11435. The bridge listens on the
+Docker gateway address only (`BRIDGE_LISTEN`, default `172.17.0.1`): the
+Ollama API has no authentication, so a wider listen address or the daemon's
+own `OLLAMA_HOST=0.0.0.0` publishes model management to every peer that can
+reach the host.
 
 A combined example — frontend port in use AND a loopback-only Ollama daemon
 behind the bridge:

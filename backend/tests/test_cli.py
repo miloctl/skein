@@ -1091,3 +1091,28 @@ def test_review_prints_the_bytes_a_verdict_binds(monkeypatch, capsys):
     cli.cmd_review(Namespace(action="list", id=None, note="", after=0, limit=50))
     listed = capsys.readouterr().out
     assert "update note #3" in listed and "content:" in listed
+
+
+def test_a_redirect_to_another_origin_never_carries_the_key():
+    """urllib re-sent the Authorization header to whatever a 3xx named: a
+    captured server answered a GET with a redirect and the personal key went
+    to another host, once from https to plaintext."""
+    import urllib.error
+    import urllib.request
+
+    cli = _load_cli()
+    handler = cli._SameOriginRedirect()
+    req = urllib.request.Request(
+        "https://skein.example/api/tasks", headers={"Authorization": "Bearer k"}
+    )
+    with pytest.raises(urllib.error.HTTPError, match="another origin"):
+        handler.redirect_request(req, None, 302, "Found", {}, "http://other.example/api/tasks")
+    with pytest.raises(urllib.error.HTTPError, match="another origin"):
+        handler.redirect_request(req, None, 301, "Moved", {}, "http://skein.example/api/tasks")
+    same = handler.redirect_request(
+        req, None, 302, "Found", {}, "https://skein.example/api/tasks?status=open"
+    )
+    assert same.full_url == "https://skein.example/api/tasks?status=open"
+    # the installed opener is what urlopen runs through
+    opener = urllib.request._opener
+    assert any(isinstance(h, cli._SameOriginRedirect) for h in opener.handlers)
