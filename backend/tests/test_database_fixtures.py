@@ -470,3 +470,46 @@ def test_old_orphan_detector_names_only_owned_inactive_new_format(
                 control.execute(
                     pgsql.SQL("DROP DATABASE IF EXISTS {}").format(pgsql.Identifier(name))
                 )
+
+
+def test_every_bootstrap_heredoc_pins_name_resolution_to_pg_catalog():
+    """The application role can CREATE in public. A superuser re-run of the
+    bootstrap resolved format() through public first, so an IMMUTABLE
+    public.format(text, text) the application role wrote ran as the
+    superuser at plan time. All four copies, or dev stops rehearsing the
+    deployment it is supposed to match."""
+    root = Path(__file__).parents[2]
+    sources = [
+        (root / "deploy" / "postgres-init" / "10-app-role.sh").read_text(),
+        (root / "deploy" / "k8s" / "base" / "postgres.yaml").read_text(),
+        (root / "examples" / "workplace-extension" / "deployment" / "10-app-role.sh").read_text(),
+        (
+            root / "examples" / "workplace-extension" / "deployment" / "20-atlas-schema.sh"
+        ).read_text(),
+    ]
+    for text in sources:
+        body = text.split("<<-'EOSQL'\n", 1)[1]
+        statements = [
+            line.strip()
+            for line in body.splitlines()
+            if line.strip() and not line.strip().startswith("--")
+        ]
+        assert statements[0] == "SET search_path = pg_catalog, pg_temp;"
+        assert "pg_catalog.format(" in body or "format(" not in body
+        assert " pg_roles" not in body
+    contract = (root / "scripts" / "reference-deployment-contract.sh").read_text()
+    assert "SET search_path = pg_catalog, pg_temp;" in contract
+
+
+def test_health_reports_membership_in_the_host_reaching_roles(monkeypatch):
+    """pg_execute_server_program runs COPY ... FROM PROGRAM without SUPERUSER,
+    and the two file roles read and write the host: a NOSUPERUSER role that
+    holds them has the reach the superuser warning exists for."""
+    from app import db
+
+    monkeypatch.setattr(db, "query_one", lambda *a, **k: {"rolsuper": False})
+    monkeypatch.setattr(db, "query", lambda *a, **k: [{"rolname": "pg_read_server_files"}])
+    warnings = db.privilege_warnings()
+    assert warnings and "pg_read_server_files" in warnings[0] and "Revoke" in warnings[0]
+    monkeypatch.setattr(db, "query", lambda *a, **k: [])
+    assert db.privilege_warnings() == []

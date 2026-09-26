@@ -6,7 +6,7 @@ import re
 from urllib.parse import quote, urlsplit
 
 from .. import db
-from . import work
+from . import scope, work
 
 TRANSITIONS = {
     "branch_push": "in_progress",
@@ -48,6 +48,19 @@ def match_task(branch: str = "", title: str = "", body: str = "") -> int | None:
         if found:
             return int(found.group(1))
     return None
+
+
+def _reachable_task(task_id: int) -> dict | None:
+    """The task row, or None when the forge cannot see it. The forge has no
+    person behind it, so it reads the workspace tier (scope.NOBODY). Every
+    other reply on this path, a 404 from assert_editable, "already done", a
+    policy refusal, told the secret holder that the id is someone's private
+    or crew task and what state it is in, and ids are sequential."""
+    visible, params = scope.visible_filter(scope.NOBODY, "tasks")
+    return db.query_one(
+        f"SELECT status, delegated_agent, forge_url FROM tasks WHERE id = ? AND {visible}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (task_id, *params),
+    )
 
 
 def _clean_url(url: str) -> str:
@@ -114,9 +127,7 @@ def forge_event(
     task_id = match_task(branch, title, body)
     if task_id is None:
         return {"ignored": "no task reference in the branch name, title, or body"}
-    task = db.query_one(
-        "SELECT status, delegated_agent, forge_url FROM tasks WHERE id = ?", (task_id,)
-    )
+    task = _reachable_task(task_id)
     if not task:
         return {"ignored": f"task #{task_id} not found"}
     status = TRANSITIONS[kind]
@@ -259,6 +270,10 @@ def apply_delivery(
             task_id = match_task(
                 mapped.get("branch", ""), mapped.get("title", ""), mapped.get("body", "")
             )
+            # absent to policy as well: a DENY on a private task answered 403
+            # where a nonexistent id answers 200 (_reachable_task)
+            if task_id and not _reachable_task(task_id):
+                task_id = None
             if task_id:
                 hold_resource("task", task_id)
                 domain = {

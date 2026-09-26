@@ -949,7 +949,6 @@ _UNFILTERED_READS = {
     "context_pack.py::_crew_section": "filters on `visibility = 'crew' AND crew_id = ?` itself",
     # --- keyed on a row the caller did not name ---
     "ci.py::ci_event": "resolves its blocker from a webhook payload, not an id",
-    "forge.py::forge_event": "resolves its task from a branch or PR string",
     "delegation.py::claim_task": "the actor must BE the task's delegated_agent",
     "delegation.py::report_progress": "the actor must be the delegate or the sponsor",
     "delegation.py::accept_completion": "same delegated_agent check",

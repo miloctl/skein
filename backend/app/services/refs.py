@@ -161,7 +161,14 @@ def readable_refs(
         ids = sorted(entity_id for kind, entity_id in available if kind == entity)
         if not ids:
             continue
-        visible, params = scope.visible_filter(viewer, table)
+        if table in scope.CLASSIFIED:
+            visible, params = scope.visible_filter(viewer, table)
+        else:
+            # findings carry no tier (scope.UNSCOPED): the rules read the
+            # workspace tier only, and policy_context.existing() admitted the
+            # id above. visible_filter raises KeyError here, and every read
+            # of an artifact whose lead names a finding answered 500.
+            visible, params = "TRUE", []
         marks = ", ".join("?" for _ in ids)
         for title_row in db.query(
             f"SELECT id, {column} AS title FROM {table}"  # noqa: S608 — constant map

@@ -7,7 +7,9 @@ import { describe, expect, it, vi } from "vitest";
  *  so a fence has to be consumed whole before any other rule sees it. */
 
 const mermaid = vi.hoisted(() => ({
-  initialize: vi.fn<(config: { securityLevel: string; htmlLabels: boolean }) => void>(),
+  initialize: vi.fn<
+    (config: { securityLevel: string; htmlLabels: boolean; secure: string[] }) => void
+  >(),
   render: vi.fn<(id: string, code: string) => Promise<{ svg: string }>>(async () => ({
     svg: "<svg data-testid='drawn'></svg>",
   })),
@@ -38,6 +40,11 @@ describe("a fence in an artifact body", () => {
     // click directive; htmlLabels would put real markup in a foreignObject
     expect(config.securityLevel).toBe("strict");
     expect(config.htmlLabels).toBe(false);
+    // a `%%{init}%%` directive or front matter inside the fence can set any
+    // key that `secure` does not name, and mermaid's default list omits
+    // htmlLabels: a model-authored diagram turned them back on and a
+    // <video src> label fetched a remote URL on render with no click
+    expect(config.secure).toEqual(expect.arrayContaining(["htmlLabels", "flowchart"]));
   });
 
   it("keeps a diagram's own lines out of the rest of the grammar", async () => {
