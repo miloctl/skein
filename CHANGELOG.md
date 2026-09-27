@@ -22,6 +22,43 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+## 0.6.8 — 2026-09-26
+
+### Contracts
+
+- Workplace project policy: every route whose first path literal names no entity is judged on the rows it reads or writes, with the same per-row decision the list routes make. Affected: the activity feed and ledger, insights, findings run, disposition and convert, rituals, usage, stakeholders, the digest, the review diff, the week plan, share, the 1:1 brief, the chat engagement link and room detail, the artifact reader and the administrator export. Under a rule that denies the reader a project class, an aggregate that cannot drop that class answers 403, and a document with no engagement answers 403 unless the rule leaves every class open. A body `engagement_id` never stands in for the stored one: the write is judged on the row's current project first.
+- `POST /api/review/{id}/approve`, `/reject` and `/approve-batch` judge the reviewer's reach on the target row's project. A proposal the queue and the diff withhold cannot be approved or rejected.
+- `POST /api/review` refuses a proposal whose payload or summary carries a Unicode format character (category Cf, except U+200D), with the field named. `GET /api/review`, every markdown packet and the CLI render such a character in an older row as `<U+XXXX>`.
+- `POST /api/users/{name}/rename` and `POST /api/users/{name}/active` require a named administrator in every mode. A merge by another person is refused while the account is in a crew, is an active member of a private shared chat, or holds a pending invitation. A human cannot be renamed to a name that ends in `-mcp`.
+- `GET /api/crews/mine` answers the strong viewer's crews, and `[]` for a trusted-header name with no key.
+- Delegation: an agent identity is minted only for a strong caller, from every door (REST, the agent tool and a review verdict). A person's `<name>-mcp` identity cannot be delegated to. The remote MCP door refuses a person name over 64 characters and acts only through the row it minted.
+- The Skein MCP server's `capture` takes `share_with_team` (default false) and files the person's own record at their private tier.
+- The body cap is chosen by route: `POST /api/files` takes the upload limit plus a framing allowance, every other `/api` route takes 1 MB whatever its Content-Type. `/api/health` reports membership in `pg_execute_server_program`, `pg_read_server_files` and `pg_write_server_files` as a database warning.
+- `GET /api/provenance/{kind}/{id}` no longer returns the proposal's `requested_by` or `review_note`, and returns the proposal of a private or crew review to its review owner only.
+- The forge webhook answers a private task exactly like a nonexistent id. The engagement close notice counts workspace tasks only and is sent only for a workspace engagement; the owner of a hidden open task gets a notice of their own.
+- The CLI refuses a redirect that leaves the configured scheme, host and port, so the personal key never follows a 3xx to another origin.
+- Extension API `1.0.0` is unchanged.
+
+### Behavior
+
+- Records filed about a person by someone else take that person's narrowest tier: time away filed for a teammate is theirs with the dates shared, and they are told at once; a standup an agent files in a teammate's name is theirs to judge; a note carries the requester's own name; a strong paster's meeting-note proposals are theirs alone to approve, with no team notice; a mock-provider line and an MCP capture from a signed-in person land at "only you".
+- A shared task keeps its waiting-on link at the team tier, and the slip forecast lists only team-visible targets. A dates-only window no longer says whether it is PTO. The daily digest counts team reviews only.
+- The command bridge writes no session for a chat deleted under it, and a fresh claim of a thread id starts empty instead of replaying a session nobody owned.
+- Personal MCP servers: a server deleted and re-added under the same name asks for its first-use reviews again, and one server's colliding tool names cost only those tools, never the owner's whole agent build. Deactivation keeps the registrations through the 30-day grace, drops the live connections and any open sign-in, and erasure removes them with the account.
+- The export carries the exporting administrator's own crews and the team notice names them.
+- The review page shows every invisible format character as its code point. `skein review` prints every payload field, and `skein review approve` prints the proposal and its diff before the verdict lands.
+- The room-leave confirmation says the messages stay for the members. The weak-identity notice appears on growth interests, the agent inbox and the flock traces. The MCP servers card says which servers get the first-use review. The Settings roster tells a key-holder administrator which edits need a listed name.
+- A mermaid init directive can no longer turn HTML labels back on, and the page CSP refuses media loads.
+
+### Operations
+
+- Every superuser bootstrap heredoc (`deploy/postgres-init/10-app-role.sh`, the ConfigMap copy in `deploy/k8s/base/postgres.yaml`, and the two workplace-template scripts) sets `search_path` to `pg_catalog, pg_temp` before its first statement and qualifies its calls. Re-run them once on an existing database. `scripts/reference-deployment-contract.sh` checks it.
+- The restore fence in `deploy/k8s/README.md` step 7 cancels pending merge requests and deletes personal MCP server rows. Owners register their servers again after a restore.
+- `SKEIN_ADMINS` must name whoever renames, merges or deactivates accounts, in every mode. `backend/.env.example` and `deploy/k8s/OPERATOR.md` say so.
+- The legacy export file under `data/exports` is deleted after 14 days. The manual dump the runbook makes matches no retention pattern: delete it once its recovery point is verified.
+- `ops/ollama-bridge.py` listens on the Docker gateway address (`BRIDGE_LISTEN`, default `172.17.0.1`); every interface takes `BRIDGE_LISTEN_ALL=1`.
+- No migration.
+
 ## 0.6.7 — 2026-09-25
 
 ### Contracts
