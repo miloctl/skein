@@ -255,10 +255,29 @@ def test_workflow_resume_refuses_a_requester_the_create_rule_now_denies(
             headers={"X-User": "manager"},
             json={"note": "Release approval is fine."},
         )
-        # the executor's refusal answers as an apply failure (400) and the
-        # proposal stays pending; the playbook_policy control path answers 403
-        assert approved.status_code in (400, 403), approved.text
+        # the same settlement as the playbook_policy path: 403, and the
+        # proposal is not left pending with an apply-failure note
+        assert approved.status_code == 403, approved.text
         assert "denies this reviewed action" in approved.text
+        row = fresh_db.query_one(
+            "SELECT status, review_note FROM pending_changes WHERE id = ?", (review_id,)
+        )
+        assert row["status"] == "pending" and not (row["review_note"] or "").startswith(
+            "apply failed"
+        )
+        # a rejection of it judges nothing the agent did
+        rejected = c.post(
+            f"/api/review/{review_id}/reject",
+            headers={"X-User": "manager"},
+            json={"note": "withdrawn"},
+        )
+        assert rejected.status_code == 200, rejected.text
+        assert (
+            fresh_db.query_one("SELECT status FROM pending_changes WHERE id = ?", (review_id,))[
+                "status"
+            ]
+            == "rejected"
+        )
     assert fresh_db.query("SELECT id FROM engagements") == []
     assert calls == []
 

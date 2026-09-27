@@ -1357,6 +1357,34 @@ def _current_extension_review(
         request = replace(current, resource=resource)
         if invocation.get("workflow_kind") == "playbook_policy":
             return _CurrentExtensionReview(request)
+        # The requester's own playbook.create right, decided HERE with the
+        # step's own policy so both settle the same way: a DENY that arrived
+        # after filing moots the proposal (403, stale on reject). Decided in
+        # the executor instead, the refusal fell into the apply-failure path,
+        # reset the claim, and answered 400 with the row left pending.
+        # routes/api.py keeps its executor check as the last line.
+        from ..extensions.policy import PolicyEffect, PolicyInput, PolicyResource
+        from .policy_context import playbook_context
+
+        domain = playbook_context(slug, definition)
+        create = registry.policy_engine.decide(
+            PolicyInput(
+                current.subject,
+                "playbook.create",
+                PolicyResource(
+                    "playbooks",
+                    "",
+                    domain.get("project_type", ""),
+                    domain.get("classification", ""),
+                    domain,
+                ),
+                "human",
+            )
+        )
+        if create.effect == PolicyEffect.DENY or (
+            create.effect == PolicyEffect.REVIEW and not invocation.get("playbook_policy_approved")
+        ):
+            _moot(change, approving, "The current workplace policy denies this reviewed action.")
         raw_workflow = definition.get("workflow")
         if raw_workflow is None:
             raise ValueError("the reviewed playbook no longer has a workflow")
