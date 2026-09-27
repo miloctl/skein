@@ -12,10 +12,12 @@ step that sends an admin API key works only for a name in `SKEIN_ADMINS`.
 One exception is for development only: in `trusted-header` mode with
 neither variable set (the `example-dev` overlay), every key holder is an
 admin. An admin found that way can change settings and take backups.
-Reading other people's data still needs a name in `SKEIN_ADMINS`: the
-portable export download, the list of every person's keys, another
-person's agent record, the stranded-proposal list, the capture replay,
-everyone's feedback, crew member lists, and crew-steward repair.
+Reading other people's data, and the two roster edits that move or end
+what a person can read, still need a name in `SKEIN_ADMINS`: the portable
+export download, the list of every person's keys, another person's agent
+record, the stranded-proposal list, the capture replay, everyone's
+feedback, crew member lists, crew-steward repair, renaming or merging an
+account, and deactivating or reactivating one.
 
 Write each `SKEIN_ADMINS` name the way that person signs in. Skein matches
 case after the first sign-in, but a key request sent before it goes to the

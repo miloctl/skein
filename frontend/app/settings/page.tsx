@@ -2713,9 +2713,16 @@ export default function SettingsPage() {
                 <p className="mb-2 text-sm text-ink-3">
                   Everyone who has picked a name here. Deactivation blocks
                   access and revokes personal API keys. Existing history stays
-                  attributed. Roster changes require strong identity and
-                  administrator access.
+                  attributed. Roster changes require strong identity and an
+                  administrator named in SKEIN_ADMINS.
                 </p>
+                {canAdminister && !who?.admin && (
+                  <p className="mb-2 text-sm text-ink-3">
+                    You administer this server as a key holder. To rename, merge or
+                    deactivate an account, ask whoever runs the server to add your
+                    name to SKEIN_ADMINS.
+                  </p>
+                )}
                 {roster === null ? (
                   <p
                     role={rosterError ? "alert" : "status"}

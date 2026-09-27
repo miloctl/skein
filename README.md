@@ -213,7 +213,7 @@ keys remain supported. See [Browser sessions](docs/BROWSER-SESSIONS.md).
 | Prebuilt tools | `SKEIN_EXTRA_TOOLS` | Allowlisted [strands-agents-tools](https://github.com/strands-agents/tools) for the real agent: `calculator,current_time,batch,sleep` (keyless). Shell/file/exec tools **and** `http_request`/`use_agent`/`think`/`workflow`/`rss` are deliberately not loadable — see `app/agents/extra_tools.py` for the security rationale |
 | Semantic search | `SKEIN_EMBEDDINGS=1` + `SKEIN_EMBED_PROVIDER` | openai (key) · openai_compatible (base URL) · ollama (keyless) — vectors tagged per model |
 | OpenTelemetry | `SKEIN_OTEL_ENDPOINT` | Agent traces to Jaeger/Langfuse |
-| API auth | `SKEIN_AUTH_MODE` | `api-key` (default — a personal key on every request) · `trusted-header` (`X-User` name picker for dev / trusted networks; the dev entry points set it) · `oidc` (IdP tokens validated in-process). Admin surfaces are held to `SKEIN_ADMINS` / `SKEIN_OIDC_ADMIN_GROUP` |
+| API auth | `SKEIN_AUTH_MODE` | `api-key` (default — a personal key on every request) · `trusted-header` (`X-User` name picker for dev / trusted networks; the dev entry points set it) · `oidc` (IdP tokens validated in-process). Admin surfaces are held to `SKEIN_ADMINS` / `SKEIN_OIDC_ADMIN_GROUP`; in `trusted-header` mode with neither set every key holder administers, except renaming, merging and deactivating an account and reading other people's data, which take a listed name in every mode |
 | Shared token | `SKEIN_API_TOKEN` | Perimeter bearer token, `trusted-header` mode only |
 
 Notification tiers (immediate / digest / passive) and cross-thread agent
