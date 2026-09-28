@@ -493,6 +493,132 @@ def get_events(
         )
 
 
+@router.get("/events/{event_id}")
+def get_event_detail(
+    event_id: int,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.events",
+        "rest",
+        viewer,
+    )
+    with db.read_transaction():
+        _require_resource_policy(
+            request, subject, viewer, "skein.rest.get.events", "event", event_id
+        )
+        row = schedule.get_event(event_id, viewer)
+        if row is None:
+            raise scope.missing("events", event_id)
+        # `question #12` in the agenda: the record it names, only when this
+        # reader may open it (refs.readable_refs checks tier and policy before
+        # it reads a title). A person wrote the agenda, so quotes are words.
+        agenda_refs = refs.readable_refs(
+            row["agenda"] or "", viewer, resource_filter=policy.permits, quoted=False
+        )
+        return {**schedule.with_local(row), "agenda_refs": agenda_refs}
+
+
+@router.get("/events/{event_id}/items")
+def get_event_items(
+    event_id: int,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.events.items",
+        "rest",
+        viewer,
+    )
+    with db.read_transaction():
+        _require_resource_policy(
+            request, subject, viewer, "skein.rest.get.events", "event", event_id
+        )
+        return schedule.event_items(event_id, viewer, resource_filter=policy.permits)
+
+
+class EventLinkIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: str = Field(max_length=16)
+    item_id: int
+
+
+def _judge_linked_item(
+    request: Request, subject: Any, viewer: scope.Viewer, action: str, kind: str, item_id: int
+) -> None:
+    """The generic gate judges the event the path names. A link also writes
+    the ITEM, so a workplace rule on the item's project must hold too."""
+    if kind not in schedule.LINKED:
+        raise ValueError(f"kind must be one of: {', '.join(schedule.LINKED)}")
+    _require_resource_policy(request, subject, viewer, action, kind, item_id)
+
+
+@router.post("/events/{event_id}/links")
+def post_event_link(
+    event_id: int,
+    body: EventLinkIn,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    ratelimit.check("write", user)
+    _judge_linked_item(
+        request, subject, viewer, "skein.rest.post.events.links", body.kind, body.item_id
+    )
+    return schedule.link_item(event_id, body.kind, body.item_id, actor=user)
+
+
+@router.delete("/events/{event_id}/links/{kind}/{item_id}")
+def delete_event_link(
+    event_id: int,
+    kind: str,
+    item_id: int,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    ratelimit.check("write", user)
+    _judge_linked_item(request, subject, viewer, "skein.rest.delete.events.links", kind, item_id)
+    return schedule.unlink_item(event_id, kind, item_id, actor=user)
+
+
+@router.get("/calendar")
+def get_calendar(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    start: str = Query("", max_length=10),
+    end: str = Query("", max_length=10),
+    mine: bool = False,
+):
+    """`mine` narrows tasks to the caller's own. It takes the CurrentUser
+    name, not the viewer's: a weak identity reads with an empty viewer name
+    and still has tasks assigned to the name it sent."""
+    policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.calendar",
+        "rest",
+        viewer,
+    )
+    with db.read_transaction():
+        return schedule.calendar_range(
+            start, end, viewer, resource_filter=policy.permits, assignee=user if mine else ""
+        )
+
+
 @router.get("/personas")
 def get_personas():
     return personas.list_personas()
@@ -1623,6 +1749,14 @@ def post_field_guide_notes(user: CurrentUser):
     # fixed knot id keeps a client from minting arbitrary guide progress
     ratelimit.check("write", user)
     fieldguide.mark(user, "notes")
+
+
+@router.post("/field-guide/calendar")
+def post_field_guide_calendar(user: CurrentUser):
+    # its own route, as for notes: GET /api/calendar also answers agents and
+    # scripts, and a fixed knot id keeps a client from minting guide progress
+    ratelimit.check("write", user)
+    fieldguide.mark(user, "calendar")
 
 
 @router.post("/field-guide/todays-three")
@@ -3407,6 +3541,27 @@ class EventIn(BaseModel):
     crew_id: int = 0
 
 
+class EventPatch(BaseModel):
+    """Empty is unchanged, "-" clears (schedule.update_event). No tier: an
+    update never changes one, and forbidding extras refuses a visibility
+    field instead of ignoring it."""
+
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field("", max_length=200)
+    starts_at: str = Field("", max_length=25)
+    ends_at: str = Field("", max_length=25)
+    description: str = Field("", max_length=4000)
+    attendees: str = Field("", max_length=500)
+    agenda: str = Field("", max_length=2000)
+    engagement_id: int = 0
+
+
+@router.patch("/events/{event_id}")
+def patch_event(event_id: int, body: EventPatch, user: CurrentUser):
+    ratelimit.check("write", user)
+    return schedule.update_event(event_id, **body.model_dump(), actor=user)
+
+
 @router.post("/events")
 def post_event(body: EventIn, user: CurrentUser):
     ratelimit.check("write", user)
@@ -4077,14 +4232,35 @@ def post_capture(
 
 
 class IngestIn(BaseModel):
+    # forbid: ignored, a client that names the meeting under the wrong key
+    # files every line unlinked and hears nothing about it
+    model_config = ConfigDict(extra="forbid")
     text: str = Field(max_length=70_000)  # 422 at validation, before buffering costs
+    # the meeting the notes came from (ingest._meeting), or 0
+    event_id: int = 0
 
 
 @router.post("/ingest")
-def post_ingest(body: IngestIn, user: CurrentUser, request: Request):
+def post_ingest(
+    body: IngestIn,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     ratelimit.check("ingest", user)
+    if body.event_id:
+        # the link files every record under the meeting's project, so the
+        # workplace policy judges the meeting as the link routes do
+        with db.read_transaction():
+            _require_resource_policy(
+                request, subject, viewer, "skein.rest.post.ingest", "event", body.event_id
+            )
     return ingest.ingest_notes(
-        body.text, actor=user, private=_personal_default(request) == scope.PRIVATE
+        body.text,
+        actor=user,
+        private=_personal_default(request) == scope.PRIVATE,
+        event_id=body.event_id,
     )
 
 

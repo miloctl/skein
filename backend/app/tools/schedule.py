@@ -48,6 +48,50 @@ def schedule_event(
 
 
 @tool
+def update_event(
+    event_id: int,
+    title: str = "",
+    starts_at: str = "",
+    ends_at: str = "",
+    description: str = "",
+    attendees: str = "",
+    agenda: str = "",
+) -> str:
+    """Change or reschedule a calendar event. Pass only the fields to change.
+
+    Args:
+        event_id: ID of the event to change.
+        title: New event name, or empty to keep it.
+        starts_at: New start, ISO format (YYYY-MM-DDTHH:MM) on the team's
+            clock, or a date alone for all day. Empty keeps it.
+        ends_at: New end in the same form as the start, "-" to remove the
+            end, or empty to keep it.
+        description: New description, "-" to clear it, or empty to keep it.
+        attendees: New comma-separated attendee names, "-" to clear, or empty.
+        agenda: New agenda, "-" to clear it, or empty to keep it.
+    """
+    payload: dict[str, Any] = {
+        k: v
+        for k, v in {
+            "title": title,
+            "starts_at": starts_at,
+            "ends_at": ends_at,
+            "description": description,
+            "attendees": attendees,
+            "agenda": agenda,
+        }.items()
+        if v
+    }
+    return gated_write(
+        "event_edit",
+        "update",
+        payload,
+        lambda: schedule.update_event(event_id, **payload, actor=agent_identity(), origin="agent"),
+        entity_id=event_id,
+    )
+
+
+@tool
 def list_events(from_date: str = "", limit: int = 25) -> str:
     """List upcoming calendar events, soonest first.
 

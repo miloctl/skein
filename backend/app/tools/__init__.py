@@ -53,7 +53,7 @@ from .portfolio import (
     supersede_decision,
     what_if_staffing,
 )
-from .schedule import cancel_event, list_events, schedule_event
+from .schedule import cancel_event, list_events, schedule_event, update_event
 from .work import (
     create_milestone,
     create_task,
@@ -91,6 +91,7 @@ ALL_TOOLS = [
     delete_note,
     search_notes,
     schedule_event,
+    update_event,
     list_events,
     cancel_event,
     raise_blocker,
@@ -172,6 +173,7 @@ CORE_WRITE_TOOLS = frozenset(
         "submit_intake_request",
         "supersede_decision",
         "update_engagement",
+        "update_event",
         "update_milestone",
         "update_task",
     }

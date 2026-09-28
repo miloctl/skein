@@ -38,13 +38,14 @@ def _past(
 
 
 def test_a_finished_meeting_with_no_outcome_reaches_my_day(client):
-    _past(schedule.OUTCOME_ASK_AFTER_HOURS + 1)
+    eid = _past(schedule.OUTCOME_ASK_AFTER_HOURS + 1)
     items = client.get("/api/briefing").json()["attention"]
     meeting = next(i for i in items if i["kind"] == "meeting")
     assert meeting["group"] == "notice"
     # the agenda is what makes "did this produce anything" answerable
     assert "decide the thing" in meeting["reason"]
-    assert meeting["link"] == "/ingest"
+    # notes pasted from there link back to this meeting
+    assert meeting["link"] == f"/ingest?event={eid}"
 
 
 def test_a_meeting_still_running_is_not_asked_about(client):

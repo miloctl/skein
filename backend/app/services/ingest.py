@@ -71,10 +71,61 @@ def _payload(kind: str, body: str, actor: str) -> dict:
 _ENTITY = {"request": "intake", "awaiting": "promise"}
 
 
-def ingest_notes(text: str, *, actor: str, private: bool = False) -> dict:
+def _meeting(event_id: int, actor: str, strong: bool) -> dict:
+    """What every proposal from one meeting's notes carries: the link, and
+    the meeting's own tier. Without the tier each record lands at the
+    workspace default, a crew or private meeting refuses the link at approval
+    (schedule.check_event_link), and the proposal goes back to pending with
+    no way forward. Checked here, before anything is proposed.
+
+    A weak name reads the workspace tier only, so for it a narrower meeting
+    reads like an absent one. Past this check its proposals would sit in the
+    team queue declared at a tier no reviewer reads, and the team notice
+    below would count them for readers who cannot see them."""
+    if not event_id:
+        return {}
+    frag, vp = scope.visible_filter(scope.Viewer.for_actor(actor), "events")
+    event = db.query_one(
+        f"SELECT visibility, crew_id FROM events WHERE id = ? AND {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (event_id, *vp),
+    )
+    if event is None or (not strong and event["visibility"] != scope.WORKSPACE):
+        raise ValueError(scope.missing_text("events", event_id))
+    return {
+        "event_id": event_id,
+        "visibility": event["visibility"],
+        "crew_id": int(event["crew_id"] or 0),
+    }
+
+
+def _assignee_reads(payload: dict, meeting: dict, actor: str) -> bool:
+    """Whether a question's assignee can read it at the meeting's tier. The
+    service refuses one who cannot (scope.assert_readable_by), so the
+    proposal would come back on every approval. Handed back unclassified
+    instead, the line is still in front of the person who pasted it."""
+    assignee = str(payload.get("assigned_to") or "")
+    if not meeting or not assignee:
+        return True
+    try:
+        scope.assert_readable_by(
+            meeting["visibility"],
+            meeting["crew_id"] or None,
+            assignee,
+            label="assignee",
+            author=actor,
+        )
+    except ValueError:
+        return False
+    return True
+
+
+def ingest_notes(text: str, *, actor: str, private: bool = False, event_id: int = 0) -> dict:
     """`private` is the REST personal default: a strong caller's proposals are
     theirs alone to approve. A weak name reads no private row, so its
-    proposals stay in the team queue with the team notice."""
+    proposals stay in the team queue with the team notice.
+
+    `event_id` names the meeting the notes came from, and every record an
+    approval writes links back to it."""
     if not text.strip():
         raise ValueError("nothing to ingest")
     if len(text.encode()) > MAX_BYTES:
@@ -83,6 +134,7 @@ def ingest_notes(text: str, *, actor: str, private: bool = False) -> dict:
     if len(lines) > MAX_LINES:
         raise ValueError(f"too many lines (max {MAX_LINES})")
 
+    meeting = _meeting(event_id, actor, private)
     proposals: list[dict] = []
     unclassified: list[str] = []
     skipped_private = 0
@@ -109,13 +161,16 @@ def ingest_notes(text: str, *, actor: str, private: bool = False) -> dict:
         # the same payload, which would abandon the rest of the paste — hand
         # the line back as unclassified instead, because that list is shown to
         # the person who pasted it while they still have the text.
-        if review.unappliable(_ENTITY.get(kind, kind), _payload(kind, body, actor)):
+        payload = {**_payload(kind, body, actor), **meeting}
+        if review.unappliable(_ENTITY.get(kind, kind), payload) or not _assignee_reads(
+            payload, meeting, actor
+        ):
             unclassified.append(line)
             continue
         p = review.propose_change(
             _ENTITY.get(kind, kind),
             "create",
-            _payload(kind, body, actor),
+            payload,
             summary=line[:80],
             actor=actor,
             origin="human",

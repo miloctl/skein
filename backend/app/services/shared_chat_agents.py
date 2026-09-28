@@ -77,6 +77,7 @@ SHARED_CHAT_TOOLS = frozenset(
         "delete_note",
         "search_notes",
         "schedule_event",
+        "update_event",
         "list_events",
         "cancel_event",
         "raise_blocker",

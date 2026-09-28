@@ -17,6 +17,7 @@ import yaml
 
 from .. import config, db
 from . import scope
+from .schedule import LINKED
 
 KNOTS_FILE = config.STOCK_DIR / "fieldguide" / "knots.yaml"
 SETS = ("loops", "hitches", "bends", "stoppers", "manager")
@@ -85,6 +86,21 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # nothing, because every plain capture writes one and already ties
     # `capture`, so the card that announces the page would never be shown
     "notes": None,
+    # tied by the Calendar page's own mark route, for the reason `notes` is:
+    # scheduling an event proves nothing, because the agent tools and every
+    # playbook ritual write events without the page
+    "calendar": None,
+    # a row the person wrote that names its meeting, from pasted notes or a
+    # link in the meeting panel. created_by, so an agent's approved create,
+    # which the review applies as the agent (review.approve_change), does
+    # not tie it for the person who asked
+    "meeting_links": lambda u: _has(
+        " UNION ALL ".join(
+            f"SELECT 1 FROM {table} WHERE created_by = ? AND event_id IS NOT NULL"  # noqa: S608 — tables from schedule.LINKED
+            for table, _title in LINKED.values()
+        ),
+        (u,) * len(LINKED),
+    ),
     "search": None,
     "browser_signin": lambda u: _act(u, "create_browser_session"),
     # a theme write is not activity-logged (users.py: a slider drag would

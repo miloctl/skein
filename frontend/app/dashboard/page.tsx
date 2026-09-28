@@ -69,7 +69,7 @@ function browseSectionId(title: string) {
 
 const BROWSE_GROUPS = [
   { label: "Work", titles: ["Tasks", "Recently shipped", "Engagements", "Milestones", "Blockers", "Open questions"] },
-  { label: "People", titles: ["Capacity", "Time away", "Calendar", "Recent standups"] },
+  { label: "People", titles: ["Capacity", "Time away", "Recent standups"] },
   { label: "Reference", titles: ["Decisions", "Lessons", "Knowledge base", "Recent activity"] },
 ];
 
@@ -548,7 +548,6 @@ const COLLECTIONS = [
   "questions",
   "decisions",
   "standups",
-  "events",
   "notes",
   "activity",
   "blockers",
@@ -565,18 +564,7 @@ function fetchCollection(name: string): Promise<Row[]> {
     return api<{ open: Row[]; done: Row[] }>("/api/tasks/browse").then(
       ({ open, done }) => [...open, ...done],
     );
-  if (name !== "events") return api<Row[]>(`/api/${name}`);
-  // calendar shows what's ahead — without the cutoff the card fills with
-  // the 50 oldest events and never today's
-  const now = new Date();
-  // cutoff = the EARLIER of local and UTC day: event timestamps are naive
-  // UTC by convention but typed as local wall times in practice, and the
-  // cutoff must never hide the rest of "today" on either side of UTC —
-  // worst case it shows one extra stale day
-  const localDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  const utcDay = now.toISOString().slice(0, 10);
-  const today = localDay < utcDay ? localDay : utcDay;
-  return api<Row[]>(`/api/events?from_date=${today}`);
+  return api<Row[]>(`/api/${name}`);
 }
 
 const CONCLUSIONS = [
@@ -725,12 +713,10 @@ export default function Dashboard() {
   const [deletingNote, setDeletingNote] = useState<number | null>(null);
   const [deletingAbsence, setDeletingAbsence] = useState<number | null>(null);
   const [sharingAbsence, setSharingAbsence] = useState<number | null>(null);
-  const [deletingEvent, setDeletingEvent] = useState<number | null>(null);
-  // the two create drafts. Both cards listed rows nothing on the page could
-  // create — the empty states sent the reader to Chat, where the default
-  // mock provider has no milestone or event grammar (services/capture.py).
+  // The Milestones create draft. Without it the card lists rows nothing on
+  // the page can create, and Chat cannot help: the default mock provider
+  // has no milestone grammar (services/capture.py).
   const [msDraft, setMsDraft] = useState({ title: "", due: "" });
-  const [evDraft, setEvDraft] = useState({ title: "", starts: "" });
   const [allocDraft, setAllocDraft] = useState({
     person: "",
     engagement: "",
@@ -2027,134 +2013,6 @@ export default function Dashboard() {
           onShared={() => refresh(["standups", "activity"])}
         />
         <LessonsCard hidden={selected !== "browse-lessons"} onLoaded={setLessonRows} cls={lessonClass} setCls={setLessonClass} />
-        <Section
-          hidden={selected !== "browse-calendar"}
-          title="Calendar"
-          rows={data.events ?? []}
-          empty="Nothing scheduled. Add an event below."
-          footer={
-<details className="mt-3"><summary className="cursor-pointer text-sm font-medium">Add event</summary>
-            <form
-              className="mt-3 flex flex-wrap items-center gap-1.5 text-xs"
-              onSubmit={async (ev) => {
-                ev.preventDefault();
-                if (!evDraft.title.trim() || !evDraft.starts) return;
-                try {
-                  await api("/api/events", {
-                    method: "POST",
-                    body: JSON.stringify({
-                      title: evDraft.title.trim(),
-                      starts_at: evDraft.starts,
-                    }),
-                  });
-                  setEvDraft({ title: "", starts: "" });
-                  refresh(["events", "activity"]);
-                } catch (e) {
-                  reportStatus(actionError(e));
-                }
-              }}
-            >
-              <label className="flex min-w-0 flex-col gap-0.5 text-xs text-ink-3">
-<span>New event title</span>
-<input
-                aria-label="New event title"
-                name="event-title"
-                placeholder="new event"
-                value={evDraft.title}
-                onChange={(e) => setEvDraft({ ...evDraft, title: e.target.value })}
-                className="min-w-40 flex-1 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
-              />
-</label>
-              <label className="flex min-w-0 flex-col gap-0.5 text-xs text-ink-3">
-<span>Event start</span>
-<input
-                type="datetime-local"
-                aria-label="Event start"
-                name="event-start"
-                value={evDraft.starts}
-                onChange={(e) => setEvDraft({ ...evDraft, starts: e.target.value })}
-                className="rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
-              />
-</label>
-              <button
-                aria-label="Add the event"
-                disabled={!evDraft.title.trim() || !evDraft.starts}
-                className="rounded-lg bg-raised px-2.5 py-0.5 font-medium hover:bg-line disabled:opacity-40"
-              >
-                Add
-              </button>
-            </form>
-</details>
-          }
-          render={(e) => (
-            <li
-              key={e.id}
-              className="flex items-center justify-between gap-2 text-sm"
-            >
-              <span>
-                {e.title}
-                <VisibilityBadge
-                  visibility={e.visibility as string}
-                  crewId={e.crew_id as number}
-                />
-              </span>
-              <span className="flex items-center gap-2 text-xs text-ink-3">
-                {/* "2026-08-21 15:00" on the team clock (starts_local), not
-                    the raw ISO string. starts_at is UTC */}
-                {`${String(e.starts_local ?? e.starts_at).slice(0, 10)} ${String(e.starts_local ?? e.starts_at).slice(11, 16)}`}
-                {deletingEvent === e.id ? (
-                  <span className="flex items-center gap-1.5">
-                    <span id={`delete-event-${e.id}-consequence`}>
-                      Delete this event? It leaves the calendar and the
-                      calendar feed. An activity record of the deletion will
-                      stay.
-                    </span>
-                    <button
-                      autoFocus
-                      aria-describedby={`delete-event-${e.id}-consequence`}
-                      onClick={async () => {
-                        try {
-                          await api(`/api/events/${e.id}`, { method: "DELETE" });
-                          setDeletingEvent(null);
-                          refresh(["events", "activity"]);
-                        } catch (err) {
-                          reportStatus(actionError(err));
-                        }
-                      }}
-                      className="rounded bg-danger-solid px-2 py-0.5 font-medium text-white hover:opacity-90"
-                    >
-                      Delete event
-                    </button>
-                    <button
-                      onClick={() => {
-                        setDeletingEvent(null);
-                        setTimeout(
-                          () =>
-                            document
-                              .getElementById(`delete-event-${e.id}`)
-                              ?.focus(),
-                          0,
-                        );
-                      }}
-                      className="min-h-6 min-w-6 hover:text-ink"
-                    >
-                      Cancel deletion
-                    </button>
-                  </span>
-                ) : (
-                  <button
-                    id={`delete-event-${e.id}`}
-                    aria-label={`Delete event: ${e.title}`}
-                    onClick={() => setDeletingEvent(Number(e.id))}
-                    className="min-h-6 min-w-6 underline hover:text-ink-2"
-                  >
-                    delete…
-                  </button>
-                )}
-              </span>
-            </li>
-          )}
-        />
         <Section
           hidden={selected !== "browse-knowledge-base"}
           title="Knowledge base"

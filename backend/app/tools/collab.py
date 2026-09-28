@@ -19,18 +19,20 @@ from ._gate import gated_write
 
 
 @tool
-def ask_question(question: str, asked_by: str, assigned_to: str = "") -> str:
+def ask_question(question: str, asked_by: str, assigned_to: str = "", event_id: int = 0) -> str:
     """Log a question for the team so it doesn't get lost in chat.
 
     Args:
         question: The question being asked.
         asked_by: Who is asking (human or agent name).
         assigned_to: Who should answer it, if known.
+        event_id: The meeting this came out of (an ID from list_events), or 0.
     """
     payload: dict[str, Any] = {
         "question": question,
         "asked_by": asked_by,
         "assigned_to": assigned_to,
+        **({"event_id": event_id} if event_id else {}),
     }
     return gated_write(
         "question",
@@ -99,6 +101,7 @@ def record_decision(
     decided_by: str = "",
     review_by: str = "",
     category: str = "",
+    event_id: int = 0,
 ) -> str:
     """Record a team decision in the decision log so future work can reference it.
 
@@ -110,10 +113,17 @@ def record_decision(
         review_by: YYYY-MM-DD date when the decision should be revisited.
         category: '' for normal decisions, 'charter' for team charter /
             decision-rights entries (charter requires review_by).
+        event_id: The meeting this came out of (an ID from list_events), or 0.
     """
-    optional = {"context": context, "decided_by": decided_by, "review_by": review_by}
+    optional: dict[str, Any] = {
+        "context": context,
+        "decided_by": decided_by,
+        "review_by": review_by,
+    }
     if category:
         optional["category"] = category
+    if event_id:
+        optional["event_id"] = event_id
     payload: dict[str, Any] = {"title": title, "decision": decision, **optional}
     return gated_write(
         "decision",
@@ -189,20 +199,26 @@ def list_standups(limit: int = 10) -> str:
 
 
 @tool
-def save_note(topic: str, content: str, author: str = "") -> str:
+def save_note(topic: str, content: str, author: str = "", event_id: int = 0) -> str:
     """Save a note to the shared team knowledge base (conventions, learnings, context).
 
     Args:
         topic: Short topic/slug the note is about.
         content: The knowledge to persist.
         author: Who wrote it.
+        event_id: The meeting this came out of (an ID from list_events), or 0.
     """
     # a note in a teammate's name is indexed as theirs and has no delete
     # for them; the writer is the requester, or the agent itself
     strong = "" if workspace_only_tools() else strong_requester()
     if author and strong and users.fold(author) != users.fold(strong):
         return json.dumps({"error": "A note carries your own name. Leave author empty."})
-    payload: dict[str, Any] = {"topic": topic, "content": content, "author": author}
+    payload: dict[str, Any] = {
+        "topic": topic,
+        "content": content,
+        "author": author,
+        **({"event_id": event_id} if event_id else {}),
+    }
     return gated_write(
         "note",
         "create",

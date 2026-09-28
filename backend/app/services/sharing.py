@@ -41,11 +41,17 @@ SHAREABLE: dict[str, tuple[str, Callable[[dict], tuple[str, str]]]] = {
 
 
 # the links each create path checks with scope.assert_relationship_contains
-# (work.py, blockers.py, engagements.py)
+# (work.py, blockers.py, engagements.py, and schedule.check_event_link for
+# the meeting a row came out of)
+_MEETING = ("events", "event_id")
 _PARENTS: dict[str, tuple[tuple[str, str], ...]] = {
-    "tasks": (("milestones", "milestone_id"), ("engagements", "engagement_id")),
-    "blockers": (("tasks", "task_id"),),
-    "promises": (("engagements", "engagement_id"),),
+    "tasks": (("milestones", "milestone_id"), ("engagements", "engagement_id"), _MEETING),
+    "blockers": (("tasks", "task_id"), _MEETING),
+    "promises": (("engagements", "engagement_id"), _MEETING),
+    "notes": (_MEETING,),
+    "questions": (_MEETING,),
+    "decisions": (_MEETING,),
+    "intake_requests": (_MEETING,),
 }
 
 
