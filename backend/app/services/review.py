@@ -1457,8 +1457,9 @@ def reject_change(
     # It does NOT hold the target row the way approve_change does: rejection
     # writes nothing to the target, so a relink landing mid-decision can only
     # record the refusal against a stale policy domain, never mutate the
-    # wrong row. Add hold_resource here if a rejection ever gains a target
-    # write.
+    # wrong row. A send-back is the exception: its wake depends on the task's
+    # delegate, so _send_back_target holds the task first. Add hold_resource
+    # here if a rejection ever gains a target write.
     with db.transaction():
         return _reject_change_locked(
             change_id,

@@ -94,6 +94,43 @@ describe("reject and send back", () => {
     ]);
   });
 
+  it("sends only the note when the box stays unchecked", async () => {
+    pending = [completion];
+    render(<ReviewPage />);
+    fireEvent.click(await screen.findByRole("button", { name: /Reject proposal #7/ }));
+    fireEvent.change(screen.getByLabelText(/Rejection reason/), {
+      target: { value: "Not yet." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    await waitFor(() => expect(posts.some((p) => p.path.endsWith("/reject"))).toBe(true));
+    expect(posts.filter((p) => p.path.endsWith("/reject"))).toEqual([
+      { path: "/api/review/7/reject", body: { note: "Not yet." } },
+    ]);
+  });
+
+  it("keeps the checkbox choice when Enter submits", async () => {
+    pending = [completion];
+    render(<ReviewPage />);
+    fireEvent.click(await screen.findByRole("button", { name: /Reject proposal #7/ }));
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Send the task back to scout for another turn" }),
+    );
+    const reason = screen.getByLabelText(/Rejection reason/);
+    fireEvent.change(reason, { target: { value: "Use 17." } });
+    fireEvent.keyDown(reason, { key: "Enter" });
+    await waitFor(() => expect(posts.some((p) => p.path.endsWith("/reject"))).toBe(true));
+    expect(posts.filter((p) => p.path.endsWith("/reject"))).toEqual([
+      { path: "/api/review/7/reject", body: { note: "Use 17.", send_back: true } },
+    ]);
+  });
+
+  it("offers no send-back once the task went to another delegate", async () => {
+    pending = [{ ...completion, evidence: { ...completion.evidence, delegated_agent: "atlas" } }];
+    render(<ReviewPage />);
+    fireEvent.click(await screen.findByRole("button", { name: /Reject proposal #7/ }));
+    expect(screen.queryByRole("checkbox", { name: /Send the task back/ })).toBeNull();
+  });
+
   it("offers no send-back on any other proposal", async () => {
     pending = [task];
     render(<ReviewPage />);

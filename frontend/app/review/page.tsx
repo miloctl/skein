@@ -380,12 +380,12 @@ function VerdictAsk({
           aria-describedby="verdict-reason-limit"
           aria-label={
             verb === "reject"
-              ? "Rejection reason — sent back to the proposer"
+              ? "Rejection reason — the proposer reads it"
               : "Reason for accepting on the sponsor's behalf"
           }
           placeholder={
             verb === "reject"
-              ? "Why? — sent back to the proposer"
+              ? "Why? — the proposer reads it"
               : `Why are you accepting for ${sponsor}? — goes on the record`
           }
           className="w-full rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
@@ -395,7 +395,7 @@ function VerdictAsk({
           {note.length >= 800 ? ` ${1000 - note.length} remaining.` : ""}
         </p>
         {offerSendBack ? (
-          <label className="mt-1 flex items-center gap-2 text-sm text-ink-2">
+          <label className="mt-1 flex min-h-6 items-center gap-2 text-sm text-ink-2">
             <input
               type="checkbox"
               checked={sendBack}
@@ -1010,9 +1010,14 @@ export default function ReviewPage() {
               <VerdictAsk
                 verb={asking.verb}
                 sponsor={c.sponsor}
+                // the server wakes the proposer and refuses once the task moved
+                // to another delegate or closed (review._send_back_target), so
+                // the box is offered only while that send-back can run
                 sendBackTo={
-                  c.entity === "task_completion"
-                    ? c.evidence?.delegated_agent || c.proposed_by
+                  c.entity === "task_completion" &&
+                  c.evidence?.delegated_agent === c.proposed_by &&
+                  !["done", "void"].includes(c.evidence?.status ?? "")
+                    ? c.proposed_by
                     : undefined
                 }
                 onSubmit={(note, sendBack) =>

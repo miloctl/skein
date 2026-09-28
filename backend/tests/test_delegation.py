@@ -148,6 +148,38 @@ def test_a_rejected_completion_can_be_sent_back(client, fresh_db):
     )
 
 
+def test_a_crew_task_sent_back_carries_its_note_to_the_agent(client, fresh_db):
+    """The unattended inbox reads rejections at the workspace tier, so a crew
+    task sent back woke an agent that could not read the note it woke for.
+    The task itself was already in the agent's list: a rejected completion of
+    that task shares its tier."""
+    import json
+
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.services import crews, delegation, users, work
+    from app.tools.portfolio import my_agent_inbox
+
+    users.ensure_user("ava")
+    users.ensure_user("scout", kind="agent")
+    crew = crews.create_crew("Alpha", actor="ava")["id"]
+    t = work.create_task(title="crew work", actor="ava", visibility="crew", crew_id=crew)
+    delegation.delegate_task(t["id"], "scout", "ava", actor="ava")
+    delegation.claim_task(t["id"], actor="scout")
+    pid = delegation.submit_completion(t["id"], "done", actor="scout")["proposal_id"]
+    r = client.post(
+        f"/api/review/{pid}/reject",
+        json={"note": "use pg17", "send_back": True},
+        headers=_strong(client, "ava"),
+    )
+    assert r.status_code == 200, r.text
+    token = set_agent_identity("scout")
+    try:
+        inbox = json.loads(my_agent_inbox())
+    finally:
+        reset_agent_identity(token)
+    assert [p["review_note"] for p in inbox["rejected_proposals"]] == ["use pg17"]
+
+
 def test_a_plain_rejection_wakes_nobody(client, fresh_db):
     _tid, pid = _submitted(fresh_db)
     r = client.post(

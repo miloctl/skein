@@ -557,6 +557,18 @@ def test_a_turn_that_filed_nothing_says_so(fresh_db, monkeypatch):
     assert "outcome" not in out
 
 
+def test_a_write_that_landed_outranks_a_failed_one():
+    """A resumed turn that calls claim on a task already in progress gets a
+    failed receipt, then reports progress. That turn did its work, and the
+    task panel must not lead with the failure. A refusal still names itself."""
+    wrote = {"kind": "wrote"}
+    failed = {"kind": "failed"}
+    refused = {"kind": "refused"}
+    assert agent_runner._outcome([failed, wrote]) == ""
+    assert agent_runner._outcome([failed]) == "write_failed"
+    assert agent_runner._outcome([refused, wrote]) == "write_refused"
+
+
 def test_a_refused_write_is_named_in_the_outcome(fresh_db, monkeypatch):
     """The refusal happens on the worker thread. The receipt box must be
     opened in the context that thread copies, or the parent reads nothing and

@@ -179,6 +179,47 @@ describe("delegated task activation guidance", () => {
     ).toBeTruthy();
   });
 
+  it("names an open blocker ahead of a turn outcome", async () => {
+    state.blockers = [{ id: 4, title: "Waiting for access" }];
+    state.wakeup = {
+      status: "completed",
+      requested_at: "2026-08-24T12:00:00+00:00",
+      started_at: "2026-08-24T12:00:01+00:00",
+      finished_at: "2026-08-24T12:00:02+00:00",
+      reason: "write_refused",
+      automation_enabled: true,
+    };
+    render(<TaskPeek />);
+    expect(
+      await screen.findByText(
+        "This task has an open blocker. Resolve it before the task can continue.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("never says filed nothing over a note the agent wrote in the turn", async () => {
+    state.worklog = [
+      {
+        id: 1,
+        author: "backend-architect",
+        note: "Made progress",
+        created_at: "2026-08-24T12:00:01.500+00:00",
+      },
+    ];
+    state.wakeup = {
+      status: "completed",
+      requested_at: "2026-08-24T12:00:00+00:00",
+      started_at: "2026-08-24T12:00:01+00:00",
+      finished_at: "2026-08-24T12:00:02+00:00",
+      reason: "nothing_filed",
+      automation_enabled: true,
+    };
+    render(<TaskPeek />);
+    expect(
+      await screen.findByText("The agent recorded progress. This task is still in progress."),
+    ).toBeTruthy();
+  });
+
   it("states when the agent recorded progress but did not submit", async () => {
     state.worklog = [
       {
@@ -343,7 +384,7 @@ describe("delegated task activation guidance", () => {
     ],
     [
       "completed",
-      "The agent tried to write a record and Skein refused it. Open Team → Agents to check its authority.",
+      "The agent tried to write a record, and Skein refused it. Check the agent's authority on Team → Agents and the visibility of the records it works on.",
       "write_refused",
     ],
     [

@@ -226,3 +226,21 @@ def test_a_pack_for_a_repository_file_carries_the_workspace_tier_only(client, fr
     assert "shared cutover step" in repo
     assert "my private worry" not in repo
     assert client.get(path + "&tier=crew", headers=headers).status_code == 422
+
+
+def test_a_crew_engagement_says_why_it_has_no_file_pack(client, fresh_db):
+    """The caller can read a crew engagement, so "no engagement #N" was false.
+    The refusal names the rule and the way to read the pack."""
+    from conftest import _strong
+
+    from app.services import crews, engagements, users
+
+    users.ensure_user("mira")
+    crew = crews.create_crew("Alpha", actor="mira")["id"]
+    eng = engagements.create_engagement("Crew atlas", actor="mira", visibility="crew", crew_id=crew)
+    headers = _strong(client, "mira")
+    path = f"/api/context-pack?engagement={eng['id']}"
+    assert client.get(path, headers=headers).status_code == 200
+    refused = client.get(path + "&tier=workspace", headers=headers)
+    assert refused.status_code == 400
+    assert "without --write" in refused.json()["detail"]
