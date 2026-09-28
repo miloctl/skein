@@ -36,8 +36,8 @@ describe("search and quick capture signpost each other", () => {
     await screen.findByText("Nothing matches those words.");
     // the dead end is the point: a reader who found no record is one click
     // from filing one, and this is the only place outside the nav button
-    // that says so. It names the BUTTON: capture has no shortcut, and ⌘K
-    // focuses this search box.
+    // that says so. It names the BUTTON: ⌘K focuses this search box, and the
+    // C key that opens capture can be turned off (lib/capture-key.ts).
     await waitFor(() =>
       expect(document.body.textContent).toContain("use quick capture"),
     );

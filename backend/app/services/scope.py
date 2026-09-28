@@ -377,9 +377,9 @@ def assert_editable(table: str, row: dict, actor: str, *, verb: str = "") -> Non
     in one file is the point: a fourth disjunct added there and forgotten here
     hands a reader a row they cannot edit, which reads as a bug, not a breach.
 
-    Delete matters more than update. collab.delete_note writes 300 characters
-    of the note into activity.detail so a deletion stays reviewable, and the
-    ledger is hash-chained — a private body that lands there is there for good.
+    Delete matters more than update: a deleted row has no undo short of a
+    backup restore. The hash-chained ledger keeps the delete for good, as the
+    row's id and never its text (tests/test_activity_feed.py pins that).
 
     Takes the plain actor name, not a Viewer. The write path already trusts it
     (resolve_write -> crews.assert_writable), so a stronger bar here would

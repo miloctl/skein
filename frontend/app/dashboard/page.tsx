@@ -2211,8 +2211,8 @@ export default function Dashboard() {
                       >
                         <span id={`delete-note-${n.id}-consequence`}>
                           Delete this note? It will leave the knowledge base and
-                          search. The activity record can retain up to 300
-                          characters, and backups can retain the note.
+                          search. The activity record can keep its topic, and
+                          backups can keep the note.
                         </span>
                         <span className="flex gap-3 md:gap-1.5">
                           <button

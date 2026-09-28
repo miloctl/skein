@@ -133,7 +133,8 @@ describe("the nav search box", () => {
     // a span here is the dead end the box shipped with: every hit that was
     // not a task could be read but never opened
     const link = await screen.findByRole("link", { name: /note #7/ });
-    expect(link.getAttribute("href")).toBe("/dashboard");
+    // /notes lists the newest page only, so a note hit names its note by id
+    expect(link.getAttribute("href")).toBe("/notes?note=7");
   });
 
   it("links a non-task citation to the page that lists it", async () => {

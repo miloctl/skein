@@ -84,11 +84,38 @@ def requester_viewer() -> object | None:
 
 
 def set_requester_viewer(v: object | None) -> Token:
+    # every door that names a requester opens a fresh box for the reads made
+    # on their behalf, so no earlier turn's private read carries into this one
+    _scoped_reads.set([False])
     return _current_requester_viewer.set(v)
 
 
 def reset_requester_viewer(token: Token) -> None:
     _current_requester_viewer.reset(token)
+    _scoped_reads.set(None)
+
+
+# Whether a read in this turn returned a row that only the requester or their
+# crew can read (tools/collab.py::search_notes). A write filed after it can
+# carry that text to the team, and a teammate's note in the same result can
+# ask the model to do exactly that, so extensions/policy.py sends every later
+# write to review and tools/_gate.py refuses one the team would review.
+# A LIST, for the reason _consults holds one below: each strands tool call
+# runs in a COPIED context, so a flag set by the read is invisible to the
+# write that follows. Over MCP each call is its own request, and nothing
+# carries a read into a later call.
+_scoped_reads: ContextVar[list[bool] | None] = ContextVar("scoped_reads", default=None)
+
+
+def note_scoped_read() -> None:
+    box = _scoped_reads.get()
+    if box is not None:
+        box[0] = True
+
+
+def read_scoped_this_turn() -> bool:
+    box = _scoped_reads.get()
+    return bool(box and box[0])
 
 
 _force_review: ContextVar[bool] = ContextVar("force_review", default=False)

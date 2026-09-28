@@ -426,3 +426,21 @@ def test_a_remote_call_with_an_unknown_outcome_keeps_its_text(fresh_db):
         "SELECT invocation FROM extension_review_invocations WHERE change_id = ?", (refused,)
     )
     assert "REFUSED-ARGS" not in cleared["invocation"]
+
+
+def test_an_old_export_file_is_pruned_and_named_in_the_feed(fresh_db):
+    import os
+    import time
+    from pathlib import Path
+
+    from app.services import admin
+    from app.services.retention import EXPORT_FILE_DAYS, prune
+
+    old = Path(admin.export(actor="tester")["path"])
+    stamp = time.time() - (EXPORT_FILE_DAYS + 1) * 86400
+    os.utime(old, (stamp, stamp))
+
+    assert prune(actor="tester")["exports"] == 1
+    assert not old.exists()
+    row = fresh_db.query_row("SELECT detail FROM activity WHERE action = 'retention_prune'")
+    assert "1 legacy export file" in row["detail"]

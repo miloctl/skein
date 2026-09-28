@@ -120,7 +120,7 @@ def test_stdio_process_discovers_calls_and_reads_resources(fresh_db, tmp_path):
                     initialized = await session.initialize()
                     assert initialized.server_info.name == "skein"
                     tools = (await session.list_tools()).tools
-                    assert len(tools) == 24
+                    assert len(tools) == 25
                     result = await session.call_tool("list_tasks", {})
                     assert not result.is_error, _text(result)
                     assert [row["id"] for row in json.loads(_text(result))] == [task["id"]]
@@ -141,7 +141,7 @@ def test_tools_are_listed_with_annotations(fresh_db):
 
     tools = _session(_key("ava"), scenario)
     by_name = {tool.name: tool for tool in tools}
-    assert len(tools) == 24
+    assert len(tools) == 25
     assert by_name["get_my_day"].annotations.read_only_hint is True
     assert by_name["capture"].annotations.read_only_hint is False
     assert by_name["capture"].annotations.destructive_hint is False
@@ -316,6 +316,64 @@ def test_an_unexpected_error_answers_a_fixed_sentence(fresh_db, monkeypatch):
     reply = _session(_key("ava"), scenario)
     assert json.loads(reply) == {"error": "The tool failed. Read the server log for the cause."}
     assert "secret detail" not in reply
+
+
+def test_a_personal_key_finds_its_owners_private_notes_and_nobody_elses(fresh_db):
+    """search_workspace never indexes a private row, so the notes a person
+    captured were unreachable from their own MCP client."""
+    from app import mcp_server
+    from app.services import capture, users
+
+    for name in ("ava", "bo"):
+        users.ensure_user(name)
+    capture.capture("note: ZZMCP ava private", actor="ava", strong_auth=True, visibility="private")
+    capture.capture("note: ZZMCP bo private", actor="bo", strong_auth=True, visibility="private")
+    capture.capture("note: ZZMCP team", actor="bo", visibility="workspace")
+
+    async def scenario(session):
+        return json.loads(_text(await session.call_tool("search_notes", {"keyword": "ZZMCP"})))
+
+    seen = sorted(n["content"] for n in _session(_key("ava"), scenario))
+    assert seen == ["ZZMCP ava private", "ZZMCP team"]
+    # stdio: no person is present, so the workspace tier only
+    assert [n["content"] for n in json.loads(mcp_server.search_notes("ZZMCP"))] == ["ZZMCP team"]
+
+
+def test_a_workplace_rule_that_denies_private_rows_holds_for_mcp_note_search(fresh_db):
+    """The tool-level policy check sees the tool, not the notes, so only the
+    per-row projection lets a rule deny a private note by its classification."""
+    from app import mcp_server
+    from app.agents.identity import reset_requester_viewer, set_requester_viewer
+    from app.extensions import PolicyContribution, PolicyDecision, PolicyEffect, SkeinModule
+    from app.extensions.policy import reset_policy_engine, set_policy_engine
+    from app.extensions.registry import ExtensionRegistry
+    from app.services import capture, scope, users
+
+    users.ensure_user("ava")
+    capture.capture("note: ZZMCPRULE private", actor="ava", strong_auth=True, visibility="private")
+    capture.capture("note: ZZMCPRULE team", actor="ava", visibility="workspace")
+
+    def deny_private(request):
+        if request.resource.classification == "private":
+            return PolicyDecision(PolicyEffect.DENY, ("private records are protected",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.7.0",
+        policies=(PolicyContribution("acme.workplace.private-records", deny_private),),
+    )
+    engine = set_policy_engine(ExtensionRegistry.build((module,)).policy_engine)
+    viewer = set_requester_viewer(scope.Viewer("ava", True))
+    try:
+        seen = [n["content"] for n in json.loads(mcp_server.search_notes("ZZMCPRULE"))]
+    finally:
+        reset_requester_viewer(viewer)
+        reset_policy_engine(engine)
+    assert seen == ["ZZMCPRULE team"]
 
 
 def test_a_read_and_a_bounded_list_answer_over_http(fresh_db):

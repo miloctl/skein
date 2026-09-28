@@ -27,7 +27,7 @@ if not __debug__:
     raise SystemExit("Optimized Python disables the checks. Run without -O or PYTHONOPTIMIZE.")
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSIONS = {"write": "1.55.1", "append": "1.56.0", "restart": "1.56.0", "rollback": "1.55.1"}
+VERSIONS = {"write": "1.56.0", "append": "1.57.1", "restart": "1.57.1", "rollback": "1.56.0"}
 
 
 def guard_target(conninfo: str, owned: str) -> None:
@@ -83,6 +83,7 @@ def worker(stage: str, owned: str, checkpoint: Path) -> None:
 
     from app import config, db
     from app.agents import session_log, session_store, team_agent
+    from app.services import chat_threads, users
 
     class ScriptedModel(Model):
         def __init__(self):
@@ -196,6 +197,10 @@ def worker(stage: str, owned: str, checkpoint: Path) -> None:
             sid = f"upgrade-{strategy}"
             if stage == "write":
                 config.CONTEXT_STRATEGY = strategy
+                # the command bridge writes only for a thread with an owner
+                # (agents/session_log.py), as the chat route claims it first
+                users.ensure_user("upgrade-drill")
+                chat_threads.claim_thread(sid, "upgrade-drill")
                 session_log.log_exchange(sid, f"/help {sid}", f"{sid} opening command")
                 agent, model = build(sid, strategy)
                 assert f"{sid} opening command" in json.dumps(agent.messages)

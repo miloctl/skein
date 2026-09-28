@@ -30,7 +30,7 @@ def test_registry_is_valid_and_complete():
     from app.services import fieldguide
 
     cards = fieldguide.registry()
-    assert len(cards) == 66
+    assert len(cards) == 67
     ids = {k["id"] for k in cards}
     assert ids == set(fieldguide.PREDICATES)
     for k in cards:
@@ -198,7 +198,7 @@ def test_hint_and_guide_use_the_same_tieable_total(fresh_db):
     from app.services import fieldguide
 
     _mint(fresh_db, "ava")
-    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 65
+    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 66
 
 
 def test_first_detection_seeds_silently(fresh_db):
@@ -521,6 +521,18 @@ def test_todays_three_route_ties_only_its_fixed_knot(client, fresh_db):
     assert response.status_code == 200
     tied = {row["id"] for row in fieldguide.guide("tester")["cards"] if row["tied"]}
     assert tied == {"todays_three"}
+
+
+def test_notes_route_ties_only_its_fixed_knot(client, fresh_db):
+    """GET /api/notes also serves Work → Browse, so only the Notes page's own
+    mark ties the card, and a plain capture does not."""
+    from app.services import capture, fieldguide
+
+    _mint(fresh_db, "tester")
+    capture.capture("call the vendor back", actor="tester")
+    assert not any(c["tied"] for c in fieldguide.guide("tester")["cards"] if c["id"] == "notes")
+    assert client.post("/api/field-guide/notes").status_code == 200
+    assert any(c["tied"] for c in fieldguide.guide("tester")["cards"] if c["id"] == "notes")
 
 
 def test_first_watch_mark_is_rate_capped(client, fresh_db):
