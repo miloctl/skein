@@ -201,3 +201,28 @@ def test_publishing_answers_with_a_file_name_not_a_server_path(client):
     assert body["file"] == f"context-pack-v{body['version']}.md"
     assert "path" not in body
     assert str(config.DATA_DIR) not in json.dumps(body)
+
+
+def test_a_pack_for_a_repository_file_carries_the_workspace_tier_only(client, fresh_db):
+    """`skein context --write` puts the pack in a file every reader of the
+    repository sees. Filtered by the caller, it carried the caller's private
+    tasks and their crews' rows into that file, and docs/VISIBILITY.md says a
+    private row reaches no context pack. tier=workspace reads as nobody."""
+    from conftest import _strong
+
+    from app.services import engagements, users, work
+
+    users.ensure_user("mira")
+    eng = engagements.create_engagement("Atlas", actor="mira")
+    work.create_task(title="shared cutover step", engagement_id=eng["id"], actor="mira")
+    work.create_task(
+        title="my private worry", engagement_id=eng["id"], actor="mira", visibility="private"
+    )
+    headers = _strong(client, "mira")
+    path = f"/api/context-pack?engagement={eng['id']}"
+    own = client.get(path, headers=headers).json()["content"]
+    assert "my private worry" in own  # the caller's own view keeps it
+    repo = client.get(path + "&tier=workspace", headers=headers).json()["content"]
+    assert "shared cutover step" in repo
+    assert "my private worry" not in repo
+    assert client.get(path + "&tier=crew", headers=headers).status_code == 422

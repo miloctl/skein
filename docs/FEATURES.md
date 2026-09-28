@@ -228,7 +228,7 @@ daily at 05:00 team-local and written to `data/artifacts/context-pack/`.
 - Per-engagement packs: `GET /api/context-pack?engagement=<id>` — a scoped
   subset (outcome, experiment frame, milestones, open tasks + waits, linked
   blockers, class lessons, standing decisions) for delegated agents: cheaper
-  tokens, less noise, cleaner blast radius. Generated on demand, unversioned. `skein context --engagement <id>` prints the same pack in a terminal.
+  tokens, less noise, cleaner blast radius. Generated on demand, unversioned. `skein context --engagement <id>` prints the same pack in a terminal, filtered by the caller. With `--write` it asks for `tier=workspace`, which builds the pack as nobody: a repository file is read by more people than the caller, so it never carries the caller's private or crew rows, and the CLI says so after it writes.
 
 ## Insights & findings
 
