@@ -37,6 +37,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+- Dependencies: PyJWT 2.15.0 (from 2.13.0), Strands SDK 1.57.1 (from 1.56.0) and pydantic 2.13.5 (from 2.13.4) in `backend/requirements.lock` and both workplace template locks. Declared minimums are unchanged. PyJWT 2.14.0 carries six security advisories, several for `PyJWKClient`, which OIDC sign-in uses. `scripts/check-session-upgrade.py` passed for sessions written on 1.56.0, restored, appended and restarted on 1.57.1, and rolled back to 1.56.0. Rebuild the image from the new lock.
 - In 0.6.8 the daily `retention-prune` job failed with KeyError on any day an export file older than 14 days existed under `data/exports`, so nothing else was pruned that day either. It now completes and names the files in its activity row. No action is needed.
 
 ## 0.6.8 — 2026-09-26
