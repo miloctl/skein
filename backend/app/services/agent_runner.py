@@ -351,6 +351,29 @@ def _unknown(agent: str, reason: str) -> dict:
     }
 
 
+# What a finished turn did, read from the gate's receipts. Fixed codes
+# only: the value lands in agent_wakeups.reason and job_outcomes.detail,
+# which reach readers the turn's own rows may not.
+def _outcome(recorded: list[dict]) -> str:
+    kinds = {r["kind"] for r in recorded}
+    if "refused" in kinds:
+        return "write_refused"
+    if "failed" in kinds:
+        return "write_failed"
+    return "" if kinds else "nothing_filed"
+
+
+def _ran_no_tool(built: Any, recorded: list[dict]) -> bool:
+    """True only when the turn provably wrote nothing: no gate receipt and an
+    empty tool table in the SDK's own metrics. The SDK counts a tool after it
+    returns, and turns a tool's own exception into an error result that is
+    counted too. An agent without readable metrics proves nothing."""
+    if recorded:
+        return False
+    metrics = getattr(getattr(built, "event_loop_metrics", None), "tool_metrics", None)
+    return isinstance(metrics, dict) and not metrics
+
+
 def run_one(
     agent: str,
     *,
@@ -421,6 +444,7 @@ def run_one(
         return _refused(agent, "a turn for this agent is already running")
 
     with leases.held(turn_token):
+        from ..agents import receipts
         from ..agents.identity import (
             reset_agent_identity,
             reset_consults,
@@ -463,6 +487,9 @@ def run_one(
         # opened HERE, in the context the run thread copies: tool calls run in
         # copies of it and share this one list, so the cap binds across them
         start_consults()
+        # Opened here too, for the same reason: the gate's receipts are the
+        # only record of what a turn nobody watched tried to write.
+        receipts.start()
         # A planner or specialist can be built after the outer agent starts. Freeze
         # the team pick so an admin change cannot split one unattended turn.
         model_token = set_team_model_snapshot(model_in_force())
@@ -507,7 +534,21 @@ def run_one(
             # is that the SCHEDULED JOB returns, so the rest of the fleet still
             # runs tonight.
             box: dict = {}
-            wake = _WAKE
+            from . import tuning
+
+            # read before the thread starts: effective() hits the database, and
+            # the worker thread must not open a connection just to read two knobs
+            limits = {
+                "turns": tuning.effective("agent_run_turns"),
+                "total_tokens": tuning.effective("agent_run_tokens"),
+            }
+            # The SDK stops the turn at these caps, and work the agent did not
+            # record by then reaches nobody.
+            wake = _WAKE + (
+                f"\n\nThis turn stops after {limits['turns']} model steps or"
+                f" {limits['total_tokens']:,} tokens. Call report_progress before"
+                " you reach that limit."
+            )
             if config.AGENT_DAILY_TOKENS:
                 # The ceiling refuses the NEXT run, never this one mid-turn — so
                 # the model is told what remains and told to converge near the
@@ -519,15 +560,6 @@ def run_one(
                     " remains, do not explore: finish or record the one most"
                     " important step, then stop."
                 )
-
-            from . import tuning
-
-            # read before the thread starts: effective() hits the database, and
-            # the worker thread must not open a connection just to read two knobs
-            limits = {
-                "turns": tuning.effective("agent_run_turns"),
-                "total_tokens": tuning.effective("agent_run_tokens"),
-            }
 
             turn_complete = threading.Event()
             parent_finished = threading.Event()
@@ -612,14 +644,18 @@ def run_one(
                 # an SDK literal, never model text — safe for job_outcomes.detail
                 out["stopped"] = stop
                 log.warning("agent run for %s stopped at %s", agent, stop)
+            if outcome := _outcome(receipts.drain()):
+                out["outcome"] = outcome
             return out
         except Exception as exc:
             # Logged and reported, never raised: run() below is a scheduled job,
             # and a raise there marks the whole sweep failed on /health when the
             # other agents ran fine.
             log.warning("agent run failed for %s (%s)", agent, type(exc).__name__)
-            if invoked:
+            if invoked and not _ran_no_tool(built, receipts.drain()):
                 return _unknown(agent, f"run failed: {type(exc).__name__}")
+            if invoked:
+                return _failed(agent, f"the turn failed before any tool ran: {type(exc).__name__}")
             return _failed(agent, f"run failed: {type(exc).__name__}")
         finally:
             # in a finally, not after the call: an exception mid-turn would
@@ -628,6 +664,8 @@ def run_one(
             reset_team_model_snapshot(model_token)
             reset_agent_identity(token)
             reset_consults()
+            # a box left set collects the next job's gate writes on this thread
+            receipts.reset()
             reset_policy_subject(subject_token)
             reset_policy_engine(policy_token)
             if invoked:
@@ -678,4 +716,5 @@ def run(
         # `_outcome_detail` reduces lists to counts. Keep SDK stop literals in
         # one safe scalar so the durable job row says why a bounded turn ended.
         "stops": " | ".join(f"{r['agent']}: {r['stopped']}" for r in stopped),
+        "outcomes": " | ".join(f"{r['agent']}: {r['outcome']}" for r in runs if r.get("outcome")),
     }
