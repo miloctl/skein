@@ -6,12 +6,13 @@ import { createPortal } from "react-dom";
 import { draftOf, EventForm, type EventFields, fieldsOf, patchOf } from "@/components/event-form";
 import Link from "next/link";
 
+import { ReceiptLine } from "@/components/receipt";
 import { StakeholderBrief } from "@/components/stakeholder-brief";
 import { PeekLink } from "@/components/task-peek";
 import { VisibilityBadge } from "@/components/visibility-picker";
 import { actionError, api, loadError } from "@/lib/api";
 import { addDays, dayLabel } from "@/lib/calendar";
-import { refHref } from "@/lib/entity-ref";
+import { type EntityRef, refHref } from "@/lib/entity-ref";
 import { reportStatus } from "@/lib/status";
 
 /** GET /api/events/{id}: the row plus its times on the team clock. */
@@ -29,6 +30,9 @@ export type CalendarEvent = {
   crew_id: number | null;
   engagement_id: number | null;
   outcome_status: string;
+  // the agenda's `question #12` references this reader may open
+  // (services/refs.py::readable_refs), from GET /api/events/{id} only
+  agenda_refs?: EntityRef[];
 };
 
 /** GET /api/events/{id}/items: per kind, the linked rows the reader may
@@ -312,7 +316,7 @@ export function EventPanel({
               <section>
                 <h3 className="text-xs font-medium text-ink-3">Agenda</h3>
                 <p className="mt-0.5 whitespace-pre-wrap text-sm text-ink [overflow-wrap:anywhere]">
-                  {event.agenda}
+                  <ReceiptLine receipt={{ message: event.agenda, refs: event.agenda_refs ?? [] }} />
                 </p>
               </section>
             )}
