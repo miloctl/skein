@@ -33,6 +33,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
           ],
           note: "",
         });
+      if (path.includes("offsite"))
+        return Promise.resolve([
+          { entity: "event", entity_id: 12, title: "Quarterly offsite", snippet: "" },
+        ]);
       if (path.includes("%2384"))
         return Promise.resolve([
           {
@@ -135,6 +139,16 @@ describe("the nav search box", () => {
     const link = await screen.findByRole("link", { name: /note #7/ });
     // /notes lists the newest page only, so a note hit names its note by id
     expect(link.getAttribute("href")).toBe("/notes?note=7");
+  });
+
+  it("opens a meeting hit in its panel on the calendar", async () => {
+    render(<NavSearch />);
+    const input = screen.getByLabelText(/Search Skein/);
+    fireEvent.change(input, { target: { value: "offsite" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    const link = await screen.findByRole("link", { name: /event #12/ });
+    // the calendar moves to the meeting's month (app/calendar/page.tsx)
+    expect(link.getAttribute("href")).toBe("/calendar?event=12");
   });
 
   it("links a non-task citation to the page that lists it", async () => {

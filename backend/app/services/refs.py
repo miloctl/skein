@@ -47,6 +47,7 @@ TARGETS = {
     "lesson": "lesson",
     "finding": "finding",
     "intake": "intake",
+    "event": "event",
 }
 
 # Constant schema names, used only AFTER scope and policy permit the row. A
@@ -63,6 +64,7 @@ _TITLE_SOURCE = {
     "lesson": ("lessons", "title"),
     "finding": ("findings", "message"),
     "intake": ("intake_requests", "title"),
+    "event": ("events", "title"),
 }
 
 _REF = re.compile(r"\b(" + "|".join(TARGETS) + r")\s+#(\d+)\b", re.IGNORECASE)
@@ -78,12 +80,16 @@ _REF = re.compile(r"\b(" + "|".join(TARGETS) + r")\s+#(\d+)\b", re.IGNORECASE)
 _QUOTED = re.compile(r"'[^'\n]*'")
 
 
-def refs(text: str) -> list[dict]:
+def refs(text: str, *, quoted: bool = True) -> list[dict]:
     """Every entity reference in one generated sentence, in reading order.
 
     Only in the GENERATED frame. Single-quoted spans are the row titles the
     producers interpolate, and a reference found inside one was written by a
     teammate about something else.
+
+    `quoted=False` is for text a person wrote, which has no frame: there an
+    apostrophe is a word, and with blanking on, "Mira's blocker #4 ... don't"
+    loses the reference between the two.
 
     Deduped on (entity, id): "task #12 waiting on task #12" is a cycle a
     producer can emit, and two chips for one row reads as two rows.
@@ -94,7 +100,7 @@ def refs(text: str) -> list[dict]:
     # quoted title both name one row the link lands on the quoted copy — the
     # right target, one occurrence early, and the only cost of parsing here
     # rather than shipping offsets on every receipt.
-    frame = _QUOTED.sub(lambda m: " " * len(m.group(0)), text or "")
+    frame = _QUOTED.sub(lambda m: " " * len(m.group(0)), text or "") if quoted else text or ""
     out: list[dict] = []
     seen: set[tuple[str, int]] = set()
     for m in _REF.finditer(frame):
@@ -113,9 +119,10 @@ def readable_refs(
     resource_filter: ResourceFilter | None = None,
     proposal_filter: ResourceFilter | None = None,
     allow_unclassified_proposals: bool = True,
+    quoted: bool = True,
 ) -> list[dict]:
     """Return references whose current destination can show the target."""
-    parsed = refs(text)
+    parsed = refs(text, quoted=quoted)
     resources = [
         (str(ref["entity"]), int(ref["id"]))
         for ref in parsed

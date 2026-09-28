@@ -556,6 +556,15 @@ review. Each names the condition that reopens it.
 | Requirement/Outcome record layer (2026-08-21 control-plane thesis) | A real engagement retro produces a traceability dispute — "which requirement did this work serve" — that `engagements.outcome`, milestones and decisions could not settle. A new entity costs seven gated registries; the dispute is the evidence it repays that. |
 | Assumption records (statement, owner, verification plan, expiry) | An engagement fails on an assumption nobody wrote down, and the retro shows `kill_criteria` plus a dated decision could not have held it. |
 | Acceptance checks + validation evidence as records | The evidence-gap findings rule (Insights backlog) fires often enough that teams act on it. The rule is the cheap probe; the records are the expensive answer. The display half shipped 2026-08-22: rows an `acceptance_criteria` names now resolve to their current status on the approval card. |
+| Recurring calendar events (RRULE) | A team creates the same weekly meeting by hand more than once a month. A playbook ritual creates one event per listed entry, not a series. |
+| Calendar week view with hour rows, drag to reschedule | The month grid is in use and someone asks to see one day's times side by side. |
+| Two-way Outlook, Exchange or Teams calendar sync, and ICS import | An explicit deployment requirement (runtime isolation, CLAUDE.md), or a team that types the same meetings in twice. The ICS feed stays the one export. |
+| Per-person ICS feed with private events | A request for it, and a per-person feed token designed first: the feed token is shared today. |
+| Reminders before a meeting | People stop using the ICS feed in their own calendar client. |
+| Lessons, milestones or memories linked to a meeting | A retro or review workflow that asks for it. Milestones already show on the calendar by their due dates. |
+| An agent tool that links an existing record to a meeting | A design that keeps the record's id out of the proposal. The review queue shows a proposal to every reader of its target, the meeting, so a private record's id reached them. Agents link at creation through the create tools' `event_id`. |
+| An event picker in the capture palette (`C`) | Linking after the fact from the meeting panel is common enough that the extra step costs time. |
+| Sharing an event to a wider tier | A request for it. It goes in `sharing.py`, which only widens, so no linked row becomes wider than its meeting. |
 | Authority matrix split by action class (internal edit vs external send) | An agent holds `autonomous` on an entity where one verb is internal and another leaves Skein (mail, webhook, customer surface). Today no tool on a granted entity crosses that line — the split waits for the tool that does. |
 
 ## Deferred by the agent-discovery adoption (2026-08-30)
@@ -670,3 +679,15 @@ larger than its finding.
   `api_keys` owner and label, the ended pairing, and 365 days of
   `usage_log`. Mentions and adoption counters now go. The rest is an owner
   decision: each is another author's record or an audit trail.
+
+## Found by the calendar work (2026-09-28)
+
+- **`docs/VISIBILITY.md` contradicts the time-away code** — its time-away
+  section says a private window about somebody else is refused, so a
+  teammate's window defaults to the workspace tier. `absences.add_absence`
+  instead forces `dates_shared` on it and keeps it private; `docs/FEATURES.md`
+  matches the code. Rewrite the VISIBILITY.md paragraph.
+- **`absences.list_absences` has no `LIMIT`** — against the "Listable is
+  LIMITed" rule in `docs/CORRECTIONS.md`. `GET /api/absences` and the
+  `list_absences` tool serve every current window. The calendar reads its
+  own capped query.

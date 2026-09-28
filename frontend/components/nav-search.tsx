@@ -81,7 +81,7 @@ const ENTITY_PAGE: Record<string, string> = {
   blocker: "/",
   decision: "/charter",
   engagement: "/dashboard",
-  event: "/dashboard",
+  event: "/calendar",
   intake: "/intake",
   lesson: "/dashboard",
   memory: "/agents",
@@ -142,13 +142,16 @@ function EntityLink({
   // than on the list that contains it — typing an engagement's name into
   // search is the most literal form of "how is Atlas going" there is. A note
   // opens alone on /notes (app/notes/page.tsx): the list there holds only the
-  // newest page, so an anchor to an older note would name no element.
+  // newest page, so an anchor to an older note would name no element. An
+  // event opens in its panel on /calendar, in whatever month it falls.
   const page =
     entity === "engagement"
       ? `/engagement/${entityId}`
       : entity === "note"
         ? `/notes?note=${entityId}`
-        : ENTITY_PAGE[entity]
+        : entity === "event"
+          ? `/calendar?event=${entityId}`
+          : ENTITY_PAGE[entity]
         ? `${ENTITY_PAGE[entity]}${anchor ? `#${anchor}` : ""}`
         : "";
   if (!page) return <span>{children}</span>;

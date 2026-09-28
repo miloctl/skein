@@ -22,7 +22,7 @@ for (const width of [360, 1440]) {
     await add.focus();
     await page.keyboard.press("Enter");
     await title.fill("Retained browser draft");
-    await selectRegister(page, "Calendar");
+    await selectRegister(page, "Time away");
     await expect(title).toBeHidden();
     await selectRegister(page, "Milestones");
     await expect(title).toBeVisible();
@@ -50,10 +50,10 @@ for (const width of [360, 1440]) {
     await page.goto(`/dashboard#${id}`);
     await expect(page.locator(`#${id}`)).toBeFocused();
     await expect(tasks).toBeHidden();
-    await page.goto("/dashboard#browse-calendar");
-    const calendar = page.locator("#browse-calendar");
-    await expect(calendar).toBeFocused();
-    expect(await calendar.evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe("none");
+    await page.goto("/dashboard#browse-time-away");
+    const away = page.locator("#browse-time-away");
+    await expect(away).toBeFocused();
+    expect(await away.evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe("none");
     expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
     const scan = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag22aa"]).analyze();
     expect(scan.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) }))).toEqual([]);

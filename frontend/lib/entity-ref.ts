@@ -42,6 +42,9 @@ const HREF: Record<string, (id: number) => string> = {
   lesson: (id) => `/dashboard#lesson-${id}`,
   finding: () => "/insights",
   intake: () => "/intake",
+  // a page, not the task peek: the calendar opens the event in its own panel
+  // and moves to the event's month (app/calendar/page.tsx)
+  event: (id) => `/calendar?event=${id}`,
 };
 
 /** The href for a reference, or "" when this build cannot render that row. */

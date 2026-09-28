@@ -17,6 +17,7 @@ NotificationBody = str | Callable[[dict], str | None]
 _SOURCE_ALIASES = {
     "blocker_edit": "blocker",
     "event_cancel": "event",
+    "event_edit": "event",
     "intake_edit": "intake",
     "memory_forget": "memory",
     "document_edit": "document",

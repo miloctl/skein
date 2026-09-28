@@ -9,7 +9,7 @@ from datetime import timedelta
 from typing import Any
 
 from .. import db
-from . import chat_threads, notifications, review, scope
+from . import chat_threads, notifications, review, scope, wording
 from .schedule import team_day_events
 from .scope import WORKSPACE_ONLY
 
@@ -43,11 +43,17 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "reason": (
                     f"it ran {db.local_moment(ev['starts_at'])} and no outcome is recorded"
                     + (f" — agenda: {ev['agenda'][:60]}" if ev["agenda"] else "")
+                    + (
+                        f". {wording.count(ev['linked'], 'item')} came out of it"
+                        if ev.get("linked")
+                        else ""
+                    )
                 ),
-                # /ingest is where an outcome gets written up. My Day carries
-                # its own two buttons for the answer itself (app/page.tsx), so
-                # the loop closes without leaving the page.
-                "link": "/ingest",
+                # /ingest is where an outcome gets written up, and the event
+                # id makes every line pasted there link back to this meeting.
+                # My Day carries its own two buttons for the answer itself
+                # (app/page.tsx), so the loop closes without leaving the page.
+                "link": f"/ingest?event={ev['id']}",
             }
         )
     for q in needs["open_questions"]:
@@ -273,6 +279,22 @@ def _scoped_recent(user: str, since: str) -> list[dict]:
     )
 
 
+def _with_linked(
+    meetings: list[dict],
+    viewer: scope.Viewer,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None,
+) -> list[dict]:
+    """Each meeting with `linked`, the rows that came out of it which this
+    reader may see. The reader still records the outcome: a link is a hint,
+    and FEATURES.md (Meeting outcomes) says Skein never infers one."""
+    from .schedule import linked_counts
+
+    counts = linked_counts(
+        [int(m["id"]) for m in meetings], viewer, resource_filter=resource_filter
+    )
+    return [{**m, "linked": counts.get(int(m["id"]), 0)} for m in meetings]
+
+
 def my_day(
     user: str,
     viewer: scope.Viewer = scope.NOBODY,
@@ -341,7 +363,9 @@ def my_day(
         # meetings that have finished with nothing recorded. Viewer-scoped
         # like every other list here, and a NOTICE rather than a decide: the
         # reader is being told something, not asked to judge it.
-        "meetings_awaiting_outcome": meetings_awaiting_outcome(viewer),
+        "meetings_awaiting_outcome": _with_linked(
+            meetings_awaiting_outcome(viewer), viewer, resource_filter
+        ),
         "open_questions": db.query(
             f"SELECT * FROM questions WHERE status = 'open' AND assigned_to = ? AND {q_f}"  # noqa: S608 — scope.visible_filter emits only bound marks
             " ORDER BY id",
