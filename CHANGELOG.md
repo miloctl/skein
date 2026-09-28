@@ -18,9 +18,25 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- `GET /api/notes` takes `before` (a note id: the notes older than it) and `limit` (1 to 100, default 25), newest first on an id keyset. `POST /api/field-guide/notes` ties the new `notes` card (rate-capped, fixed knot id).
+- The Skein MCP server adds `search_notes(keyword, limit, before)`, for 25 tools. Over a personal key it reads with the key owner's Viewer: their private notes and their crews' notes. Over stdio it reads the workspace tier. Policy action `skein.mcp.notes.read`, with a per-row projection.
+- The agent tool `search_notes` reads with the requester's Viewer through a per-row workplace policy projection (`skein.tool.search_notes`). A shared chat and an unattended run read the workspace tier.
+- The agent write gate refuses an agent's update or delete of a private record the requester can read: "An agent cannot change a private record. Change it yourself." Such a proposal auto-rejected on approval as "target no longer exists". After a chat turn's `search_notes` returns a private or crew note, every later write in that turn goes to review, and a write the team would review is refused.
+- Workplace policy: for an agent, the policy context of an existing row carries the row's own classification, at the gate and at approval. A crew row reached every rule unclassified, so a rule keyed on `classification == "crew"` never ran for an agent's change to one.
+- Extension API `1.0.0` is unchanged.
+
 ### Behavior
 
+- Work → Notes (`/notes`) lists every note you can read, newest first, 25 at a time. Search, open a note to its markdown, edit it (only the changed fields are sent), delete it, or share it with the team. A capture adds the new note on top without dropping older pages or an open edit. A search hit on a note opens `/notes?note=<id>`.
+- A bare C opens quick capture when focus is not in a form field and quick capture or a task panel is not open. Settings → You → Keyboard turns it off in this browser.
+- In your own chat, the agent can search your private notes. In a shared chat or an unattended run it reads the team's notes only.
+- `delete_note`, `cancel_event` and `forget_memory` on a private row give the refusal's reason instead of "no note #N". A crew member's agent can propose deleting a crew note, as it could already edit one.
+- The note delete confirmation on Notes and Browse says the activity record can keep the note's topic. It claimed 300 characters, and a delete logs the id only.
+- A new field-guide card, Your notes (Miller's Knot), ties when you open Notes.
+
 ### Operations
+
+- In 0.6.8 the daily `retention-prune` job failed with KeyError on any day an export file older than 14 days existed under `data/exports`, so nothing else was pruned that day either. It now completes and names the files in its activity row. No action is needed.
 
 ## 0.6.8 — 2026-09-26
 

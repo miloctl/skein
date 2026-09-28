@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 import { ArtifactMarkdown } from "@/components/artifact-markdown";
 import { Card } from "@/components/card";
@@ -34,16 +35,20 @@ function notesPath(q: string, before = 0, limit = 0) {
   return query ? `/api/notes?${query}` : "/api/notes";
 }
 
-/** `?note=<id>`: a search hit on a note (components/nav-search.tsx). */
-function noteIdFromUrl(): number {
-  const raw = new URLSearchParams(window.location.search).get("note");
+/** Reports `?note=<id>`, the note a search hit names
+ *  (components/nav-search.tsx), or 0 for the list. Router state, not
+ *  window.location with popstate: a next/link click to /notes, Back, and
+ *  history.replaceState all update it. A soft navigation fires no
+ *  popstate, so a view read from popstate outlives the link that left it. It sits
+ *  in its OWN Suspense boundary: useSearchParams client-renders up to the
+ *  nearest one, and a boundary around the page would prerender it empty,
+ *  which is why components/task-peek.tsx avoids the hook. */
+function NoteParam({ onChange }: { onChange: (id: number) => void }) {
+  const raw = useSearchParams().get("note");
   const id = Number(raw);
-  return raw && Number.isInteger(id) && id > 0 ? id : 0;
-}
-
-function subscribeHistory(cb: () => void) {
-  window.addEventListener("popstate", cb);
-  return () => window.removeEventListener("popstate", cb);
+  const note = raw && Number.isInteger(id) && id > 0 ? id : 0;
+  useEffect(() => onChange(note), [note, onChange]);
+  return null;
 }
 
 /** Markdown syntax only, so "#42" and "a -> b" read as written. Capped
@@ -114,7 +119,7 @@ function NoteEditor({
         />
       </label>
       {(lostTopic || lostContent) && (
-        <p className="text-xs text-danger">
+        <p id={`note-${note.id}-blocked`} role="status" className="text-xs text-danger">
           {lostTopic
             ? "The topic is empty. Type a topic to save the note."
             : "The content is empty. Type some content to save the note."}
@@ -124,6 +129,7 @@ function NoteEditor({
         <button
           type="submit"
           aria-disabled={busy || lostTopic || lostContent}
+          aria-describedby={lostTopic || lostContent ? `note-${note.id}-blocked` : undefined}
           className="rounded bg-thread-solid px-2 py-1 text-xs font-medium text-white hover:opacity-90 aria-disabled:opacity-40"
         >
           Save note
@@ -145,13 +151,10 @@ export default function NotesPage() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
-  // One note opened from search. The URL names it on arrival. A hit picked
-  // while this page is mounted arrives as an event instead, because
-  // next/link changes the URL in a transition that finishes after the
-  // click, and nothing tells a mounted page. 0 is the list.
-  const urlNote = useSyncExternalStore(subscribeHistory, noteIdFromUrl, () => 0);
-  const [picked, setPicked] = useState<number | null>(null);
-  const noteId = picked ?? urlNote;
+  // The one note a search hit opened, 0 for the list, and null until
+  // NoteParam reports: a load before that fetched the whole list for a page
+  // that was about to show one note.
+  const [noteId, setNoteId] = useState<number | null>(null);
   const view = noteId ? `note:${noteId}` : `q:${query}`;
   // The view the shown rows answer. Until the rows for a new search
   // arrive, the old ones would read as its results.
@@ -165,8 +168,8 @@ export default function NotesPage() {
   // A new search replaces the list. An answer to an older search, or an
   // older page for it, must not land in the new one.
   const generation = useRef(0);
-  // Focus moves after React commits, never on a timer: a timer fired before
-  // the commit found no edit button and dropped focus on <body>.
+  // Focus moves after React commits, never on a timer: a timer can fire
+  // before the commit, find no element, and leave focus on <body>.
   const pendingFocus = useRef<string | null>(null);
   useEffect(() => {
     const id = pendingFocus.current;
@@ -179,6 +182,7 @@ export default function NotesPage() {
   };
 
   const load = useCallback(() => {
+    if (noteId === null) return;
     const current = ++generation.current;
     // the newest note older than id + 1 is that note, when the reader can
     // read it, so one note needs no route of its own
@@ -193,7 +197,11 @@ export default function NotesPage() {
         setFailure(null);
         if (shown.length && noteId) {
           setOpenId(noteId);
-          focusAfterRender(`note-${noteId}-toggle`);
+          // a slow answer must not pull focus out of a field the reader
+          // has started to use
+          const active = document.activeElement;
+          if (!active || active === document.body || active.id === "content")
+            focusAfterRender(`note-${noteId}-toggle`);
         }
       })
       .catch((e) => {
@@ -202,28 +210,13 @@ export default function NotesPage() {
   }, [noteId, query, view]);
   useEffect(load, [load]);
 
-  useEffect(() => {
-    const onResult = (e: Event) => {
-      const hit = (e as CustomEvent<{ entity: string; id: number }>).detail;
-      if (hit?.entity !== "note") return;
-      setPicked(hit.id);
-      setQuery("");
-      setDraft("");
-    };
-    // back or forward: the URL says which view, not an earlier pick
-    const onPop = () => setPicked(null);
-    window.addEventListener("skein-search-result", onResult);
-    window.addEventListener("popstate", onPop);
-    return () => {
-      window.removeEventListener("skein-search-result", onResult);
-      window.removeEventListener("popstate", onPop);
-    };
-  }, []);
-
-  // A reload of /notes?note=<id> would open the one note again
+  // Set here as well as through NoteParam: the URL change reaches router
+  // state, but the list must not wait for that round trip. Left in the URL,
+  // a reload of /notes?note=<id> opens the one note again.
   const showList = () => {
-    setPicked(0);
-    if (noteIdFromUrl()) window.history.replaceState(null, "", "/notes");
+    setNoteId(0);
+    if (new URLSearchParams(window.location.search).has("note"))
+      window.history.replaceState(null, "", "/notes");
   };
 
   // Only the notes newer than the top row are added. A reload would drop
@@ -308,6 +301,9 @@ export default function NotesPage() {
       setDeletingId(null);
       setOpenId(null);
       if (noteId === id) showList();
+      // the last loaded row gone with older pages still unread: the empty
+      // state would claim there are no notes, so load the next page instead
+      else if (notes.length === 1 && hasMore) load();
       reportStatus("Note deleted.", "confirmation");
       focusAfterRender("content");
     } catch (e) {
@@ -340,13 +336,20 @@ export default function NotesPage() {
       </div>
 
       <WeakIdentityNotice className="mb-3" />
+      <Suspense fallback={null}>
+        <NoteParam onChange={setNoteId} />
+      </Suspense>
 
       <form
         role="search"
         onSubmit={(e) => {
           e.preventDefault();
+          const next = draft.trim();
+          // the same words set no new state and would send nothing, so a
+          // failed search could never be tried again
+          if (!noteId && next === query) load();
           showList();
-          setQuery(draft.trim());
+          setQuery(next);
         }}
         className="mb-3 flex gap-2"
       >
@@ -367,10 +370,16 @@ export default function NotesPage() {
         </button>
       </form>
 
-      {noteId > 0 && (
+      {Boolean(noteId) && (
         <p className="mb-3 text-sm text-ink-2">
           This is one note from search.{" "}
-          <button onClick={showList} className="font-medium text-thread underline">
+          <button
+            onClick={() => {
+              showList();
+              focusAfterRender("content");
+            }}
+            className="font-medium text-thread underline"
+          >
             Show all notes
           </button>
         </p>

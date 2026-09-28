@@ -498,9 +498,16 @@ def for_change(
         if entity_id:
             return _task_context(entity_id, payload)
     viewer = scope.Viewer.for_actor(actor) if actor else scope.NOBODY
+    # Policy context is metadata, never content, so an agent gets the row's
+    # authoritative classification, as mcp_server._policy_refusal does for a
+    # task. Read through the agent's own filter, a crew row came back
+    # unclassified (an agent is in no crew), and a rule that denies agents a
+    # crew row never ran at the gate or at approval. Whether the agent may
+    # touch the row is decided elsewhere: the gate's requester check and
+    # scope.assert_editable at apply.
     current = (
         existing_scoped(entity, entity_id, viewer)
-        if actor and entity_id
+        if actor and entity_id and not scope.is_machine(actor)
         else existing(entity, entity_id)
         if entity_id
         else {}

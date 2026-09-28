@@ -339,6 +339,43 @@ def test_a_personal_key_finds_its_owners_private_notes_and_nobody_elses(fresh_db
     assert [n["content"] for n in json.loads(mcp_server.search_notes("ZZMCP"))] == ["ZZMCP team"]
 
 
+def test_a_workplace_rule_that_denies_private_rows_holds_for_mcp_note_search(fresh_db):
+    """The tool-level policy check sees the tool, not the notes, so only the
+    per-row projection lets a rule deny a private note by its classification."""
+    from app import mcp_server
+    from app.agents.identity import reset_requester_viewer, set_requester_viewer
+    from app.extensions import PolicyContribution, PolicyDecision, PolicyEffect, SkeinModule
+    from app.extensions.policy import reset_policy_engine, set_policy_engine
+    from app.extensions.registry import ExtensionRegistry
+    from app.services import capture, scope, users
+
+    users.ensure_user("ava")
+    capture.capture("note: ZZMCPRULE private", actor="ava", strong_auth=True, visibility="private")
+    capture.capture("note: ZZMCPRULE team", actor="ava", visibility="workspace")
+
+    def deny_private(request):
+        if request.resource.classification == "private":
+            return PolicyDecision(PolicyEffect.DENY, ("private records are protected",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.7.0",
+        policies=(PolicyContribution("acme.workplace.private-records", deny_private),),
+    )
+    engine = set_policy_engine(ExtensionRegistry.build((module,)).policy_engine)
+    viewer = set_requester_viewer(scope.Viewer("ava", True))
+    try:
+        seen = [n["content"] for n in json.loads(mcp_server.search_notes("ZZMCPRULE"))]
+    finally:
+        reset_requester_viewer(viewer)
+        reset_policy_engine(engine)
+    assert seen == ["ZZMCPRULE team"]
+
+
 def test_a_read_and_a_bounded_list_answer_over_http(fresh_db):
     from app.services import users, work
 

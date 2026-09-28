@@ -58,6 +58,23 @@ describe("the C key", () => {
     expect(dialog()).toBeNull();
   });
 
+  it("leaves an open modal dialog alone", () => {
+    render(
+      <>
+        <div role="dialog" aria-modal="true">
+          <button>Inside the task panel</button>
+        </div>
+        <CapturePalette />
+      </>,
+    );
+    const inside = screen.getByText("Inside the task panel");
+    inside.focus();
+    act(() => {
+      fireEvent.keyDown(inside, { key: "c" });
+    });
+    expect(dialog()).toBeNull();
+  });
+
   it("does nothing after the person turns it off", () => {
     setCaptureKeyEnabled(false);
     render(<CapturePalette />);

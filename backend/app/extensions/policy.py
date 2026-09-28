@@ -119,7 +119,7 @@ class CorePolicy:
             return PolicyDecision(PolicyEffect.PERMIT)
 
         from .. import config
-        from ..agents.identity import force_review
+        from ..agents.identity import force_review, read_scoped_this_turn
         from ..tools._gate import ALWAYS_REVIEW, effective_authority
 
         level, expired = effective_authority(
@@ -133,6 +133,7 @@ class CorePolicy:
         if (
             request.resource.type in ALWAYS_REVIEW
             or force_review()
+            or read_scoped_this_turn()
             or expired
             or (level == "review" and config.AGENT_REVIEW)
         ):
