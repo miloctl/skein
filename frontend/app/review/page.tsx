@@ -346,17 +346,24 @@ function AcceptanceEvidence({
 function VerdictAsk({
   verb,
   sponsor,
+  sendBackTo,
   onSubmit,
   onCancel,
 }: {
   verb: "approve" | "reject";
   sponsor?: string;
-  onSubmit: (note: string) => void;
+  // task_completion rejections only: the delegate a send-back wakes
+  sendBackTo?: string;
+  onSubmit: (note: string, sendBack: boolean) => void;
   onCancel: () => void;
 }) {
   const [note, setNote] = useState("");
+  // unchecked by default: a rejection alone never wakes the agent
+  // (docs/AGENT-WAKEUPS.md, Non-goals), so the wake is the reviewer's choice
+  const [sendBack, setSendBack] = useState(false);
+  const offerSendBack = verb === "reject" && Boolean(sendBackTo);
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <div className="min-w-0 flex-1">
         <input
           autoFocus
@@ -366,7 +373,8 @@ function VerdictAsk({
           maxLength={1000}
           onChange={(e) => setNote(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && note.trim()) onSubmit(note.trim());
+            if (e.key === "Enter" && note.trim())
+              onSubmit(note.trim(), offerSendBack && sendBack);
             if (e.key === "Escape") onCancel();
           }}
           aria-describedby="verdict-reason-limit"
@@ -386,9 +394,19 @@ function VerdictAsk({
           Maximum 1,000 characters.
           {note.length >= 800 ? ` ${1000 - note.length} remaining.` : ""}
         </p>
+        {offerSendBack ? (
+          <label className="mt-1 flex items-center gap-2 text-sm text-ink-2">
+            <input
+              type="checkbox"
+              checked={sendBack}
+              onChange={(e) => setSendBack(e.target.checked)}
+            />
+            Send the task back to {sendBackTo} for another turn
+          </label>
+        ) : null}
       </div>
       <button
-        onClick={() => onSubmit(note.trim())}
+        onClick={() => onSubmit(note.trim(), offerSendBack && sendBack)}
         disabled={!note.trim()}
         className={`rounded-lg px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40 ${
           verb === "reject" ? "bg-danger" : "bg-ok"
@@ -665,15 +683,20 @@ export default function ReviewPage() {
     verb: "approve" | "reject";
   } | null>(null);
 
-  const act = async (id: number, verb: "approve" | "reject", note = "") => {
+  const act = async (
+    id: number,
+    verb: "approve" | "reject",
+    note = "",
+    sendBack = false,
+  ) => {
     try {
-      const result = await api<{ execution_status?: string }>(
-        `/api/review/${id}/${verb}`,
-        {
-          method: "POST",
-          body: JSON.stringify({ note }),
-        },
-      );
+      const result = await api<{
+        execution_status?: string;
+        sent_back?: boolean;
+      }>(`/api/review/${id}/${verb}`, {
+        method: "POST",
+        body: JSON.stringify(sendBack ? { note, send_back: true } : { note }),
+      });
       if (result.execution_status === "completion_unknown") {
         reportStatus(
           `Proposal #${id} was approved, but remote completion is unknown. Do not retry the action.`,
@@ -683,6 +706,11 @@ export default function ReviewPage() {
         // still have written before it failed (extensions/tools.py)
         reportStatus(
           `Proposal #${id} was approved, but the call did not complete.`,
+        );
+      } else if (result.sent_back) {
+        reportStatus(
+          `Proposal #${id} rejected. The agent is queued for another turn.`,
+          "confirmation",
         );
       } else {
         reportStatus(
@@ -982,7 +1010,14 @@ export default function ReviewPage() {
               <VerdictAsk
                 verb={asking.verb}
                 sponsor={c.sponsor}
-                onSubmit={(note) => act(c.id, asking.verb, note)}
+                sendBackTo={
+                  c.entity === "task_completion"
+                    ? c.evidence?.delegated_agent || c.proposed_by
+                    : undefined
+                }
+                onSubmit={(note, sendBack) =>
+                  act(c.id, asking.verb, note, sendBack)
+                }
                 onCancel={closeAsk}
               />
             ) : (

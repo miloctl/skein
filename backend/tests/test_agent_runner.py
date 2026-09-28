@@ -673,6 +673,8 @@ def test_the_wake_prompt_does_not_ask_for_new_work(fresh_db):
     nobody asked for. The turn resumes work it already holds."""
     assert "Do not create new tasks" in agent_runner._WAKE
     assert "read_worklog" in agent_runner._WAKE  # continuity, not a cold start
+    # a task sent back with a rejection note resumes on that note
+    assert "rejected submission" in agent_runner._WAKE
 
 
 def test_an_unattended_write_still_passes_the_gate(fresh_db, monkeypatch):

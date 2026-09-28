@@ -1443,6 +1443,7 @@ def reject_change(
     reviewer_capabilities: tuple[str, ...] = (),
     administrator: bool = False,
     policy_registry=None,
+    send_back: bool = False,
 ) -> dict:
     # Rejection is a durable policy verdict, settled by the same CAS approval
     # uses (_claim, UPDATE ... WHERE status = 'pending'), so two reviewers
@@ -1464,6 +1465,36 @@ def reject_change(
             reviewer_capabilities=reviewer_capabilities,
             administrator=administrator,
             policy_registry=policy_registry,
+            send_back=send_back,
+        )
+
+
+def _send_back_target(change: dict, note: str) -> None:
+    """Refuse a send-back that cannot run, before the verdict lands: the
+    rejection and its wake commit together or not at all."""
+    if change["entity"] != "task_completion" or not change["entity_id"]:
+        raise ValueError(
+            "Only a submitted task can go back to its agent. Reject it without sending it back."
+        )
+    if not note.strip():
+        raise ValueError("A task goes back with a note. Write what the agent must change.")
+    from . import policy_context
+
+    # held first, as approve_change holds it: the delegate read below decides
+    # the wake, and a reassignment committing between the read and the
+    # enqueue would wake an agent that no longer holds the task
+    policy_context.hold_resource("task", int(change["entity_id"]))
+    task = db.query_one(
+        "SELECT status, delegated_agent FROM tasks WHERE id = ?", (change["entity_id"],)
+    )
+    if (
+        not task
+        or task["status"] in ("done", "void")
+        or task["delegated_agent"] != change["proposed_by"]
+    ):
+        raise ValueError(
+            f"Task #{change['entity_id']} is no longer delegated to {change['proposed_by']}."
+            " Reject it without sending it back."
         )
 
 
@@ -1478,6 +1509,7 @@ def _reject_change_locked(
     reviewer_capabilities: tuple[str, ...] = (),
     administrator: bool = False,
     policy_registry=None,
+    send_back: bool = False,
 ) -> dict:
     _check_reviewer(actor)
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
@@ -1488,6 +1520,8 @@ def _reject_change_locked(
     _assert_judgeable(change, viewer)
     if change["status"] != "pending":
         raise ValueError(f"change #{change_id} already {change['status']}")
+    if send_back:
+        _send_back_target(change, note)
     # Its target is gone, so this verdict judges nothing the agent did:
     # approve_change's target-vanished branch settles the same proposal with
     # reviewed_strong = 0 for that reason.
@@ -1572,10 +1606,19 @@ def _reject_change_locked(
     db.log_activity(
         actor,
         "reject_change",
-        f"#{change_id}" + (f" (rejected for {sponsor})" if sponsor else ""),
+        f"#{change_id}"
+        + (f" (rejected for {sponsor})" if sponsor else "")
+        + (" (sent back)" if send_back else ""),
     )
     _clear_review_ping(change_id)
-    return {"id": change_id, "status": "rejected"}
+    if not send_back:
+        return {"id": change_id, "status": "rejected"}
+    from . import agent_wakeups
+
+    # an explicit human request for one more turn (docs/AGENT-WAKEUPS.md,
+    # Non-goals): a rejection alone never wakes the agent
+    agent_wakeups.enqueue(change["proposed_by"], int(change["entity_id"]), requested_by=actor)
+    return {"id": change_id, "status": "rejected", "sent_back": True}
 
 
 _DIFF_TABLES = {
