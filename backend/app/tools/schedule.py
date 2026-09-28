@@ -6,7 +6,7 @@ from typing import Any
 from strands import tool
 
 from .. import db
-from ..agents.identity import agent_identity
+from ..agents.identity import agent_identity, requester_viewer
 from ..extensions.policy import (
     PolicyEffect,
     PolicyInput,
@@ -95,7 +95,10 @@ def cancel_event(event_id: int) -> str:
     Args:
         event_id: ID of the event to cancel.
     """
-    row = schedule.get_event(event_id)
+    # read as the requester, as tools/collab.py::delete_note does, so their
+    # own private event reaches the gate and its refusal names the reason
+    rv = requester_viewer()
+    row = schedule.get_event(event_id, rv if isinstance(rv, scope.Viewer) else scope.NOBODY)
     if not row:
         return json.dumps({"error": f"no event #{event_id}"})
     return gated_write(

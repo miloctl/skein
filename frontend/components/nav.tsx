@@ -16,6 +16,7 @@ import { bridgeAttentionChange } from "@/lib/attention";
 import { reportStatus } from "@/lib/status";
 import { authConfig, isSignedIn, sessionLocked, sessionSnapshot, signIn, signOut, subscribeSession } from "@/lib/auth";
 import { isGated, subscribeGated } from "@/lib/gated";
+import { useCaptureKeyEnabled } from "@/lib/capture-key";
 import { useFrontendExtensions } from "@/lib/extensions/context";
 
 const DESKTOP = "(min-width: 1024px)";
@@ -203,6 +204,7 @@ export function Nav({ children }: { children?: React.ReactNode }) {
   }, [attention.yours, gated, navigation, pathname]);
 
   const anonymous = user === "anonymous";
+  const captureKey = useCaptureKeyEnabled();
   const desktop = useSyncExternalStore(subscribeDesktop, () => window.matchMedia?.(DESKTOP).matches ?? true, () => true);
   const savedCollapsed = useSyncExternalStore(subscribePreference, readCollapsed, () => false);
   const [collapseOverride, setCollapseOverride] = useState<boolean | null>(null);
@@ -261,6 +263,10 @@ export function Nav({ children }: { children?: React.ReactNode }) {
     return <NavigationDestination key={key} href={href} aria-current={current}
       className={"shell-row " + (icon ? "" : "shell-child ") + (current ? "shell-current" : "")}
       onClick={(event) => {
+        // The page you are on keeps its query and fragment: a Browse
+        // register, a deep-linked row, one note opened from search
+        // (e2e/navigation-shell.spec.ts pins it). Each of those views
+        // carries its own way back to the full page.
         if (!extension && pathname === href) event.preventDefault();
         closeDrawer();
         setMenuOpen(false);
@@ -489,7 +495,7 @@ export function Nav({ children }: { children?: React.ReactNode }) {
           {!anonymous && <NavSearch />}
           <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
             <PageHelp key={pathname} />
-            <button title="Quick capture" className="min-h-11 shrink-0 rounded-lg border border-line-strong bg-raised px-2 text-xs text-ink-2 hover:bg-line hover:text-ink"
+            <button title={captureKey ? "Quick capture (C)" : "Quick capture"} aria-keyshortcuts={captureKey ? "C" : undefined} className="min-h-11 shrink-0 rounded-lg border border-line-strong bg-raised px-2 text-xs text-ink-2 hover:bg-line hover:text-ink"
               onClick={(event) => {
                 event.currentTarget.focus();
                 window.dispatchEvent(new Event("skein-capture-open"));

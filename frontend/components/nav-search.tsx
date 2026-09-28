@@ -86,7 +86,7 @@ const ENTITY_PAGE: Record<string, string> = {
   lesson: "/dashboard",
   memory: "/agents",
   milestone: "/dashboard",
-  note: "/dashboard",
+  note: "/notes",
   promise: "/portfolio",
   question: "/dashboard",
   standup: "/dashboard",
@@ -140,11 +140,15 @@ function EntityLink({
   const anchor = ANCHOR[entity] ?? "";
   // an engagement has its OWN page, so the hit lands on the engagement rather
   // than on the list that contains it — typing an engagement's name into
-  // search is the most literal form of "how is Atlas going" there is
+  // search is the most literal form of "how is Atlas going" there is. A note
+  // opens alone on /notes (app/notes/page.tsx): the list there holds only the
+  // newest page, so an anchor to an older note would name no element.
   const page =
     entity === "engagement"
       ? `/engagement/${entityId}`
-      : ENTITY_PAGE[entity]
+      : entity === "note"
+        ? `/notes?note=${entityId}`
+        : ENTITY_PAGE[entity]
         ? `${ENTITY_PAGE[entity]}${anchor ? `#${anchor}` : ""}`
         : "";
   if (!page) return <span>{children}</span>;

@@ -5,7 +5,7 @@ import json
 from strands import tool
 
 from .. import db
-from ..agents.identity import agent_identity, requester_identity
+from ..agents.identity import agent_identity, requester_identity, requester_viewer
 from ..extensions.policy import (
     PolicyEffect,
     PolicyInput,
@@ -112,7 +112,11 @@ def forget_memory(memory_id: int) -> str:
         memory_id: ID of the memory (recall_memories shows ids).
     """
     requester = requester_identity() or agent_identity()
-    row = memory.get_memory(memory_id, user=requester)
+    # the requester's Viewer, so a private memory reaches the gate and its
+    # refusal names the reason instead of "no memory"
+    rv = requester_viewer()
+    viewer = rv if isinstance(rv, scope.Viewer) else scope.NOBODY
+    row = memory.get_memory(memory_id, viewer, user=requester)
     if not row:
         return json.dumps({"error": f"no memory #{memory_id}"})
     return gated_write(

@@ -517,8 +517,14 @@ def get_flock_traces(user: CurrentUser, thread: str = "", flock: str = "", limit
 
 
 @router.get("/notes")
-def get_notes(user: CurrentUser, viewer: ViewerDep, q: str = ""):
-    return collab.search_notes(q, viewer)
+def get_notes(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    q: str = "",
+    before: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 25,
+):
+    return collab.search_notes(q, viewer, before=before, limit=limit)
 
 
 class NotePatch(BaseModel):
@@ -1609,6 +1615,14 @@ def get_field_guide_for(
     cards = fieldguide.cards_for_path(path)
     fieldguide.mark(user, "page_help")
     return {"cards": cards}
+
+
+@router.post("/field-guide/notes")
+def post_field_guide_notes(user: CurrentUser):
+    # its own route because GET /api/notes also serves Work → Browse, and a
+    # fixed knot id keeps a client from minting arbitrary guide progress
+    ratelimit.check("write", user)
+    fieldguide.mark(user, "notes")
 
 
 @router.post("/field-guide/todays-three")

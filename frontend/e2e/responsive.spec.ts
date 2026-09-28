@@ -19,6 +19,7 @@ const PAGES = [
   "/chat",
   "/portfolio",
   "/dashboard",
+  "/notes",
   "/insights",
   "/artifacts",
   "/planning",
@@ -659,6 +660,7 @@ const CLAIMS: Record<string, RegExp> = {
     /No agent identities yet|No rules yet|Nothing remembered yet|No flock has flown yet/,
   "/review": /propose changes, they wait here/,
   "/intake": /No requests yet/,
+  "/notes": /No notes yet/,
   "/charter": /No charter entries yet/,
   "/activity": /Nothing on the ledger yet/,
 };

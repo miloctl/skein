@@ -13,7 +13,8 @@ import { Fragment } from "react";
  *
  *  The key opens SEARCH. It opened quick capture until 2026-08-14: beside a
  *  search box, ⌘K reads as the command-palette convention it now is, and
- *  capture WRITES a row. Capture is reached by its own button.
+ *  capture WRITES a row. Capture opens from its own button, or on a bare C
+ *  (lib/capture-key.ts), which is far from any search habit.
  *
  *  Both spellings render and globals.css drops the wrong one, so this is
  *  safe in server-rendered markup.

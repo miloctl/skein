@@ -19,6 +19,7 @@ from .. import db, ratelimit
 from ..agents import receipts
 from ..agents.identity import (
     agent_identity,
+    read_scoped_this_turn,
     requester_identity,
     requester_viewer,
     strong_requester,
@@ -196,11 +197,21 @@ def _gated_write_locked(
         and isinstance(requester, scope.Viewer)
         and requester.name
         and domain_policy.supports_resource(entity)
-        and not domain_policy.existing_scoped(entity, entity_id, requester)
     ):
-        detail = "No record you can read was found."
-        receipts.record("refused", entity, detail, actor=actor)
-        return json.dumps({"error": detail})
+        readable = domain_policy.existing_scoped(entity, entity_id, requester)
+        if not readable:
+            detail = "No record you can read was found."
+            receipts.record("refused", entity, detail, actor=actor)
+            return json.dumps({"error": detail})
+        # The change applies as the agent: review.approve_change applies as
+        # the proposer, and every tool's direct path passes the agent's name.
+        # scope.assert_editable refuses a machine actor on a private row, so a
+        # proposal filed here auto-rejects on approval as "target no longer
+        # exists" while the row sits on the reviewer's screen.
+        if str(readable.get("classification") or "") == scope.PRIVATE:
+            detail = "An agent cannot change a private record. Change it yourself."
+            receipts.record("refused", entity, detail, actor=actor)
+            return json.dumps({"error": detail})
     # An agent is in no crew, and the apply runs as the agent, which
     # crews.assert_writable refuses for a crew row. Resolved as the agent
     # below, the refusal read "no engagement #N" for a record the person can
@@ -355,6 +366,18 @@ def _gated_write_locked(
         decision.approver_groups,
         decision.approver_capabilities,
     )
+    # This turn read a row only the requester or their crew can read
+    # (agents/identity.py::read_scoped_this_turn). Reviewed by the team, the
+    # proposal payload hands that text to every teammate before anyone
+    # approved sharing it, so only the requester's own review may follow.
+    if not private_review and read_scoped_this_turn():
+        detail = (
+            "This turn read notes that only you or your crew can read, and the team"
+            " reviews agent changes here. An agent cannot write a record in the same"
+            " turn. Ask for the change in a new message."
+        )
+        receipts.record("refused", entity, detail, actor=actor)
+        return json.dumps({"error": detail})
     review_owner = (review_owner or requester_identity()) if private_review else ""
     try:
         # Same reason as the direct() savepoint above: this catch RETURNS, so
