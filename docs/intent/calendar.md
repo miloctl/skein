@@ -34,7 +34,7 @@ is team coordination, not portfolio. Slices 2 and 3 also serve the agent
 loop that the posture funds: an agent reschedules a meeting, and files what
 came out of it with the link, through the review gate.
 
-## What exists today
+## What existed before this work (2026-09-28)
 
 | Part | Where | Note |
 |---|---|---|
@@ -90,9 +90,11 @@ the event: the probe raises `ValueError(scope.missing_text("events", id))`
 for both an absent event and a hidden one, so the error is not an oracle.
 
 Events cannot narrow after a link exists: `update_event` does not take
-`visibility` (D8), and `events` is not in `sharing.SHAREABLE`. Containment
-at write time therefore holds for the life of the link. The one exception is
-recorded under "Residual risks".
+`visibility` (D8), `events` is not in `sharing.SHAREABLE`, and an event
+links only to an engagement at least as wide as itself (every policy reader
+drops an event whose engagement it cannot read, which narrows it in
+effect). Containment at write time therefore holds for the life of the
+link. The one exception is recorded under "Residual risks".
 
 ### D5. Ingested items take the meeting's tier
 
@@ -131,18 +133,21 @@ that core update services never accept it ("an ignored extra JSON field
 cannot replace stored classification"). A future share-an-event feature
 goes in `sharing.py`, which only widens.
 
-### D9. Lock order: the event, then the item
+### D9. Lock order: the event first
 
 "A read takes no lock" (CLAUDE.md) applies here: the event's tier decides
 whether the link write is allowed. Each path takes
 `policy_context.hold_resource("event", id)` FIRST in its transaction, then
-`SELECT ... FOR UPDATE` on the item. The approval path gets `("event_id",
-"event")` in the parent-lock loop in `review.py`, after `engagement_id` and
-before `milestone_id`. Engagement to event to milestone to task is top-down,
-which matches the existing comment there. Create services run the event
-probe with `FOR KEY SHARE` right after they resolve the row's tier, which
-the containment check needs: a concurrent cancel waits instead of turning
-the insert into a foreign-key 500. No path takes the event after the item.
+`SELECT ... FOR UPDATE` on the item. The approval path takes `("event_id",
+"event")` FIRST in the parent-lock loop in `review.py`, before the
+engagement: `update_event` holds the event and then, relinking it, its new
+engagement, and the create services probe the event before their insert
+checks the engagement's foreign key. With the engagement first, a reschedule
+and an approval deadlock (`test_rescheduling_and_approving_do_not_deadlock`).
+Create services run the event probe with `FOR KEY SHARE` right after they
+resolve the row's tier, which the containment check needs: a concurrent
+cancel waits instead of turning the insert into a foreign-key 500. No path
+takes the event after the item or after the engagement.
 
 ### D10. Time away follows the rule of the reader it derives from
 
@@ -182,8 +187,8 @@ Backend:
     against `start` and `end` as dates (D7). This needs a `ponytail:`
     comment: the query scans every event before the window end, and a span
     cap or a range index is the fix if events reach six figures.
-  - Tasks: `status NOT IN ('done', 'void') AND due_date BETWEEN ? AND ?`,
-    wrapped in `work.redact_task_relationships`.
+  - Tasks: `status NOT IN ('done', 'void') AND due_date BETWEEN ? AND ?`.
+    The query selects no link column, so no link id needs redacting.
   - Milestones: `status != 'done'`.
   - Promises: `status = 'open'`, with the direction word the ICS feed uses.
   - Time away: D10.
@@ -213,7 +218,8 @@ Frontend:
   refactor this feature does not need. The panel copies the task peek's
   dialog rules: `role="dialog"`, `aria-modal`, focus to Close, Escape, and
   focus returned to the opener. It shows the team-clock time, attendees,
-  description, agenda, the outcome buttons and the pre-meeting brief. Move
+  description, agenda and the pre-meeting brief (My Day keeps the outcome
+  buttons). Move
   `StakeholderBrief` out of `app/page.tsx` into `components/` so that My Day
   and the panel share it. Delete keeps the dashboard's existing confirmation
   text.
@@ -289,8 +295,9 @@ Tests that pin the risky parts, in `backend/tests/test_calendar.py`:
   - `review._registry`, `_DIFF_TABLES` and `_TARGET_TABLE`
   - `lexicon.CAPABILITY`
   - `_gate._FAMILY`
-  - `policy_context._TABLES`. **No test guards this one.** Without it the
-    gate skips the requester-readability and private-row check.
+  - `policy_context._TABLES`. Without it the gate skips the
+    requester-readability and private-row check;
+    `test_a_project_rule_judges_an_event_edit` fails.
   - `notifications._SOURCE_ALIASES`
   - `activity.VERBS`
   - `ALL_TOOLS` and `CORE_WRITE_TOOLS`
@@ -317,10 +324,8 @@ Tests that pin the risky parts, in `backend/tests/test_calendar.py`:
   plus `CREATE INDEX idx_<table>_event_link ON <table>(event_id) WHERE
   event_id IS NOT NULL`. Without the indexes, every event delete scans
   seven tables.
-- Promote `work._visible_link` to `scope.visible_link`, because a second
-  module now needs it. Add `schedule.check_event_link(event_id, *, actor,
-  child_tier, child_crew_id, child_label)`: probe (D4, D9), containment, and
-  return the row.
+- `schedule.check_event_link(event_id, *, actor, tier, crew_id, label)`:
+  the probe (D4, D9) and containment, raising `ValueError`.
 - The seven create services get `event_id: int = 0` and call the check.
   They must: approval passes the payload into the service as keyword
   arguments with no filter, so a key the service does not accept raises
@@ -336,9 +341,10 @@ Tests that pin the risky parts, in `backend/tests/test_calendar.py`:
   has no item id until approval, so a separate link call cannot follow a
   create. The link must travel in the create payload.
 - Linking after the fact:
-  - Services: `schedule.link_item(event_id, kind, item_id, *, actor,
-    origin)` and `schedule.unlink_item(kind, item_id, *, actor)`, over a
-    constant `LINKABLE` map from kind to table. Lock order follows D9.
+  - Services: `schedule.link_item(event_id, kind, item_id, *, actor)` and
+    `schedule.unlink_item(event_id, kind, item_id, *, actor)`, over the
+    constant `schedule.LINKED` map from kind to table and title column. Lock
+    order follows D9.
     `assert_editable` runs on the item. Each writes one activity row
     (`link_event` / `unlink_event`) through `scope.detail` on the item's
     tier.
@@ -355,8 +361,8 @@ Tests that pin the risky parts, in `backend/tests/test_calendar.py`:
 - `schedule.event_items(event_id, viewer, resource_filter)` follows the
   pattern of `engagement_brief.brief`: the parent through `visible_filter`
   or `scope.missing`; then each table through its own `visible_filter`,
-  `policy_context.filter_resource_rows` and `LIMIT`; tasks through
-  `redact_task_relationships`. Served as `GET /api/events/{id}/items` and
+  `policy_context.filter_resource_rows` and `LIMIT`. Each row is its id and
+  title, with no link column. Served as `GET /api/events/{id}/items` and
   shown in the panel as "From this meeting".
 - Redaction: the survey found three places.
   - `work.redact_task_relationships`: null `event_id` when the reader cannot
@@ -380,12 +386,12 @@ Tests that pin the risky parts, in `backend/tests/test_calendar.py`:
     VIEWER can read. It is one `UNION ALL` query, grouped by event, with
     each table's own filter. A count that includes a hidden row reveals
     that the row exists.
-  - My Day shows "1 item came from this meeting" or "N items came from this
-    meeting", with the plural computed. The string carries a number, so it
+  - My Day's reason adds "1 item came out of it" or "N items came out of
+    it", with the plural computed. The string carries a number, so it
     is never warm.
   - The reader still records the outcome. FEATURES.md says Skein never
     infers it.
-- Field-guide card `meeting-links` (`ties: predicate`): true when the person
+- Field-guide card `meeting_links` (`ties: predicate`): true when the person
   created at least one row that has an `event_id`. Edit both card counts.
 - `backend/tests/test_event_links.py`:
   - The containment matrix: a workspace item on a private meeting is
@@ -427,12 +433,13 @@ Tests that pin the risky parts, in `backend/tests/test_calendar.py`:
 
 ## Residual risks accepted
 
-- **A private item can keep a link its author can no longer read.** For
-  example, the author leaves the crew that owns the meeting. Only the author
-  reads a private item, and the id is one they once read. Tasks are
-  redacted anyway (slice 3). Redacting the other six kinds means a pass on
-  every list endpoint that returns them. If that is wanted, it is a later
-  item.
+- **An author can keep a link to a meeting they can no longer read.** For
+  example, they leave the crew that owns the meeting. A private item is read
+  by its author alone, and the author clause of `visible_filter` keeps a crew
+  item readable by its author after they leave the crew too. In both cases
+  the id is one they once read. Tasks are redacted anyway. Redacting the
+  other six kinds means a pass on every list endpoint that returns them. If
+  that is wanted, it is a later item.
 - **The overlap query has no lower bound on `starts_at`** (the `ponytail:`
   comment in slice 1).
 - **Linking changes no `updated_at`.** A client that syncs on `updated_at`

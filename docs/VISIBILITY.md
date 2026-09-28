@@ -183,7 +183,11 @@ inventory:
   same-crew links. A private task can use a link that its author can read. The
   write path checks every link and a milestone's engagement parent in one
   transaction. Read paths redact inaccessible relationship IDs for legacy
-  rows.
+  rows. The meeting a row came out of (`event_id` on notes, tasks, decisions,
+  questions, blockers, promises and intake requests) is held to the same rule
+  by `schedule.check_event_link`, and an event to its engagement the same
+  way. Tasks redact a meeting link the reader cannot read; the other six kinds
+  do not, which docs/intent/calendar.md (Residual risks) records.
 - `assert_editable(table, row, actor)` — every mutation finds its row by a
   caller-supplied id, so `UPDATE notes SET ... WHERE id = ?` matched a private
   note whoever asked. Any reader can edit. A machine actor can work a CREW row

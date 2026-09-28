@@ -68,7 +68,7 @@ new features are reviewed against it.
 | Engagement | ✅ incl. rename (API+tool+UI status) | close w/ conclusion | n/a | rename propagates labels, transactional |
 | Allocation | delete+recreate | ✅ DELETE | n/a | capacity window-aware |
 | Memory | recreate | ✅ forget (UI+API+tool) | n/a | deindexed; agent forget is review-gated |
-| Event | recreate | ✅ DELETE (REST+tool) | n/a | deindexed |
+| Event | ✅ UI+API+tool (reschedule; no tier change) | ✅ DELETE (UI two-step, REST, tool) | ✅ engagement (−1 unlinks); items link to it | deindexed; linked rows keep their record, the link is nulled |
 | Chat thread | rename/move | ✅ | folders | sessions removed too |
 | Question | assign/answer | answered state | n/a | overwrite guarded |
 | Decision | reconfirm | supersede chain (UI) | n/a | never hard-deleted by design |
@@ -84,8 +84,7 @@ new features are reviewed against it.
 ## Remaining gaps (next batch)
 
 1. UI affordances for the new wording edits — blocker (My Day), commitment
-   (Portfolio), intake title (Intake) — and a cancel on the dashboard
-   Calendar card (event delete is REST+tool only).
+   (Portfolio), intake title (Intake).
 
 Closed 2026-07-27 (sponsor-bound verdicts): task-acceptance verdicts belong
 to the task's sponsor, looked up at verdict time. Anyone else may still
