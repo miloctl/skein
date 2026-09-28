@@ -153,7 +153,7 @@ model and constraints, is archived at
   deployment shape that `public_health()` withholds.
 
 - **A filename names the behavior, not the session that made it.** This is
-  what `app/services/` already does: 56 files, each named for its subject.
+  what `app/services/` already does: every file is named for its subject.
   Name a test for what it pins (`test_delegation.py`), never for the wave,
   round, audit or review that produced it. Name a doc for its function.
   Dates belong in `docs/reviews/`, which holds closed transcripts only.

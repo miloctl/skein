@@ -370,7 +370,7 @@ knots:
     knot: Round Turn & Two Half-Hitches
     set: hitches
     pitch: The agent worked; the worklog shows it; your verdict finishes the job.
-    how: When your delegated task lands in Approvals, read the worklog and rule on it. If you reject it, the correction leaves the active agent inbox after you approve its replacement.
+    how: When your delegated task lands in Approvals, read the worklog and rule on it. If you reject it, write what the agent must change. To give the agent another turn at once, select Send the task back. The correction leaves the active agent inbox after you approve its replacement.
     link: /review
     since: 2026-07-31
 

@@ -2980,6 +2980,11 @@ def get_context_pack(
     subject: PolicySubjectDep,
     engagement: int = 0,
     crew: int = 0,
+    # "workspace" builds the engagement pack as nobody: a pack bound for a
+    # repository file (skein context --write) is read by more people than
+    # the caller, and the caller's own view carries their private and crew
+    # rows (docs/VISIBILITY.md: a private row reaches no context pack)
+    tier: Literal["", "workspace"] = "",
 ):
     policy = projection_policy.ProjectionPolicy(
         request.app.state.skein_registry.policy_engine,
@@ -3003,7 +3008,7 @@ def get_context_pack(
                 "engagement": engagement,
                 "content": context_pack.build_engagement_pack(
                     engagement,
-                    viewer,
+                    scope.NOBODY if tier else viewer,
                     policy.permits,
                 ),
             }
@@ -3766,6 +3771,11 @@ class ReviewActionIn(BaseModel):
     note: str = Field("", max_length=1000)
 
 
+class RejectIn(ReviewActionIn):
+    # task_completion only: queue one more turn for the delegate
+    send_back: bool = False
+
+
 def _execute_extension_review(request: Request, invocation: dict, _change_id: int) -> dict:
     """Resume an approved invocation through the current composed registry."""
     registry = request.app.state.skein_registry
@@ -4145,7 +4155,7 @@ def _require_verdict_policy(
 @router.post("/review/{change_id}/reject")
 def post_reject(
     change_id: int,
-    body: ReviewActionIn,
+    body: RejectIn,
     user: CurrentUser,
     viewer: ViewerDep,
     request: Request,
@@ -4163,6 +4173,7 @@ def post_reject(
         reviewer_capabilities=subject.capabilities,
         administrator=is_administrator(user, request),
         policy_registry=request.app.state.skein_registry,
+        send_back=body.send_back,
     )
 
 

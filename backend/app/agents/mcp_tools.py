@@ -37,7 +37,7 @@ from ..extensions.policy import (
     current_policy_subject,
 )
 from ..public.errors import PublicError
-from ..services import scope
+from ..services import scope, wording
 from ..services.mcp_servers import LIMIT as _PERSONAL_CONNECT_LIMIT
 from ..services.wording import count
 from .core_tools import portable_state
@@ -176,6 +176,20 @@ class MCPToolMetadata:
     provenance: str
 
 
+def _visible_only(value: Any) -> Any:
+    """Every string in a remote spec or result without Unicode format
+    characters (wording.INVISIBLE). They draw nothing, so a tag-block run in
+    a description or a result is a sentence the model reads and a reviewer
+    of the tool or of its output cannot see."""
+    if isinstance(value, str):
+        return wording.INVISIBLE.sub("", value)
+    if isinstance(value, dict):
+        return {key: _visible_only(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_visible_only(item) for item in value]
+    return value
+
+
 class GovernedMCPTool(AgentTool):
     """A remote tool that cannot execute before Skein policy decides."""
 
@@ -198,7 +212,7 @@ class GovernedMCPTool(AgentTool):
 
     @property
     def tool_spec(self):
-        spec = self._delegate.tool_spec
+        spec = _visible_only(self._delegate.tool_spec)
         description = spec.get("description") if isinstance(spec, dict) else None
         if self.tier != PERSONAL or not isinstance(description, str):
             return spec
@@ -498,6 +512,11 @@ class GovernedMCPTool(AgentTool):
         # passed everything for a bare {"type": "object"}.
         last = events[-1] if events else None
         result = last.get("tool_result", last) if isinstance(last, dict) else last
+        if isinstance(result, dict):
+            # in place, every field (content and structuredContent alike):
+            # the yielded event holds this same dict
+            for key, item in list(result.items()):
+                result[key] = _visible_only(item)
         if isinstance(result, dict) and result.get("status") == "error":
             # MCPClient.call_tool_async catches its own transport faults and
             # the server's isError answers and returns them as a result, so

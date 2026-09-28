@@ -779,6 +779,10 @@ def cmd_context(args):
     path = "/api/context-pack"
     if args.engagement:
         path += f"?engagement={args.engagement}"
+        if args.write:
+            # a file goes to a repository's readers, not to the caller: the
+            # workspace tier only, never the caller's private or crew rows
+            path += "&tier=workspace"
     pack = api("GET", path)
     if args.write:
         Path(args.write).write_text(pack["content"] + "\n")
@@ -787,6 +791,10 @@ def cmd_context(args):
         # file was already written, so the caller got the file and a traceback
         version = f" v{pack['version']}" if "version" in pack else ""
         print(f"wrote context pack{version} to {args.write}")
+        print(
+            "The file holds records that every teammate can read. Do not commit it"
+            " to a repository that people outside the team can read."
+        )
     else:
         print(pack["content"])
 
@@ -903,6 +911,8 @@ def _field(value):
 
 def cmd_review(args):
     keyless = not (load_config().get("key") or os.getenv("SKEIN_API_KEY"))
+    if args.send_back and args.action != "reject":
+        sys.exit("error: --send-back works with reject only")
     if args.action in ("approve", "reject"):
         if keyless and not load_config().get("user"):
             sys.exit(
@@ -921,8 +931,12 @@ def cmd_review(args):
                     else None
                 )
                 _print_proposal(row, diff)
-        out = api("POST", f"/api/review/{args.id}/{args.action}", {"note": args.note})
-        print(f"proposal #{args.id} {out['status']}")
+        body = {"note": args.note}
+        if args.send_back:
+            body["send_back"] = True
+        out = api("POST", f"/api/review/{args.id}/{args.action}", body)
+        sent = " and sent back for another agent turn" if out.get("sent_back") else ""
+        print(f"proposal #{args.id} {out['status']}{sent}")
         if keyless:
             print(
                 "note: verdict recorded, but without your API key it will"
@@ -1292,6 +1306,11 @@ def main():
     c.add_argument("action", nargs="?", choices=["list", "approve", "reject"], default="list")
     c.add_argument("id", nargs="?", type=int)
     c.add_argument("-m", "--note", default="", help="verdict note (required for reject)")
+    c.add_argument(
+        "--send-back",
+        action="store_true",
+        help="with reject: queue one more turn for the agent that submitted the task",
+    )
     c.add_argument("--after", type=int, default=0, help="list proposals after this id")
     c.add_argument("--limit", type=int, default=50, help="proposals per page (1-200)")
     c.set_defaults(fn=cmd_review)

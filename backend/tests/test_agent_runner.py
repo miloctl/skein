@@ -497,6 +497,103 @@ def test_explicit_wake_marks_post_invocation_failure_unknown(fresh_db, monkeypat
     assert out["completion_unknown"] is True
 
 
+class _Metrics:
+    def __init__(self, tool_metrics):
+        self.tool_metrics = tool_metrics
+
+
+class _FailingAgent:
+    """An agent whose provider call raises, with the SDK's own tool count."""
+
+    def __init__(self, tool_metrics):
+        self.event_loop_metrics = _Metrics(tool_metrics)
+
+    def __call__(self, _message, **_kw):
+        raise ConnectionError("the model provider hung up")
+
+
+def test_a_failure_before_any_tool_ran_is_not_unknown(fresh_db, monkeypatch):
+    """completion_unknown tells the sponsor the turn can have written records.
+    With no receipt and no tool call in the SDK's metrics, nothing was
+    written, and saying otherwise sent the sponsor to audit Inbox for rows
+    that never existed. A turn that did call a tool keeps the unknown."""
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", [])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr("app.agents.team_agent.build_agent", lambda *_a, **_k: _FailingAgent({}))
+    out = agent_runner.run_one("research-agent", explicit_key="1", allowed_tools={"my_agent_inbox"})
+    assert out["fault"] is True
+    assert "completion_unknown" not in out
+    assert "before any tool ran" in out["reason"]
+
+    monkeypatch.setattr(
+        "app.agents.team_agent.build_agent",
+        lambda *_a, **_k: _FailingAgent({"report_progress": object()}),
+    )
+    out = agent_runner.run_one("research-agent", explicit_key="2", allowed_tools={"my_agent_inbox"})
+    assert out["completion_unknown"] is True
+
+
+def test_a_turn_that_filed_nothing_says_so(fresh_db, monkeypatch):
+    """The gate records every write it sees, but outside chat nobody drained
+    the record, so a turn that did nothing and a turn that wrote read alike."""
+    task_id = _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", [])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(
+        "app.agents.team_agent.build_agent", lambda *_a, **_k: lambda _m, **_kw: "all good"
+    )
+    out = agent_runner.run_one("research-agent", explicit_key="1", allowed_tools={"my_agent_inbox"})
+    assert out["outcome"] == "nothing_filed"
+
+    def _reports(*_a, **_k):
+        from app.tools.portfolio import claim_delegated_task
+
+        return lambda _m, **_kw: claim_delegated_task(task_id)
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", _reports)
+    out = agent_runner.run_one("research-agent", explicit_key="2", allowed_tools={"my_agent_inbox"})
+    assert out["ran"] is True
+    assert "outcome" not in out
+
+
+def test_a_refused_write_is_named_in_the_outcome(fresh_db, monkeypatch):
+    """The refusal happens on the worker thread. The receipt box must be
+    opened in the context that thread copies, or the parent reads nothing and
+    blames the agent for a write the gate stopped."""
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", [])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    delegation.set_authority("research-agent", "question", "forbidden", actor="tester")
+
+    def _asks(*_a, **_k):
+        from app.tools.collab import ask_question
+
+        return lambda _m, **_kw: ask_question("what is the vendor SLA?", "research-agent")
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", _asks)
+    out = agent_runner.run_one("research-agent", explicit_key="1", allowed_tools={"my_agent_inbox"})
+    assert out["outcome"] == "write_refused"
+    assert db.query("SELECT id FROM questions") == []
+
+
+def test_the_wake_names_the_per_run_limits(fresh_db, monkeypatch):
+    """The SDK stops a turn at its step and token caps. A model that does not
+    know the caps explores until the stop and records nothing."""
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    seen = []
+
+    def _fake_build(*_a, **_k):
+        return lambda message, **_kw: seen.append(message) or "ok"
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", _fake_build)
+    agent_runner.run_one("research-agent")
+    assert f"{config.AGENT_RUN_TURNS} model steps" in seen[0]
+    assert f"{config.AGENT_RUN_TOKENS:,} tokens" in seen[0]
+
+
 def test_the_wake_names_the_remaining_budget_when_a_ceiling_is_set(fresh_db, monkeypatch):
     """The ceiling refuses the NEXT run, never this one mid-turn — so the
     model must be told what remains and told to converge near the limit."""
@@ -576,6 +673,8 @@ def test_the_wake_prompt_does_not_ask_for_new_work(fresh_db):
     nobody asked for. The turn resumes work it already holds."""
     assert "Do not create new tasks" in agent_runner._WAKE
     assert "read_worklog" in agent_runner._WAKE  # continuity, not a cold start
+    # a task sent back with a rejection note resumes on that note
+    assert "rejected submission" in agent_runner._WAKE
 
 
 def test_an_unattended_write_still_passes_the_gate(fresh_db, monkeypatch):

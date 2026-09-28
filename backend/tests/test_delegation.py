@@ -1,7 +1,27 @@
 """The delegation work loop: claim, worklog, submit for acceptance, and the walls that stop an agent closing its own task."""
 
 import pytest
-from conftest import _delegated_task, _strong
+from conftest import _ago, _delegated_task, _strong
+
+
+def test_a_progress_note_moves_the_task(fresh_db):
+    """A delegate that reports every day is working, not stalled. The stale
+    readers (Needs a call, the flow metrics and the Monday nudge) key on
+    tasks.updated_at, so a note that leaves it alone named a reporting agent
+    idle a week after it claimed the task."""
+    from app.services import delegation, intervention, portfolio, scope
+
+    tid = _delegated_task(fresh_db)
+    delegation.claim_task(tid, actor="scout")
+    fresh_db.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", (_ago(8), tid))
+    viewer = scope.Viewer("mira", True)
+    assert tid in {r["id"] for r in portfolio.flow_metrics()["stale_wip"]}
+
+    delegation.report_progress(tid, "schema drafted, migrations next", actor="scout")
+
+    assert tid not in {r["id"] for r in portfolio.flow_metrics()["stale_wip"]}
+    stale = [r for r in intervention.interventions(viewer) if r["kind"] == "stale_wip"]
+    assert tid not in {r["entity_id"] for r in stale}
 
 
 def test_the_contract_travels_with_the_delegation(fresh_db, monkeypatch):
@@ -91,6 +111,79 @@ def test_delegation_work_loop_end_to_end(client, fresh_db, monkeypatch):
     assert '"completed_at"' in task_events[3]["payload"]
     notes = [w["note"] for w in delegation.list_worklog(t["id"])]
     assert any(n.startswith("[accepted]") for n in notes)
+
+
+def _submitted(fresh_db):
+    """A claimed delegation with a pending completion and a settled wake."""
+    from app.services import delegation
+
+    tid = _delegated_task(fresh_db)
+    delegation.claim_task(tid, actor="scout")
+    pid = delegation.submit_completion(tid, "checklist drafted", actor="scout")["proposal_id"]
+    fresh_db.execute("UPDATE agent_wakeups SET status = 'completed' WHERE agent = 'scout'")
+    return tid, pid
+
+
+def _wake(fresh_db):
+    return fresh_db.query_one("SELECT * FROM agent_wakeups WHERE agent = 'scout'")
+
+
+def test_a_rejected_completion_can_be_sent_back(client, fresh_db):
+    """The reviewer's note waited in the agent inbox until somebody delegated
+    something else. Sending it back queues one turn for the same agent, in
+    the verdict's own transaction, and only when the reviewer asks."""
+    tid, pid = _submitted(fresh_db)
+    r = client.post(
+        f"/api/review/{pid}/reject",
+        json={"note": "target Postgres 17, see decision #41", "send_back": True},
+        headers=_strong(client, "mira"),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["sent_back"] is True
+    wake = _wake(fresh_db)
+    assert (wake["status"], wake["trigger_task_id"], wake["requested_by"]) == (
+        "pending",
+        tid,
+        "mira",
+    )
+
+
+def test_a_plain_rejection_wakes_nobody(client, fresh_db):
+    _tid, pid = _submitted(fresh_db)
+    r = client.post(
+        f"/api/review/{pid}/reject", json={"note": "not yet"}, headers=_strong(client, "mira")
+    )
+    assert r.status_code == 200, r.text
+    assert _wake(fresh_db)["status"] == "completed"
+
+
+def test_send_back_is_refused_where_it_cannot_run(client, fresh_db):
+    """Each refusal leaves the proposal pending: the verdict and the wake
+    land together or not at all."""
+    from app.services import work
+
+    tid, pid = _submitted(fresh_db)
+    headers = _strong(client, "mira")
+    r = client.post(
+        f"/api/review/{pid}/reject", json={"note": "", "send_back": True}, headers=headers
+    )
+    assert r.status_code == 400
+    work.update_task(tid, assignee="mira", actor="mira")  # ends the delegation
+    r = client.post(
+        f"/api/review/{pid}/reject", json={"note": "redo it", "send_back": True}, headers=headers
+    )
+    assert r.status_code == 400
+    status = fresh_db.query_one("SELECT status FROM pending_changes WHERE id = ?", (pid,))
+    assert status["status"] == "pending"
+    assert _wake(fresh_db)["status"] == "completed"
+
+    from app.services import review
+
+    other = review.propose_change("task", "create", {"title": "draft"}, actor="scout")
+    r = client.post(
+        f"/api/review/{other['id']}/reject", json={"note": "no", "send_back": True}, headers=headers
+    )
+    assert r.status_code == 400
 
 
 def test_claim_requires_the_delegated_agent(fresh_db):

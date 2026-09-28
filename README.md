@@ -166,7 +166,7 @@ For a ~10-person team this single-box setup is deliberate: one PostgreSQL
 container handles this write volume without noticing, and one backend
 container means exactly one scheduler.
 
-**Security model, stated plainly:** `SKEIN_AUTH_MODE` picks it. Unset, it
+**Security model, stated plainly** (report a vulnerability as [SECURITY.md](SECURITY.md) describes): `SKEIN_AUTH_MODE` picks it. Unset, it
 is `api-key` — a deployment that never chose a mode refuses every request
 rather than trusting a header. `trusted-header` is a trusted name picker
 (`X-User`) for local dev and trusted networks — teammates, not strangers;
