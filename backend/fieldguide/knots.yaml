@@ -180,6 +180,15 @@ knots:
     link: /calendar
     since: 2026-09-28
 
+  - id: meeting_links
+    feature: What came out of a meeting
+    knot: Lark's Head
+    set: hitches
+    pitch: A meeting leaves more than a memory. Tie each thing it made back to the room it came from.
+    how: "On Work → Calendar, select a meeting, then select Paste notes for this meeting. Each line that becomes a record links back to the meeting, at the meeting's visibility. To link a record that already exists, select Link a record in the meeting panel. The panel lists every linked record that you can read."
+    link: /calendar
+    since: 2026-09-28
+
   - id: search
     feature: Search & /ask
     knot: Running Bowline

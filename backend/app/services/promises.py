@@ -52,6 +52,7 @@ def add_promise(
     origin: str = "human",
     visibility: str = scope.WORKSPACE,
     crew_id: int = 0,
+    event_id: int = 0,
 ) -> dict:
     db.validate_date("due_date", due_date, allow_clear=False)
     if not promise.strip():
@@ -69,14 +70,19 @@ def add_promise(
     ts = db.now()
     with db.transaction():
         tier, crew = scope.resolve_write(visibility, crew_id, actor=actor)
+        if event_id:
+            from .schedule import check_event_link
+
+            check_event_link(event_id, actor=actor, tier=tier, crew_id=crew, label="promise")
         # NO assert_readable_by on to_whom: unlike an assignee or an owner,
         # a promise recipient is deliberately not a roster name. The default
         # audience is `external` and to_whom holds "the board" or a customer,
         # so checking it against crew membership refuses the ordinary case.
         cid = db.execute(
             "INSERT INTO promises (promise, to_whom, engagement_id, due_date, audience,"
-            " direction, origin, created_by, created_at, updated_at, visibility, crew_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " direction, origin, created_by, created_at, updated_at, visibility, crew_id,"
+            " event_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             " RETURNING id",
             (
                 promise,
@@ -91,6 +97,7 @@ def add_promise(
                 ts,
                 tier,
                 crew,
+                event_id or None,
             ),
         )
         # the literal in each branch, not a variable: the activity registry is

@@ -832,9 +832,11 @@ def _approve_change_locked(
             payload = {}
         # top down, the order engagements.update_engagement locks a rename
         # in (the engagement, then its milestones); bottom up, the two
-        # deadlock
+        # deadlock. The meeting an item came out of sits under its
+        # engagement, and schedule.link_item takes it before the row too.
         for key, parent in (
             ("engagement_id", "engagement"),
+            ("event_id", "event"),
             ("milestone_id", "milestone"),
             ("task_id", "task"),
         ):

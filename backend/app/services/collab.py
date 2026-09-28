@@ -18,6 +18,7 @@ def ask_question(
     origin: str = "human",
     visibility: str = scope.WORKSPACE,
     crew_id: int = 0,
+    event_id: int = 0,
 ) -> dict:
     """Create a question and its directed notices in one transaction."""
     with db.transaction():
@@ -29,6 +30,7 @@ def ask_question(
             origin=origin,
             visibility=visibility,
             crew_id=crew_id,
+            event_id=event_id,
         )
 
 
@@ -41,6 +43,7 @@ def _ask_question_locked(
     origin: str = "human",
     visibility: str = scope.WORKSPACE,
     crew_id: int = 0,
+    event_id: int = 0,
 ) -> dict:
     if not question.strip():
         raise ValueError("the question text is required")
@@ -49,12 +52,28 @@ def _ask_question_locked(
     # connection and a person removed in between still scopes the row
     with db.transaction():
         tier, cid = scope.resolve_write(visibility, crew_id, actor=actor or asked_by)
+        if event_id:
+            from .schedule import check_event_link
+
+            check_event_link(
+                event_id, actor=actor or asked_by, tier=tier, crew_id=cid, label="question"
+            )
         scope.assert_readable_by(tier, cid, assigned_to, label="assignee", author=actor or asked_by)
         qid = db.execute(
             "INSERT INTO questions (asked_by, assigned_to, question, origin, created_by,"
-            " created_at, visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            " created_at, visibility, crew_id, event_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
             " RETURNING id",
-            (asked_by, assigned_to, question, origin, actor or asked_by, db.now(), tier, cid),
+            (
+                asked_by,
+                assigned_to,
+                question,
+                origin,
+                actor or asked_by,
+                db.now(),
+                tier,
+                cid,
+                event_id or None,
+            ),
         )
         db.log_activity(actor or asked_by, "ask_question", f"#{qid}")
         index_record("question", qid, question[:120], question)
@@ -240,6 +259,7 @@ def record_decision(
     origin: str = "human",
     visibility: str = scope.WORKSPACE,
     crew_id: int = 0,
+    event_id: int = 0,
 ) -> dict:
     """Create a decision and its mention notices in one transaction."""
     with db.transaction():
@@ -254,6 +274,7 @@ def record_decision(
             origin=origin,
             visibility=visibility,
             crew_id=crew_id,
+            event_id=event_id,
         )
 
 
@@ -269,6 +290,7 @@ def _record_decision_locked(
     origin: str = "human",
     visibility: str = scope.WORKSPACE,
     crew_id: int = 0,
+    event_id: int = 0,
 ) -> dict:
     if not title.strip() or not decision.strip():
         raise ValueError("decision title and text are required")
@@ -301,10 +323,16 @@ def _record_decision_locked(
         # raise_blocker ran this check, and without it here the sweep quoted a
         # crew decision's title to somebody who cannot open it.
         scope.assert_readable_by(tier, cid, decided_by, label="decider", author=actor or decided_by)
+        if event_id:
+            from .schedule import check_event_link
+
+            check_event_link(
+                event_id, actor=actor or decided_by, tier=tier, crew_id=cid, label="decision"
+            )
         did = db.execute(
             "INSERT INTO decisions (title, context, decision, decided_by, review_by, category,"
-            " origin, created_by, created_at, visibility, crew_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " origin, created_by, created_at, visibility, crew_id, event_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             " RETURNING id",
             (
                 title,
@@ -318,6 +346,7 @@ def _record_decision_locked(
                 db.now(),
                 tier,
                 cid,
+                event_id or None,
             ),
         )
         db.log_activity(
@@ -575,6 +604,7 @@ def save_note(
     origin: str = "human",
     visibility: str = scope.WORKSPACE,
     crew_id: int = 0,
+    event_id: int = 0,
 ) -> dict:
     """Create a note and its mention notices in one transaction."""
     with db.transaction():
@@ -586,6 +616,7 @@ def save_note(
             origin=origin,
             visibility=visibility,
             crew_id=crew_id,
+            event_id=event_id,
         )
 
 
@@ -598,6 +629,7 @@ def _save_note_locked(
     origin: str = "human",
     visibility: str = scope.WORKSPACE,
     crew_id: int = 0,
+    event_id: int = 0,
 ) -> dict:
     # every sibling create refuses an empty record; this one used to accept
     # topic="" content="", indexing a blank row for search and burning a
@@ -606,11 +638,25 @@ def _save_note_locked(
         raise ValueError("a note needs a topic or content")
     with db.transaction():
         tier, cid = scope.resolve_write(visibility, crew_id, actor=actor or author)
+        if event_id:
+            from .schedule import check_event_link
+
+            check_event_link(event_id, actor=actor or author, tier=tier, crew_id=cid, label="note")
         nid = db.execute(
             "INSERT INTO notes (topic, content, author, origin, created_by, created_at,"
-            " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            " visibility, crew_id, event_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
             " RETURNING id",
-            (topic, content, author, origin, actor or author or "system", db.now(), tier, cid),
+            (
+                topic,
+                content,
+                author,
+                origin,
+                actor or author or "system",
+                db.now(),
+                tier,
+                cid,
+                event_id or None,
+            ),
         )
         db.log_activity(
             actor or author or "system", "save_note", scope.detail(tier, f"#{nid}", topic)

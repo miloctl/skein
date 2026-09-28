@@ -110,7 +110,9 @@ def what_if_staffing(request_id: int, people: str, percent: int = 50) -> str:
 
 
 @tool
-def add_promise(promise: str, to_whom: str = "", due_date: str = "", engagement_id: int = 0) -> str:
+def add_promise(
+    promise: str, to_whom: str = "", due_date: str = "", engagement_id: int = 0, event_id: int = 0
+) -> str:
     """Record an external promise (one made to someone outside the
     team) so the exec readout tracks it.
 
@@ -119,12 +121,14 @@ def add_promise(promise: str, to_whom: str = "", due_date: str = "", engagement_
         to_whom: Who it was promised to.
         due_date: When it's due (YYYY-MM-DD).
         engagement_id: Related engagement, or 0.
+        event_id: The meeting this came out of (an ID from list_events), or 0.
     """
     payload: dict[str, Any] = {
         "promise": promise,
         "to_whom": to_whom,
         "due_date": due_date,
         "engagement_id": engagement_id,
+        **({"event_id": event_id} if event_id else {}),
     }
     return gated_write(
         "promise",

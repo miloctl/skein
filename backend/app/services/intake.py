@@ -47,6 +47,7 @@ def submit_request(
     origin: str = "human",
     visibility: str = scope.WORKSPACE,
     crew_id: int = 0,
+    event_id: int = 0,
 ) -> dict:
     if len(detail) > DETAIL_LEN:
         raise ValueError(f"request detail must be {DETAIL_LEN} characters or fewer")
@@ -59,10 +60,16 @@ def submit_request(
     # (services/scope.py::resolve_write says this at the point of temptation)
     with db.transaction():
         tier, crew = scope.resolve_write(visibility, crew_id, actor=actor or requester)
+        if event_id:
+            from .schedule import check_event_link
+
+            check_event_link(
+                event_id, actor=actor or requester, tier=tier, crew_id=crew, label="request"
+            )
         rid = db.execute(
             "INSERT INTO intake_requests (title, detail, requester, project_class,"
-            " origin, created_by, created_at, updated_at, visibility, crew_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " origin, created_by, created_at, updated_at, visibility, crew_id, event_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             " RETURNING id",
             (
                 title,
@@ -75,6 +82,7 @@ def submit_request(
                 ts,
                 tier,
                 crew,
+                event_id or None,
             ),
         )
     db.log_activity(

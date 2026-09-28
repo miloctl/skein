@@ -100,6 +100,7 @@ def raise_blocker(
     origin: str = "human",
     visibility: str = scope.WORKSPACE,
     crew_id: int = 0,
+    event_id: int = 0,
 ) -> dict:
     from .users import resolve_teammate
 
@@ -127,6 +128,10 @@ def raise_blocker(
                 cid,
                 child_label="blocker",
             )
+        if event_id:
+            from .schedule import check_event_link
+
+            check_event_link(event_id, actor=actor, tier=tier, crew_id=cid, label="blocker")
         # author=actor: capture.py hardcodes owner=actor and post_standup
         # passes owner=author, so without the self-exemption every private
         # capture and standup that named a blocker was refused
@@ -134,8 +139,8 @@ def raise_blocker(
         bid = db.execute(
             "INSERT INTO blockers (title, detail, owner, impact, task_id, source,"
             " escalate_after_hours, origin, created_by, created_at, updated_at,"
-            " visibility, crew_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " visibility, crew_id, event_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             " RETURNING id",
             (
                 title,
@@ -151,6 +156,7 @@ def raise_blocker(
                 ts,
                 tier,
                 cid,
+                event_id or None,
             ),
         )
         # a finished task stays finished: flipping it clears completed_at (flow

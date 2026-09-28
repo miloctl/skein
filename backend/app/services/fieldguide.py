@@ -17,6 +17,7 @@ import yaml
 
 from .. import config, db
 from . import scope
+from .schedule import LINKED
 
 KNOTS_FILE = config.STOCK_DIR / "fieldguide" / "knots.yaml"
 SETS = ("loops", "hitches", "bends", "stoppers", "manager")
@@ -89,6 +90,15 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # scheduling an event proves nothing, because the agent tools and every
     # playbook ritual write events without the page
     "calendar": None,
+    # a row the person filed with its meeting named, by any path: the panel's
+    # link, pasted notes, or a capture an agent filed on their behalf
+    "meeting_links": lambda u: _has(
+        " UNION ALL ".join(
+            f"SELECT 1 FROM {table} WHERE created_by = ? AND event_id IS NOT NULL"  # noqa: S608 — tables from schedule.LINKED
+            for table, _title in LINKED.values()
+        ),
+        (u,) * len(LINKED),
+    ),
     "search": None,
     "browser_signin": lambda u: _act(u, "create_browser_session"),
     # a theme write is not activity-logged (users.py: a slider drag would
