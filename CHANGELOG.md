@@ -28,10 +28,12 @@ keeps its existing `minimum_core` and needs no change.
 - Text a person or a remote source supplies cannot close the labelled wrapper the model reads it in. An attached file, an image description, a shared-chat message, a flock answer, persona instructions and extension context all go through one helper that escapes attribute values and neutralizes the closing tag inside the text.
 - `skein context --engagement <id> --write <file>` writes the workspace tier only. It wrote the caller's own view, so a person's private tasks and their crews' rows reached a repository file. It now also says that the file holds records every teammate can read.
 - Invisible Unicode format characters are stripped from remote MCP tool descriptions, input-schema text and results before the model reads them. A hidden character still changes the tool's first-use version.
+- `GET /api/absences` and the `list_absences` tool return at most 200 current and upcoming windows, soonest first. The list had no cap.
 - A worklog note moves its task. Needs a call, the flow metrics, the Monday stale-work nudge, the digest and insights no longer name a delegated task stalled while its agent reports progress.
 
 ### Operations
 
+- `docs/VISIBILITY.md` describes time away filed for somebody else as the code handles it: with no tier named, the window is private to the person away with its dates shared. The document said it was refused and fell back to the workspace tier.
 - `SECURITY.md` states where to report a vulnerability (GitHub private vulnerability reporting), which versions get fixes, the properties Skein promises, and what is out of scope.
 
 ## 0.6.10 — 2026-09-28

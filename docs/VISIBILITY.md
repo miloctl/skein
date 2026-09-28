@@ -462,10 +462,17 @@ sees the dates (private, `dates_shared`), and the team sees the details
 staffing what-ifs all read `absences.TEAM_SEES_DATES`, and a window below
 the workspace tier shows "away", never its kind or note. The weekly draft and
 what-ifs count PTO only, so comparing them with capacity tells PTO from
-on-call or focus for a dates-only window. A private window
-about somebody else is refused, so a teammate's window defaults to the
-workspace tier. An agent files the requester's own window through
-`requester`, which the review sets from the proposal, never from the payload.
+on-call or focus for a dates-only window. A window filed for somebody else
+with no tier named belongs to that person: it is private to them with the
+dates shared, so planning counts it and the kind and note stay with them.
+The filer cannot read it back, and the person is told it was filed
+(`absences.add_absence`, pinned by
+`test_time_away_filed_for_a_teammate_is_theirs_with_the_dates_shared`). The
+person away is always a reader of their own window, whatever tier the filer
+names. A weak identity names no tier and reads no private row, so its window
+lands at the workspace tier (`routes/api.py::_personal_default`). An agent
+files the requester's own window through `requester`, which the review sets
+from the proposal, never from the payload.
 
 **Growth interests are their person's until shared.** `users.growth_shared`
 starts false (migration 037 sets it false for every existing row). The roster
