@@ -131,6 +131,20 @@ A timeout also becomes `completion_unknown`. The existing model thread can remai
 
 A failure before model invocation becomes `failed`. A provider, budget, or authority refusal becomes `refused`.
 
+A failure after invocation becomes `failed` with reason `failed_before_tools` only when the turn provably wrote nothing: the gate recorded no receipt and the SDK's tool metrics are empty. The SDK counts a tool after it returns, and it turns a tool's own exception into a counted error result. Any other failure after invocation stays `completion_unknown`.
+
+## Turn outcome
+
+The runner opens a receipt box in the context the worker thread copies, so every gate decision in the turn reaches the parent. A completed turn stores one outcome code in `reason`:
+
+- `write_refused`: the gate refused at least one write.
+- `write_failed`: at least one write failed validation.
+- `nothing_filed`: the turn recorded no write at all.
+
+An SDK stop (`limit_turns`, `limit_total_tokens`, `cancelled`) outranks the outcome. `finish` stores only these fixed codes, because the reason reaches every reader of the trigger task. The daily run reports the same codes in its `outcomes` job detail.
+
+The wake prompt states the per-run step and token limits, so the agent can record progress before the SDK stops the turn.
+
 ## Tool safety
 
 The wake queue does not make existing tools idempotent. Its safety comes from one automatic invocation and no automatic retry after model invocation.
@@ -164,9 +178,9 @@ Task Peek shows these messages:
 
 - `pending`: The agent turn is queued.
 - `running`: The agent is working its delegated inbox.
-- `completed`: The agent turn finished. Read the worklog or acceptance proposal.
+- `completed`: The agent turn finished. Read the worklog or acceptance proposal. A limit stop, a refused or failed write, and a turn that filed nothing each get their own sentence.
 - `refused`: The agent did not start. The message gives the safe reason.
-- `failed`: The agent failed before the turn completed.
+- `failed`: The agent failed before the turn completed. With `failed_before_tools`, the message states that the turn wrote nothing.
 - `completion_unknown`: The turn can have written records. Read the worklog and Inbox before retrying.
 
 If no wake row exists, Task Peek keeps the current runner and Chat guidance for legacy delegations.

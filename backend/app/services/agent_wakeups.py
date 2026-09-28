@@ -66,6 +66,9 @@ _worker_running = False
 _worker_thread: threading.Thread | None = None
 _shutdown = threading.Event()
 _SAFE_STOP_REASONS = frozenset({"cancelled", "limit_turns", "limit_total_tokens"})
+# agent_runner._outcome's codes. Anything else is dropped: the reason column
+# reaches every reader of the trigger task.
+_SAFE_OUTCOMES = frozenset({"write_refused", "write_failed", "nothing_filed"})
 
 
 def _kick_after_commit() -> None:
@@ -152,6 +155,10 @@ def claim_next() -> dict | None:
 
 def _reason_code(result: dict) -> str:
     reason = str(result.get("reason") or "").lower()
+    # first: this reason ends in an exception class name, and a class such as
+    # MaxTokensReachedException would match the budget test below
+    if "before any tool ran" in reason:
+        return "failed_before_tools"
     if "wake cap" in reason:
         return "wake_cap"
     if "already running" in reason:
@@ -206,7 +213,11 @@ def finish(claim: dict, result: dict) -> None:
                 )
             else:
                 stopped = str(result.get("stopped") or "")
-                reason = stopped if stopped in _SAFE_STOP_REASONS else ""
+                outcome = str(result.get("outcome") or "")
+                if stopped in _SAFE_STOP_REASONS:
+                    reason = stopped
+                else:
+                    reason = outcome if outcome in _SAFE_OUTCOMES else ""
                 db.execute(
                     "UPDATE agent_wakeups SET status = 'completed', finished_at = ?,"
                     " rerun_requested = 0, reason = ? WHERE agent = ?",
