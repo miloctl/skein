@@ -190,3 +190,57 @@ def test_the_calendar_honors_the_project_rule(fresh_db):
         assert r.status_code == 200 and CANARY not in r.text
         assert "standard sync" in r.text and "standard task" in r.text
         assert c.get(f"/api/events/{blocked}").status_code == 403
+
+
+def test_milestones_and_promises_read_open_and_at_tier(fresh_db):
+    from app.services import promises, users, work
+
+    users.ensure_user("ana")
+    work.create_milestone("beta", due_date="2026-10-05", actor="ana")
+    work.create_milestone("ana's own", due_date="2026-10-05", actor="ana", visibility="private")
+    done = work.create_milestone("shipped", due_date="2026-10-05", actor="ana")["id"]
+    work.update_milestone(done, status="done", actor="ana")
+    promises.add_promise("open one", "Acme", "2026-10-06", actor="ana")
+    kept = promises.add_promise("kept one", "Acme", "2026-10-06", actor="ana")["id"]
+    promises.update_promise(kept, "kept", actor="ana")
+    out = _range("2026-10-01", "2026-10-07")
+    assert _titles(out, "milestones") == {"beta"}
+    assert _titles(out, "promises", "promise") == {"open one"}
+
+
+def test_a_void_task_leaves_the_calendar(fresh_db):
+    from app.services import work
+
+    tid = work.create_task("never mind", due_date="2026-10-03", actor="tester")["id"]
+    work.update_task(tid, status="void", actor="tester")
+    assert _range("2026-10-01", "2026-10-07")["tasks"] == []
+
+
+def test_shared_time_away_passes_the_policy(fresh_db):
+    from app.services import absences, users
+
+    users.ensure_user("ben")
+    day = (db.today() + timedelta(days=3)).isoformat()
+    absences.add_absence("ben", day, day, actor="ben", dates_shared=True)
+    shown = _range(day, day)["time_away"]
+    assert [r["person"] for r in shown] == ["ben"]
+    hidden = _range(day, day, resource_filter=lambda entity, _id, _attrs: entity != "absence")
+    assert hidden["time_away"] == []
+
+
+def test_a_kind_at_its_limit_is_named_whatever_the_policy_drops(fresh_db, monkeypatch):
+    from app.services import schedule, work
+
+    monkeypatch.setattr(schedule, "CALENDAR_LIMIT", 2)
+    first = work.create_task("first", due_date="2026-10-03", actor="tester")["id"]
+    for title in ("second", "third"):
+        work.create_task(title, due_date="2026-10-04", actor="tester")
+    out = _range(
+        "2026-10-01",
+        "2026-10-07",
+        resource_filter=lambda entity, rid, _attrs: not (entity == "task" and rid == first),
+    )
+    # the query reached its limit, so "third" exists past it, whatever the
+    # policy then dropped from the rows it did read
+    assert [t["title"] for t in out["tasks"]] == ["second"]
+    assert out["truncated"] == ["tasks"]

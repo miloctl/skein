@@ -40,17 +40,24 @@ def _check_span(starts_at: str, ends_at: str) -> None:
         raise ValueError("ends_at must be after starts_at, and of the same kind (date or time)")
 
 
-def _check_engagement(engagement_id: int, actor: str) -> None:
+def _check_engagement(engagement_id: int, actor: str, *, tier: str, crew_id: int | None) -> None:
     # the same guard add_promise puts on its own engagement link: unchecked,
     # a bad id raises IntegrityError (a 500 from a value the caller sent) and
     # a readable-looking id lets an event attach to another crew's private
     # engagement — which migration 008 exists to attribute hours to
     efrag, ep = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
-    if not db.query_one(
-        f"SELECT id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+    engagement = db.query_one(
+        f"SELECT visibility, crew_id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
         (engagement_id, *ep),
-    ):
+    )
+    if engagement is None:
         raise ValueError(scope.missing_text("engagements", engagement_id))
+    # the rule a task keeps: every policy reader drops an event whose
+    # engagement it cannot read, so a narrower engagement hides the event from
+    # its own readers, and the rows linked to it stay wider than it
+    scope.assert_relationship_contains(
+        engagement["visibility"], engagement["crew_id"], tier, crew_id, child_label="event"
+    )
 
 
 def schedule_event(
@@ -69,8 +76,6 @@ def schedule_event(
 ) -> dict:
     if not title.strip():
         raise ValueError("event title is required")
-    if engagement_id:
-        _check_engagement(engagement_id, actor)
     starts_at = _canon("starts_at", starts_at)
     ends_at = _canon("ends_at", ends_at) if ends_at else ""
     _check_span(starts_at, ends_at)
@@ -78,6 +83,8 @@ def schedule_event(
 
     with db.transaction():
         tier, crew = scope.resolve_write(visibility, crew_id, actor=actor)
+        if engagement_id:
+            _check_engagement(engagement_id, actor, tier=tier, crew_id=crew)
         eid = db.execute(
             "INSERT INTO events (title, description, starts_at, ends_at, attendees,"
             " agenda, engagement_id, origin, created_by, created_at, visibility, crew_id)"
@@ -163,7 +170,9 @@ def update_event(
                 fields[name] = "" if value == "-" else value
         if engagement_id:
             if engagement_id > 0:
-                _check_engagement(engagement_id, actor)
+                _check_engagement(
+                    engagement_id, actor, tier=row["visibility"], crew_id=row["crew_id"]
+                )
             fields["engagement_id"] = engagement_id if engagement_id > 0 else None
         if not fields:
             raise ValueError("nothing to update")
@@ -267,7 +276,7 @@ def unlink_item(event_id: int, kind: str, item_id: int, *, actor: str = "system"
             raise scope.missing(table, item_id)
         scope.assert_editable(table, row, actor, verb="unlink")
         if int(row.get("event_id") or 0) != event_id:
-            raise ValueError(f"{kind} #{item_id} is not linked to event #{event_id}")
+            raise ValueError("This record is not linked to this meeting.")
         db.execute(f"UPDATE {table} SET event_id = NULL WHERE id = ?", (item_id,))  # noqa: S608 — table from LINKED
         db.log_activity(
             actor,
@@ -479,11 +488,14 @@ def calendar_range(
     # same rows portfolio.capacity_ahead shows every signed-in user, masked
     # the same way. The kind reads "away", and the note and the row id stay
     # with the row's own tier.
-    shared = db.query(
-        "SELECT id, person, starts_on, ends_on, visibility, crew_id FROM absences"  # noqa: S608 — TEAM_SEES_DATES and scope.visible_filter emit only constants and bound marks
-        f" WHERE starts_on <= ? AND ends_on >= ? AND {TEAM_SEES_DATES} AND NOT {frag}"
-        " AND ends_on >= ? ORDER BY starts_on, person LIMIT ?",
-        (end, start, *vp, today, CALENDAR_LIMIT + 1),
+    shared = capped(
+        "time_away",
+        db.query(
+            "SELECT id, person, starts_on, ends_on, visibility, crew_id FROM absences"  # noqa: S608 — TEAM_SEES_DATES and scope.visible_filter emit only constants and bound marks
+            f" WHERE starts_on <= ? AND ends_on >= ? AND {TEAM_SEES_DATES} AND NOT {frag}"
+            " AND ends_on >= ? ORDER BY starts_on, person LIMIT ?",
+            (end, start, *vp, today, CALENDAR_LIMIT + 1),
+        ),
     )
     if resource_filter is not None:
         shared = [
@@ -499,23 +511,30 @@ def calendar_range(
                 },
             )
         ]
-    away = capped("time_away", permitted("absence", readable)) + [
-        {
-            "person": r["person"],
-            "kind": "away",
-            "starts_on": r["starts_on"],
-            "ends_on": r["ends_on"],
-        }
-        for r in capped("time_away", shared)
-    ]
+    # the two halves share one cap, the one every other kind has
+    away = capped(
+        "time_away",
+        permitted("absence", capped("time_away", readable))
+        + [
+            {
+                "person": r["person"],
+                "kind": "away",
+                "starts_on": r["starts_on"],
+                "ends_on": r["ends_on"],
+            }
+            for r in shared
+        ],
+    )
+    # capped BEFORE the policy filter: a kind whose query reached its LIMIT
+    # has rows past it, and a filter that then drops a few must not hide that
     return {
         "start": start,
         "end": end,
         "today": today,
-        "events": [with_local(r) for r in capped("events", permitted("event", events))],
-        "tasks": capped("tasks", permitted("task", tasks)),
-        "milestones": capped("milestones", permitted("milestone", milestones)),
-        "promises": capped("promises", permitted("promise", promises)),
+        "events": [with_local(r) for r in permitted("event", capped("events", events))],
+        "tasks": permitted("task", capped("tasks", tasks)),
+        "milestones": permitted("milestone", capped("milestones", milestones)),
+        "promises": permitted("promise", capped("promises", promises)),
         "time_away": away,
         "truncated": sorted(set(truncated)),
     }

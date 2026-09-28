@@ -832,11 +832,13 @@ def _approve_change_locked(
             payload = {}
         # top down, the order engagements.update_engagement locks a rename
         # in (the engagement, then its milestones); bottom up, the two
-        # deadlock. The meeting an item came out of sits under its
-        # engagement, and schedule.link_item takes it before the row too.
+        # deadlock. The meeting comes FIRST: schedule.update_event holds the
+        # event and then, relinking it, its new engagement, and the create
+        # services probe the event before their insert checks the engagement.
+        # Taken after the engagement here, the two deadlock.
         for key, parent in (
-            ("engagement_id", "engagement"),
             ("event_id", "event"),
+            ("engagement_id", "engagement"),
             ("milestone_id", "milestone"),
             ("task_id", "task"),
         ):

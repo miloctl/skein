@@ -4241,8 +4241,21 @@ class IngestIn(BaseModel):
 
 
 @router.post("/ingest")
-def post_ingest(body: IngestIn, user: CurrentUser, request: Request):
+def post_ingest(
+    body: IngestIn,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     ratelimit.check("ingest", user)
+    if body.event_id:
+        # the link files every record under the meeting's project, so the
+        # workplace policy judges the meeting as the link routes do
+        with db.read_transaction():
+            _require_resource_policy(
+                request, subject, viewer, "skein.rest.post.ingest", "event", body.event_id
+            )
     return ingest.ingest_notes(
         body.text,
         actor=user,
