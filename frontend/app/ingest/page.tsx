@@ -115,7 +115,10 @@ export default function IngestPage() {
           <button
             onClick={() => {
               setEventId(0);
-              window.history.replaceState(null, "", "/ingest");
+              window.history.replaceState({}, "", "/ingest");
+              // the button leaves with the meeting, and focus must not leave
+              // with it: the notes field is where the reader goes next
+              document.querySelector<HTMLTextAreaElement>('textarea[name="meeting-notes"]')?.focus();
             }}
             className="font-medium text-thread underline"
           >

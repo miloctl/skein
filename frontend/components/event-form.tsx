@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { VisibilityPicker } from "@/components/visibility-picker";
 import { isTierChoice, ONLY_YOU, ROSTER, useRememberedAudience, useStrongIdentity } from "@/lib/audience";
-import { addDays } from "@/lib/calendar";
+import { addDays, shiftBy } from "@/lib/calendar";
 import { reportStatus } from "@/lib/status";
 
 /** What the form sends: the fields of POST /api/events (EventIn in
@@ -62,6 +62,8 @@ export function draftOf(e: {
     title: e.title,
     allDay,
     firstDay: e.starts_local.slice(0, 10),
+    // kept when it equals the first day: an end the row stores must come
+    // back out of fieldsOf unchanged, or patchOf reads it as cleared
     lastDay: allDay && e.ends_at ? addDays(e.ends_at, -1) : "",
     starts: allDay ? "" : e.starts_local.slice(0, 16),
     ends: allDay ? "" : (e.ends_local ?? "").slice(0, 16),
@@ -79,7 +81,7 @@ export function fieldsOf(d: EventDraft): EventFields {
     agenda: d.agenda,
   };
   if (d.allDay) {
-    const last = d.lastDay && d.lastDay > d.firstDay ? d.lastDay : "";
+    const last = d.lastDay && d.lastDay >= d.firstDay ? d.lastDay : "";
     return { ...common, starts_at: d.firstDay, ends_at: last ? addDays(last, 1) : "" };
   }
   return { ...common, starts_at: d.starts, ends_at: d.ends };
@@ -187,11 +189,26 @@ export function EventForm({
           type="checkbox"
           checked={draft.allDay}
           onChange={(e) =>
-            set({
-              allDay: e.target.checked,
-              firstDay: draft.firstDay || draft.starts.slice(0, 10),
-              starts: draft.starts || (draft.firstDay ? `${draft.firstDay}T09:00` : ""),
-            })
+            set(
+              e.target.checked
+                ? {
+                    allDay: true,
+                    // the day the start field shows now, not the one the
+                    // form opened with
+                    firstDay: draft.starts.slice(0, 10) || draft.firstDay,
+                    lastDay:
+                      draft.ends && draft.ends.slice(0, 10) > draft.starts.slice(0, 10)
+                        ? draft.ends.slice(0, 10)
+                        : "",
+                  }
+                : {
+                    allDay: false,
+                    starts: draft.firstDay
+                      ? `${draft.firstDay}T${draft.starts.slice(11, 16) || "09:00"}`
+                      : draft.starts,
+                    ends: "",
+                  },
+            )
           }
         />
         All day
@@ -203,7 +220,12 @@ export function EventForm({
             <input
               type="date"
               value={draft.firstDay}
-              onChange={(e) => set({ firstDay: e.target.value })}
+              onChange={(e) =>
+                set({
+                  firstDay: e.target.value,
+                  lastDay: shiftBy(draft.lastDay, draft.firstDay, e.target.value),
+                })
+              }
               className={field}
             />
           </label>
@@ -225,7 +247,12 @@ export function EventForm({
             <input
               type="datetime-local"
               value={draft.starts}
-              onChange={(e) => set({ starts: e.target.value })}
+              onChange={(e) =>
+                set({
+                  starts: e.target.value,
+                  ends: shiftBy(draft.ends, draft.starts, e.target.value),
+                })
+              }
               className={field}
             />
           </label>

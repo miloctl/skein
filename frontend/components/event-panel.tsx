@@ -105,7 +105,9 @@ export function EventPanel({
   );
   const [linkKind, setLinkKind] = useState("decision");
   const [linkId, setLinkId] = useState("");
-  const asideRef = useRef<HTMLElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // the portal's own node: inert while a task peek sits on top of it
+  const layerRef = useRef<HTMLDivElement>(null);
   // Focus moves after React commits, never on a timer: the Edit button is
   // not in the DOM until the form that replaced it unmounts.
   const pendingFocus = useRef<string | null>(null);
@@ -164,18 +166,27 @@ export function EventPanel({
     const others = [...document.body.children].filter(
       (el) => !el.contains(closeRef.current) && !el.hasAttribute("data-status-region"),
     ) as HTMLElement[];
-    const assert = () => others.forEach((el) => el.setAttribute("inert", ""));
-    assert();
-    closeRef.current?.focus();
-    // Only while focus is in this panel: a task opened from it (PeekLink)
-    // stacks the task peek on top, and Escape there must close that alone.
+    // components/task-peek.tsx owns `?task=`, and while it is open it is the
+    // top layer: this panel waits under it, inert, instead of taking focus
+    // and inert back. A reload of /calendar?event=1&task=4 opens both, and
+    // with each one inerting the other no part of the page is usable.
+    const peekOpen = () => new URLSearchParams(window.location.search).has("task");
+    const assert = () => {
+      layerRef.current?.removeAttribute("inert");
+      others.forEach((el) => el.setAttribute("inert", ""));
+      if (!dialogRef.current?.contains(document.activeElement)) closeRef.current?.focus();
+    };
+    if (peekOpen()) layerRef.current?.setAttribute("inert", "");
+    else assert();
+    // Escape belongs to the peek while it is open, and to this panel
+    // otherwise, wherever focus sits: a click on plain text in the panel
+    // moves focus to <body>
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && asideRef.current?.contains(document.activeElement))
-        onCloseRef.current();
+      if (e.key === "Escape" && !peekOpen()) onCloseRef.current();
     };
     document.addEventListener("keydown", onKey);
-    // components/task-peek.tsx gives back inert on every body child when it
-    // closes, this panel's siblings included, and says so there
+    // task-peek.tsx gives back inert on every body child when it closes,
+    // this panel's siblings included, and says so there
     window.addEventListener("skein-peek-close", assert);
     return () => {
       others.forEach((el) => el.removeAttribute("inert"));
@@ -212,6 +223,10 @@ export function EventPanel({
 
   const link = async () => {
     const id = Number(linkId);
+    if (!linkId) {
+      reportStatus("The record number is empty. Type the number of the record to link.");
+      return;
+    }
     if (!Number.isInteger(id) || id <= 0) {
       reportStatus("The record number is not valid. Type the number after the #.");
       return;
@@ -254,13 +269,16 @@ export function EventPanel({
   };
 
   return createPortal(
+    // z-[35]: under the task peek (z-40), which opens from this panel's
+    // task links and must draw on top of it, and over page help (z-30)
     <div
-      className="fixed inset-0 z-40 flex justify-end"
+      ref={layerRef}
+      className="fixed inset-0 z-[35] flex justify-end"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div aria-hidden className="absolute inset-0 bg-ink/20" />
-      <aside
-        ref={asideRef}
+      <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={event ? `Event: ${event.title}` : "Event"}
@@ -421,6 +439,7 @@ export function EventPanel({
                     e.stopPropagation();
                     e.nativeEvent.stopImmediatePropagation();
                     setDeleting(false);
+                    pendingFocus.current = "event-delete";
                   }}
                   className="flex max-w-sm flex-col gap-1 text-xs"
                 >
@@ -439,7 +458,10 @@ export function EventPanel({
                       Delete event
                     </button>
                     <button
-                      onClick={() => setDeleting(false)}
+                      onClick={() => {
+                        setDeleting(false);
+                        pendingFocus.current = "event-delete";
+                      }}
                       className="rounded px-2 py-0.5 text-ink-3 hover:text-ink"
                     >
                       Cancel deletion
@@ -448,6 +470,7 @@ export function EventPanel({
                 </span>
               ) : (
                 <button
+                  id="event-delete"
                   onClick={() => setDeleting(true)}
                   aria-label={`Delete event: ${event.title}`}
                   className="min-h-6 min-w-6 rounded bg-raised px-2 py-0.5 text-xs text-danger hover:bg-line"
@@ -458,7 +481,7 @@ export function EventPanel({
             </div>
           </>
         )}
-      </aside>
+      </div>
     </div>,
     document.body,
   );

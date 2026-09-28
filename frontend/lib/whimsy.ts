@@ -39,13 +39,14 @@ const EMPTY: Record<string, string[]> = {
     "Nothing needs you. A rare and beautiful state.",
     "Your list is empty. Frame this moment.",
   ],
-  // app/calendar/page.tsx shows these for a month with nothing on it under
-  // the kinds the reader chose. A kind they turned off can still hold rows,
-  // so no line may claim the team is free.
+  // app/calendar/page.tsx shows these beside its own sentence for a month
+  // with nothing on it under the kinds the reader chose. A kind they turned
+  // off, or a teammate's task, can still hold rows, so no line may claim the
+  // calendar or the team is empty or free (calendar-whimsy.test.ts).
   calendar: [
-    "An open month. Plenty of room to plan.",
-    "Nothing on the calendar yet. The month is yours to shape.",
-    "A blank month. The loom waits for thread.",
+    "Plenty of room to plan.",
+    "The month is yours to shape.",
+    "The loom waits for thread.",
   ],
 };
 
@@ -57,31 +58,31 @@ const PACK_EMPTY: Record<string, Record<string, string[]>> = {
     review: ["approvals: 0 pending. exit 0", "queue empty. nothing to sign off", "0 proposals awaiting verdict"],
     blockers: ["no blocked processes", "blockers: none. uptime holds", "escalation daemon: idle"],
     allclear: ["all systems nominal", "idle loop engaged. nothing needs you", "needs_you: 0. load average 0.00"],
-    calendar: ["calendar: no entries in range", "schedule table empty for this month", "no jobs queued. clock idle"],
+    calendar: ["cursor waiting on the month", "ready for input", "clock ticking. plan away"],
   },
   ledger: {
     review: ["Nothing awaits approval. The ledger is balanced.", "No entries pending. The columns reconcile.", "Approvals: nil. Carried forward: nothing."],
     blockers: ["No blockers on record. The escalation column is blank.", "Obstructions: none filed.", "The blocker register shows a clean page."],
     allclear: ["Nothing outstanding. The books close clean today.", "All accounts settled. Go to press.", "No items carried over. A tidy edition."],
-    calendar: ["No entries this month. A clean page in the diary.", "The appointments column is blank.", "Nothing booked. The diary stays open."],
+    calendar: ["The diary lies open.", "A fresh page in the diary.", "The pen is ready."],
   },
   atelier: {
     review: ["Nothing to approve — the gallery is hung.", "No proposals on the easel.", "The review wall is bare, beautifully."],
     blockers: ["No blockers. The studio is quiet.", "Nothing in the way of the work.", "Every piece has room to breathe."],
     allclear: ["Nothing needs you. Step back and admire the work.", "The studio is swept. Make something.", "A blank canvas kind of day."],
-    calendar: ["An empty month, like fresh linen.", "Nothing scheduled. Room for the work.", "The calendar is a blank sketchbook."],
+    calendar: ["Fresh linen for the work.", "Room for the work.", "A sketchbook, ready."],
   },
   claw: {
     review: ["Approvals: clear. The deck is quiet.", "Nothing staged for sign-off.", "Zero pending. All hands free."],
     blockers: ["No blockers on the board.", "Nothing jammed. Systems green.", "Blocker count: zero. Hold course."],
     allclear: ["Deck clear. Take the helm elsewhere.", "Nothing needs you. The console rests.", "All quiet across the deck."],
-    calendar: ["No ops on the schedule.", "Nothing on the watch bill this month.", "Calendar clear across the deck."],
+    calendar: ["The watch bill has room.", "Plot a course for the month.", "Deck ready for orders."],
   },
   hermes: {
     review: ["Telemetry clean — nothing awaits approval.", "Approval queue empty. Instruments steady.", "No signals pending sign-off."],
     blockers: ["No blockers on the wire.", "All channels open. Nothing is stuck.", "Obstruction scan returned nothing."],
     allclear: ["Instruments read nominal. Go make contact.", "Mission board clear. Nothing needs you.", "Quiet skies. Enjoy the glide."],
-    calendar: ["No scheduled contacts this cycle.", "Flight plan empty for the month.", "Nothing on the mission clock."],
+    calendar: ["Flight plan open for the month.", "The mission clock waits.", "Skies ready for planning."],
   },
 };
 
