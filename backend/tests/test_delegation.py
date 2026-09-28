@@ -1,7 +1,27 @@
 """The delegation work loop: claim, worklog, submit for acceptance, and the walls that stop an agent closing its own task."""
 
 import pytest
-from conftest import _delegated_task, _strong
+from conftest import _ago, _delegated_task, _strong
+
+
+def test_a_progress_note_moves_the_task(fresh_db):
+    """A delegate that reports every day is working, not stalled. The stale
+    readers (Needs a call, the flow metrics and the Monday nudge) key on
+    tasks.updated_at, so a note that leaves it alone named a reporting agent
+    idle a week after it claimed the task."""
+    from app.services import delegation, intervention, portfolio, scope
+
+    tid = _delegated_task(fresh_db)
+    delegation.claim_task(tid, actor="scout")
+    fresh_db.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", (_ago(8), tid))
+    viewer = scope.Viewer("mira", True)
+    assert tid in {r["id"] for r in portfolio.flow_metrics()["stale_wip"]}
+
+    delegation.report_progress(tid, "schema drafted, migrations next", actor="scout")
+
+    assert tid not in {r["id"] for r in portfolio.flow_metrics()["stale_wip"]}
+    stale = [r for r in intervention.interventions(viewer) if r["kind"] == "stale_wip"]
+    assert tid not in {r["entity_id"] for r in stale}
 
 
 def test_the_contract_travels_with_the_delegation(fresh_db, monkeypatch):

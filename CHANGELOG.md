@@ -20,6 +20,8 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- A worklog note moves its task. Needs a call, the flow metrics, the Monday stale-work nudge, the digest and insights no longer name a delegated task stalled while its agent reports progress.
+
 ### Operations
 
 ## 0.6.9 — 2026-09-28
