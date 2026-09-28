@@ -61,6 +61,11 @@ const AWAY_WORD: Record<string, string> = {
 
 type Item = { key: string; kind: Kind; order: string; node: React.ReactNode };
 
+/** "meetings", "meetings and tasks", "meetings, tasks and time away". */
+function listed(words: string[]): string {
+  return words.length < 2 ? words.join("") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
+}
+
 /** Reports `?event=<id>`, or 0. In its own Suspense boundary, as
  *  app/notes/page.tsx explains for `?note=`. */
 function EventParam({ onChange }: { onChange: (id: number) => void }) {
@@ -93,10 +98,16 @@ export default function CalendarPage() {
   const [eventId, setEventId] = useState(0);
   const [adding, setAdding] = useState<string | null>(null);
   const followToday = useRef(true);
-  // true while the open panel came from a click here, so Close can go Back
-  // instead of leaving a history entry that reopens it
-  const pushed = useRef(false);
   const generation = useRef(0);
+  // Focus moves after React commits, never on a timer: "Add an event" is
+  // back in reach only once the form has unmounted.
+  const pendingFocus = useRef<string | null>(null);
+  useEffect(() => {
+    const id = pendingFocus.current;
+    if (!id) return;
+    pendingFocus.current = null;
+    document.getElementById(id)?.focus();
+  });
 
   const days = monthGrid(month);
   const key = `${month}|${mine}`;
@@ -132,25 +143,22 @@ export default function CalendarPage() {
     api("/api/field-guide/calendar", { method: "POST" }).catch(() => {});
   }, []);
 
-  const onParam = useCallback((id: number) => {
-    setEventId(id);
-    if (!id) pushed.current = false;
-  }, []);
+  const onParam = useCallback((id: number) => setEventId(id), []);
 
+  // The entry a click here pushed carries the event it opened, as
+  // components/task-peek.tsx marks its own. Close goes Back only to leave
+  // that entry: an agenda link or a search hit arrives on an entry this page
+  // did not push, and Back from it reopens the event read before.
   const openEvent = (id: number) => {
-    pushed.current = true;
-    window.history.pushState(null, "", `/calendar?event=${id}`);
+    window.history.pushState({ skeinEvent: id }, "", `/calendar?event=${id}`);
     setEventId(id);
   };
 
   const closeEvent = useCallback(() => {
+    const open = new URLSearchParams(window.location.search).get("event");
     setEventId(0);
-    if (pushed.current) {
-      pushed.current = false;
-      window.history.back();
-    } else if (new URLSearchParams(window.location.search).has("event")) {
-      window.history.replaceState(null, "", "/calendar");
-    }
+    if (open && window.history.state?.skeinEvent === Number(open)) window.history.back();
+    else if (open) window.history.replaceState({}, "", "/calendar");
   }, []);
 
   // A link from search or a receipt names an event that can be in any
@@ -176,6 +184,7 @@ export default function CalendarPage() {
     }
     reportStatus("Event added.", "confirmation");
     setAdding(null);
+    pendingFocus.current = "calendar-add";
     followToday.current = false;
     const target = monthOf(fields.starts_at.slice(0, 10));
     if (target !== month) setMonth(target);
@@ -204,7 +213,7 @@ export default function CalendarPage() {
             node: (
               <button
                 onClick={() => openEvent(e.id)}
-                className="block w-full truncate rounded bg-thread/15 px-1 text-left text-ink hover:bg-thread/25"
+                className="block min-h-6 w-full truncate rounded bg-thread/15 px-1 py-1 text-left text-ink hover:bg-thread/25"
               >
                 {time}
                 {e.title}
@@ -221,7 +230,7 @@ export default function CalendarPage() {
           kind: "tasks",
           order: "1",
           node: (
-            <PeekLink taskId={t.id} className="block w-full truncate text-left text-ink-2 hover:text-ink">
+            <PeekLink taskId={t.id} className="block min-h-6 w-full truncate py-1 text-left text-ink-2 hover:text-ink">
               <span className="text-ink-3">Task due: </span>
               {t.title}
             </PeekLink>
@@ -234,7 +243,7 @@ export default function CalendarPage() {
           kind: "milestones",
           order: "2",
           node: (
-            <Link href={`/dashboard#milestone-${m.id}`} className="block truncate text-ink-2 hover:text-ink">
+            <Link href={`/dashboard#milestone-${m.id}`} className="block min-h-6 truncate py-1 text-ink-2 hover:text-ink">
               <span className="text-ink-3">Milestone due: </span>
               {m.title}
             </Link>
@@ -247,7 +256,7 @@ export default function CalendarPage() {
           kind: "promises",
           order: "3",
           node: (
-            <Link href={`/portfolio#promise-${p.id}`} className="block truncate text-ink-2 hover:text-ink">
+            <Link href={`/portfolio#promise-${p.id}`} className="block min-h-6 truncate py-1 text-ink-2 hover:text-ink">
               {/* the direction is in the word, as in the ICS feed: a received
                   promise under "promised" reads as the reader's own */}
               <span className="text-ink-3">{p.direction === "received" ? "Awaiting: " : "Promised: "}</span>
@@ -383,7 +392,7 @@ export default function CalendarPage() {
       {current && current.truncated.length > 0 && (
         <p className="mb-3 text-sm text-ink-2">
           This range holds more{" "}
-          {current.truncated.map((k) => KINDS.find(([x]) => x === k)?.[1].toLowerCase() ?? k).join(", ")}{" "}
+          {listed(current.truncated.map((k) => KINDS.find(([x]) => x === k)?.[1].toLowerCase() ?? k))}{" "}
           than the calendar can show. Some are not on the grid.
         </p>
       )}
@@ -416,9 +425,10 @@ export default function CalendarPage() {
                 <li
                   key={day}
                   aria-current={today ? "date" : undefined}
-                  className={`${phoneHidden} min-w-0 rounded-lg border border-line bg-card p-1.5 sm:min-h-24 sm:rounded-none sm:border-0 ${
-                    inMonth ? "" : "sm:bg-raised/40"
-                  }`}
+                  // one background for every day: a tint on the days of the
+                  // next and last month takes text-ink-3 under 4.5:1 in every
+                  // pack, and the muted day number already marks them
+                  className={`${phoneHidden} min-w-0 rounded-lg border border-line bg-card p-1.5 sm:min-h-24 sm:rounded-none sm:border-0`}
                 >
                   <div className="flex items-center justify-between gap-1">
                     <h3 className={`text-xs ${today ? "font-semibold text-thread" : inMonth ? "text-ink-2" : "text-ink-3"}`}>
@@ -453,7 +463,16 @@ export default function CalendarPage() {
       )}
 
       {eventId > 0 && (
-        <EventPanel eventId={eventId} onClose={closeEvent} onChanged={load} onLoaded={onEventLoaded} />
+        // keyed: an agenda link to another meeting swaps the id under an
+        // open panel, and unkeyed its delete confirmation carries over and
+        // deletes the new one
+        <EventPanel
+          key={eventId}
+          eventId={eventId}
+          onClose={closeEvent}
+          onChanged={load}
+          onLoaded={onEventLoaded}
+        />
       )}
     </main>
   );

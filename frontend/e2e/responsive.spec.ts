@@ -422,7 +422,15 @@ test("changed inline actions meet the 24px target minimum", async ({ page }) => 
     LONG_NAME,
   );
 
-  for (const path of ["/planning", "/dashboard"]) {
+  // /calendar twice: a phone lists only the days that hold something, and the
+  // month grid at desktop width stacks its entries a few pixels apart
+  for (const [path, width] of [
+    ["/planning", 320],
+    ["/dashboard", 320],
+    ["/calendar", 320],
+    ["/calendar", 1280],
+  ] as const) {
+    await page.setViewportSize({ width, height: 800 });
     await page.goto(path);
     await page.waitForLoadState("networkidle").catch(() => {});
     const scan = await new AxeBuilder({ page }).withRules(["target-size"]).analyze();

@@ -82,6 +82,23 @@ export function eventDays(starts: string, ends: string | null): string[] {
   return days;
 }
 
+/** Moves `value` by as much as `from` moved to `to`, so an event keeps its
+ *  length when its start moves. Each is a day key or a team-clock
+ *  `YYYY-MM-DDTHH:MM`, read in UTC so no zone shifts the arithmetic. */
+export function shiftBy(value: string, from: string, to: string): string {
+  const ms = (s: string) =>
+    Date.UTC(
+      Number(s.slice(0, 4)),
+      Number(s.slice(5, 7)) - 1,
+      Number(s.slice(8, 10)),
+      Number(s.slice(11, 13) || 0),
+      Number(s.slice(14, 16) || 0),
+    );
+  if (!value || !from || !to) return value;
+  const moved = new Date(ms(value) + ms(to) - ms(from)).toISOString();
+  return value.length === 10 ? moved.slice(0, 10) : moved.slice(0, 16);
+}
+
 /** Inclusive `YYYY-MM-DD` days of a time-away window. */
 export function spanDays(first: string, last: string): string[] {
   const days: string[] = [];

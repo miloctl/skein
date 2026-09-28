@@ -4,15 +4,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 /** Work → Calendar: one grid of everything with a date, placed on the team
  *  day the server names, never the browser's. */
 
+// A team seven hours west of UTC, Los Angeles in October. The server stores
+// starts_at in UTC and answers starts_local on the team clock
+// (services/schedule.py::with_local), and the two differ: a grid that reads
+// starts_at puts a meeting at the wrong hour, and an evening one on the wrong
+// day. Times below are written on the team clock.
+const utc = (local: string | null) =>
+  local && local.length > 10
+    ? new Date(Date.parse(`${local}:00Z`) + 7 * 3_600_000).toISOString().slice(0, 16)
+    : local;
+
 // the shapes GET /api/calendar and GET /api/events/{id} answer
 // (services/schedule.py::calendar_range and with_local)
-const event = (id: number, title: string, starts_at: string, ends_at: string | null = null) => ({
+const event = (id: number, title: string, starts_local: string, ends_local: string | null = null) => ({
   id,
   title,
-  starts_at,
-  ends_at,
-  starts_local: starts_at,
-  ends_local: ends_at,
+  starts_at: utc(starts_local) as string,
+  ends_at: utc(ends_local),
+  starts_local,
+  ends_local,
   description: "",
   attendees: "",
   agenda: "",
@@ -57,7 +67,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
       if (path.startsWith("/api/calendar?")) {
         const q = new URLSearchParams(path.split("?")[1]);
         const inRange = [...events.values()].filter(
-          (e) => e.starts_at.slice(0, 10) <= q.get("end")! && e.starts_at.slice(0, 10) >= q.get("start")!,
+          (e) =>
+            e.starts_local.slice(0, 10) <= q.get("end")! && e.starts_local.slice(0, 10) >= q.get("start")!,
         );
         return {
           start: q.get("start"),
@@ -126,6 +137,15 @@ describe("the Calendar page", () => {
     expect(await screen.findByText("ben's task")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Tasks"));
     expect(screen.queryByText("ship it")).toBeNull();
+  });
+
+  it("puts an evening meeting on its team day, at its team hour", async () => {
+    // 20:00 in Los Angeles is 03:00 the next day in UTC
+    events.set(3, event(3, "Late call", "2026-10-14T20:00", "2026-10-14T21:00"));
+    render(<CalendarPage />);
+    const late = await screen.findByRole("button", { name: "20:00 Late call" });
+    expect(within(day("Wednesday, October 14")).getByRole("button", { name: "20:00 Late call" })).toBe(late);
+    expect(within(day("Thursday, October 15")).queryByText(/Late call/)).toBeNull();
   });
 
   it("draws an all-day event up to, not on, its exclusive end", async () => {
@@ -213,6 +233,106 @@ describe("the Calendar page", () => {
     expect(link.getAttribute("href")).toBe("/dashboard#question-3");
     expect(within(dialog).queryByRole("link", { name: "question #9" })).toBeNull();
     expect(within(dialog).getByText(/question #9/)).toBeTruthy();
+  });
+
+  it("saves a one-day all-day event as timed, with its stored end cleared", async () => {
+    events.set(4, event(4, "Holiday", "2026-10-05", "2026-10-06"));
+    render(<CalendarPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Holiday" }));
+    const dialog = await screen.findByRole("dialog", { name: "Event: Holiday" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit event: Holiday" }));
+    fireEvent.click(within(dialog).getByLabelText("All day"));
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save event" }));
+    });
+    // "" means unchanged to the server, and the date end it kept is of the
+    // other kind, which it refuses
+    expect(patches).toEqual([{ starts_at: "2026-10-05T09:00", ends_at: "-" }]);
+  });
+
+  it("takes All day from the start shown, and keeps an event's length when it moves", async () => {
+    render(<CalendarPage />);
+    await screen.findByText("Planning sync", { exact: false });
+    fireEvent.click(screen.getByRole("button", { name: "Add an event on Monday, October 5" }));
+    fireEvent.change(screen.getByLabelText("Starts (team clock)"), { target: { value: "2026-10-08T09:00" } });
+    fireEvent.click(screen.getByLabelText("All day"));
+    expect((screen.getByLabelText("First day") as HTMLInputElement).value).toBe("2026-10-08");
+
+    fireEvent.click(await screen.findByRole("button", { name: "10:00 Planning sync" }));
+    const dialog = await screen.findByRole("dialog", { name: "Event: Planning sync" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit event: Planning sync" }));
+    fireEvent.change(within(dialog).getByLabelText("Starts (team clock)"), {
+      target: { value: "2026-10-16T14:00" },
+    });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save event" }));
+    });
+    expect(patches).toEqual([{ starts_at: "2026-10-16T14:00", ends_at: "2026-10-16T15:00" }]);
+  });
+
+  it("gives an agenda link to another meeting a fresh panel", async () => {
+    events.set(1, {
+      ...event(1, "Planning sync", "2026-10-14T10:00", "2026-10-14T11:00"),
+      agenda: "then event #7",
+      agenda_refs: [{ entity: "event", id: 7, title: "Vendor call" }],
+    } as ReturnType<typeof event>);
+    events.set(7, event(7, "Vendor call", "2026-10-16T09:00"));
+    const { rerender } = render(<CalendarPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "10:00 Planning sync" }));
+    const dialog = await screen.findByRole("dialog", { name: "Event: Planning sync" });
+    expect(within(dialog).getByRole("link", { name: "event #7" }).getAttribute("href")).toBe(
+      "/calendar?event=7",
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete event: Planning sync" }));
+    // the link navigates as next/link does: a pushed entry this page did not mark
+    act(() => window.history.pushState({}, "", "/calendar?event=7"));
+    rerender(<CalendarPage />);
+    const next = await screen.findByRole("dialog", { name: "Event: Vendor call" });
+    // a confirmation opened for the last meeting must not delete this one
+    expect(within(next).queryByRole("button", { name: "Delete event" })).toBeNull();
+    fireEvent.click(within(next).getByRole("button", { name: "Close the event panel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(window.location.search).toBe("");
+  });
+
+  it("waits under a task peek that a reload opened with it", async () => {
+    window.history.replaceState(null, "", "/calendar?event=1&task=4");
+    render(<CalendarPage />);
+    const dialog = await screen.findByRole("dialog", { name: "Event: Planning sync" });
+    const layer = dialog.parentElement!;
+    expect(layer.hasAttribute("inert")).toBe(true);
+    // the peek closes: components/task-peek.tsx drops ?task= and says so
+    act(() => {
+      window.history.replaceState(null, "", "/calendar?event=1");
+      window.dispatchEvent(new CustomEvent("skein-peek-close", { detail: { taskId: 4 } }));
+    });
+    expect(layer.hasAttribute("inert")).toBe(false);
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Close the event panel" }));
+  });
+
+  it("keeps focus on a control after a cancelled delete and after an add", async () => {
+    render(<CalendarPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "10:00 Planning sync" }));
+    const dialog = await screen.findByRole("dialog", { name: "Event: Planning sync" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete event: Planning sync" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel deletion" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(dialog).getByRole("button", { name: "Delete event: Planning sync" }),
+      ),
+    );
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Add an event" }));
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Retro" } });
+    fireEvent.change(screen.getByLabelText("Starts (team clock)"), { target: { value: "2026-10-20T15:00" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Add event" }));
+    });
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add an event" })),
+    );
   });
 
   it("follows a link to an event in another month", async () => {
