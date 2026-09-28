@@ -82,6 +82,7 @@ def _registry() -> dict:
         "note_edit": {"update": collab.update_note},
         "note_delete": {"update": collab.delete_note},
         "event": {"create": schedule.schedule_event},
+        "event_edit": {"update": schedule.update_event},
         "event_cancel": {"update": schedule.cancel_event},
         "blocker": {"create": blockers.raise_blocker, "update": blockers.resolve_blocker},
         "blocker_edit": {"update": blockers.edit_blocker},
@@ -1592,6 +1593,7 @@ _DIFF_TABLES = {
     "note_edit": "notes",
     "note_delete": "notes",
     "document_edit": "artifacts",
+    "event_edit": "events",
     "event_cancel": "events",
     "intake_edit": "intake_requests",
     "memory_forget": "memories",
@@ -1712,6 +1714,12 @@ def change_diff(
     if not row:
         return {"id": change_id, "diff": None}
     payload = json.loads(change["payload"])
+    if table == "events":
+        # an event stores its times in naive UTC, and a proposal carries them
+        # as typed, on the team clock (schedule._canon). Shown raw, the two
+        # columns differ by the zone offset, and a one-hour move reads as a
+        # move of several hours
+        row = {**row, **{k: db.local_wall(row[k]) for k in ("starts_at", "ends_at") if row.get(k)}}
     doomed = _DESTRUCTIVE_VIEW.get(change["entity"])
     if doomed:
         # deletion diff: show what would be destroyed; proposed side is empty

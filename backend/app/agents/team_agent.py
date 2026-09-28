@@ -361,7 +361,8 @@ Guidelines:
   do not duplicate a record that already covers it.
 - When someone corrects earlier info (wording, a date, an owner, a wrong
   note), edit the existing record — edit_note / edit_blocker /
-  edit_promise / edit_intake_request / update_engagement / update_task —
+  edit_promise / edit_intake_request / update_engagement / update_task /
+  update_event —
   don't create a duplicate or layer a "correction" note on top. Delete
   (delete_note, forget_memory) only when the record is wrong beyond salvage.
   Settled or resolved records are history: report that instead of forcing

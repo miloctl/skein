@@ -118,6 +118,7 @@ def _mutations(r):
         ),
         ("memory.forget", lambda a: memory.forget(r["memory"], actor=a)),
         ("schedule.cancel_event", lambda a: schedule.cancel_event(r["event"], actor=a)),
+        ("schedule.update_event", lambda a: schedule.update_event(r["event"], title="x", actor=a)),
         ("absences.delete_absence", lambda a: absences.delete_absence(r["absence"], actor=a)),
         (
             "engagements.update_engagement",

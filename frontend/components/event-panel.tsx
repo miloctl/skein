@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { draftOf, EventForm, type EventFields, fieldsOf, patchOf } from "@/components/event-form";
 import { StakeholderBrief } from "@/components/stakeholder-brief";
 import { VisibilityBadge } from "@/components/visibility-picker";
 import { actionError, api, loadError } from "@/lib/api";
@@ -60,6 +61,16 @@ export function EventPanel({
     null,
   );
   const [deleting, setDeleting] = useState(false);
+  const [editing, setEditing] = useState(false);
+  // Focus moves after React commits, never on a timer: the Edit button is
+  // not in the DOM until the form that replaced it unmounts.
+  const pendingFocus = useRef<string | null>(null);
+  useEffect(() => {
+    const id = pendingFocus.current;
+    if (!id) return;
+    pendingFocus.current = null;
+    document.getElementById(id)?.focus();
+  });
   const closeRef = useRef<HTMLButtonElement>(null);
   // where focus goes back to: the control that opened the panel, or the
   // page when the panel opened from a link
@@ -117,6 +128,25 @@ export function EventPanel({
   const event = loaded?.id === eventId ? loaded.event : undefined;
   const error = loaded?.id === eventId ? loaded.error : undefined;
 
+  const save = async (fields: EventFields) => {
+    if (!event) return false;
+    const patch = patchOf(fieldsOf(draftOf(event)), fields);
+    if (Object.keys(patch).length) {
+      try {
+        await api(`/api/events/${eventId}`, { method: "PATCH", body: JSON.stringify(patch) });
+      } catch (e) {
+        reportStatus(actionError(e));
+        return false;
+      }
+      reportStatus("Event saved.", "confirmation");
+      load();
+      onChanged();
+    }
+    setEditing(false);
+    pendingFocus.current = "event-edit";
+    return true;
+  };
+
   const remove = async () => {
     try {
       await api(`/api/events/${eventId}`, { method: "DELETE" });
@@ -156,7 +186,20 @@ export function EventPanel({
           </button>
         </div>
         {error && <p className="text-sm text-danger">{error}</p>}
-        {event && (
+        {event && editing && (
+          <EventForm
+            initial={draftOf(event)}
+            idPrefix="event-edit-form"
+            submitLabel="Save event"
+            withTier={false}
+            onSubmit={save}
+            onCancel={() => {
+              setEditing(false);
+              pendingFocus.current = "event-edit";
+            }}
+          />
+        )}
+        {event && !editing && (
           <>
             <div className="flex flex-wrap items-center gap-2 text-sm text-ink-2">
               <span>{whenText(event)}</span>
@@ -185,6 +228,17 @@ export function EventPanel({
               <StakeholderBrief eventId={event.id} />
             </div>
             <div className="mt-auto flex flex-wrap items-start gap-2 border-t border-line pt-3">
+              <button
+                id="event-edit"
+                onClick={() => {
+                  setDeleting(false);
+                  setEditing(true);
+                }}
+                aria-label={`Edit event: ${event.title}`}
+                className="min-h-6 min-w-6 rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+              >
+                edit…
+              </button>
               {deleting ? (
                 <span
                   onKeyDown={(e) => {

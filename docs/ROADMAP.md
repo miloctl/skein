@@ -675,13 +675,11 @@ larger than its finding.
 
 Intent and design: [Calendar, written by people and agents](intent/calendar.md).
 The remaining slices, in order. Each slice deletes its own bullet when it
-ships. The calendar page itself shipped (docs/FEATURES.md, Calendar). The
+ships. The calendar page and event editing shipped (docs/FEATURES.md,
+Calendar). The
 open questions at the end of the intent doc have recommended defaults, and
 the slices proceed on those defaults.
 
-- **Slice 2: edit and reschedule.** `schedule.update_event`,
-  `PATCH /api/events/{id}`, and the agent tool `update_event`, gated as
-  `event_edit`. Visibility is not editable.
 - **Slice 3: items that came out of a meeting.** Migration 044 adds
   `event_id` (`ON DELETE SET NULL`) to notes, tasks, decisions, questions,
   blockers, promises and intake requests. An item is never wider than its

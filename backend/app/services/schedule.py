@@ -13,6 +13,46 @@ from .scope import WORKSPACE_ONLY
 DATE_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}([T ].*)?$")
 
 
+def _canon(label: str, value: str) -> str:
+    # normalize at write time: fromisoformat accepts space separators and
+    # offsets, but the ICS builder (and string comparisons) only survive
+    # the plain YYYY-MM-DDTHH:MM shape — store exactly that, in UTC
+    try:
+        dt = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"{label} must be an ISO timestamp (for example 2026-07-24T15:00)"
+        ) from None
+    if len(value) == 10:
+        return value  # date-only stays a date: an all-day VEVENT, not midnight
+    # no offset means the TEAM's clock: the calendar's datetime-local field,
+    # playbook rituals and the agent tools all send one. Stored as typed, it
+    # reads as UTC in every reader that converts (db.local_wall)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=config.TZ)
+    return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M")
+
+
+def _check_span(starts_at: str, ends_at: str) -> None:
+    # an ICS client drops or misplaces an event whose DTEND precedes DTSTART,
+    # or whose start is a date and whose end is a time
+    if ends_at and (len(ends_at) != len(starts_at) or ends_at <= starts_at):
+        raise ValueError("ends_at must be after starts_at, and of the same kind (date or time)")
+
+
+def _check_engagement(engagement_id: int, actor: str) -> None:
+    # the same guard add_promise puts on its own engagement link: unchecked,
+    # a bad id raises IntegrityError (a 500 from a value the caller sent) and
+    # a readable-looking id lets an event attach to another crew's private
+    # engagement — which migration 008 exists to attribute hours to
+    efrag, ep = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
+    if not db.query_one(
+        f"SELECT id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (engagement_id, *ep),
+    ):
+        raise ValueError(scope.missing_text("engagements", engagement_id))
+
+
 def schedule_event(
     title: str,
     starts_at: str,
@@ -29,43 +69,11 @@ def schedule_event(
 ) -> dict:
     if not title.strip():
         raise ValueError("event title is required")
-    # the same guard add_promise puts on its own engagement link: unchecked,
-    # a bad id raises IntegrityError (a 500 from a value the caller sent) and
-    # a readable-looking id lets an event attach to another crew's private
-    # engagement — which migration 008 exists to attribute hours to
     if engagement_id:
-        efrag, ep = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
-        if not db.query_one(
-            f"SELECT id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
-            (engagement_id, *ep),
-        ):
-            raise ValueError(scope.missing_text("engagements", engagement_id))
-
-    def _canon(label: str, value: str) -> str:
-        # normalize at write time: fromisoformat accepts space separators and
-        # offsets, but the ICS builder (and string comparisons) only survive
-        # the plain YYYY-MM-DDTHH:MM shape — store exactly that, in UTC
-        try:
-            dt = datetime.fromisoformat(value)
-        except (TypeError, ValueError):
-            raise ValueError(
-                f"{label} must be an ISO timestamp (for example 2026-07-24T15:00)"
-            ) from None
-        if len(value) == 10:
-            return value  # date-only stays a date: an all-day VEVENT, not midnight
-        # no offset means the TEAM's clock: the dashboard's datetime-local
-        # field, playbook rituals and the agent tool all send one. Stored as
-        # typed, it reads as UTC in every reader that converts (db.local_wall)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=config.TZ)
-        return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M")
-
+        _check_engagement(engagement_id, actor)
     starts_at = _canon("starts_at", starts_at)
     ends_at = _canon("ends_at", ends_at) if ends_at else ""
-    # an ICS client drops or misplaces an event whose DTEND precedes DTSTART,
-    # or whose start is a date and whose end is a time
-    if ends_at and (len(ends_at) != len(starts_at) or ends_at <= starts_at):
-        raise ValueError("ends_at must be after starts_at, and of the same kind (date or time)")
+    _check_span(starts_at, ends_at)
     from .search import index_record
 
     with db.transaction():
@@ -95,6 +103,89 @@ def schedule_event(
             actor, "schedule_event", scope.detail(tier, f"#{eid}", f"{title} @ {starts_at}")
         )
     return {"id": eid, "title": title, "starts_at": starts_at}
+
+
+def update_event(
+    event_id: int,
+    title: str = "",
+    starts_at: str = "",
+    ends_at: str = "",
+    description: str = "",
+    attendees: str = "",
+    agenda: str = "",
+    engagement_id: int = 0,
+    *,
+    actor: str = "system",
+    origin: str = "human",
+) -> dict:
+    """Change or reschedule an event. An empty field is unchanged, and "-"
+    clears ends_at, description, attendees or agenda. engagement_id 0 is
+    unchanged and a negative one unlinks.
+
+    No visibility: an update never changes a tier (policy_context.py, the
+    note above `for_change`'s classification), and an event that narrowed
+    would leave the rows linked to it wider than it.
+    """
+    from .search import index_record
+
+    with db.transaction():
+        # FOR UPDATE first: the merged start/end check below reads the stored
+        # half, and a concurrent edit of the other half would pass both checks
+        # and store an end before its start
+        row = db.query_one("SELECT * FROM events WHERE id = ? FOR UPDATE", (event_id,))
+        if not row:
+            raise scope.missing("events", event_id)
+        scope.assert_editable("events", row, actor, verb="update")
+        fields: dict = {}
+        if title:
+            if not title.strip():
+                raise ValueError("event title is required")
+            fields["title"] = title
+        if starts_at or ends_at:
+            start = _canon("starts_at", starts_at) if starts_at else row["starts_at"]
+            if ends_at == "-":
+                end = ""
+            elif ends_at:
+                end = _canon("ends_at", ends_at)
+            else:
+                end = row["ends_at"] or ""
+            _check_span(start, end)
+            if starts_at:
+                fields["starts_at"] = start
+            if ends_at:
+                fields["ends_at"] = end or None
+        for name, value in (
+            ("description", description),
+            ("attendees", attendees),
+            ("agenda", agenda),
+        ):
+            if value:
+                fields[name] = "" if value == "-" else value
+        if engagement_id:
+            if engagement_id > 0:
+                _check_engagement(engagement_id, actor)
+            fields["engagement_id"] = engagement_id if engagement_id > 0 else None
+        if not fields:
+            raise ValueError("nothing to update")
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        db.execute(
+            f"UPDATE events SET {sets} WHERE id = ?",  # noqa: S608 — keys come from the fixed names above
+            (*fields.values(), event_id),
+        )
+        new = {**row, **fields}
+        index_record(
+            "event",
+            event_id,
+            new["title"],
+            f"{new['description']} {new['attendees']} {new['starts_at']}",
+        )
+        # field names only, never the text: the ledger outlives the event
+        db.log_activity(
+            actor,
+            "update_event",
+            scope.detail(row["visibility"], f"#{event_id}", " ".join(fields)),
+        )
+    return {"id": event_id, "updated": list(fields)}
 
 
 def list_events(

@@ -26,6 +26,7 @@ let today = "2026-10-15";
 const events = new Map<number, ReturnType<typeof event>>();
 const calls: string[] = [];
 const posts: Record<string, unknown>[] = [];
+const patches: Record<string, unknown>[] = [];
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
@@ -34,6 +35,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
     getUser: () => "ava",
     api: async (path: string, init?: RequestInit) => {
       calls.push(path);
+      if (init?.method === "PATCH") {
+        patches.push(JSON.parse(String(init.body)));
+        return { updated: [] };
+      }
       if (init?.method === "POST" && path === "/api/events") {
         posts.push(JSON.parse(String(init.body)));
         return { id: 99 };
@@ -89,6 +94,7 @@ beforeEach(() => {
   events.set(1, event(1, "Planning sync", "2026-10-14T10:00", "2026-10-14T11:00"));
   calls.length = 0;
   posts.length = 0;
+  patches.length = 0;
 });
 afterEach(() => vi.useRealTimers());
 
@@ -138,6 +144,25 @@ describe("the Calendar page", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.activeElement).toBe(button);
+  });
+
+  it("edits only what changed, and a cleared field travels as a dash", async () => {
+    events.set(1, { ...event(1, "Planning sync", "2026-10-14T10:00", "2026-10-14T11:00"), description: "weekly" });
+    render(<CalendarPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "10:00 Planning sync" }));
+    const dialog = await screen.findByRole("dialog", { name: "Event: Planning sync" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit event: Planning sync" }));
+    // Escape leaves the form, not the panel
+    fireEvent.keyDown(within(dialog).getByLabelText("Title"), { key: "Escape" });
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    await waitFor(() => expect(document.activeElement?.id).toBe("event-edit"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit event: Planning sync" }));
+    fireEvent.change(within(dialog).getByLabelText("Title"), { target: { value: "Planning" } });
+    fireEvent.change(within(dialog).getByLabelText("Description"), { target: { value: "" } });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save event" }));
+    });
+    expect(patches).toEqual([{ title: "Planning", description: "-" }]);
   });
 
   it("follows a link to an event in another month", async () => {

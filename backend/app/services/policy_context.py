@@ -24,6 +24,7 @@ _TABLES = {
     "note_edit": ("notes", ""),
     "note_delete": ("notes", ""),
     "event": ("events", "engagement_id"),
+    "event_edit": ("events", "engagement_id"),
     "event_cancel": ("events", "engagement_id"),
     "blocker": ("blockers", ""),
     "blocker_edit": ("blockers", ""),

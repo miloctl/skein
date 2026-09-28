@@ -46,6 +46,7 @@ CAPABILITY: dict[tuple[str, str], str] = {
     ("engagement", "create"): "open an engagement",
     ("engagement", "update"): "change an engagement",
     ("event", "create"): "put an event on the calendar",
+    ("event_edit", "update"): "change or move an event on the calendar",
     ("event_cancel", "update"): "delete an event from the calendar",
     ("extension_tool", "create"): "run a governed extension tool",
     ("extension_mcp_tool", "create"): "run a governed remote tool",
