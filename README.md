@@ -35,7 +35,8 @@ URL is directly linkable.
 | **Chat** | `/chat` | Chief-of-Staff agent, streaming. The mock provider works keyless. Type `/as <persona>` to switch heads — see [The Bench](docs/PERSONAS.md) — or `/flock <flock>` to ask several at one time, see [Flocks](docs/FLOCKS.md) |
 | **Work** | `/planning` | The Monday ritual in one read: last week's kept-% and carryover, this week's draft, capacity ahead, intake awaiting triage, open threads with people outside the team, one commit |
 | | `/portfolio` | Engagement health (R/Y/G with receipts), weekly commitment line, capacity conflicts, flow metrics, slip forecast, commitments, exec readout |
-| | `/dashboard` | Engagements · blockers · capacity · milestones · tasks · Q&A · decisions · standups · calendar · notes |
+| | `/calendar` | Meetings, due dates and time away on a month grid, on the team clock. A meeting lists what came out of it, and its agenda links the records it names |
+| | `/dashboard` | Engagements · blockers · capacity · milestones · tasks · Q&A · decisions · standups · notes |
 | | `/insights` | Findings feed with click-through receipts, and team-rolled trends (MTTR, automation ratio, adoption, token spend) |
 | | `/artifacts` | Reports: every digest, week brief, close-out, readout and handoff, rendered |
 | **Inbox** | `/review` | Approve or reject proposed changes. This is the agent approval gate |
