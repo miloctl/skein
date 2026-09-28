@@ -199,6 +199,22 @@ describe("the Calendar page", () => {
     expect(deletes).toEqual(["/api/events/1/links/decision/4"]);
   });
 
+  it("links the agenda's references the server says this reader may open", async () => {
+    events.set(1, {
+      ...event(1, "Planning sync", "2026-10-14T10:00", "2026-10-14T11:00"),
+      agenda: "Review question #3, then question #9",
+      // #9 is absent: the reader may not open it (services/refs.py::readable_refs)
+      agenda_refs: [{ entity: "question", id: 3, title: "who owns it?" }],
+    } as ReturnType<typeof event>);
+    render(<CalendarPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "10:00 Planning sync" }));
+    const dialog = await screen.findByRole("dialog", { name: "Event: Planning sync" });
+    const link = await within(dialog).findByRole("link", { name: "question #3" });
+    expect(link.getAttribute("href")).toBe("/dashboard#question-3");
+    expect(within(dialog).queryByRole("link", { name: "question #9" })).toBeNull();
+    expect(within(dialog).getByText(/question #9/)).toBeTruthy();
+  });
+
   it("follows a link to an event in another month", async () => {
     events.set(9, event(9, "Kickoff", "2027-01-20T10:00"));
     window.history.replaceState(null, "", "/calendar?event=9");

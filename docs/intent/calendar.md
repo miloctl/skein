@@ -24,8 +24,9 @@ the meetings they came from.
   has none, and `dayjs` is present only as a mermaid dependency). No runtime
   integration with Outlook, Exchange or Teams. The ICS feed stays the only
   export.
-- **Out of scope:** See the last section. The main exclusions are recurring
-  events, a week view with hour rows, and two-way sync.
+- **Out of scope:** Recurring events, a week view with hour rows, and
+  two-way sync, among others. Each is a row in the cut table of
+  `docs/ROADMAP.md`, with the trigger that brings it back.
 
 The 2026-08-21 posture note in `docs/ROADMAP.md` freezes new *portfolio*
 surfaces: engagements, health, forecasts, intake and readouts. The calendar
@@ -436,29 +437,6 @@ Tests that pin the risky parts, in `backend/tests/test_calendar.py`:
   comment in slice 1).
 - **Linking changes no `updated_at`.** A client that syncs on `updated_at`
   does not see a new link. No such client exists for these kinds today.
-
-## Found on the way, not part of this work
-
-- `docs/VISIBILITY.md` (the time-away section) says a private window about
-  someone else is refused. The code instead forces `dates_shared` on it, and
-  `docs/FEATURES.md` matches the code.
-- `absences.list_absences` has no `LIMIT`, against the "Listable is
-  LIMITed" rule in `docs/CORRECTIONS.md`.
-
-## Out of scope, with the trigger that brings each back
-
-| Item | Trigger |
-|---|---|
-| Recurring events (RRULE) | A team asks to create a weekly meeting more than once a month by hand. A playbook ritual creates one event per listed entry, not a series ("Daily until stabilized" in `incident.yaml` is a description). |
-| Week view with hour rows, drag to reschedule | The month grid is in use and someone asks to see a day's times side by side. |
-| Two-way Outlook, Exchange or Teams sync | An explicit deployment requirement. Runtime isolation and the Teams rule in CLAUDE.md apply. |
-| ICS import | A team keeps typing the same meetings in twice. |
-| Per-person ICS feed with private events | A request for it, and a design for a per-person feed token first. The feed token is shared today. |
-| Reminders before a meeting | People stop using the ICS feed in their own calendar client. |
-| Linking lessons, milestones or memories | A retro or review workflow that asks for it. |
-| An event picker in the capture palette (`C`) | Link-after from the panel is used often enough to show the extra step costs time. |
-| MCP event tools | The existing ROADMAP item "Generate the MCP tools from the chat tool registry". |
-| Sharing an event to a wider tier | A request for it. It goes in `sharing.py`, which only widens. |
 
 ## Open questions for the owner
 

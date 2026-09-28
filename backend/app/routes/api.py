@@ -501,6 +501,13 @@ def get_event_detail(
     request: Request,
     subject: PolicySubjectDep,
 ):
+    policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.events",
+        "rest",
+        viewer,
+    )
     with db.read_transaction():
         _require_resource_policy(
             request, subject, viewer, "skein.rest.get.events", "event", event_id
@@ -508,7 +515,13 @@ def get_event_detail(
         row = schedule.get_event(event_id, viewer)
         if row is None:
             raise scope.missing("events", event_id)
-        return schedule.with_local(row)
+        # `question #12` in the agenda: the record it names, only when this
+        # reader may open it (refs.readable_refs checks tier and policy before
+        # it reads a title). A person wrote the agenda, so quotes are words.
+        agenda_refs = refs.readable_refs(
+            row["agenda"] or "", viewer, resource_filter=policy.permits, quoted=False
+        )
+        return {**schedule.with_local(row), "agenda_refs": agenda_refs}
 
 
 @router.get("/events/{event_id}/items")
