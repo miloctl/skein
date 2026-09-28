@@ -160,6 +160,12 @@ def delete_absence(absence_id: int, *, actor: str = "system") -> dict:
     }
 
 
+# The Browse register and the `list_absences` tool read this list whole on
+# every load (docs/CORRECTIONS.md, "Listable is LIMITed"). Soonest first, so
+# the cap drops the windows furthest out.
+LIST_LIMIT = 200
+
+
 def list_absences(
     person: str = "", from_date: str = "", viewer: scope.Viewer = scope.NOBODY
 ) -> list[dict]:
@@ -169,13 +175,13 @@ def list_absences(
     if person:
         return db.query(
             f"SELECT * FROM absences WHERE person = ? AND ends_on >= ? AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
-            " ORDER BY starts_on",
-            (person, cutoff, *vp),
+            " ORDER BY starts_on LIMIT ?",
+            (person, cutoff, *vp, LIST_LIMIT),
         )
     return db.query(
         f"SELECT * FROM absences WHERE ends_on >= ? AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
-        " ORDER BY starts_on, person",
-        (cutoff, *vp),
+        " ORDER BY starts_on, person LIMIT ?",
+        (cutoff, *vp, LIST_LIMIT),
     )
 
 

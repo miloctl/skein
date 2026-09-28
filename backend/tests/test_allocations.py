@@ -387,3 +387,22 @@ def test_time_away_filed_for_a_teammate_is_theirs_with_the_dates_shared(fresh_db
     told = fresh_db.query_one("SELECT message FROM notifications WHERE \"user\" = 'mira'")
     assert "lead recorded time away for you" in told["message"]
     assert absences.weekday_overlap("mira", date(2026, 8, 10))
+
+
+def test_listing_time_away_keeps_the_soonest_windows(fresh_db, monkeypatch):
+    """docs/CORRECTIONS.md, "Listable is LIMITed": both branches cap the rows,
+    and the cap drops the windows furthest out."""
+    from datetime import timedelta
+
+    from app import db
+    from app.services import absences, users
+
+    users.ensure_user("ava")
+    monkeypatch.setattr(absences, "LIST_LIMIT", 2)
+    today = db.today()
+    for offset in (20, 3, 10):
+        day = (today + timedelta(days=offset)).isoformat()
+        absences.add_absence("ava", day, day, actor="ava", visibility="workspace")
+    soonest = [(today + timedelta(days=n)).isoformat() for n in (3, 10)]
+    assert [r["starts_on"] for r in absences.list_absences()] == soonest
+    assert [r["starts_on"] for r in absences.list_absences("ava")] == soonest

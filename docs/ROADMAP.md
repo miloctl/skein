@@ -698,18 +698,6 @@ larger than its finding.
   `usage_log`. Mentions and adoption counters now go. The rest is an owner
   decision: each is another author's record or an audit trail.
 
-## Found by the calendar work (2026-09-28)
-
-- **`docs/VISIBILITY.md` contradicts the time-away code** — its time-away
-  section says a private window about somebody else is refused, so a
-  teammate's window defaults to the workspace tier. `absences.add_absence`
-  instead forces `dates_shared` on it and keeps it private; `docs/FEATURES.md`
-  matches the code. Rewrite the VISIBILITY.md paragraph.
-- **`absences.list_absences` has no `LIMIT`** — against the "Listable is
-  LIMITed" rule in `docs/CORRECTIONS.md`. `GET /api/absences` and the
-  `list_absences` tool serve every current window. The calendar reads its
-  own capped query.
-
 ## From the external-repo discovery (2026-09-28)
 
 Twenty-four repositories under `~/external` were read against FEATURES and
