@@ -718,8 +718,14 @@ def recent_activity(viewer: str, limit: int = 50) -> list[dict]:
     )
 
 
-def search_notes(keyword: str = "", viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
+def search_notes(
+    keyword: str = "", viewer: scope.Viewer = scope.NOBODY, *, before: int = 0, limit: int = 25
+) -> list[dict]:
     frag, vp = scope.visible_filter(viewer, "notes")
+    # keyset page on id, newest first: the notes page asks for "older than
+    # the last row I have", so a note captured meanwhile never shifts a page
+    if before:
+        frag, vp = f"{frag} AND id < ?", [*vp, before]
     if keyword:
         like = f"%{keyword}%"
         # the keyword OR is PARENTHESIZED. Left bare, `a LIKE ? OR b LIKE ? AND
@@ -734,10 +740,10 @@ def search_notes(keyword: str = "", viewer: scope.Viewer = scope.NOBODY) -> list
             # code-generated markers (fieldguide, chat_threads) stay
             # case-exact on purpose.
             f"SELECT * FROM notes WHERE (topic ILIKE ? OR content ILIKE ?)"  # noqa: S608 — scope.visible_filter emits only bound marks
-            f" AND {frag} ORDER BY id DESC LIMIT 25",
-            (like, like, *vp),
+            f" AND {frag} ORDER BY id DESC LIMIT ?",
+            (like, like, *vp, limit),
         )
     return db.query(
-        f"SELECT * FROM notes WHERE {frag} ORDER BY id DESC LIMIT 25",  # noqa: S608 — scope.visible_filter emits only bound marks
-        tuple(vp),
+        f"SELECT * FROM notes WHERE {frag} ORDER BY id DESC LIMIT ?",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (*vp, limit),
     )

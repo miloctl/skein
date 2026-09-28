@@ -90,7 +90,7 @@ describe("dashboard deletion confirmations", () => {
 
     const confirm = screen.getByRole("button", { name: "Delete note" });
     const consequence = screen.getByText(
-      /It will leave the knowledge base and search.*activity record can retain up to 300 characters.*backups can retain the note/i,
+      /It will leave the knowledge base and search.*activity record can keep its topic.*backups can keep the note/i,
     );
     expect(confirm.getAttribute("aria-describedby")).toBe(consequence.id);
     expect(

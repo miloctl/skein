@@ -12,6 +12,7 @@ import {
 } from "@/lib/audience";
 import { actionError, api, getUser, isUnreachable, subscribeUser } from "@/lib/api";
 import { notifyAttentionChange } from "@/lib/attention";
+import { opensCapture } from "@/lib/capture-key";
 import { isGated, subscribeGated } from "@/lib/gated";
 
 // mirrors backend/app/services/capture.py PATTERNS — the preview must tell
@@ -118,10 +119,17 @@ export function CapturePalette() {
   const firstWatchGenerationRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
-    // No open-shortcut here. ⌘K belongs to search (components/nav-search.tsx),
-    // which is where every other product puts it, and capture is reached by
-    // its own button. Escape still belongs to this dialog while it is open.
+    // ⌘K belongs to search (components/nav-search.tsx), which is where every
+    // other product puts it. Capture opens on a bare C instead, which a person
+    // can turn off (lib/capture-key.ts). It goes through the same event as the
+    // nav button, because the nav drawer and search close on that event.
+    // Escape still belongs to this dialog while it is open.
     const onKey = (e: KeyboardEvent) => {
+      if (opensCapture(e)) {
+        e.preventDefault();
+        window.dispatchEvent(new Event("skein-capture-open"));
+        return;
+      }
       if (e.key === "Escape") {
         // A generated First Watch prefix is not a person's draft. It closes in
         // one gesture; text they added keeps the existing clear-then-close rule.
@@ -138,8 +146,8 @@ export function CapturePalette() {
         }
       }
     };
-    // the nav's Capture button dispatches this: it is the only door into
-    // quick capture now that the keystroke names search
+    // the nav's Capture button, the C key above, My Day, and First Watch
+    // dispatch this
     const onOpen = (event: Event) => {
       if (closeTimer.current) clearTimeout(closeTimer.current);
       openerRef.current = document.activeElement as HTMLElement | null;
@@ -171,7 +179,12 @@ export function CapturePalette() {
   // dialog contract: focus returns to whatever opened the palette
   useEffect(() => {
     if (open) return;
-    openerRef.current?.focus();
+    // A popup that closes when capture opens (page help, the You menu, the
+    // mobile chat list) takes its focused element with it, and focus() on a
+    // detached or hidden node leaves the reader on <body>.
+    const opener = openerRef.current;
+    if (opener?.isConnected && opener.checkVisibility?.() !== false) opener.focus();
+    else if (opener) document.getElementById("content")?.focus();
     const receipt = receiptRef.current;
     if (!receipt) return;
     receiptRef.current = null;

@@ -227,13 +227,6 @@ morning sweep, which notifies each delegated task's sponsor rather than filing
   Removing the package also drops its dependency tree from the image
   (`slack-bolt`, `botocore`, `pillow`, `rich`, `prompt-toolkit`, `dill`). The
   release note must tell operators that the variable is ignored.
-- **Agent edits of a requester's private row dead-end.** The gate files an
-  agent's update to a private row its requester can read (a `note_edit` on
-  their private note). The apply runs as the agent, `scope.assert_editable`
-  refuses a machine actor on a private row, and approval auto-rejects the
-  proposal as "target no longer exists". Refuse it at the gate with the true
-  reason, as `_gate._creates_in_a_crew` does for crew creates, after checking
-  which private updates do apply (a memory forget runs as its requester).
 - **A failed or unknown MCP review row has no error code.** The ledger row
   says `remote_error` or `deadline_exceeded`, but
   `extension_review_invocations.error_code` stays empty for `mcp_tool`,

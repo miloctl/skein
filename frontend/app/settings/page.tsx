@@ -36,6 +36,7 @@ import { BackupCard } from "@/components/backup-card";
 import { OperationsCard } from "@/components/operations-card";
 import { CrewsCard } from "@/components/crews-card";
 import { McpServersCard } from "@/components/mcp-servers-card";
+import { setCaptureKeyEnabled, useCaptureKeyEnabled } from "@/lib/capture-key";
 import {
   APPEARANCES,
   applyThemeCode,
@@ -1095,6 +1096,7 @@ export default function SettingsPage() {
   };
 
   const strong = who?.strong ?? false;
+  const captureKey = useCaptureKeyEnabled();
   const canAdminister = who?.can_administer ?? false;
   const adminRequirement = strong
     ? "You do not have administrator access. Ask an administrator for access."
@@ -2000,6 +2002,24 @@ export default function SettingsPage() {
                     </div>
                   </div>
                 )}
+              </Section>
+
+              <Section title="Keyboard" headingLevel={3}>
+                <label className="flex items-center gap-2 text-sm text-ink-2">
+                  <input
+                    type="checkbox"
+                    checked={captureKey}
+                    onChange={(e) => setCaptureKeyEnabled(e.target.checked)}
+                    aria-describedby="capture-key-help"
+                  />
+                  Press C to open quick capture
+                </label>
+                <p id="capture-key-help" className="mt-1 text-xs text-ink-3">
+                  The key works when focus is not in a form field or a
+                  dialog. If you use speech input, or if you press C by
+                  accident, turn it off. The setting applies to this browser
+                  only.
+                </p>
               </Section>
 
               <AttachedFilesCard headingLevel={3} />
