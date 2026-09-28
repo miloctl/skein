@@ -73,6 +73,8 @@ The row is an operational state record. The task activity row remains the proven
 
 `delegation.delegate_task()` updates the task and queues the wake in one database transaction.
 
+A reviewer who rejects a `task_completion` can also send the task back (`send_back` on `POST /api/review/{id}/reject`, `skein review reject ID --send-back`, or the checkbox in Approvals). `review.reject_change()` holds the task first, refuses unless the task is still delegated to the agent that submitted it and the note is not empty, and then queues the wake in the verdict's transaction. A rejection without the flag queues nothing. The wake prompt tells the agent to act on the rejection note before it submits again.
+
 The queue uses an atomic PostgreSQL upsert:
 
 - A terminal row becomes `pending`. `completion_unknown` is terminal: a new

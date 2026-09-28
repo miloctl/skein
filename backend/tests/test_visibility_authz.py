@@ -919,6 +919,11 @@ _UNFILTERED_READS = {
     ),
     # --- the row's OWN reader: this is the person or agent the row is for ---
     "review.py::_sponsor_of": "reads the one column that names who reviews it",
+    "review.py::_send_back_target": (
+        "reads the status and delegate of the task a judged proposal names, to"
+        " decide a wake; the reviewer passed _assert_judgeable, and no text of"
+        " the row is returned"
+    ),
     "intervention.py::_question_still_open": (
         "reads only whether one question, named by id from a finding the"
         " queue already policy-filtered, is still open — a boolean that"

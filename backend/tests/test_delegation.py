@@ -113,6 +113,79 @@ def test_delegation_work_loop_end_to_end(client, fresh_db, monkeypatch):
     assert any(n.startswith("[accepted]") for n in notes)
 
 
+def _submitted(fresh_db):
+    """A claimed delegation with a pending completion and a settled wake."""
+    from app.services import delegation
+
+    tid = _delegated_task(fresh_db)
+    delegation.claim_task(tid, actor="scout")
+    pid = delegation.submit_completion(tid, "checklist drafted", actor="scout")["proposal_id"]
+    fresh_db.execute("UPDATE agent_wakeups SET status = 'completed' WHERE agent = 'scout'")
+    return tid, pid
+
+
+def _wake(fresh_db):
+    return fresh_db.query_one("SELECT * FROM agent_wakeups WHERE agent = 'scout'")
+
+
+def test_a_rejected_completion_can_be_sent_back(client, fresh_db):
+    """The reviewer's note waited in the agent inbox until somebody delegated
+    something else. Sending it back queues one turn for the same agent, in
+    the verdict's own transaction, and only when the reviewer asks."""
+    tid, pid = _submitted(fresh_db)
+    r = client.post(
+        f"/api/review/{pid}/reject",
+        json={"note": "target Postgres 17, see decision #41", "send_back": True},
+        headers=_strong(client, "mira"),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["sent_back"] is True
+    wake = _wake(fresh_db)
+    assert (wake["status"], wake["trigger_task_id"], wake["requested_by"]) == (
+        "pending",
+        tid,
+        "mira",
+    )
+
+
+def test_a_plain_rejection_wakes_nobody(client, fresh_db):
+    _tid, pid = _submitted(fresh_db)
+    r = client.post(
+        f"/api/review/{pid}/reject", json={"note": "not yet"}, headers=_strong(client, "mira")
+    )
+    assert r.status_code == 200, r.text
+    assert _wake(fresh_db)["status"] == "completed"
+
+
+def test_send_back_is_refused_where_it_cannot_run(client, fresh_db):
+    """Each refusal leaves the proposal pending: the verdict and the wake
+    land together or not at all."""
+    from app.services import work
+
+    tid, pid = _submitted(fresh_db)
+    headers = _strong(client, "mira")
+    r = client.post(
+        f"/api/review/{pid}/reject", json={"note": "", "send_back": True}, headers=headers
+    )
+    assert r.status_code == 400
+    work.update_task(tid, assignee="mira", actor="mira")  # ends the delegation
+    r = client.post(
+        f"/api/review/{pid}/reject", json={"note": "redo it", "send_back": True}, headers=headers
+    )
+    assert r.status_code == 400
+    status = fresh_db.query_one("SELECT status FROM pending_changes WHERE id = ?", (pid,))
+    assert status["status"] == "pending"
+    assert _wake(fresh_db)["status"] == "completed"
+
+    from app.services import review
+
+    other = review.propose_change("task", "create", {"title": "draft"}, actor="scout")
+    r = client.post(
+        f"/api/review/{other['id']}/reject", json={"note": "no", "send_back": True}, headers=headers
+    )
+    assert r.status_code == 400
+
+
 def test_claim_requires_the_delegated_agent(fresh_db):
     from app.services import delegation, users, work
 

@@ -18,9 +18,12 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- `POST /api/review/{id}/reject` takes `send_back` (default `false`). On a `task_completion` it queues one more agent turn for the delegate in the verdict's transaction and returns `sent_back: true`. It needs a note, and it is refused unless the task is still delegated to the agent that submitted it. `skein review reject ID --send-back` sends the same request.
+
 ### Behavior
 
 - An unattended agent turn records what it did. The task panel names a turn stopped at its step or token limit, a write the gate refused, a write that failed, and a turn that filed nothing, instead of one "did not record progress" sentence. A turn that failed before it used any tool is `failed`, not "can have written records". The wake prompt states the per-run limits.
+- Approvals offers "Send the task back to <agent> for another turn" when you reject a submitted task. The agent wakes with your note in its inbox, and the wake prompt tells it to act on that note before it submits again. A rejection without it still wakes nobody.
 - A worklog note moves its task. Needs a call, the flow metrics, the Monday stale-work nudge, the digest and insights no longer name a delegated task stalled while its agent reports progress.
 
 ### Operations
