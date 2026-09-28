@@ -59,7 +59,8 @@ const AWAY_WORD: Record<string, string> = {
   away: "away",
 };
 
-type Item = { key: string; kind: Kind; order: string; node: React.ReactNode };
+// `title`: the full text a cell truncates, for a pointer that rests on it
+type Item = { key: string; kind: Kind; order: string; title: string; node: React.ReactNode };
 
 /** "meetings", "meetings and tasks", "meetings, tasks and time away". */
 function listed(words: string[]): string {
@@ -209,6 +210,7 @@ export default function CalendarPage() {
           put(day, {
             key: `event-${e.id}`,
             kind: "events",
+            title: e.title,
             order: `0${e.starts_at.length > 10 && i === 0 ? e.starts_local.slice(11, 16) : "00:00"}`,
             node: (
               <button
@@ -228,6 +230,7 @@ export default function CalendarPage() {
         put(t.due_date, {
           key: `task-${t.id}`,
           kind: "tasks",
+          title: `Task due: ${t.title}`,
           order: "1",
           node: (
             <PeekLink taskId={t.id} className="block min-h-6 w-full truncate py-1 text-left text-ink-2 hover:text-ink">
@@ -241,6 +244,7 @@ export default function CalendarPage() {
         put(m.due_date, {
           key: `milestone-${m.id}`,
           kind: "milestones",
+          title: `Milestone due: ${m.title}`,
           order: "2",
           node: (
             <Link href={`/dashboard#milestone-${m.id}`} className="block min-h-6 truncate py-1 text-ink-2 hover:text-ink">
@@ -254,6 +258,7 @@ export default function CalendarPage() {
         put(p.due_date, {
           key: `promise-${p.id}`,
           kind: "promises",
+          title: `${p.direction === "received" ? "Awaiting" : "Promised"}: ${p.promise}`,
           order: "3",
           node: (
             <Link href={`/portfolio#promise-${p.id}`} className="block min-h-6 truncate py-1 text-ink-2 hover:text-ink">
@@ -270,6 +275,7 @@ export default function CalendarPage() {
           put(day, {
             key: `away-${a.id ?? `shared-${n}`}`,
             kind: "time_away",
+            title: `${a.person}: ${AWAY_WORD[a.kind] ?? a.kind}`,
             order: "4",
             node: (
               <span className="block truncate text-ink-3">
@@ -449,7 +455,7 @@ export default function CalendarPage() {
                   {items.length > 0 && (
                     <ul className="mt-0.5 space-y-0.5 text-xs">
                       {items.map((item) => (
-                        <li key={item.key} className="min-w-0">
+                        <li key={item.key} title={item.title} className="min-w-0">
                           {item.node}
                         </li>
                       ))}
