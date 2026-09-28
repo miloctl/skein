@@ -139,8 +139,9 @@ whether the link write is allowed. Each path takes
 "event")` in the parent-lock loop in `review.py`, after `engagement_id` and
 before `milestone_id`. Engagement to event to milestone to task is top-down,
 which matches the existing comment there. Create services run the event
-probe with `FOR KEY SHARE` as their first statement: a concurrent cancel
-waits instead of turning the insert into a foreign-key 500.
+probe with `FOR KEY SHARE` right after they resolve the row's tier, which
+the containment check needs: a concurrent cancel waits instead of turning
+the insert into a foreign-key 500. No path takes the event after the item.
 
 ### D10. Time away follows the rule of the reader it derives from
 
@@ -342,10 +343,10 @@ Tests that pin the risky parts, in `backend/tests/test_calendar.py`:
     tier.
   - Routes: `POST /api/events/{id}/links` and `DELETE
     /api/events/{id}/links/{kind}/{item_id}`.
-  - Agent tool: `link_to_event`, gated as `event_link` `update` with
-    `entity_id` set to the event. If the event vanishes, the proposal
-    auto-rejects, which is correct. This needs the same registries as
-    slice 2.
+  - No agent tool links after the fact. Its proposal would carry the
+    item's id, and the review queue shows a proposal to everyone who can
+    read its target, the meeting. A private item's id would reach them.
+    Agents link at creation through the create tools' `event_id`.
   - A link does not bump `updated_at` and emits no domain event. The 1.0
     event catalog (`public/events.py`) is frozen, and no typed view carries
     `event_id`. `update_task` does not accept `event_id`, so the string

@@ -675,18 +675,11 @@ larger than its finding.
 
 Intent and design: [Calendar, written by people and agents](intent/calendar.md).
 The remaining slices, in order. Each slice deletes its own bullet when it
-ships. The calendar page and event editing shipped (docs/FEATURES.md,
-Calendar). The
+ships. The calendar page, event editing and meeting links shipped
+(docs/FEATURES.md, Calendar). The
 open questions at the end of the intent doc have recommended defaults, and
 the slices proceed on those defaults.
 
-- **Slice 3: items that came out of a meeting.** Migration 044 adds
-  `event_id` (`ON DELETE SET NULL`) to notes, tasks, decisions, questions,
-  blockers, promises and intake requests. An item is never wider than its
-  meeting. Ingest takes an event and stamps the meeting's tier. Adds
-  link-after services and routes, the `link_to_event` tool, a "From this
-  meeting" list in the panel, and a viewer-scoped item count on My Day's
-  meeting ask. Field-guide card `meeting-links`.
 - **Slice 4: agenda references.** `event` becomes a `refs.py` target. The
   agenda's `question #12` style references become permission-checked links
   (`readable_refs`, with apostrophe-safe parsing for human text).

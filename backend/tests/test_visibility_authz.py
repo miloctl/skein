@@ -119,6 +119,18 @@ def _mutations(r):
         ("memory.forget", lambda a: memory.forget(r["memory"], actor=a)),
         ("schedule.cancel_event", lambda a: schedule.cancel_event(r["event"], actor=a)),
         ("schedule.update_event", lambda a: schedule.update_event(r["event"], title="x", actor=a)),
+        (
+            "schedule.link_item",
+            lambda a: schedule.link_item(r["event"], "question", r["question"], actor=a),
+        ),
+        (
+            "schedule.unlink_item",
+            # linked by its author first, so the author's own call has a link to remove
+            lambda a: (
+                schedule.link_item(r["event"], "decision", r["decision"], actor="ava"),
+                schedule.unlink_item(r["event"], "decision", r["decision"], actor=a),
+            ),
+        ),
         ("absences.delete_absence", lambda a: absences.delete_absence(r["absence"], actor=a)),
         (
             "engagements.update_engagement",

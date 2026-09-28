@@ -137,6 +137,7 @@ def create_task(
     priority: str = "medium",
     due_date: str = "",
     engagement_id: int = 0,
+    event_id: int = 0,
 ) -> str:
     """Create a task, optionally attached to a milestone or an engagement.
 
@@ -149,6 +150,7 @@ def create_task(
         due_date: Target date in YYYY-MM-DD format, or empty if none.
         engagement_id: Engagement to link the task to directly (0 for none) —
             use when the work belongs to an engagement but no milestone fits.
+        event_id: The meeting this came out of (an ID from list_events), or 0.
     """
     payload: dict[str, Any] = {
         "title": title,
@@ -158,6 +160,7 @@ def create_task(
         "priority": priority,
         "due_date": due_date,
         "engagement_id": engagement_id,
+        **({"event_id": event_id} if event_id else {}),
     }
     return gated_write(
         "task",

@@ -32,6 +32,7 @@ from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from psycopg.errors import LockNotAvailable
 
 from .. import config, db
+from . import schedule
 
 log = logging.getLogger(__name__)
 
@@ -155,6 +156,8 @@ _BACKUP_RUN_TIMEOUT_SECONDS = 300
 _EXPORT_LOCK = Lock()
 _EXPORT_LOCK_WAIT_SECONDS = 5
 _EXPORT_ID_BATCH = 10_000
+# the tables that carry the meeting a row came out of
+_MEETING_LINKED = frozenset(table for table, _title in schedule.LINKED.values())
 MAX_EXPORT_DOWNLOAD_BYTES = 256 * 1024 * 1024
 
 
@@ -739,6 +742,14 @@ def _make_export(*, keep: int, actor: str, open_file: bool, max_bytes: int = 0):
                                 for row in rows:
                                     if int(row.get("engagement_id") or 0) not in parents:
                                         row["engagement_id"] = None
+                            if table in _MEETING_LINKED:
+                                meetings = visible_ids(
+                                    "events",
+                                    {int(row["event_id"]) for row in rows if row.get("event_id")},
+                                )
+                                for row in rows:
+                                    if int(row.get("event_id") or 0) not in meetings:
+                                        row["event_id"] = None
                             if table in ("blockers", "task_worklog"):
                                 visible_tasks = visible_ids(
                                     "tasks",

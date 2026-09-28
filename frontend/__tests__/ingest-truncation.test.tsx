@@ -16,7 +16,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
     getUser: () => "tester",
   };
 });
-vi.mock("next/navigation", () => ({ usePathname: () => "/ingest" }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/ingest",
+  useSearchParams: () => new URLSearchParams(),
+}));
 
 import IngestPage from "@/app/ingest/page";
 

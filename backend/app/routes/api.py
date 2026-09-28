@@ -511,6 +511,75 @@ def get_event_detail(
         return schedule.with_local(row)
 
 
+@router.get("/events/{event_id}/items")
+def get_event_items(
+    event_id: int,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.events.items",
+        "rest",
+        viewer,
+    )
+    with db.read_transaction():
+        _require_resource_policy(
+            request, subject, viewer, "skein.rest.get.events", "event", event_id
+        )
+        return schedule.event_items(event_id, viewer, resource_filter=policy.permits)
+
+
+class EventLinkIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: str = Field(max_length=16)
+    item_id: int
+
+
+def _judge_linked_item(
+    request: Request, subject: Any, viewer: scope.Viewer, action: str, kind: str, item_id: int
+) -> None:
+    """The generic gate judges the event the path names. A link also writes
+    the ITEM, so a workplace rule on the item's project must hold too."""
+    if kind not in schedule.LINKED:
+        raise ValueError(f"kind must be one of: {', '.join(schedule.LINKED)}")
+    _require_resource_policy(request, subject, viewer, action, kind, item_id)
+
+
+@router.post("/events/{event_id}/links")
+def post_event_link(
+    event_id: int,
+    body: EventLinkIn,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    ratelimit.check("write", user)
+    _judge_linked_item(
+        request, subject, viewer, "skein.rest.post.events.links", body.kind, body.item_id
+    )
+    return schedule.link_item(event_id, body.kind, body.item_id, actor=user)
+
+
+@router.delete("/events/{event_id}/links/{kind}/{item_id}")
+def delete_event_link(
+    event_id: int,
+    kind: str,
+    item_id: int,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    ratelimit.check("write", user)
+    _judge_linked_item(request, subject, viewer, "skein.rest.delete.events.links", kind, item_id)
+    return schedule.unlink_item(event_id, kind, item_id, actor=user)
+
+
 @router.get("/calendar")
 def get_calendar(
     user: CurrentUser,
@@ -4150,14 +4219,22 @@ def post_capture(
 
 
 class IngestIn(BaseModel):
+    # forbid: ignored, a client that names the meeting under the wrong key
+    # files every line unlinked and hears nothing about it
+    model_config = ConfigDict(extra="forbid")
     text: str = Field(max_length=70_000)  # 422 at validation, before buffering costs
+    # the meeting the notes came from (ingest._meeting), or 0
+    event_id: int = 0
 
 
 @router.post("/ingest")
 def post_ingest(body: IngestIn, user: CurrentUser, request: Request):
     ratelimit.check("ingest", user)
     return ingest.ingest_notes(
-        body.text, actor=user, private=_personal_default(request) == scope.PRIVATE
+        body.text,
+        actor=user,
+        private=_personal_default(request) == scope.PRIVATE,
+        event_id=body.event_id,
     )
 
 

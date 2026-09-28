@@ -1144,6 +1144,8 @@ VERBS: dict[str, tuple[str, str]] = {
     "exec_readout": ("published an exec readout", "normal"),
     "schedule_event": ("scheduled an event", "normal"),
     "update_event": ("changed an event", "normal"),
+    "link_event": ("linked a record to a meeting", "quiet"),
+    "unlink_event": ("unlinked a record from a meeting", "quiet"),
     "record_outcome": ("recorded what came out of a meeting", "quiet"),
     "cancel_event": ("cancelled an event", "loud"),
     "allocate": ("allocated a person to an engagement", "normal"),

@@ -29,7 +29,12 @@ from ._gate import gated_write
 
 @tool
 def raise_blocker(
-    title: str, detail: str = "", owner: str = "", impact: str = "medium", task_id: int = 0
+    title: str,
+    detail: str = "",
+    owner: str = "",
+    impact: str = "medium",
+    task_id: int = 0,
+    event_id: int = 0,
 ) -> str:
     """File a blocker in the register so it gets tracked and escalated if it ages.
 
@@ -39,6 +44,7 @@ def raise_blocker(
         owner: Who owns resolving it.
         impact: One of low, medium, high, critical (drives escalation speed).
         task_id: Related task ID, or 0 (marks that task blocked too).
+        event_id: The meeting this came out of (an ID from list_events), or 0.
     """
     payload: dict[str, Any] = {
         "title": title,
@@ -46,6 +52,7 @@ def raise_blocker(
         "owner": owner,
         "impact": impact,
         "task_id": task_id,
+        **({"event_id": event_id} if event_id else {}),
     }
     return gated_write(
         "blocker",
@@ -116,7 +123,7 @@ def list_blockers(status: str = "", owner: str = "") -> str:
 
 @tool
 def submit_intake_request(
-    title: str, detail: str = "", requester: str = "", project_class: str = ""
+    title: str, detail: str = "", requester: str = "", project_class: str = "", event_id: int = 0
 ) -> str:
     """Submit a new engagement request to the team's intake queue.
 
@@ -125,12 +132,14 @@ def submit_intake_request(
         detail: Context, goals, constraints.
         requester: Who is asking.
         project_class: prototype, incident, migration, or other class if known.
+        event_id: The meeting this came out of (an ID from list_events), or 0.
     """
     payload: dict[str, Any] = {
         "title": title,
         "detail": detail,
         "requester": requester,
         "project_class": project_class,
+        **({"event_id": event_id} if event_id else {}),
     }
     return gated_write(
         "intake",

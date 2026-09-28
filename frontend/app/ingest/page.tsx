@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useSyncExternalStore } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { actionError, api } from "@/lib/api";
 import { subscribeSession, trustedHeaderIdentity } from "@/lib/auth";
@@ -13,6 +14,16 @@ type IngestResult = {
   skipped_private: number;
 };
 
+/** Reports `?event=<id>`, the meeting the notes came from, or 0. In its own
+ *  Suspense boundary, as app/notes/page.tsx explains for `?note=`. */
+function EventParam({ onChange }: { onChange: (id: number) => void }) {
+  const raw = useSearchParams().get("event");
+  const id = Number(raw);
+  const event = raw && Number.isInteger(id) && id > 0 ? id : 0;
+  useEffect(() => onChange(event), [event, onChange]);
+  return null;
+}
+
 export default function IngestPage() {
   // a weak name reads no private row, so its proposals keep the team queue
   const weak = useSyncExternalStore(subscribeSession, trustedHeaderIdentity, () => false);
@@ -22,6 +33,25 @@ export default function IngestPage() {
   const [error, setError] = useState<string | null>(null);
   const [filed, setFiled] = useState<Record<string, string>>({});
   const [picks, setPicks] = useState<Record<string, string>>({});
+  // the meeting from `?event=`, sent with every paste so each record an
+  // approval writes links back to it (services/ingest.py::_meeting)
+  const [eventId, setEventId] = useState(0);
+  const [meeting, setMeeting] = useState<{ id: number; title?: string; error?: string } | null>(
+    null,
+  );
+  const onEvent = useCallback((id: number) => setEventId(id), []);
+  useEffect(() => {
+    if (!eventId) return;
+    let live = true;
+    api<{ title: string }>(`/api/events/${eventId}`)
+      .then((e) => live && setMeeting({ id: eventId, title: e.title }))
+      .catch((e) => live && setMeeting({ id: eventId, error: actionError(e) }));
+    return () => {
+      live = false;
+    };
+  }, [eventId]);
+  const withMeeting = (body: { text: string }) =>
+    JSON.stringify(eventId ? { ...body, event_id: eventId } : body);
 
   // an unmatched line gets filed by re-running it through the same
   // proposals-only pipeline with the chosen prefix — never a direct write
@@ -29,7 +59,7 @@ export default function IngestPage() {
     try {
       const r = await api<IngestResult>("/api/ingest", {
         method: "POST",
-        body: JSON.stringify({ text: `${prefix} ${line}` }),
+        body: withMeeting({ text: `${prefix} ${line}` }),
       });
       const kind = r.proposals[0]?.kind ?? "proposal";
       setFiled((f) => ({ ...f, [key]: kind }));
@@ -45,7 +75,7 @@ export default function IngestPage() {
     try {
       const r = await api<IngestResult>("/api/ingest", {
         method: "POST",
-        body: JSON.stringify({ text }),
+        body: withMeeting({ text }),
       });
       setResult(r);
       setFiled({});
@@ -72,6 +102,27 @@ export default function IngestPage() {
           : "The proposals are yours alone to approve, and each approval writes the record at the tier it names."}{" "}
         <code>fb:</code> lines are skipped and never stored.
       </p>
+      <Suspense fallback={null}>
+        <EventParam onChange={onEvent} />
+      </Suspense>
+      {eventId > 0 && (
+        <p className="mb-3 max-w-3xl text-sm text-ink-2">
+          {meeting?.id !== eventId
+            ? "Loading the meeting…"
+            : meeting.error
+              ? meeting.error
+              : `These notes are from the meeting "${meeting.title}". Each record links back to it, at the meeting's visibility.`}{" "}
+          <button
+            onClick={() => {
+              setEventId(0);
+              window.history.replaceState(null, "", "/ingest");
+            }}
+            className="font-medium text-thread underline"
+          >
+            Paste without a meeting
+          </button>
+        </p>
+      )}
 
       <textarea
         name="meeting-notes"

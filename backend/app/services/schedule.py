@@ -188,6 +188,150 @@ def update_event(
     return {"id": event_id, "updated": list(fields)}
 
 
+# kind -> (table, title column): the kinds the capture grammar files
+# (services/capture.py::PATTERNS), which is what comes out of a meeting.
+# Migration 044 gives each table its event_id. A kind added here needs that
+# column first, and sharing._PARENTS lists the tables again: without its
+# entry a row shares to the roster while its meeting stays narrower.
+LINKED = {
+    "note": ("notes", "topic"),
+    "task": ("tasks", "title"),
+    "decision": ("decisions", "title"),
+    "question": ("questions", "question"),
+    "blocker": ("blockers", "title"),
+    "promise": ("promises", "promise"),
+    "intake": ("intake_requests", "title"),
+}
+# a void task leaves every list (work.py), this one included
+_LINKED_LIVE = {"task": " AND status <> 'void'"}
+EVENT_ITEMS_LIMIT = 100
+
+
+def _linked_table(kind: str) -> str:
+    if kind not in LINKED:
+        raise ValueError(f"kind must be one of: {', '.join(LINKED)}")
+    return LINKED[kind][0]
+
+
+def check_event_link(
+    event_id: int, *, actor: str, tier: str, crew_id: int | None, label: str
+) -> None:
+    """Refuse a link to an event the writer cannot read, or to one narrower
+    than the row: every reader of the row reads its event_id, and a private
+    meeting's sequential id is data (scope.relationship_contains).
+
+    The probe holds the event FOR KEY SHARE, so a concurrent cancel waits for
+    this transaction. Unheld, the cancel commits between the probe and the
+    insert, and the foreign key turns the caller's write into a 500.
+    """
+    frag, vp = scope.visible_filter(scope.Viewer.for_actor(actor), "events")
+    event = db.query_one(
+        f"SELECT visibility, crew_id FROM events WHERE id = ? AND {frag} FOR KEY SHARE",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (event_id, *vp),
+    )
+    if event is None:
+        raise ValueError(scope.missing_text("events", event_id))
+    scope.assert_relationship_contains(
+        event["visibility"], event["crew_id"], tier, crew_id, child_label=label
+    )
+
+
+def link_item(event_id: int, kind: str, item_id: int, *, actor: str = "system") -> dict:
+    """Record that an existing row came out of a meeting."""
+    table = _linked_table(kind)
+    with db.transaction():
+        # the event, then the row: review.approve_change holds a create's
+        # parents in that order, and the reverse order deadlocks against it
+        policy_context.hold_resource("event", event_id)
+        row = db.query_one(f"SELECT * FROM {table} WHERE id = ? FOR UPDATE", (item_id,))  # noqa: S608 — table from LINKED
+        if not row:
+            raise scope.missing(table, item_id)
+        scope.assert_editable(table, row, actor, verb="link")
+        check_event_link(
+            event_id, actor=actor, tier=row["visibility"], crew_id=row["crew_id"], label=kind
+        )
+        db.execute(f"UPDATE {table} SET event_id = ? WHERE id = ?", (event_id, item_id))  # noqa: S608 — table from LINKED
+        db.log_activity(
+            actor,
+            "link_event",
+            scope.detail(row["visibility"], f"{kind} #{item_id}", f"to event #{event_id}"),
+        )
+    return {"event_id": event_id, "kind": kind, "id": item_id}
+
+
+def unlink_item(event_id: int, kind: str, item_id: int, *, actor: str = "system") -> dict:
+    table = _linked_table(kind)
+    with db.transaction():
+        row = db.query_one(f"SELECT * FROM {table} WHERE id = ? FOR UPDATE", (item_id,))  # noqa: S608 — table from LINKED
+        if not row:
+            raise scope.missing(table, item_id)
+        scope.assert_editable(table, row, actor, verb="unlink")
+        if int(row.get("event_id") or 0) != event_id:
+            raise ValueError(f"{kind} #{item_id} is not linked to event #{event_id}")
+        db.execute(f"UPDATE {table} SET event_id = NULL WHERE id = ?", (item_id,))  # noqa: S608 — table from LINKED
+        db.log_activity(
+            actor,
+            "unlink_event",
+            scope.detail(row["visibility"], f"{kind} #{item_id}", f"from event #{event_id}"),
+        )
+    return {"event_id": event_id, "kind": kind, "id": item_id, "unlinked": True}
+
+
+def event_items(
+    event_id: int,
+    viewer: scope.Viewer = scope.NOBODY,
+    *,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+) -> dict[str, list[dict]]:
+    """What came out of one meeting, each kind at the viewer's own tier and
+    through the workplace policy, as engagement_brief.brief reads the rows
+    under an engagement."""
+    if get_event(event_id, viewer) is None:
+        raise scope.missing("events", event_id)
+    out: dict[str, list[dict]] = {}
+    for kind, (table, title) in LINKED.items():
+        frag, vp = scope.visible_filter(viewer, table)
+        rows = db.query(
+            f"SELECT id, {title} AS title, visibility, crew_id FROM {table}"  # noqa: S608 — table and column from LINKED, scope.visible_filter emits only bound marks
+            f" WHERE event_id = ? AND {frag}{_LINKED_LIVE.get(kind, '')} ORDER BY id LIMIT ?",
+            (event_id, *vp, EVENT_ITEMS_LIMIT),
+        )
+        out[kind] = policy_context.filter_resource_rows(kind, rows, viewer, resource_filter)
+    return out
+
+
+def linked_counts(
+    event_ids: list[int],
+    viewer: scope.Viewer = scope.NOBODY,
+    *,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+) -> dict[int, int]:
+    """{event id: rows that came out of it}, counting only rows the viewer
+    can read and the policy permits. A count that includes a hidden row tells
+    the reader that row exists."""
+    if not event_ids:
+        return {}
+    marks = ",".join("?" for _ in event_ids)
+    parts, params = [], []
+    for kind, (table, _title) in LINKED.items():
+        frag, vp = scope.visible_filter(viewer, table)
+        parts.append(
+            f"SELECT '{kind}' AS kind, id, event_id FROM {table}"  # noqa: S608 — kind and table from LINKED, scope.visible_filter emits only bound marks
+            f" WHERE event_id IN ({marks}) AND {frag}{_LINKED_LIVE.get(kind, '')}"
+        )
+        params += [*event_ids, *vp]
+    rows = db.query(
+        f"SELECT kind, id, event_id FROM ({' UNION ALL '.join(parts)}) linked LIMIT ?",  # noqa: S608 — kinds and tables from LINKED, scope.visible_filter emits only bound marks
+        (*params, len(event_ids) * EVENT_ITEMS_LIMIT),
+    )
+    counts: dict[int, int] = {}
+    for kind in LINKED:
+        of_kind = [r for r in rows if r["kind"] == kind]
+        for r in policy_context.filter_resource_rows(kind, of_kind, viewer, resource_filter):
+            counts[int(r["event_id"])] = counts.get(int(r["event_id"]), 0) + 1
+    return counts
+
+
 def list_events(
     from_date: str = "", limit: int = 50, viewer: scope.Viewer = scope.NOBODY
 ) -> list[dict]:

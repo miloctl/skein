@@ -27,6 +27,7 @@ const events = new Map<number, ReturnType<typeof event>>();
 const calls: string[] = [];
 const posts: Record<string, unknown>[] = [];
 const patches: Record<string, unknown>[] = [];
+const deletes: string[] = [];
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
@@ -35,6 +36,16 @@ vi.mock("@/lib/api", async (importOriginal) => {
     getUser: () => "ava",
     api: async (path: string, init?: RequestInit) => {
       calls.push(path);
+      if (init?.method === "DELETE") {
+        deletes.push(path);
+        return {};
+      }
+      if (path === "/api/events/1/links") {
+        posts.push(JSON.parse(String(init?.body)));
+        return {};
+      }
+      if (path === "/api/events/1/items")
+        return { decision: [{ id: 4, title: "ship on friday" }], task: [{ id: 5, title: "book the room" }] };
       if (init?.method === "PATCH") {
         patches.push(JSON.parse(String(init.body)));
         return { updated: [] };
@@ -95,6 +106,7 @@ beforeEach(() => {
   calls.length = 0;
   posts.length = 0;
   patches.length = 0;
+  deletes.length = 0;
 });
 afterEach(() => vi.useRealTimers());
 
@@ -163,6 +175,28 @@ describe("the Calendar page", () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "Save event" }));
     });
     expect(patches).toEqual([{ title: "Planning", description: "-" }]);
+  });
+
+  it("lists what came out of the meeting, and links and unlinks a record", async () => {
+    render(<CalendarPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "10:00 Planning sync" }));
+    const dialog = await screen.findByRole("dialog", { name: "Event: Planning sync" });
+    expect(await within(dialog).findByRole("link", { name: "ship on friday" })).toBeTruthy();
+    // a task opens the task peek over the panel
+    expect(within(dialog).getByRole("button", { name: /book the room/ })).toBeTruthy();
+    expect(within(dialog).getByRole("link", { name: "Paste notes for this meeting" }).getAttribute("href")).toBe(
+      "/ingest?event=1",
+    );
+    fireEvent.change(within(dialog).getByLabelText("Kind"), { target: { value: "question" } });
+    fireEvent.change(within(dialog).getByLabelText("Record number"), { target: { value: "12" } });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Link a record" }));
+    });
+    expect(posts).toEqual([{ kind: "question", item_id: 12 }]);
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Unlink decision #4 from this meeting" }));
+    });
+    expect(deletes).toEqual(["/api/events/1/links/decision/4"]);
   });
 
   it("follows a link to an event in another month", async () => {
