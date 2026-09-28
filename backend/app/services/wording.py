@@ -6,6 +6,7 @@ Approvals, and a notification because each writer rebuilt the f-string by
 hand. One helper, so a new surface cannot reinvent the bug.
 """
 
+import html
 import re
 
 
@@ -99,6 +100,19 @@ def quoted(text: str, width: int = 0) -> str:
 INVISIBLE = re.compile(
     "[\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890-\u0891\u08e2\u180e\u200b-\u200c\u200e-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb\U000110bd\U000110cd\U00013430-\U0001343f\U0001bca0-\U0001bca3\U0001d173-\U0001d17a\U000e0001\U000e0020-\U000e007f]"
 )
+
+
+def fence(tag: str, body: str, **attrs: object) -> str:
+    """Text wrapped in a labelled tag the model reads as a boundary.
+
+    Every closing form of the tag inside the body (any case, any space after
+    the slash) gains a backslash, and attribute values are escaped. Without
+    that, a document or a chat message holding `</tag>` ended the wrapper
+    early, and the text after it read as the person's own instruction."""
+    closing = re.compile(rf"</(\s*{re.escape(tag)})", re.IGNORECASE)
+    head = "".join(f' {name}="{html.escape(str(value))}"' for name, value in attrs.items())
+    inside = closing.sub(r"<\\/\1", body)
+    return f"<{tag}{head}>\n{inside}\n</{tag}>"
 
 
 def visible(text: str) -> str:
