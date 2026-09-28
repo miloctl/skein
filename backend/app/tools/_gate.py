@@ -64,6 +64,7 @@ _FAMILY = {
     "intake_edit": "intake",
     "memory_forget": "memory",
     "question_assign": "question",
+    "event_edit": "event",
     "event_cancel": "event",
 }
 

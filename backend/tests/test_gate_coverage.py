@@ -68,6 +68,7 @@ ARGS: dict[str, dict] = {
         "new_text": "coverage probe edit",
     },
     "edit_promise": {"promise_id": 1, "promise": "coverage probe edit"},
+    "update_event": {"event_id": 1, "title": "coverage probe edit"},
     # the delegation trio uses its own task so no earlier tool can disturb it
     "claim_delegated_task": {"task_id": 2},
     "report_progress": {"task_id": 2, "note": "coverage probe progress"},
@@ -311,6 +312,7 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
         "submit_intake_request",
         "supersede_decision",
         "update_engagement",
+        "update_event",
         "update_milestone",
         "update_task",
     }

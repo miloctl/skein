@@ -3459,6 +3459,27 @@ class EventIn(BaseModel):
     crew_id: int = 0
 
 
+class EventPatch(BaseModel):
+    """Empty is unchanged, "-" clears (schedule.update_event). No tier: an
+    update never changes one, and forbidding extras refuses a visibility
+    field instead of ignoring it."""
+
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field("", max_length=200)
+    starts_at: str = Field("", max_length=25)
+    ends_at: str = Field("", max_length=25)
+    description: str = Field("", max_length=4000)
+    attendees: str = Field("", max_length=500)
+    agenda: str = Field("", max_length=2000)
+    engagement_id: int = 0
+
+
+@router.patch("/events/{event_id}")
+def patch_event(event_id: int, body: EventPatch, user: CurrentUser):
+    ratelimit.check("write", user)
+    return schedule.update_event(event_id, **body.model_dump(), actor=user)
+
+
 @router.post("/events")
 def post_event(body: EventIn, user: CurrentUser):
     ratelimit.check("write", user)

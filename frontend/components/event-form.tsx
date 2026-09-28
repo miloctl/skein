@@ -45,7 +45,33 @@ export function blankDraft(day = ""): EventDraft {
   };
 }
 
-function fieldsOf(d: EventDraft): EventFields {
+/** The draft an existing event opens as. An all-day end is exclusive
+ *  (lib/calendar.ts::eventDays), so the last day shown is one before it. */
+export function draftOf(e: {
+  title: string;
+  starts_at: string;
+  ends_at: string | null;
+  starts_local: string;
+  ends_local: string | null;
+  description?: string;
+  attendees?: string;
+  agenda?: string;
+}): EventDraft {
+  const allDay = e.starts_at.length === 10;
+  return {
+    title: e.title,
+    allDay,
+    firstDay: e.starts_local.slice(0, 10),
+    lastDay: allDay && e.ends_at ? addDays(e.ends_at, -1) : "",
+    starts: allDay ? "" : e.starts_local.slice(0, 16),
+    ends: allDay ? "" : (e.ends_local ?? "").slice(0, 16),
+    description: e.description ?? "",
+    attendees: e.attendees ?? "",
+    agenda: e.agenda ?? "",
+  };
+}
+
+export function fieldsOf(d: EventDraft): EventFields {
   const common = {
     title: d.title.trim(),
     description: d.description,
@@ -57,6 +83,17 @@ function fieldsOf(d: EventDraft): EventFields {
     return { ...common, starts_at: d.firstDay, ends_at: last ? addDays(last, 1) : "" };
   }
   return { ...common, starts_at: d.starts, ends_at: d.ends };
+}
+
+/** The PATCH body for an edit: only what changed, and "-" for a field the
+ *  reader emptied, because the server reads an empty field as "unchanged"
+ *  (schedule.update_event). The form never sends an empty title or start. */
+export function patchOf(before: EventFields, after: EventFields): Partial<EventFields> {
+  const out: Partial<EventFields> = {};
+  for (const k of Object.keys(after) as (keyof EventFields)[]) {
+    if (after[k] !== before[k]) out[k] = after[k] === "" ? "-" : after[k];
+  }
+  return out;
 }
 
 /** What stops the form, in words, or "". The server refuses the same cases
@@ -126,7 +163,12 @@ export function EventForm({
         if (ok) setDraft(initial);
       }}
       onKeyDown={(e) => {
-        if (e.key === "Escape" && !e.nativeEvent.isComposing) onCancel();
+        if (e.key !== "Escape" || e.nativeEvent.isComposing) return;
+        // Escape cancels the form. Inside the event panel it must not also
+        // close the panel, whose listener sits on document with React's own
+        e.stopPropagation();
+        e.nativeEvent.stopImmediatePropagation();
+        onCancel();
       }}
     >
       <label className="block text-xs text-ink-3">
