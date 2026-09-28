@@ -22,6 +22,33 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+## 0.6.10 — 2026-09-28
+
+### Contracts
+
+- `GET /api/calendar?start=&end=` (at most 42 days) answers events, open task, milestone and promise due dates, and time away, each at the caller's tier and through the workplace policy per kind. It carries `today` (the team day) and `truncated` (each kind that reached its 500-row cap). `mine=true` narrows tasks to the caller's own. Events are drawn by overlap, and an all-day end is exclusive, as in the ICS feed.
+- `GET /api/events/{id}` answers one event with `starts_local`, `ends_local` and `agenda_refs`, the `question #12` style references in its agenda that the caller may open. `event` is now a reference target in receipts and agendas.
+- `PATCH /api/events/{id}` edits or reschedules an event: an empty field is unchanged, and `-` clears the end, description, attendees or agenda. `engagement_id` 0 is unchanged and a negative one unlinks. It never takes a tier, and an unknown field is a 422. The agent tool `update_event` is gated as `event_edit`, its own authority row in the `event` family, for 63 tools.
+- Migration 044 adds a nullable `event_id` (`ON DELETE SET NULL`) to notes, tasks, decisions, questions, blockers, promises and intake requests. The seven create services and agent create tools take `event_id`, refused when the writer cannot read the meeting or the row would be wider than it. The gate checks the meeting before an agent's create is queued, including the workplace policy on the meeting.
+- `GET /api/events/{id}/items`, `POST /api/events/{id}/links` and `DELETE /api/events/{id}/links/{kind}/{item_id}` read, add and remove the records linked to a meeting. The link routes are judged on the linked record's workplace policy as well as the meeting's.
+- `POST /api/ingest` takes `event_id` and refuses an unknown field with 422. Every proposal from that paste carries the meeting's id and tier.
+- An event links only to an engagement at least as wide as itself. `POST /api/events` and `PATCH /api/events/{id}` refuse a narrower one with 400.
+- `POST /api/field-guide/calendar` ties the new `calendar` card (rate-capped, fixed knot id).
+- Extension API `1.0.0` is unchanged. No typed view carries `event_id`, and a link emits no domain event.
+
+### Behavior
+
+- Work → Calendar (`/calendar`) shows the month as a grid, or on a phone as a list of the days that hold something. It shows meetings, open task, milestone and promise due dates, and time away, on the team clock. "Only my tasks" is on by default. Another person's time away shows only from today on, and a window whose owner shared only its dates reads "away".
+- A meeting opens in a panel at `/calendar?event=<id>`, where a search hit on a meeting now lands. The panel shows the time, attendees, the agenda with its references linked, the pre-meeting brief, Edit, delete, and From this meeting: the records linked to it, with controls to link and unlink one.
+- Paste notes for this meeting (`/ingest?event=<id>`, from the panel and from My Day's meeting ask) links each approved record back to the meeting, at the meeting's visibility. A trusted-header name with no key can paste only for a meeting the whole team can see. A question whose assignee cannot read the meeting stays under Not captured.
+- My Day's meeting ask says how many records that the reader can read came out of the meeting. The reader still records the outcome.
+- Work → Browse no longer has a Calendar register. Add events on Work → Calendar.
+- Two new field-guide cards: Calendar (Clove Hitch) and What came out of a meeting (Lark's Head).
+
+### Operations
+
+- Migration 044 runs at startup. It adds seven nullable columns with no default, which rewrites no table, and seven partial indexes on those columns. Each index build holds a short write lock on its table. No configuration changes.
+
 ## 0.6.9 — 2026-09-28
 
 ### Contracts
