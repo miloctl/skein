@@ -2846,6 +2846,11 @@ def get_context_pack(
     subject: PolicySubjectDep,
     engagement: int = 0,
     crew: int = 0,
+    # "workspace" builds the engagement pack as nobody: a pack bound for a
+    # repository file (skein context --write) is read by more people than
+    # the caller, and the caller's own view carries their private and crew
+    # rows (docs/VISIBILITY.md: a private row reaches no context pack)
+    tier: Literal["", "workspace"] = "",
 ):
     policy = projection_policy.ProjectionPolicy(
         request.app.state.skein_registry.policy_engine,
@@ -2869,7 +2874,7 @@ def get_context_pack(
                 "engagement": engagement,
                 "content": context_pack.build_engagement_pack(
                     engagement,
-                    viewer,
+                    scope.NOBODY if tier else viewer,
                     policy.permits,
                 ),
             }

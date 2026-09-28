@@ -1046,6 +1046,27 @@ def test_team_flags_name_the_roster_and_no_flag_names_no_tier(monkeypatch, tmp_p
     ]
 
 
+def test_context_write_asks_for_the_workspace_tier(monkeypatch, capsys, tmp_path):
+    """A repository file is read by more people than the caller. The pack it
+    holds must be the workspace tier, never the caller's own view."""
+    cli = _load_cli()
+    gets = []
+
+    def request(method, path, body=None):
+        gets.append(path)
+        return {"engagement": 4, "content": "# Engagement context: Atlas"}
+
+    monkeypatch.setattr(cli, "api", request)
+    target = tmp_path / "AGENTS.md"
+    cli.cmd_context(Namespace(engagement=4, write=str(target)))
+    assert gets == ["/api/context-pack?engagement=4&tier=workspace"]
+    assert target.read_text().startswith("# Engagement context: Atlas")
+    assert "every teammate" in capsys.readouterr().out
+    gets.clear()
+    cli.cmd_context(Namespace(engagement=4, write=""))
+    assert gets == ["/api/context-pack?engagement=4"]
+
+
 def test_review_reject_can_send_the_task_back(monkeypatch, capsys):
     cli = _load_cli()
     posts = []

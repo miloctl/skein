@@ -779,6 +779,10 @@ def cmd_context(args):
     path = "/api/context-pack"
     if args.engagement:
         path += f"?engagement={args.engagement}"
+        if args.write:
+            # a file goes to a repository's readers, not to the caller: the
+            # workspace tier only, never the caller's private or crew rows
+            path += "&tier=workspace"
     pack = api("GET", path)
     if args.write:
         Path(args.write).write_text(pack["content"] + "\n")
@@ -787,6 +791,10 @@ def cmd_context(args):
         # file was already written, so the caller got the file and a traceback
         version = f" v{pack['version']}" if "version" in pack else ""
         print(f"wrote context pack{version} to {args.write}")
+        print(
+            "The file holds records that every teammate can read. Do not commit it"
+            " to a repository that people outside the team can read."
+        )
     else:
         print(pack["content"])
 
