@@ -5,6 +5,7 @@ export const NAVIGATION = [
     href: "/portfolio", label: "Work", icon: "work",
     children: [
       { href: "/planning", label: "Plan the week", title: "Planning" },
+      { href: "/calendar", label: "Calendar" },
       { href: "/portfolio", label: "Health" },
       { href: "/dashboard", label: "Browse" },
       { href: "/notes", label: "Notes" },

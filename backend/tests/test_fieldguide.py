@@ -30,7 +30,7 @@ def test_registry_is_valid_and_complete():
     from app.services import fieldguide
 
     cards = fieldguide.registry()
-    assert len(cards) == 67
+    assert len(cards) == 68
     ids = {k["id"] for k in cards}
     assert ids == set(fieldguide.PREDICATES)
     for k in cards:
@@ -198,7 +198,7 @@ def test_hint_and_guide_use_the_same_tieable_total(fresh_db):
     from app.services import fieldguide
 
     _mint(fresh_db, "ava")
-    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 66
+    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 67
 
 
 def test_first_detection_seeds_silently(fresh_db):
@@ -533,6 +533,18 @@ def test_notes_route_ties_only_its_fixed_knot(client, fresh_db):
     assert not any(c["tied"] for c in fieldguide.guide("tester")["cards"] if c["id"] == "notes")
     assert client.post("/api/field-guide/notes").status_code == 200
     assert any(c["tied"] for c in fieldguide.guide("tester")["cards"] if c["id"] == "notes")
+
+
+def test_calendar_route_ties_only_its_fixed_knot(client, fresh_db):
+    """Events come from the agent tools and every playbook ritual, so
+    scheduling one proves nothing about the page."""
+    from app.services import fieldguide, schedule
+
+    _mint(fresh_db, "tester")
+    schedule.schedule_event("sync", "2026-10-02T10:00", actor="tester")
+    assert not any(c["tied"] for c in fieldguide.guide("tester")["cards"] if c["id"] == "calendar")
+    assert client.post("/api/field-guide/calendar").status_code == 200
+    assert any(c["tied"] for c in fieldguide.guide("tester")["cards"] if c["id"] == "calendar")
 
 
 def test_first_watch_mark_is_rate_capped(client, fresh_db):

@@ -72,19 +72,19 @@ describe("a deep link that names one row", () => {
     // a fragment link (an engagement's return link, a search hit) pushes an
     // entry; the select rewrites the current one and is covered elsewhere
     act(() => {
-      window.history.pushState(null, "", "/dashboard#browse-calendar");
+      window.history.pushState(null, "", "/dashboard#browse-time-away");
       window.dispatchEvent(new HashChangeEvent("hashchange"));
     });
     rerender(<Dashboard />);
-    expect((screen.getByRole("combobox", { name: "Browse register" }) as HTMLSelectElement).value).toBe("browse-calendar");
-    await waitFor(() => expect(document.activeElement?.id).toBe("browse-calendar"));
+    expect((screen.getByRole("combobox", { name: "Browse register" }) as HTMLSelectElement).value).toBe("browse-time-away");
+    await waitFor(() => expect(document.activeElement?.id).toBe("browse-time-away"));
     act(() => window.history.back());
     await waitFor(() => expect(select.value).toBe("browse-tasks"));
     expect(window.location.hash).toBe("");
     expect(screen.getByRole("heading", { name: "Tasks" })).toBeTruthy();
     expect(document.activeElement?.id).not.toBe("browse-tasks");
     act(() => window.history.forward());
-    await waitFor(() => expect(document.activeElement?.id).toBe("browse-calendar"));
+    await waitFor(() => expect(document.activeElement?.id).toBe("browse-time-away"));
   });
   it("reveals a delayed lesson once without taking focus back after a register switch", async () => {
     const original = mocks.api.getMockImplementation()!;

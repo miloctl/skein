@@ -1,10 +1,11 @@
 """Team calendar services."""
 
 import re
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 
 from .. import config, db
-from . import scope
+from . import policy_context, scope
 from .scope import WORKSPACE_ONLY
 
 # a date, or a date-prefixed ISO timestamp — both compare correctly against
@@ -132,6 +133,156 @@ def with_local(row: dict) -> dict:
         **row,
         "starts_local": db.local_wall(row["starts_at"]),
         "ends_local": db.local_wall(row["ends_at"]) if row.get("ends_at") else None,
+    }
+
+
+# A six-week month grid. Every kind below costs one scoped query per call, and
+# a wider window is a report, not a calendar.
+CALENDAR_MAX_DAYS = 42
+# Per kind. The query asks for one row more, and a kind that returns it is
+# named in `truncated`: a grid that drops rows without saying so reads as
+# "nothing else is due".
+CALENDAR_LIMIT = 500
+
+# An end that can be drawn: the same kind as the start and after it. Rows
+# written before schedule_event checked the end can hold neither (ics_feed
+# drops their DTEND for the same reason). NULL falls back to the start below.
+_DRAWN_END = (
+    "(CASE WHEN length(ends_at) = length(starts_at) AND ends_at > starts_at THEN ends_at END)"
+)
+
+
+def calendar_range(
+    start: str,
+    end: str,
+    viewer: scope.Viewer = scope.NOBODY,
+    *,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+    assignee: str = "",
+) -> dict:
+    """Everything with a date between two team days, inclusive: events, open
+    task, milestone and promise due dates, and time away.
+
+    `assignee` narrows tasks to one person, for "only my tasks".
+    """
+    from .absences import TEAM_SEES_DATES
+
+    for label, value in (("start", start), ("end", end)):
+        if not value:
+            raise ValueError(f"{label} is required (YYYY-MM-DD)")
+        db.validate_date(label, value, allow_clear=False)
+    first, last = date.fromisoformat(start), date.fromisoformat(end)
+    if last < first:
+        raise ValueError("end must be on or after start")
+    if (last - first).days >= CALENDAR_MAX_DAYS:
+        raise ValueError(f"a calendar range covers at most {CALENDAR_MAX_DAYS} days")
+    win_start = db.local_event_window(first)[0]
+    win_end = db.local_event_window(last)[1]
+    truncated: list[str] = []
+
+    def capped(kind: str, rows: list[dict]) -> list[dict]:
+        if len(rows) > CALENDAR_LIMIT:
+            truncated.append(kind)
+            return rows[:CALENDAR_LIMIT]
+        return rows
+
+    def permitted(entity: str, rows: list[dict]) -> list[dict]:
+        return policy_context.filter_resource_rows(entity, rows, viewer, resource_filter)
+
+    # OVERLAP, not start-in-window: a meeting that began before the first day
+    # and runs into it belongs on the grid. A timed row compares against the
+    # team-day window in naive UTC; a date-only row compares as dates, and its
+    # end is exclusive, as DTEND;VALUE=DATE is in the ICS feed (RFC 5545).
+    # ponytail: `starts_at < ?` has no lower bound, so this reads every event
+    # before the window end; a span cap or a range index fixes it if events
+    # reach six figures.
+    frag, vp = scope.visible_filter(viewer, "events")
+    events = db.query(
+        f"SELECT * FROM events WHERE {frag} AND ("  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"(length(starts_at) > 10 AND starts_at < ? AND COALESCE({_DRAWN_END} > ?, starts_at >= ?))"
+        f" OR (length(starts_at) = 10 AND starts_at <= ? AND COALESCE({_DRAWN_END} > ?, starts_at >= ?))"
+        ") ORDER BY starts_at, id LIMIT ?",
+        (*vp, win_end, win_start, win_start, end, start, start, CALENDAR_LIMIT + 1),
+    )
+    frag, vp = scope.visible_filter(viewer, "tasks")
+    mine = " AND assignee = ?" if assignee else ""
+    tasks = db.query(
+        # the link columns stay out: a task's milestone and engagement ids
+        # are redacted per reader elsewhere (work.redact_task_relationships),
+        # and a calendar needs none of them
+        "SELECT id, title, due_date, assignee, status, priority, visibility, crew_id"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" FROM tasks WHERE status NOT IN ('done', 'void') AND due_date >= ? AND due_date <= ?"
+        f" AND {frag}{mine} ORDER BY due_date, id LIMIT ?",
+        (start, end, *vp, *([assignee] if assignee else []), CALENDAR_LIMIT + 1),
+    )
+    frag, vp = scope.visible_filter(viewer, "milestones")
+    milestones = db.query(
+        "SELECT id, title, due_date, status, owner, visibility, crew_id FROM milestones"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" WHERE status != 'done' AND due_date >= ? AND due_date <= ? AND {frag}"
+        " ORDER BY due_date, id LIMIT ?",
+        (start, end, *vp, CALENDAR_LIMIT + 1),
+    )
+    frag, vp = scope.visible_filter(viewer, "promises")
+    promises = db.query(
+        "SELECT id, promise, to_whom, due_date, direction, visibility, crew_id FROM promises"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" WHERE status = 'open' AND due_date >= ? AND due_date <= ? AND {frag}"
+        " ORDER BY due_date, id LIMIT ?",
+        (start, end, *vp, CALENDAR_LIMIT + 1),
+    )
+    # Time away plans the future, so another person's window shows only from
+    # today on; a past one is judging them (docs/INSIGHTS.md, the
+    # anti-surveillance rule). Your own windows show at any date.
+    today = db.today().isoformat()
+    frag, vp = scope.visible_filter(viewer, "absences")
+    readable = db.query(
+        "SELECT id, person, kind, starts_on, ends_on, note, visibility, crew_id FROM absences"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" WHERE starts_on <= ? AND ends_on >= ? AND {frag} AND (person = ? OR ends_on >= ?)"
+        " ORDER BY starts_on, person LIMIT ?",
+        (end, start, *vp, viewer.name, today, CALENDAR_LIMIT + 1),
+    )
+    # A window the viewer cannot read but whose dates its owner shared: the
+    # same rows portfolio.capacity_ahead shows every signed-in user, masked
+    # the same way. The kind reads "away", and the note and the row id stay
+    # with the row's own tier.
+    shared = db.query(
+        "SELECT id, person, starts_on, ends_on, visibility, crew_id FROM absences"  # noqa: S608 — TEAM_SEES_DATES and scope.visible_filter emit only constants and bound marks
+        f" WHERE starts_on <= ? AND ends_on >= ? AND {TEAM_SEES_DATES} AND NOT {frag}"
+        " AND ends_on >= ? ORDER BY starts_on, person LIMIT ?",
+        (end, start, *vp, today, CALENDAR_LIMIT + 1),
+    )
+    if resource_filter is not None:
+        shared = [
+            row
+            for row in shared
+            if resource_filter(
+                "absence",
+                int(row["id"]),
+                {
+                    "classification": str(row["visibility"]),
+                    "crew_id": str(row["crew_id"] or ""),
+                    "project_type": "",
+                },
+            )
+        ]
+    away = capped("time_away", permitted("absence", readable)) + [
+        {
+            "person": r["person"],
+            "kind": "away",
+            "starts_on": r["starts_on"],
+            "ends_on": r["ends_on"],
+        }
+        for r in capped("time_away", shared)
+    ]
+    return {
+        "start": start,
+        "end": end,
+        "today": today,
+        "events": [with_local(r) for r in capped("events", permitted("event", events))],
+        "tasks": capped("tasks", permitted("task", tasks)),
+        "milestones": capped("milestones", permitted("milestone", milestones)),
+        "promises": capped("promises", permitted("promise", promises)),
+        "time_away": away,
+        "truncated": sorted(set(truncated)),
     }
 
 
