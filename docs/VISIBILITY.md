@@ -65,7 +65,7 @@ group claims reach `routes/deps.py` and are then discarded by
 
 | Tier | Who reads it | Mechanism |
 |---|---|---|
-| `private` | the author | Kept out of every shared sink, and it reaches the model provider only in its author's own chat turn (the sinks table below): no FTS row, no embedding, no context pack, no digest, no readout, no finding, no ICS event, no body in `activity.detail`, no export row. |
+| `private` | the author | Kept out of every shared sink, and it reaches a model provider only in its author's own chat turn or through the author's own MCP client (the sinks table below): no FTS row, no embedding, no context pack, no digest, no readout, no finding, no ICS event, no body in `activity.detail`, no export row. |
 | `crew` | crew members, and the author | Column-filtered at read time. |
 | `workspace` | every roster member | Today's behavior. The migration default. |
 
@@ -272,7 +272,7 @@ identifier, never a body.** Pin it with a test.
 | `notifications` | Every team-wide `notify("team", ...)` that quotes a scoped row's text is gated on the workspace tier (the blocker funeral, the stale-decision sweep, ship-it, the unlinked-milestone warning), and a per-person notify checks the recipient can read the row. |
 | `admin.export` | Private rows are excluded structurally. Crew rows stay. Tables that can copy private text without a visibility column are excluded. Each new table takes an explicit `admin.TABLES` or `admin.EXCLUDED` classification. Artifact metadata stays, but absolute storage paths do not. |
 | `data/artifacts/` | A file on disk carries no column. Anything a job writes is workspace-tier by the rule above. |
-| the model provider (chat turns) | A read tool about the person's own records reads with the Viewer of the human who drove the turn (`identity.requester_viewer`): `get_attention` and `search_notes`. Their private rows reach the provider for that person's turn, as their addressed memories do. A shared chat sets that Viewer to nobody, because every member reads the reply, and an unattended run sets none. The MCP `search_notes` tool reads with the key owner's Viewer, so a personal key's client (and its provider) receives that person's private notes. Over stdio no person is present, and it reads the workspace tier. |
+| the model provider (chat turns) | A read tool about the person's own records reads with the Viewer of the human who drove the turn (`identity.requester_viewer`): `get_attention` and `search_notes`. Their private rows reach the provider for that person's turn, as their addressed memories do. A shared chat sets that Viewer to nobody, because every member reads the reply, and an unattended run sets none. The MCP `search_notes` tool reads with the key owner's Viewer, so a personal key's client (and its provider) receives that person's private notes and the notes of their crews. Over stdio no person is present, and it reads the workspace tier. A chat write filed after a private or crew read in the same turn is reviewed by the requester alone, or refused (`identity.read_scoped_this_turn`). Over MCP each call is its own request, so nothing carries a read into a later call. |
 
 ### Frontend
 

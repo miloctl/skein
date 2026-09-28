@@ -603,9 +603,12 @@ def search_notes(keyword: str = "", limit: int = 25, before: int = 0) -> str:
     """Search notes by keyword, newest first: notes the team can read, notes of
     your crews, and over a personal key your own private notes (`visibility`
     says which). An empty keyword returns the newest. limit is 1 to 100, and
-    before=<id> returns the notes older than that id. Do not copy a private
+    before=<id> returns the notes older than that id. Long notes can make the
+    answer too large: ask again with a smaller limit. Do not copy a private
     note's text into a record other people can read unless the person asks."""
     limit = max(1, min(int(limit), 100))
+    if int(before) < 0:
+        raise ValueError("before must be 0 or a note id.")
     if refusal := _policy_refusal("skein.mcp.notes.read", "notes"):
         return refusal
     # The key owner's Viewer, which remote_app sets from the credential. A
@@ -624,7 +627,7 @@ def search_notes(keyword: str = "", limit: int = 25, before: int = 0) -> str:
         tool="skein.mcp.notes.read",
     )
     with db.read_transaction():
-        rows = collab.search_notes(keyword, viewer, before=max(0, int(before)), limit=limit)
+        rows = collab.search_notes(keyword, viewer, before=int(before), limit=limit)
         return json.dumps(policy.filter_rows("note", rows))
 
 
@@ -665,7 +668,10 @@ def forget_memory(memory_id: int) -> str:
     them (memory.recall reads by person), so this tool is the only way to
     remove one."""
     requester = _person()
-    row = memory.get_memory(memory_id, user=requester)
+    # the key owner's Viewer, as tools/memory.py::forget_memory reads
+    rv = requester_viewer()
+    viewer = rv if isinstance(rv, scope.Viewer) else scope.NOBODY
+    row = memory.get_memory(memory_id, viewer, user=requester)
     if not row:
         return json.dumps({"error": f"no memory #{memory_id}"})
     return gated_write(

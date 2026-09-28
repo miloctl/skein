@@ -431,14 +431,12 @@ def test_a_remote_call_with_an_unknown_outcome_keeps_its_text(fresh_db):
 def test_an_old_export_file_is_pruned_and_named_in_the_feed(fresh_db):
     import os
     import time
+    from pathlib import Path
 
-    from app import config
+    from app.services import admin
     from app.services.retention import EXPORT_FILE_DAYS, prune
 
-    exports = config.DATA_DIR / "exports"
-    exports.mkdir(parents=True, exist_ok=True)
-    old = exports / "export-legacy.json"
-    old.write_text("{}")
+    old = Path(admin.export(actor="tester")["path"])
     stamp = time.time() - (EXPORT_FILE_DAYS + 1) * 86400
     os.utime(old, (stamp, stamp))
 

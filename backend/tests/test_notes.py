@@ -215,7 +215,9 @@ def test_the_gate_refuses_an_agent_change_to_any_private_record(fresh_db):
     from conftest import _turn
 
     from app.agents import identity
-    from app.services import capture, users
+    from app.services import capture, memory, schedule, users
+    from app.tools.memory import forget_memory
+    from app.tools.schedule import cancel_event
     from app.tools.work import update_task
 
     users.ensure_user("ava")
@@ -223,11 +225,113 @@ def test_the_gate_refuses_an_agent_change_to_any_private_record(fresh_db):
         "todo: call the vendor", actor="ava", strong_auth=True, visibility="private"
     )
     assert task["kind"] == "task"
+    event = schedule.schedule_event(
+        "dentist", "2026-12-01T09:00:00+00:00", actor="ava", visibility="private"
+    )
+    remembered = memory.remember("prefers mornings", user="ava", actor="ava", visibility="private")
     token = identity.set_agent_identity("scout")
     try:
         with _turn("ava"):
-            result = json.loads(update_task(task["id"], priority="high"))
+            results = [
+                json.loads(update_task(task["id"], priority="high")),
+                # these two read the row as nobody first, so the agent was
+                # told the event or memory did not exist
+                json.loads(cancel_event(event["id"])),
+                json.loads(forget_memory(remembered["id"])),
+            ]
     finally:
         identity.reset_agent_identity(token)
-    assert result == {"error": "An agent cannot change a private record. Change it yourself."}
+    refused = {"error": "An agent cannot change a private record. Change it yourself."}
+    assert results == [refused, refused, refused]
     assert fresh_db.query("SELECT id FROM pending_changes") == []
+
+
+def test_a_rule_that_denies_agents_crew_rows_holds_for_a_crew_note_delete(fresh_db):
+    """Policy context read the row through the agent's own filter, and an
+    agent is in no crew, so a crew note reached every rule unclassified."""
+    import json
+
+    from conftest import _turn
+
+    from app.agents import identity
+    from app.extensions import PolicyContribution, PolicyDecision, PolicyEffect, SkeinModule
+    from app.extensions.policy import reset_policy_engine, set_policy_engine
+    from app.extensions.registry import ExtensionRegistry
+    from app.services import collab, crews, users
+    from app.tools.collab import delete_note
+
+    for name in ("ava", "bob"):
+        users.ensure_user(name)
+    users.ensure_user("scout", kind="agent")
+    crew = crews.create_crew("Alpha", actor="ava")["id"]
+    crews.add_member(crew, "bob", actor="ava")
+    note = collab.save_note(
+        "crew", "crew words", author="bob", actor="bob", visibility="crew", crew_id=crew
+    )
+
+    def deny_agent_crew(request):
+        if request.origin == "agent" and request.resource.classification == "crew":
+            return PolicyDecision(PolicyEffect.DENY, ("crew records are protected",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.7.0",
+        policies=(PolicyContribution("acme.workplace.crew-records", deny_agent_crew),),
+    )
+    engine = set_policy_engine(ExtensionRegistry.build((module,)).policy_engine)
+    token = identity.set_agent_identity("scout")
+    try:
+        with _turn("ava"):
+            result = json.loads(delete_note(note["id"]))
+    finally:
+        identity.reset_agent_identity(token)
+        reset_policy_engine(engine)
+    assert "error" in result, result
+    assert fresh_db.query("SELECT id FROM pending_changes") == []
+    assert fresh_db.query_one("SELECT id FROM notes WHERE id = ?", (note["id"],))
+
+
+def test_a_write_after_a_private_read_is_the_requesters_to_approve(fresh_db, monkeypatch):
+    """search_notes hands the model private text beside notes any teammate can
+    write, so one injected line could copy the private text into a team note.
+    After such a read, a write waits for the requester, or it does not happen."""
+    import json
+
+    from conftest import _turn
+
+    from app import config
+    from app.agents import identity
+    from app.services import capture, delegation, users
+    from app.tools.collab import save_note, search_notes
+
+    users.ensure_user("ava")
+    capture.capture(
+        "note: ZZTAINT ava private", actor="ava", strong_auth=True, visibility="private"
+    )
+    capture.capture("note: ZZCLEAN team runbook", actor="ava", visibility="workspace")
+    delegation.set_authority("scout", "note", "autonomous", actor="tester")
+    monkeypatch.setattr(config, "AGENT_REVIEW", False)
+    token = identity.set_agent_identity("scout")
+    try:
+        with _turn("ava"):  # a team-only read leaves autonomy alone
+            search_notes("ZZCLEAN")
+            assert "id" in json.loads(save_note("clean", "from the runbook", author="ava"))
+        with _turn("ava"):
+            search_notes("ZZTAINT")
+            queued = json.loads(save_note("digest", "ZZTAINT ava private", author="ava"))
+        monkeypatch.setattr(config, "REVIEW_SEPARATION", True)
+        with _turn("ava"):
+            search_notes("ZZTAINT")
+            refused = json.loads(save_note("digest", "ZZTAINT ava private", author="ava"))
+    finally:
+        identity.reset_agent_identity(token)
+    assert queued["status"] == "pending"
+    pending = fresh_db.query("SELECT review_visibility, review_owner FROM pending_changes")
+    assert pending == [{"review_visibility": "private", "review_owner": "ava"}]
+    assert refused["error"].startswith("This turn read notes that only you or your crew")
+    topics = [r["topic"] for r in fresh_db.query("SELECT topic FROM notes ORDER BY id")]
+    assert "digest" not in topics

@@ -21,6 +21,7 @@ const range = (top: number, count: number) =>
   Array.from({ length: count }, (_, i) => note(top - i));
 
 const calls: string[] = [];
+const patches: Record<string, string>[] = [];
 let firstPage = range(26, 25);
 let failSearch = false;
 
@@ -29,11 +30,15 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return {
     ...real,
     getUser: () => "ava",
-    api: async (path: string) => {
+    api: async (path: string, init?: RequestInit) => {
       calls.push(path);
+      if (init?.method === "PATCH") patches.push(JSON.parse(String(init.body)));
       if (path === "/api/notes?before=2") return [note(1)];
       // the one-note read: the newest note older than id + 1
       if (path === "/api/notes?before=6&limit=1") return [note(5)];
+      // note 7 is not readable, so the newest older note the reader CAN read
+      // comes back instead
+      if (path === "/api/notes?before=8&limit=1") return [note(6)];
       if (path === "/api/notes") return firstPage;
       if (path.startsWith("/api/notes?q=")) {
         if (failSearch) throw new Error("search exploded");
@@ -43,13 +48,18 @@ vi.mock("@/lib/api", async (importOriginal) => {
     },
   };
 });
-vi.mock("next/navigation", () => ({ usePathname: () => "/notes" }));
+// router state read at render, as Next serves it after a navigation
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/notes",
+  useSearchParams: () => new URLSearchParams(window.location.search),
+}));
 
 import NotesPage from "@/app/notes/page";
 
 beforeEach(() => {
   window.history.replaceState(null, "", "/notes");
   calls.length = 0;
+  patches.length = 0;
   firstPage = range(26, 25);
   failSearch = false;
 });
@@ -114,5 +124,41 @@ describe("the Notes page", () => {
     fireEvent.click(screen.getByText("Show all notes"));
     expect(await screen.findByText("note 26")).toBeTruthy();
     expect(window.location.search).toBe("");
+  });
+
+  it("names a note the reader cannot read instead of opening an older one", async () => {
+    window.history.replaceState(null, "", "/notes?note=7");
+    render(<NotesPage />);
+    expect(await screen.findByText("There is no note #7 that you can read.")).toBeTruthy();
+    expect(screen.queryByText("note 6")).toBeNull();
+  });
+
+  it("leaves the one-note view when a link goes to /notes", async () => {
+    window.history.replaceState(null, "", "/notes?note=5");
+    const view = render(<NotesPage />);
+    await screen.findByText("note 5");
+    // next/link updates router state and re-renders. It fires no popstate.
+    window.history.replaceState(null, "", "/notes");
+    view.rerender(<NotesPage />);
+    expect(await screen.findByText("note 26")).toBeTruthy();
+    expect(screen.queryByText("Show all notes")).toBeNull();
+  });
+
+  it("saves only the fields that changed, and never a cleared topic", async () => {
+    render(<NotesPage />);
+    fireEvent.click(await screen.findByText("note 26"));
+    fireEvent.click(screen.getByLabelText("Edit note: note 26"));
+    const topic = screen.getByLabelText("Topic");
+    fireEvent.change(topic, { target: { value: "" } });
+    fireEvent.click(screen.getByText("Save note"));
+    expect(screen.getByRole("status").textContent).toContain("The topic is empty.");
+    expect(patches).toEqual([]);
+
+    fireEvent.change(topic, { target: { value: "note 26" } });
+    fireEvent.change(screen.getByLabelText("Note content (markdown)"), {
+      target: { value: "new words" },
+    });
+    fireEvent.click(screen.getByText("Save note"));
+    await waitFor(() => expect(patches).toEqual([{ content: "new words" }]));
   });
 });

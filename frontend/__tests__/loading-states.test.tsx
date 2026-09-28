@@ -21,7 +21,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
   };
 });
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/review" }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/review",
+  useSearchParams: () => new URLSearchParams(),
+}));
 
 import ReviewPage from "@/app/review/page";
 import IntakePage from "@/app/intake/page";

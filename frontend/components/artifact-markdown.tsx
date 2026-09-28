@@ -1,7 +1,7 @@
-/** Renders the markdown OUR OWN generators write — the daily digest, the week
- *  rituals, the exec readout, handoff packages, context packs — the
- *  documents an agent writes (services/documents.py), and notes people write
- *  (app/notes/page.tsx).
+/** Renders markdown: what OUR OWN generators write (the daily digest, the
+ *  week rituals, the exec readout, handoff packages, context packs), the
+ *  documents an agent writes (services/documents.py), and the notes people
+ *  write (app/notes/page.tsx), a mermaid fence included.
  *
  *  Deliberately not a markdown library. The chat's `MarkdownTextPrimitive`
  *  reads its text from assistant-ui's message-part context and takes no text

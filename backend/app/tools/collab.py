@@ -8,6 +8,7 @@ from strands import tool
 from .. import db
 from ..agents.identity import (
     agent_identity,
+    note_scoped_read,
     requester_viewer,
     strong_requester,
     workspace_only_tools,
@@ -242,7 +243,10 @@ def search_notes(keyword: str = "") -> str:
         tool="search_notes",
     )
     with db.read_transaction():
-        return json.dumps(policy.filter_rows("note", collab.search_notes(keyword, viewer)))
+        rows = policy.filter_rows("note", collab.search_notes(keyword, viewer))
+    if any(row["visibility"] != scope.WORKSPACE for row in rows):
+        note_scoped_read()
+    return json.dumps(rows)
 
 
 @tool

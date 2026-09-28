@@ -2015,10 +2015,10 @@ export default function SettingsPage() {
                   Press C to open quick capture
                 </label>
                 <p id="capture-key-help" className="mt-1 text-xs text-ink-3">
-                  The key works when focus is not in a form field or a
-                  dialog. If you use speech input, or if you press C by
-                  accident, turn it off. The setting applies to this browser
-                  only.
+                  The key works when focus is not in a form field and quick
+                  capture or a task panel is not open. If you use speech
+                  input, or if you press C by accident, turn it off. The
+                  setting applies to this browser only.
                 </p>
               </Section>
 

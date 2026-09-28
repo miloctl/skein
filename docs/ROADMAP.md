@@ -505,7 +505,7 @@ history center, so each surface keeps its own bound.
 - **Divergent bounds across surfaces** [M, decision first] — reports, chats,
   findings, notifications, decisions, requests and agent notes each have a
   different reachability limit. Define a shared rule for the remaining surfaces.
-  Reports and solo-chat history now have cursors, but the broader bounds decision remains open.
+  Reports, solo-chat history and notes (`GET /api/notes?before=`) now have cursors, but the broader bounds decision remains open.
 
 **Named, blocked on a decision rather than on effort.**
 

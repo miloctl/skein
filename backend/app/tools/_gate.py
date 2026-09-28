@@ -19,6 +19,7 @@ from .. import db, ratelimit
 from ..agents import receipts
 from ..agents.identity import (
     agent_identity,
+    read_scoped_this_turn,
     requester_identity,
     requester_viewer,
     strong_requester,
@@ -365,6 +366,18 @@ def _gated_write_locked(
         decision.approver_groups,
         decision.approver_capabilities,
     )
+    # This turn read a row only the requester or their crew can read
+    # (agents/identity.py::read_scoped_this_turn). Reviewed by the team, the
+    # proposal payload hands that text to every teammate before anyone
+    # approved sharing it, so only the requester's own review may follow.
+    if not private_review and read_scoped_this_turn():
+        detail = (
+            "This turn read notes that only you or your crew can read, and the team"
+            " reviews agent changes here. An agent cannot write a record in the same"
+            " turn. Ask for the change in a new message."
+        )
+        receipts.record("refused", entity, detail, actor=actor)
+        return json.dumps({"error": detail})
     review_owner = (review_owner or requester_identity()) if private_review else ""
     try:
         # Same reason as the direct() savepoint above: this catch RETURNS, so
