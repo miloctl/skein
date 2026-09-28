@@ -18,6 +18,14 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+### Behavior
+
+### Operations
+
+## 0.6.9 — 2026-09-28
+
+### Contracts
+
 - `GET /api/notes` takes `before` (a note id: the notes older than it) and `limit` (1 to 100, default 25), newest first on an id keyset. `POST /api/field-guide/notes` ties the new `notes` card (rate-capped, fixed knot id).
 - The Skein MCP server adds `search_notes(keyword, limit, before)`, for 25 tools. Over a personal key it reads with the key owner's Viewer: their private notes and their crews' notes. Over stdio it reads the workspace tier. Policy action `skein.mcp.notes.read`, with a per-row projection.
 - The agent tool `search_notes` reads with the requester's Viewer through a per-row workplace policy projection (`skein.tool.search_notes`). A shared chat and an unattended run read the workspace tier.
