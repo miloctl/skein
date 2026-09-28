@@ -171,6 +171,7 @@ export function EventPanel({
     // and inert back. A reload of /calendar?event=1&task=4 opens both, and
     // with each one inerting the other no part of the page is usable.
     const peekOpen = () => new URLSearchParams(window.location.search).has("task");
+    const dialog = dialogRef.current;
     const assert = () => {
       layerRef.current?.removeAttribute("inert");
       others.forEach((el) => el.setAttribute("inert", ""));
@@ -180,18 +181,34 @@ export function EventPanel({
     else assert();
     // Escape belongs to the peek while it is open, and to this panel
     // otherwise, wherever focus sits: a click on plain text in the panel
-    // moves focus to <body>
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !peekOpen()) onCloseRef.current();
+    // moves focus to <body>. Whether a peek was open is read in the capture
+    // phase, before any handler runs: the peek's own listener closes it by
+    // dropping ?task= at once when it opened from a link, and read afterwards
+    // the one Escape closed both layers. The close itself stays in the
+    // bubble phase, so the edit form and the delete confirmation can stop it.
+    let peekAtKeydown = false;
+    const snapshot = (e: KeyboardEvent) => {
+      if (e.key === "Escape") peekAtKeydown = peekOpen();
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !peekAtKeydown) onCloseRef.current();
+    };
+    document.addEventListener("keydown", snapshot, true);
     document.addEventListener("keydown", onKey);
     // task-peek.tsx gives back inert on every body child when it closes,
     // this panel's siblings included, and says so there
     window.addEventListener("skein-peek-close", assert);
     return () => {
       others.forEach((el) => el.removeAttribute("inert"));
+      document.removeEventListener("keydown", snapshot, true);
       document.removeEventListener("keydown", onKey);
       window.removeEventListener("skein-peek-close", assert);
+      // Only focus this panel holds goes back: a task peek on top owns its
+      // own, and React's development double run of this effect otherwise
+      // pulls it from the peek's Close to <main> on a reload of
+      // /calendar?event=1&task=4
+      const active = document.activeElement;
+      if (active && active !== document.body && !dialog?.contains(active)) return;
       const back = opener.current;
       // the opener can be gone: a deleted event's button leaves the grid
       if (back instanceof HTMLElement && back.isConnected && back !== document.body) back.focus();
@@ -322,7 +339,12 @@ export function EventPanel({
             {event.attendees && (
               <p className="text-sm text-ink-2 [overflow-wrap:anywhere]">
                 <span className="text-ink-3">With </span>
-                {event.attendees}
+                {/* free text, typed "mario,ava" as often as "mario, ava" */}
+                {event.attendees
+                  .split(",")
+                  .map((name) => name.trim())
+                  .filter(Boolean)
+                  .join(", ")}
               </p>
             )}
             {event.description && (

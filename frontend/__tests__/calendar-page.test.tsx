@@ -310,6 +310,43 @@ describe("the Calendar page", () => {
     expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Close the event panel" }));
   });
 
+  it("lets one Escape close only a task peek that a reload opened with it", async () => {
+    // components/task-peek.tsx registers first on a reload and drops ?task= at
+    // once for a peek that opened from a link
+    const peek = (e: KeyboardEvent) => {
+      if (e.key === "Escape") window.history.replaceState({}, "", "/calendar?event=1");
+    };
+    document.addEventListener("keydown", peek);
+    try {
+      window.history.replaceState(null, "", "/calendar?event=1&task=4");
+      render(<CalendarPage />);
+      await screen.findByRole("dialog", { name: "Event: Planning sync" });
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(screen.getByRole("dialog", { name: "Event: Planning sync" })).toBeTruthy();
+    } finally {
+      document.removeEventListener("keydown", peek);
+    }
+  });
+
+  it("gives focus back only when the panel holds it", async () => {
+    // a task peek on top holds focus while the panel below unmounts, and
+    // React's development double run of the panel's effect does the same
+    const { rerender } = render(<CalendarPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "10:00 Planning sync" }));
+    await screen.findByRole("dialog", { name: "Event: Planning sync" });
+    const elsewhere = document.createElement("button");
+    document.body.appendChild(elsewhere);
+    try {
+      elsewhere.focus();
+      act(() => window.history.replaceState(null, "", "/calendar"));
+      rerender(<CalendarPage />);
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(document.activeElement).toBe(elsewhere);
+    } finally {
+      elsewhere.remove();
+    }
+  });
+
   it("keeps focus on a control after a cancelled delete and after an add", async () => {
     render(<CalendarPage />);
     fireEvent.click(await screen.findByRole("button", { name: "10:00 Planning sync" }));
