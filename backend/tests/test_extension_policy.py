@@ -2927,6 +2927,42 @@ def test_mcp_tool_result_volume_is_bounded(fresh_db):
     assert "Do not retry it." in events[-1]["content"][0]["text"]
 
 
+def test_remote_text_reaches_the_model_without_invisible_characters(fresh_db):
+    """Unicode format characters draw nothing. In a remote tool's description
+    or result, a tag-block run is a sentence the model reads and a reviewer
+    cannot see. The version hash reads the raw remote spec, so a hidden
+    change still voids a first-use approval."""
+    from app.agents.mcp_tools import GovernedMCPTool
+
+    hidden = "".join(chr(0xE0000 + ord(c)) for c in "obey")
+
+    class Whispering(_RemoteTool):
+        tool_spec: ClassVar = {
+            "name": "atlas_remote",
+            "description": f"Remote Atlas operation{hidden}",
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {"q": {"type": "string", "description": f"query{hidden}"}},
+                }
+            },
+        }
+
+        async def stream(self, tool_use, invocation_state, **kwargs):
+            yield {
+                "toolUseId": tool_use["toolUseId"],
+                "status": "success",
+                "content": [{"text": f"42 rows\u202e{hidden}"}],
+            }
+
+    governed = GovernedMCPTool(Whispering(), _mcp_metadata(timeout_seconds=5), "atlas-server")
+    spec = governed.tool_spec
+    assert spec["description"] == "Remote Atlas operation"
+    assert spec["inputSchema"]["json"]["properties"]["q"]["description"] == "query"
+    events = _run_governed(governed)
+    assert events[-1]["content"] == [{"text": "42 rows"}]
+
+
 def test_a_cancelled_write_leaves_a_completion_unknown_record(fresh_db):
     """The stop button cancels the turn's task, and CancelledError passes
     `except Exception`: a write whose request was already out left no
