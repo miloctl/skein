@@ -19,7 +19,6 @@ keeps its existing `minimum_core` and needs no change.
 ### Contracts
 
 - `GET /api/context-pack?engagement=<id>` takes `tier=workspace`, which builds the engagement pack at the workspace tier whatever the caller can read. Any other value is a 422.
-
 - `POST /api/review/{id}/reject` takes `send_back` (default `false`). On a `task_completion` it queues one more agent turn for the delegate in the verdict's transaction and returns `sent_back: true`. It needs a note, and it is refused unless the task is still delegated to the agent that submitted it. `skein review reject ID --send-back` sends the same request.
 
 ### Behavior
@@ -32,6 +31,8 @@ keeps its existing `minimum_core` and needs no change.
 - A worklog note moves its task. Needs a call, the flow metrics, the Monday stale-work nudge, the digest and insights no longer name a delegated task stalled while its agent reports progress.
 
 ### Operations
+
+- `SECURITY.md` states where to report a vulnerability (GitHub private vulnerability reporting), which versions get fixes, the properties Skein promises, and what is out of scope.
 
 ## 0.6.9 — 2026-09-28
 
