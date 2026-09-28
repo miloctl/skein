@@ -18,6 +18,14 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+### Behavior
+
+### Operations
+
+## 0.6.11 — 2026-09-28
+
+### Contracts
+
 - `GET /api/context-pack?engagement=<id>` takes `tier=workspace`, which builds the engagement pack at the workspace tier whatever the caller can read. Any other value is a 422.
 - `POST /api/review/{id}/reject` takes `send_back` (default `false`). On a `task_completion` it queues one more agent turn for the delegate in the verdict's transaction and returns `sent_back: true`. It needs a note, and it is refused unless the task is still delegated to the agent that submitted it. `skein review reject ID --send-back` sends the same request.
 
