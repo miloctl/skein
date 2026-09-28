@@ -130,7 +130,7 @@ def test_review_list_carries_the_pending_cursor(monkeypatch, capsys):
 
     monkeypatch.setattr(cli, "api", request)
     monkeypatch.setattr(cli, "load_config", lambda: {"key": "configured"})
-    cli.cmd_review(Namespace(action="list", id=None, note="", after=7, limit=2))
+    cli.cmd_review(Namespace(action="list", id=None, note="", after=7, limit=2, send_back=False))
     out = capsys.readouterr().out
     assert paths == ["/api/review?status=pending&after=7&limit=2"]
     assert "More proposals can follow" in out
@@ -1046,6 +1046,48 @@ def test_team_flags_name_the_roster_and_no_flag_names_no_tier(monkeypatch, tmp_p
     ]
 
 
+def test_context_write_asks_for_the_workspace_tier(monkeypatch, capsys, tmp_path):
+    """A repository file is read by more people than the caller. The pack it
+    holds must be the workspace tier, never the caller's own view."""
+    cli = _load_cli()
+    gets = []
+
+    def request(method, path, body=None):
+        gets.append(path)
+        return {"engagement": 4, "content": "# Engagement context: Atlas"}
+
+    monkeypatch.setattr(cli, "api", request)
+    target = tmp_path / "AGENTS.md"
+    cli.cmd_context(Namespace(engagement=4, write=str(target)))
+    assert gets == ["/api/context-pack?engagement=4&tier=workspace"]
+    assert target.read_text().startswith("# Engagement context: Atlas")
+    assert "every teammate" in capsys.readouterr().out
+    gets.clear()
+    cli.cmd_context(Namespace(engagement=4, write=""))
+    assert gets == ["/api/context-pack?engagement=4"]
+
+
+def test_review_reject_can_send_the_task_back(monkeypatch, capsys):
+    cli = _load_cli()
+    posts = []
+
+    def request(method, path, body=None):
+        posts.append((path, body))
+        return {"id": 8, "status": "rejected", "sent_back": True}
+
+    monkeypatch.setattr(cli, "api", request)
+    monkeypatch.setattr(cli, "load_config", lambda: {"key": "configured", "user": "mira"})
+    cli.cmd_review(
+        Namespace(action="reject", id=8, note="use 17", after=0, limit=50, send_back=True)
+    )
+    assert posts == [("/api/review/8/reject", {"note": "use 17", "send_back": True})]
+    assert "sent back" in capsys.readouterr().out
+    with pytest.raises(SystemExit, match="reject"):
+        cli.cmd_review(
+            Namespace(action="approve", id=8, note="", after=0, limit=50, send_back=True)
+        )
+
+
 def test_review_prints_the_bytes_a_verdict_binds(monkeypatch, capsys):
     """`skein review approve` posted the verdict on a summary line alone: the
     payload that the verdict applies had never been printed, and a format
@@ -1076,7 +1118,7 @@ def test_review_prints_the_bytes_a_verdict_binds(monkeypatch, capsys):
 
     monkeypatch.setattr(cli, "api", request)
     monkeypatch.setattr(cli, "load_config", lambda: {"key": "configured", "user": "mira"})
-    cli.cmd_review(Namespace(action="approve", id=8, note="", after=0, limit=50))
+    cli.cmd_review(Namespace(action="approve", id=8, note="", after=0, limit=50, send_back=False))
     out = capsys.readouterr().out
     assert [c[0] for c in calls] == ["GET", "GET", "POST"]
     assert calls[0][1] == "/api/review?status=pending&after=7&limit=1"
@@ -1088,7 +1130,7 @@ def test_review_prints_the_bytes_a_verdict_binds(monkeypatch, capsys):
     )
 
     calls.clear()
-    cli.cmd_review(Namespace(action="list", id=None, note="", after=0, limit=50))
+    cli.cmd_review(Namespace(action="list", id=None, note="", after=0, limit=50, send_back=False))
     listed = capsys.readouterr().out
     assert "update note #3" in listed and "content:" in listed
 

@@ -1063,9 +1063,21 @@ function ActivationGuide({
         ? "Unattended agent runs are paused. This turn stops at its next agent step."
         : `${agent} is working its delegated inbox.`;
   } else if (wake?.status === "completed") {
+    // the server's outcome codes (services/agent_wakeups.py _SAFE_OUTCOMES)
+    // outrank the worklog guess below: a refusal read as "did not record
+    // progress" blamed the agent for a write the gate stopped
     if (wake.reason === "cancelled") {
       message =
         "The agent turn stopped when unattended runs were paused. Read the worklog before you start another turn.";
+    } else if (wake.reason.startsWith("limit_")) {
+      message =
+        "The agent turn stopped at its step or token limit. Read the worklog to see how far it got.";
+    } else if (wake.reason === "write_refused") {
+      message =
+        "The agent tried to write a record and Skein refused it. Open Team → Agents to check its authority.";
+    } else if (wake.reason === "write_failed") {
+      message =
+        "The agent tried to write a record and the write failed. Read the worklog before you start another turn.";
     } else if (task.blockers?.length) {
       message = "This task has an open blocker. Resolve it before the task can continue.";
     } else if (worklogError) {
@@ -1074,6 +1086,8 @@ function ActivationGuide({
       message = "Reading the latest task outcome…";
     } else if (recentAgentProgress) {
       message = "The agent recorded progress. This task is still in progress.";
+    } else if (wake.reason === "nothing_filed") {
+      message = "The agent finished its turn and filed nothing.";
     } else {
       message = "The agent finished its turn but did not record progress.";
     }
@@ -1101,7 +1115,9 @@ function ActivationGuide({
     message =
       wake.reason === "build_failed"
         ? "The agent failed before the model turn started."
-        : "The agent run failed. Read the server status before you retry.";
+        : wake.reason === "failed_before_tools"
+          ? "The agent turn failed before it used a tool. It wrote nothing. Read the server status before you retry."
+          : "The agent run failed. Read the server status before you retry.";
     offerChat = true;
   } else if (current?.error) {
     message =

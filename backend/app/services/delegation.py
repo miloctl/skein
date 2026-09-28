@@ -286,11 +286,17 @@ def report_progress(task_id: int, note: str, *, actor: str, origin: str = "agent
     if task["status"] == "done":
         raise ValueError(f"task #{task_id} is done — its worklog is history now")
     tier, cid = scope.inherit(task)
+    now = db.now()
+    # A note is the task moving. Needs a call, the flow metrics, the Monday
+    # nudge, the digest and insights read updated_at as "last moved", so
+    # without this a delegate that reports daily is named stalled after a
+    # week. The note inherits the task's tier, so the bump reveals nothing.
+    db.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", (now, task_id))
     wid = db.execute(
         "INSERT INTO task_worklog (task_id, author, note, origin, created_at,"
         " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
         " RETURNING id",
-        (task_id, actor, note, origin, db.now(), tier, cid),
+        (task_id, actor, note, origin, now, tier, cid),
     )
     db.log_activity(actor, "report_progress", scope.detail(tier, f"task #{task_id}", note[:80]))
     return {"id": wid, "task_id": task_id}

@@ -331,6 +331,27 @@ describe("delegated task activation guidance", () => {
       "budget_spent",
     ],
     ["failed", "The agent failed before the model turn started.", "build_failed"],
+    [
+      "failed",
+      "The agent turn failed before it used a tool. It wrote nothing. Read the server status before you retry.",
+      "failed_before_tools",
+    ],
+    [
+      "completed",
+      "The agent turn stopped at its step or token limit. Read the worklog to see how far it got.",
+      "limit_turns",
+    ],
+    [
+      "completed",
+      "The agent tried to write a record and Skein refused it. Open Team → Agents to check its authority.",
+      "write_refused",
+    ],
+    [
+      "completed",
+      "The agent tried to write a record and the write failed. Read the worklog before you start another turn.",
+      "write_failed",
+    ],
+    ["completed", "The agent finished its turn and filed nothing.", "nothing_filed"],
   ])("shows the durable %s state", async (status, message, reason = "") => {
     state.wakeup = {
       status,

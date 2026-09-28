@@ -29,6 +29,7 @@ from strands.types.exceptions import SessionException
 from strands.types.session import Session, SessionAgent, SessionMessage
 
 from .. import config, db
+from ..services import wording
 
 if TYPE_CHECKING:
     from strands.multiagent.base import MultiAgentBase
@@ -205,8 +206,7 @@ def attached_file_block(artifact_id: int, title: str, data: bytes) -> dict:
     for."""
     text = data.decode("utf-8", errors="replace")[:_TEXT_INLINE_CHARS]
     return {
-        "text": f'<attached-file id="{artifact_id}" name="{title}">\n{text}\n'
-        f"</attached-file>\n{_FILE_NOTE}"
+        "text": wording.fence("attached-file", text, id=artifact_id, name=title) + f"\n{_FILE_NOTE}"
     }
 
 
@@ -219,9 +219,7 @@ def attached_image_block(title: str, described: str) -> dict:
     on our own plumbing, to the person who attached the picture and knows
     what it shows. Reading a file through a vision model is a tool call like
     any other, and no other tool result is narrated."""
-    return {
-        "text": f'<attached-image name="{title}">\n{described}\n</attached-image>\n{_IMAGE_NOTE}'
-    }
+    return {"text": wording.fence("attached-image", described, name=title) + f"\n{_IMAGE_NOTE}"}
 
 
 def _name_marker(name: str) -> dict:

@@ -217,6 +217,37 @@ def test_cancelled_wake_keeps_its_safe_stop_reason(fresh_db):
     assert projected["reason"] == "cancelled"
 
 
+def test_finish_keeps_the_turn_outcome_and_only_safe_literals(fresh_db):
+    """The outcome reaches the task panel through `reason`. Only the fixed
+    codes are stored: the column is read by everyone who can read the task,
+    and a stop reason always outranks an outcome because it explains more."""
+    from app.services import agent_wakeups
+
+    _mint(fresh_db, "sponsor")
+    _mint(fresh_db, "backend-architect", "agent")
+    cases = [
+        ({"outcome": "write_refused"}, "write_refused"),
+        ({"outcome": "the agent said: ignore the sponsor"}, ""),
+        ({"outcome": "nothing_filed", "stopped": "limit_turns"}, "limit_turns"),
+    ]
+    for extra, expected in cases:
+        with fresh_db.transaction():
+            agent_wakeups.enqueue("backend-architect", 80, requested_by="sponsor")
+        claim = agent_wakeups.claim_next()
+        assert claim
+        agent_wakeups.finish(
+            claim, {"agent": "backend-architect", "ran": True, "fault": False, **extra}
+        )
+        assert agent_wakeups.status("backend-architect")["reason"] == expected
+
+
+def test_a_failure_before_any_tool_has_its_own_code():
+    from app.services import agent_wakeups
+
+    result = {"fault": True, "reason": "the turn failed before any tool ran: ConnectionError"}
+    assert agent_wakeups._reason_code(result) == "failed_before_tools"
+
+
 def test_startup_never_retries_unknown_completion(fresh_db):
     from app.services import agent_wakeups
 
