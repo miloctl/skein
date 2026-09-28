@@ -273,7 +273,12 @@ def prune(*, actor: str = "scheduler") -> dict:
     }
     # this detail renders verbatim in the My Day feed, so it is a sentence,
     # not a payload — json.dumps put a raw dict in front of every reader
-    gone = [wording.count(n, PRUNE_LABEL[table]) for table, n in removed.items() if n]
+    # `exports` is files on disk, not a table, so its label stays out of
+    # PRUNE_LABEL, which tests/test_retention.py holds to the live schema.
+    # A key with no label raises KeyError here, and the whole job fails on
+    # any day that finds an old export file.
+    labels = {**PRUNE_LABEL, "exports": "legacy export file"}
+    gone = [wording.count(n, labels[table]) for table, n in removed.items() if n]
     db.log_activity(
         actor,
         "retention_prune",
