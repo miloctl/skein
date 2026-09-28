@@ -151,7 +151,7 @@ describe("the Notes page", () => {
     const topic = screen.getByLabelText("Topic");
     fireEvent.change(topic, { target: { value: "" } });
     fireEvent.click(screen.getByText("Save note"));
-    expect(screen.getByRole("status").textContent).toContain("The topic is empty.");
+    expect(screen.getByText("The topic is empty. Type a topic to save the note.")).toBeTruthy();
     expect(patches).toEqual([]);
 
     fireEvent.change(topic, { target: { value: "note 26" } });

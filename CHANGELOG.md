@@ -33,6 +33,7 @@ keeps its existing `minimum_core` and needs no change.
 - `delete_note`, `cancel_event` and `forget_memory` on a private row give the refusal's reason instead of "no note #N". A crew member's agent can propose deleting a crew note, as it could already edit one.
 - The note delete confirmation on Notes and Browse says the activity record can keep the note's topic. It claimed 300 characters, and a delete logs the id only.
 - A new field-guide card, Your notes (Miller's Knot), ties when you open Notes.
+- A `%` or `_` in a note search matches that character. It was a wildcard, and it matched every note.
 
 ### Operations
 

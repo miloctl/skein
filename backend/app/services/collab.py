@@ -727,7 +727,11 @@ def search_notes(
     if before:
         frag, vp = f"{frag} AND id < ?", [*vp, before]
     if keyword:
-        like = f"%{keyword}%"
+        # escaped, because the keyword is typed text: a bare `%` or `_` is a
+        # LIKE wildcard and matched every note (backslash is PostgreSQL's
+        # default LIKE escape, so it goes first)
+        literal = keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{literal}%"
         # the keyword OR is PARENTHESIZED. Left bare, `a LIKE ? OR b LIKE ? AND
         # {frag}` binds AND tighter than OR, so every row matching the topic
         # came back whatever its tier — the exact shape visible_filter's
