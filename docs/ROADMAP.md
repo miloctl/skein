@@ -674,21 +674,14 @@ larger than its finding.
 ## Calendar (2026-09-28)
 
 Intent and design: [Calendar, written by people and agents](intent/calendar.md).
-Four slices, in order. Each slice deletes its own bullet when it ships. The
+The remaining slices, in order. Each slice deletes its own bullet when it
+ships. The calendar page itself shipped (docs/FEATURES.md, Calendar). The
 open questions at the end of the intent doc have recommended defaults, and
 the slices proceed on those defaults.
 
-- **Slice 1: calendar page.** Work → Calendar shows a month grid (a day list
-  on a phone) of meetings, open task, milestone and promise due dates, and
-  time away. It uses a scoped, policy-filtered `GET /api/calendar` with
-  overlap queries, so a meeting that starts before the window still shows.
-  Adds `GET /api/events/{id}` and an event panel at `?event=`. Retires the
-  Browse → Calendar register. Field-guide card `calendar`.
 - **Slice 2: edit and reschedule.** `schedule.update_event`,
   `PATCH /api/events/{id}`, and the agent tool `update_event`, gated as
-  `event_edit`. Visibility is not editable. First, a separate fix:
-  `policy_context._target_engagement` judges event updates (and
-  `event_cancel`) with no project type.
+  `event_edit`. Visibility is not editable.
 - **Slice 3: items that came out of a meeting.** Migration 044 adds
   `event_id` (`ON DELETE SET NULL`) to notes, tasks, decisions, questions,
   blockers, promises and intake requests. An item is never wider than its

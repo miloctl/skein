@@ -85,6 +85,10 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # nothing, because every plain capture writes one and already ties
     # `capture`, so the card that announces the page would never be shown
     "notes": None,
+    # tied by the Calendar page's own mark route, for the reason `notes` is:
+    # scheduling an event proves nothing, because the agent tools and every
+    # playbook ritual write events without the page
+    "calendar": None,
     "search": None,
     "browser_signin": lambda u: _act(u, "create_browser_session"),
     # a theme write is not activity-logged (users.py: a slider drag would

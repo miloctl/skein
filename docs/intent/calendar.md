@@ -253,11 +253,12 @@ Tests that pin the risky parts, in `backend/tests/test_calendar.py`:
 
 ### Slice 2 — Edit and reschedule
 
-- First, a separate small fix: `policy_context._target_engagement` reads the
-  stored `engagement_id` only for tasks and milestones. An event update is
-  therefore judged with `project_type == ""`, and so is the existing
-  `event_cancel`. Read it for every entity whose `_TABLES` entry names
-  `engagement_id`. Test: a project-type rule matches an event update.
+- No policy fix comes first. `policy_context._target_engagement` reads a
+  stored `engagement_id` only for tasks and milestones, but the gate and the
+  review both call `for_change` with an `actor`, and that path uses
+  `_target_engagement_scoped`, which reads it for every engagement-linked
+  entity. The unscoped resolver serves only playbooks (`for_route`). A test
+  pins that a project rule judges an event edit.
 - Move `_canon` out of `schedule_event` to module level, together with the
   end-after-start check. That check then runs on the MERGED final start and
   end.

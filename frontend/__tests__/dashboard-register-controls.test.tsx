@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /** Browse's registers were read-only mirrors: the blocker list offered no
  *  claim, no impact change and no resolve (My Day held the only resolve, for
- *  rows that reached YOUR attention list), and the Milestones and Calendar
- *  cards could not create what they listed — their empty states sent the
- *  reader to Chat, where the default mock provider has no such grammar. */
+ *  rows that reached YOUR attention list), and the Milestones card could not
+ *  create what it listed — its empty state sent the reader to Chat, where
+ *  the default mock provider has no such grammar. */
 
 const mocks = vi.hoisted(() => ({ api: vi.fn() }));
 
@@ -56,17 +56,17 @@ describe("Browse section navigation", () => {
     expect(select.parentElement?.classList.contains("lg:hidden")).toBe(false);
     expect(Array.from(select.options, (option) => option.value)).toEqual([
       "browse-tasks", "browse-recently-shipped", "browse-engagements", "browse-milestones", "browse-blockers", "browse-open-questions",
-      "browse-capacity", "browse-time-away", "browse-calendar", "browse-recent-standups",
+      "browse-capacity", "browse-time-away", "browse-recent-standups",
       "browse-decisions", "browse-lessons", "browse-knowledge-base", "browse-recent-activity",
     ]);
     const entries = window.history.length;
-    fireEvent.change(select, { target: { value: "browse-calendar" } });
-    expect(window.location.hash).toBe("#browse-calendar");
+    fireEvent.change(select, { target: { value: "browse-time-away" } });
+    expect(window.location.hash).toBe("#browse-time-away");
     // no landing on a select change: a keyboard reader arrows through the
     // options, and Chrome fires change on every step of a closed select
-    expect(document.activeElement?.id).not.toBe("browse-calendar");
+    expect(document.activeElement?.id).not.toBe("browse-time-away");
     expect(window.history.length).toBe(entries);
-    expect(screen.getByRole("heading", { name: "Calendar" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Time away" })).toBeTruthy();
     fireEvent.change(select, { target: { value: "browse-tasks" } });
     expect(window.location.hash).toBe("#browse-tasks");
     expect(window.history.length).toBe(entries);
@@ -107,7 +107,6 @@ describe("Browse form metadata", () => {
     for (const [section, summary, fields] of [
       ["Capacity", "Add allocation", [["Person to allocate", "allocate-person"], ["Engagement to allocate to", "allocate-engagement"], ["Percent of their time", "allocate-percent"]]],
       ["Milestones", "Add milestone", [["New milestone title", "milestone-title"], ["Milestone due date", "milestone-due-date"]]],
-      ["Calendar", "Add event", [["New event title", "event-title"], ["Event start", "event-start"]]],
     ] as const) {
       fireEvent.change(await screen.findByRole("combobox", { name: "Browse register" }), { target: { value: `browse-${section.toLowerCase()}` } });
       fireEvent.click(screen.getByText(summary));

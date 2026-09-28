@@ -19,6 +19,7 @@ const PAGES = [
   "/chat",
   "/portfolio",
   "/dashboard",
+  "/calendar",
   "/notes",
   "/insights",
   "/artifacts",
@@ -390,11 +391,11 @@ test("changed forms reflow at 320px", async ({ page }) => {
     LONG_NAME,
   );
 
-  for (const path of ["/dashboard", "/intake", "/settings"]) {
+  for (const path of ["/dashboard", "/calendar", "/intake", "/settings"]) {
     await page.goto(path);
     await page.waitForLoadState("networkidle").catch(() => {});
     if (path === "/dashboard") {
-      for (const [register, form] of [["Capacity", "Add allocation"], ["Time away", "Add time away"], ["Milestones", "Add milestone"], ["Calendar", "Add event"]]) {
+      for (const [register, form] of [["Capacity", "Add allocation"], ["Time away", "Add time away"], ["Milestones", "Add milestone"]]) {
         await page.getByRole("combobox", { name: "Browse register", exact: true }).selectOption({ label: register });
         await page.locator("summary", { hasText: new RegExp(`^${form}$`) }).click();
         expect(
@@ -403,6 +404,7 @@ test("changed forms reflow at 320px", async ({ page }) => {
         ).toBeLessThanOrEqual(1);
       }
     }
+    if (path === "/calendar") await page.getByRole("button", { name: "Add an event", exact: true }).click();
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth - window.innerWidth,
@@ -661,6 +663,7 @@ const CLAIMS: Record<string, RegExp> = {
   "/review": /propose changes, they wait here/,
   "/intake": /No requests yet/,
   "/notes": /No notes yet/,
+  "/calendar": /No meetings, due dates or time away this month/,
   "/charter": /No charter entries yet/,
   "/activity": /Nothing on the ledger yet/,
 };

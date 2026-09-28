@@ -493,6 +493,50 @@ def get_events(
         )
 
 
+@router.get("/events/{event_id}")
+def get_event_detail(
+    event_id: int,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    with db.read_transaction():
+        _require_resource_policy(
+            request, subject, viewer, "skein.rest.get.events", "event", event_id
+        )
+        row = schedule.get_event(event_id, viewer)
+        if row is None:
+            raise scope.missing("events", event_id)
+        return schedule.with_local(row)
+
+
+@router.get("/calendar")
+def get_calendar(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    start: str = Query("", max_length=10),
+    end: str = Query("", max_length=10),
+    mine: bool = False,
+):
+    """`mine` narrows tasks to the caller's own. It takes the CurrentUser
+    name, not the viewer's: a weak identity reads with an empty viewer name
+    and still has tasks assigned to the name it sent."""
+    policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.calendar",
+        "rest",
+        viewer,
+    )
+    with db.read_transaction():
+        return schedule.calendar_range(
+            start, end, viewer, resource_filter=policy.permits, assignee=user if mine else ""
+        )
+
+
 @router.get("/personas")
 def get_personas():
     return personas.list_personas()
@@ -1623,6 +1667,14 @@ def post_field_guide_notes(user: CurrentUser):
     # fixed knot id keeps a client from minting arbitrary guide progress
     ratelimit.check("write", user)
     fieldguide.mark(user, "notes")
+
+
+@router.post("/field-guide/calendar")
+def post_field_guide_calendar(user: CurrentUser):
+    # its own route, as for notes: GET /api/calendar also answers agents and
+    # scripts, and a fixed knot id keeps a client from minting guide progress
+    ratelimit.check("write", user)
+    fieldguide.mark(user, "calendar")
 
 
 @router.post("/field-guide/todays-three")

@@ -170,6 +170,16 @@ knots:
     link: /notes
     since: 2026-09-27
 
+  - id: calendar
+    feature: Calendar
+    knot: Clove Hitch
+    set: hitches
+    ties: mark
+    pitch: The month on one board, every date made fast to its day.
+    how: "Open Work → Calendar. It shows meetings, due dates and time away that you can read, on the team clock. Select a meeting to read it, or select + on a day to add one there. Select a kind to turn it on or off. Clear Only my tasks to see the tasks of the whole team."
+    link: /calendar
+    since: 2026-09-28
+
   - id: search
     feature: Search & /ask
     knot: Running Bowline
