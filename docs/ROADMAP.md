@@ -31,6 +31,13 @@ for a season with the review gate on (the default since 2026-08-21):
   trust rows, promotions, and delegations still read zero, that is the
   evidence to NARROW the agent surface instead — the decision is then a
   read, not a debate.
+- 2026-09-28: the owner approved five features after the external-repo
+  discovery, and three of them reopen portfolio surfaces: discussion threads
+  on tasks, routines (standing delegations and recurring tasks), a board
+  view, document editing with revisions, and GitLab forge support with
+  repo-scoped context packs. Each gets its own branch after the hardening
+  branch lands. The section "From the external-repo discovery" below lists
+  them. The rest of the freeze stands.
 
 # Open backlog (consolidated 2026-08-02)
 
@@ -550,7 +557,7 @@ review. Each names the condition that reopens it.
 | Coordination-debt and closed-loop-rate metrics registry | Multi-team scale. |
 | Playbooks 2.0, delegation contracts (full entity), evidence pack, transactional outbox, capability broker | Deferred. Specs are in `docs/reviews/2026-07-24-agent-sol.md`. The contract's acceptance-criteria and check-in slice shipped 2026-08-21; the remaining fields (per-delegation budget, authority scope, escalation conditions) wait on a season of the shipped pair being used. |
 | Employee private-prep sections | Refused until the journal separate-store pattern is proven. |
-| Post-compaction context re-injection | A real long-chat complaint — `summarize` plus the scoped context pack cover it today. If built: subclass `ConversationManager.reduce_context()`, re-inject the per-engagement pack once per session with a token ceiling to avoid a trim/re-inject loop. |
+| Post-compaction context re-injection | A real long-chat complaint — `summarize` plus the scoped context pack cover it today. If built: use the SDK's `strands.vended_plugins.context_injector.ContextInjector`, which adds text to the latest user message for one model call and never writes it to history or the session, so no trim/re-inject loop can form. It also replaces `SKEIN_CONTEXT_PIN_FIRST`, which is inert across turns (FEATURES, Long-chat memory). Keep memories in the system prompt: moved into the user role, they change authority. |
 | Honest tombstones for deleted tasks/chats | A deletion dispute the hash-chained ledger and the loud feed row do not settle — today they meet the need more strongly than a tombstone would. Private 1:1 notes and decision supersession keep their existing tombstones. |
 | Presence as a lease, not a flag | Only if a boolean live-dot is ever added. `last seen` timestamps are honest forever; a lease fixes a live-dot outliving a dead process, and no such dot exists. |
 | Requirement/Outcome record layer (2026-08-21 control-plane thesis) | A real engagement retro produces a traceability dispute — "which requirement did this work serve" — that `engagements.outcome`, milestones and decisions could not settle. A new entity costs seven gated registries; the dispute is the evidence it repays that. |
@@ -568,7 +575,7 @@ is the evidence that funds the build — none of them is worth building early.
 | Context offloader on wake and allowlist paths | The storage backstop logs every tool result it truncates ("the context offloader did not ride this path", `agents/session_store.py`). A season of that line accumulating is the evidence. The build carries a documented exception to the WAKE_TOOLS contract, because the plugin registers its retrieval tool outside `build_agent`'s filtering. |
 | Plaintext-tool-call detection in the turn guard | A keyless operator reports empty turns on a local or `openai_compatible` model — those models can emit tool calls as TEXT, and the turn guard's "Nothing was filed" receipt cannot name the cause. Detect via the known marker grammar and attribute it. Never repair or execute the parsed call: it skipped the model's own tool interface and every gate assumption downstream. |
 | Token-budgeted context pack (`?budget=`) | An operator tunes `SKEIN_AGENT_RUN_TOKENS` — a per-run token ceiling is honest only when the wake prompt has a known size. Deterministic whole-section truncation in a declared priority order, reporting what was dropped. The refused version stays refused: no LLM summarizer inside the pack builder (keyless path). |
-| Watch subscriptions on tasks | People ask to follow work they neither own nor are named in, more than once. Self-visible ONLY — no watcher list, no "N people watching" — or it fails the anti-surveillance rule. |
+| Watch subscriptions on tasks | People ask to follow work they neither own nor are named in, more than once. Self-visible ONLY — no watcher list, no "N people watching" — or it fails the anti-surveillance rule. If built, take openclaw's standing-intents shape (`docs/concepts/standing-intents.md`): a keyword match with no model call, at most 3 fires, 24 hours between fires, a 90-day expiry, and it matches only rows the person can already read. Task threads (below) cover following a task you commented on. |
 | Offload thresholds as admin tunables | An operator has a standing reason to change `SKEIN_OFFLOAD_RESULT_TOKENS` / `_PREVIEW_TOKENS` between deploys (the settings rule's question 4). Until then they stay env-only. |
 | `wording.py` STE ring promoted to fatal | The warn count in `scripts/check_ste.py` stays at zero across a few releases (currently zero). Same staging the knots gate went through: warn until clean stays clean, then gate. |
 | Live consult-quality eval | A deployment with a few weeks of real consults. The routing eval scores DESCRIPTIONS (TF-IDF), and the 2026-08-30 merge already showed the proxy's failure mode: a description tuned to the fixtures. Tier 1 is deterministic assertions over live traces — consult fired, right slug, count within the turn budget, writes landed as proposals — with cases accruing from the feedback corpus (`kind=finding`), not cold authoring. An LLM judge is NOT the gate: it would add cost, nondeterminism, and a second Goodhart surface to cover only the fuzzy remainder ("framed, not repeated"). At most it becomes an ad-hoc triage labeler once the corpus outgrows human reading. |
@@ -593,8 +600,11 @@ write under review. What is left:
 - **Standing approval for one personal write tool** — a reviewer approves
   each personal write today. Once a tool has a run of approvals, a reviewer
   can grant it a bounded standing approval (a count or a date), recorded
-  as an authority row keyed on `server_id:tool`, and the review rule reads
-  it. Trigger: the same personal tool reviewed and approved ten times.
+  as an authority row keyed on `server_id:tool:version`, and the review rule
+  reads it. The version is the first-use contract digest, so a changed
+  description or annotation voids the standing approval (A2A §7.6.4: an
+  authorization covers only the scope it names). Trigger: the same personal
+  tool reviewed and approved ten times.
 
 ## Skein as an MCP server (2026-09-02)
 
@@ -631,16 +641,24 @@ larger than its finding.
   mode with no `SKEIN_API_TOKEN` the backend answers any `Host`, so a
   DNS-rebinding page is same-origin with an instance reached by address and
   port (compose on a VM, `skein.sh`). The OpenShift Route refuses a foreign
-  Host on its own. Trigger: a compose or VM deployment that is not behind a
-  Host-routed proxy. Shape: an env-only `SKEIN_TRUSTED_HOSTS` list checked in
-  the perimeter (question 2 of the settings rule).
+  Host on its own. **The trigger has fired:** `skein.sh` runs trusted-header
+  on every developer laptop, and the browser-origin check adds
+  `request.url.netloc` to its allowed set (`routes/auth.py`), so a rebound
+  page passes it. `mcp_server.py` also sets `security_settings=None`. Shape:
+  Starlette's `TrustedHostMiddleware` in trusted-header mode only, allowing
+  the loopback names, the hosts in `SKEIN_CORS_ORIGINS`, and an env-only
+  `SKEIN_TRUSTED_HOSTS` (question 2 of the settings rule). The refusal names
+  the variable to set. Model: agentgateway `mcp/dns_rebinding.rs`.
 - **A byte bound on outbound MCP response bodies** — the MCP SDK reads each
   response whole after the client decompresses it, and Skein's 256 KiB cap
   runs after parsing, on tool-call events only. A personal server can
   answer `tools/list` with a compressed body many times its wire size.
   Trigger: a measured memory limit on the API pod that a single turn can
-  reach. Shape: a client-side ceiling on the declared length and a refusal
-  of compressed encodings, ahead of the SDK's read.
+  reach. Shape: an httpx transport wrapper ahead of the SDK's read that
+  refuses any `Content-Encoding` other than identity and counts the bytes it
+  actually reads. A declared-length check alone passes a chunked response,
+  which has no length. Model: agentgateway
+  `http/compression/mod.rs::to_bytes_with_decompression`.
 - **The trusted-proxy hop must be forced** — `SKEIN_TRUSTED_PROXIES` names
   the hop whose `X-Forwarded-For` the rate buckets read, but nothing makes
   traffic arrive through it; a direct peer picks any address's bucket.
@@ -670,3 +688,132 @@ larger than its finding.
   `api_keys` owner and label, the ended pairing, and 365 days of
   `usage_log`. Mentions and adoption counters now go. The rest is an owner
   decision: each is another author's record or an audit trail.
+
+## From the external-repo discovery (2026-09-28)
+
+Twenty-four repositories under `~/external` were read against FEATURES and
+this file. The hardening branch `fix/trust-loop-and-hardening` shipped what
+was built. Everything below is open.
+
+**Approved features, one branch each.** Draft designs, each with owner
+decisions still open: `task-threads`, `routines`, `board-view`,
+`document-revisions`, `gitlab-forge`. A design becomes
+`docs/intent/<slug>.md` on its branch once the owner settles its decisions.
+
+- **Discussion threads on tasks** [M–L] — comments inherit the task's tier;
+  a human @mention of the task's delegate queues one wake; agent replies go
+  through the gate at `review`. Never in `task_worklog`, which is sponsor
+  evidence. Model: fizzy comments, mattermost threads.
+- **Routines** [L] — a task template on a weekly schedule; each firing
+  creates a task and can delegate it under the owner's standing consent.
+  One open occurrence at a time; three skips in a row pause the routine.
+  Model: hermes cron, goose scheduled recipes.
+- **Board view** [M] — `/board` over the existing statuses, native drag and
+  drop plus a Move menu (WCAG 2.5.7). Moving into Blocked opens the
+  raise-blocker form; a delegated card cannot move. Land after
+  feature/calendar, which edits the same task reads.
+- **Document editing and revisions** [S–M first half] — people edit
+  `kind='document'` artifacts in place; revisions are database rows; restore
+  writes a new revision; a stale save answers 409. Today `publish` deletes
+  the previous file, so history is lost.
+- **GitLab forge support and repo-scoped packs** [M] — `POST
+  /api/webhooks/gitlab` with an env-only token; push, merge request and
+  pipeline events; the `skein context --write` marker block. The design found
+  three existing bugs its slices fix: a `Closes-Task:` line in a pull request
+  body matches nothing (`forge.match_task`), two concurrent red CI runs file
+  two blockers (`ci.ci_event` checks and inserts with no lock), and the
+  engagement pack prints `outcome` and `kill_criteria` unflattened, so a
+  newline forges a heading in the written file.
+
+**Agent loop, not built.** Each waits on a trigger the new wake outcome
+codes can now show.
+
+- **A closing nudge for a wake turn that files nothing** [S] — at most one
+  follow-up call asking for `report_progress`, `raise_blocker` or
+  `submit_for_acceptance` through the real tool interface, never by parsing
+  text. Skipped on a limit stop and on mock. Trigger: `nothing_filed` is a
+  common wake outcome. Model: hermes `agent/turn_stop_gates.py`.
+- **A tool-loop guard for unattended turns** [S] — a Strands hook that stops
+  a turn repeating one call (or an A,B,A,B cycle) and names `loop_detected`
+  as its stop reason. Trigger: a wake turn stops at `limit_turns` while
+  repeating a call. Model: hermes `agent/tool_guardrails.py`.
+- **A stall latch across daily runs** [S] — the daily run skips a task
+  whose last two runs filed nothing and that no human touched since.
+  Trigger: job outcomes show repeated `nothing_filed` for one agent.
+- **Refuse an identical pending proposal** [XS–S] — hash the proposer,
+  entity, action, target and canonical payload under `db.name_lock`, and
+  answer "already pending as #N". Duplicate rejections distort the demotion
+  streak. Trigger: duplicates reach Approvals.
+- **Base values on update proposals** [S–M] — store the payload keys' values
+  at filing, and at approval name a field a teammate changed since. The diff
+  already shows current → proposed; it cannot say the current value is newer
+  than the proposal. Trigger: a reviewer approves over a newer edit.
+- **Reset a shared-chat agent's session when a person joins** [XS–S] —
+  `_AudiencePolicy` checks each read against the current members, but the
+  model session keeps raw tool results from before the join. Matters only
+  with workplace policy extensions. Model: buzz information-flow design,
+  "Membership changes".
+- **Mark each remote MCP result as outside content** [S] — the system prompt
+  says it; a per-result marker would carry it into the context. Trigger: a
+  deployment that runs `SKEIN_AGENT_REVIEW=0` with system MCP write tools.
+
+**Memory, not built.**
+
+- **Recall that matches reworded queries** [XS] — `memory.recall` passes no
+  word list to `search`, so only the exact phrase matches, and memories
+  addressed to one person have no embedding. Reuse the any-word fallback
+  `/ask` already has. With it, inject memories relevant to the turn's
+  message beside the newest ones, and give each injected line its date.
+- **A recalled-memory receipt** [S] — name the memories that steered a
+  turn, linked to Agents → Memory. Trigger: a person asks which memory
+  steered an answer. Model: honcho `utils/evidence.py`.
+- **Memory upkeep as proposals** [M] — `review_by` on team and engagement
+  memories and an overlap hint, every merge or delete a proposal. Trigger:
+  a stale memory steers a wrong answer.
+
+**Existing surfaces, small.**
+
+- **Opening a task clears its notifications** [S] — the task panel posts
+  the source task, so the notice leaves My Day. Model: fizzy readings.
+- **Tell the person who typed a waiting-on edge when its target finishes**
+  [S] — blockers already do this; a finished task, an answered question and
+  a kept promise do not. It answers the 2026-08-09 diagnosis that edges give
+  their typist nothing back.
+- **Shared-chat drafts survive a room switch** [XS] — `sessionStorage`
+  keyed by viewer and room, cleared with the identity.
+- **`kind=` on `GET /api/search`** [XS] — the service already filters by
+  entity. No `from:` filter: it leans toward per-person views.
+- **A "Gone quiet" fold in My Day → Your work** [XS–S] — the reader's own
+  non-urgent, uncommitted, untouched tasks, folded with a reason line.
+- **Tell administrators when a new identity first signs in** [XS] — OIDC
+  creates the person with only an activity row today. Model: buzz #4900.
+
+**Engineering practice, not adopted.**
+
+- **A dependency cooldown** [XS] — Renovate `minimumReleaseAge`, Dependabot
+  `cooldown`, and `--exclude-newer` in the lock refresh. hermes, berd and
+  buzz all adopted one. CI still installs the newest packages
+  (`pip install -e ".[dev]"`).
+- **Ratchets on lowered bars** [S each] — counts of suppression comments
+  (`type: ignore`, `pytest.mark.skip`, `eslint-disable`, excluding the
+  intended `noqa: S608`), swallowed `except Exception` without
+  `db.savepoint()`, and a size cap an oversized file cannot grow past.
+  Models: agent-skills floor-guard, jcode swallowed-error budget, buzz
+  file-size gate. Trigger: an agent-written skip or suppression reaches main.
+- **A review-convergence rule** — every finding goes in the first review;
+  later rounds check only earlier blockers and defects the fixes added; a
+  blocker needs a realistic failure scenario. Model: buzz `AGENTS.md`.
+- **Trust-loop laws** [S] — one MUST per law and one pinning test each
+  ("only the sponsor's verdict ends a delegation", "completion_unknown is
+  never retried"), lifted out of long FEATURES rows. Model: berd `LAWS/`.
+- **STE gate updates** [XS–S] — SimpleEnglish's linter now flags an em-dash
+  that joins two clauses and prints where each hit is; port both to
+  `scripts/check_ste.py`, warn ring first.
+- **Four tests that read source text** [S] — `test_persona_manifest.py`,
+  `test_privacy.py`, `test_policy_axis.py`, `test_bounded_routes.py` assert
+  substrings of code; convert them to behavior checks.
+- **An opt-in eval with a real model on seeded data** [M] — graded on end
+  state (where the write lands, who is notified), regression tasks once and
+  workflow tasks three times. A dev tool, never a CI gate. It is the shape
+  the deferred live consult eval needs before live traffic exists. Model:
+  buzz `benchmarks/buzz-dataset`.
