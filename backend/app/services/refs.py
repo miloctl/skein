@@ -88,8 +88,8 @@ def refs(text: str, *, quoted: bool = True) -> list[dict]:
     teammate about something else.
 
     `quoted=False` is for text a person wrote, which has no frame: there an
-    apostrophe is a word, and "Mira's blocker #4 ... don't" blanked the
-    reference between the two.
+    apostrophe is a word, and with blanking on, "Mira's blocker #4 ... don't"
+    loses the reference between the two.
 
     Deduped on (entity, id): "task #12 waiting on task #12" is a cycle a
     producer can emit, and two chips for one row reads as two rows.

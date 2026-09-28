@@ -68,8 +68,8 @@ def test_an_agenda_reference_honors_the_project_rule(fresh_db):
 
 def test_every_target_has_a_page_in_the_frontend():
     """services/refs.py and frontend/lib/entity-ref.ts each say the other
-    keeps step. A target with no href renders as plain text, so an event
-    reference looked parsed and linked nowhere."""
+    keeps step. A target with no href renders as plain text: the server
+    parses the reference and the page links it nowhere."""
     source = (authored_repo_root(Path(__file__)) / "frontend/lib/entity-ref.ts").read_text()
     table = source[source.index("const HREF") : source.index("};", source.index("const HREF"))]
     hrefs = set(re.findall(r"^\s+(\w+): \(", table, re.MULTILINE))

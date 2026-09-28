@@ -35,7 +35,7 @@ from ..extensions.policy import (
     current_policy_subject,
     policy_input_data,
 )
-from ..services import blockers, lexicon, review, scope, users, wording, work
+from ..services import blockers, lexicon, review, schedule, scope, users, wording, work
 from ..services.delegation import authority_status
 
 # irreversible verbs ALWAYS go through the review inbox, even with
@@ -98,6 +98,7 @@ def _creates_in_a_crew(payload: dict, requester: scope.Viewer) -> bool:
     if str(payload.get("visibility") or "") == scope.CREW:
         return True
     for key, parent in (
+        ("event_id", "event"),
         ("engagement_id", "engagement"),
         ("milestone_id", "milestone"),
         ("task_id", "task"),
@@ -230,6 +231,24 @@ def _gated_write_locked(
         receipts.record("refused", entity, detail, actor=actor)
         return json.dumps({"error": detail})
 
+    # The meeting a create came out of, checked before anything is queued: a
+    # proposal naming one the agent cannot read, or one narrower than the new
+    # row, comes back on every approval as "no event #N", and its payload
+    # names the meeting's id to every reader of the queue meanwhile.
+    meeting = 0 if entity_id else int(payload.get("event_id") or 0)
+    if meeting:
+        try:
+            schedule.check_event_link(
+                meeting,
+                actor=actor,
+                tier=str(payload.get("visibility") or scope.WORKSPACE),
+                crew_id=int(payload.get("crew_id") or 0) or None,
+                label=entity,
+            )
+        except ValueError as exc:
+            receipts.record("failed", entity, str(exc), actor=actor)
+            return json.dumps({"error": str(exc)})
+
     try:
         if entity == "task":
             if entity_id:
@@ -292,7 +311,38 @@ def _gated_write_locked(
         tool_risk="high" if entity in ALWAYS_REVIEW else "medium",
     )
     decision = current_policy_engine().decide(policy_input)
-    if decision.effect == PolicyEffect.DENY:
+    # The decision above judged the new row's own project. Its meeting can sit
+    # on another one, and the link files the row under work this subject may
+    # not touch: REST refuses the same link (routes/api.py, the link routes).
+    # Only a denial carries over: the row's own decision keeps its review
+    # verdict and obligations, which a permitted meeting must not replace.
+    meeting_denied = False
+    if decision.effect != PolicyEffect.DENY and meeting:
+        meeting_context = domain_policy.existing("event", meeting)
+        meeting_denied = (
+            current_policy_engine()
+            .decide(
+                PolicyInput(
+                    subject=subject,
+                    action=f"{entity}.{action}",
+                    resource=PolicyResource(
+                        "event",
+                        str(meeting),
+                        str(meeting_context.get("project_type") or ""),
+                        str(meeting_context.get("classification") or ""),
+                        meeting_context,
+                    ),
+                    origin="agent",
+                    agent=actor,
+                    tool=f"skein.{entity}.{action}",
+                    tool_effect="write",
+                    tool_risk="high" if entity in ALWAYS_REVIEW else "medium",
+                )
+            )
+            .effect
+            == PolicyEffect.DENY
+        )
+    if decision.effect == PolicyEffect.DENY or meeting_denied:
         detail = wording.write_policy_denied()
         receipts.record("refused", entity, detail, actor=actor)
         return json.dumps({"error": detail})

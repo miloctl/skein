@@ -96,7 +96,7 @@ def test_ingested_lines_take_the_meetings_tier(client, people):
 def test_ingest_refuses_a_meeting_the_paster_cannot_read(client, people):
     hidden = _meeting(visibility="private")
     r = client.post("/api/ingest", json={"text": "todo: something real", "event_id": hidden})
-    assert r.status_code == 400
+    assert r.status_code == 404
     assert client.post("/api/ingest", json={"text": "todo: x y z", "event": 1}).status_code == 422
 
 
@@ -255,3 +255,228 @@ def test_the_card_ties_on_a_row_filed_with_its_meeting(people):
     assert not fieldguide.PREDICATES["meeting_links"]("ana")
     work.create_task("linked", actor="ana", event_id=_meeting())
     assert fieldguide.PREDICATES["meeting_links"]("ana")
+
+
+def test_a_late_link_is_never_wider_than_its_meeting(client, people):
+    from app.services import collab, schedule
+
+    private = _meeting(actor="tester", visibility="private")
+    nid = collab.save_note("team note", "x", author="tester", actor="tester")["id"]
+    with pytest.raises(ValueError, match="cannot be visible to more people"):
+        schedule.link_item(private, "note", nid, actor="tester")
+    # through the route, another person's meeting reads like an absent one
+    hidden = _meeting(visibility="private")
+    refused = client.post(f"/api/events/{hidden}/links", json={"kind": "note", "item_id": nid})
+    absent = client.post("/api/events/999999/links", json={"kind": "note", "item_id": nid})
+    assert refused.status_code == absent.status_code == 400
+    assert refused.json()["detail"].replace(str(hidden), "N") == absent.json()["detail"].replace(
+        "999999", "N"
+    )
+
+
+def test_a_link_is_judged_on_the_items_project(fresh_db):
+    from test_policy_axis import _app, _engagements
+
+    from app.services import work
+
+    std, reg = _engagements("mallory")
+    eid = _meeting(actor="mallory", engagement_id=std)
+    regulated = work.create_task("regulated work", engagement_id=reg, actor="mallory")["id"]
+    with TestClient(_app(), headers={"X-User": "mallory"}) as c:
+        r = c.post(f"/api/events/{eid}/links", json={"kind": "task", "item_id": regulated})
+        assert r.status_code == 403
+    assert db.query_one("SELECT event_id FROM tasks WHERE id = ?", (regulated,))["event_id"] is None
+
+
+def test_the_count_honors_the_policy(people):
+    from app.services import schedule, work
+
+    eid = _meeting()
+    work.create_task("kept", actor="ana", event_id=eid)
+    denied = work.create_task("denied", actor="ana", event_id=eid)["id"]
+
+    def rule(entity, entity_id, _attributes):
+        return not (entity == "task" and entity_id == denied)
+
+    viewer = scope.Viewer("tester", True)
+    assert schedule.linked_counts([eid], viewer) == {eid: 2}
+    assert schedule.linked_counts([eid], viewer, resource_filter=rule) == {eid: 1}
+
+
+def test_a_void_task_leaves_the_meeting(client, people):
+    from app.services import schedule, work
+
+    eid = _meeting()
+    tid = work.create_task("never mind", actor="ana", event_id=eid)["id"]
+    work.update_task(tid, status="void", actor="ana")
+    assert client.get(f"/api/events/{eid}/items").json()["task"] == []
+    assert schedule.linked_counts([eid], scope.Viewer("tester", True)) == {}
+
+
+@pytest.mark.parametrize("kind", ["task", "decision", "promise", "intake"])
+def test_every_kind_waits_for_its_meeting_to_share(client, people, kind):
+    from app.services import collab, intake, promises, work
+
+    eid = _meeting(actor="tester", visibility="private")
+    k = {"actor": "tester", "visibility": "private", "event_id": eid}
+    table, row = {
+        "task": ("tasks", lambda: work.create_task("prep", **k)),
+        "decision": ("decisions", lambda: collab.record_decision("go", "we go", **k)),
+        "promise": ("promises", lambda: promises.add_promise("deck", "Acme", **k)),
+        "intake": ("requests", lambda: intake.submit_request("ask", **k)),
+    }[kind]
+    rid = row()["id"]
+    r = client.post(f"/api/share/{table}/{rid}", headers=_strong(client))
+    assert r.status_code == 400 and "fewer people can see" in r.json()["detail"]
+
+
+def test_an_agent_cannot_queue_a_meeting_it_cannot_link(client, people, monkeypatch):
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.services import users
+    from app.tools.work import create_task as create_tool
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    users.ensure_user("scout", kind="agent")
+    for meeting in (
+        _meeting(visibility="crew", crew_id=people["ops"]),
+        _meeting(visibility="private"),
+        999999,
+    ):
+        token = set_agent_identity("scout")
+        try:
+            out = json.loads(create_tool(title="book the room", event_id=meeting))
+        finally:
+            reset_agent_identity(token)
+        # refused before the queue: a proposal naming the meeting would put
+        # its id in front of every reader of the queue, and never apply
+        assert "error" in out, out
+    assert db.query_one("SELECT COUNT(*) AS n FROM pending_changes")["n"] == 0
+
+
+def test_an_agent_cannot_file_under_a_meeting_the_policy_denies(fresh_db):
+    from test_policy_axis import _deny_regulated, _engagements, _module
+
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.extensions.policy import reset_policy_engine, set_policy_engine
+    from app.extensions.registry import ExtensionRegistry
+    from app.services import users
+    from app.tools.work import create_task as create_tool
+
+    std, reg = _engagements("mallory")
+    regulated = _meeting(actor="mallory", engagement_id=reg)
+    users.ensure_user("scout", kind="agent")
+    engine = set_policy_engine(ExtensionRegistry.build((_module(_deny_regulated),)).policy_engine)
+    token = set_agent_identity("scout")
+    try:
+        denied = json.loads(create_tool(title="under the regulated meeting", event_id=regulated))
+        allowed = json.loads(create_tool(title="standard work", engagement_id=std))
+    finally:
+        reset_agent_identity(token)
+        reset_policy_engine(engine)
+    assert "denied" in denied.get("error", "").lower(), denied
+    assert "error" not in allowed, allowed
+    assert db.query_one("SELECT id FROM tasks WHERE title = 'under the regulated meeting'") is None
+
+
+def test_ingest_judges_the_meeting_and_the_paster(client, people):
+    from test_policy_axis import _app, _engagements
+
+    _std, reg = _engagements("mallory")
+    regulated = _meeting(actor="mallory", engagement_id=reg)
+    with TestClient(_app(), headers={"X-User": "mallory"}) as c:
+        r = c.post("/api/ingest", json={"text": "todo: under it", "event_id": regulated})
+        assert r.status_code == 403
+    # a weak name reads the workspace tier only: its own crew's meeting reads
+    # like an absent one, and nothing is proposed into a queue nobody reads
+    crew_meeting = _meeting(actor="tester", visibility="crew", crew_id=people["ops"])
+    refused = client.post("/api/ingest", json={"text": "todo: x y z", "event_id": crew_meeting})
+    absent = client.post("/api/ingest", json={"text": "todo: x y z", "event_id": 999999})
+    assert refused.status_code == absent.status_code == 404
+    assert db.query_one("SELECT COUNT(*) AS n FROM pending_changes")["n"] == 0
+    # the service holds the same line for any caller that is not a strong one
+    from app.services import ingest
+
+    with pytest.raises(ValueError, match=f"no event #{crew_meeting}"):
+        ingest.ingest_notes("todo: x y z", actor="tester", private=False, event_id=crew_meeting)
+
+
+def test_an_assignee_who_cannot_read_the_meeting_is_handed_back(client, people):
+    eid = _meeting(actor="tester", visibility="private")
+    r = client.post(
+        "/api/ingest",
+        json={"text": "q: ana: can you own the rollout?\ntodo: book the room", "event_id": eid},
+        headers=_strong(client),
+    )
+    body = r.json()
+    assert [p["kind"] for p in body["proposals"]] == ["task"]
+    assert any("own the rollout" in line for line in body["unclassified"])
+
+
+def test_rescheduling_and_approving_do_not_deadlock(fresh_db, monkeypatch):
+    """schedule.update_event holds the event, then its new engagement. The
+    approval of a create that names both held the engagement, then the
+    event, and the two deadlocked when they met."""
+    import threading
+
+    from app.services import engagements, policy_context, review, schedule
+
+    gid = engagements.create_engagement("Atlas", actor="ops")["id"]
+    eid = schedule.schedule_event("sync", "2026-10-02T10:00", actor="ops")["id"]
+    proposal = review.propose_change(
+        "task", "create", {"title": "ship", "engagement_id": gid, "event_id": eid}, actor="scribe"
+    )
+    held, moved = threading.Event(), threading.Event()
+    real = policy_context.hold_resource
+
+    def pausing(entity, entity_id):
+        real(entity, entity_id)
+        if threading.current_thread().name == "approver" and not held.is_set():
+            held.set()
+            moved.wait(1.5)
+
+    monkeypatch.setattr(policy_context, "hold_resource", pausing)
+    errors: list[BaseException] = []
+
+    def approve():
+        try:
+            review.approve_change(proposal["id"], actor="ops", strong=True)
+        except BaseException as exc:
+            errors.append(exc)
+
+    def relink():
+        assert held.wait(5)
+        try:
+            schedule.update_event(eid, engagement_id=gid, actor="ops")
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            moved.set()
+
+    threads = [threading.Thread(target=approve, name="approver"), threading.Thread(target=relink)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(15)
+    assert errors == []
+    assert db.query_one("SELECT status FROM pending_changes WHERE id = ?", (proposal["id"],)) == {
+        "status": "approved"
+    }
+
+
+def test_an_event_edit_decides_and_writes_in_one_transaction(client, fresh_db, monkeypatch):
+    """The workplace rule judges the event's engagement. Decided outside the
+    write's transaction, a relink that lands in between moves the edit onto
+    work the rule denies."""
+    from app.services import policy_context, schedule
+
+    eid = schedule.schedule_event("sync", "2026-10-02T10:00", actor="tester")["id"]
+    seen = []
+    real = policy_context.hold_resource
+
+    def spy(entity, entity_id):
+        seen.append((entity, entity_id, db.in_transaction()))
+        real(entity, entity_id)
+
+    monkeypatch.setattr(policy_context, "hold_resource", spy)
+    assert client.patch(f"/api/events/{eid}", json={"title": "renamed"}).status_code == 200
+    assert ("event", eid, True) in seen

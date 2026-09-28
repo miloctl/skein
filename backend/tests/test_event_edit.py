@@ -121,3 +121,37 @@ def test_a_project_rule_judges_an_event_edit(fresh_db):
     assert ctx["project_type"] == "regulated"
     with TestClient(_app(), headers={"X-User": "mallory"}) as c:
         assert c.patch(f"/api/events/{eid}", json={"title": "x"}).status_code == 403
+
+
+def test_the_ledger_keeps_the_field_names_not_the_text(client, fresh_db):
+    eid = _event(client)
+    client.patch(f"/api/events/{eid}", json={"description": "THE BUDGET IS 40K"})
+    row = fresh_db.query_one(
+        "SELECT detail FROM activity WHERE action = 'update_event' ORDER BY id DESC LIMIT 1"
+    )
+    assert "description" in row["detail"] and "40K" not in row["detail"]
+
+
+def test_an_engagement_link_is_checked_and_contained(client, fresh_db):
+    from app.services import crews, engagements, users
+
+    for name in ("ana", "tester"):
+        users.ensure_user(name)
+    crew = crews.create_crew("ops", actor="ana")["id"]
+    crews.add_member(crew, "tester", actor="ana")
+    team = engagements.create_engagement("Atlas", actor="tester")["id"]
+    ops = engagements.create_engagement("Ops work", actor="ana", visibility="crew", crew_id=crew)[
+        "id"
+    ]
+    hidden = engagements.create_engagement("Ana's", actor="ana", visibility="private")["id"]
+    eid = _event(client)
+    assert client.patch(f"/api/events/{eid}", json={"engagement_id": team}).status_code == 200
+    r = client.patch(f"/api/events/{eid}", json={"engagement_id": hidden})
+    assert r.status_code == 400 and "no engagement" in r.json()["detail"]
+    # a workspace meeting under a crew engagement disappears for its readers
+    r = client.patch(f"/api/events/{eid}", json={"engagement_id": ops})
+    assert r.status_code == 400 and "cannot be visible to more people" in r.json()["detail"]
+    assert client.patch(f"/api/events/{eid}", json={"engagement_id": -1}).status_code == 200
+    assert fresh_db.query_one("SELECT engagement_id FROM events WHERE id = ?", (eid,)) == {
+        "engagement_id": None
+    }

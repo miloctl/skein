@@ -59,6 +59,9 @@ _HANDLER_POLICY = frozenset(
 _ATOMIC_POLICY = frozenset(
     {
         ("DELETE", "/api/events/{event_id}"),
+        ("PATCH", "/api/events/{event_id}"),
+        ("POST", "/api/events/{event_id}/links"),
+        ("DELETE", "/api/events/{event_id}/links/{kind}/{item_id}"),
         ("DELETE", "/api/allocations/{allocation_id}"),
         ("DELETE", "/api/memories/{memory_id}"),
         ("POST", "/api/promises"),

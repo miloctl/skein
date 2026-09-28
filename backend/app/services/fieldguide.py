@@ -90,8 +90,10 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # scheduling an event proves nothing, because the agent tools and every
     # playbook ritual write events without the page
     "calendar": None,
-    # a row the person filed with its meeting named, by any path: the panel's
-    # link, pasted notes, or a capture an agent filed on their behalf
+    # a row the person wrote that names its meeting, from pasted notes or a
+    # link in the meeting panel. created_by, so an agent's approved create,
+    # which the review applies as the agent (review.approve_change), does
+    # not tie it for the person who asked
     "meeting_links": lambda u: _has(
         " UNION ALL ".join(
             f"SELECT 1 FROM {table} WHERE created_by = ? AND event_id IS NOT NULL"  # noqa: S608 — tables from schedule.LINKED
