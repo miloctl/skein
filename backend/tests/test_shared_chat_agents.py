@@ -916,6 +916,10 @@ def test_real_turn_uses_workspace_tools_and_forces_requester_attributed_review(c
         actor="mira",
         visibility="private",
     )["id"]
+    own_note = collab.save_note(
+        "mine", "mira's own words", author="mira", actor="mira", visibility="private"
+    )["id"]
+    team_note = collab.save_note("team", "anyone can read this", author="mira", actor="mira")["id"]
     delegation.set_authority(agent, "task", "autonomous", actor="tester")
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
     monkeypatch.setattr(config, "AGENT_REVIEW", False)
@@ -931,8 +935,10 @@ def test_real_turn_uses_workspace_tools_and_forces_requester_attributed_review(c
 
         def __call__(self, prompt):
             from app.tools._gate import gated_write
+            from app.tools.collab import search_notes
 
             built_with["prompt"] = prompt
+            built_with["notes_seen"] = [n["id"] for n in json.loads(search_notes(""))]
             built_with["private_write"] = json.loads(
                 gated_write(
                     "task",
@@ -988,6 +994,9 @@ def test_real_turn_uses_workspace_tools_and_forces_requester_attributed_review(c
     assert built_with["thread_id"] == persona_session_id(room["id"], agent)
     assert built_with["user"] == "shared-chat"
     assert built_with["viewer"] is scope.NOBODY
+    # every member reads the reply, so a member's private note must not reach it
+    assert team_note in built_with["notes_seen"]
+    assert own_note not in built_with["notes_seen"]
     assert built_with["review_forced"] is True
     assert "recall_memories" not in built_with["allowed_tools"]
     assert "consult_specialist" not in built_with["allowed_tools"]

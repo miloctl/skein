@@ -81,6 +81,10 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
         "SELECT 1 FROM notes WHERE (author = ? OR created_by = ?) AND topic LIKE 'convention%'",
         (u, u),
     ),
+    # tied by the Notes page's own mark route: authoring a note proves
+    # nothing, because every plain capture writes one and already ties
+    # `capture`, so the card that announces the page would never be shown
+    "notes": None,
     "search": None,
     "browser_signin": lambda u: _act(u, "create_browser_session"),
     # a theme write is not activity-logged (users.py: a slider drag would

@@ -82,3 +82,152 @@ def test_an_agent_note_carries_the_requesters_own_name(fresh_db, monkeypatch):
     finally:
         identity.reset_agent_identity(token)
     assert fresh_db.query("SELECT author FROM notes") == [{"author": "ava"}]
+
+
+def test_the_agent_reads_its_requesters_private_notes_and_no_one_elses(fresh_db):
+    """A strong identity's capture starts private, so an agent that read notes
+    as nobody found none of the notes a person dumped from their own chat."""
+    import json
+
+    from conftest import _turn
+
+    from app.agents import identity
+    from app.services import capture, users
+    from app.tools.collab import search_notes
+
+    for name in ("ava", "bob"):
+        users.ensure_user(name)
+    capture.capture("ZZDUMP ava vendor call", actor="ava", strong_auth=True, visibility="private")
+    capture.capture("ZZDUMP bob keeps this", actor="bob", strong_auth=True, visibility="private")
+    capture.capture("ZZDUMP team runbook", actor="bob", visibility="workspace")
+
+    def seen() -> list[str]:
+        return sorted(n["content"] for n in json.loads(search_notes("ZZDUMP")))
+
+    team = ["ZZDUMP team runbook"]
+    token = identity.set_agent_identity("scout")
+    try:
+        with _turn("ava"):
+            assert seen() == ["ZZDUMP ava vendor call", *team]
+        with _turn("ava", strong=False):  # a typed name reads no private row
+            assert seen() == team
+        with _turn("ava", shared_chat=True):  # every member reads the reply
+            assert seen() == team
+        assert seen() == team  # an unattended run has no requester
+    finally:
+        identity.reset_agent_identity(token)
+
+
+def test_the_notes_list_pages_past_the_newest_25(client, fresh_db):
+    """Only the newest 25 notes were listable, so an older dump was
+    unreachable unless the reader remembered its exact words."""
+    from app.services import collab
+
+    ids = [collab.save_note(f"n{i}", "c", author="tester", actor="tester")["id"] for i in range(30)]
+    newest_first = ids[::-1]
+    first = client.get("/api/notes").json()
+    assert [n["id"] for n in first] == newest_first[:25]
+    older = client.get("/api/notes", params={"before": first[-1]["id"]}).json()
+    assert [n["id"] for n in older] == newest_first[25:]
+    assert client.get("/api/notes", params={"limit": 101}).status_code == 422
+
+
+def test_a_workplace_rule_that_denies_private_rows_holds_for_note_search(fresh_db):
+    """The wrapper's policy check sees the tool, not the notes, so a rule that
+    denies agents a private row by classification never ran on this read."""
+    import json
+
+    from conftest import _turn
+
+    from app.agents import identity
+    from app.extensions import PolicyContribution, PolicyDecision, PolicyEffect, SkeinModule
+    from app.extensions.policy import reset_policy_engine, set_policy_engine
+    from app.extensions.registry import ExtensionRegistry
+    from app.services import capture, users
+    from app.tools.collab import search_notes
+
+    users.ensure_user("ava")
+    capture.capture("ZZRULE ava private", actor="ava", strong_auth=True, visibility="private")
+    capture.capture("ZZRULE team runbook", actor="ava", visibility="workspace")
+
+    def deny_private(request):
+        if request.resource.classification == "private":
+            return PolicyDecision(PolicyEffect.DENY, ("private records are protected",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.7.0",
+        policies=(PolicyContribution("acme.workplace.private-records", deny_private),),
+    )
+    engine = set_policy_engine(ExtensionRegistry.build((module,)).policy_engine)
+    token = identity.set_agent_identity("scout")
+    try:
+        with _turn("ava"):
+            seen = [n["content"] for n in json.loads(search_notes("ZZRULE"))]
+    finally:
+        identity.reset_agent_identity(token)
+        reset_policy_engine(engine)
+    assert seen == ["ZZRULE team runbook"]
+
+
+def test_an_agent_refuses_to_change_a_private_note_before_filing_anything(fresh_db):
+    """The change applies as the agent, which scope.assert_editable refuses on
+    a private row, so a filed proposal auto-rejected on approval as "target no
+    longer exists" and the note never changed. delete_note read the note as
+    nobody first, so its refusal said the note did not exist."""
+    import json
+
+    from conftest import _turn
+
+    from app.agents import identity
+    from app.services import capture, users
+    from app.tools.collab import delete_note, edit_note
+
+    users.ensure_user("ava")
+    note = capture.capture(
+        "note: the vendor name has a typo", actor="ava", strong_auth=True, visibility="private"
+    )
+    assert note["kind"] == "note"
+    token = identity.set_agent_identity("scout")
+    try:
+        with _turn("ava"):
+            edited = json.loads(edit_note(note["id"], content="fixed"))
+            deleted = json.loads(delete_note(note["id"]))
+    finally:
+        identity.reset_agent_identity(token)
+    for result in (edited, deleted):
+        assert result == {"error": "An agent cannot change a private record. Change it yourself."}
+    assert fresh_db.query("SELECT id FROM pending_changes") == []
+    assert fresh_db.query_one("SELECT content FROM notes WHERE id = ?", (note["id"],)) == {
+        "content": "the vendor name has a typo"
+    }
+
+
+def test_the_gate_refuses_an_agent_change_to_any_private_record(fresh_db):
+    """The refusal lives in the gate, so it covers every entity an agent can
+    update, not notes alone."""
+    import json
+
+    from conftest import _turn
+
+    from app.agents import identity
+    from app.services import capture, users
+    from app.tools.work import update_task
+
+    users.ensure_user("ava")
+    task = capture.capture(
+        "todo: call the vendor", actor="ava", strong_auth=True, visibility="private"
+    )
+    assert task["kind"] == "task"
+    token = identity.set_agent_identity("scout")
+    try:
+        with _turn("ava"):
+            result = json.loads(update_task(task["id"], priority="high"))
+    finally:
+        identity.reset_agent_identity(token)
+    assert result == {"error": "An agent cannot change a private record. Change it yourself."}
+    assert fresh_db.query("SELECT id FROM pending_changes") == []

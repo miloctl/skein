@@ -5,8 +5,15 @@ from typing import Any
 
 from strands import tool
 
-from ..agents.identity import agent_identity, strong_requester, workspace_only_tools
-from ..services import collab, scope, users
+from .. import db
+from ..agents.identity import (
+    agent_identity,
+    requester_viewer,
+    strong_requester,
+    workspace_only_tools,
+)
+from ..extensions.policy import current_policy_engine, current_policy_subject
+from ..services import collab, projection_policy, scope, users
 from ._gate import gated_write
 
 
@@ -205,12 +212,37 @@ def save_note(topic: str, content: str, author: str = "") -> str:
 
 @tool
 def search_notes(keyword: str = "") -> str:
-    """Search the knowledge base notes by keyword.
+    """Search notes by keyword: notes the whole team can read, notes of the
+    crews the person you are talking to belongs to, and that person's private
+    notes (`visibility` says which). You can read a private note but not
+    change it. Do not copy a private note's text into a record other people
+    can read unless the person asks you to.
 
     Args:
         keyword: Text to search for; empty returns the most recent notes.
     """
-    return json.dumps(collab.search_notes(keyword))
+    # The REQUESTER's viewer, as get_attention reads it (tools/portfolio.py).
+    # A strong identity's quick captures start private (docs/VISIBILITY.md),
+    # so a NOBODY read here hides every note a person dumps from the agent in
+    # their own chat. A shared chat sets NOBODY (services/shared_chat_agents.py)
+    # and an unattended run sets nothing, so neither reads a private row: a
+    # reply in a shared chat is read by every member.
+    rv = requester_viewer()
+    viewer = rv if isinstance(rv, scope.Viewer) else scope.NOBODY
+    # Per row, as get_attention filters: the wrapper's policy check sees the
+    # tool, not the notes, so a workplace rule that denies agents a private
+    # or crew row by its classification would otherwise never run.
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(),
+        current_policy_subject(),
+        "skein.tool.search_notes",
+        "agent_tool",
+        viewer,
+        agent=agent_identity(),
+        tool="search_notes",
+    )
+    with db.read_transaction():
+        return json.dumps(policy.filter_rows("note", collab.search_notes(keyword, viewer)))
 
 
 @tool
@@ -244,7 +276,10 @@ def delete_note(note_id: int) -> str:
     Args:
         note_id: ID of the note to delete.
     """
-    row = collab.get_note(note_id)
+    # read as the requester, so their own private note reaches the gate and
+    # its refusal names the real reason, not "no note"
+    rv = requester_viewer()
+    row = collab.get_note(note_id, rv if isinstance(rv, scope.Viewer) else scope.NOBODY)
     if not row:
         return json.dumps({"error": f"no note #{note_id}"})
     return gated_write(

@@ -7,6 +7,7 @@ export const NAVIGATION = [
       { href: "/planning", label: "Plan the week", title: "Planning" },
       { href: "/portfolio", label: "Health" },
       { href: "/dashboard", label: "Browse" },
+      { href: "/notes", label: "Notes" },
       { href: "/insights", label: "Insights" },
       { href: "/artifacts", label: "Reports" },
     ],
