@@ -749,13 +749,15 @@ def test_sign_in_claim_precedes_discovery_and_registration(fresh_db, sealed, mon
     with ThreadPoolExecutor(1) as callers:
         first = callers.submit(mcp_oauth.start, sid, server)
         try:
-            assert entered.wait(3)
+            # 15, not 3: the wait ends the moment the thread arrives, and under
+            # the full parallel suite scheduling it can take longer than 3s
+            assert entered.wait(15)
             with pytest.raises(ValueError, match="already in progress"):
                 mcp_oauth.start(sid, server)
             assert len(FakeClient.seen) == 1
         finally:
             release.set()
-            first.result(5)
+            first.result(15)
             mcp_oauth.complete("nonce-1", "accepted")
     deadline = time.monotonic() + 5
     while fresh_db.query("SELECT * FROM mcp_oauth_flows") and time.monotonic() < deadline:
