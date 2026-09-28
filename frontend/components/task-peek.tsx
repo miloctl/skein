@@ -1069,17 +1069,18 @@ function ActivationGuide({
     if (wake.reason === "cancelled") {
       message =
         "The agent turn stopped when unattended runs were paused. Read the worklog before you start another turn.";
+    } else if (task.blockers?.length) {
+      // an open blocker names the next action, whatever the turn did
+      message = "This task has an open blocker. Resolve it before the task can continue.";
     } else if (wake.reason.startsWith("limit_")) {
       message =
         "The agent turn stopped at its step or token limit. Read the worklog to see how far it got.";
     } else if (wake.reason === "write_refused") {
       message =
-        "The agent tried to write a record and Skein refused it. Open Team → Agents to check its authority.";
+        "The agent tried to write a record, and Skein refused it. Check the agent's authority on Team → Agents and the visibility of the records it works on.";
     } else if (wake.reason === "write_failed") {
       message =
         "The agent tried to write a record and the write failed. Read the worklog before you start another turn.";
-    } else if (task.blockers?.length) {
-      message = "This task has an open blocker. Resolve it before the task can continue.";
     } else if (worklogError) {
       message = "The agent turn completed. The worklog is unavailable below.";
     } else if (worklog === null) {

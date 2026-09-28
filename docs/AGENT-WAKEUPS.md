@@ -140,7 +140,7 @@ A failure after invocation becomes `failed` with reason `failed_before_tools` on
 The runner opens a receipt box in the context the worker thread copies, so every gate decision in the turn reaches the parent. A completed turn stores one outcome code in `reason`:
 
 - `write_refused`: the gate refused at least one write.
-- `write_failed`: at least one write failed validation.
+- `write_failed`: at least one write failed validation and none landed. A failed call beside a write that landed is not the outcome: a resumed turn that claims a task already in progress fails that call, then reports progress.
 - `nothing_filed`: the turn recorded no write at all.
 
 An SDK stop (`limit_turns`, `limit_total_tokens`, `cancelled`) outranks the outcome. `finish` stores only these fixed codes, because the reason reaches every reader of the trigger task. The daily run reports the same codes in its `outcomes` job detail.

@@ -26,11 +26,16 @@ contract.
   embeddings, context packs, digests, readouts, findings, the calendar feed,
   exports, or the body of an activity row.
 - **Identity.** In `api-key` and `oidc` mode, a caller cannot act as another
-  person. Scoped reads need strong identity. The four system actor names and
-  agent names cannot be claimed by a person.
-- **Agent writes.** Every agent write through a chat tool or the MCP server
-  passes the review gate and the authority matrix. Only a human can set an
-  agent's authority. An agent cannot approve its own proposal.
+  person. Scoped reads need strong identity. A person cannot claim a reserved
+  system actor name or an agent's name.
+- **Agent writes.** An agent write through a chat tool or the MCP server
+  passes the review gate and the authority matrix. Four writers skip the gate
+  by design, and each one obeys the `forbidden` level: the delegation loop
+  (claim a delegated task, write a progress note, submit it for acceptance)
+  works only on a task delegated to that agent, and a submission is itself a
+  proposal to the sponsor. Handoff generation writes a report from records
+  the agent can already read. Only a human can set an agent's authority. An
+  agent cannot approve its own proposal.
 - **Credentials.** Personal MCP tokens and browser sign-in tokens are sealed
   under `SKEIN_CREDENTIAL_KEY`. No credential is stored in `app_settings`, and
   no error response echoes a rejected value.
@@ -39,15 +44,17 @@ contract.
   chained rows is exposed by an anchor file that the attacker could not also
   change. "Activity-ledger claim boundaries" in
   [docs/FEATURES.md](docs/FEATURES.md) states what the chain does not prove.
-- **Signed inbound events.** The forge webhook refuses an unsigned or replayed
-  delivery. The CI webhook refuses a self-asserted name.
+- **Signed inbound events.** The forge webhook refuses an unsigned delivery,
+  and it ignores a signed delivery it already applied, within the limits that
+  "Code forge webhook" in [docs/FEATURES.md](docs/FEATURES.md) states. The CI
+  webhook refuses a self-asserted name.
 - **Erasure.** Thirty days after offboarding, the records only that person
   could read are deleted.
 
 ## Out of scope
 
 These are documented design properties, not vulnerabilities. The README
-section "Security model, stated plainly" explains each one.
+section "Security model, stated plainly" explains the first three.
 
 - **`trusted-header` mode.** Identity is the self-asserted `X-User` header.
   The mode is for local development and trusted networks only.

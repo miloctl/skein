@@ -360,9 +360,12 @@ def _outcome(recorded: list[dict]) -> str:
     kinds = {r["kind"] for r in recorded}
     if "refused" in kinds:
         return "write_refused"
-    if "failed" in kinds:
-        return "write_failed"
-    return "" if kinds else "nothing_filed"
+    # a failure beside a landed write is noise, not the outcome: a resumed
+    # turn that calls claim on a task already in progress fails that call,
+    # then reports progress
+    if kinds & {"wrote", "queued"}:
+        return ""
+    return "write_failed" if kinds else "nothing_filed"
 
 
 def _ran_no_tool(built: Any, recorded: list[dict]) -> bool:

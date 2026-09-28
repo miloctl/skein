@@ -3004,6 +3004,13 @@ def get_context_pack(
             attributes = policy_context.existing_scoped("engagement", engagement, viewer)
             if not attributes or not policy.permits("engagement", engagement, attributes):
                 raise db.NotFound(f"no engagement #{engagement}")
+            if tier and attributes.get("classification") != scope.WORKSPACE:
+                # the caller CAN read it, so "no engagement #N" would be false
+                raise ValueError(
+                    f"Engagement #{engagement} is not visible to the whole team. A context"
+                    " file holds records for the whole team only. Run the command without"
+                    " --write to read the pack."
+                )
             return {
                 "engagement": engagement,
                 "content": context_pack.build_engagement_pack(

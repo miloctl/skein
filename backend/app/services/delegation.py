@@ -1138,8 +1138,26 @@ def agent_inbox(
     )
     # With no viewer (an unattended turn nobody attends), the workspace tier:
     # skipped, a proposal private to one person reached the turn, whose
-    # raise_blocker and report_progress write where the team reads.
-    rejected = _readable(rejected, viewer if viewer is not None else scope.NOBODY)
+    # raise_blocker and report_progress write where the team reads. One
+    # exception: a rejected completion of a task `tasks` above already lists
+    # shares that task's tier, and the turn reads the task unfiltered. Held to
+    # the workspace tier, a crew task sent back (review.reject_change) woke an
+    # agent that could not read the note it woke for. A private review stays out.
+    if viewer is None:
+        held = {int(task["id"]) for task in tasks}
+        workspace = {int(r["id"]) for r in _readable(rejected, scope.NOBODY)}
+        rejected = [
+            r
+            for r in rejected
+            if int(r["id"]) in workspace
+            or (
+                r["entity"] == "task_completion"
+                and int(r["entity_id"] or 0) in held
+                and r["review_visibility"] != scope.PRIVATE
+            )
+        ]
+    else:
+        rejected = _readable(rejected, viewer)
     if resource_filter is not None:
         from .review import filter_policy_resources
 
