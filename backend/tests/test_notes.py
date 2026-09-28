@@ -335,3 +335,13 @@ def test_a_write_after_a_private_read_is_the_requesters_to_approve(fresh_db, mon
     assert refused["error"].startswith("This turn read notes that only you or your crew")
     topics = [r["topic"] for r in fresh_db.query("SELECT topic FROM notes ORDER BY id")]
     assert "digest" not in topics
+
+
+def test_a_wildcard_character_in_the_keyword_matches_itself(client):
+    """The keyword is typed text. A bare % or _ was a LIKE wildcard and
+    returned every note, which reads as "all of these match"."""
+    client.post("/api/notes", json={"topic": "budget", "content": "Q3 is 40% over"})
+    client.post("/api/notes", json={"topic": "unrelated", "content": "lunch plans"})
+    client.post("/api/notes", json={"topic": "path", "content": "set SKEIN_DATA_DIR first"})
+    assert [n["topic"] for n in client.get("/api/notes", params={"q": "%"}).json()] == ["budget"]
+    assert [n["topic"] for n in client.get("/api/notes", params={"q": "_"}).json()] == ["path"]

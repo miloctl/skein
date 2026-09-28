@@ -80,13 +80,24 @@ function NoteEditor({
   // field that was empty to begin with stays empty either way.
   const lostTopic = !topic.trim() && Boolean(note.topic.trim());
   const lostContent = !content.trim() && Boolean(note.content.trim());
+  const blocked = lostTopic
+    ? "The topic is empty. Type a topic to save the note."
+    : lostContent
+      ? "The content is empty. Type some content to save the note."
+      : "";
   const field =
     "mt-0.5 block w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm text-ink outline-none focus:border-thread-solid";
   return (
     <form
       onSubmit={async (e) => {
         e.preventDefault();
-        if (busy || lostTopic || lostContent) return;
+        if (busy) return;
+        // through the page's status region, which is always mounted: a live
+        // region inserted with its text already in it is often not read
+        if (blocked) {
+          reportStatus(blocked);
+          return;
+        }
         setBusy(true);
         await onSave(topic, content);
         setBusy(false);
@@ -118,18 +129,16 @@ function NoteEditor({
           className={field}
         />
       </label>
-      {(lostTopic || lostContent) && (
-        <p id={`note-${note.id}-blocked`} role="status" className="text-xs text-danger">
-          {lostTopic
-            ? "The topic is empty. Type a topic to save the note."
-            : "The content is empty. Type some content to save the note."}
+      {blocked && (
+        <p id={`note-${note.id}-blocked`} className="text-xs text-danger">
+          {blocked}
         </p>
       )}
       <div className="flex gap-2">
         <button
           type="submit"
-          aria-disabled={busy || lostTopic || lostContent}
-          aria-describedby={lostTopic || lostContent ? `note-${note.id}-blocked` : undefined}
+          aria-disabled={busy || Boolean(blocked)}
+          aria-describedby={blocked ? `note-${note.id}-blocked` : undefined}
           className="rounded bg-thread-solid px-2 py-1 text-xs font-medium text-white hover:opacity-90 aria-disabled:opacity-40"
         >
           Save note

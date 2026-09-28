@@ -263,6 +263,10 @@ export function Nav({ children }: { children?: React.ReactNode }) {
     return <NavigationDestination key={key} href={href} aria-current={current}
       className={"shell-row " + (icon ? "" : "shell-child ") + (current ? "shell-current" : "")}
       onClick={(event) => {
+        // The page you are on keeps its query and fragment: a Browse
+        // register, a deep-linked row, one note opened from search
+        // (e2e/navigation-shell.spec.ts pins it). Each of those views
+        // carries its own way back to the full page.
         if (!extension && pathname === href) event.preventDefault();
         closeDrawer();
         setMenuOpen(false);
