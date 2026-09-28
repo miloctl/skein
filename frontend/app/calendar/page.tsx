@@ -369,7 +369,9 @@ export default function CalendarPage() {
       <fieldset className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-2">
         <legend className="sr-only">Show on the calendar</legend>
         {KINDS.map(([kind, label]) => (
-          <label key={kind} className="flex items-center gap-1">
+          // min-h-6: the row wraps on a phone, and rows closer than 24px
+          // fail the target-size check (e2e/responsive.spec.ts)
+          <label key={kind} className="flex min-h-6 items-center gap-1">
             <input
               type="checkbox"
               checked={shown[kind]}
@@ -378,7 +380,7 @@ export default function CalendarPage() {
             {label}
           </label>
         ))}
-        <label className="flex items-center gap-1">
+        <label className="flex min-h-6 items-center gap-1">
           <input
             type="checkbox"
             checked={mine}

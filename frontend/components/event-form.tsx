@@ -184,7 +184,7 @@ export function EventForm({
           className={field}
         />
       </label>
-      <label className="flex items-center gap-2 text-xs text-ink-2">
+      <label className="flex min-h-6 items-center gap-2 text-xs text-ink-2">
         <input
           type="checkbox"
           checked={draft.allDay}
