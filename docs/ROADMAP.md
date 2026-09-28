@@ -670,3 +670,32 @@ larger than its finding.
   `api_keys` owner and label, the ended pairing, and 365 days of
   `usage_log`. Mentions and adoption counters now go. The rest is an owner
   decision: each is another author's record or an audit trail.
+
+## Calendar (2026-09-28)
+
+Intent and design: [Calendar, written by people and agents](intent/calendar.md).
+Four slices, in order. Each slice deletes its own bullet when it ships. The
+open questions at the end of the intent doc have recommended defaults, and
+the slices proceed on those defaults.
+
+- **Slice 1: calendar page.** Work → Calendar shows a month grid (a day list
+  on a phone) of meetings, open task, milestone and promise due dates, and
+  time away. It uses a scoped, policy-filtered `GET /api/calendar` with
+  overlap queries, so a meeting that starts before the window still shows.
+  Adds `GET /api/events/{id}` and an event panel at `?event=`. Retires the
+  Browse → Calendar register. Field-guide card `calendar`.
+- **Slice 2: edit and reschedule.** `schedule.update_event`,
+  `PATCH /api/events/{id}`, and the agent tool `update_event`, gated as
+  `event_edit`. Visibility is not editable. First, a separate fix:
+  `policy_context._target_engagement` judges event updates (and
+  `event_cancel`) with no project type.
+- **Slice 3: items that came out of a meeting.** Migration 044 adds
+  `event_id` (`ON DELETE SET NULL`) to notes, tasks, decisions, questions,
+  blockers, promises and intake requests. An item is never wider than its
+  meeting. Ingest takes an event and stamps the meeting's tier. Adds
+  link-after services and routes, the `link_to_event` tool, a "From this
+  meeting" list in the panel, and a viewer-scoped item count on My Day's
+  meeting ask. Field-guide card `meeting-links`.
+- **Slice 4: agenda references.** `event` becomes a `refs.py` target. The
+  agenda's `question #12` style references become permission-checked links
+  (`readable_refs`, with apostrophe-safe parsing for human text).
