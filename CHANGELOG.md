@@ -26,6 +26,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- Settings → Connections shows the GitLab webhook URL beside the Gitea one, with the events to select and the token to set, and the context-pack hint names `skein context --engagement <id> --write AGENTS.md`. `docs/SETUP.md` has a Connect GitLab section. The forge field-guide card names both tokens.
 - A failed GitLab pipeline on the project's default branch, or on `main` or `master`, files one high-impact team blocker ("CI red on team/app@main") as `forge`, and the next passed one resolves it. Running, cancelled, skipped, tag and merge request pipelines do nothing. The workplace rule on `skein.integration.ci` decides both the GitLab path and `POST /api/webhooks/ci`, and a DENY leaves no receipt, so a resend can retry.
 - Two red CI runs for one repository and branch that arrive together file one blocker. Each run filed its own.
 - A `Closes-Task: #42` line in a pull request or merge request description closes task 42 when it merges, on Gitea and GitLab. `skein pr-body` writes that line, and the forge read nothing from it, so a merge on a branch without the task number moved nothing. `Refs-Task` still never closes a task.
