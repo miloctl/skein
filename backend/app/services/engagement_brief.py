@@ -51,7 +51,7 @@ def brief(
     from .intervention import interventions
     from .playbooks import close_out_diff
     from .portfolio import _linked_blockers, engagement_health, health_changes
-    from .work import consistent_task_rows, redact_task_relationships
+    from .work import consistent_task_rows, engagement_member_sql, redact_task_relationships
 
     efrag, ep = scope.visible_filter(viewer, "engagements")
     eng = db.query_one(
@@ -96,8 +96,7 @@ def brief(
         consistent_task_rows(
             db.query(
                 f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
-                " AND (t.engagement_id = ? OR t.milestone_id IN"
-                "      (SELECT id FROM milestones WHERE engagement_id = ?))"
+                f" AND {engagement_member_sql()}"
                 " AND t.status NOT IN ('done', 'void')"
                 " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
                 " WHEN 'medium' THEN 2 ELSE 3 END, t.due_date IS NULL, t.due_date, t.id"

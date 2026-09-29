@@ -45,6 +45,7 @@ export type Moves = {
   resolve: (task: BoardTask, blockerId: number) => void;
   /** after a raise or a cancel: the page rereads and returns focus */
   settle: (task: BoardTask, raised: boolean) => void;
+  focusMove: (id: number) => void;
 };
 
 /** A card carries facts about the task, never about the person: no
@@ -57,7 +58,7 @@ export function BoardCard({ task, today, moves }: { task: BoardTask; today: stri
   const busy = moves.moving === task.id;
   const button = "block w-full rounded-lg px-2 py-1 text-left text-xs text-ink-2 hover:bg-raised";
   return (
-    <div aria-busy={busy || undefined} className="rounded-lg border border-line bg-card p-2 text-xs">
+    <div aria-busy={busy || undefined} className="break-words rounded-lg border border-line bg-card p-2 text-xs">
       <PeekLink taskId={task.id} className="line-clamp-2 text-sm text-ink">
         <span className="text-ink-3">#{task.id}</span> {task.title}
       </PeekLink>
@@ -99,8 +100,9 @@ export function BoardCard({ task, today, moves }: { task: BoardTask; today: stri
           ) : null}
         </ul>
       ) : null}
-      {/* A delegated task has no Move: only the sponsor's verdict in Inbox
-          closes it, and the task panel says so */}
+      {/* A delegated task has no Move: only its sponsor's verdict closes it
+          (work._update_task_locked refuses done and void), and the task
+          panel says so */}
       {task.delegated_agent ? null : (
         <div className="relative mt-1">
           <button
@@ -108,6 +110,11 @@ export function BoardCard({ task, today, moves }: { task: BoardTask; today: stri
             id={`board-move-${task.id}`}
             aria-expanded={open === "menu"}
             aria-disabled={busy || undefined}
+            // an open panel closes on this press's blur, and the click would
+            // then open it again: keep focus in the panel so the click closes it
+            onMouseDown={(e) => {
+              if (open === "menu") e.preventDefault();
+            }}
             onClick={() => {
               if (!busy) moves.setPanel((cur) => (cur?.id === task.id ? null : { id: task.id, mode: "menu" }));
             }}
@@ -124,13 +131,24 @@ export function BoardCard({ task, today, moves }: { task: BoardTask; today: stri
               // only the menu closes itself: the swap to the blocker form
               // unmounts this panel, and a blur on the way out must not
               // close the form it opened
-              onClose={() => moves.setPanel((cur) => (cur?.id === task.id && cur.mode === "menu" ? null : cur))}
+              onClose={() => {
+                // Escape leaves focus inside the panel, and the panel unmounts
+                // under it: return it to Move. A Tab-out or an outside click
+                // already put focus where the reader wanted it.
+                if (document.activeElement?.closest("[data-menu]")) moves.focusMove(task.id);
+                moves.setPanel((cur) => (cur?.id === task.id && cur.mode === "menu" ? null : cur));
+              }}
             >
               {task.blockers.length ? (
                 <>
                   <p className="px-2 py-1 text-ink-2">
-                    Resolve its blockers to move it. When the last one is resolved, the task moves to
-                    In progress.
+                    Resolve its blockers to move it.
+                    {/* resolve_blocker releases only a Blocked task
+                        (services/blockers.py): a finished task with a
+                        blocker stays finished */}
+                    {task.status === "blocked"
+                      ? " When the last one is resolved, the task moves to In progress."
+                      : ""}
                   </p>
                   {task.blockers.map((b) => (
                     <button key={b.id} type="button" onClick={() => moves.resolve(task, b.id)} className={button}>

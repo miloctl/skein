@@ -36,9 +36,9 @@ for a season with the review gate on (the default since 2026-08-21):
   on tasks, routines (standing delegations and recurring tasks), a board
   view, document editing with revisions, and GitLab forge support with
   repo-scoped context packs. Each gets its own branch after the hardening
-  branch lands. Document revisions, GitLab forge support and comment threads
-  shipped. The section "From the external-repo discovery" below lists the
-  other two.
+  branch lands. Document revisions, GitLab forge support, comment threads and
+  the board shipped. The section "From the external-repo discovery" below
+  lists routines.
   The rest of the freeze stands.
 
 # Open backlog (consolidated 2026-08-02)
@@ -575,13 +575,15 @@ review. Each names the condition that reopens it.
 | An event picker in the capture palette (`C`) | Linking after the fact from the meeting panel is common enough that the extra step costs time. |
 | Board swimlanes | A planning question that capacity and `/planning` cannot answer. Then lanes over the open columns only, with no per-person counts: a lane beside Done is a leaderboard (docs/INSIGHTS.md). |
 | Board polling or a push channel | A 409 on a shared standup board is reported. The board reloads on events, on focus and after its own writes today. |
-| A service rule that refuses leaving Blocked with a blocker open | An open blocker is found on a done task. The board asks the reader to resolve first, and an API client, the `update_task` tool and the forge webhook can still move a blocked task. |
+| A service rule that refuses leaving Blocked with a blocker open | A task reaches Done while a blocker raised before it finished is still open. A blocker raised on a task that is already done does not count: a stale board or panel files one on purpose. The board asks the reader to resolve first, and an API client, the `update_task` tool and the forge webhook can still move a blocked task. |
 | Board hotkeys | Someone asks for them after a season of use. The Move button and the panel reach every move by keyboard. |
 | A "this week" board lens | Someone asks to see only the committed week on the board. Plan the week shows it today. |
 | Manual card order on the board | Two tasks of one priority need an order that priority and id cannot give. A rank is a migration and a write per drop. |
 | WIP limits per column | A team asks for a limit on In progress after a season of use. |
 | A CLI or MCP board | Someone asks for a terminal board. |
 | A comment count on each board card | A person asks for it. The task panel shows the thread. |
+| User-defined board columns | A team needs a state that the five task statuses cannot hold. A column is a status, and a new status changes every flow metric. |
+| Card editing on the board | People report that they open the task panel many times a day to change one field. |
 | Sharing an event to a wider tier | A request for it. It goes in `sharing.py`, which only widens, so no linked row becomes wider than its meeting. |
 | Authority matrix split by action class (internal edit vs external send) | An agent holds `autonomous` on an entity where one verb is internal and another leaves Skein (mail, webhook, customer surface). Today no tool on a granted entity crosses that line — the split waits for the tool that does. |
 | Document live co-editing, presence, locks | A 409 lands on the same document more than once a week. |
@@ -756,8 +758,7 @@ this file. The hardening branch `fix/trust-loop-and-hardening` shipped what
 was built. Everything below is open.
 
 **Approved features, one branch each.** Each has a plan with the owner's
-decisions settled on 2026-09-28, in `docs/intent/`. The board shipped
-(`/board`). Next: routines.
+decisions settled on 2026-09-28, in `docs/intent/`.
 - **Routines** [L] — `docs/intent/routines.md`. Weekly recurring tasks that
   can delegate under the owner's standing consent; a missed time fires once
   late; routine verdicts are counted apart from hand delegations.

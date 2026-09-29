@@ -30,6 +30,9 @@ const state = vi.hoisted(() => ({
   writes: [] as Array<{ path: string; method: string; body: unknown }>,
   board: {} as Record<string, unknown>,
   fail: null as null | Error,
+  hold: null as null | Promise<void>,
+  failRead: false,
+  paths: [] as string[],
   reportStatus: vi.fn(),
 }));
 
@@ -42,9 +45,12 @@ vi.mock("@/lib/api", async (importOriginal) => {
       if (init?.method) {
         state.writes.push({ path, method: init.method, body: JSON.parse(String(init.body)) });
         if (state.fail) return Promise.reject(state.fail);
-        return Promise.resolve(path.endsWith("/resolve") ? { task_unblocked: true } : { id: 9 });
+        const answer = path.endsWith("/resolve") ? { task_unblocked: true } : { id: 9 };
+        return state.hold ? state.hold.then(() => answer) : Promise.resolve(answer);
       }
       state.reads += 1;
+      state.paths.push(path);
+      if (state.failRead) return Promise.reject(new real.ApiError("the database is busy", 503));
       return Promise.resolve(state.board);
     },
   };
@@ -66,6 +72,9 @@ beforeEach(() => {
   state.reads = 0;
   state.writes = [];
   state.fail = null;
+  state.hold = null;
+  state.failRead = false;
+  state.paths = [];
   state.reportStatus.mockReset();
   state.board = {
     scope: null,
@@ -135,7 +144,9 @@ describe("moving a card", () => {
   it("refuses Blocked for a finished task, and names what to do", async () => {
     render(<BoardPage />);
     fireEvent.click(within(await openMove(6)).getByRole("button", { name: "Blocked…" }));
-    expect(state.reportStatus).toHaveBeenCalledWith("Reopen task #6 first. Then raise a blocker.");
+    expect(state.reportStatus).toHaveBeenCalledWith(
+      "A finished task cannot move to Blocked. Reopen task #6 first. Then raise a blocker.",
+    );
     expect(state.writes).toEqual([]);
     expect(screen.queryByLabelText("What blocks it?")).toBeNull();
   });
@@ -177,5 +188,85 @@ describe("moving a card", () => {
         { path: "/api/tasks/1", method: "PATCH", body: { status: "in_progress", expected_status: "todo" } },
       ]),
     );
+  });
+
+  it("rereads the board the reader sees now, not the one a write began on", async () => {
+    let release = () => {};
+    state.hold = new Promise((resolve) => (release = resolve));
+    render(<BoardPage />);
+    fireEvent.click(within(await openMove(1)).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(state.writes).toHaveLength(1));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Only my tasks" }));
+    await waitFor(() => expect(state.paths.at(-1)).toBe("/api/tasks/board?mine=true"));
+    await act(async () => release());
+    await waitFor(() => expect(state.reads).toBe(3));
+    expect(state.paths.at(-1)).toBe("/api/tasks/board?mine=true");
+  });
+
+  it("returns focus to Move when the panel closes by Escape or a refusal", async () => {
+    render(<BoardPage />);
+    const panel = await openMove(1);
+    fireEvent.keyDown(within(panel).getByRole("button", { name: "In progress" }), { key: "Escape" });
+    await waitFor(() => expect(document.activeElement?.id).toBe("board-move-1"));
+    fireEvent.click(within(await openMove(6)).getByRole("button", { name: "Blocked…" }));
+    expect(document.activeElement?.id).toBe("board-move-6");
+  });
+
+  it("keeps an open blocker draft on one card when another card moves", async () => {
+    render(<BoardPage />);
+    fireEvent.click(within(await openMove(1)).getByRole("button", { name: "Blocked…" }));
+    fireEvent.change(screen.getByLabelText("What blocks it?"), { target: { value: "half a reason" } });
+    act(() => {
+      fireEvent.drop(screen.getByRole("region", { name: /^To do/ }), { dataTransfer: { getData: () => "6" } });
+    });
+    await waitFor(() => expect(state.writes).toHaveLength(1));
+    expect((screen.getByLabelText("What blocks it?") as HTMLInputElement).value).toBe("half a reason");
+  });
+
+  it("says so when a second move starts before the first one ends", async () => {
+    state.hold = new Promise(() => {});
+    render(<BoardPage />);
+    fireEvent.click(within(await openMove(1)).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(state.writes).toHaveLength(1));
+    act(() => {
+      fireEvent.drop(screen.getByRole("region", { name: /^To do/ }), { dataTransfer: { getData: () => "6" } });
+    });
+    expect(state.writes).toHaveLength(1);
+    expect(state.reportStatus).toHaveBeenCalledWith("Wait for the move of task #1 to finish. Then try again.");
+  });
+
+  it("does not pull focus to a card whose reload failed, on a later reload", async () => {
+    render(<BoardPage />);
+    state.failRead = true;
+    fireEvent.click(within(await openMove(1)).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(state.reads).toBe(2));
+    await waitFor(() => expect(screen.getByText(/Could not load this page/)).toBeTruthy());
+    state.failRead = false;
+    // a new answer object, as a real reread is: the same object is no change
+    state.board = { ...state.board };
+    const field = screen.getByRole("checkbox", { name: "Only my tasks" });
+    field.focus();
+    act(() => window.dispatchEvent(new Event("skein-attention-change")));
+    await waitFor(() => expect(state.reads).toBe(3));
+    await waitFor(() => expect(screen.queryByText(/Could not load this page/)).toBeNull());
+    expect(document.activeElement).toBe(field);
+  });
+
+  it("lets the Move button close its own open panel", async () => {
+    render(<BoardPage />);
+    await openMove(1);
+    const button = screen.getByRole("button", { name: /^Move task #1:/ });
+    expect(fireEvent.mouseDown(button)).toBe(false);
+  });
+
+  it("promises the move to In progress only for a Blocked card", async () => {
+    state.board = {
+      ...state.board,
+      done: [card(6, "done", { blockers: [{ id: 8, title: "Late audit" }] })],
+    };
+    render(<BoardPage />);
+    const panel = await openMove(6);
+    expect(within(panel).getByText("Resolve its blockers to move it.")).toBeTruthy();
+    expect(within(panel).queryByText(/moves to In progress/)).toBeNull();
   });
 });

@@ -215,6 +215,11 @@ def test_a_move_compares_the_status_the_board_loaded(client, fresh_db):
     )
     assert moved.status_code == 200
     assert work.get_task(task["id"])["status"] == "in_progress"
+    # a status reads as words, never as the stored identifier
+    again = client.patch(
+        f"/api/tasks/{task['id']}", json={"status": "done", "expected_status": "todo"}
+    )
+    assert "It is now in progress." in again.json()["detail"]
     typo = client.patch(
         f"/api/tasks/{task['id']}", json={"status": "todo", "expected_status": "in-progress"}
     )
@@ -241,3 +246,53 @@ def test_resolving_says_whether_the_task_moved(client):
     two = client.post(f"/api/blockers/{last['id']}/resolve", json={"resolution": "done"})
     assert two.json()["task_unblocked"] is True
     assert work.get_task(task["id"])["status"] == "in_progress"
+
+
+def test_two_last_resolves_at_once_release_the_task(fresh_db):
+    import threading
+
+    from app.services import blockers, work
+
+    task = work.create_task("Card", actor="tester")
+    first = blockers.raise_blocker("One", task_id=task["id"], actor="tester")
+    last = blockers.raise_blocker("Two", task_id=task["id"], actor="tester")
+    first_resolved = threading.Event()
+    released: dict[str, bool] = {}
+    errors: list[Exception] = []
+
+    def resolve_last():
+        try:
+            first_resolved.wait(timeout=3)
+            released["last"] = blockers.resolve_blocker(last["id"], actor="tester")[
+                "task_unblocked"
+            ]
+        except Exception as exc:
+            errors.append(exc)
+
+    other = threading.Thread(target=resolve_last)
+    other.start()
+    with fresh_db.transaction():
+        released["first"] = blockers.resolve_blocker(first["id"], actor="tester")["task_unblocked"]
+        first_resolved.set()
+        # the other resolve starts while this one is not yet committed
+        other.join(timeout=0.5)
+    other.join(timeout=5)
+    assert errors == []
+    assert sorted(released.values()) == [False, True]
+    assert work.get_task(task["id"])["status"] == "in_progress"
+
+
+def test_a_malformed_stored_moment_does_not_fail_the_board(client, fresh_db):
+    from app.services import work
+
+    naive = work.create_task("Naive", actor="tester")
+    broken = work.create_task("Broken", actor="tester")
+    for task in (naive, broken):
+        work.update_task(task["id"], status="in_progress", actor="tester")
+    _set(fresh_db, naive["id"], "updated_at", "2026-01-05T10:00:00")
+    _set(fresh_db, broken["id"], "updated_at", "not-a-date")
+    response = client.get("/api/tasks/board")
+    assert response.status_code == 200
+    cards = {row["id"]: row for row in response.json()["open"]}
+    assert cards[naive["id"]]["quiet_days"] >= 7
+    assert cards[broken["id"]]["quiet_days"] is None

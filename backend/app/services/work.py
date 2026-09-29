@@ -820,7 +820,8 @@ def _update_task_locked(
     if expected_status and current["status"] != expected_status:
         raise db.Conflict(
             f"Task #{task_id} changed after you loaded the board."
-            f" It is now {current['status']}. Move it again from the current board."
+            f" It is now {current['status'].replace('_', ' ')}."
+            " Move it again from the current board."
         )
     if waiting_type and waiting_id:
         waiting_row = _visible_link(_WAITING_TABLES[waiting_type], waiting_id, actor)
@@ -1428,24 +1429,49 @@ def board_cards(
     from .slas import STALE_WIP_DAYS
 
     # the cutoff Health and the intervention queue use (intervention.py), so
-    # the board marks the tasks those surfaces name and no others
+    # the three agree on what is stale
     cutoff = datetime.fromisoformat(
         db.local_midnight_utc(db.today() - timedelta(days=STALE_WIP_DAYS))
     )
     now = datetime.fromisoformat(db.now())
     found = blocking_by_task([int(row["id"]) for row in rows], viewer)
-    for row in rows:
-        visible = policy_context.filter_resource_rows(
-            "blocker", found.get(int(row["id"]), []), viewer, resource_filter
+    # one policy pass for every blocker on the board, not one per card
+    permitted = {
+        int(b["id"])
+        for b in policy_context.filter_resource_rows(
+            "blocker", [b for group in found.values() for b in group], viewer, resource_filter
         )
-        row["blockers"] = [{"id": b["id"], "title": b["title"]} for b in visible]
-        updated = datetime.fromisoformat(row["updated_at"]) if row.get("updated_at") else None
+    }
+    for row in rows:
+        row["blockers"] = [
+            {"id": b["id"], "title": b["title"]}
+            for b in found.get(int(row["id"]), [])
+            if int(b["id"]) in permitted
+        ]
+        updated = _stored_moment(row.get("updated_at"))
         row["quiet_days"] = (
             (now - updated).days
             if row["status"] == "in_progress" and updated and updated < cutoff
             else None
         )
     return rows
+
+
+def _stored_moment(value: str | None):
+    """A stored timestamp as an aware datetime, or None.
+
+    now() writes offset-aware values, but a restored or hand-edited row can
+    hold a naive one (UTC by the storage contract, db.local_day) or text that
+    is no timestamp at all. One such row must not fail the whole board for
+    every reader who can see it: a naive value is read as UTC, and text that
+    does not parse carries no marker."""
+    from datetime import UTC, datetime
+
+    try:
+        moment = datetime.fromisoformat(value) if value else None
+    except ValueError:
+        return None
+    return moment.replace(tzinfo=UTC) if moment and moment.tzinfo is None else moment
 
 
 # How deep `downstream` follows the chain. Cycles are closed by the visited
@@ -1553,6 +1579,19 @@ def downstream(
     }
 
 
+def engagement_member_sql() -> str:
+    """The rule for which tasks belong to an engagement, over `tasks t`, with
+    two marks for the engagement id: its own engagement, or its milestone's.
+    The engagement brief and the board both read it, so they list the same
+    work. The milestone subquery takes no tier filter: it yields ids only,
+    and a task reached through a milestone the reader cannot open still
+    belongs (docs/intent/board-view.md D13)."""
+    return (
+        "(t.engagement_id = ? OR t.milestone_id IN"
+        " (SELECT id FROM milestones WHERE engagement_id = ?))"
+    )
+
+
 def list_tasks_joined(
     viewer: scope.Viewer = scope.NOBODY,
     *,
@@ -1638,13 +1677,7 @@ def _task_rows(
         sql += " AND m.id = ?"
         params.append(milestone_id)
     if engagement_id:
-        # the engagement brief's membership rule (engagement_brief.py): a
-        # task belongs through its own engagement or its milestone's, so the
-        # board and the brief list the same work
-        sql += (
-            " AND (t.engagement_id = ? OR t.milestone_id IN"
-            " (SELECT id FROM milestones WHERE engagement_id = ?))"
-        )
+        sql += f" AND {engagement_member_sql()}"
         params.extend((engagement_id, engagement_id))
     if assignee:
         sql += " AND t.assignee = ?"
