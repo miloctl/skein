@@ -1058,13 +1058,101 @@ def test_context_write_asks_for_the_workspace_tier(monkeypatch, capsys, tmp_path
 
     monkeypatch.setattr(cli, "api", request)
     target = tmp_path / "AGENTS.md"
-    cli.cmd_context(Namespace(engagement=4, write=str(target)))
+    cli.cmd_context(Namespace(engagement=4, write=str(target), force=False))
     assert gets == ["/api/context-pack?engagement=4&tier=workspace"]
-    assert target.read_text().startswith("# Engagement context: Atlas")
+    written = target.read_text()
+    assert written.startswith("<!-- skein:context-pack")
+    assert "# Engagement context: Atlas" in written
+    assert written.rstrip().endswith("<!-- /skein:context-pack -->")
     assert "every teammate" in capsys.readouterr().out
     gets.clear()
-    cli.cmd_context(Namespace(engagement=4, write=""))
+    cli.cmd_context(Namespace(engagement=4, write="", force=False))
     assert gets == ["/api/context-pack?engagement=4"]
+
+
+def _pack_cli(monkeypatch, content="# Engagement context: Atlas"):
+    cli = _load_cli()
+    monkeypatch.setattr(
+        cli, "api", lambda method, path, body=None: {"engagement": 4, "content": content}
+    )
+    return cli
+
+
+def test_context_write_keeps_the_text_around_its_block(monkeypatch, tmp_path):
+    """The write overwrote the whole file, so a refresh deleted every line a
+    person wrote in AGENTS.md. Now only the marked block changes, and a CRLF
+    file keeps its line endings."""
+    cli = _pack_cli(monkeypatch)
+    target = tmp_path / "AGENTS.md"
+    before = b"# Team rules\r\n\r\nRun the linter first.\r\n\r\n"
+    after = b"\r\n## Hand-written notes\r\nKeep these.\r\n"
+    block = b"<!-- skein:context-pack -->\r\nold pack\r\n<!-- /skein:context-pack -->"
+    target.write_bytes(before + block + after)
+    for _ in range(2):
+        cli.cmd_context(Namespace(engagement=4, write=str(target), force=False))
+        data = target.read_bytes()
+        assert data.startswith(before) and data.endswith(after)
+        assert b"old pack" not in data
+        assert data.count(b"# Engagement context: Atlas") == 1
+        # the block takes the file's own line endings
+        assert b"\r\n# Engagement context: Atlas\r\n" in data
+
+
+def test_context_write_refuses_a_file_without_a_block_unless_forced(monkeypatch, tmp_path):
+    cli = _pack_cli(monkeypatch)
+    target = tmp_path / "AGENTS.md"
+    target.write_text("# Team rules\n")
+    with pytest.raises(SystemExit, match="contains text and no Skein block"):
+        cli.cmd_context(Namespace(engagement=4, write=str(target), force=False))
+    assert target.read_text() == "# Team rules\n"
+    cli.cmd_context(Namespace(engagement=4, write=str(target), force=True))
+    text = target.read_text()
+    assert text.startswith("# Team rules\n")
+    assert text.index("<!-- skein:context-pack") > text.index("# Team rules")
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [
+        "<!-- /skein:context-pack -->\n<!-- skein:context-pack -->\n",
+        "<!-- skein:context-pack -->\nno end\n",
+        "<!-- skein:context-pack -->\na\n<!-- /skein:context-pack -->\n<!-- skein:context-pack -->\n",
+    ],
+    ids=["reversed", "no-end", "two-starts"],
+)
+def test_context_write_refuses_broken_markers_even_when_forced(monkeypatch, tmp_path, broken):
+    cli = _pack_cli(monkeypatch)
+    target = tmp_path / "AGENTS.md"
+    target.write_text("keep me\n" + broken)
+    for force in (False, True):
+        with pytest.raises(SystemExit, match="broken Skein markers"):
+            cli.cmd_context(Namespace(engagement=4, write=str(target), force=force))
+    assert target.read_text() == "keep me\n" + broken
+
+
+def test_an_end_marker_inside_the_pack_does_not_end_the_block(monkeypatch, tmp_path):
+    """Pack text is team-written. An end marker in a decision would end the
+    block early, and the next refresh would delete the text after it."""
+    cli = _pack_cli(monkeypatch, "decision: <!-- /skein:context-pack --> then more")
+    target = tmp_path / "AGENTS.md"
+    target.write_text("")
+    cli.cmd_context(Namespace(engagement=4, write=str(target), force=False))
+    target.write_text(target.read_text() + "\nafter\n")
+    cli.cmd_context(Namespace(engagement=4, write=str(target), force=False))
+    text = target.read_text()
+    assert text.endswith("\nafter\n")
+    assert text.count("<!-- /skein:context-pack -->") == 1
+
+
+def test_a_symlinked_file_stays_a_symlink(monkeypatch, tmp_path):
+    cli = _pack_cli(monkeypatch)
+    real = tmp_path / "AGENTS.md"
+    real.write_text("")
+    link = tmp_path / "AGENT.md"
+    link.symlink_to(real)
+    cli.cmd_context(Namespace(engagement=4, write=str(link), force=False))
+    assert link.is_symlink()
+    assert "# Engagement context: Atlas" in real.read_text()
 
 
 def test_review_reject_can_send_the_task_back(monkeypatch, capsys):

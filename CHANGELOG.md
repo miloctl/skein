@@ -26,6 +26,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- `skein context --write AGENTS.md` writes the pack between two marker lines and keeps every other byte of the file, CRLF line endings included. It overwrote the whole file. A file with text and no block is refused unless `--force`, which adds the block at the end. Broken markers are refused, `--force` or not. The write goes through a temporary file, and a symlinked name stays a symlink.
 - Settings → Connections shows the GitLab webhook URL beside the Gitea one, with the events to select and the token to set, and the context-pack hint names `skein context --engagement <id> --write AGENTS.md`. `docs/SETUP.md` has a Connect GitLab section. The forge field-guide card names both tokens.
 - A failed GitLab pipeline on the project's default branch, or on `main` or `master`, files one high-impact team blocker ("CI red on team/app@main") as `forge`, and the next passed one resolves it. Running, cancelled, skipped, tag and merge request pipelines do nothing. The workplace rule on `skein.integration.ci` decides both the GitLab path and `POST /api/webhooks/ci`, and a DENY leaves no receipt, so a resend can retry.
 - Two red CI runs for one repository and branch that arrive together file one blocker. Each run filed its own.
