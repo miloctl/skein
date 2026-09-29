@@ -26,6 +26,8 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- A failed GitLab pipeline on the project's default branch, or on `main` or `master`, files one high-impact team blocker ("CI red on team/app@main") as `forge`, and the next passed one resolves it. Running, cancelled, skipped, tag and merge request pipelines do nothing. The workplace rule on `skein.integration.ci` decides both the GitLab path and `POST /api/webhooks/ci`, and a DENY leaves no receipt, so a resend can retry.
+- Two red CI runs for one repository and branch that arrive together file one blocker. Each run filed its own.
 - A `Closes-Task: #42` line in a pull request or merge request description closes task 42 when it merges, on Gitea and GitLab. `skein pr-body` writes that line, and the forge read nothing from it, so a merge on a branch without the task number moved nothing. `Refs-Task` still never closes a task.
 - Work → Reports has New document: write a document and choose who can see it, starting at only you for a signed-in person. A private document is never indexed or read by an agent, its revisions travel in your Your data download, and the offboarding erase takes them with it. The Your data card now lists these under Private documents and reports. Opening your own document no longer ties the ask-an-agent card.
 - Search finds a document by its current text, and a document hit opens it on Reports. Words that only an earlier revision had stop matching.

@@ -4,7 +4,7 @@ The payloads are documented shapes, not captured ones (gitlab_payloads.py)."""
 import json
 
 import pytest
-from gitlab_payloads import EVENTS, WEB_URL, ZEROS, merge_request, push
+from gitlab_payloads import EVENTS, WEB_URL, ZEROS, merge_request, pipeline, push
 
 from app import db
 from app.services import users, work
@@ -225,3 +225,90 @@ def test_a_merge_request_on_any_branch_with_the_trailer_closes_the_task(gitlab, 
     merged = gitlab(merge_request("merge", source_branch="fix-login", description=description))
     assert merged.json()["status"] == "done"
     assert _status(tid) == ("done", f"{WEB_URL}/-/merge_requests/7")
+
+
+def _open_ci() -> list[dict]:
+    return db.query(
+        "SELECT title, created_by, source, detail FROM blockers WHERE status != 'resolved'"
+    )
+
+
+def test_a_red_default_branch_pipeline_files_one_blocker_and_green_resolves_it(gitlab, fresh_db):
+    assert gitlab(pipeline("failed"), key="p1").json()["raised"] is True
+    assert gitlab(pipeline("failed", pipeline_id=32), key="p2").json()["deduped"] is True
+    rows = _open_ci()
+    assert [(r["title"], r["created_by"], r["source"]) for r in rows] == [
+        ("CI red on team/app@main", "forge", "ci:team/app:main")
+    ]
+    assert f"{WEB_URL}/-/pipelines/31" in rows[0]["detail"]
+    receipt = db.query_one("SELECT provider, task_id FROM forge_receipts WHERE delivery_id = 'p1'")
+    assert (receipt["provider"], receipt["task_id"]) == ("gitlab", None)
+    assert len(gitlab(pipeline("success", pipeline_id=33)).json()["resolved"]) == 1
+    assert _open_ci() == []
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pipeline("running"),
+        pipeline("canceled"),
+        pipeline("skipped"),
+        pipeline("failed", ref="v1.0", tag=True),
+        pipeline("failed", ref="refs/merge-requests/7/head"),
+        pipeline("failed", ref="feature/x"),
+    ],
+    ids=["running", "canceled", "skipped", "tag", "merge-request-ref", "other-branch"],
+)
+def test_pipelines_that_are_not_a_red_default_branch_do_nothing(gitlab, fresh_db, payload):
+    answer = gitlab(payload)
+    assert answer.status_code == 200, answer.text
+    assert "ignored" in answer.json()
+    assert _open_ci() == []
+
+
+def test_the_projects_own_default_branch_counts(gitlab, fresh_db):
+    assert gitlab(pipeline("failed", ref="develop", default_branch="develop")).json()["raised"]
+    assert [r["title"] for r in _open_ci()] == ["CI red on team/app@develop"]
+
+
+def test_a_policy_deny_on_ci_writes_nothing_and_leaves_no_receipt(fresh_db):
+    from fastapi.testclient import TestClient
+
+    from app import config
+    from app.extensions import PolicyContribution, PolicyDecision, PolicyEffect, SkeinModule
+    from app.main import create_app
+
+    seen = []
+
+    def deny_ci(request):
+        if request.action == "skein.integration.ci":
+            seen.append(dict(request.resource.attributes))
+            return PolicyDecision(PolicyEffect.DENY, ("CI writes are disabled",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.7.0",
+        policies=(PolicyContribution("acme.workplace.ci", deny_ci),),
+    )
+    config.GITLAB_WEBHOOK_TOKEN, saved = TOKEN, config.GITLAB_WEBHOOK_TOKEN
+    try:
+        with TestClient(create_app(modules=(module,))) as client:
+            answer = client.post(
+                "/api/webhooks/gitlab",
+                content=json.dumps(pipeline("failed")).encode(),
+                headers={
+                    "X-Gitlab-Event": "Pipeline Hook",
+                    "X-Gitlab-Token": TOKEN,
+                    "Idempotency-Key": "denied",
+                },
+            )
+    finally:
+        config.GITLAB_WEBHOOK_TOKEN = saved
+    assert answer.status_code == 403
+    assert seen == [{"repository": "team/app", "provider": "gitlab"}]
+    assert _open_ci() == []
+    assert db.query_one("SELECT 1 FROM forge_receipts") is None
