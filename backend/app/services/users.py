@@ -854,6 +854,7 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "absences": ("created_by", "person"),
     "task_worklog": ("author",),
     "comments": ("created_by", "deleted_by"),
+    "routines": ("created_by", "assignee", "agent", "paused_by"),
     # the member slugs inside members-JSON are agent identities, not roster
     # names, and rename_user moves an agent row too — but a slug rename would
     # need a JSON rewrite, so only the asking human moves here
@@ -1568,6 +1569,14 @@ def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
                     " WHERE requested_by = ? AND status = 'pending'",
                     (db.now(), name),
                 )
+            # Under the identity lock above: a routine firing takes the same
+            # lock before its row (routines.fire_due), so it waits here and
+            # then reads the paused row. A routine left active would keep
+            # creating tasks under a departed name, or delegating to an
+            # agent that can no longer take the work.
+            from .routines import pause_for_identity
+
+            pause_for_identity(name, str(row["kind"]))
         # the erase clock (services/erasure.py): a deactivation of an account
         # already inactive keeps its date, and reactivation stops the clock
         if active:

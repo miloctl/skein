@@ -44,6 +44,9 @@ _ORDER = (
     "lessons",
     "intake_requests",
     "tasks",
+    # after its tasks, which carry routine_id with no foreign key
+    # (core_migrations/047_routines.sql), so the order is only tidiness
+    "routines",
     "milestones",
     "memories",
     "artifacts",

@@ -107,6 +107,7 @@ KEPT = {
             # not CASCADED: that map names one parent per child, and a comment
             # has three possible parents (core_migrations/046_comments.sql)
             "comments",
+            "routines",
             "absences",
             "allocations",
             "events",

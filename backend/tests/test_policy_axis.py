@@ -610,6 +610,8 @@ def test_every_bare_route_literal_is_accounted_for():
         "playbooks",
         "ready",
         "readiness",
+        # a routine carries no project: its tasks have none either
+        "routines",
         "settings",
         "standups",
         "theme",

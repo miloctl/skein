@@ -1113,9 +1113,11 @@ def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     wpfrag, wpp = scope.visible_filter(viewer, "promises", alias="waiting_promise")
     wqfrag, wqp = scope.visible_filter(viewer, "questions", alias="waiting_question")
     evfrag, evp = scope.visible_filter(viewer, "events", alias="ev")
+    rofrag, rop = scope.visible_filter(viewer, "routines", alias="ro")
     row = db.query_one(
         "SELECT t.*, m.id AS visible_milestone_id, m.title AS milestone_title,"  # noqa: S608 — scope.visible_filter emits only bound marks
         " e.id AS visible_engagement_id, e.name AS engagement_name, ev.id AS visible_event_id,"
+        " ro.id AS visible_routine_id,"
         " COALESCE(waiting_task.id, waiting_blocker.id, waiting_promise.id,"
         " waiting_question.id) AS visible_waiting_id"
         f" FROM tasks t LEFT JOIN milestones m ON m.id = t.milestone_id AND {mfrag}"
@@ -1129,8 +1131,9 @@ def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
         " LEFT JOIN questions waiting_question ON t.waiting_on_type = 'question'"
         f" AND waiting_question.id = t.waiting_on_id AND {wqfrag}"
         f" LEFT JOIN events ev ON ev.id = t.event_id AND {evfrag}"
+        f" LEFT JOIN routines ro ON ro.id = t.routine_id AND {rofrag}"
         f" WHERE t.id = ? AND {frag}",
-        (*mp, *ep, *wtp, *wbp, *wpp, *wqp, *evp, task_id, *vp),
+        (*mp, *ep, *wtp, *wbp, *wpp, *wqp, *evp, *rop, task_id, *vp),
     )
     if not row:
         raise scope.missing("tasks", task_id)
@@ -1167,8 +1170,13 @@ def _redact_hidden_task_links(row: dict) -> dict:
     visible_engagement = task.pop("visible_engagement_id", None)
     visible_waiting = task.pop("visible_waiting_id", None)
     visible_event = task.pop("visible_event_id", None)
+    visible_routine = task.pop("visible_routine_id", None)
     if task.get("event_id") and visible_event is None:
         task["event_id"] = None
+    # a task shared wider than its routine (sharing.share_with_team) must
+    # not name a routine its new readers cannot open
+    if task.get("routine_id") and visible_routine is None:
+        task["routine_id"] = None
     if task.get("milestone_id") and visible_milestone is None:
         task["milestone_id"] = None
     if task.get("engagement_id") and visible_engagement is None:
@@ -1208,6 +1216,9 @@ def redact_task_relationships(
         {int(row["engagement_id"]) for row in tasks if row.get("engagement_id")},
     )
     meetings = visible_ids("events", {int(row["event_id"]) for row in tasks if row.get("event_id")})
+    routines = visible_ids(
+        "routines", {int(row["routine_id"]) for row in tasks if row.get("routine_id")}
+    )
     waiting_visible = {
         kind: visible_ids(
             table,
@@ -1281,6 +1292,10 @@ def redact_task_relationships(
         event_id = int(task.get("event_id") or 0)
         if event_id and (event_id not in meetings or not policy_permits("event", event_id)):
             task["event_id"] = None
+        # visibility alone: a routine has no project, so no policy entity
+        # (policy_context._TABLES has none)
+        if int(task.get("routine_id") or 0) and int(task["routine_id"]) not in routines:
+            task["routine_id"] = None
         finding_id = int(task.get("source_finding_id") or 0)
         if finding_id and not policy_permits("finding", finding_id):
             task["source_finding_id"] = None
@@ -1649,9 +1664,10 @@ def _task_rows(
     wpfrag, wpp = scope.visible_filter(viewer, "promises", alias="waiting_promise")
     wqfrag, wqp = scope.visible_filter(viewer, "questions", alias="waiting_question")
     evfrag, evp = scope.visible_filter(viewer, "events", alias="ev")
+    rofrag, rop = scope.visible_filter(viewer, "routines", alias="ro")
     sql = (
         f"SELECT t.*, m.id AS visible_milestone_id, m.title AS milestone_title,"  # noqa: S608 — scope.visible_filter emits only bound marks
-        " e.id AS visible_engagement_id, ev.id AS visible_event_id,"
+        " e.id AS visible_engagement_id, ev.id AS visible_event_id, ro.id AS visible_routine_id,"
         " COALESCE(waiting_task.id, waiting_blocker.id, waiting_promise.id,"
         " waiting_question.id) AS visible_waiting_id FROM tasks t"
         f" LEFT JOIN milestones m ON m.id = t.milestone_id AND {mfrag}"
@@ -1665,9 +1681,10 @@ def _task_rows(
         " LEFT JOIN questions waiting_question ON t.waiting_on_type = 'question'"
         f" AND waiting_question.id = t.waiting_on_id AND {wqfrag}"
         f" LEFT JOIN events ev ON ev.id = t.event_id AND {evfrag}"
+        f" LEFT JOIN routines ro ON ro.id = t.routine_id AND {rofrag}"
         f" WHERE {frag}"
     )
-    params: list[str | int] = [*mp, *ep, *wtp, *wbp, *wpp, *wqp, *evp, *vp]
+    params: list[str | int] = [*mp, *ep, *wtp, *wbp, *wpp, *wqp, *evp, *rop, *vp]
     if open_only:
         sql += " AND t.status NOT IN ('done', 'void')"
     if status:
