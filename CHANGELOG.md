@@ -18,6 +18,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- `POST /api/webhooks/gitlab` takes GitLab project webhooks. The `X-Gitlab-Token` header must equal `SKEIN_GITLAB_WEBHOOK_TOKEN`, checked before the body is read. A push to a `task/42-…` branch starts task 42, and an opened or merged merge request moves it as a Gitea pull request does. A system hook is a 400, and any event other than push, merge request and pipeline is acknowledged and ignored. The delivery ID is `Idempotency-Key`, else `X-Gitlab-Event-UUID`, and receipts keep a separate namespace per forge, so a GitLab resend writes nothing twice.
 - `POST /api/documents` creates a document (`title`, `content`, `visibility`, `crew_id`) and answers `{id, revision: 1, title}`. With no visibility it is private for a signed-in caller and workspace for a trusted-header name. The Your data export adds `revisions` to each private document.
 - `GET /api/review/{id}/diff` for a `document_edit` answers `unified`, `base_revision` and `head_revision`.
 - The `edit_document` agent tool stamps `base_revision` on its payload, and `read_artifact` returns `revision` for a document. A `document` or `document_edit` payload cannot carry `change_id`: approval records it.
@@ -38,6 +39,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+- New optional Secret key `SKEIN_GITLAB_WEBHOOK_TOKEN`. Empty keeps the GitLab webhook closed (503). CLAUDE.md and `docs/intent/work-durability.md` record GitLab inbound webhooks as approved, and outbound GitLab calls as an open decision.
 - Migration 045 adds `document_revisions`: one row per revision of a document, with its body. It is in both database dumps and left out of the portable export.
 
 ## 0.6.11 — 2026-09-28

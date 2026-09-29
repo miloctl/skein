@@ -10,7 +10,13 @@ from .. import config, ratelimit
 from ..extensions.fastapi import PolicySubjectDep, enforce_decision
 from ..extensions.policy import PolicyInput, PolicyResource
 from ..services import ci, forge
-from .deps import StrongUser, forge_webhook_off, verify_forge_signature
+from .deps import (
+    StrongUser,
+    forge_webhook_off,
+    gitlab_webhook_off,
+    verify_forge_signature,
+    verify_gitlab_token,
+)
 
 router = APIRouter()
 
@@ -87,6 +93,43 @@ async def _read_bounded(request: Request) -> bytes:
     return b"".join(chunks)
 
 
+async def _read_body(request: Request) -> bytes:
+    # Content-Length is a hint a caller can lie about, so the stream is
+    # counted too; the timeout bounds a caller who dribbles bytes instead.
+    declared = request.headers.get("content-length") or "0"
+    if not declared.isdecimal() or int(declared) > MAX_FORGE_BODY:
+        raise HTTPException(400, "the webhook payload is too large")
+    try:
+        async with asyncio.timeout(FORGE_READ_TIMEOUT):
+            return await _read_bounded(request)
+    except TimeoutError as exc:
+        raise HTTPException(400, "the webhook payload did not arrive in time") from exc
+
+
+def _parse_object(body: bytes) -> dict:
+    # RecursionError, not just ValueError: deeply nested JSON raises it, and
+    # these routes hand-roll the parse instead of taking a pydantic model, so
+    # main.py's RequestValidationError handler never sees the payload
+    try:
+        payload = json.loads(
+            body, object_pairs_hook=config._json_object, parse_constant=config._json_constant
+        )
+    except (ValueError, RecursionError) as exc:
+        raise HTTPException(400, "the webhook payload is not valid JSON") from exc
+    # a JSON array parses fine and then dies inside a parser with
+    # AttributeError — a caller's input must never reach a 500
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "the webhook payload must be a JSON object")
+    return payload
+
+
+def _refuse_ambiguous(request: Request, names: tuple[str, ...]) -> None:
+    if any(len(request.headers.getlist(name)) > 1 for name in names):
+        raise HTTPException(
+            400, "The webhook headers are ambiguous. Send one set of provider headers."
+        )
+
+
 @router.post("/api/webhooks/forge")
 async def forge_webhook(
     request: Request,
@@ -106,35 +149,25 @@ async def forge_webhook(
     # by address, BEFORE the read and the HMAC: an unsigned caller has no name
     # to key on, and everything after this point costs real work
     await run_in_threadpool(ratelimit.check, "forge_addr", ratelimit.client_addr(request))
-    # Content-Length is a hint a caller can lie about, so the stream is
-    # counted too; the timeout bounds a caller who dribbles bytes instead.
-    declared = request.headers.get("content-length") or "0"
-    if not declared.isdecimal() or int(declared) > MAX_FORGE_BODY:
-        raise HTTPException(400, "the webhook payload is too large")
-    try:
-        async with asyncio.timeout(FORGE_READ_TIMEOUT):
-            body = await _read_bounded(request)
-    except TimeoutError as exc:
-        raise HTTPException(400, "the webhook payload did not arrive in time") from exc
+    body = await _read_body(request)
     # threadpooled: an HMAC over a body up to MAX_FORGE_BODY is real CPU, this
     # route sits outside the perimeter middleware, and the forge_addr cap
     # admits 600 of these a minute — inline, a busy monorepo's push traffic
     # ran on the loop that carries every open chat stream
     # HMAC authenticates bytes, not headers. Ambiguous provider routing or
     # duplicate headers must not choose a different parser for those bytes.
-    routing_headers = (
-        "x-gitea-event",
-        "x-gitea-signature",
-        "x-gitea-delivery",
-        "x-github-event",
-        "x-hub-signature-256",
-        "x-github-delivery",
-        "x-github-hook-id",
+    _refuse_ambiguous(
+        request,
+        (
+            "x-gitea-event",
+            "x-gitea-signature",
+            "x-gitea-delivery",
+            "x-github-event",
+            "x-hub-signature-256",
+            "x-github-delivery",
+            "x-github-hook-id",
+        ),
     )
-    if any(len(request.headers.getlist(name)) > 1 for name in routing_headers):
-        raise HTTPException(
-            400, "The webhook headers are ambiguous. Send one set of provider headers."
-        )
     # Matching GitHub aliases are emitted by Gitea too. Only its native event
     # header selects processing, so native GitHub deliveries remain unsupported.
     if (
@@ -159,19 +192,7 @@ async def forge_webhook(
     signatures = tuple(value for value in (x_gitea_signature, x_hub_signature_256) if value)
     for signature in signatures or ("",):
         await run_in_threadpool(verify_forge_signature, body, signature)
-    # RecursionError, not just ValueError: deeply nested JSON raises it, and
-    # this route hand-rolls the parse instead of taking a pydantic model, so
-    # main.py's RequestValidationError handler never sees the payload
-    try:
-        payload = json.loads(
-            body, object_pairs_hook=config._json_object, parse_constant=config._json_constant
-        )
-    except (ValueError, RecursionError) as exc:
-        raise HTTPException(400, "the webhook payload is not valid JSON") from exc
-    # a JSON array parses fine and then dies inside parse_gitea with
-    # AttributeError — a caller's input must never reach a 500
-    if not isinstance(payload, dict):
-        raise HTTPException(400, "the webhook payload must be a JSON object")
+    payload = _parse_object(body)
     if event in ("push", "pull_request"):
         await run_in_threadpool(ratelimit.check, "forge", "forge")
     return await run_in_threadpool(
@@ -181,4 +202,58 @@ async def forge_webhook(
         payload,
         x_gitea_delivery,
         sha256(body).hexdigest(),
+    )
+
+
+# The header names the event, and the payload's object_kind must agree with
+# it. Every other GitLab event is acknowledged unread (docs/intent/gitlab-forge.md, D1).
+_GITLAB_EVENTS = {
+    "Push Hook": "push",
+    "Merge Request Hook": "merge_request",
+    "Pipeline Hook": "pipeline",
+}
+
+
+@router.post("/api/webhooks/gitlab")
+async def gitlab_webhook(
+    request: Request,
+    x_gitlab_token: str = Header(""),
+    x_gitlab_event: str = Header(""),
+    x_gitlab_event_uuid: str = Header("", max_length=200),
+    idempotency_key: str = Header("", max_length=200),
+) -> dict:
+    """A GitLab project webhook. GitLab sends a token, not a signature, so
+    the token is checked before a byte of the body is read."""
+    if not config.GITLAB_WEBHOOK_TOKEN:
+        raise gitlab_webhook_off()
+    # before the token check as well: it bounds how fast a caller can guess it
+    await run_in_threadpool(ratelimit.check, "forge_addr", ratelimit.client_addr(request))
+    _refuse_ambiguous(
+        request, ("x-gitlab-token", "x-gitlab-event", "x-gitlab-event-uuid", "idempotency-key")
+    )
+    verify_gitlab_token(x_gitlab_token)
+    if x_gitlab_event == "System Hook":
+        # a system hook carries every project on the instance, other teams'
+        # branch names included (D3)
+        raise HTTPException(
+            400, "System hooks are not supported. Add a project webhook to each team repository."
+        )
+    kind = _GITLAB_EVENTS.get(x_gitlab_event)
+    if kind is None:
+        return {"ignored": "only push, merge request and pipeline events move work"}
+    body = await _read_body(request)
+    payload = _parse_object(body)
+    if payload.get("object_kind") != kind:
+        raise HTTPException(
+            400, "The webhook event header does not match the payload. Send the original delivery."
+        )
+    await run_in_threadpool(ratelimit.check, "forge", "forge")
+    return await run_in_threadpool(
+        forge.apply_delivery,
+        request.app.state.skein_registry,
+        kind,
+        payload,
+        idempotency_key or x_gitlab_event_uuid,
+        sha256(body).hexdigest(),
+        provider="gitlab",
     )

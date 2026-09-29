@@ -584,6 +584,7 @@ review. Each names the condition that reopens it.
 | Share a document to a wider tier (`sharing.SHAREABLE`) | Someone copies a private draft into a new workspace document to share it. The mutating document routes then take `policy_context.hold_resource` first. |
 | A person's document filed under an engagement | A person asks to see their document on an engagement page. It needs `scope.assert_relationship_contains`. |
 | An agent reads a person's private document in that person's own turn | A request for it. `read_artifact` reads the workspace tier. |
+| Captured GitLab webhook fixtures (`backend/tests/gitlab_payloads.py` is built from GitLab's documented shapes) | The first webhook on the internal instance. Capture push, branch deletion, merge request open, close, reopen and merge, and one failed and one passed default-branch pipeline from Recent events, and record the GitLab version. Check the facts `docs/intent/gitlab-forge.md` D14 lists. |
 
 ## Deferred by the agent-discovery adoption (2026-08-30)
 
