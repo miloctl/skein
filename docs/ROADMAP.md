@@ -288,8 +288,9 @@ write queue or automatically replay an external action with an unknown
 outcome. Local test success does not authorize a production replica increase.
 
 The first deployment targets an environment that cannot reach GitHub.
-Internal GitLab and Teams integrations are deferred until the team identifies
-a concrete workflow need. They are not launch prerequisites.
+A Teams integration is deferred until the team identifies a concrete
+workflow need. It is not a launch prerequisite. GitLab inbound webhooks
+shipped (`POST /api/webhooks/gitlab`).
 
 - **OpenShift multi-replica rollout gate.** After the container drills pass,
   validate the actual ReadWriteMany storage class, shared data and backup-mirror

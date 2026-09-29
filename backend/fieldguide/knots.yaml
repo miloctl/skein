@@ -394,7 +394,7 @@ knots:
     # documentation, and it stays that way.
     ties: never
     pitch: The branch drags the task along behind it — one hitch, and the log follows the tow.
-    how: "Whoever runs the server sets SKEIN_FORGE_WEBHOOK_SECRET. Add the webhook URL from Settings → Connections to your repository with that same secret. Name a branch `task/42-slug`. The push starts task 42, and the merged pull request finishes it."
+    how: "Whoever runs the server sets SKEIN_FORGE_WEBHOOK_SECRET for Gitea or SKEIN_GITLAB_WEBHOOK_TOKEN for GitLab. Add the matching webhook URL from Settings → Connections to the repository with that same value. Name a branch `task/42-slug`. The push starts task 42, and the merged pull request or merge request finishes it."
     link: /settings
     since: 2026-08-03
 
