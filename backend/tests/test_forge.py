@@ -179,7 +179,7 @@ def test_a_closes_task_line_in_a_description_names_the_task(fresh_db):
 
     assert forge.match_task(body="Fix login\n\nCloses-Task: #42") == 42
     assert forge.match_task(body="Fix login\n\ncloses-task:42\n") == 42
-    # Refs-Task names a task and never closes it (the commit-msg hook's line)
+    # Refs-Task names a task and never closes it (the prepare-commit-msg hook's line)
     assert forge.match_task(body="Fix login\n\nRefs-Task: #42") is None
     # a trailer is a line of its own, not a phrase inside a sentence
     assert forge.match_task(body="This is not Closes-Task: #42 at all") is None

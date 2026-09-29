@@ -9,6 +9,7 @@ from starlette.concurrency import run_in_threadpool
 from .. import config, ratelimit
 from ..extensions.fastapi import PolicySubjectDep, enforce_decision
 from ..extensions.policy import PolicyInput, PolicyResource
+from ..public.errors import PublicError
 from ..services import ci, forge
 from .deps import (
     StrongUser,
@@ -240,20 +241,33 @@ async def gitlab_webhook(
         )
     kind = _GITLAB_EVENTS.get(x_gitlab_event)
     if kind is None:
-        return {"ignored": "only push, merge request and pipeline events move work"}
+        return {"ignored": "only push, merge request and pipeline events are read"}
     body = await _read_body(request)
     payload = _parse_object(body)
     if payload.get("object_kind") != kind:
         raise HTTPException(
             400, "The webhook event header does not match the payload. Send the original delivery."
         )
+    # BEFORE the bucket: GitLab sends several pipeline events per push, and
+    # if they spend it, the merge after them answers 429 and is lost
+    if forge.parse_gitlab(kind, payload) is None:
+        return {"ignored": forge.GITLAB_IGNORED}
     await run_in_threadpool(ratelimit.check, "forge", "forge")
-    return await run_in_threadpool(
-        forge.apply_delivery,
-        request.app.state.skein_registry,
-        kind,
-        payload,
-        idempotency_key or x_gitlab_event_uuid,
-        sha256(body).hexdigest(),
-        provider="gitlab",
-    )
+    try:
+        return await run_in_threadpool(
+            forge.apply_delivery,
+            request.app.state.skein_registry,
+            kind,
+            payload,
+            idempotency_key or x_gitlab_event_uuid,
+            sha256(body).hexdigest(),
+            provider="gitlab",
+        )
+    except PublicError as exc:
+        if exc.code not in ("POLICY_DENIED", "POLICY_REVIEW_UNSUPPORTED"):
+            raise
+        # 200, not 403: GitLab disables a project hook after repeated failed
+        # deliveries, so a 403 for one refused event stops every push and
+        # merge of the project. The refusal rolled back with no receipt, so a
+        # resend after the rule changes still applies.
+        return {"ignored": "Workplace policy refused this event. Nothing changed."}

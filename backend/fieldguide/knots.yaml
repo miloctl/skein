@@ -404,7 +404,7 @@ knots:
     set: bends
     ties: mark
     pitch: Pack the team's context into the repository, and every agent that opens it starts with the brief.
-    how: "In the repository, run `skein context --engagement <id> --write AGENTS.md`. Skein writes its block between two marker lines and keeps your other text. Run the command again to refresh the block."
+    how: "In the repository, run `skein context --engagement <id> --write AGENTS.md`. Skein writes its block between two marker lines and keeps your other text. If the file already has text, add --force the first time, and Skein adds its block at the end. Run the command again to refresh the block."
     link: /settings
     since: 2026-09-29
 

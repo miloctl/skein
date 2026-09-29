@@ -31,11 +31,12 @@ _TEXT = re.compile(
     re.ASCII | re.IGNORECASE,
 )
 # The line `skein pr-body` writes (cli/skein_cli.py). _TEXT needs a space
-# after the verb, so it never read `Closes-Task: #42`. A line of its own, in
+# after the verb, so it cannot read `Closes-Task: #42`. A line of its own, in
 # the body only: `Refs-Task` names a task without closing it, and a Push Hook
-# commit message is never read, because a closing trailer on a
-# work-in-progress commit is the lie the commit-msg hook stopped writing.
-# Fixed-width separators for the reason above.
+# commit message is never read, because every commit on a task branch
+# carries a Refs-Task trailer (prepare-commit-msg, COMMIT_MSG_HOOK) and most
+# of them are work in progress. Fixed-width separators for the backtracking
+# reason _TEXT gives.
 _TRAILER = re.compile(r"^Closes-Task:[ \t]?#?(\d{1,9})\b", re.MULTILINE | re.IGNORECASE | re.ASCII)
 # the payload is already bounded by MAX_FORGE_BODY, and _TEXT is linear, so
 # these are correctness bounds only: a branch name or title longer than this
@@ -48,9 +49,12 @@ def match_task(branch: str = "", title: str = "", body: str = "") -> int | None:
     """Branch name first: it is the only field a person cannot retitle later."""
     for pattern, text, cap in (
         (_BRANCH, branch, _SCAN["branch"]),
+        # before any prose: `skein pr-body` puts the task description above
+        # this line and the commit subjects below it, and a "fixed task 7"
+        # there must not close task 7 in place of the task the line names
+        (_TRAILER, body, None),
         (_TEXT, title, _SCAN["title"]),
         (_TEXT, body, None),
-        (_TRAILER, body, None),
     ):
         found = pattern.search((text or "")[:cap] if cap else (text or ""))
         if found:
@@ -179,7 +183,35 @@ def _dict(value) -> dict:
 
 
 def _str(value) -> str:
-    return value if isinstance(value, str) else ""
+    if not isinstance(value, str):
+        return ""
+    # a lone surrogate is valid JSON and invalid UTF-8: quote() and the
+    # database raise on it, and the codec message repeats the input back
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return ""
+    return value
+
+
+# A GitLab project path, as GitLab itself allows it.
+_PROJECT_PATH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}", re.ASCII)
+
+
+def _ref_name(value: str) -> str:
+    """A branch name fit for a blocker title, or "".
+
+    The title reaches the hash-chained ledger as `forge`, which every feed
+    shows and nobody can correct, so a token holder must not write a sentence
+    there: no whitespace, control or format characters (isprintable() is
+    False for all but the ASCII space)."""
+    return value if 0 < len(value) <= 200 and value.isprintable() and " " not in value else ""
+
+
+GITLAB_IGNORED = (
+    "Skein acts only on branch pushes, merge requests that open, reopen or merge,"
+    " and default-branch pipelines that pass or fail"
+)
 
 
 def parse_gitea(event: str, payload: dict) -> dict | None:
@@ -228,8 +260,10 @@ def parse_gitlab(kind: str, payload: dict) -> dict | None:
     web_url = _str(_dict(payload.get("project")).get("web_url"))
     if kind == "push":
         ref = _str(payload.get("ref"))
-        # a branch deletion is a push whose `after` is all zeros
-        if not ref.startswith("refs/heads/") or _str(payload.get("after")) == "0" * 40:
+        after = _str(payload.get("after"))
+        # a branch deletion is a push whose `after` is all zeros: 40 of them,
+        # or 64 in a SHA-256 repository
+        if not ref.startswith("refs/heads/") or (after and not after.strip("0")):
             return None
         branch = ref[len("refs/heads/") :]
         # the branch page, for the reason parse_gitea gives
@@ -260,24 +294,46 @@ def parse_gitlab(kind: str, payload: dict) -> dict | None:
         }
     if kind == "pipeline":
         run = _dict(payload.get("object_attributes"))
-        status = {"failed": "failure", "success": "success"}.get(_str(run.get("status")))
-        # running, pending, canceled and skipped say nothing about the branch,
-        # and a tag pipeline's ref is a tag
-        if status is None or run.get("tag"):
+        # `manual`: the run stopped at a blocking manual job, and no job
+        # failed. A branch with a deploy gate ends every run this way, so
+        # without this a red blocker there never resolves. Running, pending, canceled and
+        # skipped say nothing about the branch.
+        status = {"failed": "failure", "success": "success", "manual": "success"}.get(
+            _str(run.get("status"))
+        )
+        # A merge request pipeline carries the SOURCE branch as its `ref`, so a
+        # fork's `main` would read as this project's main. A child pipeline
+        # reports its parent's branch, so a green parent after a red child
+        # would resolve the blocker the child filed. A tag pipeline's ref is a tag.
+        if (
+            status is None
+            or run.get("tag")
+            or payload.get("merge_request")
+            or _str(run.get("source")) in ("merge_request_event", "parent_pipeline")
+        ):
             return None
         project = _dict(payload.get("project"))
+        repo = _str(project.get("path_with_namespace"))
+        repo = repo if _PROJECT_PATH.fullmatch(repo) else ""
+        branch = _ref_name(_str(run.get("ref")))
+        default_branch = _ref_name(_str(project.get("default_branch")))
+        # here, not only in ci.ci_event: an event that files nothing must not
+        # spend the shared rate bucket (routes/webhooks.py::gitlab_webhook)
+        if (
+            not repo
+            or not branch
+            or (branch not in ci.DEFAULT_BRANCHES and branch != default_branch)
+        ):
+            return None
         run_id = run.get("id")
         fallback = f"{web_url}/-/pipelines/{run_id}" if web_url and isinstance(run_id, int) else ""
         return {
             "kind": "pipeline",
-            # the blocker-title bound (routes/webhooks.py::CIEventIn)
-            "repo": _str(project.get("path_with_namespace"))[:200],
-            # a merge request pipeline's refs/merge-requests/… ref fails the
-            # default-branch rule by itself
-            "branch": _str(run.get("ref"))[:200],
+            "repo": repo,
+            "branch": branch,
             "status": status,
             "run_url": _clean_url(_str(run.get("url"))) or _clean_url(fallback),
-            "default_branch": _str(project.get("default_branch"))[:200],
+            "default_branch": default_branch,
         }
     return None
 
@@ -334,8 +390,7 @@ def apply_delivery(
                 return {"ignored": "this delivery was already applied"}
         if mapped is None:
             return {
-                "ignored": "only a branch push, an opened or merged merge request, and a"
-                " finished pipeline move work"
+                "ignored": GITLAB_IGNORED
                 if provider == "gitlab"
                 else "only push and pull_request events move work"
             }
@@ -373,7 +428,11 @@ def apply_delivery(
             )
             # `forge`, a system actor: every feed shows the row, and it names
             # no person. A red build is a fact about the branch, so there is
-            # no login check.
+            # no login check. ci_event nests its own name_lock after the two
+            # above, the order the fingerprint comment warns about: a hash
+            # collision with another delivery's receipt key can deadlock, and
+            # PostgreSQL then aborts one side, which answers 503
+            # (db.BUSY_ERRORS) and a resend applies it.
             result = ci.ci_event(
                 mapped["repo"],
                 mapped["branch"],

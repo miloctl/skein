@@ -89,7 +89,7 @@ def test_a_wrong_token_is_refused_before_the_body_is_read(client, fresh_db, monk
         headers={"X-Gitlab-Event": "Push Hook", "X-Gitlab-Token": "wrong"},
     )
     assert answer.status_code == 401
-    assert answer.json()["detail"] == "the webhook token does not match"
+    assert answer.json()["detail"].startswith("the webhook token does not match. Put the token")
     assert read is False
 
 
@@ -150,7 +150,7 @@ def test_two_token_headers_are_refused(client, fresh_db, monkeypatch):
 
 def test_a_tag_push_hook_is_ignored_without_a_receipt(gitlab, fresh_db):
     answer = gitlab(push("v1", ref="refs/tags/v1"), event="Tag Push Hook", key="k-tag")
-    assert answer.json() == {"ignored": "only push, merge request and pipeline events move work"}
+    assert answer.json() == {"ignored": "only push, merge request and pipeline events are read"}
     assert db.query_one("SELECT 1 FROM forge_receipts") is None
 
 
@@ -254,10 +254,32 @@ def test_a_red_default_branch_pipeline_files_one_blocker_and_green_resolves_it(g
         pipeline("canceled"),
         pipeline("skipped"),
         pipeline("failed", ref="v1.0", tag=True),
-        pipeline("failed", ref="refs/merge-requests/7/head"),
         pipeline("failed", ref="feature/x"),
+        # a merge request pipeline carries the source branch as `ref`: a
+        # fork's `main` is not this project's main
+        pipeline("failed", source="merge_request_event", merge_request={"iid": 7}),
+        # a child pipeline's parent reports the same branch, and a green
+        # parent after a red child resolved the blocker the child filed
+        pipeline("failed", source="parent_pipeline"),
+        # free text reached the hash-chained ledger through these two names
+        pipeline("failed", repo="team/app\n\n# Mira was fired"),
+        pipeline("failed", ref="Alice leaked it", default_branch="Alice leaked it"),
+        pipeline("failed", ref="dev\u202e", default_branch="dev\u202e"),
+        pipeline("failed", repo="team/\ud800app"),
     ],
-    ids=["running", "canceled", "skipped", "tag", "merge-request-ref", "other-branch"],
+    ids=[
+        "running",
+        "canceled",
+        "skipped",
+        "tag",
+        "other-branch",
+        "merge-request",
+        "child",
+        "repo-newline",
+        "branch-spaces",
+        "branch-format-char",
+        "lone-surrogate",
+    ],
 )
 def test_pipelines_that_are_not_a_red_default_branch_do_nothing(gitlab, fresh_db, payload):
     answer = gitlab(payload)
@@ -271,19 +293,92 @@ def test_the_projects_own_default_branch_counts(gitlab, fresh_db):
     assert [r["title"] for r in _open_ci()] == ["CI red on team/app@develop"]
 
 
-def test_a_policy_deny_on_ci_writes_nothing_and_leaves_no_receipt(fresh_db):
+def test_a_pipeline_stopped_at_a_manual_gate_resolves_the_red_blocker(gitlab, fresh_db):
+    """No job failed. Every later run on a branch with a blocking deploy gate
+    ends this way, so the red blocker never resolved."""
+    gitlab(pipeline("failed"))
+    assert len(gitlab(pipeline("manual", pipeline_id=32)).json()["resolved"]) == 1
+
+
+def test_the_pipeline_link_falls_back_to_the_project_path(gitlab, fresh_db):
+    gitlab(pipeline("failed", url=""))
+    assert f"{WEB_URL}/-/pipelines/31" in _open_ci()[0]["detail"]
+
+
+def test_an_opened_merge_request_starts_the_task(gitlab, fresh_db):
+    tid = _task()
+    gitlab(merge_request("reopen", source_branch=f"task/{tid}-x"))
+    assert _status(tid) == ("in_progress", f"{WEB_URL}/-/merge_requests/7")
+
+
+def test_a_branch_with_url_characters_links_its_tree_page(gitlab, fresh_db):
+    tid = _task()
+    gitlab(push(f"task/{tid}-a b#c"))
+    assert _status(tid)[1] == f"{WEB_URL}/-/tree/task/{tid}-a%20b%23c"
+
+
+def test_a_branch_deleted_in_a_sha256_repository_moves_nothing(gitlab, fresh_db):
+    tid = _task()
+    assert "ignored" in gitlab(push(f"task/{tid}-x", after="0" * 64)).json()
+    assert _status(tid) == ("todo", "")
+
+
+def test_the_trailer_beats_a_closing_phrase_elsewhere_in_the_description(gitlab, fresh_db):
+    """`skein pr-body` puts the task description above the line and the
+    commit subjects below it. "fixed task 7" there closed task 7."""
+    other, named = _task(), _task()
+    description = (
+        f"Follow-up to the change that fixed task {other}.\n\nCloses-Task: #{named}\n\n"
+        f"## Commits\n- Fix task {other} flake"
+    )
+    gitlab(merge_request("merge", source_branch="fix-login", description=description))
+    assert _status(named)[0] == "done"
+    assert _status(other)[0] == "todo"
+
+
+def test_the_idempotency_key_wins_over_the_event_uuid(gitlab, fresh_db):
+    tid = _task()
+    gitlab(push(f"task/{tid}-x"), key="the-key", **{"X-Gitlab-Event-UUID": "the-uuid"})
+    assert db.query_one("SELECT delivery_id FROM forge_receipts")["delivery_id"] == "the-key"
+
+
+def test_events_that_change_nothing_spend_no_rate_budget(gitlab, fresh_db, monkeypatch):
+    """GitLab sends several pipeline events per push. They spent the shared
+    bucket, and the merge after them answered 429 and was lost."""
+    from app import ratelimit
+
+    monkeypatch.setitem(ratelimit.LIMITS, "forge", 2)
+    tid = _task()
+    for status in ("running", "pending", "canceled"):
+        assert gitlab(pipeline(status)).status_code == 200
+    gitlab(merge_request("update", source_branch=f"task/{tid}-x"))
+    assert gitlab(merge_request("merge", source_branch=f"task/{tid}-x")).status_code == 200
+    assert _status(tid)[0] == "done"
+
+
+def test_the_address_meter_runs_before_the_token_check(gitlab, fresh_db, monkeypatch):
+    from app import ratelimit
+
+    monkeypatch.setitem(ratelimit.LIMITS, "forge_addr", 2)
+    for _ in range(2):
+        assert gitlab(push("task/1-x"), token="wrong").status_code == 401
+    assert gitlab(push("task/1-x"), token="wrong").status_code == 429
+
+
+def test_a_policy_refusal_is_acknowledged_so_gitlab_keeps_the_hook(fresh_db):
+    """GitLab disables a project hook after repeated failed deliveries, and a
+    403 counts as one, so a rule that refuses one event stopped every push
+    and merge of that project. The refusal still writes nothing and leaves no
+    receipt, so a resend after the rule changes applies."""
     from fastapi.testclient import TestClient
 
     from app import config
     from app.extensions import PolicyContribution, PolicyDecision, PolicyEffect, SkeinModule
     from app.main import create_app
 
-    seen = []
-
-    def deny_ci(request):
-        if request.action == "skein.integration.ci":
-            seen.append(dict(request.resource.attributes))
-            return PolicyDecision(PolicyEffect.DENY, ("CI writes are disabled",))
+    def deny(request):
+        if request.action in ("skein.integration.ci", "skein.integration.forge"):
+            return PolicyDecision(PolicyEffect.DENY, ("forge writes are disabled",))
         return None
 
     module = SkeinModule(
@@ -292,23 +387,30 @@ def test_a_policy_deny_on_ci_writes_nothing_and_leaves_no_receipt(fresh_db):
         extension_api="1.0",
         minimum_core="0.2.0",
         maximum_core_exclusive="0.7.0",
-        policies=(PolicyContribution("acme.workplace.ci", deny_ci),),
+        policies=(PolicyContribution("acme.workplace.forge", deny),),
     )
+    tid = _task()
     config.GITLAB_WEBHOOK_TOKEN, saved = TOKEN, config.GITLAB_WEBHOOK_TOKEN
     try:
         with TestClient(create_app(modules=(module,))) as client:
-            answer = client.post(
-                "/api/webhooks/gitlab",
-                content=json.dumps(pipeline("failed")).encode(),
-                headers={
-                    "X-Gitlab-Event": "Pipeline Hook",
-                    "X-Gitlab-Token": TOKEN,
-                    "Idempotency-Key": "denied",
-                },
-            )
+            answers = [
+                client.post(
+                    "/api/webhooks/gitlab",
+                    content=json.dumps(payload).encode(),
+                    headers={
+                        "X-Gitlab-Event": event,
+                        "X-Gitlab-Token": TOKEN,
+                        "Idempotency-Key": key,
+                    },
+                )
+                for payload, event, key in (
+                    (pipeline("failed"), "Pipeline Hook", "p"),
+                    (push(f"task/{tid}-x"), "Push Hook", "q"),
+                )
+            ]
     finally:
         config.GITLAB_WEBHOOK_TOKEN = saved
-    assert answer.status_code == 403
-    assert seen == [{"repository": "team/app", "provider": "gitlab"}]
-    assert _open_ci() == []
+    assert [a.status_code for a in answers] == [200, 200]
+    assert all("policy" in a.json()["ignored"] for a in answers)
+    assert _open_ci() == [] and _status(tid) == ("todo", "")
     assert db.query_one("SELECT 1 FROM forge_receipts") is None

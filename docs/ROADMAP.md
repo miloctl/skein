@@ -36,8 +36,9 @@ for a season with the review gate on (the default since 2026-08-21):
   on tasks, routines (standing delegations and recurring tasks), a board
   view, document editing with revisions, and GitLab forge support with
   repo-scoped context packs. Each gets its own branch after the hardening
-  branch lands. The section "From the external-repo discovery" below lists
-  them. The rest of the freeze stands.
+  branch lands. Document revisions and GitLab forge support shipped. The
+  section "From the external-repo discovery" below lists the other three.
+  The rest of the freeze stands.
 
 # Open backlog (consolidated 2026-08-02)
 
@@ -289,8 +290,7 @@ outcome. Local test success does not authorize a production replica increase.
 
 The first deployment targets an environment that cannot reach GitHub.
 A Teams integration is deferred until the team identifies a concrete
-workflow need. It is not a launch prerequisite. GitLab inbound webhooks
-shipped (`POST /api/webhooks/gitlab`).
+workflow need. It is not a launch prerequisite.
 
 - **OpenShift multi-replica rollout gate.** After the container drills pass,
   validate the actual ReadWriteMany storage class, shared data and backup-mirror
@@ -592,7 +592,7 @@ review. Each names the condition that reopens it.
 | Crew-tier CI blockers | A crew repository's name must stay in the crew. The GitLab pipeline blocker is workspace tier. |
 | Automatic context pack refresh in repositories | Reports of a stale pack. |
 | Outbound GitLab calls (merge request comments, commit statuses, an API token) | An open decision for the owner (CLAUDE.md, "Runtime isolation"). Nothing is written back today. |
-| Captured GitLab webhook fixtures (`backend/tests/gitlab_payloads.py` is built from GitLab's documented shapes) | The first webhook on the internal instance. Capture push, branch deletion, merge request open, close, reopen and merge, and one failed and one passed default-branch pipeline from Recent events, and record the GitLab version. Check the facts `docs/intent/gitlab-forge.md` D14 lists. |
+| Captured GitLab webhook fixtures (`backend/tests/gitlab_payloads.py` is built from GitLab's documented shapes) | The first webhook on the internal instance. Capture push, branch deletion, merge request open, close, reopen and merge, one failed and one passed default-branch pipeline, a merge request pipeline, a child pipeline and one stopped at a manual gate from Recent events, and record the GitLab version. Check the facts `docs/intent/gitlab-forge.md` D14 lists. |
 
 ## Deferred by the agent-discovery adoption (2026-08-30)
 
