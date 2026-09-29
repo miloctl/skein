@@ -92,7 +92,7 @@ def create_document(title: str, content: str, source_id: int = 0, engagement_id:
         "document",
         "create",
         payload,
-        lambda: documents.create_document(**payload, actor=agent_identity()),
+        lambda: documents.create_document(**payload, actor=agent_identity(), origin="agent"),
         summary=title,
     )
 
@@ -116,6 +116,8 @@ def edit_document(artifact_id: int, old_text: str, new_text: str) -> str:
         "document_edit",
         "update",
         payload,
-        lambda: documents.edit_document(artifact_id, **payload, actor=agent_identity()),
+        lambda: documents.edit_document(
+            artifact_id, **payload, actor=agent_identity(), origin="agent"
+        ),
         entity_id=artifact_id,
     )

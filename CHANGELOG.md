@@ -20,10 +20,13 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- Every write to a document is a numbered revision, so an agent's edit keeps the text it replaced. A document written before this version seeds revision 1 from its file on its next write. A direct agent write to a document is recorded with origin `agent`.
 - A blocker raised against a task no longer reopens a task that was finished at the same moment. The finished task keeps its Done status and its completion time.
 - The task panel raises a blocker against the task: select blocked…, write what blocks it, pick the impact, and name who can clear it. The blocker sets the task to Blocked and starts its escalation clock. The status list no longer offers a bare Blocked, which left a task blocked with no reason on record. New field-guide card: Block a task with its reason (Water Knot).
 
 ### Operations
+
+- Migration 045 adds `document_revisions`: one row per revision of a document, with its body. It is in both database dumps and left out of the portable export.
 
 ## 0.6.11 — 2026-09-28
 
