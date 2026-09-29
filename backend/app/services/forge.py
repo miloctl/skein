@@ -6,7 +6,7 @@ import re
 from urllib.parse import quote, urlsplit
 
 from .. import db
-from . import scope, work
+from . import ci, scope, work
 
 TRANSITIONS = {
     "branch_push": "in_progress",
@@ -258,6 +258,27 @@ def parse_gitlab(kind: str, payload: dict) -> dict | None:
             "url": _str(request.get("url")),
             "login": _str(_dict(payload.get("user")).get("username")),
         }
+    if kind == "pipeline":
+        run = _dict(payload.get("object_attributes"))
+        status = {"failed": "failure", "success": "success"}.get(_str(run.get("status")))
+        # running, pending, canceled and skipped say nothing about the branch,
+        # and a tag pipeline's ref is a tag
+        if status is None or run.get("tag"):
+            return None
+        project = _dict(payload.get("project"))
+        run_id = run.get("id")
+        fallback = f"{web_url}/-/pipelines/{run_id}" if web_url and isinstance(run_id, int) else ""
+        return {
+            "kind": "pipeline",
+            # the blocker-title bound (routes/webhooks.py::CIEventIn)
+            "repo": _str(project.get("path_with_namespace"))[:200],
+            # a merge request pipeline's refs/merge-requests/… ref fails the
+            # default-branch rule by itself
+            "branch": _str(run.get("ref"))[:200],
+            "status": status,
+            "run_url": _clean_url(_str(run.get("url"))) or _clean_url(fallback),
+            "default_branch": _str(project.get("default_branch"))[:200],
+        }
     return None
 
 
@@ -313,7 +334,8 @@ def apply_delivery(
                 return {"ignored": "this delivery was already applied"}
         if mapped is None:
             return {
-                "ignored": "only a branch push and an opened or merged merge request move work"
+                "ignored": "only a branch push, an opened or merged merge request, and a"
+                " finished pipeline move work"
                 if provider == "gitlab"
                 else "only push and pull_request events move work"
             }
@@ -328,6 +350,38 @@ def apply_delivery(
             (namespace, event, body_digest),
         ):
             result = {"ignored": "this delivery was already applied"}
+        elif mapped["kind"] == "pipeline":
+            # the CI door's own action, so one workplace rule governs both
+            # doors (routes/webhooks.py::ci_webhook). A DENY raises inside this
+            # transaction: no blocker, no receipt, and a resend can retry.
+            enforce_decision(
+                registry.policy_engine.decide(
+                    PolicyInput(
+                        registry.service_subject("forge"),
+                        "skein.integration.ci",
+                        PolicyResource(
+                            "integration",
+                            "ci",
+                            attributes={"repository": mapped["repo"], "provider": provider},
+                        ),
+                        "forge",
+                        tool="forge.webhook",
+                        tool_effect="write",
+                        tool_risk="high",
+                    )
+                )
+            )
+            # `forge`, a system actor: every feed shows the row, and it names
+            # no person. A red build is a fact about the branch, so there is
+            # no login check.
+            result = ci.ci_event(
+                mapped["repo"],
+                mapped["branch"],
+                mapped["status"],
+                mapped["run_url"],
+                actor="forge",
+                default_branch=mapped["default_branch"],
+            )
         else:
             task_id = match_task(
                 mapped.get("branch", ""), mapped.get("title", ""), mapped.get("body", "")

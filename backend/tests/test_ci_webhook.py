@@ -167,3 +167,48 @@ def test_ci_webhook_rejects_an_unvalidated_repository_shape(client, fresh_db):
     assert refused.status_code == 400
     assert "secret-" not in refused.text
     assert refused.json()["detail"].startswith("repo:")
+
+
+def test_two_red_runs_at_once_file_one_blocker(fresh_db, monkeypatch):
+    """Both runs read "no open blocker" before either inserts, so each filed
+    its own. The first run is held inside raise_blocker until the second has
+    had its chance to read."""
+    import threading
+
+    from app.services import blockers, ci
+
+    raise_blocker = blockers.raise_blocker
+    first_inside, second_inside = threading.Event(), threading.Event()
+    calls = []
+
+    def held(**kwargs):
+        calls.append(kwargs["source"])
+        if len(calls) == 1:
+            first_inside.set()
+            # with the lock the second run waits at it, and this times out
+            second_inside.wait(2)
+        else:
+            second_inside.set()
+        return raise_blocker(**kwargs)
+
+    monkeypatch.setattr(ci.blockers, "raise_blocker", held)
+    errors = []
+
+    def run():
+        try:
+            ci.ci_event("team/app", "main", "failure", "https://ci.example/1")
+        except Exception as exc:
+            errors.append(exc)
+
+    first = threading.Thread(target=run)
+    first.start()
+    assert first_inside.wait(5)
+    second = threading.Thread(target=run)
+    second.start()
+    first.join()
+    second.join()
+    assert errors == []
+    open_rows = fresh_db.query(
+        "SELECT id FROM blockers WHERE source = 'ci:team/app:main' AND status != 'resolved'"
+    )
+    assert len(open_rows) == 1
