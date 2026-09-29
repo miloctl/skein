@@ -1777,6 +1777,13 @@ def change_diff(
     if not row:
         return {"id": change_id, "diff": None}
     payload = json.loads(change["payload"])
+    if change["entity"] == "document_edit":
+        # artifacts has no `old` or `new` column, so the generic field diff
+        # showed "—" beside the new text. The row filter above already ran,
+        # so only a reader of the document sees its lines.
+        from .documents import proposal_diff
+
+        return {"id": change_id, "diff": proposal_diff(int(change["entity_id"]), payload)}
     if table == "events":
         # an event stores its times in naive UTC, and a proposal carries them
         # as typed, on the team clock (schedule._canon). Shown raw, the two
