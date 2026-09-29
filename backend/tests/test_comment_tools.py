@@ -212,7 +212,7 @@ def test_a_rule_on_the_tasks_project_refuses_the_agents_comment(fresh_db, monkey
             out = _as("scout", "post_comment", body="Is this needed?", task_id=task)
     finally:
         reset_policy_engine(engine)
-    assert "error" in out, out
+    assert out["error"].startswith("Policy denied this write."), out
     assert _proposals() == [] and db.query_one("SELECT 1 FROM comments") is None
 
 
@@ -267,3 +267,154 @@ def test_the_prune_keeps_the_thread_a_settled_comment_proposal_names(fresh_db):
         db.query_one("SELECT payload FROM pending_changes WHERE id = ?", (pid,))["payload"]
     )
     assert payload == {"decision_id": decision}
+
+
+def _shared_then_delegated(first_tier: dict) -> tuple[int, int]:
+    """A task written narrow, commented on, then shared with the team and
+    delegated: a comment keeps the tier it was written at (D2)."""
+    from app.services import sharing
+
+    for name in ("ava", "bo"):
+        users.ensure_user(name)
+    users.ensure_user("scout", kind="agent")
+    task = work.create_task("Plan", actor="ava", **first_tier)["id"]
+    narrow = comments.add_comment("NARROW salary numbers", task_id=task, actor="ava")["id"]
+    sharing.share_with_team("tasks", task, actor="ava")
+    comments.add_comment("team update", task_id=task, actor="ava")
+    delegation.delegate_task(task, "scout", "ava", actor="ava", origin="human")
+    return task, narrow
+
+
+@pytest.mark.parametrize("tier", ["private", "crew"])
+def test_the_delegates_door_never_opens_a_comment_narrower_than_the_task(fresh_db, tier):
+    """The door exists because an agent holds no crews, not to widen what a
+    comment was written for. Through `/as scout`, bo read ava's private
+    comment, and the unattended inbox sent it to the model."""
+    first = {"visibility": "private"}
+    if tier == "crew":
+        users.ensure_user("ava")
+        first = {"visibility": "crew", "crew_id": crews.create_crew("Alpha", actor="ava")["id"]}
+    task, _ = _shared_then_delegated(first)
+    unattended = _as("scout", "read_comments", task_id=task)
+    assert [c["body"] for c in unattended["comments"]] == ["team update"]
+    with _turn("bo"):
+        driven = _as("scout", "read_comments", task_id=task)
+    assert [c["body"] for c in driven["comments"]] == ["team update"]
+    assert [c["body"] for c in delegation.agent_inbox("scout")["new_comments"]] == ["team update"]
+
+
+def test_the_worklog_door_never_opens_a_note_narrower_than_the_task(fresh_db):
+    """The same door on the worklog: a note written while the task was a
+    crew's stays the crew's after the task is shared."""
+    from app.services import sharing
+
+    for name in ("ava", "bo"):
+        users.ensure_user(name)
+    users.ensure_user("scout", kind="agent")
+    crew = crews.create_crew("Alpha", actor="ava")["id"]
+    task = work.create_task("Plan", actor="ava", visibility="crew", crew_id=crew)["id"]
+    delegation.delegate_task(task, "scout", "ava", actor="ava", origin="human")
+    delegation.report_progress(task, "crew-only finding", actor="scout")
+    sharing.share_with_team("tasks", task, actor="ava")
+    with _turn("bo"):
+        notes = _as("scout", "read_worklog", task_id=task)
+    assert notes["worklog"] == []
+
+
+def test_read_comments_returns_the_newest_in_order(fresh_db):
+    """The wake prompt sends the agent to the thread for the NEW comment, and
+    a limit that kept the oldest dropped exactly that one."""
+    task = _delegated()
+    for n in range(3):
+        comments.add_comment(f"comment {n}", task_id=task, actor="ava")
+    out = _as("scout", "read_comments", task_id=task, limit=2)
+    assert [c["body"] for c in out["comments"]] == ["comment 1", "comment 2"]
+
+
+def test_a_crew_thread_read_marks_the_turn(fresh_db):
+    """A later write in the same turn must not carry crew text into a
+    proposal the whole team reviews (tools/_gate.py)."""
+    from app.agents.identity import read_scoped_this_turn
+
+    users.ensure_user("ava")
+    crew = crews.create_crew("Alpha", actor="ava")["id"]
+    task = _delegated(visibility="crew", crew_id=crew)
+    comments.add_comment("crew steer", task_id=task, actor="ava")
+    with _turn("ava"):
+        _as("scout", "read_comments", task_id=task)
+        assert read_scoped_this_turn() is True
+
+
+def test_deleting_the_agents_answer_asks_again(fresh_db):
+    task = _delegated()
+    asked = comments.add_comment("@scout which target?", task_id=task, actor="ava")["id"]
+    answer = _as("scout", "post_comment", body="17.", task_id=task)["id"]
+    assert delegation.agent_inbox("scout")["new_comments"] == []
+    comments.delete_comment(answer, actor="ava")
+    assert [c["id"] for c in delegation.agent_inbox("scout")["new_comments"]] == [asked]
+
+
+def test_deleting_an_approved_agent_comment_clears_its_proposal_text(fresh_db, monkeypatch):
+    from app.main import create_app
+    from app.services import review, scope
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    users.ensure_user("ava")
+    users.ensure_user("scout", kind="agent")
+    task = work.create_task("Someone else's task", actor="ava")["id"]
+    with _turn("ava"):
+        _as("scout", "post_comment", body="SECRET guess", task_id=task)
+    pid = _proposals()[0]["id"]
+    review.approve_change(
+        pid,
+        actor="ava",
+        strong=True,
+        viewer=scope.Viewer("ava", True),
+        policy_registry=create_app().state.skein_registry,
+    )
+    cid = db.query_one("SELECT id FROM comments")["id"]
+    comments.delete_comment(cid, actor="ava")
+    payload = db.query_one("SELECT payload FROM pending_changes WHERE id = ?", (pid,))["payload"]
+    assert "SECRET" not in payload
+    assert json.loads(payload)["task_id"] == task
+
+
+def test_every_ungated_writer_is_governed_by_workplace_policy():
+    """The gate is where workplace policy decides an agent write. A writer
+    that skips it on purpose must be wrapped instead (agents/core_tools.py),
+    or a project rule that stops report_progress lets the same delegate post
+    a comment on the same task."""
+    from test_gate_coverage import UNGATED_WRITERS
+
+    from app.agents.core_tools import SPECIALIZED_WRITE_TOOLS
+
+    assert set(UNGATED_WRITERS) == SPECIALIZED_WRITE_TOOLS
+
+
+def test_the_wake_prompt_names_only_tools_the_wake_turn_holds():
+    import re
+
+    from app.services.agent_runner import _WAKE
+    from app.services.agent_wakeups import WAKE_TOOLS
+    from app.tools import ALL_TOOLS
+
+    known = {getattr(t, "tool_name", getattr(t, "__name__", "")) for t in ALL_TOOLS}
+    named = {word for word in re.findall(r"[a-z_]+", _WAKE) if word in known}
+    assert {"read_comments", "post_comment", "my_agent_inbox"} <= named
+    assert named <= WAKE_TOOLS
+
+
+def test_a_crew_blocker_takes_no_gated_comment(fresh_db, monkeypatch):
+    from app.services import blockers
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    users.ensure_user("ava")
+    users.ensure_user("scout", kind="agent")
+    crew = crews.create_crew("Alpha", actor="ava")["id"]
+    blocker = blockers.raise_blocker("crew blocker", actor="ava", visibility="crew", crew_id=crew)[
+        "id"
+    ]
+    with _turn("ava"):
+        out = _as("scout", "post_comment", body="x", blocker_id=blocker)
+    assert "crew" in out["error"]
+    assert _proposals() == []

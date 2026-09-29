@@ -658,9 +658,11 @@ the same stable name without sharing idempotency receipts. This split records
 the agent as the writer without giving it the requester's roles.
 
 Stock model-facing reads use actions in the form `skein.tool.<tool-name>`.
-Stock writes use their domain action through the shared write gate. The four
-stock writers with sponsor or artifact rules also use the tool action. A
-review of one of these four writers stores the exact input and can resume.
+Stock writes use their domain action through the shared write gate. The five
+stock writers with sponsor or artifact rules (the delegation trio, a
+delegate's comment on its own task, and the handoff generator) also use the
+tool action. A review of one of these five writers stores the exact input and
+can resume.
 Stock playbook proposals also store the expected content digest. Changed
 playbook content cannot use an earlier agent-tool verdict.
 

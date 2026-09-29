@@ -44,7 +44,7 @@ def _check_body(body: str) -> str:
     # gives, because a bidi override makes the text say what the reader did not see
     if wording.INVISIBLE.search(body):
         raise ValueError(
-            "The comment has an invisible format character. Remove it, then post the comment again."
+            "The comment has an invisible format character. Remove it, then try again."
         )
     return body
 
@@ -178,9 +178,12 @@ def _tell_the_thread(
     )
     people = {str(parent.get(column) or "") for column in _PARTIES[kind]}
     people |= {str(row["created_by"]) for row in writers}
-    skip = {actor, *told}
-    for person in sorted(p for p in people if p and p not in skip):
-        if users.is_agent(person) or not users.is_active(person):
+    # folded: an assignee is free text, and "Dana" beside "dana" is one person
+    skip = {users.fold(name) for name in (actor, *told)}
+    for person in sorted(p for p in people if p and users.fold(p) not in skip):
+        # a person on the roster: an agent reads its own inbox, and `team`
+        # (every CI blocker's owner) or a system actor is nobody's name
+        if not users.is_human(person) or not users.is_active(person):
             continue
         if not scope.can_read(tier[0], tier[1], scope.Viewer.for_actor(person), actor):
             continue
@@ -247,10 +250,12 @@ def list_comments(
     kind, pid = parent_of(task_id, decision_id, blocker_id)
     table = _TABLE[kind]
     limit = max(1, min(int(limit or 200), 200))
-    party = False
+    party = None
     if actor and kind == "task":
-        row = db.query_one("SELECT delegated_agent FROM tasks WHERE id = ?", (pid,))
-        party = row is not None and row["delegated_agent"] == actor
+        row = db.query_one(
+            "SELECT delegated_agent, visibility, crew_id FROM tasks WHERE id = ?", (pid,)
+        )
+        party = row if row is not None and row["delegated_agent"] == actor else None
     # the parent through its own filter first, so an unreadable parent
     # answers exactly like an absent one
     pfrag, pp = scope.visible_filter(viewer, table)
@@ -259,10 +264,13 @@ def list_comments(
         (pid, *pp),
     ):
         raise scope.missing(table, pid)
-    frag, params = ("1 = 1", []) if party else scope.visible_filter(viewer, "comments")
+    frag, params = delegate_door(party) if party else scope.visible_filter(viewer, "comments")
+    # the newest page, oldest first: the wake prompt sends the agent here for
+    # the NEW comment, and a page that kept the oldest would drop exactly that one
     rows = db.query(
-        "SELECT id, created_by, origin, body, created_at, edited_at, deleted_at, deleted_by"  # noqa: S608 — closed key map, bound marks
-        f" FROM comments WHERE {KEY[kind]} = ? AND {frag} ORDER BY id LIMIT ?",
+        "SELECT * FROM (SELECT id, created_by, origin, body, created_at, edited_at,"  # noqa: S608 — closed key map, bound marks
+        f" deleted_at, deleted_by, visibility FROM comments WHERE {KEY[kind]} = ? AND {frag}"
+        " ORDER BY id DESC LIMIT ?) newest ORDER BY id",
         (pid, *params, limit),
     )
     human = bool(me) and not scope.is_machine(me)
@@ -272,6 +280,22 @@ def list_comments(
         row["can_edit"] = mine
         row["can_delete"] = mine or (live and human and row["origin"] != "human")
     return rows
+
+
+def delegate_door(task: dict, alias: str = "") -> tuple[str, list]:
+    """What a task's delegate reads of the rows under it, whatever its own
+    crews: the rows at the task's CURRENT tier or wider, never a narrower
+    one. A child keeps the tier it was written at when its task is shared
+    wider (sharing.py only widens a row), so an unbounded door would hand a
+    private or crew-era comment to anyone who drove the agent, and to the
+    model in an unattended turn."""
+    column = f"{alias}." if alias else ""
+    if task["visibility"] == scope.CREW:
+        return (
+            f"({column}visibility = ? OR ({column}visibility = ? AND {column}crew_id = ?))",
+            [scope.WORKSPACE, scope.CREW, task["crew_id"]],
+        )
+    return f"{column}visibility = ?", [scope.WORKSPACE]
 
 
 def get_comment(comment_id: int, viewer: scope.Viewer) -> dict:
@@ -341,14 +365,21 @@ def delete_comment(comment_id: int, *, actor: str) -> dict:
     with db.transaction():
         row = _held(comment_id, actor)
         kind, pid = _where(row)
-        if row["deleted_at"]:
-            return {"id": comment_id, "parent": kind, "parent_id": pid, "deleted": False}
         person = not scope.is_machine(actor)
         if row["created_by"] != actor and not (person and row["origin"] != "human"):
             raise PermissionError("Only the author can delete this comment.")
+        if row["deleted_at"]:
+            return {"id": comment_id, "parent": kind, "parent_id": pid, "deleted": False}
         db.execute(
             "UPDATE comments SET body = '', deleted_at = ?, deleted_by = ? WHERE id = ?",
             (db.now(), actor, comment_id),
+        )
+        # an approved agent comment keeps its words in the proposal it came
+        # from, which the approved list shows: the text goes there too
+        db.execute(
+            'UPDATE pending_changes SET payload = (payload::jsonb || \'{"body": ""}\')::text'
+            " WHERE entity = 'comment' AND result_id = ?",
+            (comment_id,),
         )
         db.log_activity(actor, "delete_comment", _detail(kind, pid, comment_id))
     return {"id": comment_id, "parent": kind, "parent_id": pid, "deleted": True}
@@ -371,7 +402,8 @@ def refuse_forbidden(agent: str, kind: str) -> None:
 
     for entity in (kind, "comment"):
         if authority_level(agent, entity) == "forbidden":
-            raise ValueError(f"'{agent}' is forbidden on {entity}s. Ask a person to lift it.")
+            # delegation._check_not_forbidden's words, for one condition
+            raise ValueError(f"'{agent}' is forbidden on {entity}s — ask a human to lift it")
 
 
 def unanswered_for(agent: str, task_ids: list[int], limit: int = 20) -> list[dict]:
@@ -390,13 +422,18 @@ def unanswered_for(agent: str, task_ids: list[int], limit: int = 20) -> list[dic
     if not task_ids:
         return []
     marks = ",".join("?" * len(task_ids))
+    # the delegate's door (delegate_door), row by row: a comment narrower
+    # than its task stays out. A deleted answer is no answer, so the question
+    # it answered comes back.
     rows = db.query(
         "SELECT c.id, c.task_id, c.created_by, c.body, c.created_at, c.edited_at"  # noqa: S608 — marks only
-        " FROM comments c"
+        " FROM comments c JOIN tasks t ON t.id = c.task_id"
         f" WHERE c.task_id IN ({marks}) AND c.created_by <> ? AND c.deleted_at IS NULL"
+        " AND (c.visibility = 'workspace'"
+        "  OR (c.visibility = 'crew' AND t.visibility = 'crew' AND c.crew_id = t.crew_id))"
         " AND COALESCE(c.edited_at, c.created_at) > COALESCE(GREATEST("
         "  (SELECT MAX(o.created_at) FROM comments o"
-        "   WHERE o.task_id = c.task_id AND o.created_by = ?),"
+        "   WHERE o.task_id = c.task_id AND o.created_by = ? AND o.deleted_at IS NULL),"
         "  (SELECT MAX(w.created_at) FROM task_worklog w"
         "   WHERE w.task_id = c.task_id AND w.author = ?)), '')"
         " ORDER BY c.id LIMIT ?",

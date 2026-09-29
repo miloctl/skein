@@ -854,6 +854,10 @@ def _approve_change_locked(
             ("engagement_id", "engagement"),
             ("milestone_id", "milestone"),
             ("task_id", "task"),
+            # a comment's other parents (services/comments.py), held before the
+            # policy refresh reads a blocker's project through its task
+            ("decision_id", "decision"),
+            ("blocker_id", "blocker"),
         ):
             if isinstance(payload, dict) and str(payload.get(key) or "").isdigit():
                 policy_context.hold_resource(parent, int(payload[key]))

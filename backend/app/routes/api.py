@@ -499,26 +499,35 @@ def _read_thread(kind: str, pid: int, user: str, viewer, request: Request, subje
         policy = projection_policy.ProjectionPolicy(
             request.app.state.skein_registry.policy_engine, subject, action, "rest", viewer
         )
-        # one readable_refs walk per page, not per comment: each resolves
-        # tier and policy for every target it names (docs/intent/task-threads.md D12).
-        # quoted=False: in prose an apostrophe is a word, not a quoted title
+        # At most 20 references per comment: every named row is a bound
+        # parameter in one resolution query, and a page stuffed past the
+        # driver's limit makes the thread unreadable for everybody. quoted=False:
+        # in prose an apostrophe is a word, not a quoted title.
+        named = {
+            row["id"]: list(
+                dict.fromkeys(
+                    (ref["entity"], ref["id"]) for ref in refs.refs(row["body"], quoted=False)
+                )
+            )[:20]
+            for row in rows
+        }
+        # one readable_refs walk per page, not per comment: each resolves tier
+        # and policy for every target it names (docs/intent/task-threads.md D12)
         readable = {
             (ref["entity"], ref["id"]): ref
             for ref in refs.readable_refs(
-                "\n".join(row["body"] for row in rows),
+                "\n".join(
+                    f"{entity} #{ref_id}"
+                    for key in dict.fromkeys(k for keys in named.values() for k in keys)
+                    for entity, ref_id in (key,)
+                ),
                 viewer,
                 resource_filter=policy.permits,
                 quoted=False,
             )
         }
         for row in rows:
-            row["refs"] = [
-                readable[key]
-                for key in dict.fromkeys(
-                    (ref["entity"], ref["id"]) for ref in refs.refs(row["body"], quoted=False)
-                )
-                if key in readable
-            ]
+            row["refs"] = [readable[key] for key in named[row["id"]] if key in readable]
         return rows
 
 

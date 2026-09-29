@@ -345,9 +345,15 @@ def list_worklog(
     ):
         raise scope.missing("tasks", task_id)
     if party:
+        # bounded by the task's current tier (comments.delegate_door): a note
+        # written while the task was a crew's stays the crew's after a share
+        task_row = db.query_one("SELECT visibility, crew_id FROM tasks WHERE id = ?", (task_id,))
+        from .comments import delegate_door
+
+        door, door_params = delegate_door(task_row) if task_row else ("1 = 0", [])
         return db.query(
-            "SELECT * FROM task_worklog WHERE task_id = ? ORDER BY id DESC LIMIT ?",
-            (task_id, limit),
+            f"SELECT * FROM task_worklog WHERE task_id = ? AND {door} ORDER BY id DESC LIMIT ?",  # noqa: S608 — bound marks
+            (task_id, *door_params, limit),
         )
     # the worklog is the task's own text, and its parent may be invisible to
     # this reader — the child has to be filtered on its own tier, not the

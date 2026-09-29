@@ -7,8 +7,8 @@ import { PeekLink } from "@/components/task-peek";
 const TASK_LINK = /^\?task=(\d+)(?:#(.*))?$/;
 
 /** A notice's link. A task link opens the panel over the page: next/link
- *  pushes the address and fires nothing the panel listens for, so it
- *  changed the URL and opened nothing (components/receipt.tsx). */
+ *  pushes the address and fires nothing the panel listens for, so it would
+ *  change the URL and open nothing (components/receipt.tsx). */
 export function NoticeLink({
   href,
   children,

@@ -260,11 +260,11 @@ def test_a_failing_member_leaves_the_other_sections_intact(client, fresh_db, mon
 
 
 def test_every_ungated_writer_refuses_in_a_flock(client, fresh_db):
-    """Derived from test_gate_coverage.py's list, NOT hand-written: those four
+    """Derived from test_gate_coverage.py's list, NOT hand-written: those five
     tools skip tools/_gate.py by design, so force_review never reaches them and
     each needs its own guard. A hand-written list here passed while
     submit_for_acceptance was missing one, which is the drift the shared list
-    exists to catch. A fifth ungated writer fails this test until it decides."""
+    exists to catch. A sixth ungated writer fails this test until it decides."""
     from test_gate_coverage import UNGATED_WRITERS
 
     from app.services import comments, delegation, handoff
@@ -290,7 +290,7 @@ def test_every_ungated_writer_refuses_in_a_flock(client, fresh_db):
     try:
         for name, call in calls.items():
             # matched on the MODE, not on "flock": a consulted specialist
-            # reaches the same four writers, so the message must not name a
+            # reaches the same five writers, so the message must not name a
             # flock the reader never started
             with pytest.raises(ValueError, match="asked for an opinion") as exc:
                 call()
