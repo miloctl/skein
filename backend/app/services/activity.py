@@ -1141,6 +1141,7 @@ VERBS: dict[str, tuple[str, str]] = {
     "delete_file": ("deleted an attached file", "loud"),
     "create_document": ("wrote a document", "normal"),
     "edit_document": ("changed a document", "normal"),
+    "restore_document": ("restored an earlier revision of a document", "normal"),
     "exec_readout": ("published an exec readout", "normal"),
     "schedule_event": ("scheduled an event", "normal"),
     "update_event": ("changed an event", "normal"),

@@ -196,3 +196,23 @@ def test_a_private_handoff_is_listed_deleted_and_counted_apart_from_files(client
     assert not Path(path).exists()
     upload = db.query_row("SELECT id FROM artifacts WHERE kind = 'upload'")["id"]
     assert client.delete(f"/api/my-data/artifacts/{upload}", headers=ava).status_code == 404
+
+
+def test_the_export_carries_every_revision_of_a_private_document(client):
+    """A private document's text is its author's alone, and the export held
+    the row without a body."""
+    ava = _strong(client, "ava")
+    doc = client.post(
+        "/api/documents",
+        json={"title": "Draft", "content": "first draft", "visibility": "private"},
+        headers=ava,
+    ).json()["id"]
+    client.put(
+        f"/api/documents/{doc}", json={"content": "second draft", "base_revision": 1}, headers=ava
+    )
+    body = client.get("/api/my-data/export", headers=ava).json()
+    exported = next(a for a in body["records"]["artifacts"] if a["id"] == doc)
+    assert [(r["revision"], r["body"]) for r in exported["revisions"]] == [
+        (1, "first draft"),
+        (2, "second draft"),
+    ]

@@ -58,7 +58,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
   };
 });
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/artifacts" }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/artifacts",
+  useSearchParams: () => new URLSearchParams(window.location.search),
+}));
 
 import ArtifactsPage from "@/app/artifacts/page";
 

@@ -60,14 +60,16 @@ def read_artifact(artifact_id: int) -> str:
         policy.allows_all_projects() and policy.allows_unclassified()
     ):
         return json.dumps({"error": "Skein policy denied this artifact."})
-    return json.dumps(
-        {
-            "artifact_id": row["id"],
-            "kind": row["kind"],
-            "title": row["title"],
-            "markdown": row["markdown"],
-        }
-    )
+    out = {
+        "artifact_id": row["id"],
+        "kind": row["kind"],
+        "title": row["title"],
+        "markdown": row["markdown"],
+    }
+    if row["kind"] == "document":
+        # the revision this text is, so the model can name what it read
+        out["revision"] = row["revision"]
+    return json.dumps(out)
 
 
 @tool
@@ -92,14 +94,14 @@ def create_document(title: str, content: str, source_id: int = 0, engagement_id:
         "document",
         "create",
         payload,
-        lambda: documents.create_document(**payload, actor=agent_identity()),
+        lambda: documents.create_document(**payload, actor=agent_identity(), origin="agent"),
         summary=title,
     )
 
 
 @tool
 def edit_document(artifact_id: int, old_text: str, new_text: str) -> str:
-    """Replace one exact run of text in a document an agent wrote.
+    """Replace one exact run of text in a shared document.
 
     An uploaded file is never changed, and a file somebody attached is
     private — a document made from one cannot be shared with the team, so
@@ -111,11 +113,20 @@ def edit_document(artifact_id: int, old_text: str, new_text: str) -> str:
         old_text: The exact text to replace. It must appear exactly once.
         new_text: What to put in its place.
     """
-    payload: dict[str, Any] = {"old": old_text, "new": new_text}
+    # the base is stamped here, not asked of the model: the model does not
+    # carry the number, and a person's save before the approval must refuse
+    # this edit rather than let its quote land on text the agent never read
+    payload: dict[str, Any] = {
+        "old": old_text,
+        "new": new_text,
+        "base_revision": documents.head_revision(artifact_id),
+    }
     return gated_write(
         "document_edit",
         "update",
         payload,
-        lambda: documents.edit_document(artifact_id, **payload, actor=agent_identity()),
+        lambda: documents.edit_document(
+            artifact_id, **payload, actor=agent_identity(), origin="agent"
+        ),
         entity_id=artifact_id,
     )

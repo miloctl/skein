@@ -12,6 +12,7 @@ import { actionError, api, getUser, loadError, subscribeUser } from "@/lib/api";
 import { notifyAttentionChange } from "@/lib/attention";
 import { reportStatus } from "@/lib/status";
 import { EmptyState } from "@/components/card";
+import { UnifiedDiff } from "@/components/unified-diff";
 import { PeekLink } from "@/components/task-peek";
 import { timeAgo } from "@/lib/time";
 import { emptyState } from "@/lib/whimsy";
@@ -44,6 +45,10 @@ function cell(v: unknown): string {
 type Diff = {
   current: Record<string, unknown>;
   proposed: Record<string, unknown>;
+  // document_edit only (services/documents.py::proposal_diff)
+  unified?: string;
+  base_revision?: number;
+  head_revision?: number;
 };
 
 const REVIEW_PAGE = 50;
@@ -723,6 +728,18 @@ export default function ReviewPage() {
       settle([id]);
     } catch (e) {
       reportStatus(actionError(e));
+      // An approval that can never apply settles the proposal as rejected and
+      // still answers an error (services/review.py, "auto-rejected"), as a
+      // busy database does for one that stays pending. Only the queue says
+      // which: a settled card left here invites a second approval.
+      const pending = await api<Change[]>(
+        `/api/review?status=pending&limit=1&after=${id - 1}`,
+      ).catch(() => null);
+      if (pending && pending[0]?.id !== id) {
+        notifyAttentionChange();
+        setAsking(null);
+        settle([id]);
+      }
     }
   };
 
@@ -941,12 +958,27 @@ export default function ReviewPage() {
               </p>
             ) : null}
             {c.evidence ? <AcceptanceEvidence evidence={c.evidence} /> : null}
+            {/* a document edit has no other readable summary: the payload is
+                a quote and its replacement, so the change shows as lines */}
+            {diffs[c.id]?.unified ? (
+              <div className="mb-3 space-y-2">
+                {(diffs[c.id].head_revision ?? 0) > (diffs[c.id].base_revision ?? 0) ? (
+                  <p className="text-xs text-danger">
+                    The document changed after this proposal. If you approve it, Skein rejects it.
+                  </p>
+                ) : null}
+                <UnifiedDiff
+                  diff={diffs[c.id].unified ?? ""}
+                  label={`Proposed change to document #${c.entity_id}`}
+                />
+              </div>
+            ) : null}
             <details className="mb-3">
               <summary className="cursor-pointer text-xs font-medium text-thread underline">
                 Technical details
               </summary>
               <div className="mt-2">
-            {diffs[c.id] ? (
+            {diffs[c.id] && !diffs[c.id].unified ? (
               <div className="mb-3 overflow-x-auto">
                 <table className="w-full rounded-lg bg-raised text-xs">
                   <thead>

@@ -122,6 +122,7 @@ KEPT = {
 # The test verifies the cascade exists in the live schema, so this map cannot
 # claim a cleanup the database does not perform.
 CASCADED = {
+    "document_revisions": "artifacts",
     "extension_event_attempts": "extension_outbox",
     "extension_event_deliveries": "extension_outbox",
     "notification_reads": "notifications",

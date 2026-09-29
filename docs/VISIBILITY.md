@@ -276,6 +276,7 @@ identifier, never a body.** Pin it with a test.
 | `notifications` | Every team-wide `notify("team", ...)` that quotes a scoped row's text is gated on the workspace tier (the blocker funeral, the stale-decision sweep, ship-it, the unlinked-milestone warning), and a per-person notify checks the recipient can read the row. |
 | `admin.export` | Private rows are excluded structurally. Crew rows stay. Tables that can copy private text without a visibility column are excluded. Each new table takes an explicit `admin.TABLES` or `admin.EXCLUDED` classification. Artifact metadata stays, but absolute storage paths do not. |
 | `data/artifacts/` | A file on disk carries no column. Anything a job writes is workspace-tier by the rule above. |
+| `document_revisions` | A revision carries no tier. Every read joins its document through `visible_filter` on `artifacts` (`scope.UNSCOPED`), and `admin.EXCLUDED` keeps the bodies out of the portable export. A scoped document's head file is under `data/artifacts/documents/`, and the row decides every read of it. A private document is never indexed, embedded or read by an agent (`read_artifact` reads the workspace tier), and its revisions leave with it in the offboarding erase (the cascade) and travel in its author's Your data export. |
 | the model provider (chat turns) | A read tool about the person's own records reads with the Viewer of the human who drove the turn (`identity.requester_viewer`): `get_attention` and `search_notes`. Their private rows reach the provider for that person's turn, as their addressed memories do. A shared chat sets that Viewer to nobody, because every member reads the reply, and an unattended run sets none. The MCP `search_notes` tool reads with the key owner's Viewer, so a personal key's client (and its provider) receives that person's private notes and the notes of their crews. Over stdio no person is present, and it reads the workspace tier. A chat write filed after a private or crew read in the same turn is reviewed by the requester alone, or refused (`identity.read_scoped_this_turn`). Over MCP each call is its own request, so nothing carries a read into a later call. |
 
 ### Frontend
@@ -310,15 +311,19 @@ crew's view, silently, for 15 seconds.
 
 Tasks and notes have no create form of their own in this UI — both are made
 through quick capture — so the picker went into the ⌘K palette, which routes
-to seven entities, plus the standup card. Two controls, eight entities.
+to seven entities, plus the standup card and the New document form on
+Work → Reports. Three controls, nine entities.
 
 ### What still lands at workspace, always
 
-All sixteen tables can now carry a non-workspace tier. `lessons` and
-`artifacts` are the two nobody sets by hand: a lesson inherits from the
-experiment whose conclusion drafted it, and a handoff artifact inherits from
-its engagement — which is what stops `list_artifacts` handing out a path to a
-file of another crew's work.
+All sixteen tables can now carry a non-workspace tier. `lessons` is the one
+nobody sets by hand: a lesson inherits from the experiment whose conclusion
+drafted it. An `artifacts` row mostly inherits too (a handoff takes its
+engagement's tier, which is what stops `list_artifacts` handing out a path to a
+file of another crew's work), but a person now sets one: **New document** on
+Work → Reports takes the visibility picker (`POST /api/documents`, "only you"
+first for a signed-in person). An agent's document stays workspace: the tool
+sends no tier.
 
 Four of the sixteen have no create form in this UI at all (milestones,
 events, memories, lessons). Two more do have one but offer no picker on it:

@@ -1519,3 +1519,41 @@ def test_the_invisible_class_is_every_format_character_but_the_joiner():
         char = chr(code)
         expected = unicodedata.category(char) == "Cf" and code != 0x200D
         assert bool(wording.INVISIBLE.fullmatch(char)) == expected, hex(code)
+
+
+def test_a_document_edit_diff_is_unified_against_its_base(client, fresh_db, monkeypatch):
+    """The review card showed "—" beside the new text: change_diff looked for
+    `old` and `new` columns that artifacts does not have. A document edit now
+    diffs the revision it was filed on, and says when the head moved."""
+    import json
+
+    from conftest import _strong
+
+    from app import config
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.services import documents, users
+    from app.tools import files
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    users.ensure_user("scribe", kind="agent")
+    doc = documents.create_document("Runbook", "alpha\nbeta\ngamma\n", actor="scribe")["id"]
+    tool = getattr(files.edit_document, "_tool_func", None) or files.edit_document.__wrapped__
+    token = set_agent_identity("scribe")
+    try:
+        json.loads(tool(doc, "beta", "delta"))
+    finally:
+        reset_agent_identity(token)
+    pid = db.query_one("SELECT id FROM pending_changes WHERE entity = 'document_edit'")["id"]
+    mira = _strong(client, "mira")
+    diff = client.get(f"/api/review/{pid}/diff", headers=mira).json()["diff"]
+    assert "-beta" in diff["unified"] and "+delta" in diff["unified"]
+    assert (diff["base_revision"], diff["head_revision"]) == (1, 1)
+    client.put(
+        f"/api/documents/{doc}",
+        json={"content": "alpha\nbeta\ngamma\nepsilon\n", "base_revision": 1},
+        headers=mira,
+    )
+    moved = client.get(f"/api/review/{pid}/diff", headers=mira).json()["diff"]
+    assert (moved["base_revision"], moved["head_revision"]) == (1, 2)
+    # still the base the agent read: the head's new line is not the agent's
+    assert "+delta" in moved["unified"] and "epsilon" not in moved["unified"]

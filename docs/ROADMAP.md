@@ -573,6 +573,17 @@ review. Each names the condition that reopens it.
 | An event picker in the capture palette (`C`) | Linking after the fact from the meeting panel is common enough that the extra step costs time. |
 | Sharing an event to a wider tier | A request for it. It goes in `sharing.py`, which only widens, so no linked row becomes wider than its meeting. |
 | Authority matrix split by action class (internal edit vs external send) | An agent holds `autonomous` on an entity where one verb is internal and another leaves Skein (mail, webhook, customer surface). Today no tool on a granted entity crosses that line — the split waits for the tool that does. |
+| Document live co-editing, presence, locks | A 409 lands on the same document more than once a week. |
+| Merge help after a document 409 (base → head beside the unsaved text) | People report retyping after a 409. |
+| An agent restore tool for documents | A reviewer asks an agent to "undo that edit". |
+| MCP and CLI document commands | Someone edits a design doc from their editor. |
+| An @mention scan on a document save | A person asks to be pinged from a document. |
+| `document` as a `refs.TARGETS` word | An agenda or a thread names a document and it renders as plain text. |
+| Rename and delete a shared document | The first request. |
+| A document revision cap or pruning | A document passes 200 revisions, or `document_revisions` passes 5% of the dump. |
+| Share a document to a wider tier (`sharing.SHAREABLE`) | Someone copies a private draft into a new workspace document to share it. The mutating document routes then take `policy_context.hold_resource` first. |
+| A person's document filed under an engagement | A person asks to see their document on an engagement page. It needs `scope.assert_relationship_contains`. |
+| An agent reads a person's private document in that person's own turn | A request for it. `read_artifact` reads the workspace tier. |
 
 ## Deferred by the agent-discovery adoption (2026-08-30)
 
@@ -718,14 +729,9 @@ this file. The hardening branch `fix/trust-loop-and-hardening` shipped what
 was built. Everything below is open.
 
 **Approved features, one branch each.** Each has a plan with the owner's
-decisions settled on 2026-09-28, in `docs/intent/`. Build order: the task
-panel's blocker form (first, on its own), then document revisions, GitLab,
+decisions settled on 2026-09-28, in `docs/intent/`. Build order: GitLab,
 comment threads, the board and routines.
 
-- **Document editing and revisions** [M–L] — `docs/intent/document-revisions.md`.
-  Revision rows, human edit, history that names editors, restore, agent edits
-  pinned to their base, a real diff in Approvals, search on the current text,
-  and documents that people create with a visibility tier.
 - **GitLab forge support and repository packs** [M] —
   `docs/intent/gitlab-forge.md`. Inbound webhooks only (outbound is an open
   decision); push, merge request and pipeline events; the `Closes-Task:` body
@@ -768,6 +774,8 @@ codes can now show.
   at filing, and at approval name a field a teammate changed since. The diff
   already shows current → proposed; it cannot say the current value is newer
   than the proposal. Trigger: a reviewer approves over a newer edit.
+  Document edits already carry one: `base_revision`, checked at approval
+  (`docs/intent/document-revisions.md`, D4 and D5).
 - **Reset a shared-chat agent's session when a person joins** [XS–S] —
   `_AudiencePolicy` checks each read against the current members, but the
   model session keeps raw tool results from before the join. Matters only

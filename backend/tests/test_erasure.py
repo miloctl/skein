@@ -251,3 +251,26 @@ def test_the_roster_shows_an_administrator_when_the_erase_runs(client, fresh_db)
     assert rows["leaver"]["erased"] is False
     assert all("erase_on" not in row for row in rows.values() if row["active"])
     assert json.dumps(rows["leaver"]).count("leaver") == 1
+
+
+def test_the_erase_takes_a_private_document_and_every_revision(client, fresh_db):
+    """The cascade takes the revisions: without ON DELETE CASCADE the
+    artifact delete aborts the whole erase."""
+    users.ensure_user("ava")
+    users.ensure_user("leaver")
+    leaver = _strong(client, "leaver")
+    doc = client.post(
+        "/api/documents",
+        json={"title": "Draft", "content": "first draft", "visibility": "private"},
+        headers=leaver,
+    ).json()["id"]
+    client.put(
+        f"/api/documents/{doc}", json={"content": "second", "base_revision": 1}, headers=leaver
+    )
+    path = Path(fresh_db.query_one("SELECT path FROM artifacts WHERE id = ?", (doc,))["path"])
+    users.set_active("leaver", False, actor="ava")
+    _backdate_deactivation("leaver", erasure.GRACE_DAYS)
+    assert erasure.erase_due() == {"erased": 1}
+    assert not fresh_db.query("SELECT 1 FROM artifacts WHERE id = ?", (doc,))
+    assert not fresh_db.query("SELECT 1 FROM document_revisions WHERE artifact_id = ?", (doc,))
+    assert not path.exists()
