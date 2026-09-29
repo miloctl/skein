@@ -643,9 +643,9 @@ export function TaskPeek() {
 // not in the select: it has its own confirmed control below, and a voided
 // task's select carries it so the restore path (pick a live status) exists.
 // `blocked` is left out for the same kind of reason: a blocker sets it
-// (RaiseBlockerForm), and a bare pick left a task Blocked with no reason, no
-// owner and no escalation clock. A blocked task's select still carries it,
-// so the current value shows.
+// (RaiseBlockerForm), and a bare pick leaves a task Blocked with no reason,
+// no owner and no escalation clock. A blocked or void task's select carries
+// its current status, so the current value shows.
 const STATUSES = ["todo", "in_progress", "done"];
 const PRIORITIES = ["low", "medium", "high", "urgent"];
 
@@ -687,6 +687,9 @@ function EditControls({ task, onSaved }: { task: PeekTask; onSaved: () => void }
         onRaised={() => {
           setBlocking(false);
           onSaved();
+          // the blocked… button is gone once the task is blocked, so focus
+          // lands on the edit control rather than the page body
+          setTimeout(() => document.getElementById(`peek-edit-${task.id}`)?.focus(), 0);
         }}
         onCancel={() => {
           setBlocking(false);
@@ -852,7 +855,10 @@ function EditControls({ task, onSaved }: { task: PeekTask; onSaved: () => void }
             onChange={(e) => setDraft({ ...draft, status: e.target.value })}
             className={field}
           >
-            {(task.status === "blocked" ? [...STATUSES, "blocked"] : STATUSES).map((s) => (
+            {(task.status === "blocked" || task.status === "void"
+              ? [...STATUSES, task.status]
+              : STATUSES
+            ).map((s) => (
               <option key={s} value={s}>
                 {s.replace("_", " ")}
               </option>

@@ -122,8 +122,8 @@ def raise_blocker(
         if task_id:
             tfrag, tp = scope.visible_filter(scope.Viewer.for_actor(actor), "tasks", "task")
             # FOR UPDATE: the status read here decides the flip to blocked
-            # below. Unlocked, a task finished between the two went back to
-            # Blocked and lost its completed_at.
+            # below. Unlocked, a task finished between the two goes back to
+            # Blocked and loses its completed_at.
             task = db.query_one(
                 f"SELECT task.* FROM tasks task WHERE task.id = ? AND {tfrag} FOR UPDATE",  # noqa: S608 -- scope emits bound marks
                 (task_id, *tp),
