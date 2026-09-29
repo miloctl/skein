@@ -32,12 +32,8 @@ for a season with the review gate on (the default since 2026-08-21):
   evidence to NARROW the agent surface instead — the decision is then a
   read, not a debate.
 - 2026-09-28: the owner approved five features after the external-repo
-  discovery, and three of them reopen portfolio surfaces: discussion threads
-  on tasks, routines (standing delegations and recurring tasks), a board
-  view, document editing with revisions, and GitLab forge support with
-  repo-scoped context packs. Each gets its own branch after the hardening
-  branch lands. All five shipped: document revisions, GitLab forge
-  support, comment threads, the board and routines.
+  discovery (comment threads, routines, a board view, document revisions,
+  GitLab forge support). All five shipped.
   The rest of the freeze stands.
 
 # Open backlog (consolidated 2026-08-02)
@@ -759,6 +755,21 @@ larger than its finding.
   `blockers.create_policy_context` reads the task without a hold, so a
   relink between the decision and `raise_blocker` applies a rule chosen for
   the old project. Hold the task there with `policy_context.hold_resource`.
+
+## Found by the review of routines (2026-09-29)
+
+- **The evidence-gap rule counts a routine's weekly acceptances** —
+  `insights._r_evidence_gap` flags an accepted delegation with no worklog
+  note, and a sweep that finds nothing due often files none, so one routine
+  can fire the rule every week. The rule is the demand probe for the
+  evidence-pack spec, and repetition inflates its rate the way D11 of
+  `docs/intent/routines.md` describes for trust. Trigger: the finding
+  names a task that carries `routine_id`. Then count those apart, or leave
+  them out of the probe.
+- **The routines list has no page limit** — `GET /api/routines` returns
+  every routine the reader can see. Only active routines are capped (25 per
+  owner), and a paused one never fires. Trigger: a reader's list passes 100
+  routines.
 
 ## From the external-repo discovery (2026-09-28)
 

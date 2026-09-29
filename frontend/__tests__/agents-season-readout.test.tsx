@@ -79,7 +79,7 @@ describe("the season readout card", () => {
     const { unmount } = render(<AgentsPage />);
     expect(
       await screen.findByText(
-        /From routines, counted separately: 12 acceptances \(11 approved · 1 rejected\) · 12 delegations started · 11 accepted\./,
+        /From routines, counted separately: 12 acceptance verdicts \(11 approved · 1 rejected\) · 12 delegations started · 11 accepted\./,
       ),
     ).toBeTruthy();
     expect(screen.getByText(/0 pending · 12 from routines/)).toBeTruthy();
@@ -121,5 +121,7 @@ describe("the season readout card", () => {
     expect(await screen.findByText(/no verdicts outside routines/)).toBeTruthy();
     expect(screen.getByText(/routines, counted separately: 11 approved, 1 rejected/)).toBeTruthy();
     expect(screen.queryByText(/0\/0 approved/)).toBeNull();
+    // strong routine verdicts exist, so the row must not deny them
+    expect(screen.queryByText(/no verified verdicts/)).toBeNull();
   });
 });

@@ -145,8 +145,7 @@ def main() -> None:
         actor="ava",
         dates_shared=True,
     )
-    # paused, so a demo instance creates no tasks on its own: resuming it is
-    # the step the Routines section teaches
+    # paused, so a demo instance creates no tasks until someone resumes it
     from app.services import routines
 
     checklist = routines.create_routine(
