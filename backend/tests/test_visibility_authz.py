@@ -20,6 +20,7 @@ from app.services import (
     absences,
     blockers,
     collab,
+    comments,
     delegation,
     documents,
     engagements,
@@ -70,6 +71,7 @@ def _seed(cid, n=0):
     rows["engagement"] = engagements.create_engagement(name, **k)["id"]
     rows["milestone"] = work.create_milestone("crew milestone", name, **k)["id"]
     rows["document"] = documents.create_document("crew doc", "crew body", **k)["id"]
+    rows["comment"] = comments.add_comment("crew comment", task_id=rows["task"], actor="ava")["id"]
     return rows
 
 
@@ -142,6 +144,12 @@ def _mutations(r):
             "documents.restore_revision",
             lambda a: documents.restore_revision(r["document"], 1, 1, actor=a),
         ),
+        (
+            "comments.add_comment",
+            lambda a: comments.add_comment("x", task_id=r["task"], actor=a),
+        ),
+        ("comments.edit_comment", lambda a: comments.edit_comment(r["comment"], "x", actor=a)),
+        ("comments.delete_comment", lambda a: comments.delete_comment(r["comment"], actor=a)),
         (
             "engagements.update_engagement",
             lambda a: engagements.update_engagement(r["engagement"], summary="x", actor=a),
@@ -455,6 +463,7 @@ _KINDS = (
     "engagement",
     "milestone",
     "document",
+    "comment",
 )
 
 # Files whose writes are never addressed by a caller-supplied id.
