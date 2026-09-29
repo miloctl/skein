@@ -3,6 +3,7 @@
 base is a 409 that keeps the newer text, and history reaches readers of
 that document only."""
 
+import pytest
 from conftest import _strong
 
 from app import db
@@ -158,3 +159,102 @@ def test_a_document_links_a_reference_after_an_apostrophe(client, fresh_db):
     assert {"entity": "task", "id": task} in [
         {"entity": t["entity"], "id": t["id"]} for t in threads
     ]
+
+
+def _agent_edit(doc: int, old: str, new: str, agent: str = "scribe") -> dict:
+    """File an edit through the real agent tool, review on, so the payload
+    carries what the tool stamps."""
+    import json
+
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.tools import files
+
+    fn = getattr(files.edit_document, "_tool_func", None) or files.edit_document.__wrapped__
+    token = set_agent_identity(agent)
+    try:
+        return json.loads(fn(doc, old, new))
+    finally:
+        reset_agent_identity(token)
+
+
+def _approve(proposal_id: int):
+    from app.main import create_app
+    from app.services import review
+
+    return review.approve_change(
+        proposal_id,
+        actor="mira",
+        strong=True,
+        policy_registry=create_app().state.skein_registry,
+    )
+
+
+def _pending_edit(doc: int) -> dict:
+    return db.query_one(
+        "SELECT * FROM pending_changes WHERE entity = 'document_edit' AND entity_id = ?"
+        " ORDER BY id DESC",
+        (doc,),
+    )
+
+
+def test_a_proposal_filed_before_a_human_save_is_refused_and_not_counted(
+    client, fresh_db, monkeypatch
+):
+    """Filed against revision 1, applied after a person saved revision 2: the
+    quote still matched, so the agent's change landed on top of text it never
+    read. Now it settles as rejected once, and the agent's record does not
+    count it."""
+    from app import config
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    doc = _doc("alpha beta")
+    _agent_edit(doc, "beta", "gamma")
+    proposal = _pending_edit(doc)
+    assert proposal["status"] == "pending"
+    _save(client, doc, "alpha beta delta", 1)
+    # the reviewer is told why, and the proposal is settled, not requeued
+    with pytest.raises(ValueError, match="changed after revision 1"):
+        _approve(proposal["id"])
+    settled = db.query_one(
+        "SELECT status, reviewed_strong, review_note FROM pending_changes WHERE id = ?",
+        (proposal["id"],),
+    )
+    assert settled["status"] == "rejected"
+    assert settled["reviewed_strong"] == 0
+    assert _head_body(doc) == "alpha beta delta"
+
+
+def test_a_quote_missing_from_the_document_is_refused_when_filed(fresh_db, monkeypatch):
+    """Filed, it failed at approval and came back after every try."""
+    from app import config
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    doc = _doc("alpha beta")
+    out = _agent_edit(doc, "zeta", "eta")
+    assert "not in document" in out["error"]
+    assert _pending_edit(doc) is None
+
+
+def test_an_approved_edit_names_its_proposal_on_the_revision(fresh_db, monkeypatch):
+    import json
+
+    from app import config
+    from app.tools import files
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    doc = _doc("alpha beta")
+    _agent_edit(doc, "beta", "gamma")
+    proposal = _pending_edit(doc)
+    _approve(proposal["id"])
+    revision = db.query_one(
+        "SELECT revision, origin, change_id FROM document_revisions"
+        " WHERE artifact_id = ? ORDER BY revision DESC",
+        (doc,),
+    )
+    assert (revision["revision"], revision["origin"], revision["change_id"]) == (
+        2,
+        "agent_verified",
+        proposal["id"],
+    )
+    read = getattr(files.read_artifact, "_tool_func", None) or files.read_artifact.__wrapped__
+    assert json.loads(read(doc))["revision"] == 2
