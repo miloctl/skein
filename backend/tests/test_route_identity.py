@@ -118,7 +118,8 @@ def test_every_mutating_route_resolves_a_caller():
         if route.methods - {"GET", "HEAD", "OPTIONS"} and not _resolves_identity(route.dependant)
     }
     # The forge proves identity with a raw-body signature in the handler
-    # (routes/deps.py::verify_forge_signature). Sign-in exchanges and session
+    # (routes/deps.py::verify_forge_signature), and GitLab with its secret
+    # token header (verify_gitlab_token). Sign-in exchanges and session
     # revocation use their own credential checks.
     assert open_writes == {
         ("POST", "/api/auth/token"),
@@ -126,4 +127,5 @@ def test_every_mutating_route_resolves_a_caller():
         ("DELETE", "/api/auth/session"),  # cookie/CSRF revocation also works after expiry
         ("DELETE", "/api/auth/sessions"),  # the cookie names the person, CSRF is required
         ("POST", "/api/webhooks/forge"),
+        ("POST", "/api/webhooks/gitlab"),
     }

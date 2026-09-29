@@ -394,9 +394,19 @@ knots:
     # documentation, and it stays that way.
     ties: never
     pitch: The branch drags the task along behind it — one hitch, and the log follows the tow.
-    how: "Whoever runs the server sets SKEIN_FORGE_WEBHOOK_SECRET. Add the webhook URL from Settings → Connections to your repository with that same secret. Name a branch `task/42-slug`. The push starts task 42, and the merged pull request finishes it."
+    how: "Whoever runs the server sets SKEIN_FORGE_WEBHOOK_SECRET for Gitea or SKEIN_GITLAB_WEBHOOK_TOKEN for GitLab. Add the matching webhook URL from Settings → Connections to the repository with that same value. Name a branch `task/42-slug`. The push starts task 42, and the merged pull request or merge request finishes it."
     link: /settings
     since: 2026-08-03
+
+  - id: repo_pack
+    feature: Context pack in a repository
+    knot: Ashley Bend
+    set: bends
+    ties: mark
+    pitch: Pack the team's context into the repository, and every agent that opens it starts with the brief.
+    how: "In the repository, run `skein context --engagement <id> --write AGENTS.md`. Skein writes its block between two marker lines and keeps your other text. If the file already has text, add --force the first time, and Skein adds its block at the end. Run the command again to refresh the block."
+    link: /settings
+    since: 2026-09-29
 
   - id: remote-tools
     feature: Personal MCP servers

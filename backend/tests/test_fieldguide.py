@@ -30,7 +30,7 @@ def test_registry_is_valid_and_complete():
     from app.services import fieldguide
 
     cards = fieldguide.registry()
-    assert len(cards) == 71
+    assert len(cards) == 72
     ids = {k["id"] for k in cards}
     assert ids == set(fieldguide.PREDICATES)
     for k in cards:
@@ -198,7 +198,7 @@ def test_hint_and_guide_use_the_same_tieable_total(fresh_db):
     from app.services import fieldguide
 
     _mint(fresh_db, "ava")
-    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 70
+    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 71
 
 
 def test_first_detection_seeds_silently(fresh_db):
@@ -535,6 +535,21 @@ def test_saving_an_agents_document_ties_the_document_revisions_knot(client, fres
     )
     assert card()["tied"] is False
     client.put(f"/api/documents/{doc}", json={"content": "# Plan 2\n", "base_revision": 1})
+    assert card()["tied"] is True
+
+
+def test_writing_a_repository_pack_ties_repo_pack(client, fresh_db):
+    """Only a file write sends tier=workspace, and that write is the use.
+    Scripts read the pack without it."""
+    from app.services import fieldguide
+
+    _mint(fresh_db, "tester")
+    card = lambda: next(  # noqa: E731
+        r for r in fieldguide.guide("tester")["cards"] if r["id"] == "repo_pack"
+    )
+    client.get("/api/context-pack")
+    assert card()["tied"] is False
+    client.get("/api/context-pack?tier=workspace")
     assert card()["tied"] is True
 
 

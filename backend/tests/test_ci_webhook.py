@@ -167,3 +167,114 @@ def test_ci_webhook_rejects_an_unvalidated_repository_shape(client, fresh_db):
     assert refused.status_code == 400
     assert "secret-" not in refused.text
     assert refused.json()["detail"].startswith("repo:")
+
+
+def test_two_red_runs_at_once_file_one_blocker(fresh_db, monkeypatch):
+    """Both runs read "no open blocker" before either inserts, so each filed
+    its own. The first run is held inside raise_blocker until the second has
+    had its chance to read."""
+    import threading
+
+    from app.services import blockers, ci
+
+    raise_blocker = blockers.raise_blocker
+    first_inside, second_inside = threading.Event(), threading.Event()
+    calls = []
+
+    def held(**kwargs):
+        calls.append(kwargs["source"])
+        if len(calls) == 1:
+            first_inside.set()
+            # with the lock the second run waits at it, and this times out
+            second_inside.wait(2)
+        else:
+            second_inside.set()
+        return raise_blocker(**kwargs)
+
+    monkeypatch.setattr(ci.blockers, "raise_blocker", held)
+    errors = []
+
+    def run():
+        try:
+            ci.ci_event("team/app", "main", "failure", "https://ci.example/1")
+        except Exception as exc:
+            errors.append(exc)
+
+    first = threading.Thread(target=run)
+    first.start()
+    assert first_inside.wait(5)
+    second = threading.Thread(target=run)
+    second.start()
+    first.join()
+    second.join()
+    assert errors == []
+    open_rows = fresh_db.query(
+        "SELECT id FROM blockers WHERE source = 'ci:team/app:main' AND status != 'resolved'"
+    )
+    assert len(open_rows) == 1
+
+
+def test_a_green_run_racing_a_person_resolving_the_blocker_is_not_refused(fresh_db, monkeypatch):
+    """A person resolves a CI blocker without the CI lock. The green run read
+    the blocker as open, then its own resolve found it resolved and answered
+    400, and the forge's receipt rolled back."""
+    import threading
+
+    from app.services import blockers, ci
+
+    blocker = ci.ci_event("team/app", "main", "failure")["blocker_id"]
+    resolve = blockers.resolve_blocker
+    inside, person_done = threading.Event(), threading.Event()
+
+    def held(*args, **kwargs):
+        inside.set()
+        # with the row lock the person waits for this run, and this times out
+        person_done.wait(2)
+        return resolve(*args, **kwargs)
+
+    monkeypatch.setattr(ci.blockers, "resolve_blocker", held)
+    errors = []
+
+    def green():
+        try:
+            ci.ci_event("team/app", "main", "success")
+        except Exception as exc:
+            errors.append(exc)
+
+    def person():
+        try:
+            resolve(blocker, actor="mira")
+        except ValueError:
+            pass
+        finally:
+            person_done.set()
+
+    run = threading.Thread(target=green)
+    run.start()
+    assert inside.wait(5)
+    other = threading.Thread(target=person)
+    other.start()
+    run.join()
+    other.join()
+    assert errors == []
+    assert (
+        fresh_db.query_one("SELECT status FROM blockers WHERE id = ?", (blocker,))["status"]
+        == "resolved"
+    )
+
+
+def test_the_generic_ci_body_cannot_name_a_default_branch(client, fresh_db):
+    from conftest import _strong
+
+    answer = client.post(
+        "/api/webhooks/ci",
+        headers=_strong(client, "mira"),
+        json={
+            "repo": "team/app",
+            "branch": "develop",
+            "status": "failure",
+            "default_branch": "develop",
+        },
+    )
+    assert "ignored" in answer.json()
+    assert fresh_db.query_one("SELECT id FROM blockers") is None

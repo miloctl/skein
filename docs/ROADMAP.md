@@ -36,8 +36,9 @@ for a season with the review gate on (the default since 2026-08-21):
   on tasks, routines (standing delegations and recurring tasks), a board
   view, document editing with revisions, and GitLab forge support with
   repo-scoped context packs. Each gets its own branch after the hardening
-  branch lands. The section "From the external-repo discovery" below lists
-  them. The rest of the freeze stands.
+  branch lands. Document revisions and GitLab forge support shipped. The
+  section "From the external-repo discovery" below lists the other three.
+  The rest of the freeze stands.
 
 # Open backlog (consolidated 2026-08-02)
 
@@ -288,8 +289,8 @@ write queue or automatically replay an external action with an unknown
 outcome. Local test success does not authorize a production replica increase.
 
 The first deployment targets an environment that cannot reach GitHub.
-Internal GitLab and Teams integrations are deferred until the team identifies
-a concrete workflow need. They are not launch prerequisites.
+A Teams integration is deferred until the team identifies a concrete
+workflow need. It is not a launch prerequisite.
 
 - **OpenShift multi-replica rollout gate.** After the container drills pass,
   validate the actual ReadWriteMany storage class, shared data and backup-mirror
@@ -584,6 +585,14 @@ review. Each names the condition that reopens it.
 | Share a document to a wider tier (`sharing.SHAREABLE`) | Someone copies a private draft into a new workspace document to share it. The mutating document routes then take `policy_context.hold_resource` first. |
 | A person's document filed under an engagement | A person asks to see their document on an engagement page. It needs `scope.assert_relationship_contains`. |
 | An agent reads a person's private document in that person's own turn | A request for it. `read_artifact` reads the workspace tier. |
+| `engagements.repositories`, a server-side repository-to-engagement link | A server-side reader needs the link, for example a CI blocker filed against its engagement. The id lives in the `AGENTS.md` marker today. |
+| MCP `get_context_pack(repo=)` | An MCP client works outside the repository, where the marker is not readable. |
+| Per-project GitLab tokens in a sealed store | A repository's maintainers must not hold the token that moves every other repository's tasks. |
+| Two GitLab tokens during rotation | A rotation loses deliveries. |
+| Crew-tier CI blockers | A crew repository's name must stay in the crew. The GitLab pipeline blocker is workspace tier. |
+| Automatic context pack refresh in repositories | Reports of a stale pack. |
+| Outbound GitLab calls (merge request comments, commit statuses, an API token) | An open decision for the owner (CLAUDE.md, "Runtime isolation"). Nothing is written back today. |
+| Captured GitLab webhook fixtures (`backend/tests/gitlab_payloads.py` is built from GitLab's documented shapes) | The first webhook on the internal instance. Capture push, branch deletion, merge request open, close, reopen and merge, one failed and one passed default-branch pipeline, a merge request pipeline, a child pipeline and one stopped at a manual gate from Recent events, and record the GitLab version. Check the facts `docs/intent/gitlab-forge.md` D14 lists. |
 
 ## Deferred by the agent-discovery adoption (2026-08-30)
 
@@ -729,16 +738,9 @@ this file. The hardening branch `fix/trust-loop-and-hardening` shipped what
 was built. Everything below is open.
 
 **Approved features, one branch each.** Each has a plan with the owner's
-decisions settled on 2026-09-28, in `docs/intent/`. Build order: GitLab,
-comment threads, the board and routines.
+decisions settled on 2026-09-28, in `docs/intent/`. Build order: comment
+threads, the board and routines.
 
-- **GitLab forge support and repository packs** [M] —
-  `docs/intent/gitlab-forge.md`. Inbound webhooks only (outbound is an open
-  decision); push, merge request and pipeline events; the `Closes-Task:` body
-  fix for both forges; the CI blocker race; the `skein context --write`
-  marker block, committed in `AGENTS.md`. Fixtures start from documented
-  payloads, marked unverified: swap in payloads captured from the internal
-  instance when someone captures them.
 - **Comment threads on tasks, decisions and blockers** [L] —
   `docs/intent/task-threads.md`. A delegate posts directly on its own
   delegated task; anyone who can read a task wakes its delegate with an

@@ -283,7 +283,8 @@ Stop if either reference contains an old or zero digest.
 ## Secrets
 
 The Secret `skein-secrets` never goes in git. It holds the model provider
-keys and the optional `SKEIN_FORGE_WEBHOOK_SECRET` and `SKEIN_ICS_TOKEN`.
+keys and the optional `SKEIN_FORGE_WEBHOOK_SECRET`, `SKEIN_GITLAB_WEBHOOK_TOKEN`
+and `SKEIN_ICS_TOKEN`.
 Create it out of band, or manage it with the cluster's secret operator
 (External Secrets, Sealed Secrets — whichever the platform team already
 runs). A keyless mock deployment needs no Secret: the reference is

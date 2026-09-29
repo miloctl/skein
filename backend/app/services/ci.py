@@ -7,40 +7,57 @@ from . import blockers
 DEFAULT_BRANCHES = ("main", "master")
 
 
-def ci_event(repo: str, branch: str, status: str, run_url: str = "", *, actor: str = "ci") -> dict:
+def ci_event(
+    repo: str,
+    branch: str,
+    status: str,
+    run_url: str = "",
+    *,
+    actor: str = "ci",
+    default_branch: str = "",
+) -> dict:
+    """`default_branch` comes only from an authenticated forge payload
+    (services/forge.py, the GitLab pipeline). The generic REST body never
+    carries it: there any caller could name any branch "default"."""
     if not repo or not branch:
         raise ValueError("repo and branch are required")
     if status not in ("success", "failure"):
         raise ValueError("status must be success or failure")
-    if branch not in DEFAULT_BRANCHES:
+    if branch not in DEFAULT_BRANCHES and branch != default_branch:
         return {"ignored": f"branch {branch} is not a default branch"}
-
     source = f"ci:{repo}:{branch}"
-    existing = db.query(
-        "SELECT * FROM blockers WHERE source = ? AND status != 'resolved'", (source,)
-    )
-
-    if status == "failure":
-        if existing:
-            return {"deduped": True, "blocker_id": existing[0]["id"]}
-        result = blockers.raise_blocker(
-            title=f"CI red on {repo}@{branch}",
-            detail=f"Failing build: {run_url or 'no run URL provided'}",
-            owner="team",
-            impact="high",
-            source=source,
-            actor=actor,
-            origin="agent",
+    with db.transaction():
+        # FIRST: the open-blocker read decides the insert, and two red runs
+        # that arrive together both read "none" and file two. The forge path
+        # reaches this after its receipt and fingerprint locks, never before.
+        db.name_lock(db.LOCK_CI_SOURCE, source)
+        # FOR UPDATE: a person resolves a blocker without the name lock. With
+        # no row lock, a green run that reads one as open finds it resolved at
+        # its own resolve and answers 400, which rolls back the forge receipt
+        existing = db.query(
+            "SELECT * FROM blockers WHERE source = ? AND status != 'resolved' FOR UPDATE",
+            (source,),
         )
-        return {"blocker_id": result["id"], "raised": True}
-
-    resolved = [
-        blockers.resolve_blocker(
-            b["id"], resolution=f"CI green again: {run_url}", actor=actor, origin="agent"
-        )["id"]
-        for b in existing
-    ]
-    return {"resolved": resolved}
+        if status == "failure":
+            if existing:
+                return {"deduped": True, "blocker_id": existing[0]["id"]}
+            result = blockers.raise_blocker(
+                title=f"CI red on {repo}@{branch}",
+                detail=f"Failing build: {run_url or 'no run URL provided'}",
+                owner="team",
+                impact="high",
+                source=source,
+                actor=actor,
+                origin="agent",
+            )
+            return {"blocker_id": result["id"], "raised": True}
+        resolved = [
+            blockers.resolve_blocker(
+                b["id"], resolution=f"CI green again: {run_url}", actor=actor, origin="agent"
+            )["id"]
+            for b in existing
+        ]
+        return {"resolved": resolved}
 
 
 def parse_github_actions(payload: dict) -> dict | None:

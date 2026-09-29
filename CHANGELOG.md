@@ -18,6 +18,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- `POST /api/webhooks/gitlab` takes GitLab project webhooks. The `X-Gitlab-Token` header must equal `SKEIN_GITLAB_WEBHOOK_TOKEN`, checked before the body is read. A push to a `task/42-…` branch starts task 42, and an opened or merged merge request moves it as a Gitea pull request does. A system hook is a 400, and any event other than push, merge request and pipeline is acknowledged and ignored. The delivery ID is `Idempotency-Key`, else `X-Gitlab-Event-UUID`, and receipts keep a separate namespace per forge, so a GitLab resend writes nothing twice.
 - `POST /api/documents` creates a document (`title`, `content`, `visibility`, `crew_id`) and answers `{id, revision: 1, title}`. With no visibility it is private for a signed-in caller and workspace for a trusted-header name. The Your data export adds `revisions` to each private document.
 - `GET /api/review/{id}/diff` for a `document_edit` answers `unified`, `base_revision` and `head_revision`.
 - The `edit_document` agent tool stamps `base_revision` on its payload, and `read_artifact` returns `revision` for a document. A `document` or `document_edit` payload cannot carry `change_id`: approval records it.
@@ -25,6 +26,12 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- `skein context --engagement 7 --write AGENTS.md` records `engagement=7` in the start marker, and a later `--write` with no flag refreshes that engagement's pack. `--engagement 0` writes the team pack. Every `--write` asks for the workspace tier, the team pack included. The engagement pack flattens the outcome and kill criteria to one line, so a newline cannot write a heading. New field-guide card: Context pack in a repository (Ashley Bend).
+- `skein context --write AGENTS.md` writes the pack between two marker lines and keeps every other byte of the file, CRLF line endings included. It overwrote the whole file. A file with text and no block is refused unless `--force`, which adds the block at the end. Broken markers are refused, `--force` or not, and markers inside a fenced code example are the person's text. The write goes through a temporary file, and a symlinked name stays a symlink. Upgrade: a file written by an earlier `skein context --write` has no markers and is refused. Delete the old pack text, then run the command again.
+- Settings → Connections shows the GitLab webhook URL beside the Gitea one, with the events to select and the token to set, and the context-pack hint names `skein context --engagement <id> --write AGENTS.md`. `docs/SETUP.md` has a Connect GitLab section. The forge field-guide card names both tokens.
+- A failed GitLab pipeline on the project's default branch, or on `main` or `master`, files one high-impact team blocker ("CI red on team/app@main") as `forge`, and the next passed one resolves it. A pipeline stopped at a blocking manual job counts as passed. Running, cancelled, skipped, tag, merge request and child pipelines do nothing, and so does a repository path or branch name with whitespace, control or format characters. The workplace rule on `skein.integration.ci` decides both the GitLab path and `POST /api/webhooks/ci`. On the GitLab path a refusal answers 200 ignored with no receipt, because GitLab disables a hook after repeated failed deliveries, and a resend after the rule changes applies.
+- Two red CI runs for one repository and branch that arrive together file one blocker. Each run filed its own. A green run that races a person resolving the blocker no longer answers 400.
+- A `Closes-Task: #42` line in a pull request or merge request description closes task 42 when it merges, on Gitea and GitLab. `skein pr-body` writes that line, and the forge read nothing from it, so a merge on a branch without the task number moved nothing. The line wins over a closing phrase elsewhere in the title or description. `Refs-Task` still never closes a task.
 - Work → Reports has New document: write a document and choose who can see it, starting at only you for a signed-in person. A private document is never indexed or read by an agent, its revisions travel in your Your data download, and the offboarding erase takes them with it. The Your data card now lists these under Private documents and reports. Opening your own document no longer ties the ask-an-agent card.
 - Search finds a document by its current text, and a document hit opens it on Reports. Words that only an earlier revision had stop matching.
 - Approvals shows an agent's document edit as the lines it changes against the revision it was filed on, where the card showed a dash beside the new text. It warns when the document changed after the proposal.
@@ -38,6 +45,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+- New optional Secret key `SKEIN_GITLAB_WEBHOOK_TOKEN`. Empty keeps the GitLab webhook closed (503). CLAUDE.md and `docs/intent/work-durability.md` record GitLab inbound webhooks as approved, and outbound GitLab calls as an open decision.
 - Migration 045 adds `document_revisions`: one row per revision of a document, with its body. It is in both database dumps and left out of the portable export.
 
 ## 0.6.11 — 2026-09-28

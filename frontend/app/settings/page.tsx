@@ -2170,8 +2170,9 @@ export default function SettingsPage() {
                 <CopyLine text={`${API_URL}/api/context-pack`} label="team context pack URL" />
                 <p className="mt-2 text-xs text-ink-3">
                   Scoped per-engagement packs: append ?engagement=&lt;id&gt;.
-                  The CLI can also emit it:{" "}
-                  <code>skein context --write AGENTS.md</code>.
+                  To put a pack in a repository, run{" "}
+                  <code>skein context --engagement &lt;id&gt; --write AGENTS.md</code>{" "}
+                  there.
                 </p>
               </Section>
 
@@ -2193,20 +2194,32 @@ export default function SettingsPage() {
                 </p>
               </Section>
 
-              <Section title="Code forge webhook (optional)" headingLevel={3}>
+              <Section title="Code forge webhooks (optional)" headingLevel={3}>
                 <p className="mb-2 text-sm text-ink-3">
                   Let your git forge move tasks. A push to{" "}
                   <code>task/42-…</code> starts task 42. When the pull request
-                  merges, the task finishes. Add this URL as a repository
-                  webhook. Set the content type to JSON.
+                  or merge request merges, the task finishes. If the branch name
+                  has no task number, put a <code>Closes-Task: #42</code> line in
+                  the description. <code>skein pr-body</code> writes it. A merge
+                  never closes a delegated task — the sponsor accepts that work.
                 </p>
-                <CopyLine text={`${API_URL}/api/webhooks/forge`} label="code forge webhook URL" />
+                <p className="mb-1 mt-3 text-xs font-medium text-ink-3">Gitea</p>
+                <CopyLine text={`${API_URL}/api/webhooks/forge`} label="Gitea webhook URL" />
                 <p className="mt-2 text-xs text-ink-3">
-                  Whoever runs the server sets SKEIN_FORGE_WEBHOOK_SECRET. Put
-                  the same secret in the webhook. If the secret is not set, the
-                  endpoint stays closed. Skein ignores a branch name that has no
-                  task number. A merge never closes a delegated task — the
-                  sponsor accepts that work.
+                  Add this URL as a repository webhook. Set the content type to
+                  JSON. Whoever runs the server sets SKEIN_FORGE_WEBHOOK_SECRET.
+                  Put the same secret in the webhook. If the secret is not set,
+                  the endpoint stays closed.
+                </p>
+                <p className="mb-1 mt-3 text-xs font-medium text-ink-3">GitLab</p>
+                <CopyLine text={`${API_URL}/api/webhooks/gitlab`} label="GitLab webhook URL" />
+                <p className="mt-2 text-xs text-ink-3">
+                  Add this URL as a project webhook. Select push events, merge
+                  request events and pipeline events. Whoever runs the server
+                  sets SKEIN_GITLAB_WEBHOOK_TOKEN. Put the same value in the
+                  secret token field. If the token is not set, the endpoint
+                  stays closed. A failed pipeline on the default branch files a
+                  blocker, and the next passed one resolves it.
                 </p>
               </Section>
             </div>
