@@ -121,8 +121,14 @@ def scan(
     actor: str = "",
     exclude: tuple = (),
     link: str = "/",
+    parent: tuple[str, int] | None = None,
 ) -> list[str]:
-    """Record mentions and create their notices in one transaction."""
+    """Record mentions and create their notices in one transaction.
+
+    `parent` is the row a comment sits on (services/comments.py). The dedupe
+    stays on the comment, so a second comment that names the same person
+    tells them again, and the notice's source is the parent, typed, so its
+    project and tier drive the policy filter on the notice."""
     with db.transaction():
         return _scan_locked(
             entity,
@@ -131,6 +137,7 @@ def scan(
             actor=actor,
             exclude=exclude,
             link=link,
+            parent=parent,
         )
 
 
@@ -142,6 +149,7 @@ def _scan_locked(
     actor: str,
     exclude: tuple,
     link: str,
+    parent: tuple[str, int] | None = None,
 ) -> list[str]:
     """Returns the names notified. `exclude` names people the parent write
     already pinged (the assignee on a question, the asker on an answer) —
@@ -154,8 +162,11 @@ def _scan_locked(
     from .notifications import notify
     from .search import _tier_of
 
-    # resolved ONCE: the parent cannot change inside one scan
-    parent_tier = _tier_of(entity, entity_id)
+    # resolved ONCE per scan. The row's OWN tier: a comment's, never its
+    # parent's, because a crew comment stays crew after its task is shared
+    # (services/comments.py)
+    own_tier = _tier_of(entity, entity_id)
+    source_entity, source_id = parent or (entity, entity_id)
 
     notified = []
     for token in _tokens(text):
@@ -169,7 +180,7 @@ def _scan_locked(
         name = hit[0]
         if name.lower() in skip:
             continue
-        if not _reaches(parent_tier, name):
+        if not _reaches(own_tier, name):
             continue
         fresh = db.execute_rowcount(
             "INSERT INTO mention_log"
@@ -181,11 +192,20 @@ def _scan_locked(
         if fresh:
             notify(
                 name,
-                lambda source: f"{actor or 'system'} mentioned you on {entity} #{source['id']}",
+                (
+                    lambda source: (
+                        f"{actor or 'system'} mentioned you in a comment"
+                        f" on {source_entity} #{source['id']}."
+                    )
+                )
+                if parent
+                else (
+                    lambda source: f"{actor or 'system'} mentioned you on {entity} #{source['id']}"
+                ),
                 tier="immediate",
                 link=link,
-                source_entity=entity,
-                source_id=entity_id,
+                source_entity=source_entity,
+                source_id=source_id,
             )
             notified.append(name)
     return notified

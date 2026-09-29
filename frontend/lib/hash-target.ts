@@ -30,7 +30,16 @@ export function useHashTarget(
   ready: unknown,
   // Return false while a selection render is pending. `ready` retries after
   // that render without replacing an in-app anchor with the previous URL.
-  { reveal }: { reveal?: (id: string) => boolean } = {},
+  {
+    reveal,
+    comments = false,
+  }: {
+    reveal?: (id: string) => boolean;
+    /** a `comment-N` anchor belongs to the thread that renders it
+     *  (components/comment-thread.tsx): a page's own hook that claims one
+     *  pulls focus back to the comment when a late collection settles */
+    comments?: boolean;
+  } = {},
 ) {
   // In-app search announces its anchor before Next changes the URL. Keep that
   // request across the render that reveals a hidden register and delayed data.
@@ -67,6 +76,7 @@ export function useHashTarget(
         if (force) reveal?.("");
         return;
       }
+      if (id.startsWith("comment-") && !comments) return;
       if (pending.current === id && reveal && !reveal(id)) return;
       const el = document.getElementById(id);
       // a miss is not recorded: the first run happens before the fetch
@@ -119,7 +129,7 @@ export function useHashTarget(
       window.removeEventListener("hashchange", onHash);
       window.removeEventListener("skein-hash", onHash);
     };
-  }, [ready, reveal]);
+  }, [ready, reveal, comments]);
 }
 
 /** The classes a hook target needs to be focusable and to show where focus

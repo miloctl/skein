@@ -6,10 +6,11 @@ from typing import Any
 
 from strands import tool
 
-from .. import db
+from .. import db, ratelimit
 from ..agents import receipts
 from ..agents.identity import (
     agent_identity,
+    note_scoped_read,
     requester_identity,
     requester_viewer,
     strong_requester,
@@ -26,6 +27,7 @@ from ..services import (
     absences,
     briefing,
     collab,
+    comments,
     context_pack,
     delegation,
     insights,
@@ -479,6 +481,137 @@ def read_worklog(task_id: int, limit: int = 20) -> str:
         return json.dumps({"task_id": task_id, "worklog": notes})
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
+
+
+def _thread_reach(kind: str, pid: int) -> str:
+    """The requester's read of a thread's parent, the check every agent
+    comment tool runs first. A task goes through _delegation_reach, so its
+    delegate keeps the party door when no person asked. Returns the refusal
+    text, or "" when the read holds."""
+    if kind == "task":
+        return _delegation_reach(pid)
+    rv = requester_viewer()
+    if not isinstance(rv, scope.Viewer):
+        return ""
+    if policy_context.existing_scoped(kind, pid, rv):
+        return ""
+    return scope.missing_text(f"{kind}s", pid)
+
+
+@tool
+def read_comments(
+    task_id: int = 0, decision_id: int = 0, blocker_id: int = 0, limit: int = 20
+) -> str:
+    """Read the comment thread on one task, decision or blocker, oldest
+    first. On a task delegated to you, read it before you continue the work:
+    your sponsor steers it there. Name exactly one of the three ids.
+
+    Args:
+        task_id: ID of the task, or 0.
+        decision_id: ID of the decision, or 0.
+        blocker_id: ID of the blocker, or 0.
+        limit: How many comments to return (default 20, at most 200).
+    """
+    try:
+        kind, pid = comments.parent_of(task_id, decision_id, blocker_id)
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)})
+    if refusal := _thread_reach(kind, pid):
+        return json.dumps({"error": refusal})
+    # A person driving the agent reads as themselves: the delegate's door
+    # (comments.delegate_door) is for the turn nobody attends, and through it
+    # `/as <persona>` would read what that person cannot.
+    rv = requester_viewer()
+    person = rv if isinstance(rv, scope.Viewer) and rv.name else None
+    try:
+        # a read, so no receipt (tests/test_gate_coverage.py asserts receipts
+        # only where the database changed)
+        rows = comments.list_comments(
+            person or scope.NOBODY,
+            task_id=task_id,
+            decision_id=decision_id,
+            blocker_id=blocker_id,
+            actor="" if person else agent_identity(),
+            limit=limit,
+        )
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)})
+    if any(row["visibility"] != scope.WORKSPACE for row in rows):
+        # a later write in this turn must not carry crew text into a proposal
+        # the whole team reviews (tools/_gate.py)
+        note_scoped_read()
+    keep = ("id", "created_by", "origin", "body", "created_at", "edited_at", "deleted_at")
+    return json.dumps({kind: pid, "comments": [{key: row[key] for key in keep} for row in rows]})
+
+
+@tool
+def post_comment(body: str, task_id: int = 0, decision_id: int = 0, blocker_id: int = 0) -> str:
+    """Post a comment on one task, decision or blocker. On an open task
+    delegated to you it posts at once: use it to answer your sponsor. Answer
+    once, and do not answer a comment that asks you nothing. On any other
+    record, and only when a person asked you, it goes to review. With nobody
+    asking, it is refused. Name exactly one of the three ids.
+
+    Args:
+        body: The comment, at most 4000 characters. Write @name to notify a person.
+        task_id: ID of the task, or 0.
+        decision_id: ID of the decision, or 0.
+        blocker_id: ID of the blocker, or 0.
+    """
+    agent = agent_identity()
+    try:
+        kind, pid = comments.parent_of(task_id, decision_id, blocker_id)
+        comments.refuse_forbidden(agent, kind)
+    except ValueError as exc:
+        receipts.record("refused", "comment", str(exc))
+        return json.dumps({"error": str(exc)})
+    if refusal := _thread_reach(kind, pid):
+        return json.dumps({"error": refusal})
+    if kind == "task" and comments.open_delegate(pid) == agent:
+        # the delegate's direct path, as report_progress: the gate's own rate
+        # line, keyed on the person who asked, else the agent itself
+        try:
+            ratelimit.check("write", requester_identity() or agent)
+            result = comments.add_comment(
+                body, task_id=pid, actor=agent, origin="agent", as_delegate=True
+            )
+        except ValueError as exc:
+            receipts.record("failed", "comment", str(exc))
+            return json.dumps({"error": str(exc)})
+        receipts.record("wrote", "comment", f"comment on task #{pid}", int(result["id"]))
+        return json.dumps(result)
+    rv = requester_viewer()
+    if not (isinstance(rv, scope.Viewer) and rv.name):
+        # unattended: an agent speaks only where it holds the work (owner
+        # decision, docs/intent/task-threads.md D4)
+        detail = (
+            f"{kind} #{pid} is not an open task delegated to you. With no person asking,"
+            " comment only on a task delegated to you."
+        )
+        receipts.record("refused", "comment", detail)
+        return json.dumps({"error": detail})
+    context = policy_context.existing_scoped(kind, pid, rv)
+    if str(context.get("classification") or "") == scope.PRIVATE:
+        # the approval applies as the agent, and scope.assert_editable refuses
+        # a machine on a private row, so the proposal could never apply
+        detail = "An agent cannot comment on a private record. Write the comment yourself."
+        receipts.record("refused", "comment", detail)
+        return json.dumps({"error": detail})
+    payload = {"body": body, f"{kind}_id": pid}
+    return gated_write(
+        "comment",
+        "create",
+        payload,
+        lambda: comments.add_comment(
+            body,
+            task_id=task_id,
+            decision_id=decision_id,
+            blocker_id=blocker_id,
+            actor=agent,
+            origin="agent",
+        ),
+        summary=f"comment on {kind} #{pid}",
+    )
 
 
 @tool

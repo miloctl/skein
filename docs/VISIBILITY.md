@@ -666,7 +666,8 @@ ask again.
   explicit `visibility=`/`crew_id=` passing cover all of them:
   `collab.post_standup` into `raise_blocker`, `delegation.report_progress`
   into `task_worklog`, `collab.supersede_decision` into its successor,
-  `intake._disposition` into `create_engagement`, and
+  `intake._disposition` into `create_engagement`, `comments.add_comment` into
+  `comments` (which keeps its tier when its parent is shared wider), and
   `engagements._ship_it` and `_experiment_lesson` into a note and a lesson.
   The last two were workspace children of a crew engagement until the
   phase 3-6 review found them.

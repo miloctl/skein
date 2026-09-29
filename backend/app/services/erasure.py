@@ -29,6 +29,9 @@ GRACE_DAYS = 30
 # engagements go last, after the links other rows keep to them are cleared.
 # tests/test_erasure.py checks this names every scope.CLASSIFIED table.
 _ORDER = (
+    # a private comment can sit on a parent its author later shared (a
+    # comment keeps its tier), so the parent's cascade does not reach it
+    "comments",
     "task_worklog",
     "blockers",
     "promises",

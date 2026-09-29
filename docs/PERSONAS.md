@@ -109,7 +109,7 @@ validator covers overlay files and labels them `(overlay)`.
   Staff couldn't — it just thinks differently and signs its own name.
   IN A FLOCK, AND IN A CONSULT, the same persona is strictly more
   constrained: every write becomes a proposal whatever its level says
-  (`identity.force_review`), it holds no MCP tools, and the four writers that
+  (`identity.force_review`), it holds no MCP tools, and the five writers that
   skip the gate refuse outright (`identity.refuse_when_consultative`,
   docs/FLOCKS.md). Both modes are consultative — the human addressed the Chief
   of Staff and never granted THIS agent the autonomy its matrix row carries.

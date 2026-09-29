@@ -48,6 +48,15 @@ _HANDLER_POLICY = frozenset(
         ("POST", "/api/blockers"),
         ("PATCH", "/api/blockers/{blocker_id}"),
         ("POST", "/api/blockers/{blocker_id}/resolve"),
+        # a thread is judged on its parent (routes/api.py::_decide_comment)
+        ("GET", "/api/tasks/{task_id}/comments"),
+        ("POST", "/api/tasks/{task_id}/comments"),
+        ("GET", "/api/decisions/{decision_id}/comments"),
+        ("POST", "/api/decisions/{decision_id}/comments"),
+        ("GET", "/api/blockers/{blocker_id}/comments"),
+        ("POST", "/api/blockers/{blocker_id}/comments"),
+        ("PATCH", "/api/comments/{comment_id}"),
+        ("DELETE", "/api/comments/{comment_id}"),
     }
 )
 

@@ -104,6 +104,9 @@ KEPT = {
             "promises",
             "standups",
             "task_worklog",
+            # not CASCADED: that map names one parent per child, and a comment
+            # has three possible parents (core_migrations/046_comments.sql)
+            "comments",
             "absences",
             "allocations",
             "events",
@@ -342,7 +345,7 @@ def _tier_keys() -> frozenset[str]:
 
     return frozenset(
         {"visibility", "crew_id", *scope.CLASSIFIED.values()}
-        | {key for _table, key in _CREATE_PARENT.values()}
+        | {key for pairs in _CREATE_PARENT.values() for _table, key in pairs}
     )
 
 

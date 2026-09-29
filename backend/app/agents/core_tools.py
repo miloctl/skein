@@ -31,6 +31,9 @@ SPECIALIZED_WRITE_TOOLS = frozenset(
         "report_progress",
         "submit_for_acceptance",
         "generate_handoff",
+        # the delegate's comment on its own task: the direct path never
+        # reaches the gate, where every other agent comment is decided
+        "post_comment",
     }
 )
 

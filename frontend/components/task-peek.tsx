@@ -7,6 +7,7 @@ import { actionError, api } from "@/lib/api";
 import { isGated, subscribeGated } from "@/lib/gated";
 import { reportStatus } from "@/lib/status";
 import { PersonInput } from "@/components/person-input";
+import { CommentThread } from "@/components/comment-thread";
 import { Provenance } from "@/components/provenance";
 import { RaiseBlockerForm } from "@/components/raise-blocker-form";
 import { VisibilityBadge } from "@/components/visibility-picker";
@@ -123,20 +124,29 @@ function taskIdFromUrl(): number | null {
  *  reload the whole page for a same-page query change, so this pushes the
  *  entry itself and announces it — Back still closes the panel, because the
  *  entry is real history and not private state. */
-export function openTaskPeek(taskId: number) {
+export function openTaskPeek(taskId: number, anchor = "") {
   const url = new URL(window.location.href);
   url.searchParams.set(PARAM, String(taskId));
+  // only a named anchor replaces the fragment: the page's own (a Browse
+  // register, #content) must survive an ordinary open
+  if (anchor) url.hash = anchor;
   window.history.pushState({ skeinPeekTask: taskId }, "", url);
   window.dispatchEvent(new Event("skein-peek"));
+  // after the panel opens: the thread lands on the comment once it loads
+  // (components/comment-thread.tsx, lib/hash-target.ts). pushState fires
+  // no hashchange, so the anchor travels in the event.
+  if (anchor) window.dispatchEvent(new CustomEvent("skein-hash", { detail: { anchor } }));
 }
 
 export function PeekLink({
   taskId,
+  anchor = "",
   children,
   className = "",
   onActivate,
 }: {
   taskId: number;
+  anchor?: string;
   children: React.ReactNode;
   className?: string;
   onActivate?: () => void;
@@ -146,7 +156,7 @@ export function PeekLink({
       type="button"
       onClick={() => {
         onActivate?.();
-        openTaskPeek(taskId);
+        openTaskPeek(taskId, anchor);
       }}
       className={`text-left underline decoration-line-strong underline-offset-2 hover:decoration-ink-3 ${className}`}
     >
@@ -215,6 +225,9 @@ export function TaskPeek() {
       window.history.back();
     } else {
       url.searchParams.delete(PARAM);
+      // a comment anchor belongs to the panel, and a later plain open of the
+      // same task would land on that comment again
+      if (url.hash.startsWith("#comment-")) url.hash = "";
       // Pass fresh state so Next's history wrapper synchronizes the URL.
       // Copying its internal flags bypasses that synchronization.
       window.history.replaceState({}, "", url);
@@ -340,7 +353,11 @@ export function TaskPeek() {
     others.forEach((el) => el.setAttribute("inert", ""));
     closeRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
+      // defaultPrevented: a field inside the panel keeps its own Escape (an
+      // edit box, a draft). React listens on this same node, so its
+      // stopPropagation never reaches this listener, and preventDefault is
+      // the one signal that does (comment-thread.tsx, raise-blocker-form.tsx).
+      if (e.key === "Escape" && !e.defaultPrevented) close();
     };
     document.addEventListener("keydown", onKey);
     return () => {
@@ -631,6 +648,15 @@ export function TaskPeek() {
                 ))}
               </ul>
             )}
+
+            <CommentThread
+              parent="task"
+              id={task.id}
+              delegatedAgent={task.delegated_agent ?? ""}
+              status={task.status}
+              revision={nonce}
+              onPosted={reload}
+            />
           </>
         )}
       </aside>

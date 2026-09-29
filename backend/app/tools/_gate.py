@@ -102,6 +102,11 @@ def _creates_in_a_crew(payload: dict, requester: scope.Viewer) -> bool:
         ("engagement_id", "engagement"),
         ("milestone_id", "milestone"),
         ("task_id", "task"),
+        # a comment's other two parents: without them a gated comment lands
+        # on a crew decision or blocker while one on a crew task is refused.
+        # An agent writes into a crew only as a task's delegate.
+        ("decision_id", "decision"),
+        ("blocker_id", "blocker"),
     ):
         parent_id = str(payload.get(key) or "")
         if parent_id.isdigit() and (
