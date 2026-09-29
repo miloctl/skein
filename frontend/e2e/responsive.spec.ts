@@ -19,6 +19,7 @@ const PAGES = [
   "/chat",
   "/portfolio",
   "/dashboard",
+  "/board",
   "/calendar",
   "/notes",
   "/insights",
@@ -672,6 +673,7 @@ const CLAIMS: Record<string, RegExp> = {
   "/intake": /No requests yet/,
   "/notes": /No notes yet/,
   "/calendar": /No meetings, due dates or time away this month/,
+  "/board": /Nothing waiting|Nothing is blocked|Nothing finished in the last/,
   "/charter": /No charter entries yet/,
   "/activity": /Nothing on the ledger yet/,
 };
