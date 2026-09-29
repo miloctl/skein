@@ -923,6 +923,11 @@ _UNFILTERED_READS = {
         " delegated to that agent, which it reads whatever the tier, the"
         " last_progress reason; the REST inbox never calls it"
     ),
+    "comments.py::_tell_the_thread": (
+        "reads who wrote in one thread to decide who hears about a reply; each"
+        " name passes scope.can_read on the new comment's tier before a notice,"
+        " and no row leaves the function"
+    ),
     "comments.py::open_delegate": (
         "answers only which agent holds one open task, to pick the delegate's"
         " own path; no row leaves the function, and add_comment re-checks it"

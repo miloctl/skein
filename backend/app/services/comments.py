@@ -135,7 +135,68 @@ def add_comment(
             "comment", cid, body, actor=actor, link=_LINK[kind](pid, cid), parent=(kind, pid)
         )
         woke = _wake(kind, parent, body, actor=actor, origin=origin)
+        _tell_the_thread(kind, parent, cid, actor=actor, told=notified, tier=(tier, crew_id))
     return {"id": cid, "parent": kind, "parent_id": pid, "notified": notified, "woke": woke}
+
+
+# the named parties of each parent, read from rows every reader already sees
+_PARTIES = {
+    "task": ("assignee", "sponsor"),
+    "decision": ("created_by", "decided_by"),
+    "blocker": ("owner", "created_by"),
+}
+
+
+def _tell_the_thread(
+    kind: str,
+    parent: dict,
+    cid: int,
+    *,
+    actor: str,
+    told: list[str],
+    tier: tuple[str, int | None],
+) -> None:
+    """A digest notice for the parent's named parties and everyone who wrote
+    in the thread before. No subscription table: the rows say who is in it.
+
+    Skipped: the author, anyone the mention scan just told, agents (the inbox
+    lists what an agent has not answered), inactive people, anyone who cannot
+    read the new comment, and anyone who still holds an unread notice into
+    this thread, which already points them here. The parent row is held FOR
+    UPDATE by the caller, so two replies cannot both see "no notice yet".
+    ponytail: a dismissal that races the unread check can hide one notice;
+    a per-(person, parent) watch row is the upgrade."""
+    from . import users
+    from .notifications import notify
+
+    pid = int(parent["id"])
+    link = _LINK[kind](pid, cid)
+    same_thread = f"?task={pid}#comment-%" if kind == "task" else link
+    writers = db.query(
+        f"SELECT DISTINCT created_by FROM comments WHERE {KEY[kind]} = ? AND id <> ?",  # noqa: S608 — closed key map
+        (pid, cid),
+    )
+    people = {str(parent.get(column) or "") for column in _PARTIES[kind]}
+    people |= {str(row["created_by"]) for row in writers}
+    skip = {actor, *told}
+    for person in sorted(p for p in people if p and p not in skip):
+        if users.is_agent(person) or not users.is_active(person):
+            continue
+        if not scope.can_read(tier[0], tier[1], scope.Viewer.for_actor(person), actor):
+            continue
+        if db.query_one(
+            'SELECT 1 FROM notifications WHERE "user" = ? AND read_at IS NULL AND link LIKE ?',
+            (person, same_thread),
+        ):
+            continue
+        notify(
+            person,
+            lambda source: f"{actor} commented on {kind} #{source['id']}.",
+            tier="digest",
+            link=link,
+            source_entity=kind,
+            source_id=pid,
+        )
 
 
 def _wake(kind: str, parent: dict, body: str, *, actor: str, origin: str) -> str:

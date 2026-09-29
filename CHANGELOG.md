@@ -28,6 +28,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- A reply in a thread tells the parent's named parties and everyone who wrote there before, once while their notice is unread. A task tells its assignee and sponsor, a decision its author and decider, and a blocker its owner and author. Agents, people who cannot read the comment, and the author are not told.
 - A delegated agent answers its sponsor in the task's thread. Its next turn lists comments it has not answered, and the wake prompt tells it to read the thread and answer once. Any person who can read the comment can delete an agent's comment.
 - On a delegated task, a comment that names the agent with @ starts one agent turn. The composer says so, and the status line names the agent. A finished task, an agent's own comment and an edit start nothing.
 - The task panel has Comments: read the thread, post with @name to notify a person, and edit or delete your own comment. A notice about a comment opens the panel on that comment. My Day's notices that link to a task now open the task panel, where they changed the address and opened nothing. New field-guide card: Comment threads (Becket Hitch).
