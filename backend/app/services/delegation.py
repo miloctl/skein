@@ -1208,6 +1208,14 @@ def agent_inbox(
             " ORDER BY task_id, id DESC",
             (agent, *[t["id"] for t in tasks]),
         )
+    # comments from others the agent has not answered, on the tasks listed
+    # above. The agent's own door only, for last_progress's reason: the REST
+    # door takes the agent name off the URL and answers any CurrentUser.
+    new_comments: list[dict] = []
+    if viewer is None and tasks:
+        from .comments import unanswered_for
+
+        new_comments = unanswered_for(agent, [int(t["id"]) for t in tasks])
     return {
         "agent": agent,
         "delegated_tasks": tasks,
@@ -1215,4 +1223,5 @@ def agent_inbox(
         "rejected_proposals": rejected,
         "notifications": notifications,
         "last_progress": last_notes,
+        "new_comments": new_comments,
     }

@@ -29,11 +29,12 @@ contract.
   person. Scoped reads need strong identity. A person cannot claim a reserved
   system actor name or an agent's name.
 - **Agent writes.** An agent write through a chat tool or the MCP server
-  passes the review gate and the authority matrix. Four writers skip the gate
+  passes the review gate and the authority matrix. Five writers skip the gate
   by design, and each one obeys the `forbidden` level: the delegation loop
-  (claim a delegated task, write a progress note, submit it for acceptance)
-  works only on a task delegated to that agent, and a submission is itself a
-  proposal to the sponsor. Handoff generation writes a report from records
+  (claim a delegated task, write a progress note, comment on the task,
+  submit it for acceptance) works only on an open task delegated to that
+  agent, and a submission is itself a proposal to the sponsor. A person who
+  can read an agent's comment can delete it. Handoff generation writes a report from records
   the agent can already read. Only a human can set an agent's authority. An
   agent cannot approve its own proposal.
 - **Credentials.** Personal MCP tokens and browser sign-in tokens are sealed

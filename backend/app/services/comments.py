@@ -23,7 +23,7 @@ _LINK = {
 }
 
 
-def _parent(task_id: int, decision_id: int, blocker_id: int) -> tuple[str, int]:
+def parent_of(task_id: int, decision_id: int, blocker_id: int) -> tuple[str, int]:
     named = [
         (kind, int(value))
         for kind, value in (("task", task_id), ("decision", decision_id), ("blocker", blocker_id))
@@ -70,12 +70,24 @@ def add_comment(
     blocker_id: int = 0,
     actor: str,
     origin: str = "human",
+    as_delegate: bool = False,
 ) -> dict:
     """Post one comment. The parent keywords match a gate payload, so an
-    approval applies the payload with no mapping."""
-    kind, pid = _parent(task_id, decision_id, blocker_id)
+    approval applies the payload with no mapping.
+
+    `as_delegate` is the agent's direct path on its own open delegated task
+    (tools/portfolio.py::post_comment), which skips the gate as the
+    delegation trio does. It only adds refusals."""
+    kind, pid = parent_of(task_id, decision_id, blocker_id)
     body = _check_body(body)
     table = _TABLE[kind]
+    if as_delegate:
+        from ..agents.identity import refuse_when_consultative
+
+        # the gate is where force_review turns a write into a proposal, and
+        # this path never reaches it
+        refuse_when_consultative("comment on a delegated task")
+        refuse_forbidden(actor, kind)
     with db.transaction():
         # FIRST, and FOR UPDATE: the parent's tier decides the comment's, and
         # a tier change between this read and the insert would file a comment
@@ -87,6 +99,18 @@ def add_comment(
         if not parent:
             raise scope.missing(table, pid)
         scope.assert_editable(table, parent, actor)
+        # re-checked under the lock: a reassignment between the tool's plain
+        # read and this insert would let an agent post, unreviewed, on a task
+        # it no longer holds
+        if as_delegate and (
+            kind != "task"
+            or parent["delegated_agent"] != actor
+            or parent["status"] in ("done", "void")
+        ):
+            raise ValueError(
+                f"{kind} #{pid} is not an open task delegated to you, so you cannot comment"
+                " there directly."
+            )
         tier, crew_id = scope.inherit(parent)
         # No updated_at on the parent: a comment is talk, not work. A task
         # that looks fresh because somebody asked "still alive?" stops the
@@ -145,6 +169,7 @@ def list_comments(
     decision_id: int = 0,
     blocker_id: int = 0,
     me: str = "",
+    actor: str = "",
     limit: int = 200,
 ) -> list[dict]:
     """The thread, oldest first, for a reader who may see the parent.
@@ -152,19 +177,28 @@ def list_comments(
     `me` sets can_edit and can_delete. It is the caller's own name, which a
     trusted-header viewer does not carry (scope.Viewer drops a weak name),
     and it decides the two flags only: the edit and the delete check the
-    actor again."""
-    kind, pid = _parent(task_id, decision_id, blocker_id)
+    actor again.
+
+    `actor` is the delegation door, for the reason delegation.list_worklog
+    gives: an agent holds no crews, so the tier filter alone would refuse
+    the thread on a crew task it is answering. It opens for the task's own
+    delegate only, per task, and a private task cannot carry a delegate."""
+    kind, pid = parent_of(task_id, decision_id, blocker_id)
     table = _TABLE[kind]
     limit = max(1, min(int(limit or 200), 200))
+    party = False
+    if actor and kind == "task":
+        row = db.query_one("SELECT delegated_agent FROM tasks WHERE id = ?", (pid,))
+        party = row is not None and row["delegated_agent"] == actor
     # the parent through its own filter first, so an unreadable parent
     # answers exactly like an absent one
     pfrag, pp = scope.visible_filter(viewer, table)
-    if not db.query_one(
+    if not party and not db.query_one(
         f"SELECT id FROM {table} WHERE id = ? AND {pfrag}",  # noqa: S608 — closed table map, bound marks
         (pid, *pp),
     ):
         raise scope.missing(table, pid)
-    frag, params = scope.visible_filter(viewer, "comments")
+    frag, params = ("1 = 1", []) if party else scope.visible_filter(viewer, "comments")
     rows = db.query(
         "SELECT id, created_by, origin, body, created_at, edited_at, deleted_at, deleted_by"  # noqa: S608 — closed key map, bound marks
         f" FROM comments WHERE {KEY[kind]} = ? AND {frag} ORDER BY id LIMIT ?",
@@ -257,6 +291,59 @@ def delete_comment(comment_id: int, *, actor: str) -> dict:
         )
         db.log_activity(actor, "delete_comment", _detail(kind, pid, comment_id))
     return {"id": comment_id, "parent": kind, "parent_id": pid, "deleted": True}
+
+
+def open_delegate(task_id: int) -> str:
+    """The agent an open task is delegated to, or "". The tool's plain read
+    that picks the direct path: add_comment re-checks it under the lock."""
+    row = db.query_one("SELECT delegated_agent, status FROM tasks WHERE id = ?", (task_id,))
+    if not row or row["status"] in ("done", "void"):
+        return ""
+    return str(row["delegated_agent"] or "")
+
+
+def refuse_forbidden(agent: str, kind: str) -> None:
+    """`forbidden` on a thread's parent entity stops every comment path, and
+    on `comment` stops this agent commenting at all: the kill switch an
+    operator reaches for must not leave a side door open."""
+    from .delegation import authority_level
+
+    for entity in (kind, "comment"):
+        if authority_level(agent, entity) == "forbidden":
+            raise ValueError(f"'{agent}' is forbidden on {entity}s. Ask a person to lift it.")
+
+
+def unanswered_for(agent: str, task_ids: list[int], limit: int = 20) -> list[dict]:
+    """Others' comments on the agent's open delegated tasks that are newer
+    than the agent's own last comment or worklog note on that task. The
+    watermark is the agent's own writes, never a read record: answering, or
+    reporting progress, clears it. An edit counts as new, so a steering
+    comment changed after the agent acted is listed again.
+
+    A write in the same second as the comment counts as its answer:
+    db.now() has seconds, and listing it again invites a second reply.
+
+    For the agent's own inbox only (delegation.agent_inbox with no viewer):
+    the rows are the delegated tasks' own threads, which the delegate reads
+    whatever the tier (list_comments' door)."""
+    if not task_ids:
+        return []
+    marks = ",".join("?" * len(task_ids))
+    rows = db.query(
+        "SELECT c.id, c.task_id, c.created_by, c.body, c.created_at, c.edited_at"  # noqa: S608 — marks only
+        " FROM comments c"
+        f" WHERE c.task_id IN ({marks}) AND c.created_by <> ? AND c.deleted_at IS NULL"
+        " AND COALESCE(c.edited_at, c.created_at) > COALESCE(GREATEST("
+        "  (SELECT MAX(o.created_at) FROM comments o"
+        "   WHERE o.task_id = c.task_id AND o.created_by = ?),"
+        "  (SELECT MAX(w.created_at) FROM task_worklog w"
+        "   WHERE w.task_id = c.task_id AND w.author = ?)), '')"
+        " ORDER BY c.id LIMIT ?",
+        (*task_ids, agent, agent, agent, max(1, min(int(limit), 20))),
+    )
+    for row in rows:
+        row["body"] = row["body"][:1000]
+    return rows
 
 
 def parent_context(kind: str, pid: int, viewer: scope.Viewer) -> dict[str, str]:

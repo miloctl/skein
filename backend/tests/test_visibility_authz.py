@@ -912,6 +912,21 @@ _UNFILTERED_READS = {
     # --- aggregates and counts: no row's own text leaves the function ---
     "delegation.py::mission_control": "COUNT per agent, plus a MAX(created_at)",
     "onboarding.py::checklist": "COUNT per entity, to decide which step is done",
+    "comments.py::list_comments": (
+        "the delegation door only: tasks.delegated_agent for the one task the"
+        " caller names, compared with the caller, the list_worklog reason. An"
+        " agent holds no crews, so the tier filter refused the thread of a crew"
+        " task it is answering"
+    ),
+    "comments.py::unanswered_for": (
+        "the agent's own inbox (agent_inbox with no viewer), over the tasks"
+        " delegated to that agent, which it reads whatever the tier, the"
+        " last_progress reason; the REST inbox never calls it"
+    ),
+    "comments.py::open_delegate": (
+        "answers only which agent holds one open task, to pick the delegate's"
+        " own path; no row leaves the function, and add_comment re-checks it"
+    ),
     "delegation.py::list_worklog": (
         "the `party` branch only, and it is gated per task on that task's own"
         " delegated_agent/sponsor columns — the same two identities"

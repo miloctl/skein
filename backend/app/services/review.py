@@ -57,6 +57,7 @@ def _registry() -> dict:
         absences,
         blockers,
         collab,
+        comments,
         delegation,
         documents,
         engagements,
@@ -107,6 +108,7 @@ def _registry() -> dict:
         "task_completion": {"update": delegation.accept_completion},
         "authority": {"create": delegation.set_authority},
         "absence": {"create": absences.add_absence},
+        "comment": {"create": comments.add_comment},
     }
 
 
@@ -1694,6 +1696,9 @@ _TARGET_TABLE = {
     "memory": "memories",
     "absence": "absences",
     "delegation": "tasks",
+    # after approval result_id is the comment's own id, so the comment's tier
+    # governs, never "tasks": that would read task #<comment id>
+    "comment": "comments",
 }
 
 # A CREATE whose subject is a row that ALREADY EXISTS names it in the payload.
@@ -1702,7 +1707,23 @@ _TARGET_TABLE = {
 # `entity_id`, which propose_change only requires for updates. Reading neither,
 # such a proposal was shown to every reader AND judgeable by them — a
 # non-member approved a delegation of a crew task they cannot see.
-_CREATE_PARENT = {"delegation": ("tasks", "task_id")}
+#
+# Each value lists (table, payload key) pairs, and the first key the payload
+# carries wins: a comment names exactly one of three parents, and a pending
+# reply takes its parent's tier, so a non-member neither reads nor approves it.
+_CREATE_PARENT = {
+    "delegation": (("tasks", "task_id"),),
+    "comment": (("tasks", "task_id"), ("decisions", "decision_id"), ("blockers", "blocker_id")),
+}
+
+
+def _create_parent(entity: str, payload: dict) -> tuple[str, object]:
+    """The table and id of the row a create names, or ("", None)."""
+    for table, key in _CREATE_PARENT.get(entity, ()):
+        if payload.get(key):
+            return table, payload[key]
+    return "", None
+
 
 # Entities that address no scoped row at all, and why. Kept as an explicit
 # list rather than an absence, so tests/test_review.py can prove _registry
@@ -2141,8 +2162,8 @@ def _target_tier(change: dict) -> tuple[str, int | None, str] | str | None:
 
     row_id = change["entity_id"] or change["result_id"]
     if not row_id and change["entity"] in _CREATE_PARENT:
-        table, key = _CREATE_PARENT[change["entity"]]
-        row_id = payload.get(key)
+        parent_table, row_id = _create_parent(change["entity"], payload)
+        table = parent_table or table
     if row_id:
         author = scope.CLASSIFIED[table]
         row = db.query_one(
@@ -2189,8 +2210,8 @@ def _governing_tiers(rows: list[dict]) -> list[tuple[str, int | None, str] | str
             payload = {}
         row_id = change["entity_id"] or change["result_id"]
         if not row_id and change["entity"] in _CREATE_PARENT:
-            table, parent_key = _CREATE_PARENT[change["entity"]]
-            row_id = payload.get(parent_key)
+            parent_table, row_id = _create_parent(change["entity"], payload)
+            table = parent_table or table
         if row_id:
             waiting.setdefault((table, int(row_id)), []).append(index)
             continue
