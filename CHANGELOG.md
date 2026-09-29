@@ -18,11 +18,13 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- `POST /api/documents` creates a document (`title`, `content`, `visibility`, `crew_id`) and answers `{id, revision: 1, title}`. With no visibility it is private for a signed-in caller and workspace for a trusted-header name. The Your data export adds `revisions` to each private document.
 - `GET /api/review/{id}/diff` for a `document_edit` answers `unified`, `base_revision` and `head_revision`.
 - The `edit_document` agent tool stamps `base_revision` on its payload, and `read_artifact` returns `revision` for a document. A `document` or `document_edit` payload cannot carry `change_id`: approval records it.
 - `PUT /api/documents/{id}` saves a document's body as the next revision (`content`, `base_revision`). It answers `{id, revision, unchanged}`, 409 when the base is stale, and 400 for an artifact that is not a document. `GET /api/documents/{id}/revisions` lists the newest 100 revisions without bodies. `GET /api/documents/{id}/revisions/{n}` answers one revision with its `markdown` and a unified `diff` against revision n−1. `POST /api/documents/{id}/revisions/{n}/restore` copies revision n as the new head. `GET /api/artifacts/{id}` adds `revision` for a document. New activity action `restore_document`.
 ### Behavior
 
+- Work → Reports has New document: write a document and choose who can see it, starting at only you for a signed-in person. A private document is never indexed or read by an agent, its revisions travel in your Your data download, and the offboarding erase takes them with it. The Your data card now lists these under Private documents and reports. Opening your own document no longer ties the ask-an-agent card.
 - Search finds a document by its current text, and a document hit opens it on Reports. Words that only an earlier revision had stop matching.
 - Approvals shows an agent's document edit as the lines it changes against the revision it was filed on, where the card showed a dash beside the new text. It warns when the document changed after the proposal.
 - An agent's document edit is pinned to the revision it was filed against. If a person saved in the meantime, approval refuses the edit and settles it as rejected without counting against the agent. A quote that is not in the document is refused when the agent files the edit, where before the proposal failed at approval and returned to the queue.

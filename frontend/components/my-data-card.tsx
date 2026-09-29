@@ -27,7 +27,7 @@ const LISTED: Record<string, string> = {
   events: "Events",
   absences: "Time away",
   task_worklog: "Worklog entries",
-  artifacts: "Other private files",
+  artifacts: "Private documents and reports",
 };
 // kinds another surface manages, and where to find it
 const ELSEWHERE: Record<string, [string, string]> = {

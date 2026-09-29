@@ -7,6 +7,7 @@ import { ArtifactMarkdown } from "@/components/artifact-markdown";
 import { Card, EmptyState } from "@/components/card";
 import { DocumentEditor } from "@/components/document-editor";
 import { DocumentHistory } from "@/components/document-history";
+import { VisibilityBadge } from "@/components/visibility-picker";
 import { PeekLink } from "@/components/task-peek";
 import { api, loadError } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
@@ -34,6 +35,8 @@ type Artifact = {
   path: string;
   created_by: string;
   created_at: string;
+  visibility?: string;
+  crew_id?: number | null;
 };
 
 type Body = Artifact & { markdown: string; threads?: EntityRef[]; revision?: number };
@@ -114,9 +117,10 @@ export default function ArtifactsPage() {
   // keyed by the report it belongs to, like `body`: opening another report
   // leaves a stale editor or history behind as neither
   const [mode, setMode] = useState<{ id: number; view: "edit" | "history" } | null>(null);
+  const [creating, setCreating] = useState(false);
 
-  useEffect(() => {
-    api<ArtifactPage>("/api/artifacts/page")
+  const loadList = useCallback((select?: number) => {
+    return api<ArtifactPage>("/api/artifacts/page")
       .then((page) => {
         setList(page.items);
         setNextBefore(page.next_before);
@@ -124,12 +128,17 @@ export default function ArtifactsPage() {
         // A link from elsewhere names an artifact; anything else opens the
         // newest, because a reader arriving at Reports wants today's, not a
         // list to click before reading anything.
-        const first = idFromUrl() ?? page.items[0]?.id ?? null;
-        setOpenId((cur) => cur ?? first);
+        const first = select ?? idFromUrl() ?? page.items[0]?.id ?? null;
+        setOpenId((cur) => (select ? select : (cur ?? first)));
         // REPLACE, so the first history entry already names what is open.
         // Pushed instead, Back would return to a bare /artifacts, and popstate
         // would read no id and leave the pane loading with nothing selected.
-        if (first !== null && idFromUrl() === null) {
+        if (select !== undefined) {
+          // a new document: a real history entry, like picking a row
+          const url = new URL(window.location.href);
+          url.searchParams.set(PARAM, String(select));
+          window.history.pushState({}, "", url);
+        } else if (first !== null && idFromUrl() === null) {
           const url = new URL(window.location.href);
           url.searchParams.set(PARAM, String(first));
           window.history.replaceState({}, "", url);
@@ -142,6 +151,10 @@ export default function ArtifactsPage() {
         setListError(loadError(e));
       });
   }, []);
+
+  useEffect(() => {
+    loadList();
+  }, [loadList]);
 
   useEffect(() => {
     if (openId === null) return;
@@ -231,14 +244,42 @@ export default function ArtifactsPage() {
 
   return (
     <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
-      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
-        Reports
-      </h1>
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <h1 className="font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+          Reports
+        </h1>
+        <button
+          id="document-new"
+          type="button"
+          aria-pressed={creating}
+          onClick={() => setCreating((on) => !on)}
+          className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 hover:border-line-strong hover:text-ink"
+        >
+          New document
+        </button>
+      </div>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
         Every digest, brief, close-out, readout and handoff the team has
         produced. Skein writes these on a schedule — this is where you read
         them.
       </p>
+
+      {creating ? (
+        <Card title="New document" className="mb-4">
+          <DocumentEditor
+            artifactId={null}
+            onSaved={(id) => {
+              setCreating(false);
+              // the POST cleared the GET cache (lib/api.ts), so the list is fresh
+              loadList(id);
+            }}
+            onCancel={() => {
+              setCreating(false);
+              setTimeout(() => document.getElementById("document-new")?.focus(), 0);
+            }}
+          />
+        </Card>
+      ) : null}
 
       {/* One state at a time. The failure is not "still loading" — it is where
           the loading stopped — and printing both leaves the reader waiting for
@@ -333,6 +374,12 @@ export default function ArtifactsPage() {
                   <time dateTime={shown.created_at} title={shown.created_at}>
                     {timeAgo(shown.created_at)}
                   </time>
+                  {shown.visibility && shown.visibility !== "workspace" ? (
+                    <VisibilityBadge
+                      visibility={shown.visibility}
+                      crewId={shown.crew_id ?? undefined}
+                    />
+                  ) : null}
                 </p>
                 <div
                   role="group"

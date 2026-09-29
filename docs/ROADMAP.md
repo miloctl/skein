@@ -581,6 +581,9 @@ review. Each names the condition that reopens it.
 | `document` as a `refs.TARGETS` word | An agenda or a thread names a document and it renders as plain text. |
 | Rename and delete a shared document | The first request. |
 | A document revision cap or pruning | A document passes 200 revisions, or `document_revisions` passes 5% of the dump. |
+| Share a document to a wider tier (`sharing.SHAREABLE`) | Someone copies a private draft into a new workspace document to share it. The mutating document routes then take `policy_context.hold_resource` first. |
+| A person's document filed under an engagement | A person asks to see their document on an engagement page. It needs `scope.assert_relationship_contains`. |
+| An agent reads a person's private document in that person's own turn | A request for it. `read_artifact` reads the workspace tier. |
 
 ## Deferred by the agent-discovery adoption (2026-08-30)
 
@@ -726,14 +729,10 @@ this file. The hardening branch `fix/trust-loop-and-hardening` shipped what
 was built. Everything below is open.
 
 **Approved features, one branch each.** Each has a plan with the owner's
-decisions settled on 2026-09-28, in `docs/intent/`. Build order: the task
-panel's blocker form (first, on its own), then document revisions, GitLab,
-comment threads, the board and routines.
+decisions settled on 2026-09-28, in `docs/intent/`. Build order: GitLab,
+comment threads, the board and routines. The task panel's blocker form and
+document revisions shipped.
 
-- **Document editing and revisions** [M–L] — `docs/intent/document-revisions.md`.
-  Revision rows, human edit, history that names editors, restore, agent edits
-  pinned to their base, a real diff in Approvals, search on the current text,
-  and documents that people create with a visibility tier.
 - **GitLab forge support and repository packs** [M] —
   `docs/intent/gitlab-forge.md`. Inbound webhooks only (outbound is an open
   decision); push, merge request and pipeline events; the `Closes-Task:` body
