@@ -20,6 +20,10 @@ WEEK_RE = re.compile(r"^\d{4}-W(0[1-9]|[1-4]\d|5[0-3])$")
 TITLE_LEN = 200
 DESCRIPTION_LEN = 4000
 TASK_LIST_LIMIT = 500
+# The board's Done column. Browse's shipped strip uses the same window
+# (SHIPPED_WINDOW_DAYS, frontend/app/dashboard/page.tsx), and the board page
+# reads this number from the response rather than copying it.
+BOARD_DONE_DAYS = 7
 # Rows one policy-filtered page may read. Offset and limit count PERMITTED
 # rows, so without this budget a large offset or a filter that denies nearly
 # everything scans the whole table, with a policy decision per row, per call.
@@ -738,6 +742,7 @@ def update_task(
     strong: bool = False,
     correlation_id: str = "",
     event_actor_kind: str = "",
+    expected_status: str = "",
 ) -> dict:
     """Update a task under one transaction-bound relationship snapshot."""
     with db.transaction():
@@ -760,6 +765,7 @@ def update_task(
             strong=strong,
             correlation_id=correlation_id,
             event_actor_kind=event_actor_kind,
+            expected_status=expected_status,
         )
 
 
@@ -783,7 +789,12 @@ def _update_task_locked(
     strong: bool = False,
     correlation_id: str = "",
     event_actor_kind: str = "",
+    expected_status: str = "",
 ) -> dict:
+    if expected_status and expected_status not in TASK_STATUSES:
+        # a 400, not a 409: a typo compares unequal forever, and a conflict
+        # tells the caller to reload and send the same value again
+        raise ValueError(f"expected_status must be one of {', '.join(TASK_STATUSES)}")
     waiting_type, waiting_id = validate_task_fields(
         {
             "title": title,
@@ -801,6 +812,16 @@ def _update_task_locked(
     if not current:
         raise scope.missing("tasks", task_id)
     scope.assert_editable("tasks", current, actor, verb="update")
+    # Compare-and-set for the board's move. `current` above is a plain read:
+    # the compare holds only because routes/api.py::patch_task takes the row
+    # first (policy_context.hold_resource). Another caller that passes
+    # expected_status without holding the row compares a read that a
+    # concurrent move can change before this write lands.
+    if expected_status and current["status"] != expected_status:
+        raise db.Conflict(
+            f"Task #{task_id} changed after you loaded the board."
+            f" It is now {current['status']}. Move it again from the current board."
+        )
     if waiting_type and waiting_id:
         waiting_row = _visible_link(_WAITING_TABLES[waiting_type], waiting_id, actor)
         scope.assert_relationship_contains(
@@ -1328,7 +1349,12 @@ def _source_finding(task: dict) -> dict | None:
 
 
 def blocking(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
-    """The open blockers filed AGAINST this task.
+    """The open blockers filed AGAINST this task (see blocking_by_task)."""
+    return blocking_by_task([task_id], viewer).get(task_id, [])
+
+
+def blocking_by_task(task_ids: list[int], viewer: scope.Viewer) -> dict[int, list[dict]]:
+    """The open blockers filed AGAINST each task, one query for many tasks.
 
     `blockers.task_id` names the task a blocker BLOCKS, and raise_blocker sets
     that task to 'blocked' (services/blockers.py). Nothing read the edge back,
@@ -1341,14 +1367,85 @@ def blocking(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     task they can. Resolved rows are excluded — a settled blocker is history,
     and listing it beside a live one reads as still-stuck.
     """
+    if not task_ids:
+        return {}
     frag, vp = scope.visible_filter(viewer, "blockers", alias="b")
-    return db.query(
-        f"SELECT b.id, b.title, b.owner, b.impact, b.status, b.escalated_at"  # noqa: S608 — scope.visible_filter emits only bound marks
-        f" FROM blockers b WHERE b.task_id = ? AND b.status != 'resolved' AND {frag}"
+    found: dict[int, list[dict]] = {}
+    for row in db.query(
+        f"SELECT b.id, b.title, b.owner, b.impact, b.status, b.escalated_at, b.task_id"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" FROM blockers b WHERE b.task_id = ANY(?) AND b.status != 'resolved' AND {frag}"
         " ORDER BY CASE b.impact WHEN 'critical' THEN 0 WHEN 'high' THEN 1"
         " WHEN 'medium' THEN 2 ELSE 3 END, b.id",
-        (task_id, *vp),
+        (list(task_ids), *vp),
+    ):
+        found.setdefault(int(row.pop("task_id")), []).append(row)
+    return found
+
+
+def board_scope(
+    viewer: scope.Viewer,
+    *,
+    engagement_id: int = 0,
+    milestone_id: int = 0,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+) -> dict | None:
+    """The one parent a board is narrowed to, or None for the whole workspace.
+
+    A hidden or policy-denied parent raises scope.missing, the absent row's
+    404. An empty board instead would confirm that the id exists.
+    """
+    from . import policy_context
+
+    if engagement_id and milestone_id:
+        raise ValueError("Choose an engagement or a milestone, not both.")
+    if not (engagement_id or milestone_id):
+        return None
+    kind, table, row_id, name = (
+        ("engagement", "engagements", engagement_id, "name")
+        if engagement_id
+        else ("milestone", "milestones", milestone_id, "title")
     )
+    frag, vp = scope.visible_filter(viewer, table)
+    row = db.query_one(
+        f"SELECT id, {name} AS title FROM {table} WHERE id = ? AND {frag}",  # noqa: S608 — table and column from the fixed pair above
+        (row_id, *vp),
+    )
+    if not row or not policy_context.filter_resource_rows(kind, [row], viewer, resource_filter):
+        raise scope.missing(table, row_id)
+    return {"kind": kind, "id": row_id, "title": row["title"]}
+
+
+def board_cards(
+    rows: list[dict],
+    viewer: scope.Viewer,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None,
+) -> list[dict]:
+    """Add the card facts: the visible open blockers as {id, title}, and
+    quiet_days for work in progress that the stale-work rule names."""
+    from datetime import datetime, timedelta
+
+    from . import policy_context
+    from .slas import STALE_WIP_DAYS
+
+    # the cutoff Health and the intervention queue use (intervention.py), so
+    # the board marks the tasks those surfaces name and no others
+    cutoff = datetime.fromisoformat(
+        db.local_midnight_utc(db.today() - timedelta(days=STALE_WIP_DAYS))
+    )
+    now = datetime.fromisoformat(db.now())
+    found = blocking_by_task([int(row["id"]) for row in rows], viewer)
+    for row in rows:
+        visible = policy_context.filter_resource_rows(
+            "blocker", found.get(int(row["id"]), []), viewer, resource_filter
+        )
+        row["blockers"] = [{"id": b["id"], "title": b["title"]} for b in visible]
+        updated = datetime.fromisoformat(row["updated_at"]) if row.get("updated_at") else None
+        row["quiet_days"] = (
+            (now - updated).days
+            if row["status"] == "in_progress" and updated and updated < cutoff
+            else None
+        )
+    return rows
 
 
 # How deep `downstream` follows the chain. Cycles are closed by the visited
@@ -1463,8 +1560,12 @@ def list_tasks_joined(
     order: str = "priority",
     limit: int = TASK_LIST_LIMIT,
     offset: int = 0,
+    engagement_id: int = 0,
+    milestone_id: int = 0,
+    assignee: str = "",
+    completed_since: str = "",
 ) -> list[dict]:
-    """Browse listing: tasks with their visible milestone title."""
+    """Browse and board listing: tasks with their visible milestone title."""
     if status not in ("", "open", "done"):
         raise ValueError("status must be open or done")
     if order not in ("priority", "completed"):
@@ -1476,6 +1577,10 @@ def list_tasks_joined(
         order=order,
         limit=limit,
         offset=offset,
+        engagement_id=engagement_id,
+        milestone_id=milestone_id,
+        assignee=assignee,
+        completed_since=completed_since,
     )
 
 
@@ -1486,7 +1591,9 @@ def _task_rows(
     open_only: bool = False,
     order: str = "priority",
     milestone_id: int = 0,
+    engagement_id: int = 0,
     assignee: str = "",
+    completed_since: str = "",
     limit: int = TASK_LIST_LIMIT,
     offset: int = 0,
 ) -> list[dict]:
@@ -1530,9 +1637,21 @@ def _task_rows(
     if milestone_id:
         sql += " AND m.id = ?"
         params.append(milestone_id)
+    if engagement_id:
+        # the engagement brief's membership rule (engagement_brief.py): a
+        # task belongs through its own engagement or its milestone's, so the
+        # board and the brief list the same work
+        sql += (
+            " AND (t.engagement_id = ? OR t.milestone_id IN"
+            " (SELECT id FROM milestones WHERE engagement_id = ?))"
+        )
+        params.extend((engagement_id, engagement_id))
     if assignee:
         sql += " AND t.assignee = ?"
         params.append(assignee)
+    if completed_since:
+        sql += " AND t.completed_at >= ?"
+        params.append(completed_since)
     if order == "completed":
         sql += " ORDER BY t.completed_at DESC NULLS LAST, t.id DESC"
     else:

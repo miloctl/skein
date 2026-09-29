@@ -380,7 +380,8 @@ def resolve_blocker(
                 source_entity="blocker",
                 source_id=blocker_id,
             )
-    return {"id": blocker_id, "status": "resolved"}
+    # task_unblocked tells the board whether the card moved, with no second read
+    return {"id": blocker_id, "status": "resolved", "task_unblocked": bool(task_unblocked)}
 
 
 def list_blockers(
