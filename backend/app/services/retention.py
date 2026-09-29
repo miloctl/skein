@@ -345,7 +345,7 @@ def _tier_keys() -> frozenset[str]:
 
     return frozenset(
         {"visibility", "crew_id", *scope.CLASSIFIED.values()}
-        | {key for _table, key in _CREATE_PARENT.values()}
+        | {key for pairs in _CREATE_PARENT.values() for _table, key in pairs}
     )
 
 

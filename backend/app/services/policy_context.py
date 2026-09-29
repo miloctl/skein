@@ -17,6 +17,8 @@ _TABLES = {
     "question_assign": ("questions", ""),
     "standup": ("standups", ""),
     "absence": ("absences", ""),
+    # a comment create is judged on its thread's parent (for_change below)
+    "comment": ("comments", ""),
     "decision": ("decisions", ""),
     "document": ("artifacts", "engagement_id"),
     "document_edit": ("artifacts", "engagement_id"),
@@ -455,6 +457,25 @@ def for_change(
                 }
             return work.task_read_policy_context(task, viewer)
         return _task_context(task_id, {})
+    if entity == "comment" and not entity_id:
+        # the parent's context, the delegation branch's shape: a project rule
+        # on a task's project governs the comments on it
+        from . import comments
+
+        for kind in ("task", "decision", "blocker"):
+            parent_id = _integer(payload.get(f"{kind}_id"))
+            if parent_id:
+                try:
+                    return comments.parent_context(
+                        kind, parent_id, scope.Viewer.for_actor(actor) if actor else scope.NOBODY
+                    )
+                except db.NotFound:
+                    return {
+                        "classification": "",
+                        "project_type": "",
+                        "relationship_conflict": "true",
+                    }
+        return {"classification": "", "project_type": ""}
     selected = _TABLES.get(entity)
     if selected is None:
         return {}

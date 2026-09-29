@@ -489,7 +489,13 @@ def _read_thread(kind: str, pid: int, user: str, viewer, request: Request, subje
     action = f"skein.rest.get.{kind}s.comments"
     with db.read_transaction():
         _decide_comment(request, subject, action, kind, pid, viewer)
-        rows = comments.list_comments(viewer, me=user, **{comments.KEY[kind]: pid})
+        rows = comments.list_comments(
+            viewer,
+            task_id=pid if kind == "task" else 0,
+            decision_id=pid if kind == "decision" else 0,
+            blocker_id=pid if kind == "blocker" else 0,
+            me=user,
+        )
         policy = projection_policy.ProjectionPolicy(
             request.app.state.skein_registry.policy_engine, subject, action, "rest", viewer
         )
