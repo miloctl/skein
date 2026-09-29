@@ -104,6 +104,9 @@ KEPT = {
             "promises",
             "standups",
             "task_worklog",
+            # not CASCADED: that map names one parent per child, and a comment
+            # has three possible parents (core_migrations/046_comments.sql)
+            "comments",
             "absences",
             "allocations",
             "events",

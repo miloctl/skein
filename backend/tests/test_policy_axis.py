@@ -572,6 +572,8 @@ def test_every_bare_route_literal_is_accounted_for():
         "_require_engagement_policy",
         "_require_export_policy",
         "_require_verdict_policy",
+        # a comment is judged on its thread's parent (routes/api.py::_decide_comment)
+        "_held_comment(",
         "ProjectionPolicy(",
         "_engagement_policy(",
         "decide(",

@@ -18,6 +18,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- Comment threads: `GET` and `POST /api/tasks/{id}/comments`, `/api/decisions/{id}/comments` and `/api/blockers/{id}/comments` (`{body}`, at most 4000 characters), `PATCH /api/comments/{id}` (`{body}`, the author only) and `DELETE /api/comments/{id}` (a tombstone). A POST answers `{id, parent, parent_id, notified, woke}`. A thread row carries `can_edit`, `can_delete`, `edited_at`, `deleted_at`, `deleted_by` and the readable `refs` in its body. New activity actions `post_comment`, `edit_comment` and `delete_comment`, which carry ids only.
 - `POST /api/webhooks/gitlab` takes GitLab project webhooks. The `X-Gitlab-Token` header must equal `SKEIN_GITLAB_WEBHOOK_TOKEN`, checked before the body is read. A push to a `task/42-…` branch starts task 42, and an opened or merged merge request moves it as a Gitea pull request does. A system hook is a 400, and any event other than push, merge request and pipeline is acknowledged and ignored. The delivery ID is `Idempotency-Key`, else `X-Gitlab-Event-UUID`, and receipts keep a separate namespace per forge, so a GitLab resend writes nothing twice.
 - `POST /api/documents` creates a document (`title`, `content`, `visibility`, `crew_id`) and answers `{id, revision: 1, title}`. With no visibility it is private for a signed-in caller and workspace for a trusted-header name. The Your data export adds `revisions` to each private document.
 - `GET /api/review/{id}/diff` for a `document_edit` answers `unified`, `base_revision` and `head_revision`.
@@ -45,6 +46,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+- Migration 046 adds `comments`: one row per comment, with exactly one parent (task, decision or blocker) and that parent's tier. It is in both database dumps and the portable export, the offboarding erase and Your data take a private one, and a rename moves `created_by` and `deleted_by`.
 - New optional Secret key `SKEIN_GITLAB_WEBHOOK_TOKEN`. Empty keeps the GitLab webhook closed (503). CLAUDE.md and `docs/intent/work-durability.md` record GitLab inbound webhooks as approved, and outbound GitLab calls as an open decision.
 - Migration 045 adds `document_revisions`: one row per revision of a document, with its body. It is in both database dumps and left out of the portable export.
 

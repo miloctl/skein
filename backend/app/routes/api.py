@@ -32,6 +32,7 @@ from ..services import (
     briefing,
     capture,
     collab,
+    comments,
     context_pack,
     crews,
     delegation,
@@ -456,6 +457,169 @@ def get_task_worklog(
             return delegation.list_worklog(task_id, viewer=viewer)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
+
+
+class CommentIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    body: str = Field(max_length=comments.BODY_LEN)
+
+
+def _decide_comment(
+    request: Request, subject: Any, action: str, kind: str, pid: int, viewer
+) -> None:
+    """The thread's parent decides: a workplace rule on a task's project
+    governs the task's comments. The generic route gate skips these routes
+    (extensions/fastapi.py _HANDLER_POLICY), so this is the only decision."""
+    domain = comments.parent_context(kind, pid, viewer)
+    enforce_decision(
+        decide(
+            request,
+            subject,
+            action,
+            kind,
+            resource_id=str(pid),
+            project_type=domain.get("project_type", ""),
+            classification=domain.get("classification", ""),
+            attributes=domain,
+        )
+    )
+
+
+def _read_thread(kind: str, pid: int, user: str, viewer, request: Request, subject: Any) -> list:
+    action = f"skein.rest.get.{kind}s.comments"
+    with db.read_transaction():
+        _decide_comment(request, subject, action, kind, pid, viewer)
+        rows = comments.list_comments(viewer, me=user, **{comments.KEY[kind]: pid})
+        policy = projection_policy.ProjectionPolicy(
+            request.app.state.skein_registry.policy_engine, subject, action, "rest", viewer
+        )
+        # one readable_refs walk per page, not per comment: each resolves
+        # tier and policy for every target it names (docs/intent/task-threads.md D12).
+        # quoted=False: in prose an apostrophe is a word, not a quoted title
+        readable = {
+            (ref["entity"], ref["id"]): ref
+            for ref in refs.readable_refs(
+                "\n".join(row["body"] for row in rows),
+                viewer,
+                resource_filter=policy.permits,
+                quoted=False,
+            )
+        }
+        for row in rows:
+            row["refs"] = [
+                readable[key]
+                for key in dict.fromkeys(
+                    (ref["entity"], ref["id"]) for ref in refs.refs(row["body"], quoted=False)
+                )
+                if key in readable
+            ]
+        return rows
+
+
+def _post_thread(kind: str, pid: int, body: CommentIn, user: str, request: Request, subject: Any):
+    with db.transaction():
+        # the parent FIRST: the decision below is about it, and the service
+        # then reads it FOR UPDATE inside the same hold
+        policy_context.hold_resource(kind, pid)
+        _decide_comment(
+            request,
+            subject,
+            f"skein.rest.post.{kind}s.comments",
+            kind,
+            pid,
+            scope.Viewer.for_actor(user),
+        )
+        return comments.add_comment(
+            body.body,
+            task_id=pid if kind == "task" else 0,
+            decision_id=pid if kind == "decision" else 0,
+            blocker_id=pid if kind == "blocker" else 0,
+            actor=user,
+        )
+
+
+@router.get("/tasks/{task_id}/comments")
+def get_task_comments(
+    task_id: int, user: CurrentUser, viewer: ViewerDep, request: Request, subject: PolicySubjectDep
+):
+    return _read_thread("task", task_id, user, viewer, request, subject)
+
+
+@router.post("/tasks/{task_id}/comments")
+def post_task_comment(
+    task_id: int, body: CommentIn, user: CurrentUser, request: Request, subject: PolicySubjectDep
+):
+    ratelimit.check("write", user)
+    return _post_thread("task", task_id, body, user, request, subject)
+
+
+@router.get("/decisions/{decision_id}/comments")
+def get_decision_comments(
+    decision_id: int,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    return _read_thread("decision", decision_id, user, viewer, request, subject)
+
+
+@router.post("/decisions/{decision_id}/comments")
+def post_decision_comment(
+    decision_id: int,
+    body: CommentIn,
+    user: CurrentUser,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    ratelimit.check("write", user)
+    return _post_thread("decision", decision_id, body, user, request, subject)
+
+
+@router.get("/blockers/{blocker_id}/comments")
+def get_blocker_comments(
+    blocker_id: int,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    return _read_thread("blocker", blocker_id, user, viewer, request, subject)
+
+
+@router.post("/blockers/{blocker_id}/comments")
+def post_blocker_comment(
+    blocker_id: int, body: CommentIn, user: CurrentUser, request: Request, subject: PolicySubjectDep
+):
+    ratelimit.check("write", user)
+    return _post_thread("blocker", blocker_id, body, user, request, subject)
+
+
+def _held_comment(comment_id: int, user: str, action: str, request: Request, subject: Any) -> None:
+    viewer = scope.Viewer.for_actor(user)
+    row = comments.get_comment(comment_id, viewer)
+    # the parent FIRST, as a post holds it: the service then takes the
+    # comment row, and every comment write locks parent before comment
+    policy_context.hold_resource(row["parent"], row["parent_id"])
+    _decide_comment(request, subject, action, row["parent"], row["parent_id"], viewer)
+
+
+@router.patch("/comments/{comment_id}")
+def patch_comment(
+    comment_id: int, body: CommentIn, user: CurrentUser, request: Request, subject: PolicySubjectDep
+):
+    ratelimit.check("write", user)
+    with db.transaction():
+        _held_comment(comment_id, user, "skein.rest.patch.comments", request, subject)
+        return comments.edit_comment(comment_id, body.body, actor=user)
+
+
+@router.delete("/comments/{comment_id}")
+def delete_comment(comment_id: int, user: CurrentUser, request: Request, subject: PolicySubjectDep):
+    ratelimit.check("delete", user)
+    with db.transaction():
+        _held_comment(comment_id, user, "skein.rest.delete.comments", request, subject)
+        return comments.delete_comment(comment_id, actor=user)
 
 
 @router.get("/questions")
