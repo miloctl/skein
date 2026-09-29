@@ -23,10 +23,10 @@ type Params = { engagement: number; milestone: number };
 
 // void is not a column: the task panel keeps its own confirmed void control
 const COLUMNS = [
-  { status: "todo", label: "To do", empty: "Nothing waiting." },
-  { status: "in_progress", label: "In progress", empty: "Nothing in progress." },
-  { status: "blocked", label: "Blocked", empty: "Nothing is blocked." },
-  { status: "done", label: "Done", empty: "" },
+  { status: "todo", empty: "Nothing waiting." },
+  { status: "in_progress", empty: "Nothing in progress." },
+  { status: "blocked", empty: "Nothing is blocked." },
+  { status: "done", empty: "" },
 ] as const;
 
 const positive = (raw: string | null) => {
@@ -61,7 +61,8 @@ export default function BoardPage() {
   const generation = useRef(0);
   const [panel, setPanel] = useState<Panel>(null);
   const [moving, setMoving] = useState<number | null>(null);
-  const inFlight = useRef(false);
+  // the task id of the write in flight, or 0
+  const inFlight = useRef(0);
   const [dropTarget, setDropTarget] = useState("");
   const dragged = useRef<number | null>(null);
   // Drag only for a fine pointer: on touch a long-press drag fights the
@@ -96,11 +97,22 @@ export default function BoardPage() {
         setFailure("");
       })
       .catch((e) => {
-        if (g === generation.current) setFailure(loadError(e));
+        if (g !== generation.current) return;
+        setFailure(loadError(e));
+        // a later reload must not pull focus to this card after the reader
+        // moved on
+        pendingFocus.current = null;
       });
   }, [params, mine]);
 
   useEffect(load, [load]);
+  // a write's reload reads the board the reader sees NOW: the load captured
+  // when the write began still carries the old "Only my tasks" and scope,
+  // and it takes the newest generation, so it would win
+  const loadNow = useRef(load);
+  useEffect(() => {
+    loadNow.current = load;
+  }, [load]);
 
   useEffect(() => {
     const id = pendingFocus.current;
@@ -115,22 +127,28 @@ export default function BoardPage() {
   // it is until the server answers, then the board rereads, so a refused
   // move never leaves the screen wrong.
   const write = async (task: BoardTask, work: () => Promise<void>) => {
-    if (inFlight.current) return;
-    inFlight.current = true;
+    if (inFlight.current) {
+      reportStatus(`Wait for the move of task #${inFlight.current} to finish. Then try again.`);
+      return;
+    }
+    inFlight.current = task.id;
     setMoving(task.id);
-    // focus leaves the panel before it closes, or it drops to the page
-    focusMove(task.id);
-    setPanel(() => null);
+    // only this card's panel closes: a blocker draft open on another card
+    // stays. Focus leaves the panel before it closes, or it drops to the page.
+    if (panel?.id === task.id) {
+      focusMove(task.id);
+      setPanel(() => null);
+    }
     try {
       await work();
     } catch (e) {
       // a 409 names the task's current status, and the reload shows it
       reportStatus(actionError(e));
     } finally {
-      inFlight.current = false;
+      inFlight.current = 0;
       setMoving(null);
       pendingFocus.current = task.id;
-      load();
+      loadNow.current();
     }
   };
 
@@ -143,8 +161,9 @@ export default function BoardPage() {
     if (target === "blocked") {
       // raise_blocker keeps a finished task finished (services/blockers.py)
       if (task.status === "done") {
+        focusMove(task.id);
         setPanel(() => null);
-        return reportStatus(`Reopen task #${task.id} first. Then raise a blocker.`);
+        return reportStatus(`A finished task cannot move to Blocked. Reopen task #${task.id} first. Then raise a blocker.`);
       }
       // the service sets Blocked when the blocker is filed, so no PATCH
       return setPanel(() => ({ id: task.id, mode: "blocker" }));
@@ -180,9 +199,10 @@ export default function BoardPage() {
       setPanel(() => null);
       if (raised) {
         pendingFocus.current = task.id;
-        load();
+        loadNow.current();
       } else focusMove(task.id);
     },
+    focusMove,
   };
 
   const cardOnBoard = (id: number) =>
@@ -251,8 +271,8 @@ export default function BoardPage() {
       {failure ? <p className="mb-3 text-sm text-danger">{failure}</p> : null}
       {capped ? (
         <p className="mb-3 text-sm text-ink-2">
-          This board shows the first {board.limit} open tasks, highest priority first. Open one
-          engagement to see the rest.
+          This board shows the first {board.limit} open tasks, highest priority first.
+          {board.scope ? "" : " Open one engagement to see the rest."}
         </p>
       ) : null}
 
@@ -271,7 +291,7 @@ export default function BoardPage() {
             // so the column claims nothing
             const empty =
               column.status === "done"
-                ? `Nothing finished in the last ${board.done_days} days.`
+                ? `Nothing finished in the last ${board.done_days} ${board.done_days === 1 ? "day" : "days"}.`
                 : capped
                   ? ""
                   : column.empty;
@@ -303,7 +323,7 @@ export default function BoardPage() {
                 className={`min-w-0 rounded-lg ${dropTarget === column.status ? "outline-2 outline-dashed outline-thread" : ""}`}
               >
                 <h2 id={id} className="mb-2 skein-section-title text-ink-3">
-                  {column.label} ({cards.length})
+                  {COLUMN_LABELS[column.status]} ({cards.length})
                 </h2>
                 {cards.length ? (
                   <ul className="space-y-2">
