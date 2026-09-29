@@ -217,3 +217,11 @@ def test_gitea_and_gitlab_keep_separate_namespaces_for_one_url(
         "gitea",
         "gitlab",
     ]
+
+
+def test_a_merge_request_on_any_branch_with_the_trailer_closes_the_task(gitlab, fresh_db):
+    tid = _task()
+    description = f"Fix the login form.\n\nCloses-Task: #{tid}"
+    merged = gitlab(merge_request("merge", source_branch="fix-login", description=description))
+    assert merged.json()["status"] == "done"
+    assert _status(tid) == ("done", f"{WEB_URL}/-/merge_requests/7")

@@ -171,6 +171,42 @@ def test_text_scan_is_bounded_and_linear(fresh_db):
     assert time.monotonic() - start < 1.0
 
 
+def test_a_closes_task_line_in_a_description_names_the_task(fresh_db):
+    """`skein pr-body` writes this line, and the closing-verb scan needs a
+    space after "Closes", so a description that ended with it matched
+    nothing. A `task/…` branch hid the bug."""
+    from app.services import forge
+
+    assert forge.match_task(body="Fix login\n\nCloses-Task: #42") == 42
+    assert forge.match_task(body="Fix login\n\ncloses-task:42\n") == 42
+    # Refs-Task names a task and never closes it (the commit-msg hook's line)
+    assert forge.match_task(body="Fix login\n\nRefs-Task: #42") is None
+    # a trailer is a line of its own, not a phrase inside a sentence
+    assert forge.match_task(body="This is not Closes-Task: #42 at all") is None
+    # the title keeps its closing-verb rule only
+    assert forge.match_task(title="Closes-Task: #42") is None
+
+
+def test_the_trailer_scan_is_bounded_and_linear(fresh_db):
+    import time
+
+    from app.services import forge
+
+    hostile = "Closes-Task:" + " " * 100_000
+    start = time.monotonic()
+    assert forge._TRAILER.search(hostile) is None
+    assert time.monotonic() - start < 1.0
+
+
+def test_a_merge_on_any_branch_with_the_trailer_closes_the_task(signed, fresh_db):
+    from app.services import work
+
+    tid = work.create_task("Fix login")["id"]
+    body = f"Fix the login form.\n\nCloses-Task: #{tid}"
+    merged = signed("pull_request", _pr("fix-login", action="closed", merged=True, body=body))
+    assert merged.json()["status"] == "done"
+
+
 def test_a_closing_verb_at_the_end_of_a_long_body_still_matches(fresh_db):
     from app.services import forge
 
