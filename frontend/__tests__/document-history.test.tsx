@@ -56,7 +56,7 @@ beforeEach(() => {
 
 describe("document history", () => {
   it("names the author of each revision", async () => {
-    render(<DocumentHistory artifactId={12} onRestored={() => {}} />);
+    render(<DocumentHistory artifactId={12} onChanged={() => {}} />);
     const items = await screen.findAllByRole("listitem");
     expect(items.map((li) => li.textContent)).toEqual([
       expect.stringContaining("scribe · Agent, approved in proposal #31"),
@@ -70,7 +70,7 @@ describe("document history", () => {
 
   it("restore sends the head the list showed", async () => {
     const onRestored = vi.fn();
-    render(<DocumentHistory artifactId={12} onRestored={onRestored} />);
+    render(<DocumentHistory artifactId={12} onChanged={onRestored} />);
     fireEvent.click(await screen.findByRole("button", { name: "Restore revision 1" }));
     await waitFor(() => expect(onRestored).toHaveBeenCalled());
     expect(state.posts).toEqual([
@@ -83,15 +83,22 @@ describe("document history", () => {
     expect(screen.queryByRole("button", { name: "Restore revision 3" })).toBeNull();
   });
 
-  it("a restore refused as stale reads the list again", async () => {
+  it("a restore refused as stale reads the list and the document again", async () => {
     state.stale = true;
-    render(<DocumentHistory artifactId={12} onRestored={() => {}} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Restore revision 1" }));
+    const onChanged = vi.fn();
+    render(<DocumentHistory artifactId={12} onChanged={onChanged} />);
+    const restore = await screen.findByRole("button", { name: "Restore revision 1" });
+    fireEvent.click(restore);
+    fireEvent.click(restore);
+    // aria-disabled, never disabled: a disabled button drops focus to the page
+    expect(restore.hasAttribute("disabled")).toBe(false);
     await waitFor(() => expect(state.lists).toBe(2));
+    expect(state.posts).toHaveLength(1);
+    expect(onChanged).toHaveBeenCalled();
   });
 
   it("moves focus to the revision it opens", async () => {
-    render(<DocumentHistory artifactId={12} onRestored={() => {}} />);
+    render(<DocumentHistory artifactId={12} onChanged={() => {}} />);
     fireEvent.click(await screen.findByRole("button", { name: "Revision 2" }));
     const heading = await screen.findByRole("heading", { name: "Revision 2" });
     await waitFor(() => expect(document.activeElement).toBe(heading));

@@ -44,6 +44,10 @@ export function DocumentEditor({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [confirming, setConfirming] = useState(false);
+  // the busy guard: Save is aria-disabled, never disabled, while it runs,
+  // because a disabled button drops focus to the page, and a refused save
+  // then leaves the reader at the top with "select Save again" to do
+  const inFlight = useRef(false);
   const area = useRef<HTMLTextAreaElement>(null);
   const titleField = useRef<HTMLInputElement>(null);
   const strong = useStrongIdentity();
@@ -98,7 +102,8 @@ export function DocumentEditor({
   }, [base, dirty, draft, title, drafts, key]);
 
   const save = async () => {
-    if (!base) return;
+    if (!base || inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     try {
       if (artifactId === null) {
@@ -137,6 +142,7 @@ export function DocumentEditor({
       reportStatus(actionError(e));
       if (e instanceof ApiError && e.status === 409 && artifactId !== null) await rebase(artifactId);
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   };
@@ -218,9 +224,10 @@ export function DocumentEditor({
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          disabled={busy || !draft.trim()}
+          disabled={!draft.trim()}
+          aria-disabled={busy || undefined}
           onClick={save}
-          className="rounded-lg bg-thread-solid px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+          className="rounded-lg bg-thread-solid px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50 aria-disabled:opacity-50"
         >
           {creating ? "Create document" : "Save"}
         </button>

@@ -44,18 +44,21 @@ function Origin({ revision }: { revision: Revision }) {
 
 /** Every revision of one document, each with who made it, and a restore that
  *  copies an earlier one as the new head (POST .../restore). A restore keeps
- *  the bad revision, so restoring the previous head undoes it. */
+ *  the bad revision, so restoring the previous head undoes it. `onChanged`
+ *  runs when the head moved: a restore, or a refusal that found a newer one. */
 export function DocumentHistory({
   artifactId,
-  onRestored,
+  onChanged,
 }: {
   artifactId: number;
-  onRestored: () => void;
+  onChanged: () => void;
 }) {
   const [history, setHistory] = useState<History | null>(null);
   const [failure, setFailure] = useState("");
   const [selected, setSelected] = useState<OneRevision | null>(null);
   const [busy, setBusy] = useState(false);
+  // aria-disabled, never disabled, for the reason components/document-editor.tsx gives
+  const inFlight = useRef(false);
   const [reload, setReload] = useState(0);
   const heading = useRef<HTMLHeadingElement>(null);
   const opened = useRef<HTMLHeadingElement>(null);
@@ -88,7 +91,8 @@ export function DocumentHistory({
   }, [selected]);
 
   const restore = async (revision: number) => {
-    if (!history) return;
+    if (!history || inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     try {
       const out = await api<{ revision: number; unchanged: boolean }>(
@@ -103,14 +107,17 @@ export function DocumentHistory({
       );
       setSelected(null);
       setReload((n) => n + 1);
-      onRestored();
+      onChanged();
       heading.current?.focus();
     } catch (e) {
       reportStatus(actionError(e));
       // a stale head is the usual refusal: the list must show the revision
-      // that is newer, or the next Restore sends the same stale base
+      // that is newer, or the next Restore sends the same stale base, and the
+      // page must show its text
       setReload((n) => n + 1);
+      onChanged();
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   };
@@ -156,9 +163,9 @@ export function DocumentHistory({
               {r.revision !== history.head ? (
                 <button
                   type="button"
-                  disabled={busy}
+                  aria-disabled={busy || undefined}
                   onClick={() => restore(r.revision)}
-                  className="min-h-6 rounded-lg border border-line px-2 py-0.5 text-xs text-ink-2 hover:border-line-strong disabled:opacity-50"
+                  className="min-h-6 rounded-lg border border-line px-2 py-0.5 text-xs text-ink-2 hover:border-line-strong aria-disabled:opacity-50"
                 >
                   Restore revision {r.revision}
                 </button>

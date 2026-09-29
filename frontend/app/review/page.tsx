@@ -728,6 +728,18 @@ export default function ReviewPage() {
       settle([id]);
     } catch (e) {
       reportStatus(actionError(e));
+      // An approval that can never apply settles the proposal as rejected and
+      // still answers an error (services/review.py, "auto-rejected"), as a
+      // busy database does for one that stays pending. Only the queue says
+      // which: a settled card left here invites a second approval.
+      const pending = await api<Change[]>(
+        `/api/review?status=pending&limit=1&after=${id - 1}`,
+      ).catch(() => null);
+      if (pending && pending[0]?.id !== id) {
+        notifyAttentionChange();
+        setAsking(null);
+        settle([id]);
+      }
     }
   };
 
