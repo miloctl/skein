@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { actionError, api, loadError } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import { EmptyState } from "@/components/card";
+import { CommentsToggle } from "@/components/comments-toggle";
 
 type Decision = {
   id: number;
@@ -401,6 +402,7 @@ export default function CharterPage() {
                 </div>
               </div>
             )}
+            <CommentsToggle parent="decision" id={d.id} />
           </li>
         ))}
         {/* an <li>, like the empty state directly below: a <p> as a direct

@@ -27,6 +27,7 @@ const LISTED: Record<string, string> = {
   events: "Events",
   absences: "Time away",
   task_worklog: "Worklog entries",
+  comments: "Comments",
   artifacts: "Private documents and reports",
 };
 // kinds another surface manages, and where to find it

@@ -127,7 +127,7 @@ knots:
     knot: Becket Hitch
     set: hitches
     pitch: Talk about the work where the work lives, and steer an agent without leaving it.
-    how: "Open a task and write under Comments. Write @name to notify a person. On a delegated task, write @ and the agent name to start one agent turn. Select Edit to change your own comment, or Delete to delete it."
+    how: "Open a task and write under Comments. On Team → Charter, or on a row in Work → Browse → Blockers, select Comments. Write @name to notify a person. On a delegated task, write @ and the agent name to start one agent turn. Select Edit to change your own comment, or Delete to delete it."
     link: /dashboard
     since: 2026-09-29
 

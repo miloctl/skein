@@ -10,6 +10,7 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { CommentsToggle } from "@/components/comments-toggle";
 import { VisibilityBadge } from "@/components/visibility-picker";
 import { PeekLink } from "@/components/task-peek";
 import { actionError, api, getUser, loadError, subscribeUser } from "@/lib/api";
@@ -1315,6 +1316,7 @@ export default function Dashboard() {
                   </button>
                 </p>
               )}
+              <CommentsToggle parent="blocker" id={Number(b.id)} />
             </li>
           )}
         />
