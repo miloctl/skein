@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { BoardCard, type BoardTask } from "@/components/board-card";
+import { BoardCard, COLUMN_LABELS, type BoardTask, type Moves, type Panel } from "@/components/board-card";
 import { Card } from "@/components/card";
-import { api, loadError } from "@/lib/api";
+import { actionError, api, loadError } from "@/lib/api";
+import { reportStatus } from "@/lib/status";
 
 /** GET /api/tasks/board. */
 type Board = {
@@ -44,12 +45,30 @@ function BoardParams({ onChange }: { onChange: (p: Params) => void }) {
   return null;
 }
 
+const POINTER = "(pointer: fine)";
+const finePointer = () => !!window.matchMedia?.(POINTER).matches;
+const subscribePointer = (onChange: () => void) => {
+  const query = window.matchMedia?.(POINTER);
+  query?.addEventListener("change", onChange);
+  return () => query?.removeEventListener("change", onChange);
+};
+
 export default function BoardPage() {
   const [params, setParams] = useState<Params | null>(null);
   const [mine, setMine] = useState(false);
   const [board, setBoard] = useState<Board | null>(null);
   const [failure, setFailure] = useState("");
   const generation = useRef(0);
+  const [panel, setPanel] = useState<Panel>(null);
+  const [moving, setMoving] = useState<number | null>(null);
+  const inFlight = useRef(false);
+  const [dropTarget, setDropTarget] = useState("");
+  const dragged = useRef<number | null>(null);
+  // Drag only for a fine pointer: on touch a long-press drag fights the
+  // scroll, and the Move button is the touch path
+  const fine = useSyncExternalStore(subscribePointer, finePointer, () => false);
+  // the card's Move button in its NEW column, once the reload has drawn it
+  const pendingFocus = useRef<number | null>(null);
 
   const onParams = useCallback(
     (next: Params) =>
@@ -82,6 +101,92 @@ export default function BoardPage() {
   }, [params, mine]);
 
   useEffect(load, [load]);
+
+  useEffect(() => {
+    const id = pendingFocus.current;
+    if (id === null) return;
+    pendingFocus.current = null;
+    document.getElementById(`board-move-${id}`)?.focus();
+  }, [board]);
+
+  const focusMove = (id: number) => document.getElementById(`board-move-${id}`)?.focus();
+
+  // One write at a time. There is no optimistic move: the card stays where
+  // it is until the server answers, then the board rereads, so a refused
+  // move never leaves the screen wrong.
+  const write = async (task: BoardTask, work: () => Promise<void>) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setMoving(task.id);
+    // focus leaves the panel before it closes, or it drops to the page
+    focusMove(task.id);
+    setPanel(() => null);
+    try {
+      await work();
+    } catch (e) {
+      // a 409 names the task's current status, and the reload shows it
+      reportStatus(actionError(e));
+    } finally {
+      inFlight.current = false;
+      setMoving(null);
+      pendingFocus.current = task.id;
+      load();
+    }
+  };
+
+  /** The one move rule, for the drop and for the Move panel
+   *  (docs/intent/board-view.md D5). */
+  const move = (task: BoardTask, target: string) => {
+    if (target === task.status || task.delegated_agent) return;
+    // leaving Blocked is a board rule: the reader resolves what they can see
+    if (task.blockers.length) return setPanel(() => ({ id: task.id, mode: "menu" }));
+    if (target === "blocked") {
+      // raise_blocker keeps a finished task finished (services/blockers.py)
+      if (task.status === "done") {
+        setPanel(() => null);
+        return reportStatus(`Reopen task #${task.id} first. Then raise a blocker.`);
+      }
+      // the service sets Blocked when the blocker is filed, so no PATCH
+      return setPanel(() => ({ id: task.id, mode: "blocker" }));
+    }
+    void write(task, async () => {
+      await api(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: target, expected_status: task.status }),
+      });
+      reportStatus(`Task #${task.id} moved to ${COLUMN_LABELS[target]}.`, "confirmation");
+    });
+  };
+
+  const moves: Moves = {
+    panel,
+    setPanel,
+    moving,
+    move,
+    resolve: (task, blockerId) =>
+      void write(task, async () => {
+        const out = await api<{ task_unblocked: boolean }>(`/api/blockers/${blockerId}/resolve`, {
+          method: "POST",
+          body: JSON.stringify({ resolution: "resolved from the board" }),
+        });
+        reportStatus(
+          out.task_unblocked
+            ? `Blocker #${blockerId} is resolved. Task #${task.id} moved to In progress.`
+            : `Blocker #${blockerId} is resolved.`,
+          "confirmation",
+        );
+      }),
+    settle: (task, raised) => {
+      setPanel(() => null);
+      if (raised) {
+        pendingFocus.current = task.id;
+        load();
+      } else focusMove(task.id);
+    },
+  };
+
+  const cardOnBoard = (id: number) =>
+    board ? [...board.open, ...board.done].find((t) => t.id === id) : undefined;
 
   // The board reloads on events, never on a timer (D10): a capture or a
   // verdict, an edit in the task panel, and a return to the tab.
@@ -171,15 +276,51 @@ export default function BoardPage() {
                   ? ""
                   : column.empty;
             return (
-              <section key={column.status} aria-labelledby={id} className="min-w-0">
+              <section
+                key={column.status}
+                aria-labelledby={id}
+                onDragOver={(e) => {
+                  // a card on this board, not already in this column
+                  const task = dragged.current === null ? undefined : cardOnBoard(dragged.current);
+                  if (!task || task.status === column.status) return;
+                  e.preventDefault();
+                  setDropTarget(column.status);
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTarget("");
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDropTarget("");
+                  dragged.current = null;
+                  // another page's drag lands here too: only a card on this
+                  // board moves
+                  const task = cardOnBoard(Number(e.dataTransfer.getData("text/plain")));
+                  if (task) move(task, column.status);
+                }}
+                // an outline, not a ring: Tailwind's ring is a box-shadow,
+                // and forced-colors mode drops box-shadows (app/globals.css)
+                className={`min-w-0 rounded-lg ${dropTarget === column.status ? "outline-2 outline-dashed outline-thread" : ""}`}
+              >
                 <h2 id={id} className="mb-2 skein-section-title text-ink-3">
                   {column.label} ({cards.length})
                 </h2>
                 {cards.length ? (
                   <ul className="space-y-2">
                     {cards.map((task) => (
-                      <li key={task.id}>
-                        <BoardCard task={task} today={board.today} />
+                      <li
+                        key={task.id}
+                        draggable={fine && !task.delegated_agent}
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("text/plain", String(task.id));
+                          dragged.current = task.id;
+                        }}
+                        onDragEnd={() => {
+                          dragged.current = null;
+                          setDropTarget("");
+                        }}
+                      >
+                        <BoardCard task={task} today={board.today} moves={moves} />
                       </li>
                     ))}
                   </ul>
