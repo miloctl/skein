@@ -31,6 +31,7 @@ import IntakePage from "@/app/intake/page";
 import CharterPage from "@/app/charter/page";
 import NotesPage from "@/app/notes/page";
 import CalendarPage from "@/app/calendar/page";
+import BoardPage from "@/app/board/page";
 
 // each page's empty state, matched by its FIXED sentence (Review's headline
 // is whimsy-pool text that varies per render, so match the stable line under it)
@@ -40,6 +41,7 @@ const PAGES: [string, () => React.ReactElement, RegExp][] = [
   ["Charter", () => <CharterPage />, /No charter entries yet/],
   ["Notes", () => <NotesPage />, /No notes yet/],
   ["Calendar", () => <CalendarPage />, /No meetings, due dates or time away/],
+  ["Board", () => <BoardPage />, /Nothing is blocked|Nothing finished in the last/],
 ];
 
 describe("persistent authoring labels", () => {

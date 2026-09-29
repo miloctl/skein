@@ -281,6 +281,15 @@ def resolve_blocker(
         if not row:
             raise scope.missing("blockers", blocker_id)
         scope.assert_editable("blockers", row, actor, verb="resolve")
+        if row["task_id"]:
+            # The task is held before the blocker write, the order the
+            # escalation sweep and every task write take. Without it, two
+            # resolves of a task's last two blockers each see the other
+            # blocker still open, neither releases the task, and it stays
+            # Blocked with no open blocker (task_unblocked false for both).
+            from . import policy_context
+
+            policy_context.hold_resource("task", int(row["task_id"]))
         if row["status"] == "resolved":
             raise ValueError(f"blocker #{blocker_id} is already resolved")
         # The status check above decides this write, and the read took no
@@ -380,7 +389,8 @@ def resolve_blocker(
                 source_entity="blocker",
                 source_id=blocker_id,
             )
-    return {"id": blocker_id, "status": "resolved"}
+    # task_unblocked tells the board whether the card moved, with no second read
+    return {"id": blocker_id, "status": "resolved", "task_unblocked": bool(task_unblocked)}
 
 
 def list_blockers(
