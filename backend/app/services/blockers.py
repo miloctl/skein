@@ -113,10 +113,19 @@ def raise_blocker(
     ts = db.now()
     with db.transaction():
         tier, cid = scope.resolve_write(visibility, crew_id, actor=actor)
+        # the meeting before the task: schedule.link_item holds the event and
+        # then the item row, and the reverse order deadlocks against it
+        if event_id:
+            from .schedule import check_event_link
+
+            check_event_link(event_id, actor=actor, tier=tier, crew_id=cid, label="blocker")
         if task_id:
             tfrag, tp = scope.visible_filter(scope.Viewer.for_actor(actor), "tasks", "task")
+            # FOR UPDATE: the status read here decides the flip to blocked
+            # below. Unlocked, a task finished between the two went back to
+            # Blocked and lost its completed_at.
             task = db.query_one(
-                f"SELECT task.* FROM tasks task WHERE task.id = ? AND {tfrag}",  # noqa: S608 -- scope emits bound marks
+                f"SELECT task.* FROM tasks task WHERE task.id = ? AND {tfrag} FOR UPDATE",  # noqa: S608 -- scope emits bound marks
                 (task_id, *tp),
             )
             if task is None:
@@ -128,10 +137,6 @@ def raise_blocker(
                 cid,
                 child_label="blocker",
             )
-        if event_id:
-            from .schedule import check_event_link
-
-            check_event_link(event_id, actor=actor, tier=tier, crew_id=cid, label="blocker")
         # author=actor: capture.py hardcodes owner=actor and post_standup
         # passes owner=author, so without the self-exemption every private
         # capture and standup that named a blocker was refused
