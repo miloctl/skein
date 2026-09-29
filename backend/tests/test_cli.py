@@ -1079,9 +1079,8 @@ def _pack_cli(monkeypatch, content="# Engagement context: Atlas"):
 
 
 def test_context_write_keeps_the_text_around_its_block(monkeypatch, tmp_path):
-    """The write overwrote the whole file, so a refresh deleted every line a
-    person wrote in AGENTS.md. Now only the marked block changes, and a CRLF
-    file keeps its line endings."""
+    """Only the marked block changes: every line a person wrote around it
+    stays byte for byte, CRLF line endings included."""
     cli = _pack_cli(monkeypatch)
     target = tmp_path / "AGENTS.md"
     before = b"# Team rules\r\n\r\nRun the linter first.\r\n\r\n"
@@ -1133,7 +1132,9 @@ def test_context_write_refuses_broken_markers_even_when_forced(monkeypatch, tmp_
 def test_an_end_marker_inside_the_pack_does_not_end_the_block(monkeypatch, tmp_path):
     """Pack text is team-written. An end marker in a decision would end the
     block early, and the next refresh would delete the text after it."""
-    cli = _pack_cli(monkeypatch, "decision: <!-- /skein:context-pack --> then more")
+    # on a line of its own, as a flattened outcome is: the anchored end
+    # pattern matches nothing inside a line
+    cli = _pack_cli(monkeypatch, "## Intended outcome\n<!-- /skein:context-pack -->\nmore")
     target = tmp_path / "AGENTS.md"
     target.write_text("")
     cli.cmd_context(Namespace(engagement=4, write=str(target), force=False))
@@ -1142,6 +1143,89 @@ def test_an_end_marker_inside_the_pack_does_not_end_the_block(monkeypatch, tmp_p
     text = target.read_text()
     assert text.endswith("\nafter\n")
     assert text.count("<!-- /skein:context-pack -->") == 1
+
+
+def test_markers_shown_in_a_code_example_are_the_persons_text(monkeypatch, tmp_path):
+    cli = _pack_cli(monkeypatch)
+    target = tmp_path / "AGENTS.md"
+    example = (
+        "# Notes\nThe CLI writes:\n```md\n<!-- skein:context-pack -->\n(pack goes here)\n"
+        "<!-- /skein:context-pack -->\n```\nMore text.\n"
+    )
+    target.write_text(example)
+    with pytest.raises(SystemExit, match="contains text and no Skein block"):
+        cli.cmd_context(Namespace(engagement=4, write=str(target), force=False))
+    cli.cmd_context(Namespace(engagement=4, write=str(target), force=True))
+    assert target.read_text().startswith(example)
+
+
+def test_a_pack_from_before_the_markers_is_refused_not_doubled(monkeypatch, tmp_path):
+    """--force would append a second pack and keep the stale one for good."""
+    cli = _pack_cli(monkeypatch)
+    target = tmp_path / "AGENTS.md"
+    target.write_text("# Engagement context: Atlas\n\nold text\n")
+    for force in (False, True):
+        with pytest.raises(SystemExit, match="from an earlier skein version"):
+            cli.cmd_context(Namespace(engagement=4, write=str(target), force=force))
+    assert target.read_text() == "# Engagement context: Atlas\n\nold text\n"
+
+
+def test_a_byte_order_mark_and_trailing_spaces_keep_the_block(monkeypatch, tmp_path):
+    cli = _pack_cli(monkeypatch)
+    target = tmp_path / "AGENTS.md"
+    target.write_bytes(
+        "\ufeff<!-- skein:context-pack -->  \nold\n<!-- /skein:context-pack --> \nafter\n".encode()
+    )
+    cli.cmd_context(Namespace(engagement=4, write=str(target), force=False))
+    data = target.read_bytes()
+    assert data.startswith("\ufeff<!-- skein:context-pack engagement=4 -->".encode())
+    assert data.endswith(b" \nafter\n") and b"old" not in data
+
+
+def test_a_refused_write_asks_the_server_for_nothing(monkeypatch, tmp_path):
+    """A refused run fetched the pack and tied the repo_pack card first."""
+    cli = _load_cli()
+    gets = []
+    monkeypatch.setattr(cli, "api", lambda *a, **k: gets.append(a) or {"content": "x"})
+    target = tmp_path / "AGENTS.md"
+    target.write_text("# Team rules\n")
+    with pytest.raises(SystemExit):
+        cli.cmd_context(Namespace(engagement=4, write=str(target), force=False))
+    assert gets == []
+
+
+def test_a_failed_replace_leaves_no_copy_behind(monkeypatch, tmp_path):
+    """The temporary file holds the person's text and the team pack, and
+    `git add -A` would commit it."""
+    cli = _pack_cli(monkeypatch)
+    target = tmp_path / "AGENTS.md"
+    target.write_text("")
+
+    def busy(*_):
+        raise OSError(16, "Device or resource busy")
+
+    monkeypatch.setattr(cli.os, "replace", busy)
+    with pytest.raises(SystemExit, match=r"cannot update .*Device or resource busy"):
+        cli.cmd_context(Namespace(engagement=4, write=str(target), force=False))
+    assert [p.name for p in tmp_path.iterdir()] == ["AGENTS.md"]
+
+
+def test_the_file_keeps_its_mode(monkeypatch, tmp_path):
+    cli = _pack_cli(monkeypatch)
+    target = tmp_path / "AGENTS.md"
+    target.write_text("")
+    target.chmod(0o640)
+    cli.cmd_context(Namespace(engagement=4, write=str(target), force=False))
+    assert target.stat().st_mode & 0o777 == 0o640
+
+
+def test_a_file_that_is_not_utf8_is_refused_with_the_fix(monkeypatch, tmp_path):
+    cli = _pack_cli(monkeypatch)
+    target = tmp_path / "AGENTS.md"
+    target.write_bytes(b"caf\xe9\n")
+    with pytest.raises(SystemExit, match=r"is not UTF-8 text\. Save it as UTF-8"):
+        cli.cmd_context(Namespace(engagement=4, write=str(target), force=False))
+    assert target.read_bytes() == b"caf\xe9\n"
 
 
 def test_a_refresh_reads_the_engagement_from_the_marker(monkeypatch, tmp_path):

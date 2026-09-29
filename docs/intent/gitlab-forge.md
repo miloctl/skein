@@ -147,18 +147,22 @@ is the `object_kind`. Every nested read goes through `_dict`/`_str`
 | merge_request | `object_attributes.action` `open` or `reopen` | `pr_opened` |
 | merge_request | `action == "merge"` | `pr_merged` |
 | merge_request | `close`, `update`, approval actions | `None` |
-| pipeline | `object_attributes.status` `failed` or `success`, `tag` false | `pipeline`, status `failure` or `success` |
-| pipeline | any other status (`running`, `canceled`, `skipped`, …) | `None` |
+| pipeline | `object_attributes.status` `failed`, or `success` or `manual`, `tag` false | `pipeline`, status `failure` or `success` |
+| pipeline | any other status (`running`, `canceled`, `skipped`, …), a merge request pipeline (`source` `merge_request_event` or a `merge_request` object), a child pipeline (`source` `parent_pipeline`), a branch outside the default ones, or a repository path or branch that is not ref-shaped | `None` |
 
 A tag push arrives as `Tag Push Hook` and stops at D1 step 5. Merge request
 fields: `object_attributes.source_branch`, `title`, `description`, `url`,
 and `user.username`. An open draft means "in progress", which is true, so it
 needs no case. `update` repeats the Push Hook. Pipeline fields: repo
-`project.path_with_namespace[:200]` (the blocker-title bound,
-`webhooks.py:26-32`), `object_attributes.ref`, run URL
+`project.path_with_namespace` (ASCII project-path characters, at most 200),
+`object_attributes.ref` (printable, no spaces, at most 200: the blocker
+title reaches the hash-chained ledger as `forge`), run URL
 `object_attributes.url` or `{web_url}/-/pipelines/{id}` through
-`_clean_url`, and `project.default_branch`. A merge request pipeline's
-`refs/merge-requests/…` ref fails the default-branch rule by itself. Code
+`_clean_url`, and `project.default_branch`. A merge request pipeline carries its SOURCE branch
+as `ref`, so it is refused by `source`, never by the ref. `manual` counts as
+passed: no job failed, and a branch with a blocking deploy gate ends every
+run that way. An event that maps to `None` answers before the `forge`
+rate bucket is charged. Code
 keeps `pr_opened`/`pr_merged`, because `merge_requests` is already the
 identity-merge table (`services/merges.py`). Only text a person reads says
 "merge request".
@@ -200,8 +204,10 @@ Owner decision.
 - Policy is `skein.integration.ci` on `PolicyResource("integration", "ci",
   attributes={"repository": repo, "provider": "gitlab"})` with subject
   `service_subject("forge")`, so one workplace rule governs both doors. A
-  DENY rolls back with no receipt and stays retryable. The receipt's
-  `task_id` is NULL.
+  DENY rolls back with no receipt and stays retryable. On the GitLab route
+  it answers 200 ignored, not 403: GitLab disables a project hook after
+  repeated failed deliveries, and a rule that refuses one event would stop
+  every push and merge of the project. The receipt's `task_id` is NULL.
 - The rules do not change: red files one high-impact `team` blocker "CI red
   on {repo}@{branch}" with source `ci:{repo}:{branch}`, green resolves every
   open one, cancelled and skipped runs are ignored.
@@ -322,7 +328,9 @@ The row swaps in headers and bodies from a sandbox project's Recent events
 and one passed default-branch pipeline), records the GitLab version, and
 checks the facts this plan takes from documentation: which version sends
 `Idempotency-Key` and whether it and `X-Gitlab-Event-UUID` survive a manual
-resend, the field names in D5, the merge request `action` values, the group
+resend, the field names in D5, the merge request `action` values, a merge
+request pipeline's `ref` and `source`, a child pipeline's `source`, the
+`manual` status at a blocking gate, the group
 hook tier, that GitLab's closing pattern ignores `Closes-Task:`, the Outbound
 requests allowlist, and GitLab's rule for disabling a failing hook.
 
@@ -508,6 +516,16 @@ marker with no `engagement=`. In `test_fieldguide.py`,
    (120 a minute) before they parse to nothing (risk 1 on a burst).
 8. **The notice line is the only guard if a repository's readership
    widens.** The owner's premise is team-only repositories (D10).
+9. **A response names a crew task's state to whoever can read Recent
+   events.** `Closes-Task: #N` in a merge request picks the task, and the
+   answer says whether it is done or delegated. A private task and a missing
+   one answer alike. Gitea has the same answers, and the team-only premise
+   (D10) bounds who opens merge requests.
+10. **A late red run after a green one files the blocker again.** Pipelines
+    arrive in any order, and ordering them needs stored state. The REST door
+    has the same rule.
+11. **`Closes-Task: #42, #43` closes 42 only,** and a trailer inside a fenced
+    code example in a description still matches.
 
 ## Open questions for the owner
 

@@ -3150,8 +3150,8 @@ def get_context_pack(
                 # the caller CAN read it, so "no engagement #N" would be false
                 raise ValueError(
                     f"Engagement #{engagement} is not visible to the whole team. A context"
-                    " file holds records for the whole team only. Run the command without"
-                    " --write to read the pack."
+                    " file holds records for the whole team only. To read the pack, run"
+                    f" skein context --engagement {engagement} without --write."
                 )
             pack = {
                 "engagement": engagement,

@@ -31,8 +31,12 @@ def ci_event(
         # that arrive together both read "none" and file two. The forge path
         # reaches this after its receipt and fingerprint locks, never before.
         db.name_lock(db.LOCK_CI_SOURCE, source)
+        # FOR UPDATE: a person resolves a blocker without the name lock. With
+        # no row lock, a green run that reads one as open finds it resolved at
+        # its own resolve and answers 400, which rolls back the forge receipt
         existing = db.query(
-            "SELECT * FROM blockers WHERE source = ? AND status != 'resolved'", (source,)
+            "SELECT * FROM blockers WHERE source = ? AND status != 'resolved' FOR UPDATE",
+            (source,),
         )
         if status == "failure":
             if existing:

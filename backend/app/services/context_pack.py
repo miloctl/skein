@@ -203,13 +203,14 @@ def build_engagement_pack(
         f" · lead: {eng['lead'] or 'unset'}*",
         "",
     ]
-    if eng["outcome"]:
-        lines += ["## Intended outcome", wording.flatten(eng["outcome"]), ""]
+    outcome = wording.flatten(eng["outcome"] or "")
+    if outcome:
+        lines += ["## Intended outcome", outcome, ""]
     if eng["kind"] == "experiment":
         lines += [
             "## Experiment frame",
             f"- Timebox ends: {eng['timebox_end'] or 'unset'}",
-            f"- Kill criteria: {wording.flatten(eng['kill_criteria']) if eng['kill_criteria'] else 'unset'}",
+            f"- Kill criteria: {wording.flatten(eng['kill_criteria'] or '') or 'unset'}",
             "- An invalidated hypothesis concluded on time is a SUCCESS.",
             "",
         ]

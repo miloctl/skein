@@ -96,7 +96,12 @@ def pipeline(
     tag: bool = False,
     default_branch: str = "main",
     pipeline_id: int = 31,
+    source: str = "push",
+    repo: str = "team/app",
+    url: str | None = None,
+    merge_request: dict | None = None,
 ) -> dict:
+    project = {**_project(default_branch), "path_with_namespace": repo}
     return {
         "object_kind": "pipeline",
         "object_attributes": {
@@ -105,13 +110,16 @@ def pipeline(
             "ref": ref,
             "tag": tag,
             "sha": SHA,
-            "source": "push",
+            "source": source,
             "status": status,
             "detailed_status": {"success": "passed", "failed": "failed"}.get(status, status),
-            "url": f"{WEB_URL}/-/pipelines/{pipeline_id}",
+            "url": f"{WEB_URL}/-/pipelines/{pipeline_id}" if url is None else url,
         },
+        # GitLab sends the merge request for a merge request pipeline, and its
+        # `ref` is the source branch, never refs/merge-requests/…
+        "merge_request": merge_request,
         "user": {"id": 4, "name": "Mira", "username": "mira"},
-        "project": _project(default_branch),
+        "project": project,
         "commit": {"id": SHA, "message": "Fix the login form\n"},
         "builds": [],
     }

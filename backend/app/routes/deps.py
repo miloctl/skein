@@ -373,7 +373,11 @@ def verify_gitlab_token(sent: str) -> None:
         raise gitlab_webhook_off()
     expected = sha256(config.GITLAB_WEBHOOK_TOKEN.encode("utf-8", "replace")).digest()
     if not hmac.compare_digest(expected, sha256(sent.encode("utf-8", "replace")).digest()):
-        raise HTTPException(status_code=401, detail="the webhook token does not match")
+        raise HTTPException(
+            status_code=401,
+            detail="the webhook token does not match. Put the token that whoever runs"
+            " the server set in the secret token field of the project webhook.",
+        )
 
 
 def _is_admin(user: str, groups: list[str], request: Request | None = None) -> bool:

@@ -639,10 +639,15 @@ the events and makes no call to GitLab.
    real merge request event.
 
 Do not add a system hook. It carries every project on the instance, and
-Skein refuses it. If a delivery failed during a restart, open the webhook's
-**Recent events** and select **Resend request**: receipts make a resend
-write nothing twice. An agent's GitLab username must equal its roster name,
-or Skein cannot refuse its pushes.
+Skein refuses it. If a delivery failed during a restart, open
+**Settings → Webhooks**, select **Edit** on the webhook, then in **Recent
+events** select **View details** on the failed delivery and **Resend
+Request**: receipts make a resend write nothing twice. GitLab disables a
+webhook after repeated failed deliveries. If that happens, enable it again
+in **Settings → Webhooks**. Skein answers a workplace policy refusal with
+200, so a rule that refuses one event does not count as a failure. An
+agent's GitLab username must equal its roster name, or Skein cannot refuse
+its pushes.
 
 ## 11. Add CI gates
 

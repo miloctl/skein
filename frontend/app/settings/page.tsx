@@ -2198,9 +2198,10 @@ export default function SettingsPage() {
                 <p className="mb-2 text-sm text-ink-3">
                   Let your git forge move tasks. A push to{" "}
                   <code>task/42-…</code> starts task 42. When the pull request
-                  or merge request merges, the task finishes. Skein ignores a
-                  branch name that has no task number. A merge never closes a
-                  delegated task — the sponsor accepts that work.
+                  or merge request merges, the task finishes. If the branch name
+                  has no task number, put a <code>Closes-Task: #42</code> line in
+                  the description. <code>skein pr-body</code> writes it. A merge
+                  never closes a delegated task — the sponsor accepts that work.
                 </p>
                 <p className="mb-1 mt-3 text-xs font-medium text-ink-3">Gitea</p>
                 <CopyLine text={`${API_URL}/api/webhooks/forge`} label="Gitea webhook URL" />
@@ -2216,8 +2217,9 @@ export default function SettingsPage() {
                   Add this URL as a project webhook. Select push events, merge
                   request events and pipeline events. Whoever runs the server
                   sets SKEIN_GITLAB_WEBHOOK_TOKEN. Put the same value in the
-                  secret token field. A failed pipeline on the default branch
-                  files a blocker, and the next passed one resolves it.
+                  secret token field. If the token is not set, the endpoint
+                  stays closed. A failed pipeline on the default branch files a
+                  blocker, and the next passed one resolves it.
                 </p>
               </Section>
             </div>
