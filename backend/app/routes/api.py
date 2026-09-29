@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import secrets
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
 from uuid import uuid4
@@ -287,6 +288,10 @@ def _task_collection(
     *,
     status: str,
     order: str,
+    engagement_id: int = 0,
+    milestone_id: int = 0,
+    assignee: str = "",
+    completed_since: str = "",
 ) -> list[dict]:
     visible: list[dict] = []
     offset = 0
@@ -297,6 +302,10 @@ def _task_collection(
             order=order,
             limit=work.TASK_LIST_LIMIT,
             offset=offset,
+            engagement_id=engagement_id,
+            milestone_id=milestone_id,
+            assignee=assignee,
+            completed_since=completed_since,
         )
         if not rows:
             break
@@ -372,6 +381,86 @@ def get_task_browse(
             ]
             for state, order in (("open", "priority"), ("done", "completed"))
         }
+
+
+# the peek already shows delegated_agent and committed_week to the same
+# readers. event_id stays out: the board draws no meeting link.
+_TASK_BOARD_FIELDS = (
+    *_TASK_BROWSE_FIELDS,
+    "committed_week",
+    "delegated_agent",
+    "waiting_on_type",
+    "waiting_on_id",
+    "quiet_days",
+    "blockers",
+)
+
+
+@router.get("/tasks/board")
+def get_task_board(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    engagement_id: int = Query(0, ge=0),
+    milestone_id: int = Query(0, ge=0),
+    mine: bool = False,
+):
+    """The board's open work and last week of Done (docs/intent/board-view.md).
+
+    Rows and their blockers pass skein.rest.get.tasks, the action Browse and
+    the peek use: a workplace rule that hides a task from Browse must hide it
+    here, and a board-only action would skip every deployed rule."""
+    with db.read_transaction():
+        policy = projection_policy.ProjectionPolicy(
+            request.app.state.skein_registry.policy_engine,
+            subject,
+            "skein.rest.get.tasks",
+            "rest",
+            viewer,
+        )
+        scope_row = work.board_scope(
+            viewer,
+            engagement_id=engagement_id,
+            milestone_id=milestone_id,
+            resource_filter=policy.permits,
+        )
+        assignee = user if mine else ""
+        since = (datetime.now(UTC) - timedelta(days=work.BOARD_DONE_DAYS)).isoformat(
+            timespec="seconds"
+        )
+        slices = {
+            state: work.board_cards(
+                _task_collection(
+                    policy,
+                    viewer,
+                    status=state,
+                    order=order,
+                    engagement_id=engagement_id,
+                    milestone_id=milestone_id,
+                    assignee=assignee,
+                    completed_since=completed_since,
+                ),
+                viewer,
+                policy.permits,
+            )
+            for state, order, completed_since in (
+                ("open", "priority", ""),
+                ("done", "completed", since),
+            )
+        }
+    fieldguide.mark(user, "board")
+    return {
+        "scope": scope_row,
+        "limit": work.TASK_LIST_LIMIT,
+        "done_days": work.BOARD_DONE_DAYS,
+        # the team's day, not the browser's: "overdue" must agree with Planning
+        "today": db.today().isoformat(),
+        **{
+            state: [{field: row[field] for field in _TASK_BOARD_FIELDS} for row in rows]
+            for state, rows in slices.items()
+        },
+    }
 
 
 @router.get("/tasks/{task_id}")
@@ -3623,6 +3712,9 @@ class TaskPatch(BaseModel):
     waiting_on: str = Field("", max_length=32)
     milestone_id: int = 0  # relink (-1 unlinks)
     engagement_id: int = 0  # relink (-1 unlinks)
+    # the board's compare-and-set (work._update_task_locked): a mismatch is a
+    # 409 that names the current status
+    expected_status: str = Field("", max_length=20)
 
 
 @router.patch("/tasks/{task_id}")

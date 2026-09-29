@@ -91,6 +91,9 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # scheduling an event proves nothing, because the agent tools and every
     # playbook ritual write events without the page
     "calendar": None,
+    # tied by the board read's mark (routes/api.py::get_task_board): a move is
+    # a plain task PATCH, and the ledger cannot tell which page sent it
+    "board": None,
     # a repository file leaves no row: the tier=workspace read that only
     # `skein context --write` sends marks it (routes/api.py::get_context_pack)
     "repo_pack": None,

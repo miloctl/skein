@@ -135,8 +135,12 @@ is resolved, the task moves to In progress." Resolve calls
 board"}`, the kind of text the register sends (`dashboard/page.tsx:1304`).
 Other doors can still PATCH a blocked task out with a blocker open: an API
 client, the `update_task` agent tool and the forge webhook. A refusal in
-`_update_task_locked` for every door was deferred. Trigger: an open blocker
-is found on a done task.
+`_update_task_locked` for every door was deferred. Trigger: a task reaches
+Done while a blocker raised before it finished is still open. A blocker
+raised on a task that is already done does not count, because a stale board
+files one on purpose (residual risks below). `resolve_blocker` holds the task
+before it writes the blocker (the order the escalation sweep takes), so two
+people who resolve the last two blockers at once release the task.
 
 ### D7. Blocked reuses the peek's blocker form (owner)
 
@@ -281,9 +285,12 @@ from a running instance (CLAUDE.md conventions).
                                    completed_since=now - BOARD_DONE_DAYS, **filters)
   fieldguide.mark(user, "board")   # after a successful read only
   return {"scope": scope_row, "limit": work.TASK_LIST_LIMIT,
-          "done_days": work.BOARD_DONE_DAYS,
+          "done_days": work.BOARD_DONE_DAYS, "today": db.today(),
           "open": [...board_cards projected...], "done": [...]}
   ```
+
+  `today` is the team's day, so "overdue" on a card agrees with Planning,
+  which answers the same field.
 
   The mark follows the `task_peek` precedent (`routes/api.py:423`), so no
   `POST /api/field-guide/board` route is needed. The card lands in slice 3,
@@ -324,11 +331,14 @@ from a running instance (CLAUDE.md conventions).
 ### Slice 3 — The read-only board page [M]
 
 - `frontend/app/board/page.tsx`: the fetch, the columns, the scope header,
-  the cap line (D12), the D10 reload listeners and the "Only my tasks" /
-  "Everyone's tasks" links, which toggle `mine`. A scoped board shows
-  "Engagement: Atlas · Show all work". The page reads its query with
-  `window.location`, not `useSearchParams`, for the Suspense reason at
-  `task-peek.tsx:111`.
+  the cap line (D12), the D10 reload listeners and an "Only my tasks"
+  checkbox, which sets `mine`. A scoped board shows "Engagement: Atlas · Show
+  all work". The page reads `?engagement=` and `?milestone=` with
+  `useSearchParams` in its own Suspense boundary, as `app/notes/page.tsx`
+  does for `?note=`. `window.location` was the draft's choice and was
+  refused: "Show all work" is a same-route link, and a read made at mount
+  keeps the old scope after that soft navigation. The primitive values keep
+  the peek's pushed `?task=` from causing a reload.
 - Layout: four `<section aria-labelledby>` columns, each an `<h2>` with a
   count ("In progress (7)") over a `<ul>` of cards, in
   `grid grid-cols-1 md:grid-cols-4 gap-3`. Below 768px the columns stack
@@ -345,7 +355,7 @@ from a running instance (CLAUDE.md conventions).
   - The meta line: `@assignee` or "unassigned", priority, "due 2026-10-03"
     with "overdue" when past, and the `committed_week` chip ("2026-W40").
   - Badges: "Blocked by #4 Vendor key", one per visible blocker, with "+N"
-    past two. "Waiting on task #9". A lock icon with "Delegated to scout".
+    past two. "Waiting on task #9". "Delegated to scout".
     "Not moved for 9 days" (D11).
   - Tokens only: `bg-card`, `border-line`, `text-weld` for blocked,
     `text-ok` for done. They are AA-checked in every pack
@@ -370,7 +380,7 @@ from a running instance (CLAUDE.md conventions).
     set: loops
     ties: mark
     pitch: Every strand hung from one line, in the column its status names.
-    how: "Open Work → Board. Select a task to open it in the side panel. To see one engagement, open the engagement and select Open the board."
+    how: "Open Work → Board. Select a task to open it in the task panel. To see one engagement, open the engagement and select Open the board."
     link: /board
     since: <the ship date>
   ```
@@ -383,9 +393,11 @@ from a running instance (CLAUDE.md conventions).
   `__tests__/loading-states.test.tsx`, the calendar's precedent. A page that
   claims "Nothing is blocked." before its answer arrives is the false claim
   those walks catch.
-- `__tests__/board-columns.test.tsx`:
-  - A `void` row never renders.
-  - A delegated card has no Move button and no `draggable`.
+- `__tests__/board-columns.test.tsx`. The server pins the void rule
+  instead (`tests/test_task_void.py` checks the board omits a void task):
+  the server never sends a void row in `open`, and a client fixture no code
+  path emits pins nothing (CLAUDE.md). The delegated-card check is in
+  `board-move.test.tsx`, beside the Move button it tests.
   - The cap line appears only at `open.length >= limit`, and a capped empty
     column makes no claim.
   - `skein-peek-close` and `visibilitychange` each trigger a read with
@@ -442,8 +454,9 @@ Needs `feature/blocker-form` merged.
 - Extend the `board` card's `how:`: "To move a task, drag it to a column, or
   select Move and then a column. To move a task to Blocked, write what
   blocks it. This raises a blocker. To move a blocked task out, resolve its
-  blockers. A task delegated to an agent has no Move control, because only
-  the sponsor's verdict in Inbox closes it."
+  blockers. A task delegated to an agent has no Move control. Only its
+  sponsor's verdict closes it." (The sponsor can also close it from the task
+  panel, so "in Inbox" was dropped.)
 - Docs in the ship commits of slices 3 and 4:
   - `docs/FEATURES.md`: a new **Board** row (the route, the columns, the
     move rules in short, the 500 and 7-day bounds, the reload triggers, and
@@ -457,8 +470,8 @@ Needs `feature/blocker-form` merged.
     with its trigger, under "Cut, with re-entry triggers" (`:545`):
     swimlanes (a planning question that capacity and `/planning` cannot
     answer, and then open columns only with no counts), polling (a 409 on a
-    shared standup board is reported), the service-wide Blocked rule (an
-    open blocker found on a done task), hotkeys (asked for after a season of
+    shared standup board is reported), the service-wide Blocked rule (a
+    task reaches Done with an earlier blocker still open), hotkeys (asked for after a season of
     use), a "this week" lens, manual rank, WIP limits, a CLI or MCP board
     (someone asks for a terminal board), and a comment count per card
     (threads merged and a person asks). "Browse task pagination" (`:539`)

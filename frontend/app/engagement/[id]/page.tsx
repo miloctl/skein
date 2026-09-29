@@ -372,7 +372,10 @@ export default function EngagementBrief({
                   <span className="ml-1 text-xs text-ink-3">
                     [{m.status}]
                     {m.due_date ? ` · due ${m.due_date}` : ""}
-                  </span>
+                  </span>{" "}
+                  <Link href={`/board?milestone=${m.id}`} className="text-xs underline underline-offset-2">
+                    board<span className="sr-only"> for milestone #{m.id}</span>
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -401,6 +404,11 @@ export default function EngagementBrief({
       </div>
 
       <Card title={`Open work (${b.tasks.length}${b.tasks.length === TASK_CAP ? "+" : ""})`}>
+        <p className="mb-2 text-sm">
+          <Link href={`/board?engagement=${e.id}`} className="underline underline-offset-2">
+            Open the board
+          </Link>
+        </p>
         {b.tasks.length === 0 ? (
           <p className="text-sm text-ink-3">
             {/* a CLOSED engagement's empty list is history, not an invitation —

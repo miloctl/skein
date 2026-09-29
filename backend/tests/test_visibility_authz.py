@@ -723,6 +723,11 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
 
 # file::function -> why this read needs no tier filter.
 _UNFILTERED_READS = {
+    "work.py::engagement_member_sql": (
+        "a WHERE fragment that reads milestone ids only, for the engagement"
+        " brief's membership rule; every caller splices it beside the tasks'"
+        " own visible_filter (_task_rows, engagement_brief.brief)"
+    ),
     "chat_threads.py::redact_room_engagement": (
         "reads the project class and tier of an engagement _shared_details already"
         " served at the workspace tier, and returns nothing of the row"

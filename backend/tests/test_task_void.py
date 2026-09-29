@@ -21,6 +21,9 @@ def test_void_leaves_every_list_and_metric(client, fresh_db):
     # neither Browse slice: not open work, and not finished work
     browse = client.get("/api/tasks/browse").json()
     assert tid not in [t["id"] for t in browse["open"] + browse["done"]]
+    # no board column: void is neither open work nor finished work
+    board = client.get("/api/tasks/board").json()
+    assert tid not in [t["id"] for t in board["open"] + board["done"]]
     # not the commitment line: counting it against kept-% punishes the correction
     week = client.get("/api/week").json()
     assert tid not in [t["id"] for t in week["tasks"]]
