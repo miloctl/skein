@@ -264,3 +264,64 @@ def test_what_never_wakes_the_delegate(client, fresh_db):
     work.update_task(task, status="done", actor="ava")
     assert _post(client, "tasks", task, "@scout thanks").json()["woke"] == ""
     assert _wakes() == []
+
+
+def _thread(person: str) -> list[str]:
+    return [m for m in _notices(person) if " commented on " in m]
+
+
+def test_a_reply_tells_whoever_already_wrote_in_the_thread(client, fresh_db):
+    """Raj asks, Dana answers without naming him, and Raj is told once.
+    A second reply while his notice is unread tells him nothing more."""
+    for name in ("raj", "dana"):
+        users.ensure_user(name)
+    task = work.create_task("Fix login", actor="ava")["id"]
+    _post(client, "tasks", task, "Is the freeze window fixed?", who="raj")
+    _post(client, "tasks", task, "Yes, Friday.", who="dana")
+    assert _thread("raj") == [f"dana commented on task #{task}."]
+    _post(client, "tasks", task, "And Monday is open.", who="dana")
+    assert len(_thread("raj")) == 1
+    # the task's own creator is not a named party of a task: its assignee and
+    # sponsor are, and neither is set here
+    assert _thread("ava") == []
+
+
+def test_a_named_party_hears_once_and_a_mention_is_not_doubled(client, fresh_db):
+    for name in ("raj", "dana"):
+        users.ensure_user(name)
+    task = work.create_task("Fix login", actor="ava", assignee="raj")["id"]
+    _post(client, "tasks", task, "@raj is this blocked?", who="dana")
+    assert len(_notices("raj")) == 1
+    assert _notices("raj")[0].startswith("dana mentioned you")
+
+
+def test_a_decision_thread_tells_its_decider(client, fresh_db):
+    for name in ("raj", "mira"):
+        users.ensure_user(name)
+    decision = collab.record_decision("Freeze", "Freeze Friday", decided_by="mira", actor="ava")[
+        "id"
+    ]
+    _post(client, "decisions", decision, "Why does this still hold?", who="raj")
+    assert _thread("mira") == [f"raj commented on decision #{decision}."]
+    assert _thread("ava") == [f"raj commented on decision #{decision}."]
+
+
+def test_no_thread_notice_reaches_an_agent_or_someone_who_left_the_crew(client, fresh_db):
+    crew = _crew()
+    users.ensure_user("scout", kind="agent")
+    task = _parent("tasks", crew=crew)
+    _post(client, "tasks", task, "first", who="dana")
+    crews.remove_member(crew, "dana", actor="ava")
+    comments.add_comment("agent note", task_id=task, actor="scout", origin="agent")
+    _post(client, "tasks", task, "reply", who="mira")
+    assert _thread("dana") == [] and _thread("scout") == []
+
+
+def test_an_agent_that_wrote_in_a_thread_gets_no_thread_notice(client, fresh_db):
+    """Its inbox lists what it has not answered (comments.unanswered_for), and
+    a notice on top of that is a second copy of the same ask."""
+    users.ensure_user("scout", kind="agent")
+    task = _parent("tasks")
+    comments.add_comment("agent note", task_id=task, actor="scout", origin="agent")
+    _post(client, "tasks", task, "thanks")
+    assert _thread("scout") == []
