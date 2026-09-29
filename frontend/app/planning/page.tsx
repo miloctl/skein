@@ -15,6 +15,7 @@ import { actionError, api, loadError } from "@/lib/api";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
 import { PersonInput } from "@/components/person-input";
 import { ReceiptLine } from "@/components/receipt";
+import { RoutinesCard } from "@/components/routines-card";
 import type { Receipt } from "@/lib/entity-ref";
 import { HASH_TARGET, useHashTarget } from "@/lib/hash-target";
 import { dismissStatus, reportStatus } from "@/lib/status";
@@ -474,6 +475,7 @@ export default function Planning() {
           ["planning-last-week", "Last week"],
           ["planning-needs-call", "Needs a call"],
           ["planning-this-week", "This week"],
+          ["planning-routines", "Routines"],
           ["planning-weeks-ahead", "Weeks ahead"],
           ["planning-triage", "Triage"],
           ...(d.awaiting.length ? [["planning-awaiting", "Awaiting"]] : []),
@@ -696,6 +698,11 @@ export default function Planning() {
           <p className="mt-2 text-xs text-ink-3">Nobody is over 100% today.</p>
         )}
       </AgendaSection>
+
+      {/* the work the week brings back on its own, set up where the week is */}
+      <SupportingSection id="planning-routines" title="Routines">
+        <RoutinesCard />
+      </SupportingSection>
 
       {/* 4 — the weeks after this one. Accepting work today against today's
           numbers is how a conflict gets noticed on the day it arrives. */}

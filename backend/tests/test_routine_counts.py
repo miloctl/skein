@@ -71,3 +71,28 @@ def test_routine_acceptances_build_no_streak(team, fresh_db):
     row = _completion_row()
     assert row["routine_approved"] == 5
     assert (row["recent_streak"], row["last_verified_verdict"]) == (0, "")
+
+
+def test_the_season_readout_reads_hand_work_and_shows_routines_apart(team, fresh_db):
+    from app.services import delegation, review, routines, work
+
+    rid = routines.create_routine(
+        {"title": "Sweep", "weekdays": "1", "at_time": "07:00", "agent": "scout"}, actor="mira"
+    )["id"]
+    _accept(_fire(fresh_db, rid))
+    hand = work.create_task("By hand", actor="mira")["id"]
+    delegation.delegate_task(hand, "scout", "mira", actor="mira")
+    _accept(hand)
+    season = review.season_readout("mira", admin=True)
+    assert (season["verdicts"]["settled"], season["verdicts"]["approved"]) == (1, 1)
+    assert season["proposals"] == 1
+    assert season["delegations"] == {"started": 1, "accepted": 1}
+    assert season["routine"] == {
+        "verdicts": {"settled": 1, "approved": 1, "rejected": 0},
+        "proposals": 1,
+        # the started split reads the task id at the start of the
+        # delegate_task ledger detail: a new detail shape fails here
+        "delegations": {"started": 1, "accepted": 1},
+    }
+    scout = next(r for r in season["by_agent"] if r["proposed_by"] == "scout")
+    assert (scout["proposed"], scout["routine"]) == (1, 1)
