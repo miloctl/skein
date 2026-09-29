@@ -204,12 +204,12 @@ def build_engagement_pack(
         "",
     ]
     if eng["outcome"]:
-        lines += ["## Intended outcome", eng["outcome"], ""]
+        lines += ["## Intended outcome", wording.flatten(eng["outcome"]), ""]
     if eng["kind"] == "experiment":
         lines += [
             "## Experiment frame",
             f"- Timebox ends: {eng['timebox_end'] or 'unset'}",
-            f"- Kill criteria: {eng['kill_criteria'] or 'unset'}",
+            f"- Kill criteria: {wording.flatten(eng['kill_criteria']) if eng['kill_criteria'] else 'unset'}",
             "- An invalidated hypothesis concluded on time is a SUCCESS.",
             "",
         ]

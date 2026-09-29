@@ -241,6 +241,12 @@ digest for" has no answer. They read `workspace` and nothing else. This
 covers `digest`, `readout`, `context-pack`, `findings`, `handoff`,
 `week-open`, and `week-close`.
 
+A context pack written into a repository file (`skein context --write`) is
+the same case: the repository's readers are the audience, not the caller.
+Every write asks for `tier=workspace`, which builds an engagement pack as
+nobody, refuses a crew or private engagement, and drops a crew section from
+the team pack.
+
 The ICS feed is the same case for a different reason: one shared token is
 one audience, so a feed cannot be scoped. Workspace tier only. Per-person
 feed tokens are the fix if the feed ever needs to carry more.
