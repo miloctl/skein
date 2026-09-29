@@ -7,11 +7,14 @@ asked to revise one writes a new document that records the upload in
 `derived_from`, so the person's own file is still the file they attached, and
 "undo" costs nothing because the source never moved.
 
-Every write here goes through tools/_gate.py, so a document is created or
+An agent's write goes through tools/_gate.py, so a document is created or
 changed under the same authority matrix, review inbox and receipts as a note
-or a task. Nothing in this module writes outside data/artifacts.
+or a task. A person saves and restores through REST (routes/api.py). Every
+write, by either door, is a numbered revision (docs/intent/document-revisions.md).
+Nothing in this module writes outside data/artifacts.
 """
 
+import difflib
 from pathlib import Path
 
 from .. import config, db
@@ -21,6 +24,17 @@ from . import artifact_files, handoff, scope
 # what that reader can take rather than by what a model can emit.
 MAX_DOCUMENT_BYTES = 512 * 1024
 TITLE_LIMIT = 120
+HISTORY_LIMIT = 100
+
+
+class StaleRevision(db.Conflict, db.TerminalReject):
+    """A write named a base revision the document has moved past.
+
+    Conflict makes a person's save a 409 (app/main.py). TerminalReject makes
+    review.approve_change settle an agent's proposal as rejected without
+    counting it: the generic handler would put it back in the queue after
+    every approval, and the agent's work is not what failed.
+    """
 
 
 def _root() -> Path:
@@ -271,6 +285,168 @@ def _ledger_detail(row: dict, revision: int) -> str:
     and the title only at the workspace tier (scope.detail)."""
     return scope.detail(
         row["visibility"], f"artifact #{row['id']} revision {revision}", row["title"]
+    )
+
+
+def head_revision(artifact_id: int) -> int:
+    """The newest revision number, or 1 for a document with no rows yet."""
+    row = db.query_one(
+        "SELECT MAX(revision) AS n FROM document_revisions WHERE artifact_id = ?", (artifact_id,)
+    )
+    return int(row["n"]) if row and row["n"] else 1
+
+
+def _check_base(artifact_id: int, base_revision: int, head: int) -> None:
+    # base 0 states no base: a proposal filed before agent edits pinned one
+    if base_revision and base_revision != head:
+        raise StaleRevision(
+            f"document #{artifact_id} changed after revision {base_revision}, and revision"
+            f" {head} is newer. Read revision {head}, then make the change again."
+        )
+
+
+def _editable_row(artifact_id: int, actor: str) -> dict:
+    """The document a person may change, held for the caller's transaction.
+
+    FOR UPDATE for the reason _document_row gives. The tier check runs before
+    the kind check, so a hidden artifact of any kind reads as absent, and any
+    reader of a document may change it (scope.assert_editable).
+    """
+    row = db.query_one("SELECT * FROM artifacts WHERE id = ? FOR UPDATE", (artifact_id,))
+    if not row:
+        raise scope.missing("artifacts", artifact_id)
+    scope.assert_editable("artifacts", row, actor)
+    if row["kind"] != "document":
+        raise ValueError(
+            f"artifact #{artifact_id} is not a document. Only a document can be changed."
+        )
+    return row
+
+
+def _readable_document(artifact_id: int, viewer: scope.Viewer) -> dict:
+    frag, vp = scope.visible_filter(viewer, "artifacts")
+    row = db.query_one(
+        f"SELECT * FROM artifacts WHERE id = ? AND {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (artifact_id, *vp),
+    )
+    if not row:
+        raise scope.missing("artifacts", artifact_id)
+    if row["kind"] != "document":
+        raise ValueError(
+            f"artifact #{artifact_id} is not a document. Only a document has revisions."
+        )
+    return row
+
+
+def save_document(artifact_id: int, content: str, base_revision: int, *, actor: str) -> dict:
+    """A person's save of the whole body, as revision head + 1.
+
+    The same text as the head writes nothing and succeeds, and that runs
+    before the base check: a double-selected Save, a retry after a lost
+    response and a stale tab holding the current text are all safe.
+    """
+    _check_content(content)
+    with db.transaction():
+        row = _editable_row(artifact_id, actor)
+        head = _head(row)
+        if content == head["body"]:
+            return {"id": artifact_id, "revision": int(head["revision"]), "unchanged": True}
+        _check_base(artifact_id, base_revision, int(head["revision"]))
+        revision = _publish_revision(
+            row, content, head=int(head["revision"]), actor=actor, origin="human"
+        )
+        db.log_activity(actor, "edit_document", _ledger_detail(row, revision))
+        return {"id": artifact_id, "revision": revision, "unchanged": False}
+
+
+def restore_revision(artifact_id: int, revision: int, base_revision: int, *, actor: str) -> dict:
+    """Copy revision n as the new head. The bad revision stays in history, so
+    restoring the previous head undoes a restore."""
+    with db.transaction():
+        row = _editable_row(artifact_id, actor)
+        head = _head(row)
+        source = db.query_one(
+            "SELECT body FROM document_revisions WHERE artifact_id = ? AND revision = ?",
+            (artifact_id, revision),
+        )
+        if not source:
+            raise db.NotFound(f"no revision {revision} of document #{artifact_id}")
+        if source["body"] == head["body"]:
+            return {
+                "id": artifact_id,
+                "revision": int(head["revision"]),
+                "restored_from": revision,
+                "unchanged": True,
+            }
+        _check_base(artifact_id, base_revision, int(head["revision"]))
+        new = _publish_revision(
+            row,
+            source["body"],
+            head=int(head["revision"]),
+            actor=actor,
+            origin="human",
+            restored_from=revision,
+        )
+        db.log_activity(actor, "restore_document", _ledger_detail(row, new))
+        return {"id": artifact_id, "revision": new, "restored_from": revision, "unchanged": False}
+
+
+def history(artifact_id: int, viewer: scope.Viewer) -> dict:
+    """The newest revisions of a document the viewer can read, without bodies.
+
+    Each row names its author: authorship of shared text is content, and a
+    reader who finds a wrong section needs to know whom to ask. It is keyed on
+    one document only. No route or query here lists revisions across
+    documents or by author (docs/intent/document-revisions.md, D7).
+    """
+    _readable_document(artifact_id, viewer)
+    # ponytail: the newest 100, an older one still opens by number. Add a
+    # before= cursor when a document passes 100 revisions.
+    rows = db.query(
+        "SELECT revision, author, origin, change_id, restored_from, created_at,"
+        " octet_length(body) AS size FROM document_revisions WHERE artifact_id = ?"
+        " ORDER BY revision DESC LIMIT ?",
+        (artifact_id, HISTORY_LIMIT),
+    )
+    return {"id": artifact_id, "head": int(rows[0]["revision"]) if rows else 1, "revisions": rows}
+
+
+def read_revision(artifact_id: int, revision: int, viewer: scope.Viewer) -> dict:
+    """One revision's body and its diff against the revision before it."""
+    _readable_document(artifact_id, viewer)
+    rows = {
+        int(r["revision"]): r
+        for r in db.query(
+            "SELECT revision, body, author, origin, change_id, restored_from, created_at"
+            " FROM document_revisions WHERE artifact_id = ? AND revision IN (?, ?)",
+            (artifact_id, revision, revision - 1),
+        )
+    }
+    current = rows.get(revision)
+    if not current:
+        raise db.NotFound(f"no revision {revision} of document #{artifact_id}")
+    previous = rows.get(revision - 1)
+    meta = {key: value for key, value in current.items() if key != "body"}
+    return {
+        **meta,
+        "id": artifact_id,
+        "markdown": current["body"],
+        "diff": unified(
+            previous["body"], current["body"], f"revision {revision - 1}", f"revision {revision}"
+        )
+        if previous
+        else "",
+    }
+
+
+def unified(before: str, after: str, before_label: str, after_label: str) -> str:
+    """A unified diff, computed per request and never stored."""
+    # ponytail: difflib is quadratic in the worst case and the 512 KB cap
+    # bounds it. Cap the compared lines if a slow diff shows in traces.
+    return "\n".join(
+        difflib.unified_diff(
+            before.splitlines(), after.splitlines(), before_label, after_label, n=3, lineterm=""
+        )
     )
 
 

@@ -566,6 +566,9 @@ def test_every_bare_route_literal_is_accounted_for():
         "_require_opaque_project_policy",
         "_permitted_collection",
         "_require_resource_policy",
+        # the document routes: _require_resource_policy on the artifact, plus
+        # the opaque-project check an engagement-less document needs
+        "_require_document_policy",
         "_require_engagement_policy",
         "_require_export_policy",
         "_require_verdict_policy",
