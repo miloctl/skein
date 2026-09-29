@@ -442,6 +442,41 @@ def read_revision(artifact_id: int, revision: int, viewer: scope.Viewer) -> dict
     }
 
 
+def proposal_diff(artifact_id: int, payload: dict) -> dict:
+    """What an edit proposal changes: its base revision with the one
+    replacement applied, as a unified diff, and whether the head has moved
+    past that base (approval then refuses it, StaleRevision).
+
+    A proposal filed before bases were stamped states none and diffs against
+    the head. A document with no revision rows yet has no base text to show,
+    so the replacement stays as fields.
+    """
+    head = head_revision(artifact_id)
+    base = int(payload.get("base_revision") or 0) or head
+    old, new = str(payload.get("old") or ""), str(payload.get("new") or "")
+    source = db.query_one(
+        "SELECT body FROM document_revisions WHERE artifact_id = ? AND revision = ?",
+        (artifact_id, base),
+    )
+    if source is None:
+        return {
+            "current": {"old": old},
+            "proposed": {"new": new},
+            "unified": "",
+            "base_revision": base,
+            "head_revision": head,
+        }
+    body = source["body"]
+    after = body.replace(old, new, 1) if old else body
+    return {
+        "current": {},
+        "proposed": {},
+        "unified": unified(body, after, f"revision {base}", "proposed"),
+        "base_revision": base,
+        "head_revision": head,
+    }
+
+
 def unified(before: str, after: str, before_label: str, after_label: str) -> str:
     """A unified diff, computed per request and never stored."""
     # ponytail: difflib is quadratic in the worst case and the 512 KB cap
