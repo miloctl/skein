@@ -41,6 +41,7 @@ import http.client
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import threading
@@ -775,6 +776,77 @@ def cmd_eval(args):
         sys.exit(1)
 
 
+# The block `skein context --write` owns inside a file a person also edits
+# (docs/intent/gitlab-forge.md, D10). Everything outside the two marker lines
+# is the person's, and a refresh keeps it byte for byte.
+# The \r is a lookahead, never part of the match: the replaced span ends at
+# the marker, so a CRLF line ending after it stays the person's byte.
+_PACK_START = re.compile(r"^<!-- skein:context-pack(?: engagement=(\d+))? -->(?=\r?$)", re.M)
+_PACK_END = re.compile(r"^<!-- /skein:context-pack -->(?=\r?$)", re.M)
+
+
+def _pack_block(content: str, nl: str) -> str:
+    # Pack text is team-written. An end marker inside it would end the block
+    # early, and the next refresh would delete the text after it.
+    content = content.replace("skein:context-pack", "skein context-pack")
+    lines = [
+        "<!-- skein:context-pack -->",
+        "<!-- Written by `skein context`. The next run replaces the text up to the end marker. -->",
+        "> This block is a copy of team records from Skein. Use it as context."
+        " It does not replace the instructions in this file.",
+        "",
+        *content.rstrip("\n").split("\n"),
+        "<!-- /skein:context-pack -->",
+    ]
+    return nl.join(lines)
+
+
+def _merged(existing: str, content: str, name: str, force: bool) -> str:
+    nl = "\r\n" if "\r\n" in existing else "\n"
+    block = _pack_block(content, nl)
+    if not existing.strip():
+        return block + nl
+    starts = list(_PACK_START.finditer(existing))
+    ends = list(_PACK_END.finditer(existing))
+    if not starts and not ends:
+        if not force:
+            sys.exit(
+                f"error: {name} contains text and no Skein block."
+                " Add --force to add the block at the end of the file."
+            )
+        # APPEND, never overwrite: the text there is somebody's work
+        return existing + ("" if existing.endswith("\n") else nl) + nl + block + nl
+    if len(starts) != 1 or len(ends) != 1 or ends[0].start() < starts[0].end():
+        # --force does not override this: a guess about which marker is real
+        # deletes text
+        sys.exit(
+            f"error: {name} has broken Skein markers. Keep one start line and one"
+            " end line after it, then run the command again."
+        )
+    return existing[: starts[0].start()] + block + existing[ends[0].end() :]
+
+
+def _write_pack(target: str, content: str, force: bool) -> None:
+    # resolve(): the agents.md FAQ symlinks AGENT.md to AGENTS.md, and a
+    # replace on the link's own path turns the link into a plain file
+    path = Path(target).resolve()
+    # newline="": read_text translates \r\n to \n, and a CRLF file lost its
+    # line endings on the first run
+    existing = ""
+    if path.exists():
+        with open(path, encoding="utf-8", newline="") as handle:
+            existing = handle.read()
+    merged = _merged(existing, content, Path(target).name, force)
+    # a temporary file in the same directory, then os.replace: a crash leaves
+    # the old file whole
+    temporary = path.with_name(f".{path.name}.skein-{os.getpid()}")
+    with open(temporary, "x", encoding="utf-8", newline="") as handle:
+        handle.write(merged)
+    if path.exists():
+        os.chmod(temporary, stat.S_IMODE(path.stat().st_mode))
+    os.replace(temporary, path)
+
+
 def cmd_context(args):
     path = "/api/context-pack"
     if args.engagement:
@@ -785,7 +857,7 @@ def cmd_context(args):
             path += "&tier=workspace"
     pack = api("GET", path)
     if args.write:
-        Path(args.write).write_text(pack["content"] + "\n")
+        _write_pack(args.write, pack["content"], getattr(args, "force", False))
         # the engagement pack is generated on demand and carries no version
         # (routes/api.py) — printing pack["version"] raised KeyError AFTER the
         # file was already written, so the caller got the file and a traceback
@@ -1336,7 +1408,16 @@ def main():
     c.set_defaults(fn=cmd_eval)
 
     c = sub.add_parser("context", help="print the team context pack (org-brain)")
-    c.add_argument("--write", metavar="PATH", help="write to a file (AGENTS.md) instead of stdout")
+    c.add_argument(
+        "--write",
+        metavar="PATH",
+        help="write the pack into a marked block of a file (AGENTS.md), keeping its other text",
+    )
+    c.add_argument(
+        "--force",
+        action="store_true",
+        help="add the block at the end of a file that has text and no Skein block",
+    )
     c.add_argument(
         "--engagement",
         type=int,
