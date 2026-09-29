@@ -273,6 +273,42 @@ def read_artifact(
     # never something a caller sent — so it stays a 500 and shows up in the
     # error rate, which is the signal an operator needs here. A 404 would say
     # "no such artifact" about a row the reader can plainly see listed.
+    revision = None
+    if row["kind"] == "document":
+        # The row's digest names the revision this read serves, and the body
+        # comes from that same row, never the file. A save that commits
+        # between the artifacts read and a file read deletes the old file (a
+        # 500), or pairs the old text with the new head's number, and the
+        # editor's next save (PUT /api/documents) then writes over a revision
+        # its person never saw.
+        revision = db.query_one(
+            "SELECT revision, body FROM document_revisions WHERE artifact_id = ?"
+            " AND content_sha256 = ? ORDER BY revision DESC LIMIT 1",
+            (artifact_id, row["content_sha256"]),
+        )
+    markdown = revision["body"] if revision else _read_markdown(artifact_id, path, row)
+    out = {
+        **{key: value for key, value in row.items() if key != "content_sha256"},
+        "markdown": markdown,
+        "threads": entity_refs.readable_refs(
+            markdown,
+            viewer,
+            resource_filter=resource_filter,
+            proposal_filter=proposal_filter,
+            allow_unclassified_proposals=allow_unclassified_proposals,
+            # a document has no generated frame: people write it, and an
+            # apostrophe there is a word, not the edge of a quoted title
+            quoted=row["kind"] != "document",
+        ),
+    }
+    if row["kind"] == "document":
+        # a document written before revision rows existed is revision 1
+        # (services/documents.py::_head seeds it at the next write)
+        out["revision"] = int(revision["revision"]) if revision else 1
+    return out
+
+
+def _read_markdown(artifact_id: int, path: Path, row: dict) -> str:
     # is_file() is False for a FIFO and for a device node as well as for an
     # absent path, and that is the half that matters: read_text() on a FIFO
     # under data/artifacts blocks this worker thread for good.
@@ -297,21 +333,7 @@ def read_artifact(
                 f"artifact #{artifact_id} does not match its stored digest."
                 " Restore the matching artifact volume, or regenerate the report."
             )
-        markdown = data.decode("utf-8")
-        return {
-            **{key: value for key, value in row.items() if key != "content_sha256"},
-            "markdown": markdown,
-            "threads": entity_refs.readable_refs(
-                markdown,
-                viewer,
-                resource_filter=resource_filter,
-                proposal_filter=proposal_filter,
-                allow_unclassified_proposals=allow_unclassified_proposals,
-                # a document has no generated frame: people write it, and an
-                # apostrophe there is a word, not the edge of a quoted title
-                quoted=row["kind"] != "document",
-            ),
-        }
+        return data.decode("utf-8")
     except (OSError, UnicodeDecodeError) as e:
         # a generator writes UTF-8 markdown; anything else under data/artifacts
         # arrived by the same route the containment check is written against

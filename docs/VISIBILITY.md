@@ -311,7 +311,8 @@ crew's view, silently, for 15 seconds.
 
 Tasks and notes have no create form of their own in this UI — both are made
 through quick capture — so the picker went into the ⌘K palette, which routes
-to seven entities, plus the standup card. Two controls, eight entities.
+to seven entities, plus the standup card and the New document form on
+Work → Reports. Three controls, nine entities.
 
 ### What still lands at workspace, always
 

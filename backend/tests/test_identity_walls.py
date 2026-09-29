@@ -354,3 +354,26 @@ def test_notices_about_an_account_reach_its_person_only(fresh_db, monkeypatch):
     assert fresh_db.query_one(
         "SELECT \"user\" FROM notifications WHERE message LIKE 'dana requests%'"
     ) == {"user": "casey"}
+
+
+@pytest.mark.parametrize("kind", ["document", "task"])
+def test_a_merge_cannot_hand_a_crew_row_to_somebody_outside_the_crew(fresh_db, kind):
+    """A crew row's author reads it after leaving the crew (scope.visible_filter,
+    the author arm). Merged by somebody else, that reach moved to a target who
+    was never a member, with every later revision of a crew document."""
+    from app.services import crews, documents, users, work
+
+    for name in ("ava", "mira", "zed", "carol"):
+        users.ensure_user(name)
+    cid = crews.create_crew("Platform", actor="ava")["id"]
+    crews.add_member(cid, "mira", actor="ava")
+    if kind == "document":
+        documents.create_document(
+            "Runbook", "crew text", actor="mira", visibility="crew", crew_id=cid
+        )
+    else:
+        work.create_task("crew task", actor="mira", visibility="crew", crew_id=cid)
+    crews.remove_member(cid, "mira", actor="ava")
+    with pytest.raises(ValueError, match="wrote records for a crew"):
+        users.rename_user("mira", "zed", actor="carol", expected_merge=True)
+    assert users.is_active("mira")

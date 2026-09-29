@@ -952,7 +952,7 @@ export default function ReviewPage() {
               <div className="mb-3 space-y-2">
                 {(diffs[c.id].head_revision ?? 0) > (diffs[c.id].base_revision ?? 0) ? (
                   <p className="text-xs text-danger">
-                    The document changed after this proposal. Approve refuses it.
+                    The document changed after this proposal. If you approve it, Skein rejects it.
                   </p>
                 ) : null}
                 <UnifiedDiff

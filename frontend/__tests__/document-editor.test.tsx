@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   puts: [] as unknown[],
   posts: [] as unknown[],
   conflict: false,
+  head: 5,
   strong: true,
   reportStatus: vi.fn(),
 }));
@@ -29,16 +30,24 @@ vi.mock("@/lib/api", async (importOriginal) => {
       }
       if (init?.method === "PUT") {
         state.puts.push(JSON.parse(String(init.body)));
-        return state.conflict
-          ? Promise.reject(
-              new real.ApiError(
-                "document #12 changed after revision 5, and revision 6 is newer. Read revision 6, then make the change again.",
-                409,
-              ),
-            )
-          : Promise.resolve({ id: 12, revision: 6, unchanged: false });
+        if (state.conflict) {
+          // somebody else's save lands first: the head moves to 6
+          state.conflict = false;
+          state.head = 6;
+          return Promise.reject(
+            new real.ApiError(
+              "document #12 changed after revision 5, and revision 6 is newer. Read revision 6, then make the change again.",
+              409,
+            ),
+          );
+        }
+        return Promise.resolve({ id: 12, revision: state.head + 1, unchanged: false });
       }
-      return Promise.resolve({ id: 12, markdown: "alpha", revision: 5 });
+      return Promise.resolve({
+        id: 12,
+        markdown: state.head === 5 ? "alpha" : "alpha omega",
+        revision: state.head,
+      });
     },
   };
 });
@@ -51,6 +60,7 @@ beforeEach(() => {
   state.strong = true;
   localStorage.clear();
   state.conflict = false;
+  state.head = 5;
   state.reportStatus.mockReset();
 });
 
@@ -60,7 +70,7 @@ describe("the document editor", () => {
   it("keeps the text and shows the reason when the save answers 409", async () => {
     state.conflict = true;
     const onSaved = vi.fn();
-    render(<DocumentEditor artifactId={12} onSaved={onSaved} onCancel={() => {}} />);
+    render(<DocumentEditor artifactId={12} onSaved={onSaved} onCancel={() => {}} drafts={new Map()} />);
     await waitFor(() => expect(text().value).toBe("alpha"));
     fireEvent.change(text(), { target: { value: "alpha beta" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -73,7 +83,7 @@ describe("the document editor", () => {
 
   it("saves as the next revision and says which", async () => {
     const onSaved = vi.fn();
-    render(<DocumentEditor artifactId={12} onSaved={onSaved} onCancel={() => {}} />);
+    render(<DocumentEditor artifactId={12} onSaved={onSaved} onCancel={() => {}} drafts={new Map()} />);
     await waitFor(() => expect(text().value).toBe("alpha"));
     fireEvent.change(text(), { target: { value: "alpha gamma" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -82,7 +92,7 @@ describe("the document editor", () => {
   });
 
   it("Preview keeps the textarea mounted", async () => {
-    render(<DocumentEditor artifactId={12} onSaved={() => {}} onCancel={() => {}} />);
+    render(<DocumentEditor artifactId={12} onSaved={() => {}} onCancel={() => {}} drafts={new Map()} />);
     await waitFor(() => expect(text().value).toBe("alpha"));
     fireEvent.change(text(), { target: { value: "# Heading drafted" } });
     const area = text();
@@ -90,9 +100,67 @@ describe("the document editor", () => {
     expect(screen.getByRole("heading", { name: "Heading drafted" })).toBeTruthy();
     expect(area.isConnected).toBe(true);
     expect(area.hidden).toBe(true);
+    // a label for a hidden field is orphan text to a screen reader
+    expect((screen.getByText("Document text, Markdown") as HTMLLabelElement).hidden).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Write" }));
     expect(text()).toBe(area);
     expect(area.value).toBe("# Heading drafted");
+  });
+});
+
+describe("unsaved text", () => {
+  it("after a 409 reads the new head, and a second Save writes over it", async () => {
+    state.conflict = true;
+    const onSaved = vi.fn();
+    render(<DocumentEditor artifactId={12} onSaved={onSaved} onCancel={() => {}} drafts={new Map()} />);
+    await waitFor(() => expect(text().value).toBe("alpha"));
+    fireEvent.change(text(), { target: { value: "alpha beta" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(
+      await screen.findByText(
+        "Somebody saved revision 6 after you started. Your text is not saved. To keep your text, select Save again. Revision 6 stays in History.",
+      ),
+    ).toBeTruthy();
+    expect(text().value).toBe("alpha beta");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(state.puts).toEqual([
+      { content: "alpha beta", base_revision: 5 },
+      { content: "alpha beta", base_revision: 6 },
+    ]);
+  });
+
+  it("is kept when the editor closes, with the revision it started from", async () => {
+    const drafts = new Map();
+    const first = render(<DocumentEditor artifactId={12} onSaved={() => {}} onCancel={() => {}} drafts={drafts} />);
+    await waitFor(() => expect(text().value).toBe("alpha"));
+    fireEvent.change(text(), { target: { value: "alpha kept" } });
+    first.unmount();
+    state.head = 6;
+    const onSaved = vi.fn();
+    render(<DocumentEditor artifactId={12} onSaved={onSaved} onCancel={() => {}} drafts={drafts} />);
+    await waitFor(() => expect(text().value).toBe("alpha kept"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(state.puts).toHaveLength(1));
+    // the base the text was written against, never the head read on reopen:
+    // that base would write over revision 6 unseen
+    expect(state.puts).toEqual([{ content: "alpha kept", base_revision: 5 }]);
+  });
+
+  it("Cancel asks before it deletes unsaved text", async () => {
+    const drafts = new Map();
+    const onCancel = vi.fn();
+    render(<DocumentEditor artifactId={12} onSaved={() => {}} onCancel={onCancel} drafts={drafts} />);
+    await waitFor(() => expect(text().value).toBe("alpha"));
+    fireEvent.change(text(), { target: { value: "alpha typed" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onCancel).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(text().value).toBe("alpha typed");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete my changes" }));
+    expect(onCancel).toHaveBeenCalled();
+    expect(drafts.size).toBe(0);
   });
 });
 
@@ -105,7 +173,7 @@ describe("a new document", () => {
     async (strong, visibility) => {
       state.strong = strong;
       const onSaved = vi.fn();
-      render(<DocumentEditor artifactId={null} onSaved={onSaved} onCancel={() => {}} />);
+      render(<DocumentEditor artifactId={null} onSaved={onSaved} onCancel={() => {}} drafts={new Map()} />);
       fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Runbook" } });
       fireEvent.change(text(), { target: { value: "first draft" } });
       fireEvent.click(screen.getByRole("button", { name: "Create document" }));
