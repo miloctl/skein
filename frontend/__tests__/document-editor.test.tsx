@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
   posts: [] as unknown[],
   conflict: false,
   head: 5,
+  hold: null as null | (() => void),
   strong: true,
   reportStatus: vi.fn(),
 }));
@@ -30,6 +31,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
       }
       if (init?.method === "PUT") {
         state.puts.push(JSON.parse(String(init.body)));
+        if (state.hold)
+          return new Promise((resolve) => {
+            state.hold = () => resolve({ id: 12, revision: 6, unchanged: false });
+          });
         if (state.conflict) {
           // somebody else's save lands first: the head moves to 6
           state.conflict = false;
@@ -61,6 +66,7 @@ beforeEach(() => {
   localStorage.clear();
   state.conflict = false;
   state.head = 5;
+  state.hold = null;
   state.reportStatus.mockReset();
 });
 
@@ -128,6 +134,24 @@ describe("unsaved text", () => {
       { content: "alpha beta", base_revision: 5 },
       { content: "alpha beta", base_revision: 6 },
     ]);
+  });
+
+  it("Save keeps focus while it runs and sends once", async () => {
+    // a disabled button drops focus to the page, so a refused save left a
+    // keyboard reader at the top of the page with "select Save again" to do
+    state.hold = () => {};
+    const onSaved = vi.fn();
+    render(<DocumentEditor artifactId={12} onSaved={onSaved} onCancel={() => {}} drafts={new Map()} />);
+    await waitFor(() => expect(text().value).toBe("alpha"));
+    fireEvent.change(text(), { target: { value: "alpha beta" } });
+    const save = screen.getByRole("button", { name: "Save" });
+    fireEvent.click(save);
+    fireEvent.click(save);
+    expect(save.hasAttribute("disabled")).toBe(false);
+    expect(save.getAttribute("aria-disabled")).toBe("true");
+    expect(state.puts).toHaveLength(1);
+    state.hold?.();
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
 
   it("is kept when the editor closes, with the revision it started from", async () => {

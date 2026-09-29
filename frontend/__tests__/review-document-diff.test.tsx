@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 /** A document edit's payload is a quote and its replacement, so the card
@@ -19,7 +19,7 @@ const row = {
   label: "change a document",
 };
 
-const state = vi.hoisted(() => ({ head: 1 }));
+const state = vi.hoisted(() => ({ head: 1, settles: false, settled: false }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
@@ -27,8 +27,18 @@ vi.mock("@/lib/api", async (importOriginal) => {
     ...real,
     getUser: () => "mira",
     subscribeUser: () => () => {},
-    api: (path: string) => {
-      if (path.startsWith("/api/review?status=pending")) return Promise.resolve([row]);
+    api: (path: string, init?: RequestInit) => {
+      if (path === "/api/review/31/approve" && init?.method === "POST") {
+        // review.approve_change settles a stale document edit as rejected
+        state.settled = state.settles;
+        return Promise.reject(
+          state.settles
+            ? new real.ApiError("could not apply and auto-rejected: document #12 changed after revision 1, and revision 2 is newer. Read revision 2, then make the change again.", 400)
+            : new real.ApiError("the database is busy. Try again in a few seconds.", 503),
+        );
+      }
+      if (path.startsWith("/api/review?status=pending"))
+        return Promise.resolve(state.settled ? [] : [row]);
       if (path === "/api/review/31/diff")
         return Promise.resolve({
           id: 31,
@@ -63,5 +73,20 @@ describe("a document edit in Approvals", () => {
     expect(
       await screen.findByText("The document changed after this proposal. If you approve it, Skein rejects it."),
     ).toBeTruthy();
+  });
+
+  it.each([
+    [true, 0],
+    [false, 1],
+  ])("an approval that settles the proposal takes its card out (settles: %s)", async (settles, left) => {
+    state.head = 2;
+    state.settles = settles;
+    state.settled = false;
+    render(<ReviewPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Approve proposal #31: change a document" }));
+    await waitFor(() => expect(screen.queryAllByText("+delta")).toHaveLength(left));
+    // the settle check has run and left a card that is still pending
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryAllByText("+delta")).toHaveLength(left);
   });
 });

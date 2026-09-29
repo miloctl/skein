@@ -295,7 +295,7 @@ export default function ArtifactsPage() {
           aria-expanded={creating}
           aria-controls="document-new-panel"
           onClick={() => setCreating((on) => !on)}
-          className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 hover:border-line-strong hover:text-ink"
+          className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 hover:border-line-strong hover:text-ink aria-expanded:border-line-strong aria-expanded:bg-raised aria-expanded:text-ink"
         >
           New document
         </button>
@@ -440,7 +440,7 @@ export default function ArtifactsPage() {
                         aria-expanded={view === "edit"}
                         aria-controls="document-panel"
                         onClick={() => setMode(view === "edit" ? null : { id: shown.id, view: "edit" })}
-                        className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 hover:border-line-strong hover:text-ink"
+                        className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 hover:border-line-strong hover:text-ink aria-expanded:border-line-strong aria-expanded:bg-raised aria-expanded:text-ink"
                       >
                         Edit
                       </button>
@@ -451,7 +451,7 @@ export default function ArtifactsPage() {
                         onClick={() =>
                           setMode(view === "history" ? null : { id: shown.id, view: "history" })
                         }
-                        className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 hover:border-line-strong hover:text-ink"
+                        className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 hover:border-line-strong hover:text-ink aria-expanded:border-line-strong aria-expanded:bg-raised aria-expanded:text-ink"
                       >
                         History
                       </button>
@@ -488,7 +488,7 @@ export default function ArtifactsPage() {
                   ) : view === "history" ? (
                     <DocumentHistory
                       artifactId={shown.id}
-                      onRestored={() => setBodyRequest((request) => request + 1)}
+                      onChanged={() => setBodyRequest((request) => request + 1)}
                     />
                   ) : null}
                 </div>
