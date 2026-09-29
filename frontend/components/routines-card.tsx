@@ -25,6 +25,7 @@ export type Routine = {
   status: "active" | "paused";
   paused_reason: string;
   paused_by: string;
+  skipped_in_row: number;
   last_outcome: string;
   created_by: string;
   visibility: string;
@@ -73,11 +74,16 @@ function pausedLine(r: Routine): string {
     case "by_person":
       return `Paused by ${r.paused_by}.`;
     case "nobody_finished":
-      return "Paused after 3 skipped times, because the last task is still open.";
+      // the task can close while the routine stays paused: say which state
+      return r.open_task_id
+        ? `Paused after ${r.skipped_in_row} skipped times, because task #${r.open_task_id} is still open. Finish or close it, then resume.`
+        : `Paused after ${r.skipped_in_row} skipped times. The last task is now closed.`;
     case "owner_inactive":
       return `Paused because ${r.created_by} is deactivated.`;
     case "owner_left_crew":
       return `Paused because ${r.created_by} is no longer in its crew.`;
+    case "crew_inactive":
+      return "Paused because its crew is deactivated.";
     case "agent_unavailable":
       return `Paused because agent ${r.agent} is deactivated.`;
     case "fire_refused":
@@ -139,15 +145,40 @@ const fromRoutine = (r: Routine): Draft => ({
 const field =
   "mt-0.5 block w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm text-ink outline-none focus:border-thread-solid";
 
+/** The PATCH and POST body. Built the same way from the saved routine and
+ *  from the draft, so an edit that changes nothing is recognized before the
+ *  server answers it with "nothing to update". */
+function toBody(draft: Draft): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    title: draft.title.trim(),
+    description: draft.description,
+    weekdays: [...draft.days].sort().join(","),
+    // HH:MM: a time input with a seconds step answers HH:MM:SS, which the
+    // route refuses (routes/api.py::RoutineIn caps at_time at 5 characters)
+    at_time: draft.at_time.slice(0, 5),
+    every_weeks: draft.every_weeks,
+    assignee: draft.agent ? "" : draft.assignee.trim(),
+    agent: draft.agent,
+    acceptance_criteria: draft.agent ? draft.acceptance_criteria : "",
+    due_days: draft.due_days === "" ? null : Number(draft.due_days),
+  };
+  if (draft.starts_on) body.starts_on = draft.starts_on;
+  return body;
+}
+
 function RoutineForm({
   initial,
   editing,
+  privateTier = false,
   onSave,
   onCancel,
 }: {
   initial: Draft;
   /** an edit never changes the tier: it is fixed when the routine is written */
   editing: boolean;
+  /** an edit of a private routine: no agent can take it, and the tier that
+   *  would allow one cannot change (services/routines.py::_validated) */
+  privateTier?: boolean;
   onSave: (body: Record<string, unknown>) => Promise<boolean>;
   onCancel: () => void;
 }) {
@@ -170,19 +201,9 @@ function RoutineForm({
 
   const submit = async () => {
     if (busy || missing) return;
+    const body = toBody(draft);
+    if (editing && JSON.stringify(body) === JSON.stringify(toBody(initial))) return onCancel();
     setBusy(true);
-    const body: Record<string, unknown> = {
-      title: draft.title.trim(),
-      description: draft.description,
-      weekdays: schedule.weekdays,
-      at_time: draft.at_time,
-      every_weeks: draft.every_weeks,
-      assignee: draft.agent ? "" : draft.assignee.trim(),
-      agent: draft.agent,
-      acceptance_criteria: draft.agent ? draft.acceptance_criteria : "",
-      due_days: draft.due_days === "" ? null : Number(draft.due_days),
-    };
-    if (draft.starts_on) body.starts_on = draft.starts_on;
     if (!editing) Object.assign(body, tier);
     try {
       if (!(await onSave(body))) setBusy(false);
@@ -242,20 +263,22 @@ function RoutineForm({
         </div>
       </fieldset>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <label className="block text-xs text-ink-3">
-          Time
-          <input
-            type="time"
-            required
-            value={draft.at_time}
-            onChange={(e) => set({ at_time: e.target.value })}
-            aria-describedby="routine-time-hint"
-            className={field}
-          />
+        <div className="text-xs text-ink-3">
+          <label className="block">
+            Time
+            <input
+              type="time"
+              required
+              value={draft.at_time}
+              onChange={(e) => set({ at_time: e.target.value })}
+              aria-describedby="routine-time-hint"
+              className={field}
+            />
+          </label>
           <span id="routine-time-hint" className="mt-0.5 block">
             Skein creates the task within 5 minutes of this time.
           </span>
-        </label>
+        </div>
         <label className="block text-xs text-ink-3">
           Repeat
           <select
@@ -284,6 +307,8 @@ function RoutineForm({
           Agent
           <select
             value={draft.agent}
+            disabled={privateTier}
+            aria-describedby={privateTier ? "routine-private-agent" : undefined}
             onChange={(e) => {
               set({ agent: e.target.value });
               // a private task has one reader, and an agent is not it
@@ -322,6 +347,12 @@ function RoutineForm({
           />
         </label>
       </div>
+      {privateTier ? (
+        <p id="routine-private-agent" className="text-xs text-ink-3">
+          A private routine cannot use an agent. To use an agent, write a new routine for a crew or
+          for everyone on the roster.
+        </p>
+      ) : null}
       {draft.agent ? (
         <label className="block text-xs text-ink-3">
           Definition of done for {draft.agent}
@@ -344,11 +375,11 @@ function RoutineForm({
           ) : null}
         </div>
       )}
-      <p className="text-xs text-ink-2">
-        {draft.days.length
-          ? `${scheduleWords(schedule)}${draft.starts_on ? `, starting ${draft.starts_on}` : ""}, Skein creates a new task${draft.agent ? ` and delegates it to ${draft.agent}` : ""}. If the last task is still open, Skein skips that time.`
-          : "Pick at least one day."}
-      </p>
+      {draft.days.length ? (
+        <p className="text-xs text-ink-2">
+          {`${scheduleWords(schedule)}${draft.starts_on ? `, starting ${draft.starts_on}` : ""}, Skein creates a new task${draft.agent ? ` and delegates it to ${draft.agent}` : ""}. If the last task is still open, Skein skips that time.`}
+        </p>
+      ) : null}
       <div className="flex gap-2">
         <button
           type="submit"
@@ -380,17 +411,30 @@ export function RoutinesCard() {
   const [confirming, setConfirming] = useState<number | null>(null);
   const strong = useStrongIdentity();
   const focusAfter = useRef<string | null>(null);
+  // Bumped by every step the reader takes (Edit, Delete, New routine,
+  // Cancel, Keep). A write's reload that lands after the reader moved on
+  // must not pull focus back to the row the write named.
+  const intent = useRef(0);
+  const inFlight = useRef(false);
+  const moved = () => {
+    intent.current += 1;
+  };
 
-  const load = useCallback(() => {
-    // no-store: api() caches a GET for 15 seconds, and a reread after a save
-    // must show the save
-    return api<{ zone: string; routines: Routine[] }>("/api/routines", { cache: "no-store" })
-      .then((d) => {
-        setData(d);
-        setFailure("");
-      })
-      .catch((e) => setFailure(loadError(e)));
-  }, []);
+  // `focus` is applied only by the reload that carries it, and only if the
+  // reader took no step meanwhile: a failed reload leaves no target behind
+  const load = useCallback(
+    (focus = "", mine = -1) =>
+      // no-store: the routines job changes these rows every 5 minutes with
+      // no write from this tab, and api() would serve a 15-second-old list
+      api<{ zone: string; routines: Routine[] }>("/api/routines", { cache: "no-store" })
+        .then((d) => {
+          if (focus && mine === intent.current) focusAfter.current = focus;
+          setData(d);
+          setFailure("");
+        })
+        .catch((e) => setFailure(loadError(e))),
+    [],
+  );
 
   useEffect(() => {
     void load();
@@ -403,38 +447,42 @@ export function RoutinesCard() {
     document.getElementById(id)?.focus();
   }, [data, form, confirming]);
 
-  const act = async (work: () => Promise<unknown>, done: string, focus: string) => {
+  /** One write at a time: a second press of Resume would answer "already
+   *  active" and replace the confirmation with an error. */
+  const act = async (work: () => Promise<unknown>, done: string, focus: () => string) => {
+    if (inFlight.current) return false;
+    inFlight.current = true;
+    const mine = ++intent.current;
     try {
       await work();
-      reportStatus(done, "confirmation");
-      focusAfter.current = focus;
-      await load();
-      return true;
     } catch (e) {
       reportStatus(actionError(e));
       return false;
+    } finally {
+      inFlight.current = false;
     }
+    reportStatus(done, "confirmation");
+    await load(focus(), mine);
+    return true;
   };
 
   const save = async (body: Record<string, unknown>) => {
     const editing = typeof form === "number" ? form : null;
     let saved = 0;
-    const ok = await act(
+    return act(
       async () => {
         const out = await api<{ id: number }>(editing ? `/api/routines/${editing}` : "/api/routines", {
           method: editing ? "PATCH" : "POST",
           body: JSON.stringify(body),
         });
         saved = editing ?? out.id;
+        // closed before the reload, so the row the focus names exists when
+        // it lands. A refused save keeps the form and the draft.
+        setForm(null);
       },
-      editing ? "Routine saved." : "Routine saved. Skein creates its first task at the next time.",
-      "",
+      editing ? "Routine saved." : "Routine saved. Skein creates its first task at the next scheduled time.",
+      () => `routine-${saved}`,
     );
-    if (ok) {
-      focusAfter.current = `routine-${saved}`;
-      setForm(null);
-    }
-    return ok;
   };
 
   const rows = data?.routines ?? [];
@@ -443,8 +491,8 @@ export function RoutinesCard() {
   return (
     <div className="space-y-3 text-sm">
       <p className="text-xs text-ink-3">
-        Work that comes back every week. Each time, Skein creates a new task, and with an agent it
-        delegates the task to that agent with you as sponsor.
+        Work that comes back on a schedule. Each time, Skein creates a new task, and with an agent
+        it delegates the task to that agent with the routine&apos;s owner as sponsor.
         {data ? ` Times are on the team clock (${data.zone}).` : ""}
       </p>
       {failure ? <p className="text-xs text-danger">{failure}</p> : null}
@@ -460,8 +508,10 @@ export function RoutinesCard() {
                 <RoutineForm
                   initial={fromRoutine(r)}
                   editing
+                  privateTier={r.visibility === "private"}
                   onSave={save}
                   onCancel={() => {
+                    moved();
                     focusAfter.current = `routine-${r.id}`;
                     setForm(null);
                   }}
@@ -480,7 +530,7 @@ export function RoutinesCard() {
                 </p>
                 {outcomeLine(r) ? <p className="text-xs text-ink-3">{outcomeLine(r)}</p> : null}
                 {r.open_task_id ? (
-                  <PeekLink taskId={r.open_task_id} className="text-xs">
+                  <PeekLink taskId={r.open_task_id} className="inline-flex min-h-6 items-center text-xs">
                     Task #{r.open_task_id}
                   </PeekLink>
                 ) : null}
@@ -494,13 +544,15 @@ export function RoutinesCard() {
                       aria-describedby={`routine-confirm-${r.id}`}
                       onClick={async () => {
                         setConfirming(null);
-                        await act(
+                        const done = await act(
                           () => api(`/api/routines/${r.id}`, { method: "DELETE" }),
                           `Routine #${r.id} deleted.`,
-                          "planning-routines",
+                          () => "planning-routines",
                         );
+                        // refused: the row stays, and so does the reader
+                        if (!done) document.getElementById(`routine-delete-${r.id}`)?.focus();
                       }}
-                      className="rounded bg-danger-solid px-2 py-0.5 font-medium text-white hover:opacity-90"
+                      className="min-h-6 rounded bg-danger-solid px-2 py-0.5 font-medium text-white hover:opacity-90"
                     >
                       Delete routine
                     </button>
@@ -508,6 +560,7 @@ export function RoutinesCard() {
                       type="button"
                       autoFocus
                       onClick={() => {
+                        moved();
                         focusAfter.current = `routine-delete-${r.id}`;
                         setConfirming(null);
                       }}
@@ -525,7 +578,7 @@ export function RoutinesCard() {
                           act(
                             () => api(`/api/routines/${r.id}/pause`, { method: "POST" }),
                             `Routine #${r.id} paused.`,
-                            `routine-${r.id}`,
+                            () => `routine-${r.id}`,
                           )
                         }
                         className={control}
@@ -540,7 +593,7 @@ export function RoutinesCard() {
                           act(
                             () => api(`/api/routines/${r.id}/resume`, { method: "POST" }),
                             `Routine #${r.id} resumed.`,
-                            `routine-${r.id}`,
+                            () => `routine-${r.id}`,
                           )
                         }
                         className={control}
@@ -550,7 +603,14 @@ export function RoutinesCard() {
                       </button>
                     ) : null}
                     {r.can_edit ? (
-                      <button type="button" onClick={() => setForm(r.id)} className={control}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          moved();
+                          setForm(r.id);
+                        }}
+                        className={control}
+                      >
                         Edit{" "}
                         <span className="sr-only">routine #{r.id}</span>
                       </button>
@@ -559,7 +619,10 @@ export function RoutinesCard() {
                       <button
                         type="button"
                         id={`routine-delete-${r.id}`}
-                        onClick={() => setConfirming(r.id)}
+                        onClick={() => {
+                          moved();
+                          setConfirming(r.id);
+                        }}
                         className={control}
                       >
                         Delete{" "}
@@ -579,6 +642,7 @@ export function RoutinesCard() {
           editing={false}
           onSave={save}
           onCancel={() => {
+            moved();
             focusAfter.current = "routine-new";
             setForm(null);
           }}
@@ -587,15 +651,18 @@ export function RoutinesCard() {
         <button
           type="button"
           id="routine-new"
-          onClick={() => setForm("new")}
+          onClick={() => {
+            moved();
+            setForm("new");
+          }}
           className="rounded-lg bg-raised px-3 py-1 text-xs text-ink-2 hover:bg-line"
         >
           New routine
         </button>
       ) : (
         <p className="text-xs text-ink-3">
-          To write a routine, sign in with a personal key in Settings. A routine creates tasks under
-          your name, so Skein asks who you are first.
+          Writing a routine requires strong identity. If deployment sign-in is available, use it.
+          Otherwise, use a personal API key. A routine creates tasks under your name.
         </p>
       )}
     </div>

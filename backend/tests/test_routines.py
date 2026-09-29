@@ -27,6 +27,12 @@ def _routine(**over):
     return routines.create_routine({**WEEKLY, **over}, actor=actor)
 
 
+def _viewer(name):
+    from app.services import scope
+
+    return scope.Viewer(name, True)
+
+
 def _row(fresh_db, rid):
     return fresh_db.query_one("SELECT * FROM routines WHERE id = ?", (rid,))
 
@@ -216,7 +222,7 @@ def test_a_refused_firing_pauses_and_creates_nothing(people, fresh_db):
     assert _row(fresh_db, rid)["paused_reason"] == "fire_refused"
     assert _tasks(fresh_db, rid) == []
     assert fresh_db.query_one("SELECT COUNT(*) AS n FROM tasks")["n"] == 0
-    assert len(_notices(fresh_db, "mira", "%could not create or delegate%")) == 1
+    assert len(_notices(fresh_db, "mira", "%could not create the task. Check the assignee%")) == 1
 
 
 def test_deactivation_pauses_what_it_strands(people, fresh_db):
@@ -364,10 +370,14 @@ def test_a_workplace_policy_can_refuse_a_new_routine(people):
     from app.extensions.policy import PolicyDecision, PolicyEffect
     from app.main import create_app
 
+    guarded = (
+        "skein.rest.post.routines",
+        "skein.rest.patch.routines",
+        "skein.rest.post.routines.resume",
+    )
+
     def deny(request):
-        if request.action == "skein.rest.post.routines" and request.resource.attributes.get(
-            "agent"
-        ):
+        if request.action in guarded and (request.resource.attributes or {}).get("agent"):
             return PolicyDecision(PolicyEffect.DENY, ("no standing delegations",))
         return None
 
@@ -379,6 +389,100 @@ def test_a_workplace_policy_can_refuse_a_new_routine(people):
         maximum_core_exclusive="0.7.0",
         policies=(PolicyContribution("acme.routines.no-agents", deny),),
     )
+    from app.services import routines
+
+    # written before the rule, then paused: its resume restarts a standing
+    # delegation the rule refuses
+    earlier = routines.create_routine({**WEEKLY, "agent": "scout"}, actor="mira")["id"]
+    routines.pause_routine(earlier, actor="mira")
     with TestClient(create_app(modules=(module,)), headers=_strong(name="mira")) as client:
         assert client.post("/api/routines", json={**WEEKLY, "agent": "scout"}).status_code == 403
-        assert client.post("/api/routines", json=WEEKLY).status_code == 201
+        made = client.post("/api/routines", json=WEEKLY)
+        assert made.status_code == 201
+        rid = made.json()["id"]
+        # an edit that adds the agent is the same standing delegation
+        added = client.patch(f"/api/routines/{rid}", json={"agent": "scout"})
+        assert added.status_code == 403
+        assert client.post(f"/api/routines/{earlier}/resume").status_code == 403
+    row = next(r for r in routines.list_routines(_viewer("mira")) if r["id"] == rid)
+    assert row["agent"] == ""
+
+
+def test_a_bad_schedule_is_refused_not_rounded_or_crashed(people):
+    from datetime import date
+
+    for bad, text in (
+        ({"every_weeks": 0}, "every_weeks must be a whole number from 1 to 4"),
+        ({"starts_on": "9999-12-31"}, "starts_on must be within the next year"),
+        ({"starts_on": (date.today() + timedelta(days=400)).isoformat()}, "within the next year"),
+    ):
+        with pytest.raises(ValueError, match=text):
+            _routine(**bad)
+
+
+def test_a_rename_locks_routines_before_crews():
+    """users.rename_user rewrites _ATTRIBUTION in order. A firing holds its
+    routine row, then its crew row (crews.assert_writable): crews first in
+    the rename is a lock cycle, and one of the two dies as a deadlock."""
+    from app.services import users
+
+    order = list(users._ATTRIBUTION)
+    assert order.index("routines") < order.index("crews")
+    assert order.index("routines") < order.index("crew_members")
+
+
+def test_a_deactivated_owner_cannot_create_or_resume(people, fresh_db):
+    from app.services import routines, users
+
+    rid = _routine()["id"]
+    users.set_active("mira", False, actor="bo")
+    with pytest.raises(PermissionError, match="mira is deactivated"):
+        routines.resume_routine(rid, actor="mira")
+    with pytest.raises(PermissionError, match="mira is deactivated"):
+        _routine(title="Another")
+    assert _row(fresh_db, rid)["status"] == "paused"
+
+
+def test_an_edit_cannot_empty_a_field_or_bend_a_date(people):
+    from app.services import routines
+
+    rid = _routine()["id"]
+    with pytest.raises(ValueError, match="starts_on cannot be empty"):
+        routines.update_routine(rid, {"starts_on": None}, actor="mira")
+    with pytest.raises(ValueError, match="every_weeks cannot be empty"):
+        routines.update_routine(rid, {"every_weeks": None}, actor="mira")
+    with pytest.raises(ValueError, match="starts_on must be YYYY-MM-DD"):
+        _routine(starts_on="20261005")
+    # due_days is the one field an edit may clear
+    routines.update_routine(rid, {"due_days": 2}, actor="mira")
+    routines.update_routine(rid, {"due_days": None}, actor="mira")
+
+
+def test_a_deactivated_crew_pauses_with_its_own_reason(people, fresh_db):
+    from app.services import crews, routines
+
+    rid = _routine(visibility="crew", crew_id=people["crew"])["id"]
+    crews.update_crew(people["crew"], active=False, actor="mira")
+    assert routines.fire_due(rid, _due(fresh_db, rid)) == "paused"
+    assert _row(fresh_db, rid)["paused_reason"] == "crew_inactive"
+    assert len(_notices(fresh_db, "mira", "%because its crew is deactivated%")) == 1
+    assert _notices(fresh_db, "mira", "%no longer in its crew%") == []
+
+
+def test_an_owner_who_left_the_crew_cannot_edit_it(people):
+    from app.services import crews, routines
+
+    crews.add_member(people["crew"], "bo", actor="mira")
+    rid = _routine(actor="bo", visibility="crew", crew_id=people["crew"])["id"]
+    crews.remove_member(people["crew"], "bo", actor="mira")
+    with pytest.raises(ValueError, match="You are no longer in the crew of routine"):
+        routines.update_routine(rid, {"title": "Written after leaving"}, actor="bo")
+
+
+def test_a_week_count_must_be_a_number(client, people):
+    from conftest import _strong
+
+    sent = client.post(
+        "/api/routines", json={**WEEKLY, "every_weeks": True}, headers=_strong(name="mira")
+    )
+    assert sent.status_code == 422

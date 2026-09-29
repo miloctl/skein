@@ -980,27 +980,32 @@ export default function Agents() {
               {trust.map((t) => (
                 <li key={`${t.agent}-${t.entity}`}>
                   <span className="font-medium">{t.agent}</span> on {t.entity}:{" "}
+                  {/* routine verdicts build no streak (docs/intent/routines.md
+                      D11), so a row with only those has no streak to state,
+                      and "no verified verdicts" would deny strong ones */}
                   {t.proposed === 0 && (t.routine_approved ?? 0) + (t.routine_rejected ?? 0) > 0
                     ? "no verdicts outside routines"
-                    : `${t.approved}/${t.proposed} approved in settled history (${Math.round(t.approval_rate * 100)}%)`}{" "}
-                  ·{" "}
-                  {t.recent_streak > 0
-                    ? `${t.recent_streak} verified approval${t.recent_streak === 1 ? "" : "s"} in a row`
-                    : t.last_verified_verdict === "rejected"
-                      ? "last verified verdict was a rejection"
-                      : "no verified verdicts"}
-                  {/* The level the streak is measured FROM. Without it the
-                      promotion hint below names a destination with no origin,
-                      and a reader cannot tell an agent one approval away from
-                      its first grant from one already acting alone. Same
-                      helper as the authority card, so a gate-off deployment
-                      gets the same honest wording in both places. */}
+                    : `${t.approved}/${t.proposed} approved in settled history (${Math.round(t.approval_rate * 100)}%) · ${
+                        t.recent_streak > 0
+                          ? `${t.recent_streak} verified approval${t.recent_streak === 1 ? "" : "s"} in a row`
+                          : t.last_verified_verdict === "rejected"
+                            ? "last verified verdict was a rejection"
+                            : (t.routine_approved ?? 0) + (t.routine_rejected ?? 0) > 0
+                              ? "no verified verdicts outside routines"
+                              : "no verified verdicts"
+                      }`}
                   {(t.routine_approved ?? 0) + (t.routine_rejected ?? 0) > 0 ? (
                     <span className="ml-1 text-xs text-ink-3">
                       · routines, counted separately: {t.routine_approved ?? 0} approved,{" "}
                       {t.routine_rejected ?? 0} rejected
                     </span>
                   ) : null}
+                  {/* The level the streak is measured FROM. Without it the
+                      promotion hint below names a destination with no origin,
+                      and a reader cannot tell an agent one approval away from
+                      its first grant from one already acting alone. Same
+                      helper as the authority card, so a gate-off deployment
+                      gets the same honest wording in both places. */}
                   <span className="ml-1 text-xs text-ink-3">
                     · today:{" "}
                     {levelLabel(
@@ -1068,7 +1073,7 @@ export default function Agents() {
                 (season.routine.verdicts.settled > 0 || season.routine.delegations.started > 0) ? (
                   <p className="text-ink-2">
                     From routines, counted separately:{" "}
-                    {plural(season.routine.verdicts.settled, "acceptance")} (
+                    {plural(season.routine.verdicts.settled, "acceptance verdict")} (
                     {season.routine.verdicts.approved} approved · {season.routine.verdicts.rejected}{" "}
                     rejected) · {plural(season.routine.delegations.started, "delegation")} started ·{" "}
                     {season.routine.delegations.accepted} accepted.

@@ -2052,7 +2052,8 @@ def season_readout(viewer: str = "", *, admin: bool = False) -> dict:
     )
     # A ledger row has no task column, so the split reads the id the detail
     # starts with (delegation.delegate_task writes "#<task> -> <agent> ...").
-    # Ledger rows never change, and hand plus routine is the old total.
+    # Ledger rows never change, and hand plus routine equals every
+    # delegate_task row in the window.
     started = (
         db.query_one(
             "SELECT COUNT(*) FILTER (WHERE t.routine_id IS NULL) AS hand,"
@@ -2868,6 +2869,11 @@ def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
         # It is also the wrong question: the record exists to decide whether an
         # AGENT has earned more autonomy. Nobody scores a colleague's rate.
         if not is_agent(t["agent"]):
+            continue
+        # a pair whose only verdicts came from routines has no hand record
+        # (delegation.ROUTINE_JOIN): the card would state "0 of 0 approved"
+        # beside the weekly acceptance it asks the sponsor to judge
+        if not t["proposed"]:
             continue
         out[(t["agent"], t["entity"])] = {
             "approved": t["approved"],

@@ -331,8 +331,20 @@ function AgendaSection({ id, title, children }: { id: string; title: string; chi
 }
 
 function SupportingSection({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
+  const details = useRef<HTMLDetailsElement>(null);
+  // A link to a section (a notice, the field guide, the task panel's routine
+  // line) lands on its summary (lib/hash-target.ts). Closed, the reader
+  // arrives at a heading and must open it to see why they came.
+  useEffect(() => {
+    const open = () => {
+      if (window.location.hash === `#${id}` && details.current) details.current.open = true;
+    };
+    open();
+    window.addEventListener("hashchange", open);
+    return () => window.removeEventListener("hashchange", open);
+  }, [id]);
   return (
-    <details className="skein-card rounded-xl border border-line bg-card p-4">
+    <details ref={details} className="skein-card rounded-xl border border-line bg-card p-4">
       <summary id={id} className={`cursor-pointer ${HASH_TARGET}`}>
         <h2 className="skein-section-title inline">{title}</h2>
       </summary>

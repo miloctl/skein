@@ -3771,9 +3771,10 @@ class RoutineIn(BaseModel):
     # "1,4": ISO weekdays, Monday is 1
     weekdays: str = Field(max_length=13)
     at_time: str = Field(max_length=5)
-    every_weeks: int = 1
+    # strict: lax mode reads `true` as 1, and the week count must be a number
+    every_weeks: int = Field(1, strict=True)
     starts_on: str = Field("", max_length=10)
-    due_days: int | None = None
+    due_days: int | None = Field(None, strict=True)
     visibility: str = Field(scope.WORKSPACE, max_length=16)
     crew_id: int = 0
 
@@ -3791,12 +3792,12 @@ class RoutinePatch(BaseModel):
     acceptance_criteria: str | None = Field(None, max_length=1000)
     weekdays: str | None = Field(None, max_length=13)
     at_time: str | None = Field(None, max_length=5)
-    every_weeks: int | None = None
+    every_weeks: int | None = Field(None, strict=True)
     starts_on: str | None = Field(None, max_length=10)
-    due_days: int | None = None
+    due_days: int | None = Field(None, strict=True)
 
 
-def _routine_view(row: dict, viewer: scope.Viewer) -> dict:
+def _routine_view(row: dict, viewer: scope.Viewer, active: dict[str, bool]) -> dict:
     """A routine for its readers. Times go out as the team's wall time, so
     the browser never converts a zone (the calendar's rule). A task is never
     narrower than its routine, so any reader can open the open task."""
@@ -3809,16 +3810,16 @@ def _routine_view(row: dict, viewer: scope.Viewer) -> dict:
     # an edit the StrongUser routes then refuse
     owner = bool(viewer.name) and viewer.name == row["created_by"]
     out["can_edit"] = owner
-    out["can_delete"] = owner or (bool(viewer.name) and not users.is_active(row["created_by"]))
+    out["can_delete"] = owner or (bool(viewer.name) and not active[row["created_by"]])
     return out
 
 
 @router.get("/routines")
 def get_routines(user: CurrentUser, viewer: ViewerDep):
-    return {
-        "zone": config.TZ_NAME,
-        "routines": [_routine_view(r, viewer) for r in routines.list_routines(viewer)],
-    }
+    rows = routines.list_routines(viewer)
+    # once per owner, not per row: users.is_active reads the roster each call
+    active = {owner: users.is_active(owner) for owner in {r["created_by"] for r in rows}}
+    return {"zone": config.TZ_NAME, "routines": [_routine_view(r, viewer, active) for r in rows]}
 
 
 @router.post("/routines", status_code=201)
@@ -3849,10 +3850,44 @@ def post_routine(
         return routines.create_routine(values, actor=user)
 
 
+def _routine_decision(request: Request, subject: Any, action: str):
+    """The workplace decision on a routine's merged fields, made inside the
+    service under its row hold (routines.update_routine, resume_routine).
+    The generic route gate sees no fields for a routine
+    (policy_context.for_route_scoped has no routine entry), so without this
+    an edit could add the agent a rule refused at create."""
+
+    def check(attributes: dict) -> None:
+        enforce_decision(
+            decide(
+                request,
+                subject,
+                action,
+                "routine",
+                resource_id=str(attributes["id"]),
+                classification=str(attributes["visibility"]),
+                attributes=attributes,
+            )
+        )
+
+    return check
+
+
 @router.patch("/routines/{routine_id}")
-def patch_routine(routine_id: int, body: RoutinePatch, user: StrongUser):
+def patch_routine(
+    routine_id: int,
+    body: RoutinePatch,
+    user: StrongUser,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     ratelimit.check("write", user)
-    return routines.update_routine(routine_id, body.model_dump(exclude_unset=True), actor=user)
+    return routines.update_routine(
+        routine_id,
+        body.model_dump(exclude_unset=True),
+        actor=user,
+        check=_routine_decision(request, subject, "skein.rest.patch.routines"),
+    )
 
 
 @router.post("/routines/{routine_id}/pause")
@@ -3864,9 +3899,15 @@ def post_routine_pause(routine_id: int, user: CurrentUser):
 
 
 @router.post("/routines/{routine_id}/resume")
-def post_routine_resume(routine_id: int, user: StrongUser):
+def post_routine_resume(
+    routine_id: int, user: StrongUser, request: Request, subject: PolicySubjectDep
+):
     ratelimit.check("write", user)
-    return routines.resume_routine(routine_id, actor=user)
+    return routines.resume_routine(
+        routine_id,
+        actor=user,
+        check=_routine_decision(request, subject, "skein.rest.post.routines.resume"),
+    )
 
 
 @router.delete("/routines/{routine_id}")

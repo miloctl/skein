@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /** Plan the week → Routines: the schedule in words, the days as checkboxes,
@@ -20,6 +20,7 @@ const ROW = {
   status: "paused",
   paused_reason: "nobody_finished",
   paused_by: "",
+  skipped_in_row: 3,
   last_outcome: "previous_open",
   created_by: "mira",
   visibility: "workspace",
@@ -34,6 +35,9 @@ const state = vi.hoisted(() => ({
   strong: true,
   rows: [] as unknown[],
   posts: [] as Array<{ path: string; method: string; body: Record<string, unknown> }>,
+  failWrite: false,
+  holdRead: null as null | Promise<void>,
+  reads: 0,
   task: {} as Record<string, unknown>,
 }));
 
@@ -48,9 +52,14 @@ vi.mock("@/lib/api", async (importOriginal) => {
     api: (path: string, init?: { method?: string; body?: string }) => {
       if (init?.method) {
         state.posts.push({ path, method: init.method, body: JSON.parse(init.body ?? "{}") });
+        if (state.failWrite) return Promise.reject(new real.ApiError("Only mira can change routine #7.", 403));
         return Promise.resolve({ id: 8 });
       }
-      if (path === "/api/routines") return Promise.resolve({ zone: "Europe/Madrid", routines: state.rows });
+      if (path === "/api/routines") {
+        state.reads += 1;
+        const answer = { zone: "Europe/Madrid", routines: state.rows };
+        return state.holdRead ? state.holdRead.then(() => answer) : Promise.resolve(answer);
+      }
       if (path === "/api/agents") return Promise.resolve([{ agent: "quartermaster", delegatable: true }]);
       if (path === "/api/crews" || path === "/api/crews/mine" || path === "/api/users")
         return Promise.resolve([]);
@@ -68,6 +77,8 @@ beforeEach(() => {
   state.strong = true;
   state.rows = [];
   state.posts = [];
+  state.failWrite = false;
+  state.holdRead = null;
   window.history.replaceState(null, "", "/planning");
 });
 
@@ -113,7 +124,9 @@ describe("the routines card", () => {
     state.rows = [ROW];
     render(<RoutinesCard />);
     expect(
-      await screen.findByText("Paused after 3 skipped times, because the last task is still open."),
+      await screen.findByText(
+        "Paused after 3 skipped times, because task #412 is still open. Finish or close it, then resume.",
+      ),
     ).toBeTruthy();
     expect(screen.getByText("Skipped Mon 19 Oct: task #412 is still open.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Task #412/ })).toBeTruthy();
@@ -123,8 +136,58 @@ describe("the routines card", () => {
   it("asks for a proved identity before it offers a new routine", async () => {
     state.strong = false;
     render(<RoutinesCard />);
-    expect(await screen.findByText(/To write a routine, sign in with a personal key/)).toBeTruthy();
+    expect(await screen.findByText(/Writing a routine requires strong identity/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "New routine" })).toBeNull();
+  });
+});
+
+describe("editing and deleting", () => {
+  const ACTIVE = { ...ROW, status: "active", paused_reason: "", next_local: "2026-10-26T07:00" };
+
+  it("closes an edit that changed nothing without a request", async () => {
+    state.rows = [ACTIVE];
+    render(<RoutinesCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit routine #7" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save routine" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Save routine" })).toBeNull());
+    expect(state.posts).toEqual([]);
+  });
+
+  it("offers no agent when editing a private routine, and says why", async () => {
+    state.rows = [{ ...ACTIVE, agent: "", visibility: "private" }];
+    render(<RoutinesCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit routine #7" }));
+    expect((screen.getByLabelText("Agent") as HTMLSelectElement).disabled).toBe(true);
+    expect(screen.getByText(/A private routine cannot use an agent/)).toBeTruthy();
+  });
+
+  it("keeps focus on Delete when the delete is refused", async () => {
+    state.rows = [ACTIVE];
+    state.failWrite = true;
+    render(<RoutinesCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Delete routine #7" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete routine" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Delete routine #7" })),
+    );
+  });
+
+  it("does not pull focus back after the reader moved on", async () => {
+    state.rows = [ACTIVE, { ...ACTIVE, id: 9, title: "Thursday prep" }];
+    render(<RoutinesCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Pause routine #7" }));
+    let release = () => {};
+    state.holdRead = new Promise((resolve) => (release = resolve));
+    await waitFor(() => expect(state.posts).toHaveLength(1));
+    fireEvent.click(screen.getByRole("button", { name: "Edit routine #9" }));
+    const title = screen.getByLabelText("Title");
+    expect(document.activeElement).toBe(title);
+    const reads = state.reads;
+    await act(async () => release());
+    // the reload has landed: the list below the open edit shows it
+    await waitFor(() => expect(state.reads).toBe(reads));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(document.activeElement).toBe(title);
   });
 });
 

@@ -844,6 +844,11 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "chat_members": ("person", "added_by"),
     "chat_invitations": ("person", "invited_by"),
     "chat_agent_runs": ("agent", "requested_by"),
+    # BEFORE crews: rename_user locks these rows in this order, and a routine
+    # firing holds its routine row and then its crew row
+    # (routines.fire_due -> crews.assert_writable). With crews first, a
+    # rename and a firing each wait on the other's row.
+    "routines": ("created_by", "assignee", "agent", "paused_by"),
     # crew membership keys on the roster name, and a rename that leaves it
     # behind silently drops the person out of every crew they could read
     "crew_members": ("person", "created_by"),
@@ -854,7 +859,6 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "absences": ("created_by", "person"),
     "task_worklog": ("author",),
     "comments": ("created_by", "deleted_by"),
-    "routines": ("created_by", "assignee", "agent", "paused_by"),
     # the member slugs inside members-JSON are agent identities, not roster
     # names, and rename_user moves an agent row too — but a slug rename would
     # need a JSON rewrite, so only the asking human moves here

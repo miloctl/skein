@@ -13,6 +13,7 @@ anyone's name and resume undoes it.
 """
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
 
 from .. import config, db
@@ -78,12 +79,15 @@ def _moment(value: str) -> datetime:
 
 
 def _identity_locks(*names: str) -> None:
-    """Identity locks before any routine row, in one order for every path.
+    """Identity locks before any routine row, in one order for every path:
+    the identities, then the routine row, then its crew row
+    (crews.assert_writable), then delegate_task's own locks.
 
     users.rename_user and users.set_active take LOCK_IDENTITY before the rows
     they rewrite. A path here that held the routine row first and then waited
     on an identity would close a deadlock cycle with a rename updating
-    routines.created_by or routines.agent."""
+    routines.created_by or routines.agent. rename_user rewrites routines
+    before crews for the same reason (users._ATTRIBUTION)."""
     for identity in sorted({users.fold(n) for n in names if n}):
         db.name_lock(db.LOCK_IDENTITY, identity)
 
@@ -128,15 +132,20 @@ def _validated(fields: dict, *, owner: str, tier: str, crew_id: int | None) -> d
     if len(at_time) != 5:
         raise ValueError("at_time must be a time shaped HH:MM")
     out["at_time"] = parsed.strftime("%H:%M")
-    every = out.get("every_weeks") or 1
+    # None means the default, never 0: `or 1` turned a sent 0 into 1
+    every = 1 if out.get("every_weeks") is None else out["every_weeks"]
     if not isinstance(every, int) or isinstance(every, bool) or not 1 <= every <= 4:
         raise ValueError("every_weeks must be a whole number from 1 to 4")
     out["every_weeks"] = every
     starts_on = str(out.get("starts_on") or db.today().isoformat())
-    try:
-        date.fromisoformat(starts_on)
-    except ValueError:
-        raise ValueError("starts_on must be a date shaped YYYY-MM-DD") from None
+    # the shared YYYY-MM-DD guard: date.fromisoformat alone takes "20261005"
+    # and "2026-W41-1", which the form's date input cannot show
+    db.validate_date("starts_on", starts_on, allow_clear=False)
+    start = date.fromisoformat(starts_on)
+    # a start near date.max overflows next_occurrence's day walk, and the
+    # refusal must name the fix, not "value out of range"
+    if start > db.today() + timedelta(days=366):
+        raise ValueError("starts_on must be within the next year. Pick an earlier start date.")
     out["starts_on"] = starts_on
     due_days = out.get("due_days")
     if due_days is not None and (
@@ -148,9 +157,7 @@ def _validated(fields: dict, *, owner: str, tier: str, crew_id: int | None) -> d
     out["agent"] = str(out.get("agent") or "").strip()
     out["acceptance_criteria"] = str(out.get("acceptance_criteria") or "").strip()
     if out["agent"] and out["assignee"]:
-        raise ValueError(
-            "Pick an assignee or an agent, not both. The agent is the assignee of a delegated task."
-        )
+        raise ValueError("A routine cannot have an assignee and an agent. Pick one.")
     if out["agent"]:
         if tier == scope.PRIVATE:
             raise ValueError(
@@ -197,9 +204,9 @@ def _readable(routine_id: int, actor: str, *, hold: bool = False) -> dict:
 
 def _names(routine_id: int) -> tuple[str, str]:
     """The owner and agent names, read before any lock so their identity
-    locks can be taken first (_identity_locks). The row is read again under
-    the locks, and a caller that finds a name changed meanwhile acts on
-    nothing."""
+    locks can be taken first (_identity_locks). Every caller reads the row
+    again under the locks and acts on nothing if a name changed meanwhile:
+    the identity it locked is then not the one on the row."""
     row = db.query_one("SELECT created_by, agent FROM routines WHERE id = ?", (routine_id,))
     return (str(row["created_by"]), str(row["agent"])) if row else ("", "")
 
@@ -220,11 +227,26 @@ def _active_count(owner: str) -> int:
     return int(row["n"]) if row else 0
 
 
+def _refuse_inactive(actor: str) -> None:
+    """Under the actor's identity lock. users.set_active pauses a departing
+    person's routines under the same lock, so a create or a resume that
+    waited on it must not put an active routine back under that name."""
+    if not users.is_active(actor):
+        raise PermissionError(f"{actor} is deactivated. Reactivate the account first.")
+
+
+def _refuse_renamed(row: dict, agent: str) -> None:
+    if row["agent"] != agent:
+        raise db.Conflict(
+            f"Routine #{row['id']} changed while you saved it. Reload the routines and try again."
+        )
+
+
 def _refuse_over_cap(owner: str) -> None:
     if _active_count(owner) >= MAX_ACTIVE_PER_OWNER:
         raise ValueError(
-            f"You have {MAX_ACTIVE_PER_OWNER} active routines, the limit."
-            " Pause or delete one first."
+            f"You have {MAX_ACTIVE_PER_OWNER} active routines, which is the maximum."
+            " Pause or delete a routine, then try again."
         )
 
 
@@ -234,6 +256,7 @@ def create_routine(fields: dict, *, actor: str) -> dict:
         # the owner lock guards the active count below: two creates both
         # read 24 and both insert without it
         _identity_locks(actor, str(fields.get("agent") or ""))
+        _refuse_inactive(actor)
         tier, cid = scope.resolve_write(visibility, int(fields.get("crew_id") or 0), actor=actor)
         clean = _validated(fields, owner=actor, tier=tier, crew_id=cid)
         _refuse_over_cap(actor)
@@ -251,14 +274,43 @@ def create_routine(fields: dict, *, actor: str) -> dict:
     return {"id": rid, "title": clean["title"], "status": "active", "next_at": next_at}
 
 
-def update_routine(routine_id: int, fields: dict, *, actor: str) -> dict:
+def _policy_view(row: dict, fields: dict) -> dict:
+    """What a workplace rule sees of a routine: the fields it would run with,
+    its id and its tier."""
+    return {**fields, "id": row["id"], "visibility": row["visibility"], "crew_id": row["crew_id"]}
+
+
+def update_routine(
+    routine_id: int,
+    fields: dict,
+    *,
+    actor: str,
+    check: Callable[[dict], None] | None = None,
+) -> dict:
+    """`check` is the route's workplace decision, made on the merged fields
+    under the row hold: an edit that adds an agent is a new standing
+    delegation, and a rule that refused it at create must see it here too."""
     with db.transaction():
-        _identity_locks(actor, str(fields.get("agent") or ""), _names(routine_id)[1])
+        probed = _names(routine_id)[1]
+        _identity_locks(actor, str(fields.get("agent") or ""), probed)
         row = _readable(routine_id, actor, hold=True)
         _owner_only(row, actor)
+        _refuse_renamed(row, probed)
+        # only due_days has a meaningful empty value: a null starts_on became
+        # today and moved the week parity, a null every_weeks became 1
+        nulled = sorted(k for k, v in fields.items() if v is None and k != "due_days")
+        if nulled:
+            raise ValueError(f"{', '.join(nulled)} cannot be empty. Send a value or leave it out.")
         merged = {k: row[k] for k in _FIELDS}
         merged.update({k: v for k, v in fields.items() if k in _FIELDS})
+        # the create's membership check, again: an owner removed from the
+        # crew must not keep writing text into its rows
+        crew = _crew_state(row)
+        if crew:
+            raise ValueError(_CREW_WORDS[crew][1].format(id=routine_id))
         clean = _validated(merged, owner=actor, tier=row["visibility"], crew_id=row["crew_id"])
+        if check:
+            check(_policy_view(row, clean))
         changed = [k for k in _FIELDS if clean[k] != row[k]]
         if not changed:
             raise ValueError("nothing to update")
@@ -311,40 +363,66 @@ def pause_routine(routine_id: int, *, actor: str) -> dict:
     return {"id": routine_id, "status": "paused"}
 
 
-def _owner_in_crew(row: dict) -> bool:
-    """Whether the owner can still write at the routine's tier. Only a crew
-    tier can stop them: the membership that let them save it can end."""
+# reason -> (the notice's cause, the resume refusal)
+_CREW_WORDS = {
+    "owner_left_crew": (
+        "because you are no longer in its crew. Delete the routine, or ask the crew to add you.",
+        "You are no longer in the crew of routine #{id}. Delete the routine,"
+        " or ask the crew to add you.",
+    ),
+    "crew_inactive": (
+        "because its crew is deactivated. Delete the routine, or ask a crew steward"
+        " to reactivate the crew.",
+        "The crew of routine #{id} is deactivated. Delete the routine, or ask a crew"
+        " steward to reactivate the crew.",
+    ),
+}
+
+
+def _crew_state(row: dict) -> str:
+    """'' when the owner can still write at the routine's tier, else the
+    pause reason. Only a crew tier can stop them: the membership that let
+    them save it can end, and the crew itself can be deactivated."""
     if row["visibility"] != scope.CREW:
-        return True
+        return ""
     from . import crews
 
     try:
         crews.assert_writable(int(row["crew_id"]), str(row["created_by"]))
-    except (db.NotFound, ValueError):
-        return False
-    return True
+    except db.NotFound:
+        return "owner_left_crew"
+    except ValueError:
+        return "crew_inactive"
+    return ""
 
 
-def resume_routine(routine_id: int, *, actor: str) -> dict:
+def resume_routine(
+    routine_id: int, *, actor: str, check: Callable[[dict], None] | None = None
+) -> dict:
+    """`check` is the route's workplace decision: a resume restarts a
+    standing delegation, which a rule written since the create can refuse."""
     with db.transaction():
-        _identity_locks(actor, _names(routine_id)[1])
+        probed = _names(routine_id)[1]
+        _identity_locks(actor, probed)
+        _refuse_inactive(actor)
         row = _readable(routine_id, actor, hold=True)
         _owner_only(row, actor)
+        _refuse_renamed(row, probed)
         if row["status"] == "active":
             raise ValueError(f"Routine #{routine_id} is already active.")
-        if not _owner_in_crew(row):
-            raise ValueError(
-                f"You are no longer in the crew of routine #{routine_id}."
-                " Delete the routine, or ask the crew to add you."
-            )
+        crew = _crew_state(row)
+        if crew:
+            raise ValueError(_CREW_WORDS[crew][1].format(id=routine_id))
         # the agent can have gone since the save, and a resumed routine that
         # refuses at every firing pauses itself again a moment later
-        _validated(
+        clean = _validated(
             {k: row[k] for k in _FIELDS},
             owner=actor,
             tier=row["visibility"],
             crew_id=row["crew_id"],
         )
+        if check:
+            check(_policy_view(row, clean))
         _refuse_over_cap(actor)
         # from now: a pause never catches up
         next_at = _stamp(next_occurrence(row, datetime.now(UTC)))
@@ -422,14 +500,11 @@ def fire_due(routine_id: int, now: datetime) -> str:
             latest, missed = upcoming, missed + 1
             upcoming = next_occurrence(row, latest)
         next_at = _stamp(upcoming)
-        if not _owner_in_crew(row):
-            _pause(routine_id, "owner_left_crew")
-            db.log_activity("scheduler", "skip_routine", f"routine #{routine_id} owner_left_crew")
-            _tell_owner(
-                row,
-                f"Skein paused {_named(row)} because you are no longer in its crew."
-                " Delete the routine, or ask the crew to add you.",
-            )
+        crew = _crew_state(row)
+        if crew:
+            _pause(routine_id, crew)
+            db.log_activity("scheduler", "skip_routine", f"routine #{routine_id} {crew}")
+            _tell_owner(row, f"Skein paused {_named(row)} {_CREW_WORDS[crew][0]}")
             return "paused"
         previous = db.query_one(
             "SELECT id, status FROM tasks WHERE routine_id = ? ORDER BY id DESC LIMIT 1",
@@ -455,7 +530,10 @@ def fire_due(routine_id: int, now: datetime) -> str:
             _tell_owner(
                 row,
                 f"Skein paused {_named(row)} because it could not create or delegate the task."
-                " Check the agent and the crew, then resume the routine.",
+                " Check the agent and the crew, then resume the routine."
+                if row["agent"]
+                else f"Skein paused {_named(row)} because it could not create the task."
+                " Check the assignee and the crew, then resume the routine.",
             )
             return "paused"
         outcome = "late" if now - latest > ON_TIME else "fired"
@@ -471,8 +549,8 @@ def fire_due(routine_id: int, now: datetime) -> str:
             detail += f", {missed} times in 1"
             _tell_owner(
                 row,
-                f"Routine #{routine_id} '{row['title']}' missed {missed} times because Skein"
-                f" was not running. Skein created one task for the latest time,"
+                f"Routine #{routine_id} '{row['title']}' missed {missed} times."
+                f" Skein created one task for the latest time,"
                 f" {local_day.isoformat()} at {row['at_time']}: task #{task_id}.",
             )
         db.log_activity("scheduler", "fire_routine", detail)
@@ -498,7 +576,7 @@ def _create(row: dict, local_day: date, due_date: str) -> int:
     db.execute("UPDATE tasks SET routine_id = ? WHERE id = ?", (row["id"], task_id))
     if row["agent"]:
         # the owner is actor and sponsor, and origin 'human' queues the wake:
-        # the routine is the owner's standing consent (D2)
+        # the routine is the owner's standing consent (docs/intent/routines.md D2)
         delegation.delegate_task(
             task_id,
             str(row["agent"]),
@@ -575,7 +653,7 @@ def pause_for_identity(name: str, kind: str) -> int:
     """Pause the routines a deactivation strands. users.set_active calls this
     inside its transaction, after its LOCK_IDENTITY, so a firing waiting on
     the same lock reads a paused row. A human's own routines pause quietly,
-    because nobody can act on them. A routine that delegates to a deactivated
+    because their owner can no longer act on them. A routine that delegates to a deactivated
     agent tells its owner, who can pick another agent."""
     column, reason = (
         ("agent", "agent_unavailable")
