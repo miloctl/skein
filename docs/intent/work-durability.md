@@ -17,8 +17,10 @@ Confirmed 2026-09-06 with the repository owner.
   passing. No Redis, no object storage. PostgreSQL and RWX only. The
   application never reads its own replica count.
 - **Out of scope:** Browser-side write queues, scheduler leader election,
-  multi-replica as the day-one deployment, and new Git hosting or Teams
-  integrations. The first deployment must work through Skein's own UI.
+  multi-replica as the day-one deployment, and Teams integrations. GitLab
+  inbound webhooks are the one approved Git hosting integration
+  (`docs/intent/gitlab-forge.md`). The first deployment must work through
+  Skein's own UI.
 
 ## Why not zero downtime first
 
@@ -38,20 +40,30 @@ idempotency contract or reconciliation. Keep uncertain work visible.
 ## Runtime independence
 
 The planned deployment cannot reach GitHub. An internal GitLab service is
-reachable, but integration with it is not a first-deployment requirement.
-Teams is also an option to assess later, not another feature to build now.
-Core work durability must remain independent of those integrations.
+reachable. Its inbound webhooks are approved (`docs/intent/gitlab-forge.md`):
+Skein receives push, merge request and pipeline events and makes no call
+back. Outbound GitLab calls are an open decision for the owner. Teams is an
+option to assess later, not another feature to build now. Core work
+durability must remain independent of those integrations.
 
 GitHub can remain the source and release system outside the isolated runtime.
 Approved images and packages enter through the organization's deployment
 process. Running Skein needs no GitHub token, webhook, or recovery polling.
 
-Existing Gitea and authenticated CI behavior remain available without adding
-a new integration. Neither can recover a request that never reached Skein.
+Gitea, GitLab and authenticated CI behavior remain available. None of them
+can recover a request that never reached Skein. For GitLab, the recovery is
+the project webhook's Resend request, which receipts make safe.
 Any future source-specific catch-up needs a demonstrated workflow need and an
 approved network path. Do not promise recovery where neither exists.
 
-## Signed Gitea replay boundary
+## Forge replay boundary
+
+The GitLab token authenticates the request, not the bytes. Receipts and
+fingerprints apply unchanged, in a separate `gitlab` namespace for each
+repository URL: a delivery ID binds to one event and body digest, and the
+fingerprint over the raw bytes suppresses a resend under any ID. The rest of
+this section describes the signed Gitea path, and holds for GitLab with
+"authenticated" in place of "signed".
 
 A fingerprint combines the repository namespace, native event type, and exact
 raw payload SHA-256. A stored fingerprint suppresses replay regardless of

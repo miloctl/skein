@@ -718,11 +718,14 @@ async def _perimeter_auth(request: Request, call_next):
     # so it proves itself with an HMAC over the body (deps.verify_forge_
     # signature). Without this the endpoint answers every
     # delivery with "get a personal API key" in api-key, oidc, and token mode.
+    # /api/webhooks/gitlab: the same, with GitLab's secret token header
+    # (deps.verify_gitlab_token).
     open_paths = (
         "/health",
         "/api/calendar.ics",
         "/api/auth/",
         "/api/webhooks/forge",
+        "/api/webhooks/gitlab",
         # the OAuth authorization server sends the browser here with a code;
         # a state nonce the provider minted is the only key (routes/api.py)
         "/api/mcp/oauth/callback",
@@ -1255,7 +1258,10 @@ def create_app(
     # The exempt routes stream their own body under a smaller cap, and the
     # forge webhook must refuse BEFORE it reads one when it is switched off:
     # a read here would come first (tests/test_forge.py, test_mcp_remote.py).
-    application.add_middleware(BodyCap, exempt=frozenset({"/api/webhooks/forge", REMOTE_PATH}))
+    application.add_middleware(
+        BodyCap,
+        exempt=frozenset({"/api/webhooks/forge", "/api/webhooks/gitlab", REMOTE_PATH}),
+    )
     # JSON payloads compress well at any level. Add gzip before CORS so CORS
     # stays outermost and also decorates perimeter-auth refusals.
     application.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=1)

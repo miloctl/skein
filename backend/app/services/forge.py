@@ -213,6 +213,46 @@ def parse_gitea(event: str, payload: dict) -> dict | None:
     return None
 
 
+def parse_gitlab(kind: str, payload: dict) -> dict | None:
+    """Map a GitLab webhook to the generic shape. `kind` is the payload's
+    object_kind, which the route has checked against the event header. None
+    means "not an event that moves work", as in parse_gitea."""
+    web_url = _str(_dict(payload.get("project")).get("web_url"))
+    if kind == "push":
+        ref = _str(payload.get("ref"))
+        # a branch deletion is a push whose `after` is all zeros
+        if not ref.startswith("refs/heads/") or _str(payload.get("after")) == "0" * 40:
+            return None
+        branch = ref[len("refs/heads/") :]
+        # the branch page, for the reason parse_gitea gives
+        url = f"{web_url}/-/tree/{quote(branch, safe='/')}" if web_url else ""
+        return {
+            "kind": "branch_push",
+            "branch": branch,
+            "url": url,
+            "login": _str(payload.get("user_username")),
+        }
+    if kind == "merge_request":
+        request = _dict(payload.get("object_attributes"))
+        action = _str(request.get("action"))
+        if action in ("open", "reopen"):
+            mapped = "pr_opened"
+        elif action == "merge":
+            mapped = "pr_merged"
+        else:
+            # close, update (the Push Hook already said it), approvals
+            return None
+        return {
+            "kind": mapped,
+            "branch": _str(request.get("source_branch")),
+            "title": _str(request.get("title")),
+            "body": _str(request.get("description")),
+            "url": _str(request.get("url")),
+            "login": _str(_dict(payload.get("user")).get("username")),
+        }
+    return None
+
+
 def _namespace(*parts: str) -> str:
     return hashlib.sha256(json.dumps(parts, separators=(",", ":")).encode()).hexdigest()
 
@@ -223,15 +263,25 @@ def apply_delivery(
     payload: dict,
     delivery: str,
     body_digest: str,
+    *,
+    provider: str = "gitea",
 ) -> dict:
-    """Redelivery comes back through this same signed webhook, never a replay writer."""
+    """Redelivery comes back through the same webhook, never a replay writer.
+
+    `provider` is the forge (gitea or gitlab), never a model provider. It
+    picks the parser, and it keys the receipt namespace, so one repository
+    URL under two forges keeps two sets of receipts."""
     from ..extensions.fastapi import enforce_decision
     from ..extensions.policy import PolicyInput, PolicyResource
     from .policy_context import existing, hold_resource
 
-    repository = _str(_dict(payload.get("repository")).get("html_url"))
-    namespace = _namespace("gitea", repository.lower())
-    mapped = parse_gitea(event, payload)
+    if provider == "gitlab":
+        repository = _str(_dict(payload.get("project")).get("web_url"))
+        mapped = parse_gitlab(event, payload)
+    else:
+        repository = _str(_dict(payload.get("repository")).get("html_url"))
+        mapped = parse_gitea(event, payload)
+    namespace = _namespace(provider, repository.lower())
     with db.transaction():
         # Receipt locks precede resource locks on every forge path. An insert
         # outside this transaction can lose an event before its task commits.
@@ -254,7 +304,11 @@ def apply_delivery(
             ):
                 return {"ignored": "this delivery was already applied"}
         if mapped is None:
-            return {"ignored": "only push and pull_request events move work"}
+            return {
+                "ignored": "only a branch push and an opened or merged merge request move work"
+                if provider == "gitlab"
+                else "only push and pull_request events move work"
+            }
         # Gitea redelivery changes the UUID, not the signed bytes. The bigint
         # lock space cannot collide with db.name_lock's two-int keys: nesting
         # another name_lock here can invert receipt/task lock order on a hash collision.
@@ -279,7 +333,7 @@ def apply_delivery(
                 domain = {
                     **existing("task", task_id),
                     "repository": repository,
-                    "provider": "gitea",
+                    "provider": provider,
                 }
                 enforce_decision(
                     registry.policy_engine.decide(
@@ -307,7 +361,7 @@ def apply_delivery(
                 (
                     namespace,
                     delivery,
-                    "gitea",
+                    provider,
                     event,
                     body_digest,
                     result.get("task_id") if "status" in result else None,
