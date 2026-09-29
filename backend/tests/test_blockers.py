@@ -159,3 +159,41 @@ def test_a_blocker_on_a_finished_task_leaves_the_task_finished(fresh_db, status)
     blockers.raise_blocker("found late", task_id=t["id"])
     after = work.get_task(t["id"])
     assert (after["status"], after["completed_at"]) == (status, before["completed_at"])
+
+
+def test_a_blocker_never_reopens_a_task_finished_meanwhile(fresh_db):
+    """raise_blocker read the task with no lock and then set it Blocked. A
+    task finished between the read and the write went back to Blocked and
+    lost its completion time, which drops it from throughput and cycle time.
+    The read now holds the row, so it waits for the finish and sees it."""
+    import os
+    import threading
+
+    import psycopg
+
+    from app.services import blockers, users, work
+
+    users.ensure_user("ava")
+    tid = work.create_task(title="migrate the billing tables", actor="ava")["id"]
+    work.update_task(tid, status="in_progress", actor="ava")
+    other = psycopg.connect(os.environ["SKEIN_DATABASE_URL"])
+    worker = threading.Thread(
+        target=lambda: blockers.raise_blocker("waiting on DBA access", task_id=tid, actor="ava")
+    )
+    try:
+        other.execute(
+            "UPDATE tasks SET status = 'done', completed_at = %s WHERE id = %s",
+            (db.now(), tid),
+        )
+        worker.start()
+        worker.join(1.0)  # the raise reaches the task while the finish is uncommitted
+        other.commit()
+    finally:
+        other.close()
+    worker.join(10)
+    # the worker's own failure is swallowed by the thread, so the blocker
+    # must exist, or a raise that errored out would pass this test
+    assert fresh_db.query_one("SELECT 1 FROM blockers WHERE task_id = ?", (tid,))
+    row = fresh_db.query_one("SELECT status, completed_at FROM tasks WHERE id = ?", (tid,))
+    assert row["status"] == "done"
+    assert row["completed_at"]

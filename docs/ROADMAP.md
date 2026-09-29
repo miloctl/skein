@@ -698,6 +698,19 @@ larger than its finding.
   `usage_log`. Mentions and adoption counters now go. The rest is an owner
   decision: each is another author's record or an audit trail.
 
+## Found by the review of the blocker form (2026-09-28)
+
+- **An agent's blocker that names a task and a meeting takes the locks in
+  the wrong order** — `core_tools._resource` holds the task, then
+  `raise_blocker` probes the meeting (`check_event_link`), while
+  `schedule.link_item` holds the meeting and then the item. Both at once can
+  deadlock. `raise_blocker` itself takes the meeting first. Fix the tool
+  path to hold the meeting before the task.
+- **`POST /api/blockers` decides policy on an unlocked task read** —
+  `blockers.create_policy_context` reads the task without a hold, so a
+  relink between the decision and `raise_blocker` applies a rule chosen for
+  the old project. Hold the task there with `policy_context.hold_resource`.
+
 ## From the external-repo discovery (2026-09-28)
 
 Twenty-four repositories under `~/external` were read against FEATURES and
