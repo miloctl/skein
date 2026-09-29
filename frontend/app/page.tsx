@@ -1,5 +1,6 @@
 "use client";
 
+import { NoticeLink } from "@/components/notice-link";
 import { WeakIdentityNotice } from "@/components/weak-identity-notice";
 import Link from "next/link";
 import {
@@ -678,9 +679,7 @@ export default function MyDay() {
               className="flex items-start justify-between gap-2"
             >
               <span>
-                <Link href={a.link} className="hover:underline">
-                  {a.label.replaceAll("**", "")}
-                </Link>
+                <NoticeLink href={a.link}>{a.label.replaceAll("**", "")}</NoticeLink>
                 <span className="ml-2 block text-xs text-ink-3">
                   {a.reason}
                 </span>
@@ -984,10 +983,10 @@ export default function MyDay() {
                             className="flex items-start justify-between gap-2"
                           >
                             <span>
-                              <Link href={a.link} className="hover:underline">
+                              <NoticeLink href={a.link}>
                                 {/* notifications may carry markdown bold; this list is plain text */}
                                 {a.label.replaceAll("**", "")}
-                              </Link>
+                              </NoticeLink>
                               <span
                                 className="ml-2 block text-xs text-ink-3"
                                 title="why you see this"

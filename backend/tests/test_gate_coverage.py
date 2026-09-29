@@ -73,6 +73,8 @@ ARGS: dict[str, dict] = {
     "claim_delegated_task": {"task_id": 2},
     "report_progress": {"task_id": 2, "note": "coverage probe progress"},
     "submit_for_acceptance": {"task_id": 2, "summary": "coverage probe done"},
+    # the trio's task, so the delegate's direct path: the harness runs no turn
+    "post_comment": {"task_id": 2, "body": "coverage probe comment"},
     "update_milestone": {"milestone_id": 1, "title": "coverage probe rename"},
     "update_engagement": {"engagement_id": 1, "summary": "coverage probe"},
     "add_absence": {
@@ -298,6 +300,7 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
         "forget_memory",
         "generate_handoff",
         "mark_promise",
+        "post_comment",
         "post_standup",
         "raise_blocker",
         "record_decision",
@@ -357,6 +360,7 @@ UNGATED_WRITERS = {
     "report_progress": "wrote",
     "submit_for_acceptance": "queued",
     "generate_handoff": "wrote",
+    "post_comment": "wrote",
 }
 
 
@@ -374,6 +378,7 @@ def test_the_ungated_writers_report_themselves(fresh_db, tool_name, expected_kin
         "report_progress": {"task_id": 2, "note": "probe progress"},
         "submit_for_acceptance": {"task_id": 2, "summary": "probe done"},
         "generate_handoff": {"engagement_id": 1},
+        "post_comment": {"task_id": 2, "body": "probe comment"},
     }[tool_name]
     if tool_name in ("report_progress", "submit_for_acceptance"):
         _unwrap(tools_pkg.claim_delegated_task)(task_id=2)

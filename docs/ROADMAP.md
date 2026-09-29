@@ -36,8 +36,9 @@ for a season with the review gate on (the default since 2026-08-21):
   on tasks, routines (standing delegations and recurring tasks), a board
   view, document editing with revisions, and GitLab forge support with
   repo-scoped context packs. Each gets its own branch after the hardening
-  branch lands. Document revisions and GitLab forge support shipped. The
-  section "From the external-repo discovery" below lists the other three.
+  branch lands. Document revisions, GitLab forge support and comment threads
+  shipped. The section "From the external-repo discovery" below lists the
+  other two.
   The rest of the freeze stands.
 
 # Open backlog (consolidated 2026-08-02)
@@ -592,6 +593,14 @@ review. Each names the condition that reopens it.
 | Crew-tier CI blockers | A crew repository's name must stay in the crew. The GitLab pipeline blocker is workspace tier. |
 | Automatic context pack refresh in repositories | Reports of a stale pack. |
 | Outbound GitLab calls (merge request comments, commit statuses, an API token) | An open decision for the owner (CLAUDE.md, "Runtime isolation"). Nothing is written back today. |
+| Nested replies in a comment thread | One thread carries two interleaved conversations. |
+| Comment edit history | Somebody needs a comment's text from before an edit. |
+| Comment search | Somebody searches for a thing said in a thread. |
+| Mute a thread | Somebody asks to stop thread notices. |
+| Comment extension events | A workplace module asks for them. |
+| `skein comment` in the CLI, and MCP `read_comments` and `post_comment` | A terminal user without MCP asks, or an MCP-connected agent holds a delegation and its sponsor asks for the reply in the thread (about 20 lines, `docs/intent/task-threads.md` open question 1). |
+| Comment pagination past 200 | A thread reaches 200 comments. |
+| Reactions on comments | Refused: no workflow asks for them. |
 | Captured GitLab webhook fixtures (`backend/tests/gitlab_payloads.py` is built from GitLab's documented shapes) | The first webhook on the internal instance. Capture push, branch deletion, merge request open, close, reopen and merge, one failed and one passed default-branch pipeline, a merge request pipeline, a child pipeline and one stopped at a manual gate from Recent events, and record the GitLab version. Check the facts `docs/intent/gitlab-forge.md` D14 lists. |
 
 ## Deferred by the agent-discovery adoption (2026-08-30)
@@ -604,7 +613,7 @@ is the evidence that funds the build — none of them is worth building early.
 | Context offloader on wake and allowlist paths | The storage backstop logs every tool result it truncates ("the context offloader did not ride this path", `agents/session_store.py`). A season of that line accumulating is the evidence. The build carries a documented exception to the WAKE_TOOLS contract, because the plugin registers its retrieval tool outside `build_agent`'s filtering. |
 | Plaintext-tool-call detection in the turn guard | A keyless operator reports empty turns on a local or `openai_compatible` model — those models can emit tool calls as TEXT, and the turn guard's "Nothing was filed" receipt cannot name the cause. Detect via the known marker grammar and attribute it. Never repair or execute the parsed call: it skipped the model's own tool interface and every gate assumption downstream. |
 | Token-budgeted context pack (`?budget=`) | An operator tunes `SKEIN_AGENT_RUN_TOKENS` — a per-run token ceiling is honest only when the wake prompt has a known size. Deterministic whole-section truncation in a declared priority order, reporting what was dropped. The refused version stays refused: no LLM summarizer inside the pack builder (keyless path). |
-| Watch subscriptions on tasks | People ask to follow work they neither own nor are named in, more than once. Self-visible ONLY — no watcher list, no "N people watching" — or it fails the anti-surveillance rule. If built, take openclaw's standing-intents shape (`docs/concepts/standing-intents.md`): a keyword match with no model call, at most 3 fires, 24 hours between fires, a 90-day expiry, and it matches only rows the person can already read. Task threads (below) cover following a task you commented on. |
+| Watch subscriptions on tasks | People ask to follow work they neither own nor are named in, more than once. Self-visible ONLY — no watcher list, no "N people watching" — or it fails the anti-surveillance rule. If built, take openclaw's standing-intents shape (`docs/concepts/standing-intents.md`): a keyword match with no model call, at most 3 fires, 24 hours between fires, a 90-day expiry, and it matches only rows the person can already read. Comment threads cover following a task you commented on. |
 | Offload thresholds as admin tunables | An operator has a standing reason to change `SKEIN_OFFLOAD_RESULT_TOKENS` / `_PREVIEW_TOKENS` between deploys (the settings rule's question 4). Until then they stay env-only. |
 | `wording.py` STE ring promoted to fatal | The warn count in `scripts/check_ste.py` stays at zero across a few releases (currently zero). Same staging the knots gate went through: warn until clean stays clean, then gate. |
 | Live consult-quality eval | A deployment with a few weeks of real consults. The routing eval scores DESCRIPTIONS (TF-IDF), and the 2026-08-30 merge already showed the proxy's failure mode: a description tuned to the fixtures. Tier 1 is deterministic assertions over live traces — consult fired, right slug, count within the turn budget, writes landed as proposals — with cases accruing from the feedback corpus (`kind=finding`), not cold authoring. An LLM judge is NOT the gate: it would add cost, nondeterminism, and a second Goodhart surface to cover only the fuzzy remainder ("framed, not repeated"). At most it becomes an ad-hoc triage labeler once the corpus outgrows human reading. |
@@ -738,14 +747,8 @@ this file. The hardening branch `fix/trust-loop-and-hardening` shipped what
 was built. Everything below is open.
 
 **Approved features, one branch each.** Each has a plan with the owner's
-decisions settled on 2026-09-28, in `docs/intent/`. Build order: comment
-threads, the board and routines.
-
-- **Comment threads on tasks, decisions and blockers** [L] —
-  `docs/intent/task-threads.md`. A delegate posts directly on its own
-  delegated task; anyone who can read a task wakes its delegate with an
-  @mention; thread notices; authors edit their own comments; `forbidden` on
-  the parent stops every comment path.
+decisions settled on 2026-09-28, in `docs/intent/`. Build order: the board
+and routines.
 - **Board view** [M] — `docs/intent/board-view.md`. `/board` over the
   statuses, no swimlanes, no polling, a compare-and-set move, and the blocker
   form reused.

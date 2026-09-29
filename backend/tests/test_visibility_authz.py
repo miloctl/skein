@@ -20,6 +20,7 @@ from app.services import (
     absences,
     blockers,
     collab,
+    comments,
     delegation,
     documents,
     engagements,
@@ -70,6 +71,7 @@ def _seed(cid, n=0):
     rows["engagement"] = engagements.create_engagement(name, **k)["id"]
     rows["milestone"] = work.create_milestone("crew milestone", name, **k)["id"]
     rows["document"] = documents.create_document("crew doc", "crew body", **k)["id"]
+    rows["comment"] = comments.add_comment("crew comment", task_id=rows["task"], actor="ava")["id"]
     return rows
 
 
@@ -142,6 +144,12 @@ def _mutations(r):
             "documents.restore_revision",
             lambda a: documents.restore_revision(r["document"], 1, 1, actor=a),
         ),
+        (
+            "comments.add_comment",
+            lambda a: comments.add_comment("x", task_id=r["task"], actor=a),
+        ),
+        ("comments.edit_comment", lambda a: comments.edit_comment(r["comment"], "x", actor=a)),
+        ("comments.delete_comment", lambda a: comments.delete_comment(r["comment"], actor=a)),
         (
             "engagements.update_engagement",
             lambda a: engagements.update_engagement(r["engagement"], summary="x", actor=a),
@@ -455,6 +463,7 @@ _KINDS = (
     "engagement",
     "milestone",
     "document",
+    "comment",
 )
 
 # Files whose writes are never addressed by a caller-supplied id.
@@ -903,6 +912,26 @@ _UNFILTERED_READS = {
     # --- aggregates and counts: no row's own text leaves the function ---
     "delegation.py::mission_control": "COUNT per agent, plus a MAX(created_at)",
     "onboarding.py::checklist": "COUNT per entity, to decide which step is done",
+    "comments.py::list_comments": (
+        "the delegation door only: tasks.delegated_agent for the one task the"
+        " caller names, compared with the caller, the list_worklog reason. An"
+        " agent holds no crews, so the tier filter refused the thread of a crew"
+        " task it is answering"
+    ),
+    "comments.py::unanswered_for": (
+        "the agent's own inbox (agent_inbox with no viewer), over the tasks"
+        " delegated to that agent, which it reads whatever the tier, the"
+        " last_progress reason; the REST inbox never calls it"
+    ),
+    "comments.py::_tell_the_thread": (
+        "reads who wrote in one thread to decide who hears about a reply; each"
+        " name passes scope.can_read on the new comment's tier before a notice,"
+        " and no row leaves the function"
+    ),
+    "comments.py::open_delegate": (
+        "answers only which agent holds one open task, to pick the delegate's"
+        " own path; no row leaves the function, and add_comment re-checks it"
+    ),
     "delegation.py::list_worklog": (
         "the `party` branch only, and it is gated per task on that task's own"
         " delegated_agent/sponsor columns — the same two identities"

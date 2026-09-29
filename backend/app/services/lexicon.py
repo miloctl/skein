@@ -43,6 +43,7 @@ CAPABILITY: dict[tuple[str, str], str] = {
     ("decision", "create"): "record a decision",
     ("decision", "update"): "supersede a decision",
     ("delegation", "create"): "hand a task to an agent and name its sponsor",
+    ("comment", "create"): "comment on a task, decision or blocker",
     ("engagement", "create"): "open an engagement",
     ("engagement", "update"): "change an engagement",
     ("event", "create"): "put an event on the calendar",

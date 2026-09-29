@@ -44,6 +44,10 @@ def _short_id_hit(q: str) -> dict | None:
 # entities index_record is called with; scope.CLASSIFIED holds the tier map.
 _ENTITY_TABLE = {
     "blocker": "blockers",
+    # a comment's own tier, which mentions._reaches needs: without it _tier_of
+    # answers None, _reaches answers True for everybody, and a crew comment
+    # notifies a non-member. Comments are never indexed (index_record's callers).
+    "comment": "comments",
     "decision": "decisions",
     # a document's tier is its artifact row's: visible_hits, _is_private and
     # _embeddable read it from there, so a private document is never indexed

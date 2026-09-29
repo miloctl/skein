@@ -425,8 +425,8 @@ def assert_editable(table: str, row: dict, actor: str, *, verb: str = "") -> Non
 def inherit(row: dict | None) -> tuple[str, int | None]:
     """The tier a CHILD row takes from its parent.
 
-    Called by delegation.report_progress and delegation.accept_completion,
-    and by nothing else. Every OTHER parent-to-child crossing threads the pair
+    Called by delegation.report_progress, delegation.accept_completion and
+    comments.add_comment, and by nothing else. Every OTHER parent-to-child crossing threads the pair
     by hand — collab.post_standup into a blocker, intake._disposition into an
     engagement, engagements._ship_it into a note, _experiment_lesson into a
     lesson, handoff.generate_handoff into an artifact. So a new crossing is a
@@ -548,6 +548,7 @@ CLASSIFIED: dict[str, str] = {
     "absences": "person",
     "artifacts": "created_by",
     "blockers": "created_by",
+    "comments": "created_by",
     "decisions": "created_by",
     "engagements": "created_by",
     "events": "created_by",
@@ -580,6 +581,7 @@ NOUN: dict[str, str] = {
     "absences": "absence",
     "artifacts": "artifact",
     "blockers": "blocker",
+    "comments": "comment",
     "decisions": "decision",
     "engagements": "engagement",
     "events": "event",

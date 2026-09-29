@@ -10,7 +10,7 @@ Chat is a retry and follow-up surface. The task worklog, blocker register, and a
 
 ## Scope
 
-A delegation with `origin=human` or `origin=agent_verified` queues a wake request. An autonomous agent delegation does not queue another agent turn.
+A delegation with `origin=human` or `origin=agent_verified` queues a wake request. An autonomous agent delegation does not queue another agent turn. A person's comment that names the delegate with `@` on its open task queues one too (`services/comments.py`).
 
 The wake request starts one agent turn. It does not create an automatic continuation loop. The daily allowlisted runner can resume unfinished work.
 
@@ -75,6 +75,8 @@ The row is an operational state record. The task activity row remains the proven
 
 A reviewer who rejects a `task_completion` can also send the task back (`send_back` on `POST /api/review/{id}/reject`, `skein review reject ID --send-back`, or the checkbox in Approvals). `review.reject_change()` holds the task first, refuses unless the task is still delegated to the agent that submitted it and the note is not empty, and then queues the wake in the verdict's transaction. A rejection without the flag queues nothing. The wake prompt tells the agent to act on the rejection note before it submits again.
 
+`comments.add_comment()` holds the task row `FOR UPDATE` first, then queues the wake in the comment's transaction when the comment is `origin=human` or `origin=agent_verified`, the task is delegated and not `done` or `void`, and `mentions.names_in` finds the delegate with `@` in the body. Any person who can read the task can wake it. An agent-origin comment, an edit, and an `@agent` that is not the delegate queue nothing. Several comments before the turn starts leave one pending row.
+
 The queue uses an atomic PostgreSQL upsert:
 
 - A terminal row becomes `pending`. `completion_unknown` is terminal: a new
@@ -116,10 +118,11 @@ The allowed write tools are:
 
 - `claim_delegated_task`
 - `report_progress`
+- `post_comment`
 - `submit_for_acceptance`
 - `raise_blocker`.
 
-The allowed read tools cover the inbox, worklog, findings, attention, context pack, workspace search, artifacts, and existing coordination records.
+The allowed read tools cover the inbox, worklog, comment threads (`read_comments`), findings, attention, context pack, workspace search, artifacts, and existing coordination records.
 
 ## Crash contract
 

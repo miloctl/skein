@@ -52,6 +52,8 @@ WAKE_TOOLS = frozenset(
         "claim_delegated_task",
         "report_progress",
         "read_worklog",
+        "read_comments",
+        "post_comment",
         "submit_for_acceptance",
         "get_attention",
         "get_findings",

@@ -260,14 +260,14 @@ def test_a_failing_member_leaves_the_other_sections_intact(client, fresh_db, mon
 
 
 def test_every_ungated_writer_refuses_in_a_flock(client, fresh_db):
-    """Derived from test_gate_coverage.py's list, NOT hand-written: those four
+    """Derived from test_gate_coverage.py's list, NOT hand-written: those five
     tools skip tools/_gate.py by design, so force_review never reaches them and
     each needs its own guard. A hand-written list here passed while
     submit_for_acceptance was missing one, which is the drift the shared list
-    exists to catch. A fifth ungated writer fails this test until it decides."""
+    exists to catch. A sixth ungated writer fails this test until it decides."""
     from test_gate_coverage import UNGATED_WRITERS
 
-    from app.services import delegation, handoff
+    from app.services import comments, delegation, handoff
 
     task = client.post("/api/tasks", json={"title": "delegated work"}).json()
     delegation.delegate_task(task["id"], "code-reviewer", "tester", actor="tester")
@@ -280,6 +280,9 @@ def test_every_ungated_writer_refuses_in_a_flock(client, fresh_db):
             task["id"], "done", actor="code-reviewer"
         ),
         "generate_handoff": lambda: handoff.generate_handoff(1, actor="code-reviewer"),
+        "post_comment": lambda: comments.add_comment(
+            "note", task_id=task["id"], actor="code-reviewer", origin="agent", as_delegate=True
+        ),
     }
     assert set(calls) == set(UNGATED_WRITERS), "an ungated writer has no flock case here"
 
@@ -287,7 +290,7 @@ def test_every_ungated_writer_refuses_in_a_flock(client, fresh_db):
     try:
         for name, call in calls.items():
             # matched on the MODE, not on "flock": a consulted specialist
-            # reaches the same four writers, so the message must not name a
+            # reaches the same five writers, so the message must not name a
             # flock the reader never started
             with pytest.raises(ValueError, match="asked for an opinion") as exc:
                 call()
@@ -301,6 +304,7 @@ def test_every_ungated_writer_refuses_in_a_flock(client, fresh_db):
     )
     assert fresh_db.query_row("SELECT COUNT(*) AS n FROM task_worklog")["n"] == 0
     assert fresh_db.query_row("SELECT COUNT(*) AS n FROM pending_changes")["n"] == 0
+    assert fresh_db.query_row("SELECT COUNT(*) AS n FROM comments")["n"] == 0
 
 
 def test_a_flock_turn_costs_one_chat_slot_per_member(client, monkeypatch):
