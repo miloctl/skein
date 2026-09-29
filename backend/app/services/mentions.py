@@ -162,10 +162,10 @@ def _scan_locked(
     from .notifications import notify
     from .search import _tier_of
 
-    # resolved ONCE: the parent cannot change inside one scan. A comment's
-    # own tier, never its parent's: a crew comment stays crew after its task
-    # is shared (services/comments.py)
-    parent_tier = _tier_of(entity, entity_id)
+    # resolved ONCE per scan. The row's OWN tier: a comment's, never its
+    # parent's, because a crew comment stays crew after its task is shared
+    # (services/comments.py)
+    own_tier = _tier_of(entity, entity_id)
     source_entity, source_id = parent or (entity, entity_id)
 
     notified = []
@@ -180,7 +180,7 @@ def _scan_locked(
         name = hit[0]
         if name.lower() in skip:
             continue
-        if not _reaches(parent_tier, name):
+        if not _reaches(own_tier, name):
             continue
         fresh = db.execute_rowcount(
             "INSERT INTO mention_log"

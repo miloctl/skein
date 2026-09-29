@@ -10,6 +10,7 @@ from .. import db, ratelimit
 from ..agents import receipts
 from ..agents.identity import (
     agent_identity,
+    note_scoped_read,
     requester_identity,
     requester_viewer,
     strong_requester,
@@ -517,20 +518,28 @@ def read_comments(
         return json.dumps({"error": str(exc)})
     if refusal := _thread_reach(kind, pid):
         return json.dumps({"error": refusal})
+    # A person driving the agent reads as themselves: the delegate's door
+    # (comments.delegate_door) is for the turn nobody attends, and through it
+    # `/as <persona>` would read what that person cannot.
+    rv = requester_viewer()
+    person = rv if isinstance(rv, scope.Viewer) and rv.name else None
     try:
         # a read, so no receipt (tests/test_gate_coverage.py asserts receipts
-        # only where the database changed). actor=: the delegate's door onto a
-        # crew task it holds (comments.list_comments)
+        # only where the database changed)
         rows = comments.list_comments(
-            scope.NOBODY,
+            person or scope.NOBODY,
             task_id=task_id,
             decision_id=decision_id,
             blocker_id=blocker_id,
-            actor=agent_identity(),
+            actor="" if person else agent_identity(),
             limit=limit,
         )
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
+    if any(row["visibility"] != scope.WORKSPACE for row in rows):
+        # a later write in this turn must not carry crew text into a proposal
+        # the whole team reviews (tools/_gate.py)
+        note_scoped_read()
     keep = ("id", "created_by", "origin", "body", "created_at", "edited_at", "deleted_at")
     return json.dumps({kind: pid, "comments": [{key: row[key] for key in keep} for row in rows]})
 
@@ -540,7 +549,8 @@ def post_comment(body: str, task_id: int = 0, decision_id: int = 0, blocker_id: 
     """Post a comment on one task, decision or blocker. On an open task
     delegated to you it posts at once: use it to answer your sponsor. Answer
     once, and do not answer a comment that asks you nothing. On any other
-    record a person reviews it first. Name exactly one of the three ids.
+    record, and only when a person asked you, it goes to review. With nobody
+    asking, it is refused. Name exactly one of the three ids.
 
     Args:
         body: The comment, at most 4000 characters. Write @name to notify a person.

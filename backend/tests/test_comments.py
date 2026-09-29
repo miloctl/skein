@@ -161,9 +161,11 @@ def test_an_edit_is_marked_and_tells_only_a_newly_named_person(client, fresh_db)
 
 def test_invisible_format_characters_are_refused(client, fresh_db):
     task = _parent("tasks")
-    assert _post(client, "tasks", task, "ok‮evil").status_code == 400
+    assert _post(client, "tasks", task, "ok\u202eevil").status_code == 400
     cid = _post(client, "tasks", task, "ok").json()["id"]
-    edit = client.patch(f"/api/comments/{cid}", json={"body": "ok​"}, headers=_strong(client, "ava"))
+    edit = client.patch(
+        f"/api/comments/{cid}", json={"body": "ok\u200b"}, headers=_strong(client, "ava")
+    )
     assert edit.status_code == 400
 
 
@@ -198,10 +200,11 @@ def test_a_comment_does_not_move_its_task(client, fresh_db):
     """A comment is talk, not work: a fresh-looking task would keep the
     stale-work findings from firing on stalled work."""
     task = _parent("tasks")
-    before = db.query_one("SELECT updated_at FROM tasks WHERE id = ?", (task,))["updated_at"]
+    # db.now() has seconds: an old stamp, so a bump in this second shows
+    db.execute("UPDATE tasks SET updated_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (task,))
     _post(client, "tasks", task, "still alive?")
-    assert (
-        db.query_one("SELECT updated_at FROM tasks WHERE id = ?", (task,))["updated_at"] == before
+    assert db.query_one("SELECT updated_at FROM tasks WHERE id = ?", (task,))["updated_at"] == (
+        "2020-01-01T00:00:00+00:00"
     )
 
 
@@ -296,7 +299,7 @@ def test_a_named_party_hears_once_and_a_mention_is_not_doubled(client, fresh_db)
 
 
 def test_a_decision_thread_tells_its_decider(client, fresh_db):
-    for name in ("raj", "mira"):
+    for name in ("ava", "raj", "mira"):
         users.ensure_user(name)
     decision = collab.record_decision("Freeze", "Freeze Friday", decided_by="mira", actor="ava")[
         "id"
@@ -325,3 +328,107 @@ def test_an_agent_that_wrote_in_a_thread_gets_no_thread_notice(client, fresh_db)
     comments.add_comment("agent note", task_id=task, actor="scout", origin="agent")
     _post(client, "tasks", task, "thanks")
     assert _thread("scout") == []
+
+
+def test_a_blocker_owned_by_the_team_sends_no_notice_to_a_name_nobody_has(client, fresh_db):
+    """A CI-red blocker is owned by `team`, which is not a person. A notice
+    to it lands on a name every lookup of "who is this" treats as nobody."""
+    users.ensure_user("dana")
+    blocker = blockers.raise_blocker("CI red", owner="team", actor="ava")["id"]
+    _post(client, "blockers", blocker, "looking now", who="dana")
+    assert db.query_one("SELECT 1 FROM notifications WHERE \"user\" = 'team'") is None
+
+
+def test_a_person_cannot_edit_an_agents_comment_or_delete_anothers_tombstone(client, fresh_db):
+    users.ensure_user("raj")
+    users.ensure_user("scout", kind="agent")
+    task = _parent("tasks")
+    agents = comments.add_comment("agent words", task_id=task, actor="scout", origin="agent")["id"]
+    raj = _strong(client, "raj")
+    assert (
+        client.patch(f"/api/comments/{agents}", json={"body": "x"}, headers=raj).status_code == 403
+    )
+    mine = _post(client, "tasks", task, "ava's").json()["id"]
+    client.delete(f"/api/comments/{mine}", headers=_strong(client, "ava"))
+    assert client.delete(f"/api/comments/{mine}", headers=raj).status_code == 403
+    rows = client.get(f"/api/tasks/{task}/comments", headers=raj).json()
+    flags = {r["id"]: (r["can_edit"], r["can_delete"]) for r in rows}
+    assert flags == {agents: (False, True), mine: (False, False)}
+
+
+def test_a_comment_keeps_at_most_twenty_references_linked(client, fresh_db):
+    """Every named row costs a bound parameter in one resolution query, and a
+    page of comments stuffed with references past the driver's limit made
+    the thread unreadable for everybody."""
+    task = _parent("tasks")
+    others = [work.create_task(f"t{n}", actor="ava")["id"] for n in range(25)]
+    _post(client, "tasks", task, " ".join(f"task #{t}" for t in others))
+    row = client.get(f"/api/tasks/{task}/comments", headers=_strong(client, "ava")).json()[0]
+    assert [r["id"] for r in row["refs"]] == others[:20]
+
+
+def test_a_reference_links_only_what_the_reader_can_open(client, fresh_db):
+    crew = _crew()
+    task = _parent("tasks")
+    hidden = _parent("decisions", crew=crew)
+    _post(client, "tasks", task, f"see decision #{hidden}")
+    for who, expected in (("mira", [hidden]), ("bo", [])):
+        row = client.get(f"/api/tasks/{task}/comments", headers=_strong(client, who)).json()[0]
+        assert [r["id"] for r in row["refs"]] == expected, who
+
+
+def test_the_write_bucket_caps_comments(client, fresh_db, monkeypatch):
+    from app import ratelimit
+
+    monkeypatch.setitem(ratelimit.LIMITS, "write", 1)
+    ratelimit.reset()
+    task = _parent("tasks")
+    assert _post(client, "tasks", task, "one").status_code == 200
+    capped = _post(client, "tasks", task, "two")
+    assert capped.status_code == 429 and capped.headers.get("Retry-After")
+
+
+def test_a_thread_notice_skips_someone_no_longer_active(client, fresh_db):
+    for name in ("raj", "dana"):
+        users.ensure_user(name)
+    task = work.create_task("Fix login", actor="ava")["id"]
+    _post(client, "tasks", task, "question", who="raj")
+    users.set_active("raj", False, actor="ava")
+    _post(client, "tasks", task, "answer", who="dana")
+    assert _thread("raj") == []
+
+
+def test_a_workplace_rule_on_the_parent_decides_the_thread_routes(fresh_db):
+    from fastapi.testclient import TestClient
+
+    from app.extensions import PolicyContribution, PolicyDecision, PolicyEffect, SkeinModule
+    from app.main import create_app
+
+    seen = []
+
+    def deny(request):
+        # the handler's own decision, typed on the parent: the generic gate
+        # decides first on an untyped resource (extensions/fastapi.py)
+        if request.action.endswith(".comments") and request.resource.type == "task":
+            seen.append((request.action, request.resource.id))
+            return PolicyDecision(PolicyEffect.DENY, ("threads are closed",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.7.0",
+        policies=(PolicyContribution("acme.workplace.threads", deny),),
+    )
+    users.ensure_user("ava")
+    task = work.create_task("Fix login", actor="ava")["id"]
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "ava"}) as client:
+        assert client.get(f"/api/tasks/{task}/comments").status_code == 403
+        assert client.post(f"/api/tasks/{task}/comments", json={"body": "x"}).status_code == 403
+    assert seen == [
+        ("skein.rest.get.tasks.comments", str(task)),
+        ("skein.rest.post.tasks.comments", str(task)),
+    ]
+    assert db.query_one("SELECT 1 FROM comments") is None

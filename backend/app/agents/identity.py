@@ -149,13 +149,14 @@ def set_workspace_only_tools(on: bool) -> Token:
 
 def refuse_when_consultative(action: str) -> None:
     """Guard for the write paths that skip tools/_gate.py BY DESIGN — the
-    delegation trio and the handoff generator (tests/test_gate_coverage.py
-    holds that list). The gate is the only place force_review turns a write
-    into a proposal, so a path that never reaches it would let a consultative
-    agent write directly during a turn whose whole promise is that every such
-    write is reviewed. Refusal, not a proposal: status motion and artifact
-    projection have no proposal shape, and the agent was asked for an
-    opinion, not for work.
+    delegation trio, a delegate's comment on its own task, and the handoff
+    generator (tests/test_gate_coverage.py holds that list). The gate is the
+    only place force_review turns a write into a proposal, so a path that
+    never reaches it would let a consultative agent write directly during a
+    turn whose whole promise is that every such write is reviewed. Refusal,
+    not a proposal: status motion and artifact projection have no proposal
+    shape, the delegate's comment skips the gate on purpose, and the agent
+    was asked for an opinion, not for work.
 
     The message names the MODE, not the flock: a consulted specialist reaches
     this too (team_agent.py::build_agent), and a message naming a flock sends

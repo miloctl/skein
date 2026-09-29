@@ -196,13 +196,15 @@ Execution of a flock turn:
    member construction passes a flag so the persona system prompt states
    review is ON — the stock prompt would otherwise claim writes apply
    directly, and the model would misreport its own writes.
-   Four writers skip `tools/_gate.py` BY DESIGN (the delegation trio and the
-   handoff generator — `tests/test_gate_coverage.py::UNGATED_WRITERS` holds
-   the list, derived from a gate spy rather than declared). force_review
-   cannot reach them, so each carries `identity.refuse_when_consultative` and REFUSES
-   in a flock rather than queuing: status motion and a projected artifact
-   have no proposal shape, and the member was asked for an opinion, not for
-   work. A new ungated writer fails that test until it decides.
+   Five writers skip `tools/_gate.py` BY DESIGN (the delegation trio, a
+   delegate's comment on its own task, and the handoff generator —
+   `tests/test_gate_coverage.py::UNGATED_WRITERS` holds the list, derived
+   from a gate spy rather than declared). force_review cannot reach them, so
+   each carries `identity.refuse_when_consultative` and REFUSES in a flock
+   rather than queuing: status motion and a projected artifact have no
+   proposal shape, the delegate's direct comment never reaches the gate, and
+   the member was asked for an opinion, not for work. A new ungated writer
+   fails that test until it decides.
 5. Receipts: each member task calls `receipts.start()` and drains INSIDE
    the task, forwarding drained receipts through its own event queue
    tagged with the member slug. The receipt box is a plain list in the

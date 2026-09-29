@@ -225,6 +225,9 @@ export function TaskPeek() {
       window.history.back();
     } else {
       url.searchParams.delete(PARAM);
+      // a comment anchor belongs to the panel, and a later plain open of the
+      // same task would land on that comment again
+      if (url.hash.startsWith("#comment-")) url.hash = "";
       // Pass fresh state so Next's history wrapper synchronizes the URL.
       // Copying its internal flags bypasses that synchronization.
       window.history.replaceState({}, "", url);
@@ -350,7 +353,11 @@ export function TaskPeek() {
     others.forEach((el) => el.setAttribute("inert", ""));
     closeRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
+      // defaultPrevented: a field inside the panel keeps its own Escape (an
+      // edit box, a draft). React listens on this same node, so its
+      // stopPropagation never reaches this listener, and preventDefault is
+      // the one signal that does (comment-thread.tsx, raise-blocker-form.tsx).
+      if (e.key === "Escape" && !e.defaultPrevented) close();
     };
     document.addEventListener("keydown", onKey);
     return () => {
@@ -647,6 +654,8 @@ export function TaskPeek() {
               id={task.id}
               delegatedAgent={task.delegated_agent ?? ""}
               status={task.status}
+              revision={nonce}
+              onPosted={reload}
             />
           </>
         )}

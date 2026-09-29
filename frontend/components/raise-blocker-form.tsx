@@ -65,10 +65,12 @@ export function RaiseBlockerForm({
     <div
       className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-xs"
       onKeyDown={(e) => {
-        // stopped here: TaskPeek closes the whole panel on Escape at the
-        // document, which would drop the draft along with the form
+        // TaskPeek closes the whole panel on Escape at the document, which
+        // would drop the draft along with the form. preventDefault is what it
+        // checks: React listens on that same node, so stopPropagation never
+        // reaches its listener.
         if (e.key === "Escape") {
-          e.stopPropagation();
+          e.preventDefault();
           onCancel();
         }
       }}

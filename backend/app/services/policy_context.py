@@ -470,6 +470,8 @@ def for_change(
                         kind, parent_id, scope.Viewer.for_actor(actor) if actor else scope.NOBODY
                     )
                 except db.NotFound:
+                    # an unreadable parent must deny: a bare context would let
+                    # a project rule that names the parent's project miss it
                     return {
                         "classification": "",
                         "project_type": "",

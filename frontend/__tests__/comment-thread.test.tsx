@@ -52,6 +52,9 @@ const state = vi.hoisted(() => ({
   posts: [] as Array<{ path: string; body: unknown }>,
   rows: [] as unknown[],
   woke: "",
+  failGet: false,
+  holdGet: false,
+  failWrite: null as null | Error,
   reportStatus: vi.fn(),
 }));
 
@@ -63,10 +66,13 @@ vi.mock("@/lib/api", async (importOriginal) => {
     api: (path: string, init?: RequestInit) => {
       if (init?.method) {
         state.posts.push({ path, body: init.body ? JSON.parse(String(init.body)) : null });
+        if (state.failWrite) return Promise.reject(state.failWrite);
         if (init.method === "POST")
           return Promise.resolve({ id: 10, parent: "task", parent_id: 12, notified: [], woke: state.woke });
         return Promise.resolve({ id: 9 });
       }
+      if (state.holdGet) return new Promise(() => {});
+      if (state.failGet) return Promise.reject(new real.ApiError("the database is busy", 503));
       return Promise.resolve(state.rows);
     },
   };
@@ -78,6 +84,9 @@ beforeEach(() => {
   state.posts = [];
   state.rows = ROWS;
   state.woke = "";
+  state.failGet = false;
+  state.holdGet = false;
+  state.failWrite = null;
   state.reportStatus.mockReset();
   window.history.replaceState({}, "", "/");
 });
@@ -92,7 +101,8 @@ describe("a comment thread", () => {
 
   it("names who deleted a comment and shows no text, and marks an edit", async () => {
     render(<CommentThread parent="task" id={12} />);
-    expect(await screen.findByText("raj deleted this comment.")).toBeTruthy();
+    const tombstone = await screen.findByText("raj deleted this comment.");
+    expect(tombstone.closest("li")?.textContent).not.toContain("wrong guess");
     const edited = document.getElementById("comment-7")!;
     expect(within(edited).getByText("edited")).toBeTruthy();
     const agent = document.getElementById("comment-8")!;
@@ -110,10 +120,10 @@ describe("a comment thread", () => {
 
   it("posts, clears the field, and keeps focus there", async () => {
     render(<CommentThread parent="blocker" id={4} />);
-    const field = (await screen.findByLabelText("Add a comment")) as HTMLTextAreaElement;
+    const field = (await screen.findByLabelText(/Add a comment/)) as HTMLTextAreaElement;
     field.focus();
     fireEvent.change(field, { target: { value: "on it" } });
-    fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
+    fireEvent.click(screen.getByRole("button", { name: /Post comment/ }));
     await waitFor(() => expect(state.posts).toHaveLength(1));
     expect(state.posts[0]).toEqual({ path: "/api/blockers/4/comments", body: { body: "on it" } });
     await waitFor(() => expect(field.value).toBe(""));
@@ -125,10 +135,24 @@ describe("a comment thread", () => {
     render(<CommentThread parent="task" id={12} />);
     await screen.findByText("Yes, see");
     expect(screen.getAllByRole("button", { name: /^Delete/ })).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Delete comment #9" }));
-    expect(screen.getByText("Delete this comment? Skein removes the text.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Delete comment" }));
+    const open = screen.getByRole("button", { name: "Delete comment #9" });
+    // a double press must not reach the confirm: the second press landed on
+    // the same button node, reused as "Delete comment"
+    fireEvent.click(open);
+    fireEvent.click(open);
+    expect(state.posts).toEqual([]);
+    expect(screen.getByText("Delete this comment? Skein deletes the text.")).toBeTruthy();
+    // the safe choice holds focus, and the confirm names what it asks
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep" }));
+    const confirm = screen.getByRole("button", { name: "Delete comment" });
+    expect(document.getElementById(confirm.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
+      "Delete this comment? Skein deletes the text.",
+    );
+    state.holdGet = true;
+    fireEvent.click(confirm);
     await waitFor(() => expect(state.posts).toEqual([{ path: "/api/comments/9", body: null }]));
+    // the text leaves the screen at once, before the reload answers
+    expect(await screen.findByText(/deleted this comment\./, { selector: "#comment-9 p" })).toBeTruthy();
   });
 
   it("says so when nobody has written yet", async () => {
@@ -140,12 +164,12 @@ describe("a comment thread", () => {
   it("tells a sponsor how to ask the delegate, and says when a turn starts", async () => {
     state.woke = "scout";
     render(<CommentThread parent="task" id={12} delegatedAgent="scout" status="in_progress" />);
-    expect(await screen.findByText("Write @scout to ask the agent. Skein starts one agent turn.")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Add a comment"), { target: { value: "@scout the target is 17" } });
-    fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
+    expect(await screen.findByText("Write @scout to ask the agent. Skein queues one agent turn.")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Add a comment/), { target: { value: "@scout the target is 17" } });
+    fireEvent.click(screen.getByRole("button", { name: /Post comment/ }));
     await waitFor(() =>
       expect(state.reportStatus).toHaveBeenCalledWith(
-        "Comment posted. scout gets one agent turn.",
+        "Comment posted. Skein queued one agent turn for scout.",
         "confirmation",
       ),
     );
@@ -154,6 +178,58 @@ describe("a comment thread", () => {
   it("offers no hint on a finished task", async () => {
     render(<CommentThread parent="task" id={12} delegatedAgent="scout" status="done" />);
     await screen.findByText("Yes, see");
-    expect(screen.queryByText(/Skein starts one agent turn/)).toBeNull();
+    expect(screen.queryByText(/Skein queues one agent turn/)).toBeNull();
+  });
+
+  it("keeps the thread on screen when a reload fails", async () => {
+    render(<CommentThread parent="task" id={12} />);
+    await screen.findByText("Yes, see");
+    state.failGet = true;
+    fireEvent.change(screen.getByLabelText(/Add a comment/), { target: { value: "more" } });
+    fireEvent.click(screen.getByRole("button", { name: /Post comment/ }));
+    await waitFor(() => expect(state.posts).toHaveLength(1));
+    await waitFor(() => expect(screen.getByText(/Skein could not read the comments/)).toBeTruthy());
+    expect(screen.getByText("Yes, see")).toBeTruthy();
+  });
+
+  it("names its own failure to load and to post", async () => {
+    state.failGet = true;
+    const { unmount } = render(<CommentThread parent="task" id={12} />);
+    expect(
+      await screen.findByText("Skein could not read the comments. Reload the page to try again."),
+    ).toBeTruthy();
+    unmount();
+    state.failGet = false;
+    state.failWrite = new Error("no task #12");
+    render(<CommentThread parent="task" id={12} />);
+    fireEvent.change(await screen.findByLabelText(/Add a comment/), { target: { value: "x" } });
+    fireEvent.click(screen.getByRole("button", { name: /Post comment/ }));
+    await waitFor(() => expect(state.reportStatus).toHaveBeenCalled());
+    expect(state.reportStatus.mock.calls[0][0]).toMatch(/^Skein could not post the comment\. /);
+  });
+
+  it("Escape cancels an edit and keeps a draft, without closing the panel", async () => {
+    render(<CommentThread parent="task" id={12} />);
+    await screen.findByText("Yes, see");
+    fireEvent.click(screen.getByRole("button", { name: "Edit comment #9" }));
+    const edit = screen.getByLabelText("Text of comment #9");
+    const escaped = !fireEvent.keyDown(edit, { key: "Escape" });
+    expect(escaped).toBe(true);
+    expect(screen.queryByLabelText("Text of comment #9")).toBeNull();
+    const field = screen.getByLabelText(/Add a comment/);
+    fireEvent.change(field, { target: { value: "half a thought" } });
+    expect(!fireEvent.keyDown(field, { key: "Escape" })).toBe(true);
+    expect((field as HTMLTextAreaElement).value).toBe("half a thought");
+  });
+
+  it("asks the panel to reread the task after a post that queues a turn", async () => {
+    state.woke = "scout";
+    const onPosted = vi.fn();
+    render(
+      <CommentThread parent="task" id={12} delegatedAgent="scout" status="in_progress" onPosted={onPosted} />,
+    );
+    fireEvent.change(await screen.findByLabelText(/Add a comment/), { target: { value: "@scout go" } });
+    fireEvent.click(screen.getByRole("button", { name: /Post comment/ }));
+    await waitFor(() => expect(onPosted).toHaveBeenCalled());
   });
 });
