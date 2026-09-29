@@ -139,6 +139,7 @@ TABLES = (
     # no parent redaction: a comment's tier is never wider than its parent's
     # (services/comments.py), so an exported comment has an exported parent
     "comments",
+    "routines",
     "intake_requests",
     "engagements",
     "allocations",

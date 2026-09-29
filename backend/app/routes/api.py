@@ -67,6 +67,7 @@ from ..services import (
     refs,
     review,
     rituals,
+    routines,
     schedule,
     scope,
     search,
@@ -3757,6 +3758,121 @@ def patch_task(
             actor=user,
             strong=bool(viewer.name),
         )
+
+
+class RoutineIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(max_length=work.TITLE_LEN)
+    description: str = Field("", max_length=work.DESCRIPTION_LEN)
+    priority: str = Field("medium", max_length=10)
+    assignee: str = Field("", max_length=64)
+    agent: str = Field("", max_length=64)
+    acceptance_criteria: str = Field("", max_length=1000)
+    # "1,4": ISO weekdays, Monday is 1
+    weekdays: str = Field(max_length=13)
+    at_time: str = Field(max_length=5)
+    every_weeks: int = 1
+    starts_on: str = Field("", max_length=10)
+    due_days: int | None = None
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
+
+
+class RoutinePatch(BaseModel):
+    # every cap here MUST match RoutineIn (tests/test_patch_cap_parity.py).
+    # No visibility or crew_id: a routine's tier is fixed when it is created,
+    # and its tasks inherit it (docs/intent/routines.md D7).
+    model_config = ConfigDict(extra="forbid")
+    title: str | None = Field(None, max_length=work.TITLE_LEN)
+    description: str | None = Field(None, max_length=work.DESCRIPTION_LEN)
+    priority: str | None = Field(None, max_length=10)
+    assignee: str | None = Field(None, max_length=64)
+    agent: str | None = Field(None, max_length=64)
+    acceptance_criteria: str | None = Field(None, max_length=1000)
+    weekdays: str | None = Field(None, max_length=13)
+    at_time: str | None = Field(None, max_length=5)
+    every_weeks: int | None = None
+    starts_on: str | None = Field(None, max_length=10)
+    due_days: int | None = None
+
+
+def _routine_view(row: dict, viewer: scope.Viewer) -> dict:
+    """A routine for its readers. Times go out as the team's wall time, so
+    the browser never converts a zone (the calendar's rule). A task is never
+    narrower than its routine, so any reader can open the open task."""
+    out = {k: v for k, v in row.items() if not k.startswith("latest_task_")}
+    open_task = row["latest_task_status"] not in (None, "done", "void")
+    out["open_task_id"] = row["latest_task_id"] if open_task else None
+    out["next_local"] = db.local_wall(row["next_at"]) if row["next_at"] else None
+    out["last_local"] = db.local_wall(row["last_outcome_at"]) if row["last_outcome_at"] else None
+    # a proved identity only: a typed trusted-header name must not be offered
+    # an edit the StrongUser routes then refuse
+    owner = bool(viewer.name) and viewer.name == row["created_by"]
+    out["can_edit"] = owner
+    out["can_delete"] = owner or (bool(viewer.name) and not users.is_active(row["created_by"]))
+    return out
+
+
+@router.get("/routines")
+def get_routines(user: CurrentUser, viewer: ViewerDep):
+    return {
+        "zone": config.TZ_NAME,
+        "routines": [_routine_view(r, viewer) for r in routines.list_routines(viewer)],
+    }
+
+
+@router.post("/routines", status_code=201)
+def post_routine(
+    body: RoutineIn,
+    user: StrongUser,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    """A routine writes under its owner's name for months, so a typed
+    trusted-header name must not create standing work for someone else."""
+    ratelimit.check("write", user)
+    values = body.model_dump()
+    with db.transaction():
+        # decided when it is created: a workplace rule can refuse a standing
+        # delegation. A firing is not decided again, and a first-version
+        # routine has no project for a project rule to bind.
+        enforce_decision(
+            decide(
+                request,
+                subject,
+                "skein.rest.post.routines",
+                "routine",
+                classification=body.visibility,
+                attributes=values,
+            )
+        )
+        return routines.create_routine(values, actor=user)
+
+
+@router.patch("/routines/{routine_id}")
+def patch_routine(routine_id: int, body: RoutinePatch, user: StrongUser):
+    ratelimit.check("write", user)
+    return routines.update_routine(routine_id, body.model_dump(exclude_unset=True), actor=user)
+
+
+@router.post("/routines/{routine_id}/pause")
+def post_routine_pause(routine_id: int, user: CurrentUser):
+    # any reader: a pause writes nothing under anyone's name, and the owner's
+    # resume undoes it
+    ratelimit.check("write", user)
+    return routines.pause_routine(routine_id, actor=user)
+
+
+@router.post("/routines/{routine_id}/resume")
+def post_routine_resume(routine_id: int, user: StrongUser):
+    ratelimit.check("write", user)
+    return routines.resume_routine(routine_id, actor=user)
+
+
+@router.delete("/routines/{routine_id}")
+def delete_routine(routine_id: int, user: StrongUser):
+    ratelimit.check("delete", user)
+    return routines.delete_routine(routine_id, actor=user)
 
 
 class QuestionIn(BaseModel):

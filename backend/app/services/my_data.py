@@ -43,6 +43,7 @@ LABELS = {
     "standups": "today",
     "task_worklog": "note",
     "comments": "body",
+    "routines": "title",
     "tasks": "title",
 }
 OWN_SURFACE = frozenset({"memories"})

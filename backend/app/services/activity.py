@@ -1145,6 +1145,15 @@ VERBS: dict[str, tuple[str, str]] = {
     "post_comment": ("commented on a record", "normal"),
     "edit_comment": ("edited a comment", "normal"),
     "delete_comment": ("deleted a comment", "loud"),
+    "create_routine": ("wrote a routine", "normal"),
+    "update_routine": ("changed a routine", "normal"),
+    "pause_routine": ("paused a routine", "normal"),
+    "resume_routine": ("resumed a routine", "normal"),
+    "delete_routine": ("deleted a routine", "loud"),
+    # the scheduler's own rows: each firing's task and delegation already
+    # log as the owner, so these stay out of the feed
+    "fire_routine": ("created a task from a routine", "quiet"),
+    "skip_routine": ("skipped a routine time", "quiet"),
     "exec_readout": ("published an exec readout", "normal"),
     "schedule_event": ("scheduled an event", "normal"),
     "update_event": ("changed an event", "normal"),
