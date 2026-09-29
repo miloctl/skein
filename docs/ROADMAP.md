@@ -704,35 +704,33 @@ Twenty-four repositories under `~/external` were read against FEATURES and
 this file. The hardening branch `fix/trust-loop-and-hardening` shipped what
 was built. Everything below is open.
 
-**Approved features, one branch each.** Draft designs, each with owner
-decisions still open: `task-threads`, `routines`, `board-view`,
-`document-revisions`, `gitlab-forge`. A design becomes
-`docs/intent/<slug>.md` on its branch once the owner settles its decisions.
+**Approved features, one branch each.** Each has a plan with the owner's
+decisions settled on 2026-09-28, in `docs/intent/`. Build order: the task
+panel's blocker form (first, on its own), then document revisions, GitLab,
+comment threads, the board and routines.
 
-- **Discussion threads on tasks** [M–L] — comments inherit the task's tier;
-  a human @mention of the task's delegate queues one wake; agent replies go
-  through the gate at `review`. Never in `task_worklog`, which is sponsor
-  evidence. Model: fizzy comments, mattermost threads.
-- **Routines** [L] — a task template on a weekly schedule; each firing
-  creates a task and can delegate it under the owner's standing consent.
-  One open occurrence at a time; three skips in a row pause the routine.
-  Model: hermes cron, goose scheduled recipes.
-- **Board view** [M] — `/board` over the existing statuses, native drag and
-  drop plus a Move menu (WCAG 2.5.7). Moving into Blocked opens the
-  raise-blocker form; a delegated card cannot move. It builds on the task
-  reads and navigation the calendar changed (0.6.10).
-- **Document editing and revisions** [S–M first half] — people edit
-  `kind='document'` artifacts in place; revisions are database rows; restore
-  writes a new revision; a stale save answers 409. Today `publish` deletes
-  the previous file, so history is lost.
-- **GitLab forge support and repo-scoped packs** [M] — `POST
-  /api/webhooks/gitlab` with an env-only token; push, merge request and
-  pipeline events; the `skein context --write` marker block. The design found
-  three existing bugs its slices fix: a `Closes-Task:` line in a pull request
-  body matches nothing (`forge.match_task`), two concurrent red CI runs file
-  two blockers (`ci.ci_event` checks and inserts with no lock), and the
-  engagement pack prints `outcome` and `kill_criteria` unflattened, so a
-  newline forges a heading in the written file.
+- **Document editing and revisions** [M–L] — `docs/intent/document-revisions.md`.
+  Revision rows, human edit, history that names editors, restore, agent edits
+  pinned to their base, a real diff in Approvals, search on the current text,
+  and documents that people create with a visibility tier.
+- **GitLab forge support and repository packs** [M] —
+  `docs/intent/gitlab-forge.md`. Inbound webhooks only (outbound is an open
+  decision); push, merge request and pipeline events; the `Closes-Task:` body
+  fix for both forges; the CI blocker race; the `skein context --write`
+  marker block, committed in `AGENTS.md`. Fixtures start from documented
+  payloads, marked unverified: swap in payloads captured from the internal
+  instance when someone captures them.
+- **Comment threads on tasks, decisions and blockers** [L] —
+  `docs/intent/task-threads.md`. A delegate posts directly on its own
+  delegated task; anyone who can read a task wakes its delegate with an
+  @mention; thread notices; authors edit their own comments; `forbidden` on
+  the parent stops every comment path.
+- **Board view** [M] — `docs/intent/board-view.md`. `/board` over the
+  statuses, no swimlanes, no polling, a compare-and-set move, and the blocker
+  form reused.
+- **Routines** [L] — `docs/intent/routines.md`. Weekly recurring tasks that
+  can delegate under the owner's standing consent; a missed time fires once
+  late; routine verdicts are counted apart from hand delegations.
 
 **Agent loop, not built.** Each waits on a trigger the new wake outcome
 codes can now show.
