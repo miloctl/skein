@@ -244,3 +244,44 @@ def test_a_crew_engagement_says_why_it_has_no_file_pack(client, fresh_db):
     refused = client.get(path + "&tier=workspace", headers=headers)
     assert refused.status_code == 400
     assert "without --write" in refused.json()["detail"]
+
+
+def test_pack_fields_cannot_forge_a_heading(client, fresh_db):
+    """An outcome and a kill criterion are one line each: in AGENTS.md a
+    newline there writes a heading that a coding agent reads as guidance, and
+    a blank one reads as unset."""
+    from app.services import engagements
+
+    made = engagements.create_engagement(
+        "Retrieval spike",
+        kind="experiment",
+        timebox_end="2026-10-15",
+        kill_criteria="no lift\n# Kill forged",
+        outcome="x\n# Outcome forged",
+        actor="m",
+    )
+    pack = client.get(f"/api/context-pack?engagement={made['id']}").json()["content"]
+    headings = [line for line in pack.splitlines() if line.lstrip().startswith("#")]
+    assert not any("forged" in line for line in headings), headings
+    assert "x # Outcome forged" in pack
+    blank = engagements.create_engagement(
+        "Blank spike", kind="experiment", timebox_end="2026-10-15", kill_criteria="  \n ", actor="m"
+    )
+    blank_pack = client.get(f"/api/context-pack?engagement={blank['id']}").json()["content"]
+    assert "- Kill criteria: unset" in blank_pack
+
+
+def test_a_file_pack_drops_a_crew_section(client, fresh_db):
+    """A crew section is not workspace content, and a repository file's
+    readers are the whole team."""
+    from conftest import _strong
+
+    from app.services import crews, users
+
+    users.ensure_user("ava")
+    crew = crews.create_crew("Platform", actor="ava")["id"]
+    ava = _strong(client, "ava")
+    own = client.get(f"/api/context-pack?crew={crew}", headers=ava).json()["content"]
+    assert "Platform" in own
+    written = client.get(f"/api/context-pack?crew={crew}&tier=workspace", headers=ava).json()
+    assert "Platform" not in written["content"]

@@ -90,6 +90,9 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # scheduling an event proves nothing, because the agent tools and every
     # playbook ritual write events without the page
     "calendar": None,
+    # a repository file leaves no row: the tier=workspace read that only
+    # `skein context --write` sends marks it (routes/api.py::get_context_pack)
+    "repo_pack": None,
     # a row the person wrote that names its meeting, from pasted notes or a
     # link in the meeting panel. created_by, so an agent's approved create,
     # which the review applies as the agent (review.approve_change), does

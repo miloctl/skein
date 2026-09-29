@@ -347,6 +347,39 @@ def verify_forge_signature(body: bytes, signature: str) -> None:
         raise HTTPException(status_code=401, detail="the webhook signature does not match")
 
 
+def gitlab_webhook_off() -> HTTPException:
+    """The refusal for an unconfigured GitLab webhook, returned for the same
+    reason forge_webhook_off is."""
+    return HTTPException(
+        status_code=503,
+        detail="the GitLab webhook is off. Set SKEIN_GITLAB_WEBHOOK_TOKEN,"
+        " then put the same value in the secret token field of the project webhook.",
+    )
+
+
+def verify_gitlab_token(sent: str) -> None:
+    """The GitLab webhook's identity: the project webhook's secret token,
+    sent in X-Gitlab-Token on every request. It proves the caller holds the
+    token, not what the bytes say, so receipts and the body fingerprint do
+    that part (services/forge.py::apply_delivery).
+
+    compare_digest over the SHA-256 of both values, so neither the token's
+    content nor its length leaks through the reject time. "replace" for the
+    0xFF reason verify_forge_signature gives."""
+    import hmac
+    from hashlib import sha256
+
+    if not config.GITLAB_WEBHOOK_TOKEN:
+        raise gitlab_webhook_off()
+    expected = sha256(config.GITLAB_WEBHOOK_TOKEN.encode("utf-8", "replace")).digest()
+    if not hmac.compare_digest(expected, sha256(sent.encode("utf-8", "replace")).digest()):
+        raise HTTPException(
+            status_code=401,
+            detail="the webhook token does not match. Put the token that whoever runs"
+            " the server set in the secret token field of the project webhook.",
+        )
+
+
 def _is_admin(user: str, groups: list[str], request: Request | None = None) -> bool:
     """SKEIN_ADMINS names administrators; in oidc mode an IdP group
     (SKEIN_OIDC_ADMIN_GROUP) grants it too. With NEITHER configured,

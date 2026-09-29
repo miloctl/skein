@@ -612,6 +612,43 @@ kubectl kustomize . > /tmp/workplace-skein.yaml
 
 Check the rendered image names, Secret references, Routes, storage class, and database host. Then apply the reviewed manifest.
 
+### Connect GitLab (optional)
+
+A GitLab project webhook moves tasks and files CI blockers. Skein receives
+the events and makes no call to GitLab.
+
+1. Make a token:
+
+   ```sh
+   python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
+
+2. Put it in the `skein-secrets` Secret as `SKEIN_GITLAB_WEBHOOK_TOKEN`, then
+   restart the backend. Until the token is set, the endpoint answers 503.
+3. In each team repository, open **Settings → Webhooks** and add a project
+   webhook. You need the Maintainer role.
+   - URL: `https://<backend Route host>/api/webhooks/gitlab`.
+   - Secret token: the same value.
+   - Triggers: push events (all branches), merge request events, and
+     pipeline events.
+   - SSL verification: on.
+4. If the Skein address is private, a GitLab administrator must add it to
+   **Admin → Settings → Network → Outbound requests**. If the Route has an IP
+   allowlist, add GitLab's egress addresses to it.
+5. Test with **Test → Push events** only. The merge request test sends a
+   real merge request event.
+
+Do not add a system hook. It carries every project on the instance, and
+Skein refuses it. If a delivery failed during a restart, open
+**Settings → Webhooks**, select **Edit** on the webhook, then in **Recent
+events** select **View details** on the failed delivery and **Resend
+Request**: receipts make a resend write nothing twice. GitLab disables a
+webhook after repeated failed deliveries. If that happens, enable it again
+in **Settings → Webhooks**. Skein answers a workplace policy refusal with
+200, so a rule that refuses one event does not count as a failure. An
+agent's GitLab username must equal its roster name, or Skein cannot refuse
+its pushes.
+
 ## 11. Add CI gates
 
 Run these gates against the workplace repository:

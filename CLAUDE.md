@@ -19,9 +19,14 @@ model and constraints, is archived at
 - **Runtime isolation.** The planned deployment cannot reach GitHub. GitHub
   is a development and release system, not a runtime dependency. Do not add
   a runtime GitHub connector, recovery polling, or token configuration unless
-  the deployment requirement explicitly changes. Internal GitLab is reachable,
-  but GitLab and Teams integrations also need a concrete user workflow before
-  implementation. Core work durability must not depend on those integrations.
+  the deployment requirement explicitly changes. Internal GitLab is reachable.
+  Its inbound webhooks are approved (`POST /api/webhooks/gitlab`,
+  `docs/intent/gitlab-forge.md`): the team does not use the git hooks, so a
+  webhook is the only path from code to Skein. Outbound GitLab calls (merge
+  request comments, commit statuses, an API token) are an open decision for
+  the owner, not refused. No polling. A Teams integration needs a concrete
+  user workflow before implementation. Core work durability must not depend
+  on those integrations.
   Slack and public Tavily/Exa integrations are outside the selected product
   scope. Do not reintroduce them unless explicit requirements change.
 - **Provider-agnostic.** `backend/app/config.py::PROVIDERS` is the list of

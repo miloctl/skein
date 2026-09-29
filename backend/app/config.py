@@ -1488,3 +1488,9 @@ ICS_TOKEN = os.getenv("SKEIN_ICS_TOKEN", "")
 # never reach it. Its own secret, never the API token — the forge stores it
 # in a repository setting that every repo admin can read.
 FORGE_WEBHOOK_SECRET = os.getenv("SKEIN_FORGE_WEBHOOK_SECRET", "")
+
+# Shared token for GitLab project webhooks (the X-Gitlab-Token header). Empty
+# disables the endpoint. Never FORGE_WEBHOOK_SECRET: GitLab sends this value
+# in plaintext in every request, as a client sends a Bearer key, while the
+# Gitea secret never leaves the forge (docs/intent/gitlab-forge.md, D2).
+GITLAB_WEBHOOK_TOKEN = os.getenv("SKEIN_GITLAB_WEBHOOK_TOKEN", "")

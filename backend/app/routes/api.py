@@ -3124,6 +3124,10 @@ def get_context_pack(
     # rows (docs/VISIBILITY.md: a private row reaches no context pack)
     tier: Literal["", "workspace"] = "",
 ):
+    if tier:
+        # a crew section is not workspace content, and the file's readers
+        # are the whole team
+        crew = 0
     policy = projection_policy.ProjectionPolicy(
         request.app.state.skein_registry.policy_engine,
         subject,
@@ -3146,10 +3150,10 @@ def get_context_pack(
                 # the caller CAN read it, so "no engagement #N" would be false
                 raise ValueError(
                     f"Engagement #{engagement} is not visible to the whole team. A context"
-                    " file holds records for the whole team only. Run the command without"
-                    " --write to read the pack."
+                    " file holds records for the whole team only. To read the pack, run"
+                    f" skein context --engagement {engagement} without --write."
                 )
-            return {
+            pack = {
                 "engagement": engagement,
                 "content": context_pack.build_engagement_pack(
                     engagement,
@@ -3157,12 +3161,19 @@ def get_context_pack(
                     policy.permits,
                 ),
             }
-        return context_pack.get_pack(
-            actor=user,
-            crew_id=crew,
-            viewer=viewer,
-            resource_filter=policy.permits,
-        )
+        else:
+            pack = context_pack.get_pack(
+                actor=user,
+                crew_id=crew,
+                viewer=viewer,
+                resource_filter=policy.permits,
+            )
+    # Only `skein context --write` sends tier, and that write is the use.
+    # AFTER the read transaction: mark() takes the field-guide person lock in
+    # its own transaction (the order get_artifact records).
+    if tier:
+        fieldguide.mark(user, "repo_pack")
+    return pack
 
 
 @router.post("/context-pack/publish")
