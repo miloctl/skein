@@ -37,6 +37,7 @@ from ..services import (
     delegation,
     delta,
     digest,
+    documents,
     engagement_brief,
     engagements,
     feedback,
@@ -1269,9 +1270,146 @@ def get_artifact(
     # AFTER the read transaction: mark() takes the field-guide person lock
     # first in its own transaction. Taking it after the artifact read's locks
     # would invert the order against another request that starts with mark().
-    if body["kind"] == "document":
+    # the card is about asking an agent for a document: opening your own is
+    # not that
+    if body["kind"] == "document" and users.is_agent(str(body.get("created_by") or "")):
         fieldguide.mark(user, "agent_document")
     return body
+
+
+class DocumentSave(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # the service's byte check is the real bound: this caps characters
+    content: str = Field(max_length=documents.MAX_DOCUMENT_BYTES)
+    base_revision: int = Field(ge=1)
+
+
+class DocumentRestore(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    base_revision: int = Field(ge=1)
+
+
+class DocumentIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(max_length=documents.TITLE_LIMIT)
+    content: str = Field(max_length=documents.MAX_DOCUMENT_BYTES)
+    # the tier the writer picked, checked in the service (crew membership).
+    # No engagement_id: a person's document filed under an engagement waits
+    # for its trigger (docs/ROADMAP.md, cut table)
+    visibility: str = Field("", max_length=16)
+    crew_id: int = 0
+
+
+@router.post("/documents")
+def post_document(
+    body: DocumentIn,
+    user: CurrentUser,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    ratelimit.check("write", user)
+    # "only you" for a signed-in person, the roster for a weak name, which
+    # reads no private row and would lose its own document
+    # normalized BEFORE the decision: resolve_write lowercases what it stores,
+    # and a rule matching "private" never sees " PRIVATE"
+    tier = (body.visibility or _personal_default(request)).strip().lower()
+    with db.transaction():
+        enforce_decision(
+            decide(
+                request,
+                subject,
+                "skein.rest.post.documents",
+                "document",
+                project_type="",
+                classification=tier,
+                attributes={"classification": tier, "crew_id": str(body.crew_id or "")},
+            )
+        )
+        made = documents.create_document(
+            body.title,
+            body.content,
+            actor=user,
+            origin="human",
+            visibility=tier,
+            crew_id=body.crew_id,
+        )
+    return {"id": made["id"], "revision": 1, "title": made["title"]}
+
+
+def _require_document_policy(
+    request: Request, subject: Any, viewer: scope.Viewer, action: str, artifact_id: int
+) -> None:
+    """The artifact read's own checks, with the caller's viewer: a weak
+    trusted-header name cannot reach a private document its read path hides.
+    An engagement-less document is unclassified text, judged as its producer
+    judges it (get_artifact)."""
+    _require_resource_policy(request, subject, viewer, action, "artifact", artifact_id)
+    if handoff.is_engagement_less(artifact_id, viewer):
+        _require_opaque_project_policy(request, subject, viewer, action)
+
+
+@router.put("/documents/{artifact_id}")
+def put_document(
+    artifact_id: int,
+    body: DocumentSave,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    ratelimit.check("write", user)
+    with db.transaction():
+        _require_document_policy(request, subject, viewer, "skein.rest.put.documents", artifact_id)
+        return documents.save_document(artifact_id, body.content, body.base_revision, actor=user)
+
+
+@router.get("/documents/{artifact_id}/revisions")
+def get_document_revisions(
+    artifact_id: int,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    with db.read_transaction():
+        _require_document_policy(
+            request, subject, viewer, "skein.rest.get.documents.revisions", artifact_id
+        )
+        return documents.history(artifact_id, viewer)
+
+
+@router.get("/documents/{artifact_id}/revisions/{revision}")
+def get_document_revision(
+    artifact_id: int,
+    revision: int,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    with db.read_transaction():
+        _require_document_policy(
+            request, subject, viewer, "skein.rest.get.documents.revisions", artifact_id
+        )
+        return documents.read_revision(artifact_id, revision, viewer)
+
+
+@router.post("/documents/{artifact_id}/revisions/{revision}/restore")
+def post_document_restore(
+    artifact_id: int,
+    revision: int,
+    body: DocumentRestore,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    ratelimit.check("write", user)
+    with db.transaction():
+        _require_document_policy(
+            request, subject, viewer, "skein.rest.post.documents.revisions.restore", artifact_id
+        )
+        return documents.restore_revision(artifact_id, revision, body.base_revision, actor=user)
 
 
 def _bounded_read(stream) -> bytes:

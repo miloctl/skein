@@ -114,8 +114,71 @@ def test_an_edit_replaces_one_exact_run(fresh_db):
     assert handoff.read_artifact(doc, scope.NOBODY)["markdown"] == "alpha delta gamma"
 
 
-def test_a_changed_document_cannot_be_edited_and_covered_again(fresh_db):
+def _revisions(doc: int) -> list[dict]:
+    return db.query(
+        "SELECT revision, body, author, origin, restored_from FROM document_revisions"
+        " WHERE artifact_id = ? ORDER BY revision",
+        (doc,),
+    )
+
+
+def test_an_edit_keeps_the_text_it_replaced(fresh_db):
+    """The file an edit replaced was deleted after commit, so a bad edit had
+    no undo short of a volume restore."""
     doc = documents.create_document("Plan", "alpha beta", actor="agent")["artifact_id"]
+    documents.edit_document(doc, "beta", "delta", actor="agent")
+    assert [(r["revision"], r["body"]) for r in _revisions(doc)] == [
+        (1, "alpha beta"),
+        (2, "alpha delta"),
+    ]
+
+
+def test_an_agent_edit_records_the_agent_origin(fresh_db, monkeypatch):
+    """Both document tools passed no origin, so the service default recorded
+    an agent's direct write as a person's."""
+    import json
+
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.tools import files
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", False)
+
+    def unwrapped(t):
+        return getattr(t, "_tool_func", None) or t.__wrapped__
+
+    token = set_agent_identity("scribe")
+    try:
+        made = json.loads(unwrapped(files.create_document)("Plan", "alpha beta"))
+        doc = made["id"]
+        unwrapped(files.edit_document)(doc, "beta", "delta")
+    finally:
+        reset_agent_identity(token)
+    assert [(r["author"], r["origin"]) for r in _revisions(doc)] == [
+        ("scribe", "agent"),
+        ("scribe", "agent"),
+    ]
+
+
+def _drop_revisions(doc: int) -> None:
+    """The shape a version before revision rows leaves: a row and a file."""
+    db.execute("DELETE FROM document_revisions WHERE artifact_id = ?", (doc,))
+
+
+def test_a_document_from_before_revisions_seeds_revision_one_on_its_next_write(fresh_db):
+    doc = documents.create_document("Plan", "alpha beta", actor="scribe")["artifact_id"]
+    _drop_revisions(doc)
+    documents.edit_document(doc, "beta", "delta", actor="agent")
+    assert [(r["revision"], r["body"], r["author"], r["origin"]) for r in _revisions(doc)] == [
+        (1, "alpha beta", "scribe", "agent"),
+        (2, "alpha delta", "agent", "human"),
+    ]
+
+
+def test_a_changed_document_cannot_be_edited_and_covered_again(fresh_db):
+    """A document with no revision rows seeds from its file, and a file that
+    fails its digest is not taken as the truth."""
+    doc = documents.create_document("Plan", "alpha beta", actor="agent")["artifact_id"]
+    _drop_revisions(doc)
     row = db.query_row("SELECT path, size, content_sha256 FROM artifacts WHERE id = ?", (doc,))
     path = Path(row["path"])
     path.write_text("alpha changed", encoding="utf-8")
@@ -126,6 +189,7 @@ def test_a_changed_document_cannot_be_edited_and_covered_again(fresh_db):
         db.query_row("SELECT path, size, content_sha256 FROM artifacts WHERE id = ?", (doc,)) == row
     )
     assert list(path.parent.glob(f"{doc}*.md")) == [path]
+    assert _revisions(doc) == []
 
 
 def test_repeated_edits_do_not_grow_the_filename(fresh_db):

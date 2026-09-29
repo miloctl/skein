@@ -139,7 +139,14 @@ def unappliable(entity: str, payload: dict, action: str = "create", *, entity_id
     # queue forever. extension_* payloads are never splatted (their apply uses
     # the stored invocation); their fixed public keys just never collide.
     requester_bound = entity in ("memory_forget", "absence")
-    for reserved in ("actor", "origin") + (("requester",) if requester_bound else ()):
+    # approval stamps change_id on a document write (approve_change), so a
+    # payload that carries one names a proposal it is not
+    document_write = entity in ("document", "document_edit")
+    for reserved in (
+        ("actor", "origin")
+        + (("requester",) if requester_bound else ())
+        + (("change_id",) if document_write else ())
+    ):
         if reserved in payload:
             return f"the payload cannot carry '{reserved}' — the review records it"
     if entity == "task":
@@ -156,6 +163,10 @@ def unappliable(entity: str, payload: dict, action: str = "create", *, entity_id
     for field, cap in caps.get(entity, ()):
         if len(str(payload.get(field) or "")) > cap:
             return f"{entity} {field} must be {cap} characters or fewer"
+    if entity == "document_edit" and entity_id:
+        from .documents import edit_refusal
+
+        return edit_refusal(entity_id, payload)
     return ""
 
 
@@ -980,6 +991,10 @@ def _approve_change_locked(
                     # a new agent identity is minted only on a strong verdict
                     # (services/delegation.py::delegate_task)
                     payload["mint_authorized"] = bool(strong)
+                if change["entity"] in ("document", "document_edit"):
+                    # the revision names the proposal it came from
+                    # (docs/intent/document-revisions.md, D8)
+                    payload["change_id"] = change["id"]
                 if change["action"] == "update":
                     result = fn(
                         change["entity_id"], **payload, actor=author, origin="agent_verified"
@@ -1762,6 +1777,13 @@ def change_diff(
     if not row:
         return {"id": change_id, "diff": None}
     payload = json.loads(change["payload"])
+    if change["entity"] == "document_edit":
+        # artifacts has no `old` or `new` column, so the generic field diff
+        # shows "—" beside the new text. The row filter above already ran,
+        # so only a reader of the document sees its lines.
+        from .documents import proposal_diff
+
+        return {"id": change_id, "diff": proposal_diff(int(change["entity_id"]), payload)}
     if table == "events":
         # an event stores its times in naive UTC, and a proposal carries them
         # as typed, on the team clock (schedule._canon). Shown raw, the two

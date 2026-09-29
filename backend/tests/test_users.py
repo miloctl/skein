@@ -517,17 +517,17 @@ def test_an_administrator_cannot_merge_an_active_room_member(client, fresh_db):
     room = chat_threads.create_shared_chat("Launch room", "mira")
     invitation = chat_threads.invite_to_shared_chat(room["id"], "mira", "dana", share_history=True)
     # a pending invitation is membership the steward has offered
-    with pytest.raises(ValueError, match="crew or a private shared chat"):
+    with pytest.raises(ValueError, match="or is in a private shared chat"):
         users.rename_user("dana", "carol", actor="ops", expected_merge=True)
     chat_threads.accept_shared_chat_invitation(invitation["id"], "dana")
-    with pytest.raises(ValueError, match="crew or a private shared chat"):
+    with pytest.raises(ValueError, match="or is in a private shared chat"):
         users.rename_user("dana", "carol", actor="ops", expected_merge=True)
     assert db.query_one("SELECT 1 FROM chat_members WHERE person = 'carol'") is None
     from app.services import crews
 
     users.ensure_user("eve")
     crew = crews.create_crew("Platform", actor="eve")
-    with pytest.raises(ValueError, match="crew or a private shared chat"):
+    with pytest.raises(ValueError, match="or is in a private shared chat"):
         users.rename_user("eve", "carol", actor="ops", expected_merge=True)
     assert db.query_one("SELECT 1 FROM crew_members WHERE person = 'carol'") is None
     assert crew["id"]

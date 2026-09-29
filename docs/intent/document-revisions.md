@@ -89,14 +89,16 @@ then. Retire the file when a recovery drill finds the volume and the dump out of
   before the proposal is claimed. No path locks the document after another row. The
   primary key is the backstop: a writer without the lock fails on the duplicate
   `(artifact_id, revision)` (a 500) instead of overwriting a revision.
-- **No-op rule.** If the new body's SHA-256 equals the head's, the call returns the head
-  and writes nothing. It runs before the base check, so a double-selected Save, a retry
+- **No-op rule.** If the new body equals the head's body, the call returns the head
+  with `unchanged: true` and writes nothing. An agent edit whose `old` equals its `new`
+  does the same. It runs before the base check, so a double-selected Save, a retry
   after a lost response and a restore of the current text all succeed with no empty
   revision.
 - **Base check.** If `base_revision != head`, raise `StaleRevision`: "document #12 changed
   after revision 5, and revision 6 is newer. Read revision 6, then make the change again."
   `base_revision = 0` means no base was stated (a proposal queued before S4) and applies
-  against the head.
+  against the head. A base newer than the head is also `StaleRevision`: "document #12 has
+  no revision 9. Revision 6 is the newest. Read revision 6, then make the change again."
 - **Restore (owner: no confirm dialog).** A restore copies revision n as `head + 1` with
   `restored_from = n`, and the bad revision stays. Restoring the previous head undoes it.
 - Prior art: buzz canvases (`buzz`, b6a26556) check the expected revision before
@@ -236,7 +238,7 @@ def _readable_document(artifact_id, viewer) -> dict     # visible_filter, then k
   as absent. A readable non-document is a `ValueError`: "artifact #12 is not a document.
   Only a document can be changed." (or "... has revisions." on a read). An absent revision
   of a readable document is `db.NotFound("no revision 9 of document #12")`.
-- `unified` wraps `difflib.unified_diff` over `splitlines(keepends=True)`, `n=3`, per
+- `unified` wraps `difflib.unified_diff` over `splitlines()` with `lineterm=""`, `n=3`, per
   request and never stored, with `# ponytail: difflib is quadratic in the worst case and
   the 512 KB cap bounds it. Cap the compared lines if a slow diff shows in traces`.
 - `history` returns the newest `HISTORY_LIMIT` rows without bodies (revision, author,
@@ -362,7 +364,7 @@ the code before the change, with fixtures from a running mock-provider instance.
   change, open History, select an earlier revision, then select Restore." Predicate:
   `_act(u, "edit_document") or _act(u, "restore_document")`. An agent edit logs the agent
   as actor, so only a person's own save ties it. `tests/test_fieldguide.py` counts move
-  (69 → 70 cards, 68 → 69 tieable), and so does the FEATURES "Field guide" row.
+  (70 → 71 cards, 69 → 70 tieable), and so does the FEATURES "Field guide" row.
 - Docs: `docs/ROADMAP.md` deletes the "Document editing and revisions" row and adds the
   cut rows below. FEATURES Reports row (Edit, History).
 - Fails first: `frontend/__tests__/document-editor.test.tsx` ("keeps the text and shows
@@ -416,8 +418,8 @@ the code before the change, with fixtures from a running mock-provider instance.
   only a reader of the document sees its lines.
 - `app/review/page.tsx` renders `UnifiedDiff` in place of the field table, above
   "Technical details", because a document proposal has no other readable summary. When
-  `head_revision > base_revision` it adds "The document changed after this proposal.
-  Approve refuses it."
+  `head_revision > base_revision` it adds "The document changed after this proposal. If
+  you approve it, Skein rejects it."
 - Fails first: `tests/test_review.py::test_a_document_edit_diff_is_unified_against_its_base`
   (today the page renders "—" beside the new text),
   `frontend/__tests__/review-document-diff.test.tsx`.
@@ -515,6 +517,12 @@ the code before the change, with fixtures from a running mock-provider instance.
   authority: `review._refuse_invisible` refuses the proposal and tells the agent why.
 - **A person's text reaches an agent** through `read_artifact` as a JSON string in tool
   output, as a note does through search. It is not wrapped with `wording.fence`.
+- **The creator of a crew document keeps reading it after leaving the crew,** as the
+  author of any crew row does (`scope.visible_filter` has an author arm). For a document
+  this includes every later revision the crew writes. `users.rename_user` refuses an
+  administrator's merge of such an account, so the access cannot pass to a target who was
+  never a member. Changing the author arm for every crew row is a policy decision for the
+  owner.
 - **A weak trusted-header caller can send `visibility=private`** and file a document its
   own read path hides, as a standup can. The UI does not offer "only you" to it.
 

@@ -836,6 +836,7 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "memories": ("user", "created_by"),
     "agent_authority": ("agent", "updated_by"),
     "artifacts": ("created_by",),
+    "document_revisions": ("author",),
     "context_packs": ("created_by",),
     "finding_dispositions": ("created_by",),
     "chat_threads": ("owner", "created_by"),
@@ -926,6 +927,18 @@ def _mcp_agent_row(person: str) -> str:
     return str(row["name"]) if row else ""
 
 
+def _authors_crew_rows(name: str) -> bool:
+    """Whether `name` wrote a crew-tier row in any scoped table."""
+    from . import scope
+
+    parts = [
+        f'SELECT 1 FROM {table} WHERE "{column}" = ? AND visibility = ?'  # noqa: S608 — tables and columns from scope.CLASSIFIED
+        for table, column in scope.CLASSIFIED.items()
+    ]
+    params = tuple(value for _ in parts for value in (name, scope.CREW))
+    return db.query_one(" UNION ALL ".join(parts) + " LIMIT 1", params) is not None
+
+
 def rename_user(
     old: str,
     new: str,
@@ -1008,22 +1021,29 @@ def rename_user(
             )
         # Membership decides what a person reads. The fold below admits the
         # target to every room the source is in, past a steward's removal:
-        # only the consented merge (services/merges.py) carries it.
+        # only the consented merge (services/merges.py) carries it. A crew row
+        # keeps its AUTHOR as a reader after the author leaves the crew
+        # (scope.visible_filter), so moving authorship would hand the row,
+        # and every later revision of a crew document, to a target who was
+        # never a member.
         if (
             target
             and not consented
-            and db.query_one(
-                "SELECT 1 FROM chat_members WHERE person = ? AND left_at IS NULL"
-                " UNION ALL SELECT 1 FROM chat_invitations WHERE person = ? AND status = 'pending'"
-                " UNION ALL SELECT 1 FROM crew_members WHERE person = ?"
-                " LIMIT 1",
-                (old, old, old),
+            and (
+                db.query_one(
+                    "SELECT 1 FROM chat_members WHERE person = ? AND left_at IS NULL"
+                    " UNION ALL SELECT 1 FROM chat_invitations WHERE person = ? AND status = 'pending'"
+                    " UNION ALL SELECT 1 FROM crew_members WHERE person = ?"
+                    " LIMIT 1",
+                    (old, old, old),
+                )
+                or _authors_crew_rows(old)
             )
         ):
             raise ValueError(
-                "The account is in a crew or a private shared chat. A merge by another"
-                " person is refused. Ask the person to request the merge, or deactivate"
-                " the account."
+                "The account is in a crew, wrote records for a crew, or is in a private"
+                " shared chat. A merge by another person is refused. Ask the person to"
+                " request the merge, or deactivate the account."
             )
         if expected_merge is not None and bool(target) != expected_merge:
             raise db.Conflict(

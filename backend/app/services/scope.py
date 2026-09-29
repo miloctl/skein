@@ -599,6 +599,11 @@ NOUN: dict[str, str] = {
 # an absence with no comment reads as an oversight to the next reader.
 UNSCOPED: dict[str, str] = {
     # --- already scoped, by a stronger mechanism than a column ---
+    "document_revisions": (
+        "a document's revisions take its tier by join: every read goes through"
+        " visible_filter on artifacts (services/documents.py), so no tier change"
+        " needs a cascade here"
+    ),
     "chat_folders": "solo-thread folders are owner-scoped by primary key (services/chat_threads.py)",
     "chat_invitations": (
         "private shared-chat invitation state; only the invited strong identity"

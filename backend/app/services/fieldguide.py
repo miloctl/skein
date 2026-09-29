@@ -218,6 +218,11 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # carries no per-person row. routes/api.py::get_artifact marks it when
     # a person opens a document on Reports.
     "agent_document": None,
+    # an agent's write logs the agent as actor, so only a person's own
+    # document, save or restore ties this card
+    "document_revisions": lambda u: (
+        _act(u, "create_document") or _act(u, "edit_document") or _act(u, "restore_document")
+    ),
     "review": lambda u: _has(
         "SELECT 1 FROM pending_changes WHERE reviewed_by = ?"
         " AND status IN ('approved', 'rejected')",

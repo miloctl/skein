@@ -432,7 +432,7 @@ def test_restore_drill_recovers_one_database_unit_and_requires_artifact_volume(
     import subprocess
 
     from app import config, db
-    from app.services import activity, admin, documents, handoff, private_notes, work
+    from app.services import activity, admin, digest, documents, handoff, private_notes, work
 
     live_data = tmp_path / "live-data"
     recovery = tmp_path / "recovery-copy"
@@ -450,14 +450,11 @@ def test_restore_drill_recovers_one_database_unit_and_requires_artifact_volume(
         {"probe": "ext_probe", "skipped": "ext_skipped"},
         {"probe"},
     )
-    document = documents.create_document(
-        "probe",
-        "artifact survives only with its volume",
-        actor="tester",
-    )
-    content_sha256 = db.query_one(
-        "SELECT content_sha256 FROM artifacts WHERE id = ?", (document["id"],)
-    )["content_sha256"]
+    # a document's text is in its revision rows, so it is in the dump itself
+    document = documents.create_document("probe", "a document survives in the dump", actor="tester")
+    digest.publish_digest(actor="tester")
+    report = db.query_one("SELECT id, content_sha256 FROM artifacts WHERE kind = 'digest'")
+    content_sha256 = report["content_sha256"]
     assert content_sha256
     artifact_root = live_data / "artifacts"
     artifact_copy = recovery / "artifacts"
@@ -519,18 +516,21 @@ def test_restore_drill_recovers_one_database_unit_and_requires_artifact_volume(
             )
             is None
         )
+        assert handoff.read_artifact(document["id"])["markdown"] == (
+            "a document survives in the dump"
+        )
         with pytest.raises(handoff.ArtifactUnreadable):
-            handoff.read_artifact(document["id"])
+            handoff.read_artifact(report["id"])
         shutil.copytree(artifact_copy, artifact_root)
         restored_row = db.query_one(
-            "SELECT path, content_sha256 FROM artifacts WHERE id = ?", (document["id"],)
+            "SELECT path, content_sha256 FROM artifacts WHERE id = ?", (report["id"],)
         )
         assert restored_row["content_sha256"] == content_sha256
-        restored_artifact = handoff.read_artifact(document["id"])
-        assert restored_artifact["markdown"] == "artifact survives only with its volume"
+        markdown = handoff.read_artifact(report["id"])["markdown"]
+        assert markdown == Path(restored_row["path"]).read_text(encoding="utf-8")
         Path(restored_row["path"]).write_text("changed after restore", encoding="utf-8")
         with pytest.raises(handoff.ArtifactUnreadable, match="does not match"):
-            handoff.read_artifact(document["id"])
+            handoff.read_artifact(report["id"])
         assert activity.verify_chain()["ok"] is True
     finally:
         admin.set_extension_stores({}, set())

@@ -1,10 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 import { ArtifactMarkdown } from "@/components/artifact-markdown";
 import { Card, EmptyState } from "@/components/card";
+import { type Draft, DocumentEditor } from "@/components/document-editor";
+import { DocumentHistory } from "@/components/document-history";
+import { VisibilityBadge } from "@/components/visibility-picker";
 import { PeekLink } from "@/components/task-peek";
 import { api, loadError } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
@@ -21,8 +25,9 @@ import { timeAgo } from "@/lib/time";
  *  at 07:00 every day and the only way to see one was to shell into the
  *  container. The two that did have buttons dumped raw markdown into a <pre>.
  *
- *  Composition only. Nothing here generates an artifact; the rituals that
- *  produce them keep their own homes on Work → Health. */
+ *  Nothing here generates a report: the rituals that produce them keep their
+ *  own homes on Work → Health. A person writes and edits documents here
+ *  (components/document-editor.tsx). */
 
 type Artifact = {
   id: number;
@@ -32,9 +37,11 @@ type Artifact = {
   path: string;
   created_by: string;
   created_at: string;
+  visibility?: string;
+  crew_id?: number | null;
 };
 
-type Body = Artifact & { markdown: string; threads?: EntityRef[] };
+type Body = Artifact & { markdown: string; threads?: EntityRef[]; revision?: number };
 
 type ArtifactPage = {
   items: Artifact[];
@@ -47,7 +54,8 @@ type ArtifactPage = {
  *  A kind absent here falls through to itself rather than to a guess. */
 const KIND_LABEL: Record<string, string> = {
   digest: "Daily digest",
-  document: "Agent document",
+  // not "Agent document": a person writes one too (POST /api/documents)
+  document: "Document",
   readout: "Exec readout",
   handoff: "Handoff",
   ritual: "Week ritual",
@@ -57,14 +65,27 @@ const kindLabel = (kind: string) => KIND_LABEL[kind] ?? kind;
 
 const PARAM = "id";
 
-/** window.location, not useSearchParams: the latter puts the route behind a
- *  Suspense boundary for a value that is never prerendered — the reasoning
- *  components/task-peek.tsx and app/auth/callback record. */
-function idFromUrl(): number | null {
-  if (typeof window === "undefined") return null;
-  const raw = new URLSearchParams(window.location.search).get(PARAM);
+function parseId(raw: string | null): number | null {
   const id = Number(raw);
   return raw && Number.isInteger(id) && id > 0 ? id : null;
+}
+
+/** window.location for the first read, which runs outside render. */
+function idFromUrl(): number | null {
+  if (typeof window === "undefined") return null;
+  return parseId(new URLSearchParams(window.location.search).get(PARAM));
+}
+
+/** Reports `?id=` as router state, for a search hit (components/nav-search.tsx)
+ *  clicked while Reports is open: a soft navigation fires no popstate, and
+ *  without this the pane keeps the old report. In its OWN Suspense boundary, for the reason
+ *  app/notes/page.tsx::NoteParam gives. */
+function IdParam({ onChange }: { onChange: (id: number) => void }) {
+  const id = parseId(useSearchParams().get(PARAM));
+  useEffect(() => {
+    if (id) onChange(id);
+  }, [id, onChange]);
+  return null;
 }
 
 function ThreadLink({ thread }: { thread: EntityRef }) {
@@ -108,9 +129,26 @@ export default function ArtifactsPage() {
   const [bodyError, setBodyError] = useState<{ id: number; message: string } | null>(
     null,
   );
+  // keyed by the report it belongs to, like `body`: opening another report
+  // leaves a stale editor or history behind as neither
+  const [mode, setMode] = useState<{ id: number; view: "edit" | "history" } | null>(null);
+  const [creating, setCreating] = useState(false);
+  // every editor's unsaved text, by document ("new" for New document): the
+  // editor unmounts on History, on another report and on New document off
+  const [drafts] = useState(() => new Map<number | "new", Draft>());
+  // the document just created, whose Edit takes focus once its body loads
+  const created = useRef<number | null>(null);
 
   useEffect(() => {
-    api<ArtifactPage>("/api/artifacts/page")
+    const guard = (event: BeforeUnloadEvent) => {
+      if (drafts.size) event.preventDefault();
+    };
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [drafts]);
+
+  const loadList = useCallback((select?: number) => {
+    return api<ArtifactPage>("/api/artifacts/page")
       .then((page) => {
         setList(page.items);
         setNextBefore(page.next_before);
@@ -118,12 +156,21 @@ export default function ArtifactsPage() {
         // A link from elsewhere names an artifact; anything else opens the
         // newest, because a reader arriving at Reports wants today's, not a
         // list to click before reading anything.
-        const first = idFromUrl() ?? page.items[0]?.id ?? null;
-        setOpenId((cur) => cur ?? first);
+        const first = select ?? idFromUrl() ?? page.items[0]?.id ?? null;
+        setOpenId((cur) => (select ? select : (cur ?? first)));
         // REPLACE, so the first history entry already names what is open.
         // Pushed instead, Back would return to a bare /artifacts, and popstate
         // would read no id and leave the pane loading with nothing selected.
-        if (first !== null && idFromUrl() === null) {
+        if (select !== undefined) {
+          // a new document: a real history entry, like picking a row, unless
+          // the entry names nothing (an empty list), where Back would reach a
+          // bare /artifacts with nothing to open
+          const url = new URL(window.location.href);
+          const bare = idFromUrl() === null;
+          url.searchParams.set(PARAM, String(select));
+          if (bare) window.history.replaceState({}, "", url);
+          else window.history.pushState({}, "", url);
+        } else if (first !== null && idFromUrl() === null) {
           const url = new URL(window.location.href);
           url.searchParams.set(PARAM, String(first));
           window.history.replaceState({}, "", url);
@@ -136,6 +183,10 @@ export default function ArtifactsPage() {
         setListError(loadError(e));
       });
   }, []);
+
+  useEffect(() => {
+    loadList();
+  }, [loadList]);
 
   useEffect(() => {
     if (openId === null) return;
@@ -186,6 +237,19 @@ export default function ArtifactsPage() {
   // error left over from the previous pick renders as neither
   const shown = body?.id === openId ? body.data : null;
   const failure = bodyError?.id === openId ? bodyError.message : "";
+  const view = mode && mode.id === openId ? mode.view : "read";
+  const isDocument = shown?.kind === "document";
+
+  useEffect(() => {
+    if (!shown || shown.id !== created.current) return;
+    created.current = null;
+    document.getElementById("document-edit")?.focus();
+  }, [shown]);
+
+  const backToEdit = useCallback(() => {
+    setMode(null);
+    setTimeout(() => document.getElementById("document-edit")?.focus(), 0);
+  }, []);
 
   const copyMarkdown = useCallback(async () => {
     if (!shown) return;
@@ -218,14 +282,50 @@ export default function ArtifactsPage() {
 
   return (
     <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
-      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
-        Reports
-      </h1>
+      <Suspense fallback={null}>
+        <IdParam onChange={setOpenId} />
+      </Suspense>
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <h1 className="font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+          Reports
+        </h1>
+        <button
+          id="document-new"
+          type="button"
+          aria-expanded={creating}
+          aria-controls="document-new-panel"
+          onClick={() => setCreating((on) => !on)}
+          className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 hover:border-line-strong hover:text-ink aria-expanded:border-line-strong aria-expanded:bg-raised aria-expanded:text-ink"
+        >
+          New document
+        </button>
+      </div>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
         Every digest, brief, close-out, readout and handoff the team has
-        produced. Skein writes these on a schedule — this is where you read
-        them.
+        produced, and the documents people and agents write. Skein writes the
+        reports on a schedule. This is where you read them.
       </p>
+
+      {creating ? (
+        <div id="document-new-panel">
+          <Card title="New document" className="mb-4">
+            <DocumentEditor
+              artifactId={null}
+              drafts={drafts}
+              onSaved={(id) => {
+                created.current = id;
+                setCreating(false);
+                // the POST cleared the GET cache (lib/api.ts), so the list is fresh
+                loadList(id);
+              }}
+              onCancel={() => {
+                setCreating(false);
+                setTimeout(() => document.getElementById("document-new")?.focus(), 0);
+              }}
+            />
+          </Card>
+        </div>
+      ) : null}
 
       {/* One state at a time. The failure is not "still loading" — it is where
           the loading stopped — and printing both leaves the reader waiting for
@@ -320,12 +420,43 @@ export default function ArtifactsPage() {
                   <time dateTime={shown.created_at} title={shown.created_at}>
                     {timeAgo(shown.created_at)}
                   </time>
+                  {shown.visibility && shown.visibility !== "workspace" ? (
+                    <VisibilityBadge
+                      visibility={shown.visibility}
+                      crewId={shown.crew_id ?? undefined}
+                    />
+                  ) : null}
                 </p>
                 <div
                   role="group"
                   aria-label="Report actions"
                   className="mb-4 flex flex-wrap gap-2"
                 >
+                  {isDocument ? (
+                    <>
+                      <button
+                        id="document-edit"
+                        type="button"
+                        aria-expanded={view === "edit"}
+                        aria-controls="document-panel"
+                        onClick={() => setMode(view === "edit" ? null : { id: shown.id, view: "edit" })}
+                        className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 hover:border-line-strong hover:text-ink aria-expanded:border-line-strong aria-expanded:bg-raised aria-expanded:text-ink"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        aria-expanded={view === "history"}
+                        aria-controls="document-panel"
+                        onClick={() =>
+                          setMode(view === "history" ? null : { id: shown.id, view: "history" })
+                        }
+                        className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 hover:border-line-strong hover:text-ink aria-expanded:border-line-strong aria-expanded:bg-raised aria-expanded:text-ink"
+                      >
+                        History
+                      </button>
+                    </>
+                  ) : null}
                   <button
                     type="button"
                     onClick={copyMarkdown}
@@ -341,7 +472,27 @@ export default function ArtifactsPage() {
                     Download Markdown
                   </button>
                 </div>
-                {shown.threads?.length ? (
+                <div id="document-panel">
+                  {view === "edit" ? (
+                    <DocumentEditor
+                      artifactId={shown.id}
+                      drafts={drafts}
+                      onSaved={() => {
+                        // the write cleared the GET cache (lib/api.ts), so this
+                        // refetch reads the new head
+                        setBodyRequest((request) => request + 1);
+                        backToEdit();
+                      }}
+                      onCancel={backToEdit}
+                    />
+                  ) : view === "history" ? (
+                    <DocumentHistory
+                      artifactId={shown.id}
+                      onChanged={() => setBodyRequest((request) => request + 1)}
+                    />
+                  ) : null}
+                </div>
+                {view === "read" && shown.threads?.length ? (
                   <section
                     aria-labelledby="report-threads-title"
                     className="mb-4 rounded-lg border border-line bg-raised/50 p-3"
@@ -364,9 +515,11 @@ export default function ArtifactsPage() {
                 {/* the body is wide content (long lines, indented lists), so it
                     scrolls inside its own box rather than pushing the page
                     sideways */}
-                <div className="overflow-x-auto">
-                  <ArtifactMarkdown markdown={shown.markdown} />
-                </div>
+                {view === "read" ? (
+                  <div className="overflow-x-auto">
+                    <ArtifactMarkdown markdown={shown.markdown} />
+                  </div>
+                ) : null}
               </>
             )}
           </Card>
