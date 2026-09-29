@@ -19,6 +19,7 @@ from pathlib import Path
 
 from .. import config, db
 from . import artifact_files, handoff, scope
+from .search import index_record
 
 # A document is markdown a person reads on Work → Reports, so it is bounded by
 # what that reader can take rather than by what a model can emit.
@@ -265,6 +266,10 @@ def _publish_revision(
         "UPDATE artifacts SET path = ?, size = ?, content_sha256 = ? WHERE id = ?",
         (str(target), len(data), digest, row["id"]),
     )
+    # the current text only: the index upserts on (entity, entity_id), so an
+    # old revision's words stop matching, and a private document is kept out
+    # by index_record itself (search._is_private)
+    index_record("document", int(row["id"]), row["title"], body)
     db.execute(
         "INSERT INTO document_revisions (artifact_id, revision, body, content_sha256, author,"
         " origin, change_id, restored_from, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",

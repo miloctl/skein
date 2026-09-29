@@ -45,6 +45,9 @@ def _short_id_hit(q: str) -> dict | None:
 _ENTITY_TABLE = {
     "blocker": "blockers",
     "decision": "decisions",
+    # a document's tier is its artifact row's: visible_hits, _is_private and
+    # _embeddable read it from there, so a private document is never indexed
+    "document": "artifacts",
     "engagement": "engagements",
     "event": "events",
     "intake": "intake_requests",
