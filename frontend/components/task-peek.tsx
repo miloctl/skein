@@ -85,6 +85,9 @@ export type PeekTask = {
     severity: string;
     message: string;
   } | null;
+  // the routine that made this task (services/routines.py). Null for a
+  // reader who cannot open the routine (work._redact_hidden_task_links).
+  routine_id?: number | null;
   visibility?: string;
   crew_id?: number | null;
 };
@@ -577,6 +580,19 @@ export function TaskPeek() {
                   className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-2"
                 >
                   {task.source_finding.message}
+                </a>
+              </p>
+            ) : null}
+
+            {/* not a second editor: the routine is changed where it is written */}
+            {task.routine_id ? (
+              <p className="text-xs text-ink-3">
+                Repeats from routine #{task.routine_id}.{" "}
+                <a
+                  href="/planning#planning-routines"
+                  className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-2"
+                >
+                  Change it in Plan the week.
                 </a>
               </p>
             ) : null}

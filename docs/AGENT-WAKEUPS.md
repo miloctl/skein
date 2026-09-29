@@ -10,7 +10,7 @@ Chat is a retry and follow-up surface. The task worklog, blocker register, and a
 
 ## Scope
 
-A delegation with `origin=human` or `origin=agent_verified` queues a wake request. An autonomous agent delegation does not queue another agent turn. A person's comment that names the delegate with `@` on its open task queues one too (`services/comments.py`).
+A delegation with `origin=human` or `origin=agent_verified` queues a wake request. An autonomous agent delegation does not queue another agent turn. A person's comment that names the delegate with `@` on its open task queues one too (`services/comments.py`). A routine firing is a human delegation by standing consent: the routine's owner is the sponsor and `requested_by` (`services/routines.py`). A routine never wakes unfinished work again: if its last task is still open, it skips that time.
 
 The wake request starts one agent turn. It does not create an automatic continuation loop. The daily allowlisted runner can resume unfinished work.
 

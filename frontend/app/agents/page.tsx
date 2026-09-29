@@ -52,8 +52,18 @@ type SeasonReadout = {
     approved: number;
     rejected: number;
     pending: number;
+    routine?: number;
   }[];
+  // services/review.py::season_readout: every count above is HAND work, and
+  // a routine's acceptances are counted here apart (docs/intent/routines.md D11)
+  routine?: {
+    verdicts: { settled: number; approved: number; rejected: number };
+    proposals: number;
+    delegations: { started: number; accepted: number };
+  };
 };
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 type Trust = {
   agent: string;
@@ -62,6 +72,9 @@ type Trust = {
   approved: number;
   rejected: number;
   approval_rate: number;
+  // counted apart from the hand counts above, and in no streak
+  routine_approved?: number;
+  routine_rejected?: number;
   recent_streak: number;
   last_verified_verdict: string;
   configured_level?: string;
@@ -967,8 +980,10 @@ export default function Agents() {
               {trust.map((t) => (
                 <li key={`${t.agent}-${t.entity}`}>
                   <span className="font-medium">{t.agent}</span> on {t.entity}:{" "}
-                  {t.approved}/{t.proposed} approved in settled history (
-                  {Math.round(t.approval_rate * 100)}%) ·{" "}
+                  {t.proposed === 0 && (t.routine_approved ?? 0) + (t.routine_rejected ?? 0) > 0
+                    ? "no verdicts outside routines"
+                    : `${t.approved}/${t.proposed} approved in settled history (${Math.round(t.approval_rate * 100)}%)`}{" "}
+                  ·{" "}
                   {t.recent_streak > 0
                     ? `${t.recent_streak} verified approval${t.recent_streak === 1 ? "" : "s"} in a row`
                     : t.last_verified_verdict === "rejected"
@@ -980,6 +995,12 @@ export default function Agents() {
                       its first grant from one already acting alone. Same
                       helper as the authority card, so a gate-off deployment
                       gets the same honest wording in both places. */}
+                  {(t.routine_approved ?? 0) + (t.routine_rejected ?? 0) > 0 ? (
+                    <span className="ml-1 text-xs text-ink-3">
+                      · routines, counted separately: {t.routine_approved ?? 0} approved,{" "}
+                      {t.routine_rejected ?? 0} rejected
+                    </span>
+                  ) : null}
                   <span className="ml-1 text-xs text-ink-3">
                     · today:{" "}
                     {levelLabel(
@@ -1043,6 +1064,16 @@ export default function Agents() {
                   {season.authority_changes.length} authority change
                   {season.authority_changes.length === 1 ? "" : "s"}
                 </p>
+                {season.routine &&
+                (season.routine.verdicts.settled > 0 || season.routine.delegations.started > 0) ? (
+                  <p className="text-ink-2">
+                    From routines, counted separately:{" "}
+                    {plural(season.routine.verdicts.settled, "acceptance")} (
+                    {season.routine.verdicts.approved} approved · {season.routine.verdicts.rejected}{" "}
+                    rejected) · {plural(season.routine.delegations.started, "delegation")} started ·{" "}
+                    {season.routine.delegations.accepted} accepted.
+                  </p>
+                ) : null}
                 {season.by_agent.length > 0 && (
                   <ul className="space-y-1 text-xs text-ink-2">
                     {season.by_agent.map((a) => (
@@ -1050,6 +1081,7 @@ export default function Agents() {
                         <span className="font-medium">{a.proposed_by}</span>:{" "}
                         {a.proposed} proposed · {a.approved} approved ·{" "}
                         {a.rejected} rejected · {a.pending} pending
+                        {a.routine ? ` · ${a.routine} from routines` : ""}
                       </li>
                     ))}
                   </ul>

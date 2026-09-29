@@ -36,9 +36,8 @@ for a season with the review gate on (the default since 2026-08-21):
   on tasks, routines (standing delegations and recurring tasks), a board
   view, document editing with revisions, and GitLab forge support with
   repo-scoped context packs. Each gets its own branch after the hardening
-  branch lands. Document revisions, GitLab forge support, comment threads and
-  the board shipped. The section "From the external-repo discovery" below
-  lists routines.
+  branch lands. All five shipped: document revisions, GitLab forge
+  support, comment threads, the board and routines.
   The rest of the freeze stands.
 
 # Open backlog (consolidated 2026-08-02)
@@ -584,6 +583,16 @@ review. Each names the condition that reopens it.
 | A comment count on each board card | A person asks for it. The task panel shows the thread. |
 | User-defined board columns | A team needs a state that the five task statuses cannot hold. A column is a status, and a new status changes every flow metric. |
 | Card editing on the board | People report that they open the task panel many times a day to change one field. |
+| Monthly routines | A person asks for a month-end routine. Add `every_months`, and the tick does not change. |
+| Routine assignee rotation | Someone edits a rota routine by hand more than twice a month. |
+| "Run now" for a routine | People delegate a copy by hand to test a routine. |
+| An agent write path for routines (a routine proposal, chat "repeat this") | A person asks the Chief of Staff for recurring work and it cannot help. It needs a new gated entity in all seven registries. |
+| A read tool, MCP tool or CLI command for routines | A second surface asks what repeats. |
+| Take over a departed owner's routine | A paused shared routine is recreated by hand after an offboarding. |
+| Wider `WAKE_TOOLS` for routine turns (`supersede_decision`, intake scoring) | Sponsors copy sweep drafts into records by hand for a month. |
+| Future routine firings on the calendar | Someone asks the calendar when a routine runs next. |
+| Routine recipes: `backend/routines/*.yaml`, a `SKEIN_ROUTINES_DIR` overlay, a validator in `scripts/lint.sh`, "Start from a recipe" filling the form with a copy | A second person writes an agent routine by hand. |
+| Playbook routines: `routines:` beside `rituals:` in `backend/playbooks/*.yaml`, a `routines.engagement_id`, created paused with a reason, paused when the engagement closes, each firing through the policy engine | Two engagements of one class repeat the same weekly task. |
 | Sharing an event to a wider tier | A request for it. It goes in `sharing.py`, which only widens, so no linked row becomes wider than its meeting. |
 | Authority matrix split by action class (internal edit vs external send) | An agent holds `autonomous` on an entity where one verb is internal and another leaves Skein (mail, webhook, customer surface). Today no tool on a granted entity crosses that line — the split waits for the tool that does. |
 | Document live co-editing, presence, locks | A 409 lands on the same document more than once a week. |
@@ -756,12 +765,6 @@ larger than its finding.
 Twenty-four repositories under `~/external` were read against FEATURES and
 this file. The hardening branch `fix/trust-loop-and-hardening` shipped what
 was built. Everything below is open.
-
-**Approved features, one branch each.** Each has a plan with the owner's
-decisions settled on 2026-09-28, in `docs/intent/`.
-- **Routines** [L] — `docs/intent/routines.md`. Weekly recurring tasks that
-  can delegate under the owner's standing consent; a missed time fires once
-  late; routine verdicts are counted apart from hand delegations.
 
 **Agent loop, not built.** Each waits on a trigger the new wake outcome
 codes can now show.
