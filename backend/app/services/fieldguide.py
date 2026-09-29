@@ -178,6 +178,11 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
         _act(u, "update_promise", f"#% {s}") for s in ("kept", "missed", "withdrawn")
     ),
     "resolve_blocker": lambda u: _act(u, "resolve_blocker"),
+    # task_id: capture and standups never set it, and an agent's blocker names
+    # the agent, so only the task panel's form ties this card
+    "task_blocker": lambda u: _has(
+        "SELECT 1 FROM blockers WHERE created_by = ? AND task_id IS NOT NULL", (u,)
+    ),
     "close_engagement": lambda u: _act(u, "update_engagement", "#% closed"),
     # the brief is a READ, and reads leave no ledger row — but the reader who
     # got there followed a link somebody had to make, so the honest signal is

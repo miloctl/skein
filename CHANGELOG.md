@@ -20,6 +20,9 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- A blocker raised against a task no longer reopens a task that was finished at the same moment. The finished task kept its Done status and its completion time.
+- The task panel raises a blocker against the task: select blocked…, write what blocks it, pick the impact, and name who can clear it. The blocker sets the task to Blocked and starts its escalation clock. The status list no longer offers a bare Blocked, which left a task blocked with no reason on record. New field-guide card: Block a task with its reason (Water Knot).
+
 ### Operations
 
 ## 0.6.11 — 2026-09-28

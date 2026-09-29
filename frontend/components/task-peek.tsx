@@ -8,6 +8,7 @@ import { isGated, subscribeGated } from "@/lib/gated";
 import { reportStatus } from "@/lib/status";
 import { PersonInput } from "@/components/person-input";
 import { Provenance } from "@/components/provenance";
+import { RaiseBlockerForm } from "@/components/raise-blocker-form";
 import { VisibilityBadge } from "@/components/visibility-picker";
 import { timeAgo } from "@/lib/time";
 
@@ -641,13 +642,18 @@ export function TaskPeek() {
 // merely unpickable, a value absent there is a 400. `void` is deliberately
 // not in the select: it has its own confirmed control below, and a voided
 // task's select carries it so the restore path (pick a live status) exists.
-const STATUSES = ["todo", "in_progress", "blocked", "done"];
+// `blocked` is left out for the same kind of reason: a blocker sets it
+// (RaiseBlockerForm), and a bare pick left a task Blocked with no reason, no
+// owner and no escalation clock. A blocked task's select still carries it,
+// so the current value shows.
+const STATUSES = ["todo", "in_progress", "done"];
 const PRIORITIES = ["low", "medium", "high", "urgent"];
 
 function EditControls({ task, onSaved }: { task: PeekTask; onSaved: () => void }) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [voiding, setVoiding] = useState(false);
+  const [blocking, setBlocking] = useState(false);
   const [draft, setDraft] = useState({
     status: "",
     priority: "",
@@ -673,6 +679,21 @@ function EditControls({ task, onSaved }: { task: PeekTask; onSaved: () => void }
       setBusy(false);
     }
   };
+
+  if (blocking)
+    return (
+      <RaiseBlockerForm
+        task={task}
+        onRaised={() => {
+          setBlocking(false);
+          onSaved();
+        }}
+        onCancel={() => {
+          setBlocking(false);
+          setTimeout(() => document.getElementById(`block-task-${task.id}`)?.focus(), 0);
+        }}
+      />
+    );
 
   if (!editing)
     return (
@@ -709,6 +730,20 @@ function EditControls({ task, onSaved }: { task: PeekTask; onSaved: () => void }
               Mark task #{task.id}: {task.title}{" "}
             </span>
             mark done
+          </button>
+        ) : null}
+        {/* offered on a delegated task too: an agent raises its own
+            blockers, and the service refuses only done and void there */}
+        {task.status === "todo" || task.status === "in_progress" ? (
+          <button
+            id={`block-task-${task.id}`}
+            onClick={() => setBlocking(true)}
+            className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+          >
+            <span className="sr-only">
+              Block task #{task.id}: {task.title} —{" "}
+            </span>
+            blocked…
           </button>
         ) : null}
         {/* void: the task never should have existed. Its own confirmed
@@ -817,7 +852,7 @@ function EditControls({ task, onSaved }: { task: PeekTask; onSaved: () => void }
             onChange={(e) => setDraft({ ...draft, status: e.target.value })}
             className={field}
           >
-            {STATUSES.map((s) => (
+            {(task.status === "blocked" ? [...STATUSES, "blocked"] : STATUSES).map((s) => (
               <option key={s} value={s}>
                 {s.replace("_", " ")}
               </option>
