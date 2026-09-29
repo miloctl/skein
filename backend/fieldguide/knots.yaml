@@ -416,6 +416,15 @@ knots:
     link: /
     since: 2026-07-31
 
+  - id: task_blocker
+    feature: Block a task with its reason
+    knot: Water Knot
+    set: bends
+    pitch: A task that says Blocked also says why, who can clear it, and how long it has waited.
+    how: Open a task, then select blocked…. Write what blocks it, pick the impact, and name who can clear it. Skein files a blocker against the task and sets the task to Blocked. The escalation clock starts at once.
+    link: /dashboard
+    since: 2026-09-28
+
   - id: chat_engagement
     feature: Bill a chat to its engagement
     knot: Carrick Bend

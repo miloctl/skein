@@ -30,7 +30,7 @@ def test_registry_is_valid_and_complete():
     from app.services import fieldguide
 
     cards = fieldguide.registry()
-    assert len(cards) == 69
+    assert len(cards) == 70
     ids = {k["id"] for k in cards}
     assert ids == set(fieldguide.PREDICATES)
     for k in cards:
@@ -198,7 +198,7 @@ def test_hint_and_guide_use_the_same_tieable_total(fresh_db):
     from app.services import fieldguide
 
     _mint(fresh_db, "ava")
-    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 68
+    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 69
 
 
 def test_first_detection_seeds_silently(fresh_db):
@@ -839,3 +839,16 @@ def test_browser_signin_knot_uses_real_session_provenance(fresh_db):
     assert not fieldguide.PREDICATES["browser_signin"]("ava")
     browser_sessions.create_key_session(key, mode="trusted-header")
     assert fieldguide.PREDICATES["browser_signin"]("ava")
+
+
+def test_task_blocker_ties_only_on_a_blocker_that_names_its_task(fresh_db):
+    """Capture files a blocker with no task, and the card teaches the task
+    panel's form, so a captured blocker must not tie it."""
+    from app.services import blockers, fieldguide, work
+
+    _mint(fresh_db, "ava")
+    blockers.raise_blocker("vendor outage", actor="ava")
+    assert fieldguide.PREDICATES["task_blocker"]("ava") is False
+    task = work.create_task(title="migrate billing", actor="ava")
+    blockers.raise_blocker("waiting for DBA access", task_id=task["id"], actor="ava")
+    assert fieldguide.PREDICATES["task_blocker"]("ava") is True
