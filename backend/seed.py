@@ -183,6 +183,17 @@ def main() -> None:
         dt["id"], "summary drafted for all 6 competitors", actor="research-agent"
     )
 
+    # one agent document, so Reports has something a person can edit and
+    # restore (e2e/document-revisions.spec.ts walks it)
+    from app.services import documents
+
+    documents.create_document(
+        "Pricing research plan",
+        "# Pricing research plan\n\nCompare the six competitor pricing pages.\n",
+        actor="research-agent",
+        origin="agent",
+    )
+
     # One flock turn, so /agents renders the DIAMOND rather than its empty
     # state. Without a trace the e2e walk scans the empty branch and the
     # component — its aria-label, its text nodes, its strokes in dark — is

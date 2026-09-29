@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import { ArtifactMarkdown } from "@/components/artifact-markdown";
 import { Card, EmptyState } from "@/components/card";
+import { DocumentEditor } from "@/components/document-editor";
+import { DocumentHistory } from "@/components/document-history";
 import { PeekLink } from "@/components/task-peek";
 import { api, loadError } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
@@ -34,7 +36,7 @@ type Artifact = {
   created_at: string;
 };
 
-type Body = Artifact & { markdown: string; threads?: EntityRef[] };
+type Body = Artifact & { markdown: string; threads?: EntityRef[]; revision?: number };
 
 type ArtifactPage = {
   items: Artifact[];
@@ -47,7 +49,8 @@ type ArtifactPage = {
  *  A kind absent here falls through to itself rather than to a guess. */
 const KIND_LABEL: Record<string, string> = {
   digest: "Daily digest",
-  document: "Agent document",
+  // people write documents too now (PUT /api/documents), not only agents
+  document: "Document",
   readout: "Exec readout",
   handoff: "Handoff",
   ritual: "Week ritual",
@@ -108,6 +111,9 @@ export default function ArtifactsPage() {
   const [bodyError, setBodyError] = useState<{ id: number; message: string } | null>(
     null,
   );
+  // keyed by the report it belongs to, like `body`: opening another report
+  // leaves a stale editor or history behind as neither
+  const [mode, setMode] = useState<{ id: number; view: "edit" | "history" } | null>(null);
 
   useEffect(() => {
     api<ArtifactPage>("/api/artifacts/page")
@@ -186,6 +192,13 @@ export default function ArtifactsPage() {
   // error left over from the previous pick renders as neither
   const shown = body?.id === openId ? body.data : null;
   const failure = bodyError?.id === openId ? bodyError.message : "";
+  const view = mode && mode.id === openId ? mode.view : "read";
+  const isDocument = shown?.kind === "document";
+
+  const backToEdit = useCallback(() => {
+    setMode(null);
+    setTimeout(() => document.getElementById("document-edit")?.focus(), 0);
+  }, []);
 
   const copyMarkdown = useCallback(async () => {
     if (!shown) return;
@@ -326,6 +339,29 @@ export default function ArtifactsPage() {
                   aria-label="Report actions"
                   className="mb-4 flex flex-wrap gap-2"
                 >
+                  {isDocument ? (
+                    <>
+                      <button
+                        id="document-edit"
+                        type="button"
+                        aria-pressed={view === "edit"}
+                        onClick={() => setMode(view === "edit" ? null : { id: shown.id, view: "edit" })}
+                        className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 hover:border-line-strong hover:text-ink"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={view === "history"}
+                        onClick={() =>
+                          setMode(view === "history" ? null : { id: shown.id, view: "history" })
+                        }
+                        className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 hover:border-line-strong hover:text-ink"
+                      >
+                        History
+                      </button>
+                    </>
+                  ) : null}
                   <button
                     type="button"
                     onClick={copyMarkdown}
@@ -341,7 +377,24 @@ export default function ArtifactsPage() {
                     Download Markdown
                   </button>
                 </div>
-                {shown.threads?.length ? (
+                {view === "edit" ? (
+                  <DocumentEditor
+                    artifactId={shown.id}
+                    onSaved={() => {
+                      // the write cleared the GET cache (lib/api.ts), so this
+                      // refetch reads the new head
+                      setBodyRequest((request) => request + 1);
+                      backToEdit();
+                    }}
+                    onCancel={backToEdit}
+                  />
+                ) : view === "history" ? (
+                  <DocumentHistory
+                    artifactId={shown.id}
+                    onRestored={() => setBodyRequest((request) => request + 1)}
+                  />
+                ) : null}
+                {view === "read" && shown.threads?.length ? (
                   <section
                     aria-labelledby="report-threads-title"
                     className="mb-4 rounded-lg border border-line bg-raised/50 p-3"
@@ -364,9 +417,11 @@ export default function ArtifactsPage() {
                 {/* the body is wide content (long lines, indented lists), so it
                     scrolls inside its own box rather than pushing the page
                     sideways */}
-                <div className="overflow-x-auto">
-                  <ArtifactMarkdown markdown={shown.markdown} />
-                </div>
+                {view === "read" ? (
+                  <div className="overflow-x-auto">
+                    <ArtifactMarkdown markdown={shown.markdown} />
+                  </div>
+                ) : null}
               </>
             )}
           </Card>
