@@ -398,6 +398,16 @@ knots:
     link: /settings
     since: 2026-08-03
 
+  - id: repo_pack
+    feature: Context pack in a repository
+    knot: Ashley Bend
+    set: bends
+    ties: mark
+    pitch: Pack the team's context into the repository, and every agent that opens it starts with the brief.
+    how: "In the repository, run `skein context --engagement <id> --write AGENTS.md`. Skein writes its block between two marker lines and keeps your other text. Run the command again to refresh the block."
+    link: /settings
+    since: 2026-09-29
+
   - id: remote-tools
     feature: Personal MCP servers
     knot: Anchor Bend

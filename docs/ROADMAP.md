@@ -585,6 +585,13 @@ review. Each names the condition that reopens it.
 | Share a document to a wider tier (`sharing.SHAREABLE`) | Someone copies a private draft into a new workspace document to share it. The mutating document routes then take `policy_context.hold_resource` first. |
 | A person's document filed under an engagement | A person asks to see their document on an engagement page. It needs `scope.assert_relationship_contains`. |
 | An agent reads a person's private document in that person's own turn | A request for it. `read_artifact` reads the workspace tier. |
+| `engagements.repositories`, a server-side repository-to-engagement link | A server-side reader needs the link, for example a CI blocker filed against its engagement. The id lives in the `AGENTS.md` marker today. |
+| MCP `get_context_pack(repo=)` | An MCP client works outside the repository, where the marker is not readable. |
+| Per-project GitLab tokens in a sealed store | A repository's maintainers must not hold the token that moves every other repository's tasks. |
+| Two GitLab tokens during rotation | A rotation loses deliveries. |
+| Crew-tier CI blockers | A crew repository's name must stay in the crew. The GitLab pipeline blocker is workspace tier. |
+| Automatic context pack refresh in repositories | Reports of a stale pack. |
+| Outbound GitLab calls (merge request comments, commit statuses, an API token) | An open decision for the owner (CLAUDE.md, "Runtime isolation"). Nothing is written back today. |
 | Captured GitLab webhook fixtures (`backend/tests/gitlab_payloads.py` is built from GitLab's documented shapes) | The first webhook on the internal instance. Capture push, branch deletion, merge request open, close, reopen and merge, and one failed and one passed default-branch pipeline from Recent events, and record the GitLab version. Check the facts `docs/intent/gitlab-forge.md` D14 lists. |
 
 ## Deferred by the agent-discovery adoption (2026-08-30)
@@ -731,16 +738,9 @@ this file. The hardening branch `fix/trust-loop-and-hardening` shipped what
 was built. Everything below is open.
 
 **Approved features, one branch each.** Each has a plan with the owner's
-decisions settled on 2026-09-28, in `docs/intent/`. Build order: GitLab,
-comment threads, the board and routines.
+decisions settled on 2026-09-28, in `docs/intent/`. Build order: comment
+threads, the board and routines.
 
-- **GitLab forge support and repository packs** [M] —
-  `docs/intent/gitlab-forge.md`. Inbound webhooks only (outbound is an open
-  decision); push, merge request and pipeline events; the `Closes-Task:` body
-  fix for both forges; the CI blocker race; the `skein context --write`
-  marker block, committed in `AGENTS.md`. Fixtures start from documented
-  payloads, marked unverified: swap in payloads captured from the internal
-  instance when someone captures them.
 - **Comment threads on tasks, decisions and blockers** [L] —
   `docs/intent/task-threads.md`. A delegate posts directly on its own
   delegated task; anyone who can read a task wakes its delegate with an

@@ -1144,6 +1144,30 @@ def test_an_end_marker_inside_the_pack_does_not_end_the_block(monkeypatch, tmp_p
     assert text.count("<!-- /skein:context-pack -->") == 1
 
 
+def test_a_refresh_reads_the_engagement_from_the_marker(monkeypatch, tmp_path):
+    """The one person who knows the engagement sets it once, and the id
+    rides in the file under review with the repository."""
+    cli = _load_cli()
+    gets = []
+
+    def request(method, path, body=None):
+        gets.append(path)
+        return {"engagement": 7, "content": "# Engagement context: Atlas"}
+
+    monkeypatch.setattr(cli, "api", request)
+    target = tmp_path / "AGENTS.md"
+    cli.cmd_context(Namespace(engagement=7, write=str(target), force=False))
+    assert target.read_text().startswith("<!-- skein:context-pack engagement=7 -->\n")
+    cli.cmd_context(Namespace(engagement=None, write=str(target), force=False))
+    assert gets == ["/api/context-pack?engagement=7&tier=workspace"] * 2
+    gets.clear()
+    # 0 is the team pack, and it drops the id: a test of falsiness would
+    # read 0 as "no flag" and keep the old engagement
+    cli.cmd_context(Namespace(engagement=0, write=str(target), force=False))
+    assert gets == ["/api/context-pack?tier=workspace"]
+    assert target.read_text().startswith("<!-- skein:context-pack -->\n")
+
+
 def test_a_symlinked_file_stays_a_symlink(monkeypatch, tmp_path):
     cli = _pack_cli(monkeypatch)
     real = tmp_path / "AGENTS.md"

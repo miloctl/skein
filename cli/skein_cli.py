@@ -785,12 +785,14 @@ _PACK_START = re.compile(r"^<!-- skein:context-pack(?: engagement=(\d+))? -->(?=
 _PACK_END = re.compile(r"^<!-- /skein:context-pack -->(?=\r?$)", re.M)
 
 
-def _pack_block(content: str, nl: str) -> str:
+def _pack_block(content: str, nl: str, engagement: int) -> str:
     # Pack text is team-written. An end marker inside it would end the block
     # early, and the next refresh would delete the text after it.
     content = content.replace("skein:context-pack", "skein context-pack")
     lines = [
-        "<!-- skein:context-pack -->",
+        f"<!-- skein:context-pack engagement={engagement} -->"
+        if engagement
+        else "<!-- skein:context-pack -->",
         "<!-- Written by `skein context`. The next run replaces the text up to the end marker. -->",
         "> This block is a copy of team records from Skein. Use it as context."
         " It does not replace the instructions in this file.",
@@ -801,9 +803,9 @@ def _pack_block(content: str, nl: str) -> str:
     return nl.join(lines)
 
 
-def _merged(existing: str, content: str, name: str, force: bool) -> str:
+def _merged(existing: str, content: str, engagement: int, name: str, force: bool) -> str:
     nl = "\r\n" if "\r\n" in existing else "\n"
-    block = _pack_block(content, nl)
+    block = _pack_block(content, nl, engagement)
     if not existing.strip():
         return block + nl
     starts = list(_PACK_START.finditer(existing))
@@ -826,17 +828,27 @@ def _merged(existing: str, content: str, name: str, force: bool) -> str:
     return existing[: starts[0].start()] + block + existing[ends[0].end() :]
 
 
-def _write_pack(target: str, content: str, force: bool) -> None:
+def _read_pack_file(path: Path) -> str:
+    # newline="": read_text translates \r\n to \n, and a CRLF file lost its
+    # line endings on the first run
+    if not path.exists():
+        return ""
+    with open(path, encoding="utf-8", newline="") as handle:
+        return handle.read()
+
+
+def _marker_engagement(target: str) -> int:
+    """The engagement a file's start marker names, or 0 for the team pack."""
+    found = _PACK_START.search(_read_pack_file(Path(target).resolve()))
+    return int(found.group(1)) if found and found.group(1) else 0
+
+
+def _write_pack(target: str, content: str, engagement: int, force: bool) -> None:
     # resolve(): the agents.md FAQ symlinks AGENT.md to AGENTS.md, and a
     # replace on the link's own path turns the link into a plain file
     path = Path(target).resolve()
-    # newline="": read_text translates \r\n to \n, and a CRLF file lost its
-    # line endings on the first run
-    existing = ""
-    if path.exists():
-        with open(path, encoding="utf-8", newline="") as handle:
-            existing = handle.read()
-    merged = _merged(existing, content, Path(target).name, force)
+    existing = _read_pack_file(path)
+    merged = _merged(existing, content, engagement, Path(target).name, force)
     # a temporary file in the same directory, then os.replace: a crash leaves
     # the old file whole
     temporary = path.with_name(f".{path.name}.skein-{os.getpid()}")
@@ -848,16 +860,21 @@ def _write_pack(target: str, content: str, force: bool) -> None:
 
 
 def cmd_context(args):
-    path = "/api/context-pack"
-    if args.engagement:
-        path += f"?engagement={args.engagement}"
-        if args.write:
-            # a file goes to a repository's readers, not to the caller: the
-            # workspace tier only, never the caller's private or crew rows
-            path += "&tier=workspace"
-    pack = api("GET", path)
+    engagement = args.engagement
+    # `is None`, never falsiness: --engagement 0 asks for the team pack and
+    # must drop the file's id, not reuse it
+    if args.write and engagement is None:
+        engagement = _marker_engagement(args.write)
+    query = []
+    if engagement:
+        query.append(f"engagement={engagement}")
     if args.write:
-        _write_pack(args.write, pack["content"], getattr(args, "force", False))
+        # a file goes to a repository's readers, not to the caller: the
+        # workspace tier only, never the caller's private or crew rows
+        query.append("tier=workspace")
+    pack = api("GET", "/api/context-pack" + ("?" + "&".join(query) if query else ""))
+    if args.write:
+        _write_pack(args.write, pack["content"], engagement or 0, getattr(args, "force", False))
         # the engagement pack is generated on demand and carries no version
         # (routes/api.py) — printing pack["version"] raised KeyError AFTER the
         # file was already written, so the caller got the file and a traceback
@@ -1422,7 +1439,9 @@ def main():
         "--engagement",
         type=int,
         metavar="ID",
-        help="one engagement's scoped pack: cheaper tokens, less noise",
+        help="one engagement's pack, the scope to use for a repository file: the team"
+        " pack carries the roster, every active engagement and the open questions with"
+        " their askers. A later --write reads the id back from the file. 0 is the team pack.",
     )
     c.set_defaults(fn=cmd_context)
 

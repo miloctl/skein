@@ -90,6 +90,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # scheduling an event proves nothing, because the agent tools and every
     # playbook ritual write events without the page
     "calendar": None,
+    "repo_pack": None,
     # a row the person wrote that names its meeting, from pasted notes or a
     # link in the meeting panel. created_by, so an agent's approved create,
     # which the review applies as the agent (review.approve_change), does
