@@ -166,3 +166,18 @@ def test_semantic_matches_fill_every_free_slot(fresh_db, monkeypatch):
     ranked = [{"entity": "task", "entity_id": i, "score": 0.9} for i in (a, b, c)]
     monkeypatch.setattr(search, "semantic_search", lambda q, limit=10, entity="": ranked[:limit])
     assert [h["entity_id"] for h in search.search("alpha", limit=3)] == [a, b, c]
+
+
+def test_a_document_is_found_by_its_current_text_only(fresh_db):
+    """Documents were not indexed at all. The index upserts on (entity,
+    entity_id), so an old revision's words stop matching once it is replaced."""
+    from app.services import documents, scope, search
+
+    doc = documents.create_document("Runbook", "alpha cedar", actor="scribe")["id"]
+    documents.edit_document(doc, "cedar", "juniper", actor="scribe")
+    viewer = scope.Viewer("mira", True)
+    found = [(h["entity"], h["entity_id"]) for h in search.search("juniper", viewer=viewer)]
+    assert ("document", doc) in found
+    assert ("document", doc) not in [
+        (h["entity"], h["entity_id"]) for h in search.search("cedar", viewer=viewer)
+    ]

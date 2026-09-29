@@ -143,7 +143,8 @@ function EntityLink({
   // search is the most literal form of "how is Atlas going" there is. A note
   // opens alone on /notes (app/notes/page.tsx): the list there holds only the
   // newest page, so an anchor to an older note would name no element. An
-  // event opens in its panel on /calendar, in whatever month it falls.
+  // event opens in its panel on /calendar, in whatever month it falls. A
+  // document opens on Reports, which selects it by id.
   const page =
     entity === "engagement"
       ? `/engagement/${entityId}`
@@ -151,7 +152,9 @@ function EntityLink({
         ? `/notes?note=${entityId}`
         : entity === "event"
           ? `/calendar?event=${entityId}`
-          : ENTITY_PAGE[entity]
+          : entity === "document"
+            ? `/artifacts?id=${entityId}`
+            : ENTITY_PAGE[entity]
         ? `${ENTITY_PAGE[entity]}${anchor ? `#${anchor}` : ""}`
         : "";
   if (!page) return <span>{children}</span>;
