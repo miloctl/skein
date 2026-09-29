@@ -573,6 +573,14 @@ review. Each names the condition that reopens it.
 | An event picker in the capture palette (`C`) | Linking after the fact from the meeting panel is common enough that the extra step costs time. |
 | Sharing an event to a wider tier | A request for it. It goes in `sharing.py`, which only widens, so no linked row becomes wider than its meeting. |
 | Authority matrix split by action class (internal edit vs external send) | An agent holds `autonomous` on an entity where one verb is internal and another leaves Skein (mail, webhook, customer surface). Today no tool on a granted entity crosses that line — the split waits for the tool that does. |
+| Document live co-editing, presence, locks | A 409 lands on the same document more than once a week. |
+| Merge help after a document 409 (base → head beside the unsaved text) | People report retyping after a 409. |
+| An agent restore tool for documents | A reviewer asks an agent to "undo that edit". |
+| MCP and CLI document commands | Someone edits a design doc from their editor. |
+| An @mention scan on a document save | A person asks to be pinged from a document. |
+| `document` as a `refs.TARGETS` word | An agenda or a thread names a document and it renders as plain text. |
+| Rename and delete a shared document | The first request. |
+| A document revision cap or pruning | A document passes 200 revisions, or `document_revisions` passes 5% of the dump. |
 
 ## Deferred by the agent-discovery adoption (2026-08-30)
 
