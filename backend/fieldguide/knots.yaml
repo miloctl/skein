@@ -350,7 +350,7 @@ knots:
     # an ordinary task PATCH, which the peek and Browse send too
     ties: mark
     pitch: Every strand hung from one line, in the column its status names.
-    how: "Open Work → Board. Select a task to open it in the side panel. To see one engagement, open the engagement and select Open the board."
+    how: "Open Work → Board. Select a task to open it in the side panel. To see one engagement, open the engagement and select Open the board. To move a task, drag it to a column, or select Move and then a column. To move a task to Blocked, write what blocks it. This raises a blocker. To move a blocked task out, resolve its blockers. A task delegated to an agent has no Move control, because only the sponsor's verdict in Inbox closes it."
     link: /board
     since: 2026-09-29
 
