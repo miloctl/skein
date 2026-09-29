@@ -30,6 +30,13 @@ _TEXT = re.compile(
     r"\b(?:clos(?:e|es|ed)|fix(?:es|ed)?|resolv(?:e|es|ed))[ \t]+task[ \t]?#?[ \t]?(\d{1,9})\b",
     re.ASCII | re.IGNORECASE,
 )
+# The line `skein pr-body` writes (cli/skein_cli.py). _TEXT needs a space
+# after the verb, so it never read `Closes-Task: #42`. A line of its own, in
+# the body only: `Refs-Task` names a task without closing it, and a Push Hook
+# commit message is never read, because a closing trailer on a
+# work-in-progress commit is the lie the commit-msg hook stopped writing.
+# Fixed-width separators for the reason above.
+_TRAILER = re.compile(r"^Closes-Task:[ \t]?#?(\d{1,9})\b", re.MULTILINE | re.IGNORECASE | re.ASCII)
 # the payload is already bounded by MAX_FORGE_BODY, and _TEXT is linear, so
 # these are correctness bounds only: a branch name or title longer than this
 # is not a ref anyone typed. The BODY is scanned whole — a closing verb at the
@@ -43,6 +50,7 @@ def match_task(branch: str = "", title: str = "", body: str = "") -> int | None:
         (_BRANCH, branch, _SCAN["branch"]),
         (_TEXT, title, _SCAN["title"]),
         (_TEXT, body, None),
+        (_TRAILER, body, None),
     ):
         found = pattern.search((text or "")[:cap] if cap else (text or ""))
         if found:
