@@ -11,13 +11,13 @@ import { PersonInput } from "@/components/person-input";
 const IMPACTS = ["low", "medium", "high", "critical"];
 
 /** Raise a blocker against one task. The service sets the task to Blocked
- *  (services/blockers.py::raise_blocker), so this is the one way the panel
- *  and the board put a task there: a bare status left a task Blocked with no
- *  reason, no owner and no escalation clock.
+ *  (services/blockers.py::raise_blocker), so this is how the task panel puts
+ *  a task there: a bare status leaves a task Blocked with no reason, no owner
+ *  and no escalation clock.
  *
  *  The blocker takes the task's own tier: the service refuses a blocker wider
  *  than its task (scope.assert_relationship_contains), and a narrower one
- *  would hide the cause from people who can see the task is blocked. */
+ *  hides the cause from people who can see the task is blocked. */
 export function RaiseBlockerForm({
   task,
   onRaised,
@@ -48,10 +48,9 @@ export function RaiseBlockerForm({
           crew_id: task.crew_id ?? 0,
         }),
       });
-      reportStatus(
-        `Task #${task.id} is blocked. Blocker #${blocker.id} is open.`,
-        "confirmation",
-      );
+      // not "the task is blocked": from a stale panel the service files the
+      // blocker and leaves a finished task finished, and the reload shows it
+      reportStatus(`Blocker #${blocker.id} is open on task #${task.id}.`, "confirmation");
       onRaised();
     } catch (e) {
       // the draft stays: the refusal names what to fix, and retyping the
@@ -63,7 +62,17 @@ export function RaiseBlockerForm({
   };
 
   return (
-    <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-xs">
+    <div
+      className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-xs"
+      onKeyDown={(e) => {
+        // stopped here: TaskPeek closes the whole panel on Escape at the
+        // document, which would drop the draft along with the form
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          onCancel();
+        }
+      }}
+    >
       <label htmlFor={`blocker-title-${task.id}`} className="text-ink-3">
         What blocks it?
       </label>
@@ -75,7 +84,6 @@ export function RaiseBlockerForm({
         onChange={(e) => setTitle(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && title.trim() && !busy) raise();
-          if (e.key === "Escape") onCancel();
         }}
         className={field}
       />

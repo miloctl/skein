@@ -179,7 +179,8 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     ),
     "resolve_blocker": lambda u: _act(u, "resolve_blocker"),
     # task_id: capture and standups never set it, and an agent's blocker names
-    # the agent, so only the task panel's form ties this card
+    # the agent, so a person's blocker filed against a task (the task panel's
+    # form, or a REST or command client that sends task_id) ties this card
     "task_blocker": lambda u: _has(
         "SELECT 1 FROM blockers WHERE created_by = ? AND task_id IS NOT NULL", (u,)
     ),

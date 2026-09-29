@@ -191,6 +191,9 @@ def test_a_blocker_never_reopens_a_task_finished_meanwhile(fresh_db):
     finally:
         other.close()
     worker.join(10)
+    # the worker's own failure is swallowed by the thread, so the blocker
+    # must exist, or a raise that errored out would pass this test
+    assert fresh_db.query_one("SELECT 1 FROM blockers WHERE task_id = ?", (tid,))
     row = fresh_db.query_one("SELECT status, completed_at FROM tasks WHERE id = ?", (tid,))
     assert row["status"] == "done"
     assert row["completed_at"]

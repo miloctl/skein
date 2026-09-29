@@ -76,7 +76,7 @@ describe("raise a blocker from the task panel", () => {
 
     await waitFor(() =>
       expect(screen.getByRole("status").textContent).toContain(
-        "Task #80 is blocked. Blocker #9 is open.",
+        "Blocker #9 is open on task #80.",
       ),
     );
     expect(state.posts).toEqual([
@@ -93,6 +93,31 @@ describe("raise a blocker from the task panel", () => {
       },
     ]);
   });
+
+  it("hands focus to the edit control once the blocker is filed", async () => {
+    await open();
+    fireEvent.change(screen.getByLabelText("What blocks it?"), {
+      target: { value: "Waiting for the DBA" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Raise blocker" }));
+    const edit = await screen.findByRole("button", { name: /Edit task #80/ });
+    await waitFor(() => expect(document.activeElement).toBe(edit));
+  });
+
+  it.each([["What blocks it?"], ["Impact"]])(
+    "Escape in %s closes the form and keeps the panel open",
+    async (label) => {
+      await open();
+      fireEvent.keyDown(screen.getByLabelText(label), { key: "Escape" });
+      await waitFor(() =>
+        expect(document.activeElement).toBe(
+          screen.getByRole("button", { name: /Block task #80/ }),
+        ),
+      );
+      expect(screen.getByRole("dialog")).toBeTruthy();
+      expect(window.location.search).toBe("?task=80");
+    },
+  );
 
   it("needs a reason before it raises", async () => {
     await open();
@@ -129,6 +154,14 @@ describe("raise a blocker from the task panel", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Edit task #80/ }));
     const status = screen.getByLabelText("Status") as HTMLSelectElement;
     expect([...status.options].map((o) => o.value)).toEqual(["todo", "in_progress", "done"]);
+  });
+
+  it("shows void as the current status of a void task", async () => {
+    state.status = "void";
+    render(<TaskPeek />);
+    fireEvent.click(await screen.findByRole("button", { name: /Edit task #80/ }));
+    const status = screen.getByLabelText("Status") as HTMLSelectElement;
+    expect(status.value).toBe("void");
   });
 
   it("still shows blocked as the current status of a blocked task", async () => {
