@@ -15,6 +15,7 @@ import { actionError, api, loadError } from "@/lib/api";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
 import { PersonInput } from "@/components/person-input";
 import { ReceiptLine } from "@/components/receipt";
+import { RoutinesCard } from "@/components/routines-card";
 import type { Receipt } from "@/lib/entity-ref";
 import { HASH_TARGET, useHashTarget } from "@/lib/hash-target";
 import { dismissStatus, reportStatus } from "@/lib/status";
@@ -330,8 +331,20 @@ function AgendaSection({ id, title, children }: { id: string; title: string; chi
 }
 
 function SupportingSection({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
+  const details = useRef<HTMLDetailsElement>(null);
+  // A link to a section (a notice, the field guide, the task panel's routine
+  // line) lands on its summary (lib/hash-target.ts). Closed, the reader
+  // arrives at a heading and must open it to see why they came.
+  useEffect(() => {
+    const open = () => {
+      if (window.location.hash === `#${id}` && details.current) details.current.open = true;
+    };
+    open();
+    window.addEventListener("hashchange", open);
+    return () => window.removeEventListener("hashchange", open);
+  }, [id]);
   return (
-    <details className="skein-card rounded-xl border border-line bg-card p-4">
+    <details ref={details} className="skein-card rounded-xl border border-line bg-card p-4">
       <summary id={id} className={`cursor-pointer ${HASH_TARGET}`}>
         <h2 className="skein-section-title inline">{title}</h2>
       </summary>
@@ -474,6 +487,7 @@ export default function Planning() {
           ["planning-last-week", "Last week"],
           ["planning-needs-call", "Needs a call"],
           ["planning-this-week", "This week"],
+          ["planning-routines", "Routines"],
           ["planning-weeks-ahead", "Weeks ahead"],
           ["planning-triage", "Triage"],
           ...(d.awaiting.length ? [["planning-awaiting", "Awaiting"]] : []),
@@ -696,6 +710,11 @@ export default function Planning() {
           <p className="mt-2 text-xs text-ink-3">Nobody is over 100% today.</p>
         )}
       </AgendaSection>
+
+      {/* the work the week brings back on its own, set up where the week is */}
+      <SupportingSection id="planning-routines" title="Routines">
+        <RoutinesCard />
+      </SupportingSection>
 
       {/* 4 — the weeks after this one. Accepting work today against today's
           numbers is how a conflict gets noticed on the day it arrives. */}

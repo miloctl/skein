@@ -844,6 +844,11 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "chat_members": ("person", "added_by"),
     "chat_invitations": ("person", "invited_by"),
     "chat_agent_runs": ("agent", "requested_by"),
+    # BEFORE crews: rename_user locks these rows in this order, and a routine
+    # firing holds its routine row and then its crew row
+    # (routines.fire_due -> crews.assert_writable). With crews first, a
+    # rename and a firing each wait on the other's row.
+    "routines": ("created_by", "assignee", "agent", "paused_by"),
     # crew membership keys on the roster name, and a rename that leaves it
     # behind silently drops the person out of every crew they could read
     "crew_members": ("person", "created_by"),
@@ -1568,6 +1573,14 @@ def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
                     " WHERE requested_by = ? AND status = 'pending'",
                     (db.now(), name),
                 )
+            # Under the identity lock above: a routine firing takes the same
+            # lock before its row (routines.fire_due), so it waits here and
+            # then reads the paused row. A routine left active would keep
+            # creating tasks under a departed name, or delegating to an
+            # agent that can no longer take the work.
+            from .routines import pause_for_identity
+
+            pause_for_identity(name, str(row["kind"]))
         # the erase clock (services/erasure.py): a deactivation of an account
         # already inactive keeps its date, and reactivation stops the clock
         if active:

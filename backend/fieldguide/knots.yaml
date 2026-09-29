@@ -354,6 +354,15 @@ knots:
     link: /board
     since: 2026-09-29
 
+  - id: routine
+    feature: Routines
+    knot: Daisy Chain
+    set: loops
+    pitch: One loop, tied again and again down the line. Write the work once, and each week ties the next loop.
+    how: "Open Work → Plan the week → Routines. Write the task, and pick the days and the time. If an agent does the work, pick the agent. Skein creates a new task each time. If the last task is still open, Skein skips that time."
+    link: /planning#planning-routines
+    since: 2026-09-29
+
   # ---- Hitches — attaching work to an agent ---------------------------
   - id: bosun
     feature: Bosun

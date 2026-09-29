@@ -26,6 +26,12 @@ LEVELS = ("autonomous", "notify", "review", "forbidden")
 NO_AUTHORITY = frozenset({"authority", "task_completion", "weekly_plan"})
 TRUST_STREAK = 5  # consecutive approvals before we suggest promotion
 
+# A routine repeats one piece of work: counted as hand work, its weekly
+# acceptances read as many judgments (docs/intent/routines.md D11). A settled
+# proposal is a routine verdict when it accepts a task a routine made.
+# review.season_readout splits on this same join, so the surfaces agree.
+ROUTINE_JOIN = "LEFT JOIN tasks rt ON p.entity = 'task_completion' AND rt.id = p.entity_id"
+
 
 def delegate_task(
     task_id: int,
@@ -143,6 +149,9 @@ def delegate_task(
             " WHERE id = ?",
             (agent, sponsor, agent, acceptance_criteria, check_in_at or None, db.now(), task_id),
         )
+        # review.season_readout splits hand and routine delegations by the id
+        # this detail starts with: a new shape moves routine delegations into
+        # the hand counts (tests/test_routine_counts.py)
         db.log_activity(actor, "delegate_task", f"#{task_id} -> {agent} (sponsor: {sponsor})")
         from .work import _emit_task_event
 
@@ -752,12 +761,20 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
     leaderboards, ever). `GET /api/agents/trust` served exactly that while a
     caller-side filter made the surface look covered.
     """
+    # proposed, approved and rejected are HAND verdicts, so approval_rate is
+    # too. A routine's acceptances are counted apart (ROUTINE_JOIN), and a
+    # pair whose only verdicts came from routines still has its row.
     rows = db.query(
-        "SELECT p.proposed_by AS agent, p.entity,"
-        " COUNT(*) AS proposed,"
-        " COUNT(*) FILTER (WHERE p.status = 'approved') AS approved,"
-        " COUNT(*) FILTER (WHERE p.status = 'rejected') AS rejected"
+        "SELECT p.proposed_by AS agent, p.entity,"  # noqa: S608 — ROUTINE_JOIN is a module constant
+        " COUNT(*) FILTER (WHERE rt.routine_id IS NULL) AS proposed,"
+        " COUNT(*) FILTER (WHERE p.status = 'approved' AND rt.routine_id IS NULL) AS approved,"
+        " COUNT(*) FILTER (WHERE p.status = 'rejected' AND rt.routine_id IS NULL) AS rejected,"
+        " COUNT(*) FILTER (WHERE p.status = 'approved' AND rt.routine_id IS NOT NULL)"
+        " AS routine_approved,"
+        " COUNT(*) FILTER (WHERE p.status = 'rejected' AND rt.routine_id IS NOT NULL)"
+        " AS routine_rejected"
         " FROM pending_changes p JOIN users u ON u.name = p.proposed_by AND u.kind = 'agent'"
+        f" {ROUTINE_JOIN}"
         " WHERE p.status != 'pending'"
         " GROUP BY p.proposed_by, p.entity ORDER BY proposed DESC"
     )
@@ -781,10 +798,14 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
         recent = (
             []
             if r["entity"] in review_only
+            # no routine verdicts: five weekly acceptances of one sweep are one
+            # piece of work judged five times, not five judgments in a row
             else db.query(
-                "SELECT status FROM pending_changes WHERE proposed_by = ? AND entity = ?"
-                " AND status != 'pending' AND reviewed_strong = 1 AND reviewed_override = 0"
-                " ORDER BY reviewed_at DESC NULLS LAST, id DESC LIMIT ?",
+                f"SELECT p.status FROM pending_changes p {ROUTINE_JOIN}"  # noqa: S608 — ROUTINE_JOIN is a module constant
+                " WHERE p.proposed_by = ? AND p.entity = ?"
+                " AND p.status != 'pending' AND p.reviewed_strong = 1"
+                " AND p.reviewed_override = 0 AND rt.routine_id IS NULL"
+                " ORDER BY p.reviewed_at DESC NULLS LAST, p.id DESC LIMIT ?",
                 (r["agent"], r["entity"], TRUST_STREAK),
             )
         )

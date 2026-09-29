@@ -143,6 +143,12 @@ def _retention_prune():
     return prune(actor="scheduler")
 
 
+def _routines():
+    from .routines import tick
+
+    return tick()
+
+
 def _erase_departed():
     from .erasure import erase_due
 
@@ -277,6 +283,19 @@ JOBS: tuple[JobSpec, ...] = (
         {"trigger": "cron", "hour": 4, "minute": 0},
         24,
         True,
+    ),
+    # cron, not an interval, so a 07:00 routine runs at 07:00 on the wall
+    # clock. Retry-safe: each firing commits its task, its wake and next_at
+    # together. catch_up=True on purpose, unlike agent-run: a routine's owner
+    # scheduled its turn, so a restart at 07:20 fires the 07:00 routine
+    # (docs/intent/routines.md D4).
+    JobSpec(
+        "routines",
+        _routines,
+        {"trigger": "cron", "minute": "*/5"},
+        1 / 12,
+        True,
+        retry_safe=True,
     ),
     # each erasure is its own transaction and skips an erased account, so a
     # retry repeats nothing

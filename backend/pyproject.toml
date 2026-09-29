@@ -149,6 +149,8 @@ ignore_names = [
     # __call__; services/shared_chat_agents.py only ever assigns it
     "callback_handler",
     "repository",  # CIEventIn schema field, read via model_dump() in services/ci.py
+    # RoutineIn and RoutinePatch fields, read via model_dump() in services/routines.py
+    "weekdays", "every_weeks",
     "model_config",  # pydantic v2 model settings, read by the metaclass
     # OAuthClientProvider reads this flag in the MCP SDK. Our refresh-CAS
     # failure hook clears it so the next request reloads the stored grant.

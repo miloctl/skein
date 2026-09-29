@@ -610,6 +610,8 @@ def test_every_bare_route_literal_is_accounted_for():
         "playbooks",
         "ready",
         "readiness",
+        # no routine route reads a project row, because a routine carries no project
+        "routines",
         "settings",
         "standups",
         "theme",

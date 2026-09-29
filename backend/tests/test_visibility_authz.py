@@ -27,6 +27,7 @@ from app.services import (
     intake,
     memory,
     promises,
+    routines,
     schedule,
     scope,
     users,
@@ -72,6 +73,11 @@ def _seed(cid, n=0):
     rows["milestone"] = work.create_milestone("crew milestone", name, **k)["id"]
     rows["document"] = documents.create_document("crew doc", "crew body", **k)["id"]
     rows["comment"] = comments.add_comment("crew comment", task_id=rows["task"], actor="ava")["id"]
+    routine = {"title": "crew routine", "weekdays": "1", "at_time": "07:00", **k}
+    rows["routine"] = routines.create_routine(routine, actor=k["actor"])["id"]
+    # paused, so resume has something to do: every seed of the author test
+    # would otherwise count against routines.MAX_ACTIVE_PER_OWNER
+    routines.pause_routine(rows["routine"], actor="ava")
     return rows
 
 
@@ -150,6 +156,13 @@ def _mutations(r):
         ),
         ("comments.edit_comment", lambda a: comments.edit_comment(r["comment"], "x", actor=a)),
         ("comments.delete_comment", lambda a: comments.delete_comment(r["comment"], actor=a)),
+        (
+            "routines.update_routine",
+            lambda a: routines.update_routine(r["routine"], {"title": "x"}, actor=a),
+        ),
+        ("routines.pause_routine", lambda a: routines.pause_routine(r["routine"], actor=a)),
+        ("routines.resume_routine", lambda a: routines.resume_routine(r["routine"], actor=a)),
+        ("routines.delete_routine", lambda a: routines.delete_routine(r["routine"], actor=a)),
         (
             "engagements.update_engagement",
             lambda a: engagements.update_engagement(r["engagement"], summary="x", actor=a),
@@ -464,6 +477,7 @@ _KINDS = (
     "milestone",
     "document",
     "comment",
+    "routine",
 )
 
 # Files whose writes are never addressed by a caller-supplied id.
@@ -477,6 +491,19 @@ _EXEMPT_FILES = {
 # name -> why the guard does not belong. An absence with no reason reads as an
 # oversight to the next reader (CLAUDE.md).
 _EXEMPT_FUNCTIONS = {
+    "routines.py::_pause": (
+        "a private helper: pause_routine calls it after _readable, and the tick"
+        " (fire_due, _skip) acts as the routine's owner on a row it holds"
+    ),
+    "routines.py::fire_due": (
+        "the routines tick, not a caller: no request supplies the id, and it"
+        " writes as the routine's owner under that owner's identity lock"
+    ),
+    "routines.py::_skip": ("the routines tick records a skipped time on the row fire_due holds"),
+    "routines.py::_create": (
+        "stamps routine_id on the task this firing created in the same"
+        " transaction, a row no caller named"
+    ),
     "my_data.py::delete_private": (
         "deletes one row by id only where it is private and its author column"
         " names the actor, the one reader of a private row; the refusal is"
@@ -723,6 +750,24 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
 
 # file::function -> why this read needs no tier filter.
 _UNFILTERED_READS = {
+    "routines.py::_names": (
+        "reads only the owner and agent names by id, to take their identity"
+        " locks before the row; every caller then reads the row through"
+        " _readable or, in the tick, as its owner"
+    ),
+    "routines.py::tick": (
+        "the routines job selects due ids only, at every tier, and hands each"
+        " to fire_due; its result is counts, which job_outcomes stores untiered"
+    ),
+    "routines.py::_active_count": (
+        "counts the owner's own active routines for the cap, under the owner's"
+        " identity lock, and returns a number, never a row"
+    ),
+    "routines.py::fire_due": (
+        "the routines tick acts as each routine's owner, like"
+        " blockers.py::_sweep_escalations_locked: it reads the routine and its"
+        " newest task to decide one firing, and writes rows at their own tier"
+    ),
     "work.py::engagement_member_sql": (
         "a WHERE fragment that reads milestone ids only, for the engagement"
         " brief's membership rule; every caller splices it beside the tasks'"

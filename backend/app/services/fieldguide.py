@@ -94,6 +94,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # tied by the board read's mark (routes/api.py::get_task_board): a move is
     # a plain task PATCH, and the ledger cannot tell which page sent it
     "board": None,
+    "routine": lambda u: _act(u, "create_routine"),
     # a repository file leaves no row: the tier=workspace read that only
     # `skein context --write` sends marks it (routes/api.py::get_context_pack)
     "repo_pack": None,
