@@ -30,6 +30,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- Work → Board shows the open work that you can read in four columns: To do, In progress, Blocked, and what finished in the last 7 days. A card shows its assignee, priority, due date, week, open blockers, what it waits on, its delegate, and "Not moved for N days" when In progress work passes the stale-work cutoff that Health uses. Select a task to open the task panel. Only my tasks narrows the board to your own. The engagement brief links to the board for the engagement and for each milestone. The board reloads when the task panel closes, after a capture or a verdict, and when you return to the tab. New field-guide card: Board (Ossel Hitch).
 - Decisions on Team → Charter and blockers on Work → Browse → Blockers have a Comments button that opens their thread.
 - A reply in a thread tells the parent's named parties and everyone who wrote there before, once while their notice is unread. A task tells its assignee and sponsor, a decision its author and decider, and a blocker its owner and author. Agents, people who cannot read the comment, and the author are not told.
 - A delegated agent answers its sponsor in the task's thread. Its next turn lists comments it has not answered, and the wake prompt tells it to read the thread and answer once. Any person who can read the comment can delete an agent's comment.

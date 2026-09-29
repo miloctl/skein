@@ -342,6 +342,18 @@ knots:
     link: /ingest
     since: 2026-07-31
 
+  - id: board
+    feature: Board
+    knot: Ossel Hitch
+    set: loops
+    # ties when the board is READ (routes/api.py::get_task_board): a move is
+    # an ordinary task PATCH, which the peek and Browse send too
+    ties: mark
+    pitch: Every strand hung from one line, in the column its status names.
+    how: "Open Work → Board. Select a task to open it in the side panel. To see one engagement, open the engagement and select Open the board."
+    link: /board
+    since: 2026-09-29
+
   # ---- Hitches — attaching work to an agent ---------------------------
   - id: bosun
     feature: Bosun

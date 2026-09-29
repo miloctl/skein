@@ -8,6 +8,7 @@ export const NAVIGATION = [
       { href: "/calendar", label: "Calendar" },
       { href: "/portfolio", label: "Health" },
       { href: "/dashboard", label: "Browse" },
+      { href: "/board", label: "Board" },
       { href: "/notes", label: "Notes" },
       { href: "/insights", label: "Insights" },
       { href: "/artifacts", label: "Reports" },
