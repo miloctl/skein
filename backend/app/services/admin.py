@@ -65,6 +65,10 @@ EXCLUDED = frozenset(
         "mcp_servers",
         # sign-in codes in transit, dead within minutes of the export
         "mcp_oauth_flows",
+        # revision bodies carry no tier of their own (they join their
+        # document's), so an exported row would carry a private document's
+        # text. The database backups keep them.
+        "document_revisions",
         # folded names a rename freed: a restore target keeps its own roster
         # history, and a copied row would refuse a name that was never freed there
         "released_names",

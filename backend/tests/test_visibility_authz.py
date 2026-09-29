@@ -484,17 +484,9 @@ _EXEMPT_FUNCTIONS = {
     # crews and tiers for a row this one deliberately never shares, and its
     # private tier is unreadable to a nameless viewer, so the uploader could
     # not reach their own file.
-    # A document carries the workspace tier and nothing else: create_document
-    # hard-codes it and _check_source REFUSES a source that is not shared, so
-    # there is no tier for a caller to choose and none to check against.
-    "documents.py::create_document": (
-        "inserts a new row at the workspace tier and names the file after the id"
-        " it just got back; the caller addresses no existing id"
-    ),
-    "documents.py::edit_document": (
-        "edits the BODY of a workspace-tier artifact through tools/_gate.py,"
-        " which resolves authority and files the proposal; the row carries no"
-        " tier a caller can move, and _document_row refuses any kind but document"
+    "documents.py::_publish_revision": (
+        "writes the head of a row its caller holds: _document_row refused all but"
+        " a workspace document, or create_document just inserted it"
     ),
     "uploads.py::delete_upload": (
         "a person deleting their OWN attached file, keyed on created_by like"

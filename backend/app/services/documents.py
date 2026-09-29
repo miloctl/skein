@@ -95,10 +95,10 @@ def create_document(
         # The row is inserted before the file, because the file is named after
         # the row id — see services/uploads.py::save_upload for the same
         # ordering and the same reason.
-        artifact_id = db.execute(
+        row = db.query_row(
             "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at,"
             " visibility, mime, size, derived_from)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
             (
                 engagement_id or None,
                 "document",
@@ -112,13 +112,9 @@ def create_document(
                 source_id or None,
             ),
         )
-        path = _root() / f"{artifact_id}.md"
-        content_sha256 = artifact_files.publish(path, content.encode("utf-8"))
-        db.execute(
-            "UPDATE artifacts SET path = ?, content_sha256 = ? WHERE id = ?",
-            (str(path), content_sha256, artifact_id),
-        )
-        db.log_activity(actor, "create_document", f"artifact #{artifact_id} {clean_title}")
+        revision = _publish_revision(row, content, head=0, actor=actor, origin=origin)
+        db.log_activity(actor, "create_document", _ledger_detail(row, revision))
+        artifact_id = int(row["id"])
         # "id" as well as "artifact_id": tools/_gate.py stamps the receipt ref
         # from result["id"] and review.py stamps the proposal's lineage from
         # it. Absent, both silently become 0 — a receipt with no reference is
@@ -150,8 +146,8 @@ def _document_row(artifact_id: int) -> dict:
     return row
 
 
-def _document_path(row: dict) -> Path:
-    """The file for a document row, refused if it escapes the artifact root.
+def _stored_path(row: dict) -> Path:
+    """The path a document row names, refused if it escapes the artifact root.
 
     Same containment as services/uploads.py::upload_bytes: resolve() runs
     BEFORE the test, so a symlink planted under the directory is followed to
@@ -164,12 +160,118 @@ def _document_path(row: dict) -> Path:
         raise scope.missing("artifacts", int(row["id"])) from e
     if not path.is_relative_to(root):
         raise scope.missing("artifacts", int(row["id"]))
+    return path
+
+
+def _document_path(row: dict) -> Path:
+    """The file for a document row, which must exist."""
+    path = _stored_path(row)
     if not path.is_file():
         raise handoff.ArtifactUnreadable(
             f"document #{row['id']} has no file on disk."
             " Check that the volume holding data/artifacts is mounted."
         )
     return path
+
+
+def _head(row: dict) -> dict:
+    """The head revision of a document row the caller holds.
+
+    A document written before revision rows existed has none, and a migration
+    cannot read files. Its first write seeds revision 1 from the file under the
+    same row lock, as the body stands: earlier edits were never kept. A file
+    that fails its digest is not taken as the truth.
+    """
+    # first, whatever the write: a row whose stored path escapes the root is a
+    # restored or hand-edited row, and no write may go on to publish over it
+    _stored_path(row)
+    head = db.query_one(
+        "SELECT revision, body FROM document_revisions WHERE artifact_id = ?"
+        " ORDER BY revision DESC LIMIT 1",
+        (row["id"],),
+    )
+    if head:
+        return head
+    source = _document_path(row).read_bytes()
+    if not artifact_files.content_matches(source, row.get("content_sha256")):
+        raise handoff.ArtifactUnreadable(
+            f"document #{row['id']} does not match its stored digest."
+            " Restore the matching artifact volume, or create a new document."
+        )
+    body = source.decode("utf-8")
+    # origin agent: agents were the only writers before people could edit
+    db.execute(
+        "INSERT INTO document_revisions (artifact_id, revision, body, content_sha256,"
+        " author, origin, created_at) VALUES (?, 1, ?, ?, ?, 'agent', ?)",
+        (
+            row["id"],
+            body,
+            artifact_files.content_sha256(source),
+            row["created_by"],
+            row["created_at"],
+        ),
+    )
+    return {"revision": 1, "body": body}
+
+
+def _publish_revision(
+    row: dict,
+    body: str,
+    *,
+    head: int,
+    actor: str,
+    origin: str,
+    change_id: int = 0,
+    restored_from: int | None = None,
+) -> int:
+    """The one writer of document_revisions: the head row and the file together.
+
+    The caller holds the artifacts row (FOR UPDATE, or its own fresh insert),
+    so `head` cannot move under it. The primary key is the backstop: a writer
+    without the lock fails on the duplicate revision instead of overwriting
+    one. The file stays the published head that handoff.read_artifact reads,
+    written in the same transaction with the same digest.
+    """
+    data = body.encode("utf-8")
+    revision = head + 1
+    logical = _root() / f"{row['id']}.md"
+    if row["path"]:
+        # From the LOGICAL name, never the stored path: a revision derived from
+        # the previous revision compounds one uuid per edit and crosses
+        # NAME_MAX on the seventh, making the document permanently uneditable.
+        target = artifact_files.unique_revision(logical)
+        digest = artifact_files.publish(target, data, old=_stored_path(row))
+    else:
+        target = logical
+        digest = artifact_files.publish(target, data)
+    db.execute(
+        "UPDATE artifacts SET path = ?, size = ?, content_sha256 = ? WHERE id = ?",
+        (str(target), len(data), digest, row["id"]),
+    )
+    db.execute(
+        "INSERT INTO document_revisions (artifact_id, revision, body, content_sha256, author,"
+        " origin, change_id, restored_from, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            row["id"],
+            revision,
+            body,
+            digest,
+            actor,
+            origin,
+            change_id or None,
+            restored_from,
+            db.now(),
+        ),
+    )
+    return revision
+
+
+def _ledger_detail(row: dict, revision: int) -> str:
+    """An id and a revision number, never the body: the ledger is hash-chained,
+    and the title only at the workspace tier (scope.detail)."""
+    return scope.detail(
+        row["visibility"], f"artifact #{row['id']} revision {revision}", row["title"]
+    )
 
 
 def edit_document(
@@ -187,14 +289,10 @@ def edit_document(
         raise ValueError("an edit needs the text to replace. Quote the exact text.")
     with db.transaction():
         row = _document_row(artifact_id)
-        path = _document_path(row)
-        source = path.read_bytes()
-        if not artifact_files.content_matches(source, row.get("content_sha256")):
-            raise handoff.ArtifactUnreadable(
-                f"document #{artifact_id} does not match its stored digest."
-                " Restore the matching artifact volume, or create a new document."
-            )
-        body = source.decode("utf-8")
+        # the head ROW, never the file: a changed file is republished by this
+        # write, and handoff.read_artifact refuses the mismatch until then
+        head = _head(row)
+        body = head["body"]
         found = body.count(old)
         if found == 0:
             raise ValueError(
@@ -207,15 +305,17 @@ def edit_document(
             )
         updated = body.replace(old, new)
         _check_content(updated)
-        data = updated.encode("utf-8")
-        # From the LOGICAL name, never the stored path: a revision derived from
-        # the previous revision compounds one uuid per edit and crosses
-        # NAME_MAX on the seventh, making the document permanently uneditable.
-        revision = artifact_files.unique_revision(_root() / f"{artifact_id}.md")
-        content_sha256 = artifact_files.publish(revision, data, old=path)
-        db.execute(
-            "UPDATE artifacts SET path = ?, size = ?, content_sha256 = ? WHERE id = ?",
-            (str(revision), len(data), content_sha256, artifact_id),
+        revision = _publish_revision(
+            row,
+            updated,
+            head=int(head["revision"]),
+            actor=actor,
+            origin=origin,
         )
-        db.log_activity(actor, "edit_document", f"artifact #{artifact_id} {row['title']}")
-        return {"id": artifact_id, "artifact_id": artifact_id, "title": row["title"]}
+        db.log_activity(actor, "edit_document", _ledger_detail(row, revision))
+        return {
+            "id": artifact_id,
+            "artifact_id": artifact_id,
+            "title": row["title"],
+            "revision": revision,
+        }

@@ -836,6 +836,7 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "memories": ("user", "created_by"),
     "agent_authority": ("agent", "updated_by"),
     "artifacts": ("created_by",),
+    "document_revisions": ("author",),
     "context_packs": ("created_by",),
     "finding_dispositions": ("created_by",),
     "chat_threads": ("owner", "created_by"),
