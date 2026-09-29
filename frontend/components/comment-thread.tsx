@@ -35,9 +35,13 @@ const onlyComments = (id: string) => id.startsWith("comment-");
 export function CommentThread({
   parent,
   id,
+  delegatedAgent = "",
+  status = "",
 }: {
   parent: "task" | "decision" | "blocker";
   id: number;
+  delegatedAgent?: string;
+  status?: string;
 }) {
   const [rows, setRows] = useState<Comment[] | null>(null);
   const [failure, setFailure] = useState("");
@@ -100,9 +104,11 @@ export function CommentThread({
       setReload((n) => n + 1);
       field.current?.focus();
       reportStatus(
-        out.notified.length
-          ? `Comment posted. Notified: ${out.notified.join(", ")}.`
-          : "Comment posted.",
+        out.woke
+          ? `Comment posted. ${out.woke} gets one agent turn.`
+          : out.notified.length
+            ? `Comment posted. Notified: ${out.notified.join(", ")}.`
+            : "Comment posted.",
         "confirmation",
       );
     });
@@ -260,9 +266,21 @@ export function CommentThread({
         <label htmlFor={`comment-new-${parent}-${id}`} className="block text-xs text-ink-3">
           Add a comment
         </label>
+        {/* the rule the server applies (services/comments.py::_wake): an open
+            delegated task, and the agent named with @ */}
+        {delegatedAgent && status !== "done" && status !== "void" ? (
+          <p id={`comment-hint-${parent}-${id}`} className="text-xs text-ink-3">
+            Write @{delegatedAgent} to ask the agent. Skein starts one agent turn.
+          </p>
+        ) : null}
         <textarea
           ref={field}
           id={`comment-new-${parent}-${id}`}
+          aria-describedby={
+            delegatedAgent && status !== "done" && status !== "void"
+              ? `comment-hint-${parent}-${id}`
+              : undefined
+          }
           maxLength={4000}
           rows={2}
           value={draft}

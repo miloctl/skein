@@ -203,3 +203,64 @@ def test_a_comment_does_not_move_its_task(client, fresh_db):
     assert (
         db.query_one("SELECT updated_at FROM tasks WHERE id = ?", (task,))["updated_at"] == before
     )
+
+
+def _delegated(crew: int = 0) -> int:
+    """A task delegated to scout by ava, as the REST door does it."""
+    from app.services import delegation
+
+    users.ensure_user("ava")
+    users.ensure_user("scout", kind="agent")
+    tier = {"visibility": "crew", "crew_id": crew} if crew else {}
+    task = work.create_task("Fix login", actor="ava", **tier)["id"]
+    delegation.delegate_task(task, "scout", "ava", actor="ava", origin="human")
+    # the delegation's own wake is not what these tests count
+    db.execute("DELETE FROM agent_wakeups")
+    return task
+
+
+def _wakes() -> list[tuple[str, int, str]]:
+    return [
+        (r["agent"], r["trigger_task_id"], r["status"])
+        for r in db.query("SELECT agent, trigger_task_id, status FROM agent_wakeups")
+    ]
+
+
+def test_a_person_naming_the_delegate_wakes_it_once(client, fresh_db):
+    task = _delegated()
+    first = _post(client, "tasks", task, "@scout the target is 17, see decision #41")
+    assert first.json()["woke"] == "scout"
+    _post(client, "tasks", task, "@scout and please hurry")
+    assert _wakes() == [("scout", task, "pending")]
+
+
+def test_a_crew_tasks_delegate_is_woken_though_no_notice_reaches_it(client, fresh_db):
+    """An agent holds no crews, so the mention scan never reaches it on a
+    crew task. The wake must not inherit that gap."""
+    crew = _crew()
+    task = _delegated(crew)
+    assert _post(client, "tasks", task, "@scout check this").json()["woke"] == "scout"
+    assert _wakes() == [("scout", task, "pending")]
+
+
+def test_what_never_wakes_the_delegate(client, fresh_db):
+    users.ensure_user("helper", kind="agent")
+    task = _delegated()
+    # an agent's own words never start an unattended chain
+    comments.add_comment("@scout loop", task_id=task, actor="helper", origin="agent")
+    # an agent that is not the delegate gets the notice and no turn
+    other = _post(client, "tasks", task, "@helper can you look?")
+    assert (other.json()["woke"], other.json()["notified"]) == ("", ["helper"])
+    # a name is not a mention, and neither is one inside code
+    assert _post(client, "tasks", task, "the scout run looked fine").json()["woke"] == ""
+    assert _post(client, "tasks", task, "run `@scout --dry`").json()["woke"] == ""
+    # an edit that adds the delegate wakes nothing
+    cid = _post(client, "tasks", task, "a note").json()["id"]
+    client.patch(
+        f"/api/comments/{cid}", json={"body": "a note @scout"}, headers=_strong(client, "ava")
+    )
+    assert _wakes() == []
+    # a finished task has no turn to give
+    work.update_task(task, status="done", actor="ava")
+    assert _post(client, "tasks", task, "@scout thanks").json()["woke"] == ""
+    assert _wakes() == []

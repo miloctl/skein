@@ -642,7 +642,12 @@ export function TaskPeek() {
               </ul>
             )}
 
-            <CommentThread parent="task" id={task.id} />
+            <CommentThread
+              parent="task"
+              id={task.id}
+              delegatedAgent={task.delegated_agent ?? ""}
+              status={task.status}
+            />
           </>
         )}
       </aside>

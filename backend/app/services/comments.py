@@ -110,7 +110,32 @@ def add_comment(
         notified = mentions.scan(
             "comment", cid, body, actor=actor, link=_LINK[kind](pid, cid), parent=(kind, pid)
         )
-    return {"id": cid, "parent": kind, "parent_id": pid, "notified": notified, "woke": ""}
+        woke = _wake(kind, parent, body, actor=actor, origin=origin)
+    return {"id": cid, "parent": kind, "parent_id": pid, "notified": notified, "woke": woke}
+
+
+def _wake(kind: str, parent: dict, body: str, *, actor: str, origin: str) -> str:
+    """One agent turn for the task's delegate when a person names it.
+
+    Read from the parent row this transaction holds FOR UPDATE: a
+    reassignment between a plain read and the enqueue would wake an agent
+    that no longer holds the task. An agent-origin comment never wakes
+    anyone (delegation.py's rule: no unattended chain), a done or void task
+    has no turn to give, and an edit never wakes (edit_comment). The parser
+    is names_in, never scan's result: scan cannot reach an agent on a crew
+    task, because agents hold no crews."""
+    agent = str(parent.get("delegated_agent") or "") if kind == "task" else ""
+    if (
+        not agent
+        or origin not in ("human", "agent_verified")
+        or parent["status"] in ("done", "void")
+        or agent not in mentions.names_in(body, actor)[1]
+    ):
+        return ""
+    from . import agent_wakeups
+
+    agent_wakeups.enqueue(agent, int(parent["id"]), requested_by=actor)
+    return agent
 
 
 def list_comments(

@@ -51,6 +51,7 @@ const ROWS = [
 const state = vi.hoisted(() => ({
   posts: [] as Array<{ path: string; body: unknown }>,
   rows: [] as unknown[],
+  woke: "",
   reportStatus: vi.fn(),
 }));
 
@@ -63,7 +64,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
       if (init?.method) {
         state.posts.push({ path, body: init.body ? JSON.parse(String(init.body)) : null });
         if (init.method === "POST")
-          return Promise.resolve({ id: 10, parent: "task", parent_id: 12, notified: [], woke: "" });
+          return Promise.resolve({ id: 10, parent: "task", parent_id: 12, notified: [], woke: state.woke });
         return Promise.resolve({ id: 9 });
       }
       return Promise.resolve(state.rows);
@@ -76,6 +77,7 @@ import { CommentThread } from "@/components/comment-thread";
 beforeEach(() => {
   state.posts = [];
   state.rows = ROWS;
+  state.woke = "";
   state.reportStatus.mockReset();
   window.history.replaceState({}, "", "/");
 });
@@ -133,5 +135,25 @@ describe("a comment thread", () => {
     state.rows = [];
     render(<CommentThread parent="decision" id={41} />);
     expect(await screen.findByText("No comments yet. Nobody has pulled on this line.")).toBeTruthy();
+  });
+
+  it("tells a sponsor how to ask the delegate, and says when a turn starts", async () => {
+    state.woke = "scout";
+    render(<CommentThread parent="task" id={12} delegatedAgent="scout" status="in_progress" />);
+    expect(await screen.findByText("Write @scout to ask the agent. Skein starts one agent turn.")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Add a comment"), { target: { value: "@scout the target is 17" } });
+    fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
+    await waitFor(() =>
+      expect(state.reportStatus).toHaveBeenCalledWith(
+        "Comment posted. scout gets one agent turn.",
+        "confirmation",
+      ),
+    );
+  });
+
+  it("offers no hint on a finished task", async () => {
+    render(<CommentThread parent="task" id={12} delegatedAgent="scout" status="done" />);
+    await screen.findByText("Yes, see");
+    expect(screen.queryByText(/Skein starts one agent turn/)).toBeNull();
   });
 });
