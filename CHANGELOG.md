@@ -18,9 +18,11 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- The `edit_document` agent tool stamps `base_revision` on its payload, and `read_artifact` returns `revision` for a document. A `document` or `document_edit` payload cannot carry `change_id`: approval records it.
 - `PUT /api/documents/{id}` saves a document's body as the next revision (`content`, `base_revision`). It answers `{id, revision, unchanged}`, 409 when the base is stale, and 400 for an artifact that is not a document. `GET /api/documents/{id}/revisions` lists the newest 100 revisions without bodies. `GET /api/documents/{id}/revisions/{n}` answers one revision with its `markdown` and a unified `diff` against revision n−1. `POST /api/documents/{id}/revisions/{n}/restore` copies revision n as the new head. `GET /api/artifacts/{id}` adds `revision` for a document. New activity action `restore_document`.
 ### Behavior
 
+- An agent's document edit is pinned to the revision it was filed against. If a person saved in the meantime, approval refuses the edit and settles it as rejected without counting against the agent. A quote that is not in the document is refused when the agent files the edit, where before the proposal failed at approval and returned to the queue.
 - Work → Reports offers Edit and History on a document. Edit saves the Markdown as the next revision, with a preview. If somebody saved first, the save is refused and your text stays. History names who made each revision, shows what it changed, and restores an earlier one as a new revision. The report kind reads Document instead of Agent document. New field-guide card: Edit a document and restore a revision (Racking Bend).
 - Every write to a document is a numbered revision, so an agent's edit keeps the text it replaced. A document written before this version seeds revision 1 from its file on its next write. A direct agent write to a document is recorded with origin `agent`.
 - A blocker raised against a task no longer reopens a task that was finished at the same moment. The finished task keeps its Done status and its completion time.

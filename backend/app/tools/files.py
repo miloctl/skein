@@ -60,14 +60,16 @@ def read_artifact(artifact_id: int) -> str:
         policy.allows_all_projects() and policy.allows_unclassified()
     ):
         return json.dumps({"error": "Skein policy denied this artifact."})
-    return json.dumps(
-        {
-            "artifact_id": row["id"],
-            "kind": row["kind"],
-            "title": row["title"],
-            "markdown": row["markdown"],
-        }
-    )
+    out = {
+        "artifact_id": row["id"],
+        "kind": row["kind"],
+        "title": row["title"],
+        "markdown": row["markdown"],
+    }
+    if row["kind"] == "document":
+        # the revision this text is, so the model can name what it read
+        out["revision"] = documents.head_revision(row["id"])
+    return json.dumps(out)
 
 
 @tool
@@ -111,7 +113,14 @@ def edit_document(artifact_id: int, old_text: str, new_text: str) -> str:
         old_text: The exact text to replace. It must appear exactly once.
         new_text: What to put in its place.
     """
-    payload: dict[str, Any] = {"old": old_text, "new": new_text}
+    # the base is stamped here, not asked of the model: the model does not
+    # carry the number, and a person's save before the approval must refuse
+    # this edit rather than let its quote land on text the agent never read
+    payload: dict[str, Any] = {
+        "old": old_text,
+        "new": new_text,
+        "base_revision": documents.head_revision(artifact_id),
+    }
     return gated_write(
         "document_edit",
         "update",

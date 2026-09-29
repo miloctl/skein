@@ -750,6 +750,11 @@ _UNFILTERED_READS = {
         " here would silently drop attribution for crew engagements, and a"
         " private task cannot be delegated at all (delegation.delegate_task)"
     ),
+    "documents.py::edit_refusal": (
+        "reads the tier and kind of the one artifact a proposal names and answers"
+        " any tier but workspace with the absent-id sentence (scope.missing_text);"
+        " the revision body it counts in never leaves the function"
+    ),
     "documents.py::_check_source": (
         "reads ONLY the visibility of a candidate source in order to REFUSE"
         " it. No column reaches a caller, and a source that is not workspace"

@@ -85,6 +85,7 @@ def create_document(
     origin: str = "human",
     source_id: int = 0,
     engagement_id: int = 0,
+    change_id: int = 0,
 ) -> dict:
     """Write a new markdown document.
 
@@ -126,7 +127,9 @@ def create_document(
                 source_id or None,
             ),
         )
-        revision = _publish_revision(row, content, head=0, actor=actor, origin=origin)
+        revision = _publish_revision(
+            row, content, head=0, actor=actor, origin=origin, change_id=change_id
+        )
         db.log_activity(actor, "create_document", _ledger_detail(row, revision))
         artifact_id = int(row["id"])
         # "id" as well as "artifact_id": tools/_gate.py stamps the receipt ref
@@ -450,8 +453,50 @@ def unified(before: str, after: str, before_label: str, after_label: str) -> str
     )
 
 
+def edit_refusal(artifact_id: int, payload: dict) -> str:
+    """Why a document_edit proposal can never apply, checked when it is filed.
+
+    Filed, a quote that matches nothing failed at approval and came back to
+    the queue after every try. A revision row never changes, so this read
+    takes no lock and its answer holds until the approval. A document with no
+    rows yet leaves the quote to the apply.
+    """
+    row = db.query_one("SELECT visibility, kind FROM artifacts WHERE id = ?", (artifact_id,))
+    # the _document_row sentence: an agent writes workspace documents only, and
+    # a proposal on any other row would settle as "target vanished" while the
+    # document is on the reviewer's screen
+    if not row or row["visibility"] != scope.WORKSPACE:
+        return scope.missing_text("artifacts", artifact_id)
+    if row["kind"] != "document":
+        return f"artifact #{artifact_id} is not a document, so it cannot be changed."
+    old = str(payload.get("old") or "")
+    base = int(payload.get("base_revision") or 0)
+    source = db.query_one(
+        "SELECT body FROM document_revisions WHERE artifact_id = ? AND revision = ?",
+        (artifact_id, base),
+    )
+    if not old or source is None:
+        return ""
+    found = source["body"].count(old)
+    if found == 0:
+        return f"that text is not in document #{artifact_id}. Read the document, then quote it exactly."
+    if found > 1:
+        return (
+            f"that text is in document #{artifact_id} {found} times."
+            " Quote more of the surrounding text so it matches one place."
+        )
+    return ""
+
+
 def edit_document(
-    artifact_id: int, old: str, new: str, *, actor: str = "system", origin: str = "human"
+    artifact_id: int,
+    old: str,
+    new: str,
+    base_revision: int = 0,
+    change_id: int = 0,
+    *,
+    actor: str = "system",
+    origin: str = "human",
 ) -> dict:
     """Replace one exact run of text in a document.
 
@@ -468,6 +513,10 @@ def edit_document(
         # the head ROW, never the file: a changed file is republished by this
         # write, and handoff.read_artifact refuses the mismatch until then
         head = _head(row)
+        # before the quote: a quote that still matches after a person's save
+        # would land on text the agent never read (StaleRevision settles the
+        # proposal once, uncounted)
+        _check_base(artifact_id, base_revision, int(head["revision"]))
         body = head["body"]
         found = body.count(old)
         if found == 0:
@@ -487,6 +536,7 @@ def edit_document(
             head=int(head["revision"]),
             actor=actor,
             origin=origin,
+            change_id=change_id,
         )
         db.log_activity(actor, "edit_document", _ledger_detail(row, revision))
         return {
