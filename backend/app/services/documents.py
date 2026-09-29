@@ -87,8 +87,14 @@ def create_document(
     source_id: int = 0,
     engagement_id: int = 0,
     change_id: int = 0,
+    visibility: str = scope.WORKSPACE,
+    crew_id: int = 0,
 ) -> dict:
     """Write a new markdown document.
+
+    An agent's document is workspace: the tool sends no tier. A person picks
+    one (POST /api/documents), and a private document stays out of every
+    shared sink (docs/intent/document-revisions.md, D10).
 
     `origin` is accepted because services/review.py::_apply passes
     origin="agent_verified" to EVERY registry applier when a human approves a
@@ -108,13 +114,17 @@ def create_document(
         raise ValueError(scope.missing_text("engagements", engagement_id))
     clean_title = title.strip()[:TITLE_LIMIT] or "Untitled document"
     with db.transaction():
+        # inside the transaction: the crew row lock resolve_write takes must
+        # last until the insert, or a removal in between writes into a crew
+        # the author has left
+        tier, cid = scope.resolve_write(visibility, crew_id, actor=actor)
         # The row is inserted before the file, because the file is named after
         # the row id — see services/uploads.py::save_upload for the same
         # ordering and the same reason.
         row = db.query_row(
             "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at,"
-            " visibility, mime, size, derived_from)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
+            " visibility, crew_id, mime, size, derived_from)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
             (
                 engagement_id or None,
                 "document",
@@ -122,7 +132,8 @@ def create_document(
                 "",
                 actor,
                 db.now(),
-                "workspace",
+                tier,
+                cid,
                 "text/markdown",
                 len(content.encode("utf-8")),
                 source_id or None,
@@ -158,7 +169,7 @@ def _document_row(artifact_id: int) -> dict:
         # the same id. An upload is a person's own file and is never rewritten
         # — the revision path is a new document carrying derived_from.
         raise PermissionError(
-            f"artifact #{artifact_id} was not written by an agent, so it cannot be changed."
+            f"artifact #{artifact_id} is not a document, so it cannot be changed."
             " If it is a file somebody attached, answer in the conversation instead."
         )
     return row

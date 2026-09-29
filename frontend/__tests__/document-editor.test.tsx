@@ -7,16 +7,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   puts: [] as unknown[],
+  posts: [] as unknown[],
   conflict: false,
+  strong: true,
   reportStatus: vi.fn(),
 }));
 
 vi.mock("@/lib/status", () => ({ reportStatus: state.reportStatus }));
+vi.mock("@/lib/audience", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/audience")>();
+  return { ...real, useStrongIdentity: () => state.strong };
+});
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...real,
     api: (path: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        state.posts.push(JSON.parse(String(init.body)));
+        return Promise.resolve({ id: 40, revision: 1, title: "Runbook" });
+      }
       if (init?.method === "PUT") {
         state.puts.push(JSON.parse(String(init.body)));
         return state.conflict
@@ -37,6 +47,9 @@ import { DocumentEditor } from "@/components/document-editor";
 
 beforeEach(() => {
   state.puts = [];
+  state.posts = [];
+  state.strong = true;
+  localStorage.clear();
   state.conflict = false;
   state.reportStatus.mockReset();
 });
@@ -81,4 +94,26 @@ describe("the document editor", () => {
     expect(text()).toBe(area);
     expect(area.value).toBe("# Heading drafted");
   });
+});
+
+describe("a new document", () => {
+  it.each([
+    [true, "private"],
+    [false, "workspace"],
+  ])(
+    "starts at the narrowest audience its author can open (signed in: %s)",
+    async (strong, visibility) => {
+      state.strong = strong;
+      const onSaved = vi.fn();
+      render(<DocumentEditor artifactId={null} onSaved={onSaved} onCancel={() => {}} />);
+      fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Runbook" } });
+      fireEvent.change(text(), { target: { value: "first draft" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create document" }));
+      await waitFor(() => expect(onSaved).toHaveBeenCalledWith(40));
+      expect(state.posts).toEqual([
+        { title: "Runbook", content: "first draft", visibility, crew_id: 0 },
+      ]);
+      expect(state.reportStatus).toHaveBeenCalledWith("Created document #40.", "confirmation");
+    },
+  );
 });

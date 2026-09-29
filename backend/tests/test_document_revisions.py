@@ -258,3 +258,80 @@ def test_an_approved_edit_names_its_proposal_on_the_revision(fresh_db, monkeypat
     )
     read = getattr(files.read_artifact, "_tool_func", None) or files.read_artifact.__wrapped__
     assert json.loads(read(doc))["revision"] == 2
+
+
+def _create(client, who: str, **body):
+    body.setdefault("title", "Runbook")
+    body.setdefault("content", "first draft")
+    return client.post("/api/documents", json=body, headers=_strong(client, who))
+
+
+def test_a_person_creates_a_private_document_only_they_can_read(client, fresh_db):
+    """Another person's read, history and save answer exactly as an absent id
+    does: any other answer tells a caller which ids are somebody's drafts."""
+    made = _create(client, "mira", visibility="private")
+    assert made.status_code == 200, made.text
+    doc = made.json()["id"]
+    assert made.json()["revision"] == 1
+    mira = _strong(client, "mira")
+    assert client.get(f"/api/artifacts/{doc}", headers=mira).json()["markdown"] == "first draft"
+    raj = _strong(client, "raj")
+    for method, path, body in (
+        ("get", f"/api/artifacts/{doc}", None),
+        ("get", f"/api/documents/{doc}/revisions", None),
+        ("put", f"/api/documents/{doc}", {"content": "x", "base_revision": 1}),
+    ):
+        hidden = client.request(method, path, json=body, headers=raj)
+        absent = client.request(method, path.replace(str(doc), "999999"), json=body, headers=raj)
+        assert hidden.status_code == absent.status_code == 404
+        assert hidden.text.replace(str(doc), "N") == absent.text.replace("999999", "N")
+
+
+def test_a_private_document_title_never_enters_the_ledger(client, fresh_db):
+    doc = _create(client, "mira", title="SECRET-TITLE", visibility="private").json()["id"]
+    _save(client, doc, "second draft", 1, who="mira")
+    details = [
+        r["detail"]
+        for r in db.query(
+            "SELECT detail FROM activity WHERE action IN ('create_document', 'edit_document')"
+        )
+    ]
+    assert len(details) == 2
+    assert all("SECRET" not in d and f"artifact #{doc} revision" in d for d in details)
+
+
+def _crew(owner: str = "ava", member: str = "mira") -> int:
+    from app.services import crews
+
+    for name in (owner, member, "bo"):
+        users.ensure_user(name)
+    cid = crews.create_crew("Platform", actor=owner)["id"]
+    crews.add_member(cid, member, actor=owner)
+    return cid
+
+
+def test_an_agent_proposal_on_a_crew_document_is_refused_when_filed(client, fresh_db, monkeypatch):
+    """Filed, it would settle as "target vanished" at approval while the
+    document is on the reviewer's screen: agents write workspace documents."""
+    from app import config
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    cid = _crew()
+    doc = _create(client, "ava", visibility="crew", crew_id=cid).json()["id"]
+    out = _agent_edit(doc, "first", "second")
+    assert out["error"] == scope.missing_text("artifacts", doc)
+    assert _pending_edit(doc) is None
+
+
+def test_a_crew_documents_history_reaches_its_members_only(client, fresh_db):
+    cid = _crew()
+    doc = _create(client, "ava", visibility="crew", crew_id=cid).json()["id"]
+    _save(client, doc, "second draft", 1, who="ava")
+    member = client.get(f"/api/documents/{doc}/revisions", headers=_strong(client, "mira"))
+    assert [r["author"] for r in member.json()["revisions"]] == ["ava", "ava"]
+    bo = _strong(client, "bo")
+    outsider = client.get(f"/api/documents/{doc}/revisions", headers=bo)
+    absent = client.get("/api/documents/999999/revisions", headers=bo)
+    assert outsider.status_code == 404
+    assert "ava" not in outsider.text
+    assert outsider.text.replace(str(doc), "N") == absent.text.replace("999999", "N")

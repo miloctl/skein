@@ -726,12 +726,12 @@ knots:
     since: 2026-08-16
 
   - id: document_revisions
-    feature: Edit a document and restore a revision
+    feature: Write, edit and restore documents
     knot: Racking Bend
     set: bends
     role: any
     pitch: A document the team keeps is one the team can fix, and every earlier version stays in reach.
-    how: Open a document on Work → Reports and select Edit. Change the Markdown, select Preview to check it, then select Save. Each save is a new revision. To undo a change, open History, select an earlier revision, then select Restore.
+    how: To write your own, select New document and choose who can see it. Open a document on Work → Reports and select Edit. Change the Markdown, select Preview to check it, then select Save. Each save is a new revision. To undo a change, open History, select an earlier revision, then select Restore.
     link: /artifacts
     since: 2026-09-29
 

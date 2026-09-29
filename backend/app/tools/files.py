@@ -101,7 +101,7 @@ def create_document(title: str, content: str, source_id: int = 0, engagement_id:
 
 @tool
 def edit_document(artifact_id: int, old_text: str, new_text: str) -> str:
-    """Replace one exact run of text in a document an agent wrote.
+    """Replace one exact run of text in a shared document.
 
     An uploaded file is never changed, and a file somebody attached is
     private — a document made from one cannot be shared with the team, so

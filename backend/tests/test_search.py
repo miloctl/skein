@@ -181,3 +181,26 @@ def test_a_document_is_found_by_its_current_text_only(fresh_db):
     assert ("document", doc) not in [
         (h["entity"], h["entity_id"]) for h in search.search("cedar", viewer=viewer)
     ]
+
+
+def test_a_private_document_is_never_indexed(client, fresh_db):
+    """Also fails if _ENTITY_TABLE loses `document`: the tier lookup then
+    finds no table and indexes the private body."""
+    from conftest import _strong
+
+    from app import db
+
+    mira = _strong(client, "mira")
+    doc = client.post(
+        "/api/documents",
+        json={"title": "Draft", "content": "hush-private-words", "visibility": "private"},
+        headers=mira,
+    ).json()["id"]
+    client.put(
+        f"/api/documents/{doc}",
+        json={"content": "hush-private-words again", "base_revision": 1},
+        headers=mira,
+    )
+    assert not db.query(
+        "SELECT 1 FROM search_index WHERE entity = 'document' AND entity_id = ?", (doc,)
+    )

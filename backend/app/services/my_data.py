@@ -189,6 +189,14 @@ def export(person: str, policy: ProjectionPolicy) -> dict:
     for row in records["artifacts"]:
         # a server path maps the data volume; the title is what a person reads
         row.pop("path", None)
+        if row["kind"] == "document":
+            # a private document is its author's alone (nobody else can read
+            # it, and agents are refused), so every revision is theirs to take
+            row["revisions"] = db.query(
+                "SELECT revision, body, restored_from, created_at FROM document_revisions"
+                " WHERE artifact_id = ? ORDER BY revision",
+                (row["id"],),
+            )
     chats = []
     for thread in db.query(
         "SELECT id, title, created_at FROM chat_threads WHERE owner = ? AND kind = 'solo'"
