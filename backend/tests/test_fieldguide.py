@@ -30,7 +30,7 @@ def test_registry_is_valid_and_complete():
     from app.services import fieldguide
 
     cards = fieldguide.registry()
-    assert len(cards) == 72
+    assert len(cards) == 73
     ids = {k["id"] for k in cards}
     assert ids == set(fieldguide.PREDICATES)
     for k in cards:
@@ -198,7 +198,7 @@ def test_hint_and_guide_use_the_same_tieable_total(fresh_db):
     from app.services import fieldguide
 
     _mint(fresh_db, "ava")
-    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 71
+    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 72
 
 
 def test_first_detection_seeds_silently(fresh_db):
@@ -550,6 +550,19 @@ def test_writing_a_repository_pack_ties_repo_pack(client, fresh_db):
     client.get("/api/context-pack")
     assert card()["tied"] is False
     client.get("/api/context-pack?tier=workspace")
+    assert card()["tied"] is True
+
+
+def test_posting_a_comment_ties_the_threads_knot(client, fresh_db):
+    from app.services import fieldguide, work
+
+    _mint(fresh_db, "tester")
+    task = work.create_task("Fix login", actor="tester")["id"]
+    card = lambda: next(  # noqa: E731
+        r for r in fieldguide.guide("tester")["cards"] if r["id"] == "threads"
+    )
+    assert card()["tied"] is False
+    client.post(f"/api/tasks/{task}/comments", json={"body": "still on it?"})
     assert card()["tied"] is True
 
 

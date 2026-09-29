@@ -71,6 +71,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # tying the day any human-actor caller passes one
     "task_done": lambda u: _act(u, "complete_task") or _act(u, "update_task", "#% done%"),
     "task_peek": None,
+    "threads": lambda u: _has("SELECT 1 FROM comments WHERE created_by = ?", (u,)),
     "decision": lambda u: _has(
         "SELECT 1 FROM decisions WHERE decided_by = ? AND review_by IS NOT NULL"
         " AND review_by != ''",
