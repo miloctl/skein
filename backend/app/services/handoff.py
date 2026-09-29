@@ -307,6 +307,9 @@ def read_artifact(
                 resource_filter=resource_filter,
                 proposal_filter=proposal_filter,
                 allow_unclassified_proposals=allow_unclassified_proposals,
+                # a document has no generated frame: people write it, and an
+                # apostrophe there is a word, not the edge of a quoted title
+                quoted=row["kind"] != "document",
             ),
         }
     except (OSError, UnicodeDecodeError) as e:

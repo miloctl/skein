@@ -18,6 +18,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- `PUT /api/documents/{id}` saves a document's body as the next revision (`content`, `base_revision`). It answers `{id, revision, unchanged}`, 409 when the base is stale, and 400 for an artifact that is not a document. `GET /api/documents/{id}/revisions` lists the newest 100 revisions without bodies. `GET /api/documents/{id}/revisions/{n}` answers one revision with its `markdown` and a unified `diff` against revision n−1. `POST /api/documents/{id}/revisions/{n}/restore` copies revision n as the new head. `GET /api/artifacts/{id}` adds `revision` for a document. New activity action `restore_document`.
 ### Behavior
 
 - Every write to a document is a numbered revision, so an agent's edit keeps the text it replaced. A document written before this version seeds revision 1 from its file on its next write. A direct agent write to a document is recorded with origin `agent`.
