@@ -2001,52 +2001,91 @@ def season_readout(viewer: str = "", *, admin: bool = False) -> dict:
     assembling four surfaces by hand.
 
     Counts only, never row text, so no visibility tier applies — the same
-    line review_stats draws for its aggregates. Verdict counts split by
+    line review_stats draws for its aggregates.
+
+    The exit trigger reads HAND work. A routine's acceptances repeat one
+    piece of work every week, and a season of "nothing due" approvals would
+    read healthy by repetition alone, so verdicts, proposals, delegations
+    and each agent's counts are hand-only, and `routine` carries the rest
+    (docs/intent/routines.md D11). Verdict counts split by
     reviewed_strong because only strong-identity verdicts count toward a
     promotion streak: a season of weak verdicts reads as flow here while
     the trust page honestly shows none, and both must be visible at once.
     """
+    from .delegation import ROUTINE_JOIN
     from .pulse import season as pulse_season
     from .users import is_human, person_agent_visible
 
     s = pulse_season()
     since = s["start_ts"]
-    verdicts = db.query_one(
-        "SELECT COUNT(*) AS settled,"
-        " COUNT(*) FILTER (WHERE status = 'approved') AS approved,"
-        " COUNT(*) FILTER (WHERE status = 'rejected') AS rejected,"
-        " COUNT(*) FILTER (WHERE reviewed_strong = 1) AS strong"
-        " FROM pending_changes WHERE reviewed_at >= ?",
-        (since,),
-    ) or {"settled": 0, "approved": 0, "rejected": 0, "strong": 0}
-    proposed = db.query_one(
-        "SELECT COUNT(*) AS n FROM pending_changes WHERE created_at >= ?",
-        (since,),
+    # hand and routine counts from one join, the one trust_scores reads, so
+    # the season and the trust rows cannot disagree about which is which
+    verdicts = (
+        db.query_one(
+            "SELECT COUNT(*) FILTER (WHERE rt.routine_id IS NULL) AS settled,"  # noqa: S608 — ROUTINE_JOIN is a module constant
+            " COUNT(*) FILTER (WHERE p.status = 'approved' AND rt.routine_id IS NULL) AS approved,"
+            " COUNT(*) FILTER (WHERE p.status = 'rejected' AND rt.routine_id IS NULL) AS rejected,"
+            " COUNT(*) FILTER (WHERE p.reviewed_strong = 1 AND rt.routine_id IS NULL) AS strong,"
+            " COUNT(*) FILTER (WHERE rt.routine_id IS NOT NULL) AS routine_settled,"
+            " COUNT(*) FILTER (WHERE p.status = 'approved' AND rt.routine_id IS NOT NULL)"
+            " AS routine_approved,"
+            " COUNT(*) FILTER (WHERE p.status = 'rejected' AND rt.routine_id IS NOT NULL)"
+            " AS routine_rejected"
+            f" FROM pending_changes p {ROUTINE_JOIN} WHERE p.reviewed_at >= ?",
+            (since,),
+        )
+        or {}
+    )
+    proposed = (
+        db.query_one(
+            "SELECT COUNT(*) FILTER (WHERE rt.routine_id IS NULL) AS hand,"  # noqa: S608 — ROUTINE_JOIN is a module constant
+            " COUNT(*) FILTER (WHERE rt.routine_id IS NOT NULL) AS routine"
+            f" FROM pending_changes p {ROUTINE_JOIN} WHERE p.created_at >= ?",
+            (since,),
+        )
+        or {}
     )
     authority = db.query(
         "SELECT agent, entity, level FROM agent_authority WHERE updated_at >= ?"
         " ORDER BY updated_at DESC",
         (since,),
     )
-    started = db.query_one(
-        "SELECT COUNT(*) AS n FROM activity WHERE action = 'delegate_task' AND created_at >= ?",
-        (since,),
+    # A ledger row has no task column, so the split reads the id the detail
+    # starts with (delegation.delegate_task writes "#<task> -> <agent> ...").
+    # Ledger rows never change, and hand plus routine equals every
+    # delegate_task row in the window.
+    started = (
+        db.query_one(
+            "SELECT COUNT(*) FILTER (WHERE t.routine_id IS NULL) AS hand,"
+            " COUNT(*) FILTER (WHERE t.routine_id IS NOT NULL) AS routine"
+            " FROM activity a"
+            " LEFT JOIN tasks t ON t.id = substring(a.detail FROM '^#([0-9]+) ')::bigint"
+            " WHERE a.action = 'delegate_task' AND a.created_at >= ?",
+            (since,),
+        )
+        or {}
     )
-    accepted = db.query_one(
-        "SELECT COUNT(*) AS n FROM tasks WHERE delegated_agent != ''"
-        " AND status = 'done' AND completed_at >= ?",
-        (since,),
+    accepted = (
+        db.query_one(
+            "SELECT COUNT(*) FILTER (WHERE routine_id IS NULL) AS hand,"
+            " COUNT(*) FILTER (WHERE routine_id IS NOT NULL) AS routine"
+            " FROM tasks WHERE delegated_agent != ''"
+            " AND status = 'done' AND completed_at >= ?",
+            (since,),
+        )
+        or {}
     )
     by_agent = [
         r
         for r in db.query(
-            "SELECT proposed_by,"
-            " COUNT(*) AS proposed,"
-            " COUNT(*) FILTER (WHERE status = 'approved') AS approved,"
-            " COUNT(*) FILTER (WHERE status = 'rejected') AS rejected,"
-            " COUNT(*) FILTER (WHERE status = 'pending') AS pending"
-            " FROM pending_changes WHERE created_at >= ?"
-            " GROUP BY proposed_by ORDER BY proposed DESC",
+            "SELECT p.proposed_by,"  # noqa: S608 — ROUTINE_JOIN is a module constant
+            " COUNT(*) FILTER (WHERE rt.routine_id IS NULL) AS proposed,"
+            " COUNT(*) FILTER (WHERE p.status = 'approved' AND rt.routine_id IS NULL) AS approved,"
+            " COUNT(*) FILTER (WHERE p.status = 'rejected' AND rt.routine_id IS NULL) AS rejected,"
+            " COUNT(*) FILTER (WHERE p.status = 'pending' AND rt.routine_id IS NULL) AS pending,"
+            " COUNT(*) FILTER (WHERE rt.routine_id IS NOT NULL) AS routine"
+            f" FROM pending_changes p {ROUTINE_JOIN} WHERE p.created_at >= ?"
+            " GROUP BY p.proposed_by ORDER BY proposed DESC",
             (since,),
         )
         # people out, system actors in — review_stats states why is_agent
@@ -2057,14 +2096,26 @@ def season_readout(viewer: str = "", *, admin: bool = False) -> dict:
     return {
         "season": s["label"],
         "days_left": s["days_left"],
-        "verdicts": verdicts,
-        "proposals": (proposed or {}).get("n", 0),
+        "verdicts": {k: verdicts.get(k, 0) for k in ("settled", "approved", "rejected", "strong")},
+        "proposals": proposed.get("hand", 0),
         "authority_changes": authority,
         "delegations": {
-            "started": (started or {}).get("n", 0),
-            "accepted": (accepted or {}).get("n", 0),
+            "started": started.get("hand", 0),
+            "accepted": accepted.get("hand", 0),
         },
         "by_agent": by_agent,
+        "routine": {
+            "verdicts": {
+                "settled": verdicts.get("routine_settled", 0),
+                "approved": verdicts.get("routine_approved", 0),
+                "rejected": verdicts.get("routine_rejected", 0),
+            },
+            "proposals": proposed.get("routine", 0),
+            "delegations": {
+                "started": started.get("routine", 0),
+                "accepted": accepted.get("routine", 0),
+            },
+        },
     }
 
 
@@ -2818,6 +2869,11 @@ def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
         # It is also the wrong question: the record exists to decide whether an
         # AGENT has earned more autonomy. Nobody scores a colleague's rate.
         if not is_agent(t["agent"]):
+            continue
+        # a pair whose only verdicts came from routines has no hand record
+        # (delegation.ROUTINE_JOIN): the card would state "0 of 0 approved"
+        # beside the weekly acceptance it asks the sponsor to judge
+        if not t["proposed"]:
             continue
         out[(t["agent"], t["entity"])] = {
             "approved": t["approved"],

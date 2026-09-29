@@ -247,6 +247,14 @@ Every write asks for `tier=workspace`, which builds an engagement pack as
 nobody, refuses a crew or private engagement, and drops a crew section from
 the team pack.
 
+The `routines` job is the exception, and it derives nothing. It acts as
+each routine's owner: every firing creates a task at the routine's own
+tier, under the owner's name, as the owner would by hand. Its untiered
+outputs are the count it returns, which `job_outcomes` stores
+(`services/routines.py::tick`), and quiet `fire_routine` and
+`skip_routine` ledger rows that carry ids and outcome codes only. A
+routine title reaches neither.
+
 The ICS feed is the same case for a different reason: one shared token is
 one audience, so a feed cannot be scoped. Workspace tier only. Per-person
 feed tokens are the fix if the feed ever needs to carry more.

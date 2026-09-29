@@ -145,6 +145,22 @@ def main() -> None:
         actor="ava",
         dates_shared=True,
     )
+    # paused, so a demo instance creates no tasks until someone resumes it
+    from app.services import routines
+
+    checklist = routines.create_routine(
+        {
+            "title": "On-call checklist",
+            "description": "Check the alerts, the backups and the on-call handover notes.",
+            "weekdays": "3",
+            "at_time": "09:00",
+            "every_weeks": 2,
+            "assignee": "ava",
+            "due_days": 1,
+        },
+        actor="mario",
+    )
+    routines.pause_routine(checklist["id"], actor="mario")
     collab.record_decision(
         "Weekly plan is approved, never imposed",
         "The Monday draft ships as a proposal; a human approves the commitment line.",
@@ -240,7 +256,7 @@ def main() -> None:
     print(
         "Seeded: 1 engagement (playbook), tasks, standups, blockers,"
         " intake queue, pending reviews, calendar, lessons, a promise,"
-        " an absence, a charter entry, a delegation awaiting acceptance,"
+        " an absence, a paused routine, a charter entry, a delegation awaiting acceptance,"
         " one flock turn, and two crews (one deactivated)."
     )
 
