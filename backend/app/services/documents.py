@@ -26,6 +26,7 @@ from .search import index_record
 MAX_DOCUMENT_BYTES = 512 * 1024
 TITLE_LIMIT = 120
 HISTORY_LIMIT = 100
+_NO_QUOTE = "an edit needs the text to replace. Quote the exact text."
 
 
 class StaleRevision(db.Conflict, db.TerminalReject):
@@ -154,11 +155,12 @@ def create_document(
 def _document_row(artifact_id: int) -> dict:
     """The document row, held for the caller's transaction.
 
-    FOR UPDATE because edit_document reads the FILE, decides from what it
-    finds, and writes it back: two edits of one document otherwise both read
-    the old body and the second silently discards the first. The row is the
-    only thing both paths share, so holding it serializes them (CLAUDE.md,
-    "a read whose RESULT decides a later write must hold something").
+    FOR UPDATE because every write reads the head revision, decides from it,
+    and writes head + 1: two edits of one document otherwise both read the
+    old body and the second silently discards the first (the primary key then
+    refuses it as a 500). The row is the one thing every writer shares, so
+    holding it serializes them (CLAUDE.md, "a read whose RESULT decides a
+    later write must hold something").
     """
     row = db.query_one("SELECT * FROM artifacts WHERE id = ? FOR UPDATE", (artifact_id,))
     # an unshared artifact reads as absent, for the reason _check_source gives
@@ -258,8 +260,9 @@ def _publish_revision(
     The caller holds the artifacts row (FOR UPDATE, or its own fresh insert),
     so `head` cannot move under it. The primary key is the backstop: a writer
     without the lock fails on the duplicate revision instead of overwriting
-    one. The file stays the published head that handoff.read_artifact reads,
-    written in the same transaction with the same digest.
+    one. The file stays the published head, written in the same transaction
+    with the same digest: a read serves the revision row that digest names
+    (handoff.read_artifact), and a document with no rows yet reads the file.
     """
     data = body.encode("utf-8")
     revision = head + 1
@@ -317,6 +320,11 @@ def head_revision(artifact_id: int) -> int:
 
 def _check_base(artifact_id: int, base_revision: int, head: int) -> None:
     # base 0 states no base: a proposal filed before agent edits pinned one
+    if base_revision > head:
+        raise StaleRevision(
+            f"document #{artifact_id} has no revision {base_revision}. Revision {head} is the"
+            f" newest. Read revision {head}, then make the change again."
+        )
     if base_revision and base_revision != head:
         raise StaleRevision(
             f"document #{artifact_id} changed after revision {base_revision}, and revision"
@@ -464,8 +472,9 @@ def proposal_diff(artifact_id: int, payload: dict) -> dict:
     past that base (approval then refuses it, StaleRevision).
 
     A proposal filed before bases were stamped states none and diffs against
-    the head. A document with no revision rows yet has no base text to show,
-    so the replacement stays as fields.
+    the head. If that text is not in the head, or the document has no
+    revision rows yet, there is no base text to show, and the replacement
+    stays as fields: an empty diff reads as a proposal that changes nothing.
     """
     head = head_revision(artifact_id)
     base = int(payload.get("base_revision") or 0) or head
@@ -474,7 +483,7 @@ def proposal_diff(artifact_id: int, payload: dict) -> dict:
         "SELECT body FROM document_revisions WHERE artifact_id = ? AND revision = ?",
         (artifact_id, base),
     )
-    if source is None:
+    if source is None or not old or old not in source["body"]:
         return {
             "current": {"old": old},
             "proposed": {"new": new},
@@ -483,7 +492,7 @@ def proposal_diff(artifact_id: int, payload: dict) -> dict:
             "head_revision": head,
         }
     body = source["body"]
-    after = body.replace(old, new, 1) if old else body
+    after = body.replace(old, new, 1)
     return {
         "current": {},
         "proposed": {},
@@ -504,13 +513,32 @@ def unified(before: str, after: str, before_label: str, after_label: str) -> str
     )
 
 
+def _replace_once(artifact_id: int, body: str, old: str, new: str) -> str:
+    """`body` with its one run of `old` replaced, refused as edit_document
+    refuses it. `old` is not empty."""
+    found = body.count(old)
+    if found == 0:
+        raise ValueError(
+            f"that text is not in document #{artifact_id}. Read the document, then quote it exactly."
+        )
+    if found > 1:
+        raise ValueError(
+            f"that text is in document #{artifact_id} {found} times."
+            " Quote more of the surrounding text so it matches one place."
+        )
+    updated = body.replace(old, new)
+    _check_content(updated)
+    return updated
+
+
 def edit_refusal(artifact_id: int, payload: dict) -> str:
     """Why a document_edit proposal can never apply, checked when it is filed.
 
-    Filed, a quote that matches nothing failed at approval and came back to
-    the queue after every try. A revision row never changes, so this read
-    takes no lock and its answer holds until the approval. A document with no
-    rows yet leaves the quote to the apply.
+    A proposal that fails at approval goes back to the queue after every
+    try. A revision row never changes, so this read takes no lock and its
+    answer holds until the approval, and edit_document's own check at that
+    base can only agree. A document with no rows yet leaves the quote to the
+    apply.
     """
     row = db.query_one("SELECT visibility, kind FROM artifacts WHERE id = ?", (artifact_id,))
     # the _document_row sentence: an agent writes workspace documents only, and
@@ -520,22 +548,22 @@ def edit_refusal(artifact_id: int, payload: dict) -> str:
         return scope.missing_text("artifacts", artifact_id)
     if row["kind"] != "document":
         return f"artifact #{artifact_id} is not a document, so it cannot be changed."
-    old = str(payload.get("old") or "")
+    old, new = str(payload.get("old") or ""), str(payload.get("new") or "")
+    if not old:
+        return _NO_QUOTE
+    if old == new:
+        return "the new text is the same as the old text, so the edit changes nothing."
     base = int(payload.get("base_revision") or 0)
     source = db.query_one(
         "SELECT body FROM document_revisions WHERE artifact_id = ? AND revision = ?",
         (artifact_id, base),
     )
-    if not old or source is None:
+    if source is None:
         return ""
-    found = source["body"].count(old)
-    if found == 0:
-        return f"that text is not in document #{artifact_id}. Read the document, then quote it exactly."
-    if found > 1:
-        return (
-            f"that text is in document #{artifact_id} {found} times."
-            " Quote more of the surrounding text so it matches one place."
-        )
+    try:
+        _replace_once(artifact_id, source["body"], old, new)
+    except ValueError as e:
+        return str(e)
     return ""
 
 
@@ -558,7 +586,7 @@ def edit_document(
     unique is refused rather than guessed at.
     """
     if not old:
-        raise ValueError("an edit needs the text to replace. Quote the exact text.")
+        raise ValueError(_NO_QUOTE)
     with db.transaction():
         row = _document_row(artifact_id)
         # the head ROW, never the file: a changed file is republished by this
@@ -568,19 +596,15 @@ def edit_document(
         # would land on text the agent never read (StaleRevision settles the
         # proposal once, uncounted)
         _check_base(artifact_id, base_revision, int(head["revision"]))
-        body = head["body"]
-        found = body.count(old)
-        if found == 0:
-            raise ValueError(
-                f"that text is not in document #{artifact_id}. Read the document, then quote it exactly."
-            )
-        if found > 1:
-            raise ValueError(
-                f"that text is in document #{artifact_id} {found} times."
-                " Quote more of the surrounding text so it matches one place."
-            )
-        updated = body.replace(old, new)
-        _check_content(updated)
+        updated = _replace_once(artifact_id, head["body"], old, new)
+        if updated == head["body"]:
+            return {
+                "id": artifact_id,
+                "artifact_id": artifact_id,
+                "title": row["title"],
+                "revision": int(head["revision"]),
+                "unchanged": True,
+            }
         revision = _publish_revision(
             row,
             updated,

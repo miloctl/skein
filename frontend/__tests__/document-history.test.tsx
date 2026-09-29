@@ -5,7 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *  list showed, so a restore over somebody's newer save is a 409, never a
  *  silent overwrite. */
 
-const state = vi.hoisted(() => ({ posts: [] as Array<{ path: string; body: unknown }>, reportStatus: vi.fn() }));
+const state = vi.hoisted(() => ({
+  posts: [] as Array<{ path: string; body: unknown }>,
+  reportStatus: vi.fn(),
+  stale: false,
+  lists: 0,
+}));
 
 vi.mock("@/lib/status", () => ({ reportStatus: state.reportStatus }));
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -15,8 +20,18 @@ vi.mock("@/lib/api", async (importOriginal) => {
     api: (path: string, init?: RequestInit) => {
       if (init?.method === "POST") {
         state.posts.push({ path, body: JSON.parse(String(init.body)) });
+        if (state.stale)
+          return Promise.reject(
+            new real.ApiError("document #12 changed after revision 3, and revision 4 is newer. Read revision 4, then make the change again.", 409),
+          );
         return Promise.resolve({ id: 12, revision: 4, restored_from: 1, unchanged: false });
       }
+      if (path.endsWith("/revisions/2"))
+        return Promise.resolve({
+          revision: 2, author: "raj", origin: "human", change_id: null, restored_from: null,
+          created_at: "2026-09-29T09:00:00+00:00", markdown: "second", diff: "",
+        });
+      state.lists += 1;
       return Promise.resolve({
         id: 12,
         head: 3,
@@ -34,6 +49,8 @@ import { DocumentHistory } from "@/components/document-history";
 
 beforeEach(() => {
   state.posts = [];
+  state.stale = false;
+  state.lists = 0;
   state.reportStatus.mockReset();
 });
 
@@ -64,5 +81,19 @@ describe("document history", () => {
       "confirmation",
     );
     expect(screen.queryByRole("button", { name: "Restore revision 3" })).toBeNull();
+  });
+
+  it("a restore refused as stale reads the list again", async () => {
+    state.stale = true;
+    render(<DocumentHistory artifactId={12} onRestored={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Restore revision 1" }));
+    await waitFor(() => expect(state.lists).toBe(2));
+  });
+
+  it("moves focus to the revision it opens", async () => {
+    render(<DocumentHistory artifactId={12} onRestored={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Revision 2" }));
+    const heading = await screen.findByRole("heading", { name: "Revision 2" });
+    await waitFor(() => expect(document.activeElement).toBe(heading));
   });
 });

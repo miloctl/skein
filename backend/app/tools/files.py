@@ -68,7 +68,7 @@ def read_artifact(artifact_id: int) -> str:
     }
     if row["kind"] == "document":
         # the revision this text is, so the model can name what it read
-        out["revision"] = documents.head_revision(row["id"])
+        out["revision"] = row["revision"]
     return json.dumps(out)
 
 

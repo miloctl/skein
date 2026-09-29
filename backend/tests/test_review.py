@@ -1555,3 +1555,5 @@ def test_a_document_edit_diff_is_unified_against_its_base(client, fresh_db, monk
     )
     moved = client.get(f"/api/review/{pid}/diff", headers=mira).json()["diff"]
     assert (moved["base_revision"], moved["head_revision"]) == (1, 2)
+    # still the base the agent read: the head's new line is not the agent's
+    assert "+delta" in moved["unified"] and "epsilon" not in moved["unified"]

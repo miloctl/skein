@@ -730,8 +730,7 @@ was built. Everything below is open.
 
 **Approved features, one branch each.** Each has a plan with the owner's
 decisions settled on 2026-09-28, in `docs/intent/`. Build order: GitLab,
-comment threads, the board and routines. The task panel's blocker form and
-document revisions shipped.
+comment threads, the board and routines.
 
 - **GitLab forge support and repository packs** [M] —
   `docs/intent/gitlab-forge.md`. Inbound webhooks only (outbound is an open
@@ -774,8 +773,9 @@ codes can now show.
 - **Base values on update proposals** [S–M] — store the payload keys' values
   at filing, and at approval name a field a teammate changed since. The diff
   already shows current → proposed; it cannot say the current value is newer
-  than the proposal. Trigger: a reviewer approves over a newer edit. Document edits already carry one: `base_revision`, checked at approval (`docs/intent/document-revisions.md`, D4 and D5).
-
+  than the proposal. Trigger: a reviewer approves over a newer edit.
+  Document edits already carry one: `base_revision`, checked at approval
+  (`docs/intent/document-revisions.md`, D4 and D5).
 - **Reset a shared-chat agent's session when a person joins** [XS–S] —
   `_AudiencePolicy` checks each read against the current members, but the
   model session keeps raw tool results from before the join. Matters only

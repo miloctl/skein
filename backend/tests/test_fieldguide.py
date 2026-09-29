@@ -513,6 +513,31 @@ def test_reading_a_report_that_is_not_a_document_does_not_tie_it(client, fresh_d
     assert card["tied"] is False
 
 
+def test_opening_your_own_document_does_not_tie_the_agent_document_knot(client, fresh_db):
+    """The card is about asking an agent for a document. Writing one yourself
+    ties the revisions card instead."""
+    from app.services import fieldguide
+
+    _mint(fresh_db, "tester")
+    doc = client.post("/api/documents", json={"title": "Plan", "content": "# Plan\n"}).json()["id"]
+    client.get(f"/api/artifacts/{doc}")
+    tied = {r["id"]: r["tied"] for r in fieldguide.guide("tester")["cards"]}
+    assert (tied["agent_document"], tied["document_revisions"]) == (False, True)
+
+
+def test_saving_an_agents_document_ties_the_document_revisions_knot(client, fresh_db):
+    from app.services import documents, fieldguide
+
+    _mint(fresh_db, "tester")
+    doc = documents.create_document("Plan", "# Plan\n", actor="agent")["artifact_id"]
+    card = lambda: next(  # noqa: E731
+        r for r in fieldguide.guide("tester")["cards"] if r["id"] == "document_revisions"
+    )
+    assert card()["tied"] is False
+    client.put(f"/api/documents/{doc}", json={"content": "# Plan 2\n", "base_revision": 1})
+    assert card()["tied"] is True
+
+
 def test_todays_three_route_ties_only_its_fixed_knot(client, fresh_db):
     from app.services import fieldguide
 

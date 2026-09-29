@@ -1,6 +1,11 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
+async function noViolations(page: Page) {
+  const scan = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag22aa"]).analyze();
+  expect(scan.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) }))).toEqual([]);
+}
+
 /** A person edits the seeded agent document, and restores the revision an
  *  agent wrote. Every save is a revision, so the restore keeps both. */
 for (const width of [360, 1280]) {
@@ -19,6 +24,7 @@ for (const width of [360, 1280]) {
     await text.fill(`# Pricing research plan\n\n${suffix}\n`);
     await page.getByRole("button", { name: "Preview", exact: true }).click();
     await expect(page.locator("p", { hasText: suffix })).toBeVisible();
+    await noViolations(page);
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByRole("status").filter({ hasText: /Saved revision \d+\./ })).toBeVisible();
     await expect(page.getByRole("button", { name: "Edit", exact: true })).toBeFocused();
@@ -26,6 +32,9 @@ for (const width of [360, 1280]) {
 
     await page.getByRole("button", { name: "History", exact: true }).click();
     await expect(page.getByText(/ava · Person/).first()).toBeVisible();
+    await page.getByRole("button", { name: "Revision 1", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Revision 1", exact: true })).toBeFocused();
+    await noViolations(page);
     await page.getByRole("button", { name: "Restore revision 1", exact: true }).click();
     await expect(
       page.getByRole("status").filter({ hasText: /Restored revision 1 as revision \d+\./ }),
@@ -36,8 +45,7 @@ for (const width of [360, 1280]) {
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
     ).toBeLessThanOrEqual(1);
-    const scan = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag22aa"]).analyze();
-    expect(scan.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) }))).toEqual([]);
+    await noViolations(page);
   });
 }
 
@@ -68,10 +76,8 @@ test("write a private document that only its author can open", async ({ browser 
     await expect(ava.getByText("only you", { exact: true })).toBeVisible();
     const id = new URL(ava.url()).searchParams.get("id");
     expect(id).toMatch(/^\d+$/);
-    const scan = await new AxeBuilder({ page: ava })
-      .withTags(["wcag2a", "wcag2aa", "wcag22aa"])
-      .analyze();
-    expect(scan.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) }))).toEqual([]);
+    await expect(ava.getByRole("button", { name: "Edit", exact: true })).toBeFocused();
+    await noViolations(ava);
 
     const marcus = await marcusContext.newPage();
     await signIn(marcus, "marcus", MARCUS_KEY);

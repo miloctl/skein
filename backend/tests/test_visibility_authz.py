@@ -497,7 +497,8 @@ _EXEMPT_FUNCTIONS = {
     # not reach their own file.
     "documents.py::_publish_revision": (
         "writes the head of a row its caller holds: _document_row refused all but"
-        " a workspace document, or create_document just inserted it"
+        " a workspace document, _editable_row ran scope.assert_editable for a"
+        " person's save or restore, or create_document just inserted it"
     ),
     "uploads.py::delete_upload": (
         "a person deleting their OWN attached file, keyed on created_by like"
@@ -760,6 +761,11 @@ _UNFILTERED_READS = {
         " filter and masks names it may not show. Splicing WORKSPACE_ONLY"
         " here would silently drop attribution for crew engagements, and a"
         " private task cannot be delegated at all (delegation.delegate_task)"
+    ),
+    "users.py::_authors_crew_rows": (
+        "answers only whether a person wrote any crew-tier row, to refuse an"
+        " unconsented merge that would hand those rows to the target; no row"
+        " leaves the function"
     ),
     "documents.py::edit_refusal": (
         "reads the tier and kind of the one artifact a proposal names and answers"

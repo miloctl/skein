@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 import { ArtifactMarkdown } from "@/components/artifact-markdown";
 import { Card, EmptyState } from "@/components/card";
-import { DocumentEditor } from "@/components/document-editor";
+import { type Draft, DocumentEditor } from "@/components/document-editor";
 import { DocumentHistory } from "@/components/document-history";
 import { VisibilityBadge } from "@/components/visibility-picker";
 import { PeekLink } from "@/components/task-peek";
@@ -24,8 +25,9 @@ import { timeAgo } from "@/lib/time";
  *  at 07:00 every day and the only way to see one was to shell into the
  *  container. The two that did have buttons dumped raw markdown into a <pre>.
  *
- *  Composition only. Nothing here generates an artifact; the rituals that
- *  produce them keep their own homes on Work → Health. */
+ *  Nothing here generates a report: the rituals that produce them keep their
+ *  own homes on Work → Health. A person writes and edits documents here
+ *  (components/document-editor.tsx). */
 
 type Artifact = {
   id: number;
@@ -52,7 +54,7 @@ type ArtifactPage = {
  *  A kind absent here falls through to itself rather than to a guess. */
 const KIND_LABEL: Record<string, string> = {
   digest: "Daily digest",
-  // people write documents too now (PUT /api/documents), not only agents
+  // not "Agent document": a person writes one too (POST /api/documents)
   document: "Document",
   readout: "Exec readout",
   handoff: "Handoff",
@@ -63,14 +65,27 @@ const kindLabel = (kind: string) => KIND_LABEL[kind] ?? kind;
 
 const PARAM = "id";
 
-/** window.location, not useSearchParams: the latter puts the route behind a
- *  Suspense boundary for a value that is never prerendered — the reasoning
- *  components/task-peek.tsx and app/auth/callback record. */
-function idFromUrl(): number | null {
-  if (typeof window === "undefined") return null;
-  const raw = new URLSearchParams(window.location.search).get(PARAM);
+function parseId(raw: string | null): number | null {
   const id = Number(raw);
   return raw && Number.isInteger(id) && id > 0 ? id : null;
+}
+
+/** window.location for the first read, which runs outside render. */
+function idFromUrl(): number | null {
+  if (typeof window === "undefined") return null;
+  return parseId(new URLSearchParams(window.location.search).get(PARAM));
+}
+
+/** Reports `?id=` as router state, for a search hit (components/nav-search.tsx)
+ *  clicked while Reports is open: a soft navigation fires no popstate, and
+ *  without this the pane keeps the old report. In its OWN Suspense boundary, for the reason
+ *  app/notes/page.tsx::NoteParam gives. */
+function IdParam({ onChange }: { onChange: (id: number) => void }) {
+  const id = parseId(useSearchParams().get(PARAM));
+  useEffect(() => {
+    if (id) onChange(id);
+  }, [id, onChange]);
+  return null;
 }
 
 function ThreadLink({ thread }: { thread: EntityRef }) {
@@ -118,6 +133,19 @@ export default function ArtifactsPage() {
   // leaves a stale editor or history behind as neither
   const [mode, setMode] = useState<{ id: number; view: "edit" | "history" } | null>(null);
   const [creating, setCreating] = useState(false);
+  // every editor's unsaved text, by document ("new" for New document): the
+  // editor unmounts on History, on another report and on New document off
+  const [drafts] = useState(() => new Map<number | "new", Draft>());
+  // the document just created, whose Edit takes focus once its body loads
+  const created = useRef<number | null>(null);
+
+  useEffect(() => {
+    const guard = (event: BeforeUnloadEvent) => {
+      if (drafts.size) event.preventDefault();
+    };
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [drafts]);
 
   const loadList = useCallback((select?: number) => {
     return api<ArtifactPage>("/api/artifacts/page")
@@ -134,10 +162,14 @@ export default function ArtifactsPage() {
         // Pushed instead, Back would return to a bare /artifacts, and popstate
         // would read no id and leave the pane loading with nothing selected.
         if (select !== undefined) {
-          // a new document: a real history entry, like picking a row
+          // a new document: a real history entry, like picking a row, unless
+          // the entry names nothing (an empty list), where Back would reach a
+          // bare /artifacts with nothing to open
           const url = new URL(window.location.href);
+          const bare = idFromUrl() === null;
           url.searchParams.set(PARAM, String(select));
-          window.history.pushState({}, "", url);
+          if (bare) window.history.replaceState({}, "", url);
+          else window.history.pushState({}, "", url);
         } else if (first !== null && idFromUrl() === null) {
           const url = new URL(window.location.href);
           url.searchParams.set(PARAM, String(first));
@@ -208,6 +240,12 @@ export default function ArtifactsPage() {
   const view = mode && mode.id === openId ? mode.view : "read";
   const isDocument = shown?.kind === "document";
 
+  useEffect(() => {
+    if (!shown || shown.id !== created.current) return;
+    created.current = null;
+    document.getElementById("document-edit")?.focus();
+  }, [shown]);
+
   const backToEdit = useCallback(() => {
     setMode(null);
     setTimeout(() => document.getElementById("document-edit")?.focus(), 0);
@@ -244,6 +282,9 @@ export default function ArtifactsPage() {
 
   return (
     <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
+      <Suspense fallback={null}>
+        <IdParam onChange={setOpenId} />
+      </Suspense>
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
         <h1 className="font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
           Reports
@@ -251,7 +292,8 @@ export default function ArtifactsPage() {
         <button
           id="document-new"
           type="button"
-          aria-pressed={creating}
+          aria-expanded={creating}
+          aria-controls="document-new-panel"
           onClick={() => setCreating((on) => !on)}
           className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 hover:border-line-strong hover:text-ink"
         >
@@ -260,25 +302,29 @@ export default function ArtifactsPage() {
       </div>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
         Every digest, brief, close-out, readout and handoff the team has
-        produced. Skein writes these on a schedule — this is where you read
-        them.
+        produced, and the documents people and agents write. Skein writes the
+        reports on a schedule. This is where you read them.
       </p>
 
       {creating ? (
-        <Card title="New document" className="mb-4">
-          <DocumentEditor
-            artifactId={null}
-            onSaved={(id) => {
-              setCreating(false);
-              // the POST cleared the GET cache (lib/api.ts), so the list is fresh
-              loadList(id);
-            }}
-            onCancel={() => {
-              setCreating(false);
-              setTimeout(() => document.getElementById("document-new")?.focus(), 0);
-            }}
-          />
-        </Card>
+        <div id="document-new-panel">
+          <Card title="New document" className="mb-4">
+            <DocumentEditor
+              artifactId={null}
+              drafts={drafts}
+              onSaved={(id) => {
+                created.current = id;
+                setCreating(false);
+                // the POST cleared the GET cache (lib/api.ts), so the list is fresh
+                loadList(id);
+              }}
+              onCancel={() => {
+                setCreating(false);
+                setTimeout(() => document.getElementById("document-new")?.focus(), 0);
+              }}
+            />
+          </Card>
+        </div>
       ) : null}
 
       {/* One state at a time. The failure is not "still loading" — it is where
@@ -391,7 +437,8 @@ export default function ArtifactsPage() {
                       <button
                         id="document-edit"
                         type="button"
-                        aria-pressed={view === "edit"}
+                        aria-expanded={view === "edit"}
+                        aria-controls="document-panel"
                         onClick={() => setMode(view === "edit" ? null : { id: shown.id, view: "edit" })}
                         className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 hover:border-line-strong hover:text-ink"
                       >
@@ -399,7 +446,8 @@ export default function ArtifactsPage() {
                       </button>
                       <button
                         type="button"
-                        aria-pressed={view === "history"}
+                        aria-expanded={view === "history"}
+                        aria-controls="document-panel"
                         onClick={() =>
                           setMode(view === "history" ? null : { id: shown.id, view: "history" })
                         }
@@ -424,23 +472,26 @@ export default function ArtifactsPage() {
                     Download Markdown
                   </button>
                 </div>
-                {view === "edit" ? (
-                  <DocumentEditor
-                    artifactId={shown.id}
-                    onSaved={() => {
-                      // the write cleared the GET cache (lib/api.ts), so this
-                      // refetch reads the new head
-                      setBodyRequest((request) => request + 1);
-                      backToEdit();
-                    }}
-                    onCancel={backToEdit}
-                  />
-                ) : view === "history" ? (
-                  <DocumentHistory
-                    artifactId={shown.id}
-                    onRestored={() => setBodyRequest((request) => request + 1)}
-                  />
-                ) : null}
+                <div id="document-panel">
+                  {view === "edit" ? (
+                    <DocumentEditor
+                      artifactId={shown.id}
+                      drafts={drafts}
+                      onSaved={() => {
+                        // the write cleared the GET cache (lib/api.ts), so this
+                        // refetch reads the new head
+                        setBodyRequest((request) => request + 1);
+                        backToEdit();
+                      }}
+                      onCancel={backToEdit}
+                    />
+                  ) : view === "history" ? (
+                    <DocumentHistory
+                      artifactId={shown.id}
+                      onRestored={() => setBodyRequest((request) => request + 1)}
+                    />
+                  ) : null}
+                </div>
                 {view === "read" && shown.threads?.length ? (
                   <section
                     aria-labelledby="report-threads-title"

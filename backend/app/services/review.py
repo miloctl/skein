@@ -1779,7 +1779,7 @@ def change_diff(
     payload = json.loads(change["payload"])
     if change["entity"] == "document_edit":
         # artifacts has no `old` or `new` column, so the generic field diff
-        # showed "—" beside the new text. The row filter above already ran,
+        # shows "—" beside the new text. The row filter above already ran,
         # so only a reader of the document sees its lines.
         from .documents import proposal_diff
 

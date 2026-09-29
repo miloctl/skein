@@ -57,11 +57,11 @@ describe("a document edit in Approvals", () => {
     expect(screen.queryByText(/The document changed after this proposal/)).toBeNull();
   });
 
-  it("warns that Approve refuses it once the document moved", async () => {
+  it("warns that approval rejects it once the document moved", async () => {
     state.head = 2;
     render(<ReviewPage />);
     expect(
-      await screen.findByText("The document changed after this proposal. Approve refuses it."),
+      await screen.findByText("The document changed after this proposal. If you approve it, Skein rejects it."),
     ).toBeTruthy();
   });
 });

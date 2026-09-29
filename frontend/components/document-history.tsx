@@ -58,6 +58,7 @@ export function DocumentHistory({
   const [busy, setBusy] = useState(false);
   const [reload, setReload] = useState(0);
   const heading = useRef<HTMLHeadingElement>(null);
+  const opened = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     let live = true;
@@ -80,6 +81,12 @@ export function DocumentHistory({
       .then(setSelected)
       .catch((e) => reportStatus(actionError(e)));
 
+  // after the commit: the revision opens below a list that can be 100 rows
+  // long, and a keyboard reader otherwise stays on the button above it
+  useEffect(() => {
+    if (selected) opened.current?.focus();
+  }, [selected]);
+
   const restore = async (revision: number) => {
     if (!history) return;
     setBusy(true);
@@ -100,6 +107,9 @@ export function DocumentHistory({
       heading.current?.focus();
     } catch (e) {
       reportStatus(actionError(e));
+      // a stale head is the usual refusal: the list must show the revision
+      // that is newer, or the next Restore sends the same stale base
+      setReload((n) => n + 1);
     } finally {
       setBusy(false);
     }
@@ -148,7 +158,7 @@ export function DocumentHistory({
                   type="button"
                   disabled={busy}
                   onClick={() => restore(r.revision)}
-                  className="rounded-lg border border-line px-2 py-0.5 text-xs text-ink-2 hover:border-line-strong disabled:opacity-50"
+                  className="min-h-6 rounded-lg border border-line px-2 py-0.5 text-xs text-ink-2 hover:border-line-strong disabled:opacity-50"
                 >
                   Restore revision {r.revision}
                 </button>
@@ -159,7 +169,9 @@ export function DocumentHistory({
       )}
       {selected ? (
         <div className="space-y-2 rounded-lg border border-line p-3">
-          <h4 className="text-sm font-medium text-ink">Revision {selected.revision}</h4>
+          <h4 ref={opened} tabIndex={-1} className="text-sm font-medium text-ink">
+            Revision {selected.revision}
+          </h4>
           <UnifiedDiff diff={selected.diff} label={`Changes in revision ${selected.revision}`} />
           <div className="overflow-x-auto">
             <ArtifactMarkdown markdown={selected.markdown} />

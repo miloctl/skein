@@ -63,18 +63,71 @@ def test_restore_writes_a_new_revision_and_keeps_the_bad_one(client, fresh_db):
 
 def test_a_save_identical_to_the_head_writes_nothing(client, fresh_db):
     """A double-selected Save and a retry after a lost response both land
-    here. The no-op rule runs before the base check, so a stale base with
-    the same text still succeeds."""
-    doc = _doc("same text")
-    for base in (1, 1):
-        again = _save(client, doc, "same text", base)
-        assert again.json() == {"id": doc, "revision": 1, "unchanged": True}
-    assert (
-        db.query_one("SELECT COUNT(*) AS n FROM document_revisions WHERE artifact_id = ?", (doc,))[
-            "n"
-        ]
-        == 1
+    here. The no-op rule runs before the base check, so the retry's stale
+    base with the text that is now the head still succeeds."""
+    doc = _doc("first text")
+    assert _save(client, doc, "same text", 1).json()["revision"] == 2
+    again = _save(client, doc, "same text", 1)
+    assert again.status_code == 200, again.text
+    assert again.json() == {"id": doc, "revision": 2, "unchanged": True}
+    assert _count(doc) == 2
+
+
+def _count(doc: int) -> int:
+    return db.query_one(
+        "SELECT COUNT(*) AS n FROM document_revisions WHERE artifact_id = ?", (doc,)
+    )["n"]
+
+
+def test_a_restore_from_a_stale_base_is_409_and_writes_nothing(client, fresh_db):
+    doc = _doc("good text")
+    _save(client, doc, "bad text", 1)
+    _save(client, doc, "worse text", 2)
+    stale = client.post(
+        f"/api/documents/{doc}/revisions/1/restore",
+        json={"base_revision": 2},
+        headers=_strong(client, "ana"),
     )
+    assert stale.status_code == 409
+    assert "revision 3 is newer" in stale.json()["detail"]
+    assert _head_body(doc) == "worse text"
+
+
+def test_a_restore_of_the_current_text_writes_nothing(client, fresh_db):
+    doc = _doc("good text")
+    _save(client, doc, "bad text", 1)
+    _save(client, doc, "good text", 2)
+    same = client.post(
+        f"/api/documents/{doc}/revisions/1/restore",
+        json={"base_revision": 1},
+        headers=_strong(client, "ana"),
+    )
+    assert same.json() == {"id": doc, "revision": 3, "restored_from": 1, "unchanged": True}
+    assert _count(doc) == 3
+
+
+def test_a_base_newer_than_the_head_is_refused_with_a_true_sentence(client, fresh_db):
+    doc = _doc()
+    ahead = _save(client, doc, "text", 5)
+    assert ahead.status_code == 409
+    assert ahead.json()["detail"] == (
+        f"document #{doc} has no revision 5. Revision 1 is the newest."
+        " Read revision 1, then make the change again."
+    )
+
+
+def test_a_read_racing_a_save_gets_one_revision_whole(client, fresh_db):
+    """A save replaces the file and deletes the old one. A reader that read
+    the row before the save committed opened a deleted file (a 500), or read
+    the new head's number beside the old text, and the editor's next save
+    then wrote over a revision its person never saw."""
+    from pathlib import Path
+
+    doc = _doc("alpha")
+    _save(client, doc, "beta", 1)
+    Path(db.query_one("SELECT path FROM artifacts WHERE id = ?", (doc,))["path"]).unlink()
+    read = handoff.read_artifact(doc, scope.NOBODY)
+    assert (read["markdown"], read["revision"]) == ("beta", 2)
 
 
 def test_history_of_an_unreadable_artifact_reads_as_absent(client, fresh_db):
@@ -335,3 +388,99 @@ def test_a_crew_documents_history_reaches_its_members_only(client, fresh_db):
     assert outsider.status_code == 404
     assert "ava" not in outsider.text
     assert outsider.text.replace(str(doc), "N") == absent.text.replace("999999", "N")
+
+
+def test_an_agent_edit_that_empties_the_document_is_refused_when_filed(fresh_db, monkeypatch):
+    """Filed, the empty body failed at every approval and came back to the
+    queue: nothing about the revision it names can change."""
+    from app import config
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    doc = _doc("alpha beta")
+    assert "a document needs content" in _agent_edit(doc, "alpha beta", " ")["error"]
+    assert "changes nothing" in _agent_edit(doc, "beta", "beta")["error"]
+    assert _pending_edit(doc) is None
+
+
+def test_an_agent_edit_that_changes_nothing_writes_no_revision(fresh_db):
+    doc = _doc("alpha beta")
+    out = _agent_edit(doc, "beta", "beta")
+    assert out["revision"] == 1
+    assert _count(doc) == 1
+
+
+def test_a_proposal_without_a_base_shows_its_fields_once_the_quote_is_gone(
+    client, fresh_db, monkeypatch
+):
+    """A proposal filed before bases were stamped diffs against the head. If
+    the head no longer holds the quote, the diff was empty and the card
+    showed no change at all."""
+    import json
+
+    from app import config
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    doc = _doc("alpha beta")
+    _agent_edit(doc, "beta", "gamma")
+    payload = json.loads(_pending_edit(doc)["payload"])
+    del payload["base_revision"]
+    _save(client, doc, "alpha delta", 1)
+    diff = documents.proposal_diff(doc, payload)
+    assert diff["unified"] == ""
+    assert (diff["current"], diff["proposed"]) == ({"old": "beta"}, {"new": "gamma"})
+
+
+def test_a_rule_that_denies_private_documents_holds_in_any_letter_case(fresh_db):
+    from fastapi.testclient import TestClient
+
+    from app.extensions import PolicyContribution, PolicyDecision, PolicyEffect, SkeinModule
+    from app.main import create_app
+
+    def deny_private(request):
+        if request.resource.type == "document" and request.resource.classification == "private":
+            return PolicyDecision(PolicyEffect.DENY, ("private documents are off",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.7.0",
+        policies=(PolicyContribution("acme.workplace.no-private-documents", deny_private),),
+    )
+    users.ensure_user("mira")
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
+        made = client.post(
+            "/api/documents",
+            json={"title": "Draft", "content": "text", "visibility": " PRIVATE"},
+        )
+    assert made.status_code == 403, made.text
+    assert db.query_one("SELECT 1 FROM artifacts WHERE kind = 'document'") is None
+
+
+def test_a_new_document_without_a_tier_starts_with_the_writers_default(client, fresh_db):
+    """Only you for a signed-in person, the roster for a weak name: a weak
+    name reads no private row and would lose its own document."""
+    strong = _create(client, "mira").json()["id"]
+    users.ensure_user("raj")
+    weak = client.post(
+        "/api/documents", json={"title": "Runbook", "content": "text"}, headers={"X-User": "raj"}
+    ).json()["id"]
+    tiers = {
+        r["id"]: r["visibility"]
+        for r in db.query("SELECT id, visibility FROM artifacts WHERE kind = 'document'")
+    }
+    assert (tiers[strong], tiers[weak]) == ("private", "workspace")
+
+
+def test_your_data_deletes_a_private_document_with_every_revision(client, fresh_db):
+    from pathlib import Path
+
+    mira = _strong(client, "mira")
+    doc = _create(client, "mira", visibility="private").json()["id"]
+    _save(client, doc, "second draft", 1, who="mira")
+    path = db.query_one("SELECT path FROM artifacts WHERE id = ?", (doc,))["path"]
+    assert client.delete(f"/api/my-data/artifacts/{doc}", headers=mira).status_code == 200
+    assert _count(doc) == 0
+    assert not Path(path).exists()

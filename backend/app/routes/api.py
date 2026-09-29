@@ -1267,9 +1267,6 @@ def get_artifact(
                 review_route_permitted and review_policy.allows_unclassified()
             ),
         )
-        if body["kind"] == "document":
-            # the base the editor sends back with its save (PUT /api/documents)
-            body["revision"] = documents.head_revision(artifact_id)
     # AFTER the read transaction: mark() takes the field-guide person lock
     # first in its own transaction. Taking it after the artifact read's locks
     # would invert the order against another request that starts with mark().
@@ -1313,7 +1310,9 @@ def post_document(
     ratelimit.check("write", user)
     # "only you" for a signed-in person, the roster for a weak name, which
     # reads no private row and would lose its own document
-    tier = body.visibility or _personal_default(request)
+    # normalized BEFORE the decision: resolve_write lowercases what it stores,
+    # and a rule matching "private" never sees " PRIVATE"
+    tier = (body.visibility or _personal_default(request)).strip().lower()
     with db.transaction():
         enforce_decision(
             decide(
