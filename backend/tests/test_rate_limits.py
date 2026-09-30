@@ -206,7 +206,7 @@ def test_client_addr_falls_back_when_the_header_is_short(monkeypatch):
     assert ratelimit.client_addr(_Req(None)) == "unknown"
 
 
-def test_signin_buckets_follow_the_forwarded_client(client, monkeypatch):
+def test_signin_buckets_follow_the_forwarded_client(client, monkeypatch, pinned_window):
     """The end-to-end consequence: with hops declared, two browsers behind
     one router get two signin buckets, not one shared throttle."""
     from app import config
@@ -276,7 +276,7 @@ def test_the_write_bucket_is_per_person_even_on_the_shared_agent(fresh_db, monke
     ratelimit.reset()
 
 
-def test_deployment_wide_caps_count_across_processes(fresh_db):
+def test_deployment_wide_caps_count_across_processes(fresh_db, pinned_window):
     """A per-process count would let each process hand out the whole cap."""
     import pytest
 
