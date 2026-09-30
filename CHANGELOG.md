@@ -18,6 +18,14 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+### Behavior
+
+### Operations
+
+## 0.6.12 — 2026-09-30
+
+### Contracts
+
 - Routines: `GET /api/routines` answers `{zone, routines}`, each row with `next_local`, `last_local`, `open_task_id`, `can_edit` and `can_delete`. `POST /api/routines` (a proved identity, 201) takes a title, `weekdays` ("1,4", Monday is 1), `at_time` ("07:00"), `every_weeks` (1 to 4), `starts_on`, `due_days` (0 to 27), an assignee or an agent, `acceptance_criteria`, and a tier that is fixed from then on. The workplace action `skein.rest.post.routines` decides a create. `PATCH /api/routines/{id}`, `POST /api/routines/{id}/resume` and `DELETE /api/routines/{id}` take a proved identity and the owner, and a delete also takes any reader once the owner is deactivated. `POST /api/routines/{id}/pause` takes any reader. A task made by a routine carries `routine_id`. New activity actions `create_routine`, `update_routine`, `pause_routine`, `resume_routine`, `delete_routine`, and the quiet `fire_routine` and `skip_routine` by `scheduler`.
 - Trust scores count a routine's acceptances apart: `proposed`, `approved`, `rejected` and `approval_rate` are hand verdicts, and `routine_approved` and `routine_rejected` are new. Routine acceptances build no streak, so `recent_streak`, `rejection_streak` and `last_verified_verdict` read hand verdicts only.
 - `GET /api/tasks/board` answers the board: `{scope, limit, done_days, today, open, done}`. `engagement_id` or `milestone_id` narrows it to one parent, and `mine=true` to the caller's tasks. A card carries the Browse fields plus `committed_week`, `delegated_agent`, the waiting-on link, `quiet_days` and its readable open `blockers` as `{id, title}`. Done holds the last 7 days. A hidden or denied parent answers 404 as an absent one does. Rows and blockers pass the workplace action `skein.rest.get.tasks`.
