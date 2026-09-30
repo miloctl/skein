@@ -82,6 +82,34 @@ describe("delegated task activation guidance", () => {
     expect(screen.queryByRole("link", { name: /Call backend-architect/ })).toBeNull();
   });
 
+  it.each([
+    {
+      provider: "mock",
+      message: "This workspace uses deterministic mode. Agent model turns are not available.",
+      offersChat: false,
+    },
+    {
+      provider: "ollama",
+      message: "The agent turn is queued, but background jobs are disabled. Start it in Chat or enable background jobs.",
+      offersChat: true,
+    },
+  ])("describes a pending $provider wake when background jobs are disabled", async ({ provider, message, offersChat }) => {
+    state.provider = provider;
+    state.wakeup = {
+      status: "pending",
+      requested_at: "2026-09-30T06:50:16+00:00",
+      started_at: "",
+      finished_at: "",
+      reason: "",
+      automation_enabled: false,
+    };
+    render(<TaskPeek />);
+
+    expect(await screen.findByText(message)).toBeTruthy();
+    expect(screen.queryByText("The agent turn is queued, but background jobs are disabled. Enable background jobs to run it.")).toBeNull();
+    expect(Boolean(screen.queryByRole("link", { name: "Call backend-architect in Chat" }))).toBe(offersChat);
+  });
+
   it("refreshes an active wake until the run reaches a terminal state", async () => {
     vi.useFakeTimers();
     state.wakeup = {

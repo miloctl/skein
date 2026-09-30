@@ -59,6 +59,48 @@ async function pickName(page: Page, key = "") {
   }
 }
 
+test("a board task keeps its delegation and steering comment in deterministic mode", async ({ page, request }) => {
+  const api = process.env.SKEIN_E2E_API_URL ?? "http://127.0.0.1:8600";
+  const headers = { Authorization: `Bearer ${E2E_KEY}` };
+  const title = "Steer delegated work from the board";
+  const created = await request.post(`${api}/api/tasks`, {
+    headers,
+    data: { title, assignee: "ava", visibility: "workspace" },
+  });
+  expect(created.ok()).toBe(true);
+  const { id } = await created.json();
+  await pickName(page, E2E_KEY);
+  const faults = watch(page);
+  await page.goto(`/board?task=${id}`);
+  const panel = page.getByRole("dialog", { name: `Task #${id}: ${title}` });
+  await panel.getByLabel("Delegate to", { exact: true }).selectOption("agent");
+  await panel.getByLabel("What done means", { exact: true }).fill("Record the checked evidence, then submit for acceptance.");
+  await panel.getByRole("button", { name: "Delegate", exact: true }).click();
+  await expect(panel.getByText("agent (sponsor ava)", { exact: true })).toBeVisible();
+  await expect(panel.getByText("This workspace uses deterministic mode. Agent model turns are not available.", { exact: true })).toBeVisible();
+  await expect(panel.getByRole("link", { name: "Call agent in Chat" })).toHaveCount(0);
+
+  const body = "@agent Check the evidence before you submit.";
+  await panel.getByLabel(`Add a comment on task #${id}`).fill(body);
+  await panel.getByRole("button", { name: `Post comment on task #${id}` }).click();
+  await expect(panel.getByText(body, { exact: true })).toBeVisible();
+  await panel.getByRole("button", { name: "Close the task panel" }).click();
+  const card = page.getByRole("listitem").filter({ hasText: title });
+  await expect(card.getByText("Delegated to agent", { exact: true })).toBeVisible();
+  await card.getByRole("button", { name: `Open #${id} ${title}`, exact: true }).click();
+  await expect(panel.getByText(body, { exact: true })).toBeVisible();
+
+  const saved = await request.get(`${api}/api/tasks/${id}`, { headers });
+  expect(saved.ok()).toBe(true);
+  expect(await saved.json()).toMatchObject({ delegated_agent: "agent", sponsor: "ava", status: "todo" });
+  const comments = await request.get(`${api}/api/tasks/${id}/comments`, { headers });
+  expect(comments.ok()).toBe(true);
+  expect(await comments.json()).toEqual([expect.objectContaining({ body, created_by: "ava" })]);
+  const scan = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag22aa"]).analyze();
+  expect(scan.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) }))).toEqual([]);
+  expect(faults, JSON.stringify(faults, null, 2)).toEqual([]);
+});
+
 test("agent mentions complete at the caret without sending", async ({ page }) => {
   await pickName(page);
   await page.goto("/chat");

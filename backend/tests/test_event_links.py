@@ -3,6 +3,7 @@ tier containment, the meeting's tier stamped on ingested proposals, and every
 reader that must hide a link to a meeting it cannot read."""
 
 import json
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -381,23 +382,40 @@ def test_an_agent_cannot_file_under_a_meeting_the_policy_denies(fresh_db):
 def test_ingest_judges_the_meeting_and_the_paster(client, people):
     from test_policy_axis import _app, _engagements
 
-    _std, reg = _engagements("mallory")
-    regulated = _meeting(actor="mallory", engagement_id=reg)
-    with TestClient(_app(), headers={"X-User": "mallory"}) as c:
-        r = c.post("/api/ingest", json={"text": "todo: under it", "event_id": regulated})
-        assert r.status_code == 403
-    # a weak name reads the workspace tier only: its own crew's meeting reads
-    # like an absent one, and nothing is proposed into a queue nobody reads
-    crew_meeting = _meeting(actor="tester", visibility="crew", crew_id=people["ops"])
-    refused = client.post("/api/ingest", json={"text": "todo: x y z", "event_id": crew_meeting})
-    absent = client.post("/api/ingest", json={"text": "todo: x y z", "event_id": 999999})
-    assert refused.status_code == absent.status_code == 404
-    assert db.query_one("SELECT COUNT(*) AS n FROM pending_changes")["n"] == 0
-    # the service holds the same line for any caller that is not a strong one
-    from app.services import ingest
+    from app.services import ingest, leases
 
-    with pytest.raises(ValueError, match=f"no event #{crew_meeting}"):
-        ingest.ingest_notes("todo: x y z", actor="tester", private=False, event_id=crew_meeting)
+    original_stop = leases._stop
+    original_threads = (leases._thread, leases._sweeper)
+    try:
+        _std, reg = _engagements("mallory")
+        regulated = _meeting(actor="mallory", engagement_id=reg)
+        # client owns the lifespan. A second entry replaces its lease maintenance handles.
+        with closing(TestClient(_app(), headers={"X-User": "mallory"})) as c:
+            r = c.post("/api/ingest", json={"text": "todo: under it", "event_id": regulated})
+            assert r.status_code == 403
+            assert leases._stop is original_stop
+            assert (leases._thread, leases._sweeper) == original_threads
+            assert all(thread.is_alive() for thread in original_threads)
+        assert leases._stop is original_stop
+        assert (leases._thread, leases._sweeper) == original_threads
+        assert all(thread.is_alive() for thread in original_threads)
+        # a weak name reads the workspace tier only: its own crew's meeting reads
+        # like an absent one, and nothing is proposed into a queue nobody reads
+        crew_meeting = _meeting(actor="tester", visibility="crew", crew_id=people["ops"])
+        refused = client.post("/api/ingest", json={"text": "todo: x y z", "event_id": crew_meeting})
+        absent = client.post("/api/ingest", json={"text": "todo: x y z", "event_id": 999999})
+        assert refused.status_code == absent.status_code == 404
+        assert db.query_one("SELECT COUNT(*) AS n FROM pending_changes")["n"] == 0
+        # the service holds the same line for any caller that is not a strong one
+        with pytest.raises(ValueError, match=f"no event #{crew_meeting}"):
+            ingest.ingest_notes("todo: x y z", actor="tester", private=False, event_id=crew_meeting)
+    finally:
+        # A nested lifespan replaces the stop handle. Keep the original so a
+        # regression cannot leave maintenance running against the next database.
+        original_stop.set()
+        for thread in original_threads:
+            thread.join(5)
+            assert not thread.is_alive()
 
 
 def test_an_assignee_who_cannot_read_the_meeting_is_handed_back(client, people):

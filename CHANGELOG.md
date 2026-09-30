@@ -20,6 +20,8 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- In deterministic mode, a queued delegated task states that model turns are unavailable when background jobs are disabled. It no longer suggests that enabling background jobs alone will start the agent.
+
 ### Operations
 
 ## 0.6.12 — 2026-09-30
