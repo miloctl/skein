@@ -22,3 +22,8 @@ backend/mutants/
 # setuptools metadata that `pip install -e` writes into src/ (the CI
 # extension step runs one) — regenerated on every install, never source
 *.egg-info/
+# an npm command run from the repo root leaves an empty lockfile here: there
+# is no root package.json, and a stray file fails the publish clean-tree
+# check. Anchored, so frontend/ and examples/ keep their tracked lockfiles.
+# If a root package.json is ever added, delete this line in the same change.
+/package-lock.json
