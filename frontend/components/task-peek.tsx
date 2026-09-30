@@ -1136,6 +1136,8 @@ function ActivationGuide({
       message =
         "The agent turn is queued, but background jobs are disabled. Start it in Chat or enable background jobs.";
       offerChat = true;
+    } else if (deterministic) {
+      message = "This workspace uses deterministic mode. Agent model turns are not available.";
     } else {
       message =
         "The agent turn is queued, but background jobs are disabled. Enable background jobs to run it.";
