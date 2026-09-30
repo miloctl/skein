@@ -478,6 +478,22 @@ def _turn(name: str, *, strong: bool = True, shared_chat: bool = False):
         identity.reset_requester_identity(tokens[0])
 
 
+@pytest.fixture
+def pinned_window(monkeypatch):
+    """Hold the shared rate caps (ratelimit.SHARED) in one counting window.
+
+    They count in fixed one-minute windows keyed on the clock
+    (ratelimit._window). A test that counts up to a cap and crosses a minute
+    boundary on the way starts over at 1 in the new window, and the request
+    it expected to be refused passes. A loaded full-suite run makes the
+    crossing likely: test_forge.py's meter test failed that way."""
+    from app import ratelimit
+
+    pinned = ratelimit._window()
+    monkeypatch.setattr(ratelimit, "_window", lambda: pinned)
+    return pinned
+
+
 def _strong(client=None, name="tester"):
     from app.services.api_keys import create_key
 

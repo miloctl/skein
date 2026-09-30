@@ -356,7 +356,9 @@ def test_events_that_change_nothing_spend_no_rate_budget(gitlab, fresh_db, monke
     assert _status(tid)[0] == "done"
 
 
-def test_the_address_meter_runs_before_the_token_check(gitlab, fresh_db, monkeypatch):
+def test_the_address_meter_runs_before_the_token_check(
+    gitlab, fresh_db, monkeypatch, pinned_window
+):
     from app import ratelimit
 
     monkeypatch.setitem(ratelimit.LIMITS, "forge_addr", 2)

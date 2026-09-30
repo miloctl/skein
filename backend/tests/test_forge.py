@@ -782,7 +782,9 @@ def test_a_bad_payload_is_a_4xx_not_a_500(client, fresh_db, monkeypatch):
     assert r.status_code == 400
 
 
-def test_the_address_meter_runs_before_the_signature_check(signed, fresh_db, monkeypatch):
+def test_the_address_meter_runs_before_the_signature_check(
+    signed, fresh_db, monkeypatch, pinned_window
+):
     """The property that makes forge_addr a defense is its POSITION: an
     unsigned caller has no name to key on, and the HMAC over the body is the
     expensive part. Metering after verification protects nothing they touch."""
