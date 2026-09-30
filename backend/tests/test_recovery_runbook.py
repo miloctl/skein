@@ -147,6 +147,7 @@ def _restricted_restore_drill(db, tmp_path, monkeypatch):
         agent_wakeups,
         api_keys,
         browser_sessions,
+        digest,
         documents,
         handoff,
         shared_chat_agents,
@@ -158,7 +159,12 @@ def _restricted_restore_drill(db, tmp_path, monkeypatch):
     _queued_work(db, monkeypatch)
     _oauth_flow()
     key = api_keys.create_key("restore-owner")
+    # a document's text is in its revision rows, so the dump alone restores
+    # it. A digest report is a file on the artifact volume, and it is the
+    # proof that the volume must come back with the database.
     document = documents.create_document("Restore drill", "Recovered bytes", actor="restore-owner")
+    digest.publish_digest(actor="restore-owner")
+    report = db.query_one("SELECT id FROM artifacts WHERE kind = 'digest'")
     # /dev/shm is a second local filesystem, not proof of an independent storage array.
     with tempfile.TemporaryDirectory(prefix="skein-restore-mirror-", dir="/dev/shm") as mirror:
         monkeypatch.setenv("SKEIN_BACKUP_MIRROR", mirror)
@@ -214,8 +220,9 @@ def _restricted_restore_drill(db, tmp_path, monkeypatch):
             text=True,
         )
         assert loaded.returncode == 0, loaded.stderr
+        assert handoff.read_artifact(document["id"])["markdown"] == "Recovered bytes"
         with pytest.raises(handoff.ArtifactUnreadable):
-            handoff.read_artifact(document["id"])
+            handoff.read_artifact(report["id"])
         shutil.copytree(snapshot, data)
         ledger = db.query("SELECT * FROM activity ORDER BY id")
         messages = db.query("SELECT * FROM chat_messages ORDER BY id")
@@ -242,6 +249,7 @@ def _restricted_restore_drill(db, tmp_path, monkeypatch):
             assert db.query("SELECT * FROM chat_messages ORDER BY id") == messages
             assert db.query("SELECT * FROM job_runs ORDER BY job, run_key") == claims
             assert handoff.read_artifact(document["id"])["markdown"] == "Recovered bytes"
+            assert handoff.read_artifact(report["id"])["markdown"]
             assert activity.verify_chain()["ok"] is True
             assert activity.check_anchor_log()["ok"] is True
 
