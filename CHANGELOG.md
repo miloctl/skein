@@ -60,6 +60,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+- With FastAPI 0.142 or later, setting `SKEIN_OTEL_ENDPOINT` no longer stops the server from starting. FastAPI 0.142 added its own OpenTelemetry, on by default, which read the endpoint Skein sets for agent traces and refused to start without the `fastapi[opentelemetry]` extra. Skein turns it off, so the collector still receives redacted agent traces only, and no request URLs.
 - Migration 047 adds `routines` and `tasks.routine_id`. The routines table is in both database dumps and the portable export, the offboarding erase takes a private one, Your data lists it, and a rename moves its owner, assignee, agent and paused-by names. A new job `routines` runs every 5 minutes and at startup: a restart fires a missed time once, late. Deactivating a person pauses their routines, and deactivating an agent pauses the routines that delegate to it.
 - Migration 046 adds `comments`: one row per comment, with exactly one parent (task, decision or blocker) and that parent's tier. It is in both database dumps and the portable export, the offboarding erase and Your data take a private one, and a rename moves `created_by` and `deleted_by`.
 - New optional Secret key `SKEIN_GITLAB_WEBHOOK_TOKEN`. Empty keeps the GitLab webhook closed (503). CLAUDE.md and `docs/intent/work-durability.md` record GitLab inbound webhooks as approved, and outbound GitLab calls as an open decision.

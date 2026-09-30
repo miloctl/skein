@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from functools import partial
-from inspect import isawaitable
+from inspect import isawaitable, signature
 from typing import Any, cast
 
 import psycopg
@@ -1182,6 +1182,21 @@ def health(specs: Sequence[JobSpec] = JOBS, settings: AppSettings | None = None)
     }
 
 
+# FastAPI 0.142 added its own OpenTelemetry: request spans, metrics and logs
+# on by default, and OTLP export whenever an endpoint variable is set.
+# telemetry.setup_telemetry sets that variable for the strands tracer, so on
+# 0.142 an operator's SKEIN_OTEL_ENDPOINT made the lifespan refuse to start
+# (no fastapi[opentelemetry] extra), and with the extra it would export
+# request URLs, search terms included, past the redaction telemetry.py
+# enforces. Skein exports redacted agent traces only. Probed, not passed
+# bare: an older FastAPI refuses the unknown keyword (pyproject allows 0.115).
+_NO_NATIVE_TELEMETRY: dict[str, Any] = (
+    {"telemetry": {"auto_configure": False, "tracing": False, "metrics": False, "logs": False}}
+    if "telemetry" in signature(FastAPI.__init__).parameters
+    else {}
+)
+
+
 def create_app(
     settings: AppSettings | None = None,
     modules: Sequence[SkeinModule] = (),
@@ -1241,6 +1256,7 @@ def create_app(
         docs_url="/docs" if selected_settings.docs_enabled else None,
         redoc_url="/redoc" if selected_settings.docs_enabled else None,
         openapi_url="/openapi.json" if selected_settings.docs_enabled else None,
+        **_NO_NATIVE_TELEMETRY,
     )
     application.state.skein_settings = selected_settings
     application.state.skein_explicit_settings = explicit_settings
