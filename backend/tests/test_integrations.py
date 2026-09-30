@@ -102,6 +102,21 @@ def test_telemetry_noop_without_endpoint(fresh_db):
     assert setup_telemetry() is False
 
 
+def test_an_otlp_endpoint_does_not_start_fastapi_telemetry(fresh_db, monkeypatch):
+    """setup_telemetry sets OTEL_EXPORTER_OTLP_ENDPOINT for the strands
+    tracer. FastAPI 0.142 reads the same variable to export its own request
+    spans: without the fastapi[opentelemetry] extra the lifespan refused to
+    start, and with it request URLs would leave past the redaction. On an
+    older FastAPI there is nothing to turn off, and the boot passes anyway."""
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector.invalid:4318")
+    with TestClient(create_app(), headers={"X-User": "tester"}) as client:
+        assert client.get("/health").status_code == 200
+
+
 def test_telemetry_redacts_conversation_content_by_default(fresh_db, monkeypatch):
     """The strands tracer emits gen_ai input/output messages and system
     instructions unredacted unless the opt-in token says otherwise. The
@@ -125,7 +140,12 @@ def test_telemetry_redacts_conversation_content_by_default(fresh_db, monkeypatch
         "OTEL_EXPORTER_OTLP_ENDPOINT",
         "OTEL_SERVICE_NAME",
     ):
-        monkeypatch.delenv(var, raising=False)
+        # setenv first: delenv on an absent variable records nothing to undo,
+        # so the values setup_telemetry writes with os.environ.setdefault
+        # outlived this test, and the endpoint reached every later app boot
+        # on the worker
+        monkeypatch.setenv(var, "")
+        monkeypatch.delenv(var)
 
     assert setup_telemetry() is True
     assert os.environ["OTEL_SEMCONV_STABILITY_OPT_IN"] == "gen_ai_unredacted_attributes="
