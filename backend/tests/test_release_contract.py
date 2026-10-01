@@ -94,6 +94,18 @@ def test_the_published_wheel_build_backend_is_pinned_exactly():
         assert [spec.operator for spec in requirement.specifier] == ["=="], str(requirement)
 
 
+def test_core_dependency_metadata_requires_fixed_urllib3():
+    requirements = {
+        canonicalize_name(requirement.name): requirement
+        for requirement in map(
+            Requirement, _toml("backend/pyproject.toml")["project"]["dependencies"]
+        )
+    }
+    assert "urllib3" in requirements
+    assert "2.7.0" not in requirements["urllib3"].specifier
+    assert "2.8.0" in requirements["urllib3"].specifier
+
+
 def test_core_image_installs_and_audits_the_hashed_lock():
     lock = (ROOT / "backend/requirements.lock").read_text()
     pins = [line for line in lock.splitlines() if line and not line[0].isspace()]

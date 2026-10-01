@@ -20,9 +20,24 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+### Operations
+
+## 0.6.13 — 2026-09-30
+
+### Contracts
+
+- No extension API or data-format changes. Extension API 1.0 remains compatible.
+- The Python package requires urllib3 2.8.0 or later to exclude versions with known HTTPS proxy and streamed-response vulnerabilities.
+
+### Behavior
+
 - In deterministic mode, a queued delegated task states that model turns are unavailable when background jobs are disabled. It no longer suggests that enabling background jobs alone will start the agent.
 
 ### Operations
+
+- No new deployment settings or database migrations.
+- Core and workplace Python locks pin urllib3 2.8.0. If you customize HTTPS proxy TLS, review the [upstream upgrade notes](https://urllib3.readthedocs.io/en/stable/changelog.html).
+- The frontend host and workplace example pin Next.js 16.3.8. The frontend ESLint configuration matches this version. Both npm locks use DOMPurify 3.4.16. These versions address published dependency security advisories. Update the workplace root Next.js pin and regenerate its npm lock.
 
 ## 0.6.12 — 2026-09-30
 

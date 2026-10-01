@@ -453,16 +453,21 @@ def test_sole_delegation_resolves_through_the_milestone(fresh_db):
     assert usage.sole_delegation_engagement("scout") == eid
 
 
-def test_the_spend_card_answers_for_one_window(client, fresh_db):
+def test_the_spend_card_answers_for_one_window(client, fresh_db, monkeypatch):
     """The header names the calendar month; every section answers for it.
     Unbounded by-model rows and a trailing-30d engagement split under that
     header were three call counts nobody could reconcile on one card."""
-    fresh_db.execute(
-        "INSERT INTO usage_log (thread_id, agent_name, model_id, input_tokens,"
-        " output_tokens, cycles, latency_ms, created_at) VALUES"
-        " ('t1', 'agent', 'm', 10, 10, 1, 5, (now() - interval '60 days')::text),"
-        " ('t2', 'agent', 'm', 10, 10, 1, 5, now()::text)"
-    )
+    from datetime import date
+
+    monkeypatch.setattr(db, "today", lambda: date(2026, 10, 1))
+    # SQL now()::text uses a space instead of db.now()'s T and sorts before
+    # the month boundary on its first day.
+    for thread_id, created_at in (
+        ("t1", "2026-09-30T23:59:59+00:00"),
+        ("t2", "2026-10-01T00:00:00+00:00"),
+    ):
+        monkeypatch.setattr(db, "now", lambda created_at=created_at: created_at)
+        usage.record_chat_usage(thread_id, "agent", "m", 10, 10, cycles=1, latency_ms=5)
     out = client.get("/api/usage", headers={"X-User": "tester"}).json()
     month = out["month"]["calls"]
     assert month == 1
