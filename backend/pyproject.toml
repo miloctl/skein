@@ -1,6 +1,6 @@
 [project]
 name = "skein-agents"
-version = "0.6.12"
+version = "0.6.13"
 description = "Skein — team coordination platform for humans + AI agents, built on the Strands Agents SDK"
 # LICENSE/NOTICE are copies of the repo-root originals: PEP 639 forbids
 # parent-directory paths in license-files, and setuptools silently drops
@@ -16,6 +16,8 @@ dependencies = [
     "httpx2>=2.9",
     # HTTPX builds the TLS context that preserves existing certificate trust.
     "httpx>=0.28.1,<1",
+    # Older urllib3 releases permit proxy TLS bypass and unbounded response decoding.
+    "urllib3>=2.8.0",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pydantic>=2.7",
