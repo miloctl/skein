@@ -20,6 +20,8 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- In the chat composer, text typed in the middle or at the start of a draft stays where the caret is. Before, the first character landed in place and the caret then moved to the end.
+
 ### Operations
 
 ## 0.6.13 — 2026-09-30

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -455,14 +456,28 @@ const Composer = () => {
   const composerText = useRef(text);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const pendingCaret = useRef<{ text: string; position: number } | null>(null);
-  const [selection, setSelection] = useState({ text, start: text.length, end: text.length });
-  if (selection.text !== text) {
-    setSelection({ text, start: text.length, end: text.length });
-  }
-  const trackSelection = (event: React.SyntheticEvent<HTMLTextAreaElement>) => {
+  // The DOM owns the caret, so it is an external store here, not React
+  // state: a setState in onChange commits BEFORE the chat store carries the
+  // new text, and that commit writes the old text back into the controlled
+  // textarea, which parks the caret at the end of every mid-text edit
+  // (e2e/composer-caret.spec.ts). onChange only records the snapshot — the
+  // chat store's own re-render reads it — and onSelect, where the text is
+  // unchanged, is the one that notifies.
+  const caret = useRef({ snapshot: { text, start: text.length, end: text.length }, notify: () => {} });
+  const selection = useSyncExternalStore(
+    useCallback((notify: () => void) => {
+      caret.current.notify = notify;
+      return () => { caret.current.notify = () => {}; };
+    }, []),
+    () => caret.current.snapshot,
+    () => caret.current.snapshot,
+  );
+  const trackSelection = (event: React.SyntheticEvent<HTMLTextAreaElement>, notify = false) => {
     const input = event.currentTarget;
-    setSelection({ text: input.value, start: input.selectionStart, end: input.selectionEnd });
+    caret.current.snapshot = { text: input.value, start: input.selectionStart, end: input.selectionEnd };
+    if (notify) caret.current.notify();
   };
+  const latest = selection.text === text ? selection : { text, start: text.length, end: text.length };
 
   // Input's value={text} keeps its DOM update in this commit. Its separate
   // assistant-ui subscription can otherwise commit later and reset the caret.
@@ -593,7 +608,7 @@ const Composer = () => {
     : null;
   const arg = argQuery(text, Object.keys(argRosters));
   const argRoster = arg ? argRosters[arg.cmd] : undefined;
-  const at = mentionQuery(text, selection.start, selection.end);
+  const at = mentionQuery(text, latest.start, latest.end);
   const resetKey = at
     ? `@${at.start}:${at.token}`
     : arg
@@ -703,10 +718,11 @@ const Composer = () => {
       const prefix = `${text.slice(0, at.start)}@${c.mention}`;
       const next = prefix + (/^\s/.test(suffix) ? "" : " ") + suffix;
       const position = prefix.length + 1;
-      setSelection({ text: next, start: position, end: position });
+      caret.current.snapshot = { text: next, start: position, end: position };
       if (next === text) {
         inputRef.current?.focus();
         inputRef.current?.setSelectionRange(position, position);
+        caret.current.notify();
       } else {
         pendingCaret.current = { text: next, position };
         composer.setText(next);
@@ -907,7 +923,7 @@ const Composer = () => {
           ref={inputRef}
           value={text}
           onChange={trackSelection}
-          onSelect={trackSelection}
+          onSelect={(event) => trackSelection(event, true)}
           name="message"
           aria-label={
             activePersona
