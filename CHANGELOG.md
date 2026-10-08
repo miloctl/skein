@@ -18,12 +18,17 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- No extension API or data-format changes. Extension API 1.0 remains compatible.
+
 ### Behavior
 
-- User-visible text uses a hyphen (-) where it used an em dash or en dash, and straight quotes where it used curly ones. The capture prefixes (`fb: name - note`, `awaiting: party - item`) still accept a typed em dash or en dash as the separator.
+- User-visible text uses a hyphen (-) where it used an em dash or en dash, and straight quotes where it used curly ones. Notifications, findings, and chat replies quote a title or a person's text in straight double quotes. The capture prefixes (`fb: name - note`, `awaiting: party - item`) still accept a typed em dash or en dash as the separator.
+- A chat that uses the summarize context strategy keeps summarizing on Strands Agents 1.59 and later. Before, 1.59 stopped summarizing with only a log warning, and a chat that overflowed the context window failed its turn.
 - In the chat composer, text typed in the middle or at the start of a draft stays where the caret is. Before, the first character landed in place and the caret then moved to the end.
 
 ### Operations
+
+- No new deployment settings or database migrations. The deployment manifests and migration files changed in comments only.
 
 ## 0.6.13 - 2026-09-30
 
