@@ -18,6 +18,14 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+### Behavior
+
+### Operations
+
+## 0.6.14 - 2026-10-08
+
+### Contracts
+
 - No extension API or data-format changes. Extension API 1.0 remains compatible.
 
 ### Behavior
