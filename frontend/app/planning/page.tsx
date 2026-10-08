@@ -856,8 +856,8 @@ export default function Planning() {
           <p className="mt-2 text-xs text-ink-3">
             Skein chases an overdue one once a day. If two chases get no
             answer, it tells the team once, and it names nobody. Capture one
-            with &ldquo;awaiting: acme corp - the signed SOW by
-            YYYY-MM-DD&rdquo;.
+            with &quot;awaiting: acme corp - the signed SOW by
+            YYYY-MM-DD&quot;.
           </p>
         </SupportingSection>
       ) : null}

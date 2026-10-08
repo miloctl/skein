@@ -576,7 +576,7 @@ def _r_promises_external() -> list[dict]:
                     if overdue
                     else f"External promise due {c['due_date']}"
                 )
-                + f": “{c['promise']}” (to {c['to_whom'] or 'unspecified'})."
+                + f': "{c["promise"]}" (to {c["to_whom"] or "unspecified"}).'
                 + (
                     " Keep it, renegotiate it, or mark it missed - do not let it drift."
                     if overdue
@@ -602,7 +602,7 @@ def _r_promises_external() -> list[dict]:
             _finding(
                 "promise_missed",
                 "high",
-                f"External promise MISSED: “{c['promise']}” (to {c['to_whom'] or 'unspecified'}).",
+                f'External promise MISSED: "{c["promise"]}" (to {c["to_whom"] or "unspecified"}).',
                 {"promise_id": c["id"]},
                 n=1,
                 window="7d",
@@ -755,7 +755,7 @@ def _r_question_aging() -> list[dict]:
             _finding(
                 "question_aging",
                 "low",
-                f"Question #{q['id']} has been open {q['days']} days: “{q['question'][:100]}”",
+                f'Question #{q["id"]} has been open {q["days"]} days: "{q["question"][:100]}"',
                 {"question_id": q["id"], "asked_by": q["asked_by"]},
                 n=1,
                 window="point-in-time",
@@ -1351,7 +1351,7 @@ def _r_meeting_no_outcome() -> list[dict]:
             _finding(
                 "meeting_no_outcome",
                 "medium",
-                f"“{title[:60]}” ran {g['instances']} times in"
+                f'"{title[:60]}" ran {g["instances"]} times in'
                 f" {OUTCOME_SILENT_WEEKS} weeks with no outcome recorded."
                 f"{cost} Record what came out of it, or cancel the series.",
                 {

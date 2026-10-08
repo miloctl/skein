@@ -65,7 +65,7 @@ The study was one seeded scenario on one day. It supports usability and contract
 - Keep the preview payload and the write payload identical.
 - Update the Quick capture field-guide card with the assignment rule.
 
-**Checks:** A human `todo:` capture appears in that person’s My Day list. An agent `todo:` capture stays unassigned.
+**Checks:** A human `todo:` capture appears in that person's My Day list. An agent `todo:` capture stays unassigned.
 
 **Size:** Small.
 
@@ -134,7 +134,7 @@ The study was one seeded scenario on one day. It supports usability and contract
 **Delivery:**
 
 - Fetch field-guide progress each time the identity menu opens.
-- Do not retain one person’s count after an identity change.
+- Do not retain one person's count after an identity change.
 - Keep the backend registry as the only count source.
 
 **Checks:** The menu and guide agree after a tie, identity change, or backend restart.

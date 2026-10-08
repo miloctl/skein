@@ -384,7 +384,7 @@ export default function Portfolio() {
           pending("promises")
         ) : promises.length === 0 ? (
           <p className="text-sm text-ink-3">
-            None recorded - capture one with “promised: …”.
+            None recorded - capture one with &quot;promised: …&quot;.
           </p>
         ) : (
           <ul className="space-y-2 text-sm">

@@ -59,7 +59,7 @@ test("First Watch carries one real task through Skein by keyboard", async ({
   const faults = watch(page);
   await page.goto("/?tour=first-watch");
 
-  const intro = page.getByRole("heading", { name: "Bosun’s First Watch" });
+  const intro = page.getByRole("heading", { name: "Bosun's First Watch" });
   await expect(intro).toBeFocused();
   await expect(
     page.getByRole("heading", { name: /Your first-week setup/ }),
@@ -67,7 +67,7 @@ test("First Watch carries one real task through Skein by keyboard", async ({
   await expectAxeClean(page);
 
   const start = page
-    .getByRole("complementary", { name: "Bosun’s First Watch" })
+    .getByRole("complementary", { name: "Bosun's First Watch" })
     .getByRole("button", { name: "Start First Watch" });
   await tabTo(page, start);
   await page.keyboard.press("Enter");
@@ -175,7 +175,7 @@ test("First Watch remains inside a short phone viewport at larger text", async (
       "aside[aria-labelledby='first-watch-title'] * { font-size: 2rem !important; }",
   });
 
-  const panel = page.getByRole("complementary", { name: "Bosun’s First Watch" });
+  const panel = page.getByRole("complementary", { name: "Bosun's First Watch" });
   await expect(panel).toBeVisible();
   const overflow = await panel.evaluate(
     (element) => element.scrollWidth - element.clientWidth,

@@ -700,6 +700,6 @@ describe("the model section", () => {
       text.indexOf("This section shows the team-default model configuration"),
       text.indexOf("Long chats"),
     );
-    expect(ours).not.toMatch(/!|’|'(s|re|ll|t|m|ve|d)\b/);
+    expect(ours).not.toMatch(/!|\u2019|'(s|re|ll|t|m|ve|d)\b/);
   });
 });

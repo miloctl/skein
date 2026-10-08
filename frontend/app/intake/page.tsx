@@ -547,7 +547,7 @@ export default function IntakePage() {
                 onKeyDown={(e) => e.key === "Escape" && setPanel(null)}
               >
                 <p className="mb-2 text-xs text-ink-2">
-                  1–5 each. Score = reach × impact × confidence ÷ effort -
+                  1-5 each. Score = reach × impact × confidence ÷ effort -
                   higher effort lowers it.
                 </p>
                 <div className="flex flex-wrap items-end gap-3">

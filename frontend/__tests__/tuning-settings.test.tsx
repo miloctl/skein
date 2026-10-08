@@ -123,7 +123,7 @@ describe("the deployment-limits section", () => {
     // the section's own sentences, not the whole page: contractions and
     // exclamation marks are the tells CLAUDE.md bars in a string with a number
     const ours = text.slice(text.indexOf("What Skein allows per person"));
-    expect(ours).not.toMatch(/!|’|'(s|re|ll|t)\b/);
+    expect(ours).not.toMatch(/!|\u2019|'(s|re|ll|t)\b/);
   });
 
   it("shows the server's own refusal when the load fails, never a claim", async () => {

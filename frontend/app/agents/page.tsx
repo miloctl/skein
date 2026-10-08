@@ -669,7 +669,7 @@ export default function Agents() {
                 <ul className="text-xs text-ink-2">
                   {inbox.rejected_proposals.map((p) => (
                     <li key={p.id}>
-                      #{p.id} {p.summary} - “{p.review_note || "no note"}”
+                      #{p.id} {p.summary} - &quot;{p.review_note || "no note"}&quot;
                     </li>
                   ))}
                   {inbox.rejected_proposals.length === 0 && (
@@ -706,7 +706,7 @@ export default function Agents() {
               <>
                 By default every agent write <b>needs approval</b> (it waits in
                 Inbox → Approvals). Promote per entity as trust builds. The
-                built-in chat agent is “agent”.
+                built-in chat agent is &quot;agent&quot;.
               </>
             ) : (
               <>
@@ -726,7 +726,7 @@ export default function Agents() {
                 )}
                 To make <b>needs approval</b> hold for every entity, set{" "}
                 <code>SKEIN_AGENT_REVIEW=1</code> and restart the server. The
-                built-in chat agent is “agent”.
+                built-in chat agent is &quot;agent&quot;.
               </>
             )}
           </p>

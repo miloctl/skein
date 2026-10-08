@@ -361,7 +361,7 @@ def resolve_blocker(
                 if assignee and assignee != actor and assignee_reads_blocker:
                     notify(
                         assignee,
-                        lambda source: f"Task #{source['id']} “{source['title']}” can move again.",
+                        lambda source: f'Task #{source["id"]} "{source["title"]}" can move again.',
                         tier="immediate",
                         link="/dashboard",
                         source_entity="task",
@@ -381,7 +381,7 @@ def resolve_blocker(
             notify(
                 "team",
                 lambda source: (
-                    f"🪦 Here lies blocker #{source['id']} “{source['title']}”."
+                    f'🪦 Here lies blocker #{source["id"]} "{source["title"]}".'
                     f" It fought hard. It lost. {days} days."
                 ),
                 tier="digest",

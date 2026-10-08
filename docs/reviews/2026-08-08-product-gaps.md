@@ -8,7 +8,7 @@ read `docs/FEATURES.md` and `docs/ROADMAP.md` in full and probed the
 running instance read-only. Saved verbatim below the synthesis.*
 
 **Status: drained 2026-08-08.** Every surviving proposal moved to
-`docs/ROADMAP.md` the same day - new items G1–G10 plus the promotions
+`docs/ROADMAP.md` the same day - new items G1-G10 plus the promotions
 recorded in the "From the product-gap review (2026-08-08)" section.
 This file keeps the reasoning and the rankings, per this directory's
 rule: the roadmap records the what, this records the why.
@@ -166,7 +166,7 @@ with no history, so the exec readout cannot show direction
 - Evidence: `backend/app/services/adoption.py::snapshot_forecasts`
   (docstring promises calibration); no reader exists in `portfolio.py`,
   `readout.py`, or the `/insights` trends listed in `docs/FEATURES.md`.
-- Size: S–M (one deterministic query joining snapshots to milestone
+- Size: S-M (one deterministic query joining snapshots to milestone
   `completed_at`, a "forecast hit rate / median error, n shown" line on
   `/insights` beside MTTR - same medians-over-means house style)
 - No ROADMAP overlap - this is a shipped feature whose second half was
@@ -212,7 +212,7 @@ roadmap knows
   (both window predicates bound to `today`); `what_if` (same
   `today, today` binding). Anti-surveillance-clean by definition:
   person-level data planning the future is the permitted direction.
-- Size: M (a per-week projection over the next 4–8 weeks from data
+- Size: M (a per-week projection over the next 4-8 weeks from data
   already in `allocations` + `absences`; deliberately a table, not a
   Gantt, honoring the existing refusal)
 - No direct ROADMAP overlap; complements ROADMAP self-serve item 2
@@ -233,7 +233,7 @@ roadmap knows
   `backend/app/services/portfolio.py::flow_metrics` has no
   planned/unplanned split; `readout.py` reports flow with no interrupt
   context.
-- Size: S–M
+- Size: S-M
 - Overlaps ROADMAP **P4** - promote as-is (its team-ratio-only shape is
   already anti-surveillance-correct).
 

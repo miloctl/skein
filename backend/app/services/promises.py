@@ -340,7 +340,7 @@ def _chase_received_locked(*, actor: str) -> dict:
             target,
             lambda source: (
                 f"Still open with {source['to_whom'] or 'the other party'}:"
-                f" “{source['promise'][:80]}” was due {source['due_date']}."
+                f' "{source["promise"][:80]}" was due {source["due_date"]}.'
             ),
             tier="digest",
             link="/planning",
@@ -360,7 +360,7 @@ def _chase_received_locked(*, actor: str) -> dict:
                 lambda source: (
                     "A promise made to the team is overdue and unanswered"
                     + (
-                        f" “{source['promise'][:80]}”"
+                        f' "{source["promise"][:80]}"'
                         if not _names_a_teammate(
                             f"{source['promise'][:80]} {source['to_whom'] or ''}"
                         )

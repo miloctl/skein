@@ -61,7 +61,7 @@ Two rules that follow:
 Every accent that carries white text has a `-solid` half. `--thread` is the
 ink, `--thread-solid` the fill; the status hues follow - `--ok-solid`,
 `--danger-solid`, `--weld-solid`. The ink halves are tuned to sit ON a surface
-at 8–10:1, which makes them far too light for white text in dark mode: `--ok`
+at 8-10:1, which makes them far too light for white text in dark mode: `--ok`
 measured **1.87:1** under white on the Approve button before the pair existed,
 and `--danger` 2.18. The fill halves do not vary by appearance, because white
 sits on them in both.

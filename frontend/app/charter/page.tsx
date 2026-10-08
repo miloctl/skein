@@ -416,7 +416,7 @@ export default function CharterPage() {
           <li>
             <EmptyState>
               {showAll
-                ? "No decisions recorded yet. Capture one with ‘decision:’ in quick capture."
+                ? "No decisions recorded yet. Capture one with 'decision:' in quick capture."
                 : "No charter entries yet. Start with: who owns what, how we escalate, what quality bar we hold."}
             </EmptyState>
           </li>

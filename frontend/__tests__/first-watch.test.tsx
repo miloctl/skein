@@ -113,7 +113,7 @@ describe("First Watch", () => {
 
     act(() => startFirstWatch());
 
-    const heading = await screen.findByRole("heading", { name: "Bosun’s First Watch" });
+    const heading = await screen.findByRole("heading", { name: "Bosun's First Watch" });
     await waitFor(() => expect(document.activeElement).toBe(heading));
     expect(screen.getByText("Follow one real task through Skein.")).toBeTruthy();
     await waitFor(() =>
@@ -132,7 +132,7 @@ describe("First Watch", () => {
     window.history.replaceState({}, "", "/?task=7&tour=first-watch#question-3");
     render(<FirstWatch />);
 
-    await screen.findByRole("heading", { name: "Bosun’s First Watch" });
+    await screen.findByRole("heading", { name: "Bosun's First Watch" });
 
     expect(window.location.search).toBe("?task=7");
     expect(window.location.hash).toBe("#question-3");
@@ -141,7 +141,7 @@ describe("First Watch", () => {
   it("pauses into one persistent resume control and starts over without touching the task", async () => {
     render(<FirstWatch />);
     act(() => startFirstWatch());
-    await screen.findByRole("heading", { name: "Bosun’s First Watch" });
+    await screen.findByRole("heading", { name: "Bosun's First Watch" });
 
     fireEvent.click(screen.getByRole("button", { name: "Pause First Watch" }));
     const resume = screen.getByRole("button", { name: "Resume First Watch, introduction" });
@@ -149,7 +149,7 @@ describe("First Watch", () => {
     expect(screen.getByText("Your task stays in Skein.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Start over" }));
-    expect(await screen.findByRole("heading", { name: "Bosun’s First Watch" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Bosun's First Watch" })).toBeTruthy();
     expect(window.localStorage.getItem("skein-first-watch:resolved-user")).toContain(
       '"stepId":"first_watch"',
     );
@@ -159,7 +159,7 @@ describe("First Watch", () => {
     const view = render(<FirstWatch />);
     expect(screen.getByTestId("first-watch-status").textContent).toBe("");
     act(() => startFirstWatch());
-    await screen.findByRole("heading", { name: "Bosun’s First Watch" });
+    await screen.findByRole("heading", { name: "Bosun's First Watch" });
     expect(screen.getByTestId("first-watch-status").textContent).toBe("");
     expect(await axe(view.container)).toHaveNoViolations();
 
@@ -174,7 +174,7 @@ describe("First Watch", () => {
     window.addEventListener("skein-capture-open", onCapture);
     const view = render(<FirstWatch />);
     act(() => startFirstWatch());
-    await screen.findByRole("heading", { name: "Bosun’s First Watch" });
+    await screen.findByRole("heading", { name: "Bosun's First Watch" });
     fireEvent.click(screen.getByRole("button", { name: "Start First Watch" }));
 
     expect(
@@ -510,7 +510,7 @@ describe("First Watch", () => {
     window.addEventListener("skein-capture-open", onOpen);
     render(<FirstWatch />);
     act(() => startFirstWatch());
-    await screen.findByRole("heading", { name: "Bosun’s First Watch" });
+    await screen.findByRole("heading", { name: "Bosun's First Watch" });
     fireEvent.click(screen.getByRole("button", { name: "Start First Watch" }));
     fireEvent.click(screen.getByRole("button", { name: "Open Capture" }));
 
@@ -538,7 +538,7 @@ describe("First Watch", () => {
     window.addEventListener("skein-capture-open", onOpen);
     render(<FirstWatch />);
     act(() => startFirstWatch());
-    await screen.findByRole("heading", { name: "Bosun’s First Watch" });
+    await screen.findByRole("heading", { name: "Bosun's First Watch" });
     fireEvent.click(screen.getByRole("button", { name: "Start First Watch" }));
     fireEvent.click(screen.getByRole("button", { name: "Open Capture" }));
     const oldGeneration = opens[0].firstWatchGeneration;
@@ -581,7 +581,7 @@ describe("First Watch", () => {
     act(() => startFirstWatch());
     await waitFor(() => expect(state.calls).toContainEqual({ path: "/api/whoami", method: "GET" }));
 
-    expect(screen.queryByRole("heading", { name: "Bosun’s First Watch" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Bosun's First Watch" })).toBeNull();
     expect(state.calls.some((call) => call.path === "/api/field-guide/first-watch")).toBe(false);
   });
 });

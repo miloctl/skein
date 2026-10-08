@@ -92,7 +92,7 @@ synthesis: false    # optional, default false - the +1 model call is opt-in
 - Validation is two-pass, the personas precedent: runtime parsing is
   lenient (a malformed file drops off the list rather than 500ing chat);
   `validate_all()` is the strict pass wired into `lint.sh`. Strict rules:
-  - 2–4 members, all existing bench slugs, no duplicates
+  - 2-4 members, all existing bench slugs, no duplicates
   - every resolved member permits flock use. Persona frontmatter `flock: false`
     makes a live-conversation-only persona ineligible. A same-slug persona
     overlay wins and can restore eligibility by omitting the field

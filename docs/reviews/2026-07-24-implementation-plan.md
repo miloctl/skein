@@ -224,8 +224,8 @@ deviations from the spec above:
 
 | Item | Spec sketch | Size |
 |---|---|---|
-| Review diff view (if not done in W1.6) | as above | 1–2 sessions |
-| `waiting_on` edges | Migration: `tasks.waiting_on_type` ('task'\|'blocker'\|'commitment') + `waiting_on_id`; set/clear in `work.update_task`; surfaced as health receipts + slip-forecast annotation ("blocked behind commitment #12"). NOT a link table. | 1–2 sessions |
+| Review diff view (if not done in W1.6) | as above | 1-2 sessions |
+| `waiting_on` edges | Migration: `tasks.waiting_on_type` ('task'\|'blocker'\|'commitment') + `waiting_on_id`; set/clear in `work.update_task`; surfaced as health receipts + slip-forecast annotation ("blocked behind commitment #12"). NOT a link table. | 1-2 sessions |
 | Decisions `category` | Migration: `decisions.category` TEXT DEFAULT '' ('charter' initially); charter = filtered decisions view page; risks stay decisions with `review_by` (documented pattern, no new feature) | 1 session |
 | Skills/growth field | `users.growth_interests` TEXT; shown on what-if staffing page (display only, no matching logic) | 1 session |
 | `/ask` with receipts | Relabel of FTS search: answer = top snippets with entity#id citations; optional LLM synthesis when a provider exists | 1 session |
