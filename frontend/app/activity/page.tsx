@@ -198,7 +198,7 @@ export default function ActivityPage() {
                     <span className="min-w-0 flex-1 break-words text-ink sm:truncate">
                       {e.sentence}
                       <span className="text-ink-3">
-                        {" "} - {run.length} related actions
+                        {" "}- {run.length} related actions
                       </span>
                     </span>
                     <span className="shrink-0 text-xs text-ink-3">

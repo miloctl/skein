@@ -60,14 +60,14 @@ describe("activity feed grouping", () => {
     render(<ActivityPage />);
     // the human's 3-row burst is one row; the agent's row must NOT fold into
     // it even though the action matches - different actor
-    expect(await screen.findByText(/ - 3 related actions/)).toBeTruthy();
+    expect(await screen.findByText(/- 3 related actions/)).toBeTruthy();
     expect(
       screen.getByText("research-agent deleted an attached file"),
     ).toBeTruthy();
 
     // expanding keeps the readable sentence view; exact stored fields stay
     // behind Raw rows
-    fireEvent.click(screen.getByText(/ - 3 related actions/));
+    fireEvent.click(screen.getByText(/- 3 related actions/));
     expect(screen.getByText(/artifact #8 .*KB/)).toBeTruthy();
     expect(screen.getByText(/artifact #6 .*KB/)).toBeTruthy();
     expect(screen.queryByText(/#8 ·/)).toBeNull();
