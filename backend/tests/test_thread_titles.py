@@ -114,7 +114,7 @@ def test_the_derived_title_is_the_guard_that_pending_matches(client):
         ("Title: Billing page launch", "Billing page launch"),
         ("**Billing page launch**", "Billing page launch"),
         ("# Billing page launch", "Billing page launch"),
-        ("“Billing page launch”", "Billing page launch"),
+        ("\u201cBilling page launch\u201d", "Billing page launch"),
         ("Billing page launch\nand more text", "Billing page launch"),
     ],
 )

@@ -9,7 +9,7 @@ per-improvement reasoning that the feature table compresses away.
 
 ### Human task capture returns to My Day
 
-A human `todo:` capture now assigns the task to its creator. The task appears in that person’s My Day list.
+A human `todo:` capture now assigns the task to its creator. The task appears in that person's My Day list.
 
 Agent capture stays unassigned. This rule keeps human sponsorship and delegation intact.
 
@@ -168,7 +168,7 @@ These items need more evidence or a separate contract decision.
 The final live traversal confirmed these results:
 
 - The application shell exposed empty polite and assertive regions before a message.
-- Human task `#26` appeared in Marcus’s My Day list after Quick capture.
+- Human task `#26` appeared in Marcus's My Day list after Quick capture.
 - `/briefing` separated personal reviews from the team review and intake queues.
 - The Planning page exposed one level-one heading.
 - The delegation picker omitted MCP and service identities.

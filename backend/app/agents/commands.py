@@ -231,7 +231,7 @@ async def _search(
         # command is the other place a person types a query
         yield {"data": "The query text is sent to the embeddings provider.\n\n"}
     if not hits:
-        yield {"data": f"No matches for “{args}”."}
+        yield {"data": f'No matches for "{args}".'}
     else:
         # FTS marks hits with <b>…</b>; chat renders markdown, not raw HTML
         body = "\n".join(
@@ -244,7 +244,7 @@ async def _search(
             for h in hits[:10]
         )
         word = "match" if len(hits) == 1 else "matches"
-        yield {"data": f"Found {len(hits)} {word} for “{args}”:\n\n{body}"}
+        yield {"data": f'Found {len(hits)} {word} for "{args}":\n\n{body}'}
 
 
 async def _plan(

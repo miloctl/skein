@@ -232,7 +232,7 @@ def _disposition(
         notify(
             row["requester"],
             lambda source: (
-                f"Your request #{source['id']} “{source['title']}” was"
+                f'Your request #{source["id"]} "{source["title"]}" was'
                 f" {source['status']}: {source['disposition_reason'][:140]}"
             ),
             tier="digest",

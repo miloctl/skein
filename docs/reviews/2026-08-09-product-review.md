@@ -7,7 +7,7 @@ arc, with F7, F8, D2, D3 and D5), and R6 (playbooks that learn). R8 stays
 open and lives in `docs/ROADMAP.md`, alongside the residue each item left -
 named there rather than here.
 
-*2026-08-09 · grounded in the shipped code: 55 backend services, ~140 REST endpoints, 56 gated agent tools, 17 frontend surfaces, 18 scheduled jobs, and the roadmap's own self-diagnosis. This transcript is the definition site for R1–R7, cited from `docs/ROADMAP.md`.*
+*2026-08-09 · grounded in the shipped code: 55 backend services, ~140 REST endpoints, 56 gated agent tools, 17 frontend surfaces, 18 scheduled jobs, and the roadmap's own self-diagnosis. This transcript is the definition site for R1-R7, cited from `docs/ROADMAP.md`.*
 
 ---
 
@@ -135,7 +135,7 @@ Received-promise chaser, meeting outcome loop, stakeholder briefs - already spec
 The roadmap calls it the highest safety value per hour in the file. Agreed - ~46 unmetered mutating routes and service-layer caps that disagree with route caps deserve the structural test before any new write surface ships.
 
 **R10 - Unnecessary distractions.**
-More personas or flocks; more theme packs and delight items (W1–W7 are fine later; not now); dependency graphs/Gantt (text receipts beat diagrams at this team scale - the refusal already in CLAUDE.md is correct); outbound forge sync and comment import (`origin` has no external-author value - the deferral is principled, keep it); an LLM "insights narrative" layer (the deterministic engine with receipts *is* the credibility; narration stays a garnish).
+More personas or flocks; more theme packs and delight items (W1-W7 are fine later; not now); dependency graphs/Gantt (text receipts beat diagrams at this team scale - the refusal already in CLAUDE.md is correct); outbound forge sync and comment import (`origin` has no external-author value - the deferral is principled, keep it); an LLM "insights narrative" layer (the deterministic engine with receipts *is* the credibility; narration stays a garnish).
 
 ---
 

@@ -20,7 +20,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
-- User-visible text joins clauses with a hyphen (-) where it used an em-dash. The feedback capture (`fb: name - note`) still accepts a typed em-dash as the separator.
+- User-visible text uses a hyphen (-) where it used an em dash or en dash, and straight quotes where it used curly ones. The capture prefixes (`fb: name - note`, `awaiting: party - item`) still accept a typed em dash or en dash as the separator.
 - In the chat composer, text typed in the middle or at the start of a draft stays where the caret is. Before, the first character landed in place and the caret then moved to the end.
 
 ### Operations

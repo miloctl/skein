@@ -1244,7 +1244,7 @@ export default function MyDay() {
             {b.your_work.tasks.length === 0 && (
               <li className="text-ink-3">
                 No tasks assigned to you. Select Capture in the top bar and type
-                &lsquo;todo: …&rsquo;.
+                &apos;todo: …&apos;.
               </li>
             )}
             {b.your_work.due_soon.length > 0 && (

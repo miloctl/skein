@@ -349,7 +349,7 @@ export function CapturePalette() {
             <button
               key={c.prefix}
               onClick={() => applyChip(c.prefix)}
-              title={`Start with “${c.prefix}”`}
+              title={`Start with "${c.prefix}"`}
               className="rounded-full bg-raised px-2.5 py-1.5 text-[11px] text-ink-2 hover:bg-line hover:text-ink md:px-2 md:py-0.5"
             >
               {c.label}

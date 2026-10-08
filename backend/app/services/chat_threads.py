@@ -166,7 +166,7 @@ _TITLE_LABEL = re.compile(r"^(?:title|name)\s*[:\-]\s*", re.I)
 # source as ambiguous with the ASCII quote (RUF001 in a string, RUF003 in
 # this comment, which is why they are named here and not shown); the double
 # pair is escaped only to keep the four together. A cloud model answers with them often - the straight
-# pair alone leaves “Ship it” quoted in the sidebar.
+# pair alone leaves "Ship it" in curly quotes in the sidebar.
 _TITLE_QUOTES = "\"'" + "\u201c\u201d\u2018\u2019"
 
 

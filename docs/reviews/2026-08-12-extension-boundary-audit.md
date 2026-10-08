@@ -7,7 +7,7 @@ Audit date: 2026-08-12. The audit itself was read-only: it examined the
 branch as of head `5afa984` and modified nothing. This file is untracked.
 
 **Post-audit remediation (same day, commits `243cdc5..db1903c`).** After
-this report, the pre-merge simplification it recommended (§25 items 1–4, 7)
+this report, the pre-merge simplification it recommended (§25 items 1-4, 7)
 was implemented on the branch in seven commits: the 1.0 export surface was
 trimmed (workflow engine and plumbing symbols removed, lifecycle and
 `requires` slots deferred, constant and unread fields dropped); the
@@ -80,7 +80,7 @@ work is small relative to the branch: trim the dead public symbols before
 merge freezes the 1.0 API line, export or document a test-invocation
 surface, close the documentation gaps, fix the reference extension's
 monorepo `file:` dependency, and correct one false doc claim. Details in
-§20–22 and §25.
+§20-22 and §25.
 
 ## 2. Base and feature commits
 
@@ -100,7 +100,7 @@ Major additions: `backend/app/extensions/` (2,910 LOC, 8 modules),
 `frontend/packages/extension-api/` + `frontend/lib/extensions/` +
 `frontend/scripts/compose-extensions.mjs` (~430 LOC),
 `examples/workplace-extension/` (Atlas reference, 1,716 LOC total / 891
-source), core migrations 012–020, four contract-rehearsal scripts +
+source), core migrations 012-020, four contract-rehearsal scripts +
 `package-frontend-host.sh` + `upgrade-path.sh` (~1,100 LOC), ~12,600 LOC of
 extension-focused tests, and ~6,700 LOC of docs (`docs/EXTENSIONS.md`,
 `docs/reviews/2026-08-10-workplace-extensibility-assessment.md`, `docs/reviews/2026-08-13-workplace-extensibility-results.md`,
@@ -176,7 +176,7 @@ probes are retained under `…/scratchpad/r4-security/`.
   policy-action namespaces evaluated on one write (`skein.rest.*`, the
   declared domain action, `work.task.*`) - the doc explains two of the
   three well.
-- **Execution layers, registration → served write: ~9–10**, with 3
+- **Execution layers, registration → served write: ~9-10**, with 3
   independent policy evaluations; each traced layer has an articulable
   responsibility (§10).
 
@@ -396,7 +396,7 @@ trusted code with the same operating-system permissions as Skein"):
   `ExtensionStore` - a hostile store could target core tables (inside the
   trust model; note beside L1).
 
-Core migrations 012–020 respect the append-only and activity hash-chain
+Core migrations 012-020 respect the append-only and activity hash-chain
 rules (no UPDATE/DELETE of seq-carrying rows).
 
 ## 13. Minimality and bloat findings
@@ -409,7 +409,7 @@ scanning, no universal plugin base, no EAV store, no runtime browser
 modules) is real and verified absent.
 
 At the **symbol level** it does not survive: ≈16 of 64 exported symbols
-have no consumer outside core internals and synthetic tests (F1–F7 in §20–21);
+have no consumer outside core internals and synthetic tests (F1-F7 in §20-21);
 one slot fails the doc's own admission rule ("Add a core slot only when a
 real workplace extension needs it"); and the branch ships
 backward-compatibility layers for prior states of itself (legacy resolver
@@ -430,7 +430,7 @@ in the export list and manifest fields, not the enforcement machinery.
 What was actually executed (R5): `reference-extension-contract.sh` exit 0
 in 38s - clean-venv installs from wheels, old-core (0.1.0) rejection with
 the exact `ExtensionValidationError`, installed startup on both cores, a
-real Atlas sync on both, migrations 018–020 applied by `db.init_db()`,
+real Atlas sync on both, migrations 018-020 applied by `db.init_db()`,
 identity-audit claim/rename flows including a genuine collision quarantine,
 pending reviews created on 0.2.0 and approved on 0.2.1, strict mypy against
 the installed wheel, fresh-vs-upgraded schema equality.
@@ -593,7 +593,7 @@ Diagnostic counts (evidence, not optimization targets):
 
 **LOW** (selected)
 
-- L1–L4 + I1 security wording/defense-in-depth items (§12). Undocumented
+- L1-L4 + I1 security wording/defense-in-depth items (§12). Undocumented
   `?actions=` on `/api/capabilities`; startup-failure policy undocumented;
   `registry.policy_engine` property rebuilds the engine per access;
   `SKEIN_CORE_VERSION` hardcoded "0.2.0" fallback; tracked
@@ -717,6 +717,6 @@ list).
    policy-input content exposure, L4 four-eyes default) and the
    `_DEFAULT_ENGINE` fail-open fallback (M4).
 
-Items 1–4 and 7 are days of work and belong before merge. Items 5–6 are
+Items 1-4 and 7 are days of work and belong before merge. Items 5-6 are
 post-merge roadmap by nature - which is why the honest ceiling for this
 branch today is Verdict B.

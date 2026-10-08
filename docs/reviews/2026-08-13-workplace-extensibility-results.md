@@ -66,9 +66,9 @@ records the evidence.
 
 ### Scoring rubric
 
-- 1–2: Static implementation. Workplace changes require core edits.
-- 3–4: Some configuration seams. A long-lived fork remains likely.
-- 5–6: Several real seams. Important adoption scenarios still edit core.
+- 1-2: Static implementation. Workplace changes require core edits.
+- 3-4: Some configuration seams. A long-lived fork remains likely.
+- 5-6: Several real seams. Important adoption scenarios still edit core.
 - 7: A private package is practical for a limited, documented set of concerns.
 - 8: Representative private extensions work through versioned contracts and tests.
 - 9: Broad contracts have multi-release and production evidence.
@@ -456,7 +456,7 @@ dashboard card. Both use the `atlas.dashboard.view` policy action.
 | Isolated private data | Core schema churn | Independent private migrations | Medium | Low | No core table access | 7 |
 | Bounded workflow steps | Static templates only | Conditions, policy, actions, checkpoints | Medium | Medium | Legacy YAML is version 1 | 8 |
 | Frontend manifest | Every UI change edited core | Trusted navigation and cards | High | Medium | Empty default manifest | 9 |
-| Reference package and rehearsal | Documentation-only claims | Executable A–H evidence | High | Low | Separate artifacts | 10 |
+| Reference package and rehearsal | Documentation-only claims | Executable A-H evidence | High | Low | Separate artifacts | 10 |
 
 ### Foundational changes completed before adoption
 

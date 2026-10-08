@@ -11,7 +11,7 @@ describe("commandName", () => {
 
   it("refuses a name no quoting keeps safe in PowerShell", () => {
     // a quote inside the name split it in PowerShell and ran what followed
-    for (const name of ["o'brien", "x’;echo INJECTED;’", 'a"b', "@true", "-h"]) {
+    for (const name of ["o'brien", "x\u2019;echo INJECTED;\u2019", 'a"b', "@true", "-h"]) {
       expect(commandName(name)).toBeNull();
     }
   });

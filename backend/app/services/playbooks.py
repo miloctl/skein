@@ -754,10 +754,10 @@ def _variance_lesson(diff: dict, engagement_name: str) -> tuple[str, str]:
         landed = "landed late" if worst["basis"] == "finished" else "moved"
         parts.append(
             f"{wording.count(len(late), 'milestone')} {landed}, the largest by"
-            f" {wording.count(worst['days'], 'day')} (“{worst['title'][:40]}”)."
+            f' {wording.count(worst["days"], "day")} ("{worst["title"][:40]}").'
         )
         fixes.append(
-            f"Add {wording.count(worst['days'], 'day')} to “{worst['title'][:40]}”"
+            f'Add {wording.count(worst["days"], "day")} to "{worst["title"][:40]}"'
             f" in playbooks/{diff['playbook']}.yaml, or split it."
         )
     if diff["added_tasks"]:

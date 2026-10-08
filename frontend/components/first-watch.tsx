@@ -410,7 +410,7 @@ export function FirstWatch() {
   const intro = run.stepId === "first_watch";
   const number = firstWatchStepNumber(run.stepId);
   const title = intro
-    ? "Bosun’s First Watch"
+    ? "Bosun's First Watch"
     : `First Watch, step ${number} of 6: ${card.feature}`;
   const changeStep = (stepId: FirstWatchStepId, moveFocus = true) => {
     resetEvidence();

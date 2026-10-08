@@ -1,6 +1,6 @@
 # Backlog burn-down - full-project architecture review (2026-07-24)
 
-Status: items 1–8 shipped 2026-07-24. Item 9 (runner isolation) stayed
+Status: items 1-8 shipped 2026-07-24. Item 9 (runner isolation) stayed
 open and lives in the roadmap's open backlog under "Ops". Moved out of
 `docs/ROADMAP.md` in the 2026-08-03 consolidation.
 
@@ -8,7 +8,7 @@ Done in the same review cycle: milestone `engagement_id` link, unified
 MCP/tool gate, handoff scoping, export coverage, indexes, allocations
 provenance.
 
-Items 1–8 shipped 2026-07-24 (backlog burn-down). The tests moved out of
+Items 1-8 shipped 2026-07-24 (backlog burn-down). The tests moved out of
 `test_backlog.py` on 2026-08-02 into the file that names each behavior:
 `test_db_transactions.py`, `test_engagements.py`, `test_migrations.py`,
 `test_jobs.py`, `test_retention.py`, `test_turn_cost.py`, `test_digest.py`

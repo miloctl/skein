@@ -1,6 +1,6 @@
 # Implementation Spec - Skein
 
-> **Closed.** All phases 0–4 are BUILT and superseded by reality - this
+> **Closed.** All phases 0-4 are BUILT and superseded by reality - this
 > document is the original build plan, kept for its rationale, data model,
 > and constraints. `docs/FEATURES.md` is the current reference for what
 > exists. As-built deviations from this plan: embeddings are OpenAI vectors
@@ -10,7 +10,7 @@
 
 Working constraint: **no API keys for now**. Every feature is designed with a
 deterministic core (DB + REST + UI) that works without a model; the agent layer
-sits on top and lights up when keys arrive. Nothing in Phases 0–2 requires an
+sits on top and lights up when keys arrive. Nothing in Phases 0-2 requires an
 LLM call.
 
 ## Design principles

@@ -155,7 +155,7 @@ Why: these may be two real things rather than drift - the entry is the row,
 the agreement is what it says. Today the split is accidental, not stated.
 Deciding it makes the placeholders read deliberately.
 
-Cost: 0–2 strings, depending on the call.
+Cost: 0-2 strings, depending on the call.
 
 ---
 

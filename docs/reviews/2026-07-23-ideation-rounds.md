@@ -1,4 +1,4 @@
-# Ideation rounds 1–3 (2026-07)
+# Ideation rounds 1-3 (2026-07)
 
 Status: everything below is closed. Round 1's synthesized top-10 - all
 shipped. Round 2 - shipped: CLI, MCP server, API keys, git trailers, CI
@@ -171,7 +171,7 @@ latency.*
 # Round 2 ideation - delight, game systems, developer loop (2026-07-23)
 
 Second 3-agent panel (Whimsy Injector, Game Designer, Developer Advocate),
-run after Phases 0–2 + integrations shipped. Everything below is deterministic
+run after Phases 0-2 + integrations shipped. Everything below is deterministic
 (no LLM required) unless noted.
 
 ## Synthesized picks

@@ -1,7 +1,7 @@
 # Feature Roadmap - Skein
 
 > Shipped work is documented in `docs/FEATURES.md`. The ideation
-> transcripts behind rounds 1–3 (all shipped or deliberately skipped) and
+> transcripts behind rounds 1-3 (all shipped or deliberately skipped) and
 > the 2026-07-24 backlog burn-down are archived in `docs/reviews/`.
 > **This file holds only un-shipped work**: the open backlog, the
 > decisions still to make, and the refusals with their re-entry triggers.
@@ -398,7 +398,7 @@ shipped 2026-08-08.)
 Three commissioned perspectives - manager, IC, and the agent layer as a
 multi-agent system - reviewed the shipped product against this backlog.
 Transcripts and rankings: `docs/reviews/2026-08-08-product-gaps.md`,
-which is also the definition site for G1–G10. The shared diagnosis: the
+which is also the definition site for G1-G10. The shared diagnosis: the
 backend ran ahead of its surfaces - search, usage, the worklog, and
 forecast calibration were computed and never delivered to where a
 person looks.
@@ -432,7 +432,7 @@ the current order lives in that section below.
 A three-lens review - developer, manager, and the product as a
 human-and-AI operating system - of everything shipped. Transcript:
 `docs/reviews/2026-08-09-product-review.md`, the definition site for
-R1–R7. The diagnosis repeats 2026-08-08 in a smaller radius, plus one
+R1-R7. The diagnosis repeats 2026-08-08 in a smaller radius, plus one
 new theme: computed value still fails to reach a reader in places, and
 several loops stop at 80% - the trust flywheel has no flow, playbooks
 never learn from their own engagements, and waiting-on edges give the
@@ -792,17 +792,17 @@ codes can now show.
 - **A stall latch across daily runs** [S] - the daily run skips a task
   whose last two runs filed nothing and that no human touched since.
   Trigger: job outcomes show repeated `nothing_filed` for one agent.
-- **Refuse an identical pending proposal** [XS–S] - hash the proposer,
+- **Refuse an identical pending proposal** [XS-S] - hash the proposer,
   entity, action, target and canonical payload under `db.name_lock`, and
   answer "already pending as #N". Duplicate rejections distort the demotion
   streak. Trigger: duplicates reach Approvals.
-- **Base values on update proposals** [S–M] - store the payload keys' values
+- **Base values on update proposals** [S-M] - store the payload keys' values
   at filing, and at approval name a field a teammate changed since. The diff
   already shows current → proposed; it cannot say the current value is newer
   than the proposal. Trigger: a reviewer approves over a newer edit.
   Document edits already carry one: `base_revision`, checked at approval
   (`docs/intent/document-revisions.md`, D4 and D5).
-- **Reset a shared-chat agent's session when a person joins** [XS–S] -
+- **Reset a shared-chat agent's session when a person joins** [XS-S] -
   `_AudiencePolicy` checks each read against the current members, but the
   model session keeps raw tool results from before the join. Matters only
   with workplace policy extensions. Model: buzz information-flow design,
@@ -837,7 +837,7 @@ codes can now show.
   keyed by viewer and room, cleared with the identity.
 - **`kind=` on `GET /api/search`** [XS] - the service already filters by
   entity. No `from:` filter: it leans toward per-person views.
-- **A "Gone quiet" fold in My Day → Your work** [XS–S] - the reader's own
+- **A "Gone quiet" fold in My Day → Your work** [XS-S] - the reader's own
   non-urgent, uncommitted, untouched tasks, folded with a reason line.
 - **Tell administrators when a new identity first signs in** [XS] - OIDC
   creates the person with only an activity row today. Model: buzz #4900.

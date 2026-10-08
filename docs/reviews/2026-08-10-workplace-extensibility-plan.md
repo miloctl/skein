@@ -429,7 +429,7 @@ transcript, and un-shipped work lives in `docs/ROADMAP.md`.
   marks events delivered without calling external code.
 - Confirmed 48 focused event, reference, REST, scheduler, and agent-gate tests.
 - Created `docs/reviews/2026-08-13-workplace-extensibility-results.md` with the current architecture,
-  scorecard, evidence, A–H results, limits, and repository guidance.
+  scorecard, evidence, A-H results, limits, and repository guidance.
 - Completed the final pre-review verification: 1,620 backend tests, 229
   frontend tests, the default production build, full lint, both upgrade
   rehearsals, and 25 Chrome tests all pass.

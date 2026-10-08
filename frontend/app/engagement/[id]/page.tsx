@@ -385,7 +385,7 @@ export default function EngagementBrief({
         <Card title={`Open blockers (${b.blockers.length})`}>
           {b.blockers.length === 0 ? (
             <p className="text-sm text-ink-3">
-              Nothing is blocked. Capture one with &lsquo;blocked on …&rsquo; in quick capture.
+              Nothing is blocked. Capture one with &apos;blocked on …&apos; in quick capture.
             </p>
           ) : (
             <ul className="space-y-1 text-sm">
@@ -416,7 +416,7 @@ export default function EngagementBrief({
                 finished thing */}
             {e.status === "closed"
               ? "No work is open - this engagement is closed."
-              : "No work is open. Capture one with \u2018todo: \u2026\u2019 in quick capture."}
+              : "No work is open. Capture one with 'todo: \u2026' in quick capture."}
           </p>
         ) : (
           <ul className="space-y-1 text-sm">

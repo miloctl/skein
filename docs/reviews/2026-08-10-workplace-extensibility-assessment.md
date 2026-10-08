@@ -433,7 +433,7 @@ Persistence, policy, core services, background scheduling, and the frontend shel
 | Fixed schemas and status checks | Add classifications or states | Table rebuilds and UI changes repeat | Use extension-owned relations or a bounded metadata contract | When data need is defined |
 | Browser-only manager toggle | Show role-specific manager controls | UI visibility can be mistaken for authorization | Return authorized capabilities from the backend | Now |
 
-“Now” means before workplace adoption, not before the next small core feature.
+"Now" means before workplace adoption, not before the next small core feature.
 
 ## 7. Recommended target architecture
 

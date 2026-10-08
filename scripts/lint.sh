@@ -21,11 +21,15 @@ if [ -d backend/.venv/bin ]; then
 fi
 
 echo "== typography =="
-# Authored text joins clauses with a hyphen. The two parsers of text a person
-# types keep the em-dash as an escape (services/capture.py, private_notes.py),
-# and frontend/AGENTS.md is written by `next dev`, so it is not ours to edit.
-if git grep -n -- $'\xe2\x80\x94' -- ':!frontend/AGENTS.md'; then
-    echo "lint.sh: em-dash found in the files above. Replace it with a hyphen (-)." >&2
+# Authored text uses a hyphen for the en and em dash, and straight quotes.
+# Code that must recognize one of these marks names it as an escape instead:
+# the capture parsers accept a typed dash (services/capture.py,
+# private_notes.py), and wording.quoted turns an interior apostrophe curly so
+# a quoted title cannot close early. frontend/AGENTS.md is written by
+# `next dev`, so it is not ours to edit.
+if git grep -n -e $'\xe2\x80\x93' -e $'\xe2\x80\x94' -e $'\xe2\x80\x98' -e $'\xe2\x80\x99' \
+    -e $'\xe2\x80\x9c' -e $'\xe2\x80\x9d' -- ':!frontend/AGENTS.md'; then
+    echo "lint.sh: a dash or curly quote is in the files above. Use a hyphen (-) or a straight quote." >&2
     exit 1
 fi
 
