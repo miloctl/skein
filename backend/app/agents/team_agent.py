@@ -524,10 +524,15 @@ class _PlainSummaries(SummarizingConversationManager):
 
     def _generate_summary(self, messages, agent):
         # the SDK's dispatch point; test_context_strategy.py fails if an
-        # upgrade renames it or reads more than .model from this agent
+        # upgrade renames it or reads another attribute from this agent.
+        # Strands 1.57 summarizes with .model and 1.59 with .aux_model, so
+        # both name the one model chosen here: without .aux_model, 1.59 logs
+        # the AttributeError and stops summarizing, and a context overflow
+        # fails the turn.
         model = self._summary_model() if self._summary_model is not None else agent.model
         spent: list[dict] = []
-        metered = cast(Any, SimpleNamespace(model=_Metered(model, spent)))
+        chosen = _Metered(model, spent)
+        metered = cast(Any, SimpleNamespace(model=chosen, aux_model=chosen))
         summary = super()._generate_summary(messages, metered)
         # The SDK calls model.stream() directly and drops the usage, so a
         # summary (the early chat, sent again) reached no budget or ceiling.
