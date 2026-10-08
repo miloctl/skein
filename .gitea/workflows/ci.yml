@@ -9,7 +9,7 @@
 # env. A credential in the remote URL stays in .git/config, and every later
 # npm or pip install script in the job can read it from there.
 #
-# Lint gates live in scripts/lint.sh alone — call it, never restate a gate
+# Lint gates live in scripts/lint.sh alone - call it, never restate a gate
 # here, or the local run and CI drift apart again.
 name: ci
 on:
@@ -53,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       # Same major as docker-compose.yml and the Dockerfile's pg_dump. The
-      # suite has no in-process substitute the way SQLite was — conftest exits
+      # suite has no in-process substitute the way SQLite was - conftest exits
       # without a reachable server.
       postgres:
         image: postgres:17-alpine@sha256:d4bb0a8c1b7bb2e29f976d099e7bfb9a5d8858cffe9e46b35cd302cd1f1f8168
@@ -105,7 +105,7 @@ jobs:
           SKEIN_DATABASE_URL: postgresql://skein:skein@localhost:5432/skein
         # The coverage gate lives here, not in addopts: coverage adds ~45%
         # to a run, so local `pytest` stays fast and this step holds the
-        # floor. 90 is a ratchet — measured 91% on 2026-08-14; raise it when
+        # floor. 90 is a ratchet - measured 91% on 2026-08-14; raise it when
         # the number rises, never lower it to make a commit pass.
         run: pytest -q -n auto --cov=app --cov-fail-under=90
       - name: Restricted database role contract
@@ -136,7 +136,7 @@ jobs:
       - name: Upgrade path
         # Skips itself until the first v* release tag exists. The psql guard
         # is for the self-hosted runner image, which ships no PostgreSQL
-        # client — the script creates its databases with psql.
+        # client - the script creates its databases with psql.
         env:
           SKEIN_DATABASE_URL: postgresql://skein:skein@localhost:5432/skein
         run: |

@@ -14,7 +14,7 @@ import { actionError, api } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 
 /** The one daily write, so it lives on My Day. `suggestion` prefills the
- *  "yesterday" field from real activity — derived, not asked for. */
+ *  "yesterday" field from real activity - derived, not asked for. */
 export function StandupComposer({
   suggestion = "",
   onPosted,
@@ -80,7 +80,7 @@ export function StandupComposer({
         maxLength={2000}
         onChange={(e) => setYesterday(e.target.value)}
         placeholder={
-          suggestion ? `yesterday — ${suggestion}` : "yesterday (optional)"
+          suggestion ? `yesterday - ${suggestion}` : "yesterday (optional)"
         }
         className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
       />
@@ -95,7 +95,7 @@ export function StandupComposer({
         maxLength={2000}
         onChange={(e) => setToday(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && post()}
-        placeholder="today — what are you on?"
+        placeholder="today - what are you on?"
         className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
       />
       </label>
@@ -109,7 +109,7 @@ export function StandupComposer({
           maxLength={2000}
           onChange={(e) => setBlockers(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && post()}
-          placeholder="blockers — auto-filed with an escalation clock"
+          placeholder="blockers - auto-filed with an escalation clock"
           className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
         />
         </label>

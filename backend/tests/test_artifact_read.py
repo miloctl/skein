@@ -1,7 +1,7 @@
 """Reading an artifact back.
 
-Every generator here — the handoff, the week rituals, the daily digest, the
-exec readout — wrote a markdown file and a row pointing at it, and nothing
+Every generator here - the handoff, the week rituals, the daily digest, the
+exec readout - wrote a markdown file and a row pointing at it, and nothing
 could read one back: `list_artifacts` hands out a server-side path, which no
 browser can open. The bodies were reachable only by shelling into the
 container.
@@ -320,7 +320,7 @@ def test_a_concurrent_repeat_waits_for_the_ritual_report(monkeypatch, fresh_db):
     def run():
         try:
             outputs.append(rituals.week_close(actor="tester"))
-        except Exception as exc:  # pragma: no cover — asserted empty below
+        except Exception as exc:  # pragma: no cover - asserted empty below
             errors.append(exc)
 
     monkeypatch.setattr(rituals, "_week_close_run", slow_run)
@@ -452,7 +452,7 @@ def test_a_forced_rerun_reuses_its_row_instead_of_filing_a_second(client):
 
 
 def test_absent_artifact_and_unreadable_artifact_read_alike(client):
-    """The 404 must not answer "does #N exist" — ids are sequential."""
+    """The 404 must not answer "does #N exist" - ids are sequential."""
     art = _readout(client)
     gone = art["id"] + 999
     absent = client.get(f"/api/artifacts/{gone}")
@@ -460,7 +460,7 @@ def test_absent_artifact_and_unreadable_artifact_read_alike(client):
     assert absent.json() == {"detail": f"no artifact #{gone}"}
 
     # the same row, now unreadable: same status, and the SAME sentence the
-    # absent case produces for this id — nothing distinguishes the two
+    # absent case produces for this id - nothing distinguishes the two
     db.execute("UPDATE artifacts SET visibility = 'private' WHERE id = ?", (art["id"],))
     hidden = client.get(f"/api/artifacts/{art['id']}")
     assert hidden.status_code == 404
@@ -480,7 +480,7 @@ def test_a_path_outside_the_artifacts_dir_is_refused(client):
 
 def test_a_row_whose_file_vanished_is_our_fault_not_the_callers(client):
     """A restored database beside an empty data volume. Nothing the caller sent
-    can produce this, so it stays a 500 and lands in the error rate — as a 404
+    can produce this, so it stays a 500 and lands in the error rate - as a 404
     it would say "no such artifact" about a row the reader can see listed, and
     no operator would ever be paged (CLAUDE.md, error classification)."""
     art = _readout(client)

@@ -16,7 +16,7 @@ PRELUDE = "import json, sys\nfrom app import db\nfrom app.services import leases
 
 
 def other_process(code: str, *, wait: bool = True, timeout: float = 90):
-    proc = subprocess.Popen(  # noqa: S603 — fixed interpreter, literal test program
+    proc = subprocess.Popen(  # noqa: S603 - fixed interpreter, literal test program
         [sys.executable, "-c", PRELUDE + code],
         cwd=BACKEND,
         env=os.environ.copy(),

@@ -51,7 +51,7 @@ def test_api_key_lifecycle_and_attribution(client):
     # revoking also requires strong identity
     assert client.delete(f"/api/keys/{created['id']}").status_code == 403
     client.delete(f"/api/keys/{created['id']}", headers={"Authorization": f"Bearer {boot['key']}"})
-    # a presented-but-revoked key is a hard 401 — never a silent fallback
+    # a presented-but-revoked key is a hard 401 - never a silent fallback
     r = client.post(
         "/api/capture",
         json={"text": "x"},
@@ -68,7 +68,7 @@ def test_admin_key_visibility_and_kill_switch(client, monkeypatch):
     other = _bootstrap("other-person", "one")
     strong = {"Authorization": f"Bearer {boot['key']}"}
 
-    # key metadata is admin surface now — weak identity is a 403
+    # key metadata is admin surface now - weak identity is a 403
     assert client.get("/api/admin/keys").status_code == 403
     # every person's key labels and last use: under the trusted-header
     # fallback every key holder is an administrator, so this read takes one
@@ -80,13 +80,13 @@ def test_admin_key_visibility_and_kill_switch(client, monkeypatch):
     assert "other-person" in owners
     monkeypatch.setattr(config, "ADMINS", frozenset())
 
-    # the kill switch requires strong identity — a spoofed header can't nuke keys
+    # the kill switch requires strong identity - a spoofed header can't nuke keys
     assert client.post("/api/admin/keys/revoke-all").status_code == 403
     out = client.post(
         "/api/admin/keys/revoke-all", headers={"Authorization": f"Bearer {boot['key']}"}
     ).json()
     assert out["revoked"] >= 2
-    # after the kill switch no strong identity remains — verify via the service
+    # after the kill switch no strong identity remains - verify via the service
     from app.services.api_keys import list_all_keys
 
     assert all(not k["active"] for k in list_all_keys())

@@ -244,7 +244,7 @@ def finish(claim: dict, result: dict) -> None:
             reason = "completion_unknown"
         elif row["rerun_requested"]:
             # the rerun is a distinct human delegation that never got its
-            # turn — a failure or refusal of THIS turn does not answer it
+            # turn - a failure or refusal of THIS turn does not answer it
             db.execute(
                 "UPDATE agent_wakeups SET status = 'pending', requested_at = ?,"
                 " started_at = NULL, finished_at = NULL, rerun_requested = 0,"
@@ -266,7 +266,7 @@ def reclaim_expired() -> int:
     """A running row whose lease lapsed has no live holder.
 
     A row with rerun_requested carries a delegation that arrived DURING the
-    lost turn — a distinct explicit human request that never got its turn.
+    lost turn - a distinct explicit human request that never got its turn.
     Re-pending it is not a retry of the uncertain turn, so it goes back to
     pending instead of dying with the lease."""
     with db.transaction():
@@ -337,7 +337,7 @@ def _wake_cap_reached() -> bool:
         return False
     row = db.query_one(
         # 'wake:%', never 'wake-%': ':' is outside the chat thread-id charset,
-        # so only the runner writes matching rows — a user-named 'wake-...'
+        # so only the runner writes matching rows - a user-named 'wake-...'
         # chat thread must not spend the workspace's daily wake allowance
         "SELECT COUNT(*) AS n FROM usage_log WHERE thread_id LIKE 'wake:%' AND created_at >= ?",
         (db.local_midnight_utc(db.today()),),
@@ -352,14 +352,14 @@ def _drain() -> None:
         from .settings import agent_automation_enabled
 
         # checked BEFORE claiming: a claim made while paused would finish as
-        # refused and need a fresh delegation to re-arm — left pending, the
+        # refused and need a fresh delegation to re-arm - left pending, the
         # resume switch drains it with no data lost
         while not _shutdown.is_set() and agent_automation_enabled() and (claim := claim_next()):
             with leases.tracked(str(claim["lease_token"]), table="agent_wakeups"):
                 try:
                     # its own guard, not the run_one try below: a database blip
                     # in this read must not mark a turn that never started as
-                    # completion_unknown. Not capped on error — a failing
+                    # completion_unknown. Not capped on error - a failing
                     # database refuses the turn itself a moment later.
                     capped = _wake_cap_reached()
                 except Exception:

@@ -193,7 +193,7 @@ def _readable(routine_id: int, actor: str, *, hold: bool = False) -> dict:
     """The row, or the absent row's 404 for a caller who cannot read it."""
     frag, vp = scope.visible_filter(scope.Viewer.for_actor(actor), "routines")
     row = db.query_one(
-        f"SELECT * FROM routines WHERE id = ? AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM routines WHERE id = ? AND {frag}"  # noqa: S608 - scope.visible_filter emits only bound marks
         + (" FOR UPDATE" if hold else ""),
         (routine_id, *vp),
     )
@@ -321,7 +321,7 @@ def update_routine(
             next_at = _stamp(next_occurrence(clean, datetime.now(UTC)))
         sets = ", ".join(f"{k} = ?" for k in changed)
         db.execute(
-            f"UPDATE routines SET {sets}, next_at = ?, updated_at = ? WHERE id = ?",  # noqa: S608 — keys from _FIELDS
+            f"UPDATE routines SET {sets}, next_at = ?, updated_at = ? WHERE id = ?",  # noqa: S608 - keys from _FIELDS
             (*(clean[k] for k in changed), next_at, db.now(), routine_id),
         )
         # the id and the field names, never the text (collab.update_note)
@@ -445,7 +445,7 @@ def delete_routine(routine_id: int, *, actor: str) -> dict:
             _owner_only(row, actor)
         frag, vp = scope.visible_filter(scope.Viewer.for_actor(actor), "routines")
         db.execute(
-            f"DELETE FROM routines WHERE id = ? AND {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"DELETE FROM routines WHERE id = ? AND {frag}",  # noqa: S608 - scope.visible_filter emits only bound marks
             (routine_id, *vp),
         )
         db.log_activity(actor, "delete_routine", f"#{routine_id}")
@@ -456,7 +456,7 @@ def list_routines(viewer: scope.Viewer) -> list[dict]:
     frag, vp = scope.visible_filter(viewer, "routines", alias="r")
     tfrag, tp = scope.visible_filter(viewer, "tasks", alias="t")
     return db.query(
-        f"SELECT r.*, latest.id AS latest_task_id, latest.status AS latest_task_status"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT r.*, latest.id AS latest_task_id, latest.status AS latest_task_status"  # noqa: S608 - scope.visible_filter emits only bound marks
         " FROM routines r LEFT JOIN LATERAL (SELECT t.id, t.status FROM tasks t"
         f" WHERE t.routine_id = r.id AND {tfrag} ORDER BY t.id DESC LIMIT 1) latest ON TRUE"
         f" WHERE {frag} ORDER BY r.status, r.next_at NULLS LAST, r.id",
@@ -664,7 +664,7 @@ def pause_for_identity(name: str, kind: str) -> int:
         )
     )
     rows = db.query(
-        f"UPDATE routines SET status = 'paused', paused_reason = ?, paused_by = '',"  # noqa: S608 — column from the fixed pair above
+        f"UPDATE routines SET status = 'paused', paused_reason = ?, paused_by = '',"  # noqa: S608 - column from the fixed pair above
         f" next_at = NULL, updated_at = ? WHERE {column} = ? AND status = 'active'"
         " RETURNING id, title, created_by, agent",
         (reason, db.now(), name),

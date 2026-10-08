@@ -37,7 +37,7 @@ from . import schedule
 log = logging.getLogger(__name__)
 
 # Every real table is either exported (TABLES) or excluded here with its
-# reason — test_admin_export.py::test_export_accounts_for_every_table walks
+# reason - test_admin_export.py::test_export_accounts_for_every_table walks
 # the catalog and fails on a table in neither set, so a new migration
 # cannot silently fall out of the export.
 EXCLUDED = frozenset(
@@ -260,7 +260,7 @@ def _today() -> str:
     return db.today().isoformat()
 
 
-# EVERY extension schema, opted out ones included — see set_extension_stores.
+# EVERY extension schema, opted out ones included - see set_extension_stores.
 _EXTENSION_STORES: dict[str, str] = {}
 # The subset included in the local database recovery unit.
 _BACKED_UP_STORES: set[str] = set()
@@ -350,7 +350,7 @@ def _backup_one(args: list[str], dest: Path, prefix: str = "") -> None:
         # password in argv. A timeout kills the client before it can hold every
         # later backup behind the workflow lock.
         try:
-            subprocess.run(  # noqa: S603 — fixed argv, no shell, values are not caller input
+            subprocess.run(  # noqa: S603 - fixed argv, no shell, values are not caller input
                 [
                     binary,
                     "--dbname",
@@ -451,7 +451,7 @@ def _backup(*, keep: int, actor: str | None) -> dict:
     # The anchor logs hold the digest so a dump altered where it rests is
     # detectable at restore time: restore verifies the ledger by exact anchor
     # matching, but every other row restores silently. Import here, not at
-    # module top — activity.py reaches back for _backups_dir/mirror_dir.
+    # module top - activity.py reaches back for _backups_dir/mirror_dir.
     from . import activity
 
     database_sha256 = _sha256_file(database_dest)
@@ -550,7 +550,7 @@ def _mirror(dest: Path, mdir: Path) -> str | None:
         copy = shutil.which("cp")
         if copy is None:
             raise RuntimeError("cp is not installed. Install the core file utilities.")
-        subprocess.run(  # noqa: S603 — fixed argv, no shell
+        subprocess.run(  # noqa: S603 - fixed argv, no shell
             [copy, "-p", "--", str(dest), str(tmp)],
             check=True,
             capture_output=True,
@@ -694,7 +694,7 @@ def _make_export(*, keep: int, actor: str, open_file: bool, max_bytes: int = 0):
                         found.update(
                             int(row["id"])
                             for row in db.query(
-                                f"SELECT id FROM {table} WHERE id IN ({marks}) AND {visible}",  # noqa: S608 — table and marks are closed, scope emits bound SQL
+                                f"SELECT id FROM {table} WHERE id IN ({marks}) AND {visible}",  # noqa: S608 - table and marks are closed, scope emits bound SQL
                                 (*batch, *params),
                             )
                         )
@@ -725,7 +725,7 @@ def _make_export(*, keep: int, actor: str, open_file: bool, max_bytes: int = 0):
                                 ' AND ("user" = \'\' OR "user" IN'
                                 " (SELECT name FROM users WHERE kind = 'agent'))"
                             )
-                        sql = f"SELECT * FROM {table}{where}"  # noqa: S608 — closed table set, scope emits bound SQL
+                        sql = f"SELECT * FROM {table}{where}"  # noqa: S608 - closed table set, scope emits bound SQL
                     if index:
                         fh.write(",\n")
                     json.dump(table, fh)

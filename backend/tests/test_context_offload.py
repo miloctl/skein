@@ -30,7 +30,7 @@ def test_offload_storage_scopes_by_session(fresh_db):
     b = session_store.DbOffloadStorage("s-two")
     _run(a.write("offloader/t1_0", b"alpha bytes"))
     assert _run(a.read("offloader/t1_0")) == b"alpha bytes"
-    # the other session's storage cannot see it — this scoping IS the
+    # the other session's storage cannot see it - this scoping IS the
     # authorization story: the blob is as private as the session row it left
     assert _run(b.read("offloader/t1_0")) is None
     assert _run(a.list("offloader/")) == ["offloader/t1_0"]

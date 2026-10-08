@@ -4,7 +4,7 @@ import * as axeMatchers from "vitest-axe/matchers";
 
 // toHaveNoViolations for the page-rendering tests. jsdom does no layout, so
 // color-contrast is out of scope here (the Playwright suite covers it in a
-// real browser); the structural rules — roles, names, aria wiring — run.
+// real browser); the structural rules - roles, names, aria wiring - run.
 expect.extend(axeMatchers);
 
 // RTL auto-cleans only when vitest runs with globals; this config does not, so
@@ -27,7 +27,7 @@ if (typeof window.localStorage?.getItem !== "function") {
 
 // jsdom implements no scrolling at all. assistant-ui's viewport calls
 // scrollTo, and the composer popup calls scrollIntoView to keep the selected
-// row inside its scroller — unstubbed, a component that scrolls throws where
+// row inside its scroller - unstubbed, a component that scrolls throws where
 // a browser would simply scroll.
 Element.prototype.scrollIntoView ??= () => {};
 Element.prototype.scrollTo ??= () => {};

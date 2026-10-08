@@ -116,7 +116,7 @@ def _viewer(name: str = "ava") -> scope.Viewer:
 def _broke_yesterday() -> str:
     """A due date inside the window this brief reads.
 
-    A promise that broke in 2020 is not news today, which is the whole point —
+    A promise that broke in 2020 is not news today, which is the whole point -
     so a fixture with a distant date pins nothing and passes against a brief
     that reports every overdue promise forever.
     """
@@ -233,7 +233,7 @@ def test_a_new_low_finding_survives_a_crowded_window(client, fresh_db):
     """The cap has to apply to the rows that QUALIFY, not to the whole table.
 
     Read through `list_findings`, the LIMIT lands before the since and
-    disposition filters and its ordering is week then severity — so a hundred
+    disposition filters and its ordering is week then severity - so a hundred
     already-seen high findings from this week push the one new low finding off
     the end, and the brief reports "quiet" about a window that had news.
     """

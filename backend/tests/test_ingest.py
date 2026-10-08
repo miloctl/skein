@@ -9,7 +9,7 @@ Standup sync 2026-07-24
 - q: who owns the staging cluster?
 - decided: we ship on Fridays now
 - blocked on the vendor API key
-- fb: dana — spoke up well in the design review
+- fb: dana - spoke up well in the design review
 - some ambient chatter that matches nothing at all
 - promised: revised beta date to ops by Friday
 """
@@ -23,7 +23,7 @@ def test_ingest_creates_proposals_not_records(client, fresh_db):
     assert kinds == ["blocker", "decision", "promise", "question", "task"]
     assert body["skipped_private"] == 1
     assert any("ambient chatter" in u for u in body["unclassified"])
-    # nothing written directly — everything is a pending proposal
+    # nothing written directly - everything is a pending proposal
     assert fresh_db.query("SELECT * FROM tasks") == []
     assert fresh_db.query("SELECT * FROM questions") == []
     pending = fresh_db.query("SELECT * FROM pending_changes WHERE status = 'pending'")
@@ -93,7 +93,7 @@ def test_failed_compound_apply_rolls_back_and_stays_pending(fresh_db, monkeypatc
 
 
 def test_ingest_counts_short_fb_lines(client, fresh_db):
-    r = client.post("/api/ingest", json={"text": "todo: real work item\nfb: d—x"})
+    r = client.post("/api/ingest", json={"text": "todo: real work item\nfb: d - x"})
     assert r.json()["skipped_private"] == 1  # short fb: still counted, never stored
 
 
@@ -105,7 +105,7 @@ def test_an_awaiting_line_in_pasted_notes_is_proposed_not_refused(client):
         "/api/ingest",
         json={
             "text": "todo: ship the API\n"
-            "awaiting: acme corp — the signed SOW by 2026-09-01\n"
+            "awaiting: acme corp - the signed SOW by 2026-09-01\n"
             "todo: write the client"
         },
     )
@@ -127,7 +127,7 @@ def test_an_awaiting_proposal_applies_at_the_verdict(client):
     rejected, and it wedges the queue."""
     from app.services import review
 
-    client.post("/api/ingest", json={"text": "awaiting: legal — the redlines by 2026-09-01"})
+    client.post("/api/ingest", json={"text": "awaiting: legal - the redlines by 2026-09-01"})
     prop = next(p for p in review.list_changes("pending") if p["entity"] == "promise")
     review.approve_change(prop["id"], actor="ava")
     from app import db

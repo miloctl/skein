@@ -3,7 +3,7 @@ crossings. Emits SVG (source of truth) and PNG (what the README references,
 since git hosts are inconsistent about rendering SVG through <img>).
 
 Generated rather than prompted because the whole thing is exact geometry with
-topology that has to be *correct* — a diffusion model drew flat X's with no
+topology that has to be *correct* - a diffusion model drew flat X's with no
 over-under three attempts running, and an over-under is the only thing
 separating "strand" from "line".
 
@@ -22,7 +22,7 @@ TOP = (H - SPACING * (COUNT - 1) - RISE) / 2 + RISE
 STEP = 4  # polyline sampling
 BLEND = 110  # horizontal distance a swap takes
 
-# (centre x, upper slot) — the pair is (slot, slot+1). Slot 0 is the lead and
+# (centre x, upper slot) - the pair is (slot, slot+1). Slot 0 is the lead and
 # never crosses: it has to stay legible as the strand out front.
 CROSSINGS = [(250, 3), (530, 7), (820, 1), (1075, 5)]
 
@@ -30,7 +30,7 @@ GAP = 11  # break in the strand passing behind
 LEAD_W, STRAND_W = 2.6, 1.9
 # The site's .vee already sets the house style for a formation: gold lead at
 # 4px, then trailing bars at opacity 0.75 and 0.5. Same idea continued over
-# twelve — the formation reads as having depth rather than being a fence.
+# twelve - the formation reads as having depth rather than being a fence.
 # Tied to the strand, not the slot, so it does not flicker across a swap.
 FADE_MIN = 0.34
 
@@ -70,7 +70,7 @@ def y_at(strand: int, x: float) -> float:
 
 def points(strand: int) -> list[tuple[float, float]]:
     """Sample densely only inside the blend zones this strand takes part in.
-    Everywhere else the path is a straight run and two endpoints describe it —
+    Everywhere else the path is a straight run and two endpoints describe it -
     the difference between a 3KB file and a 51KB one."""
     xs = {0.0, float(W)}
     for cx, upper in CROSSINGS:
@@ -84,7 +84,7 @@ def points(strand: int) -> list[tuple[float, float]]:
 
 def behind_gaps(strand: int) -> list[tuple[float, float]]:
     """Ranges to cut out of this strand. The strand travelling UP passes
-    behind — one consistent rule everywhere, so the weave looks deliberate
+    behind - one consistent rule everywhere, so the weave looks deliberate
     rather than arbitrary."""
     out = []
     for cx, upper in CROSSINGS:

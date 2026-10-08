@@ -147,7 +147,7 @@ function subscribeTodaysThree(cb: () => void) {
   };
 }
 
-/** Identity is the concept everything else hangs off — until a name is
+/** Identity is the concept everything else hangs off - until a name is
  *  picked, the rest of My Day is noise. One question, then the real page. */
 function WhoAreYou() {
   const [people, setPeople] = useState<{ name: string; kind: string }[]>([]);
@@ -170,13 +170,13 @@ function WhoAreYou() {
         Who are you?
       </h1>
       <p className="mb-5 text-sm text-ink-3">
-        Everything you do here is recorded under your name — pick it once and
+        Everything you do here is recorded under your name - pick it once and
         this browser remembers.
       </p>
       <input
         autoFocus
         name="pick-name"
-        placeholder="Your name — Enter to continue"
+        placeholder="Your name - Enter to continue"
         aria-label="Your name"
         className="mb-3 w-full rounded-xl border border-line-strong bg-transparent px-3 py-2 text-sm outline-none focus:border-thread-solid"
         onKeyDown={(e) => {
@@ -203,7 +203,7 @@ function WhoAreYou() {
         <Link href="/dashboard" className="underline hover:text-ink-2">
           browse the team&apos;s work
         </Link>{" "}
-        without picking a name — nothing is attributed to you until you do.
+        without picking a name - nothing is attributed to you until you do.
       </p>
     </main>
   );
@@ -213,8 +213,8 @@ function WhoAreYou() {
  *
  *  A personal notification renders under "Needs you" and a team one under
  *  "Team queues" (services/briefing.py sets the audience). `POST
- *  /api/notifications/read` has no other caller in the product — not the CLI,
- *  not chat — so a card that omits this button makes its rows permanent.
+ *  /api/notifications/read` has no other caller in the product - not the CLI,
+ *  not chat - so a card that omits this button makes its rows permanent.
  */
 function Dismiss({ id, label, onDone }: {
   id: number;
@@ -324,7 +324,7 @@ export default function MyDay() {
     }
   };
   const [error, setError] = useState<string | null>(null);
-  // persisted per ISO week — an accidental reload must not re-ask (votes are
+  // persisted per ISO week - an accidental reload must not re-ask (votes are
   // anonymous server-side, so the client is the only dedupe there is).
   //
   // The SERVER's label, not a second arithmetic. A browser-side ISO week is
@@ -332,7 +332,7 @@ export default function MyDay() {
   // lands every week of a year whose Jan 1 is a Friday one ahead, and it reads
   // the browser's zone rather than the team day. This key only has to be
   // stable per week, so the falsehood was survivable here and fatal on the
-  // commitment chip — which is the reason a second copy must not exist for
+  // commitment chip - which is the reason a second copy must not exist for
   // the next reader to take.
   const pulseWeek = b?.this_week ?? "";
   const pulseVoted = useSyncExternalStore(
@@ -456,7 +456,7 @@ export default function MyDay() {
       import("canvas-confetti").then(({ default: confetti }) => {
         confetti({ particleCount: 140, spread: 80, origin: { y: 0.6 } });
       });
-      // the loom advances one repeat — Ship It is the selvage's only trigger
+      // the loom advances one repeat - Ship It is the selvage's only trigger
       const selvage = document.getElementById("selvage");
       if (selvage) {
         selvage.classList.add("selvage-celebrate");
@@ -538,7 +538,7 @@ export default function MyDay() {
   };
 
   // Answer where the ask is read. The question row said "someone is waiting
-  // on the answer" and shipped the reader to Work → Browse to type it — the
+  // on the answer" and shipped the reader to Work → Browse to type it - the
   // same act-where-you-read rule the blocker and meeting rows above already
   // follow. The deep link stays for context; the common case needs no
   // navigation at all.
@@ -646,13 +646,13 @@ export default function MyDay() {
   );
   // the server's number, not a second one computed here: `/api/attention`
   // feeds the tab title from the same rule, and a browser-side count drifted
-  // the moment either side capped, coalesced or added a group — the reader saw
+  // the moment either side capped, coalesced or added a group - the reader saw
   // "(12)" on a tab over a page that said nothing was waiting. The local
   // filter is the fallback for a server that does not send it yet.
   const needsCount =
     b.attention_total ?? yours.filter((a) => a.group !== "notice").length;
   // counted from the rows the card actually renders, so it cannot disagree
-  // with what is on screen — the drift rule above is about a second copy of
+  // with what is on screen - the drift rule above is about a second copy of
   // the JUDGMENT count, and this is the other half of the same rows
   const noticeCount = yours.filter((a) => a.group === "notice").length;
   const GROUP_META: Record<
@@ -733,7 +733,7 @@ export default function MyDay() {
             <li>
               <div className="loom-idle mb-2" aria-hidden />
               <p className="text-xs text-ink-3">
-                All threads even — no escalations, nothing scheduled today.
+                All threads even - no escalations, nothing scheduled today.
               </p>
             </li>
           )}
@@ -744,7 +744,7 @@ export default function MyDay() {
     <Card title="Since yesterday">
       <ul className="space-y-1">
         {b.team.recent_activity.slice(0, 12).map((a) => {
-          // the same action-keyed parser the activity feed uses — a task row
+          // the same action-keyed parser the activity feed uses - a task row
           // opens the peek, everything else stays text (lib/task-ref.ts says
           // why the action, never the detail shape, decides)
           const tid = taskRef(String(a.action), String(a.detail));
@@ -797,7 +797,7 @@ export default function MyDay() {
           ? "nothing is waiting on you"
           : `${needsCount} thing${needsCount > 1 ? "s" : ""} need${needsCount > 1 ? "" : "s"} you`}
         {/* the count deliberately excludes notices (briefing.py counts what
-            asks for a judgment) — but the card below visibly holds them, so
+            asks for a judgment) - but the card below visibly holds them, so
             a bare "1 thing needs you" over five rows read as a broken count */}
         {noticeCount > 0
           ? ` · ${noticeCount} notice${noticeCount > 1 ? "s" : ""}`
@@ -812,7 +812,7 @@ export default function MyDay() {
         >
           {(() => {
             // personal steps drive the checklist; team facts are a separate
-            // strip — a new teammate is never handed team-level workflows
+            // strip - a new teammate is never handed team-level workflows
             const personal = onboarding.steps.filter((s) => s.scope !== "team");
             const teamSteps = onboarding.steps.filter(
               (s) => s.scope === "team",
@@ -912,7 +912,7 @@ export default function MyDay() {
                             </Link>
                           )}
                           <span className="ml-1 block pl-4 text-xs text-ink-3">
-                            {/* onboarding.py writes the ⌘K token — this is
+                            {/* onboarding.py writes the ⌘K token - this is
                                 the step that teaches capture, so the key it
                                 names has to be the reader's */}
                             <ShortcutText text={s.hint} />
@@ -950,7 +950,7 @@ export default function MyDay() {
 
       {b.team.recently_shipped.length > 0 && (
         <div className="order-last mb-4 mt-4 rounded-xl border border-ok/30 bg-ok/10 p-4 text-sm font-medium text-ok md:order-none md:mt-0">
-          🚢 Shipped: {b.team.recently_shipped.map((e) => e.name).join(" · ")} —
+          🚢 Shipped: {b.team.recently_shipped.map((e) => e.name).join(" · ")} -
           recap in the knowledge base. Nice work, team.
         </div>
       )}
@@ -1004,7 +1004,7 @@ export default function MyDay() {
                                           autoFocus
                                           name="answer-question"
                                           aria-label={`Answer question #${a.ref_id}`}
-                                          placeholder="the answer — Enter to record it"
+                                          placeholder="the answer - Enter to record it"
                                           onKeyDown={(ev) => {
                                             if (ev.key === "Escape") cancelQuestion();
                                             const answer = (
@@ -1023,7 +1023,7 @@ export default function MyDay() {
                                           autoFocus
                                           name="reassign-question"
                                           aria-label={`Assign question #${a.ref_id} to`}
-                                          placeholder="teammate's name — Enter to assign"
+                                          placeholder="teammate's name - Enter to assign"
                                           onKeyDown={(ev) => {
                                             if (ev.key === "Escape") cancelQuestion();
                                             const who = (
@@ -1034,7 +1034,7 @@ export default function MyDay() {
                                           }}
                                           onChange={(ev) => {
                                             // a mouse-picked datalist suggestion must
-                                            // commit too — picks arrive as
+                                            // commit too - picks arrive as
                                             // insertReplacementText (or undefined
                                             // inputType in Firefox), typing as
                                             // insertText (app/dashboard/page.tsx)
@@ -1107,7 +1107,7 @@ export default function MyDay() {
                                     recordOutcome(a.ref_id, "recorded")
                                   }
                                   className="min-h-6 min-w-6 rounded bg-ok/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ok hover:bg-ok/20"
-                                  title="something came out of it — write it up on Capture"
+                                  title="something came out of it - write it up on Capture"
                                 >
                                   {/* sr-only, not aria-label: the visible
                                       words must lead the accessible name, or
@@ -1120,7 +1120,7 @@ export default function MyDay() {
                                     recordOutcome(a.ref_id, "none")
                                   }
                                   className="min-h-6 min-w-6 rounded bg-ink-3/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ink-2 hover:bg-ink-3/20"
-                                  title="nothing came out of it — this is what the weekly finding counts"
+                                  title="nothing came out of it - this is what the weekly finding counts"
                                 >
                                   nothing{" "}
                                   <span className="sr-only">came out of {a.label}</span>
@@ -1188,7 +1188,7 @@ export default function MyDay() {
                   </span>
                   {/* The list is ordered by commitment before priority
                       (services/briefing.py), and an unexplained order teaches
-                      readers to distrust the surface — which is the rule every
+                      readers to distrust the surface - which is the rule every
                       row in the Needs-you card follows with its reason line.
                       Marked, not re-sorted: the chip IS the explanation. */}
                   {t.committed_week === thisWeek ? (
@@ -1200,7 +1200,7 @@ export default function MyDay() {
                 <span className="flex shrink-0 gap-1">
                   {/* No aria-pressed: the name already flips between Add and
                       Remove, and a state-flipping name PLUS a pressed state
-                      reads as "Remove … pressed" — announced as removed while
+                      reads as "Remove … pressed" - announced as removed while
                       the task was just added (ARIA APG, toggle buttons). */}
                   <button
                     type="button"
@@ -1277,7 +1277,7 @@ export default function MyDay() {
           <RecentChanges />
         </div>
 
-        {/* empty:hidden — GuideHint renders nothing for an anonymous reader or
+        {/* empty:hidden - GuideHint renders nothing for an anonymous reader or
             once every knot is tried, and a childless grid item still takes a
             row, opening a gap between the cards above and below it */}
         <div className="md:col-span-2 empty:hidden">
@@ -1307,7 +1307,7 @@ export default function MyDay() {
       </div>
       <div className="mt-4 text-xs text-ink-3">
         {pulseVoted ? (
-          // identical quiet acknowledgment for both votes — a 👎 must
+          // identical quiet acknowledgment for both votes - a 👎 must
           // never trigger anything peppy, and no modal ever
           <span>Counted. Team tally only.</span>
         ) : (
@@ -1339,8 +1339,8 @@ export default function MyDay() {
                 }}
                 aria-label={
                   v === "up"
-                    ? "Yes — Skein reduced coordination effort this week"
-                    : "No — Skein did not reduce coordination effort this week"
+                    ? "Yes - Skein reduced coordination effort this week"
+                    : "No - Skein did not reduce coordination effort this week"
                 }
                 className="mx-0.5 min-h-6 min-w-6 rounded bg-raised px-2 py-0.5 hover:bg-line"
               >

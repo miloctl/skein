@@ -15,7 +15,7 @@ stays as the design record and the reason behind each rule.
 ## Objective
 
 A single persona gives one lens. Real decisions want the tension between
-lenses — the architect's tradeoff space against the reviewer's failure modes
+lenses - the architect's tradeoff space against the reviewer's failure modes
 against the minimal-change engineer's restraint. Today a user must run
 `/as <persona> <message>` once per lens, by hand, in sequence, and merge the
 answers in their head.
@@ -26,7 +26,7 @@ User stories:
   reads three sectioned answers, each signed by its persona, in one turn.
 - An operator defines a flock in a YAML file. A keyless deployment still
   lists it, validates it, and answers deterministically in mock mode.
-- A sponsor reads every write a member proposed in the review inbox — no
+- A sponsor reads every write a member proposed in the review inbox - no
   member write applies directly from a flock turn.
 - Mission control shows the diamond for a past flock turn: who ran, how
   long each took, what each proposed, what the turn cost.
@@ -36,8 +36,8 @@ side effect review-gated, every model call accounted per member.
 
 ## Non-goals
 
-- **No orchestration engine.** The diamond — dispatch, members, optional
-  synthesis — is the only shape. No nesting (a member is a persona, never
+- **No orchestration engine.** The diamond - dispatch, members, optional
+  synthesis - is the only shape. No nesting (a member is a persona, never
   another flock), no chains, no conditional routing. Flocks add one more
   fixed pattern, not a framework.
 
@@ -47,18 +47,18 @@ side effect review-gated, every model call accounted per member.
   Chief of Staff consults (`consult_specialist`, added so "ask @code-reviewer about
   tomorrow's plan" reaches the bench instead of filing a task for it).
   The non-goal itself stands, and the consult is bounded to keep it standing:
-  depth is one hop, enforced by construction rather than by a counter —
+  depth is one hop, enforced by construction rather than by a counter -
   `build_agent` creates the tool only when `persona == ""`, so a specialist
   never holds it and cannot consult anything. No chains and no routing.
-  Auto-selection is not designed for — the orchestrator is instructed to
-  consult only a specialist the user names — but it is BOUNDED rather than
+  Auto-selection is not designed for - the orchestrator is instructed to
+  consult only a specialist the user names - but it is BOUNDED rather than
   prevented: `MAX_CONSULTS_PER_TURN` caps a fan-out the model chose on its
   own. Read this as one more fixed pattern, not as the engine this bullet
   refuses.
 - **No debate rounds.** Members answer independently and never see each
   other's sections. Synthesis is the only merge point.
 - **No new identity kind.** A flock is not an identity and never writes as
-  itself. Members are the identities — their slugs already exist in the
+  itself. Members are the identities - their slugs already exist in the
   authority matrix and trust scores.
 - **No runtime CRUD.** Flock definitions are files edited like code (the
   playbooks precedent). No POST /api/flocks.
@@ -66,7 +66,7 @@ side effect review-gated, every model call accounted per member.
 ## Tech stack
 
 No new dependencies. Backend: FastAPI + the existing Strands agent layer +
-PostgreSQL. Frontend: Next.js + Tailwind, hand-rolled SVG for the diamond — no
+PostgreSQL. Frontend: Next.js + Tailwind, hand-rolled SVG for the diamond - no
 graph library (the layout is fixed and small; physics would add jitter and
 a dependency for nothing).
 
@@ -77,16 +77,16 @@ a dependency for nothing).
 ```yaml
 # backend/flocks/engineering.yaml
 name: Engineering
-description: Design tension on one question — the architecture, the failure modes, and the smallest thing that works
+description: Design tension on one question - the architecture, the failure modes, and the smallest thing that works
 emoji: 🛠️
 members:            # 2-4 bench persona slugs, order = section order
   - backend-architect
   - code-reviewer
   - minimal-change-engineer
-synthesis: false    # optional, default false — the +1 model call is opt-in
+synthesis: false    # optional, default false - the +1 model call is opt-in
 ```
 
-- Overlay: `SKEIN_FLOCKS_DIR`, same semantics as `SKEIN_PLAYBOOKS_DIR` —
+- Overlay: `SKEIN_FLOCKS_DIR`, same semantics as `SKEIN_PLAYBOOKS_DIR` -
   loaded alongside stock, same slug replaces the stock file, a configured
   directory that does not exist surfaces in `overlay_errors()`.
 - Validation is two-pass, the personas precedent: runtime parsing is
@@ -97,18 +97,18 @@ synthesis: false    # optional, default false — the +1 model call is opt-in
     makes a live-conversation-only persona ineligible. A same-slug persona
     overlay wins and can restore eligibility by omitting the field
   - flock slug matches the persona slug charset and does not collide with
-    a bench slug — `/flock <slug>` and `/as <slug>` share a namespace in
+    a bench slug - `/flock <slug>` and `/as <slug>` share a namespace in
     the user's head, and a collision makes one of them unreachable
 - Voice: `description` may carry the product voice (nothing is asked of
   the reader). Errors from validation follow STE.
 
 ## Service and REST (the deterministic core)
 
-- `backend/app/services/flocks.py` — loading, validation, trace recording.
+- `backend/app/services/flocks.py` - loading, validation, trace recording.
   All SQL lives here. Tools and routes wrap it, never bypass it.
-- `GET /api/flocks` — list: slug, name, description, emoji, members
+- `GET /api/flocks` - list: slug, name, description, emoji, members
   (resolved to name + emoji), synthesis flag.
-- `GET /api/flocks/traces?thread=…|flock=…&limit=…` — trace rows for the
+- `GET /api/flocks/traces?thread=…|flock=…&limit=…` - trace rows for the
   diamond view.
 - Migration: new numbered file in `backend/app/core_migrations/`, append-only.
   One row per flock turn:
@@ -122,11 +122,11 @@ CREATE TABLE flock_traces (
   -- JSON: [{slug, status, ms, receipts, tokens_in, tokens_out}]
   -- Tokens live IN the trace: usage rows are keyed by thread + agent_name,
   -- so two flock turns in one thread with the same members are
-  -- indistinguishable in a join — per-turn cost is not derivable from the
+  -- indistinguishable in a join - per-turn cost is not derivable from the
   -- usage table alone.
   members    TEXT NOT NULL,
   -- NULL when synthesis is off; JSON {status, ms, tokens_in, tokens_out}
-  -- when on — the diamond's bottom node needs data, not a flag.
+  -- when on - the diamond's bottom node needs data, not a flag.
   synthesis  TEXT,
   created_at TEXT NOT NULL
 );
@@ -140,9 +140,9 @@ Everything above works with `SKEIN_MODEL_PROVIDER=mock` and no keys.
 
 ## Chat protocol
 
-- `/flocks` — engine command in `agents/commands.py` (deterministic, every
+- `/flocks` - engine command in `agents/commands.py` (deterministic, every
   provider): lists flocks the way `/personas` lists the bench.
-- `/flock <slug> <message>` — route-level command in `routes/chat.py`
+- `/flock <slug> <message>` - route-level command in `routes/chat.py`
   (needs the agent layer), the `/as` precedent. It MUST be registered in
   `commands.COMMANDS` with `handler: None`: `dispatch` answers any
   unregistered `/word` with a did-you-mean generator before the route sees
@@ -155,9 +155,9 @@ Everything above works with `SKEIN_MODEL_PROVIDER=mock` and no keys.
 
 Execution of a flock turn:
 
-1. `ensure_user(member, kind="agent")` per member at turn start — the `/as`
+1. `ensure_user(member, kind="agent")` per member at turn start - the `/as`
    precedent. A slug a human already claimed is a member construction
-   failure, isolated per step 7. Build one agent per member — fresh and
+   failure, isolated per step 7. Build one agent per member - fresh and
    stateless: `build_agent` grows a `stateless=True` parameter that skips
    the session manager and conversation-manager state (today it always
    attaches one for real providers, `team_agent.py:460`). No `--<slug>`
@@ -167,21 +167,21 @@ Execution of a flock turn:
    holding one would write to a third party while its trace row reported it
    proposed nothing.
 2. Run members concurrently (asyncio tasks). Identity is set per task with
-   `set_agent_identity(member)` inside each task — contextvars are
+   `set_agent_identity(member)` inside each task - contextvars are
    task-local, so member identities cannot bleed into each other's writes.
    The route sets `set_requester_identity(user)` BEFORE creating the tasks
    (tasks inherit the parent context copy), so every member proposal
    records the asking human as `requested_by`.
 3. Stream sections in declared member order. The head-of-queue member
    streams live; completed members flush as they reach the head. Each
-   section ALWAYS opens with the masthead (`###`, emoji, name, vibe) — the
+   section ALWAYS opens with the masthead (`###`, emoji, name, vibe) - the
    once-per-thread `thread_contains` dedup does not apply, because in a
    flock turn the masthead is the section delimiter, not a repeated
    introduction. Who answered never depends on whether the model signs
    its work. A heading, not bold text, and a `---` rule between members
    (never above the first): the whole turn is ONE assistant bubble, so the
    section break has to carry weight that `**` does not. `.prose-chat` in
-   `frontend/app/globals.css` sizes the levels — Tailwind v4 preflight
+   `frontend/app/globals.css` sizes the levels - Tailwind v4 preflight
    resets headings to body size, so the CSS is what makes the hierarchy
    visible at all.
 4. **Every member write is a review proposal**, regardless of
@@ -194,10 +194,10 @@ Execution of a flock turn:
    perspective, and N agents acting autonomously on one message is the
    failure mode this rule prevents. Because writes queue unconditionally,
    member construction passes a flag so the persona system prompt states
-   review is ON — the stock prompt would otherwise claim writes apply
+   review is ON - the stock prompt would otherwise claim writes apply
    directly, and the model would misreport its own writes.
    Five writers skip `tools/_gate.py` BY DESIGN (the delegation trio, a
-   delegate's comment on its own task, and the handoff generator —
+   delegate's comment on its own task, and the handoff generator -
    `tests/test_gate_coverage.py::UNGATED_WRITERS` holds the list, derived
    from a gate spy rather than declared). force_review cannot reach them, so
    each carries `identity.refuse_when_consultative` and REFUSES in a flock
@@ -208,7 +208,7 @@ Execution of a flock turn:
 5. Receipts: each member task calls `receipts.start()` and drains INSIDE
    the task, forwarding drained receipts through its own event queue
    tagged with the member slug. The receipt box is a plain list in the
-   context — contextvar isolation does not isolate mutation of a shared
+   context - contextvar isolation does not isolate mutation of a shared
    list, so a route-level `start()` would interleave N members' receipts
    unattributed. Per-member draining is also what makes the `receipts`
    count in the trace computable.
@@ -225,19 +225,19 @@ Execution of a flock turn:
 8. Cancellation (stop button, tab close): the sync finally cancels all
    member tasks with `task.cancel()`, reads whatever metrics each agent
    accumulated, and records `status: cancelled` for unfinished members in
-   the trace. Uncancelled member tasks would keep running — and keep
-   filing proposals — after the user hit stop.
-9. Accounting: `_log_usage` per member with `agent_name=<member slug>` —
+   the trace. Uncancelled member tasks would keep running - and keep
+   filing proposals - after the user hit stop.
+9. Accounting: `_log_usage` per member with `agent_name=<member slug>` -
    the mechanism exists. Synthesis logs `agent_name=<flock slug>`. The
    cost multiplier is therefore visible in `/api/usage` per head.
 10. Transcript: the whole turn logs under the base thread id as one
-    assistant message containing all sections (the existing pattern — the
+    assistant message containing all sections (the existing pattern - the
     suffixed session ids never appear in `chat_messages`). The turn is
     also bridged into the Chief-of-Staff model session the way command
     turns are, so a follow-up like "what did the reviewer say?" has the
     sections in context. The turn guard is SKIPPED for flock turns: they
     are consultative, and a filing-shaped message belongs in a normal
-    turn — there is no single agent for the objection re-prompt to
+    turn - there is no single agent for the objection re-prompt to
     address.
 11. Trace: one `flock_traces` row written when the turn closes, in the
     same close path that logs usage.
@@ -245,18 +245,18 @@ Execution of a flock turn:
 Rate limiting: a flock turn charges the `chat` bucket ONE SLOT PER MEMBER,
 plus one more when the flock synthesizes (`ratelimit.check(..., cost=...)`),
 not the single
-slot a turn used to cost. A member is an agent loop, not one call — a
-measured 3-member turn ran 9 model calls — so a per-turn charge let one
+slot a turn used to cost. A member is an agent loop, not one call - a
+measured 3-member turn ran 9 model calls - so a per-turn charge let one
 message buy several turns of model spend. The charge is all-or-nothing and
 happens after the flock resolves and before the stream opens, so no model
-runs. THAT CALL spends nothing when it refuses — the turn's own top-of-route
+runs. THAT CALL spends nothing when it refuses - the turn's own top-of-route
 chat slot is already spent by then and stays spent. It is deliberately the chat bucket and not a bucket of
 its own: two buckets would let a refused flock silently consume chat slots,
 and the operator would have no single number for a person's model budget.
 
 The per-actor buckets are NOT covered by that: the `write` bucket
 (`tools/_gate.py`) keys on the (member, requester) pair, so a 4-member flock
-carries 4x the write budget — but two people flocking the same persona no
+carries 4x the write budget - but two people flocking the same persona no
 longer share it, each holds their own bucket against each member. The
 `memory` bucket (`services/memory.py`) still keys on the member slug alone
 and stays shared across requesters. Every member write is review-gated
@@ -264,11 +264,11 @@ and stays shared across requesters. Every member write is review-gated
 `SKEIN_MONTHLY_BUDGET_USD` reports overspend and never refuses.
 
 Mock mode: each member yields a deterministic reply from a flock-specific
-pool — NOT the MockAgent freeform path, whose smart-capture writes to the
+pool - NOT the MockAgent freeform path, whose smart-capture writes to the
 database ungated (`mock_agent.py`); routed through it, one flock message
 would file N duplicate captures attributed to the human. Mock members
 dispatch no commands and write nothing. Mock replies are one of the five
-voice pools CLAUDE.md commits to feeding — per-persona mock lines are
+voice pools CLAUDE.md commits to feeding - per-persona mock lines are
 welcome here. Mock synthesis is a plain count line (it carries a number,
 so it is never warm).
 
@@ -295,7 +295,7 @@ so it is never warm).
 # frontend (from frontend/)
 npm test                                  # vitest, includes trace view
 npm run build
-# repo root — the exact CI gate, run before every commit
+# repo root - the exact CI gate, run before every commit
 ./scripts/lint.sh                         # includes flocks validate_all
 ```
 
@@ -315,12 +315,12 @@ comment register:
 
 ## Testing strategy
 
-Backend (`tests/test_flocks.py`, pytest, mock provider — deterministic):
+Backend (`tests/test_flocks.py`, pytest, mock provider - deterministic):
 
 - Definition loading: valid file lists; malformed file drops off at
   runtime and fails `validate_all`; overlay wins a slug collision.
 - Validation: <2 members, >4 members, unknown member, duplicate member,
-  bench-slug collision — each refused with an STE error.
+  bench-slug collision - each refused with an STE error.
 - REST: `GET /api/flocks` shape; traces endpoint filters by thread/flock.
 - Chat: `/flocks` lists; `/flock` with an unknown charset-valid slug names
   it, with an invalid one echoes nothing; a mock flock turn streams N
@@ -332,7 +332,7 @@ Backend (`tests/test_flocks.py`, pytest, mock provider — deterministic):
   by the member with `requested_by` = the human, even with
   `SKEIN_AGENT_REVIEW=0` and the member at `autonomous` in the matrix;
   `forbidden` still refuses outright. Tested at the gate, not through
-  mock chat — mock members never reach `gated_write` by design.
+  mock chat - mock members never reach `gated_write` by design.
 - Isolation: one member raising leaves the other sections intact and
   records `failed` in the trace row.
 
@@ -370,13 +370,13 @@ plus axe extends to the trace section.
    passes the axe check.
 5. `./scripts/lint.sh` and the full backend suite pass.
 
-## Open questions — closed (2026-08-09)
+## Open questions - closed (2026-08-09)
 
-- Stock flocks: five ship — `engineering.yaml`, `delivery.yaml`,
+- Stock flocks: five ship - `engineering.yaml`, `delivery.yaml`,
   `judgment.yaml`, `people.yaml`, and `shiproom.yaml`. The new groups cover
   adversarial decisions, team conditions, and release readiness.
 - The synthesis masthead did not get the goose. A merge section asks the
   reader to weigh answers, and the goose is earned only where nothing is
   asked of the reader.
-- Trace retention: keep, as the lean said — nothing prunes
+- Trace retention: keep, as the lean said - nothing prunes
   `flock_traces`. Rows are small and it is not the hash-chained ledger.

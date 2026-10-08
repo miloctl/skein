@@ -19,7 +19,7 @@ from app.services import (
 def main() -> None:
     db.init_db()
     if db.query_one("SELECT id FROM engagements LIMIT 1"):
-        print("Database already has data — skipping seed.")
+        print("Database already has data - skipping seed.")
         return
 
     for name in ("mario", "ava", "marcus"):
@@ -98,7 +98,7 @@ def main() -> None:
     )
 
     engagements.record_lesson(
-        "Demo with realistic data — stakeholders don't extrapolate",
+        "Demo with realistic data - stakeholders don't extrapolate",
         recommendation="Budget half a day for demo data",
         project_class="prototype",
         actor="ava",
@@ -173,7 +173,7 @@ def main() -> None:
     # capture queues for approval reads as friction, not governance. These
     # grants are the deliberate deployment choice the authority page teaches:
     # the built-in chat agent writes the two capture staples directly, and
-    # every other (agent, entity) pair stays at review — so the inbox still
+    # every other (agent, entity) pair stays at review - so the inbox still
     # shows the loop, and the matrix card has real rows on first load.
     # the startup hook reserves the core "agent" identity before any request;
     # seed runs outside the app, so it makes the same reservation itself
@@ -212,7 +212,7 @@ def main() -> None:
 
     # One flock turn, so /agents renders the DIAMOND rather than its empty
     # state. Without a trace the e2e walk scans the empty branch and the
-    # component — its aria-label, its text nodes, its strokes in dark — is
+    # component - its aria-label, its text nodes, its strokes in dark - is
     # never seen by axe at all.
     from app.services import flocks
 

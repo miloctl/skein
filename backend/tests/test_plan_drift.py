@@ -1,6 +1,6 @@
 """Drift from a playbook's plan, while the engagement still runs.
 
-The snapshot is written at KICKOFF, so the diff exists from day one — and
+The snapshot is written at KICKOFF, so the diff exists from day one - and
 nothing read it until close, when the only thing left to do about it is write
 a lesson. A milestone that has already moved twice and four unplanned tasks are
 facts a team can still act on in week three.
@@ -29,8 +29,8 @@ def test_an_evening_finish_west_of_utc_is_not_a_slip(client, fresh_db, monkeypat
 
     West of UTC an evening finish carries the NEXT UTC day, so a milestone
     delivered on time reads as one day late. Three of those clear
-    PLAN_DRIFT_ALARM and file a permanent medium finding — findings are unique
-    per (rule, subject, week) — against an engagement that is exactly on plan.
+    PLAN_DRIFT_ALARM and file a permanent medium finding - findings are unique
+    per (rule, subject, week) - against an engagement that is exactly on plan.
     """
     import importlib
 
@@ -44,7 +44,7 @@ def test_an_evening_finish_west_of_utc_is_not_a_slip(client, fresh_db, monkeypat
         rows = db.query("SELECT id, due_date FROM milestones WHERE engagement_id = ?", (eid,))
         assert len(rows) >= 3, "the playbook must lay out enough milestones to trip the alarm"
         for m in rows:
-            # 20:00 New York on the due date itself — the same team-day, and
+            # 20:00 New York on the due date itself - the same team-day, and
             # the next UTC day. Done ON TIME by every reading a person has.
             local_evening = f"{m['due_date']}T20:00:00-04:00"
             utc = (
@@ -103,7 +103,7 @@ def test_an_engagement_with_no_playbook_is_not_drifting(client, fresh_db):
     eng = engagements.create_engagement("by hand", project_class="migration", actor="ava")
     for t in ("a", "b", "c", "d"):
         work.create_task(t, engagement_id=eng["id"], actor="ava")
-    # no kickoff snapshot means no plan to drift from — not "no drift"
+    # no kickoff snapshot means no plan to drift from - not "no drift"
     assert insights._r_plan_drift() == []
 
 

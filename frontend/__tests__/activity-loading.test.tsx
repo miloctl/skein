@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 /** The activity ledger is the largest read in the app. This page was the one
  *  the three-state sweep missed: before the fetch settled it rendered no
- *  rows, no empty state and no spinner — a blank screen for the longest
+ *  rows, no empty state and no spinner - a blank screen for the longest
  *  load in the product. loading-states.test.tsx pins the same rule for the
  *  list pages. */
 

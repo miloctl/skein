@@ -26,7 +26,7 @@
 name: weekly
 on:
   schedule:
-    # Monday 06:00 UTC — a failure is waiting at the start of the week
+    # Monday 06:00 UTC - a failure is waiting at the start of the week
     # rather than discovered mid-release.
     - cron: "0 6 * * 1"
   # so a change to this file can be proved without waiting for Monday
@@ -36,7 +36,7 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     # Same service and URL as ci.yml: the suite has no in-process substitute,
-    # and conftest exits without a reachable server — a weekly run with no
+    # and conftest exits without a reachable server - a weekly run with no
     # database fails every Monday.
     services:
       postgres:

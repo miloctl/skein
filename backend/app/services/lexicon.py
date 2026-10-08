@@ -5,11 +5,11 @@ reached the reader in six places: the authority card, its aria-labels and
 picker, the approvals header and its checkbox label, the chat receipt, the
 team notification, and the gate's refusal. This module is the one place that
 names them, so a new entity cannot ship with a raw identifier in front of a
-person — tests/test_lexicon.py fails the build instead.
+person - tests/test_lexicon.py fails the build instead.
 
 The atom is the CAPABILITY, not the entity: one imperative phrase per
 (entity, action) pair. A noun cannot carry a residual. `blocker` registers
-create AND update, and its update is `resolve_blocker` — glossed as "a
+create AND update, and its update is `resolve_blocker` - glossed as "a
 blocker" the row reads like permission to flag problems, when it also grants
 declaring them solved. Every phrase below leads with the verb the handler
 actually runs; check services/review.py::_registry before adding one.
@@ -101,7 +101,7 @@ PLURAL: dict[str, str] = {
 
 def phrase(entity: str, action: str) -> str:
     """What one write is called. Falls back to the raw pair rather than
-    inventing a name — an unglossed entity must look wrong, not plausible."""
+    inventing a name - an unglossed entity must look wrong, not plausible."""
     return CAPABILITY.get((entity, action), f"{action} {entity}")
 
 
@@ -109,7 +109,7 @@ def entity_label(entity: str) -> str:
     """What an AUTHORITY row is called: the grant covers every action the
     entity registers, so a single-action entity reads as its phrase and a
     multi-action one enumerates its verbs. "blockers (raise, resolve)" is
-    the whole point — "a blocker" hid the resolve."""
+    the whole point - "a blocker" hid the resolve."""
     actions = sorted(a for (e, a) in CAPABILITY if e == entity)
     if not actions:
         return entity

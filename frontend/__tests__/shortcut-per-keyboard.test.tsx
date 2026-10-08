@@ -6,8 +6,8 @@ import { themeBootScript } from "@/lib/theme-boot";
 
 /** The search binding is `metaKey || ctrlKey`, so the shortcut is ⌘K on an
  *  Apple keyboard and Ctrl+K everywhere else. Every hint used to say ⌘K
- *  only. A Windows reader read ⌘ as the Windows key — where Win+K opens the
- *  Cast panel — and reported the feature as unusable.
+ *  only. A Windows reader read ⌘ as the Windows key - where Win+K opens the
+ *  Cast panel - and reported the feature as unusable.
  *
  *  jsdom loads no stylesheet, so both spellings are present here by design:
  *  what these pin is that the markup carries BOTH and labels each for the

@@ -1,9 +1,9 @@
-"""Token and cost accounting for agent runs — the service-layer write path
+"""Token and cost accounting for agent runs - the service-layer write path
 for usage_log (read side: /api/usage and insights).
 
 Costs are ESTIMATES from the operator's SKEIN_MODEL_PRICES table, computed at
 write time so a later price change never rewrites history. A model with no
-price gets cost NULL — honest, not zero — and every rollup reports how many
+price gets cost NULL - honest, not zero - and every rollup reports how many
 rows went unpriced, so a sum is never mistaken for a total.
 """
 
@@ -19,7 +19,7 @@ def model_price(model_id: str) -> tuple[tuple[float, float] | None, str]:
 
     A (0, 0) pair is unpriced, not free: an unfilled rate and a real $0 are
     indistinguishable in a table, and "honest, not zero" (module docstring)
-    must hold on every surface — the menu, the settings summary, and cost_for
+    must hold on every surface - the menu, the settings summary, and cost_for
     all read THIS merge, so the rule lives here and nowhere else.
     """
 
@@ -49,12 +49,12 @@ def cost_for(model_id: str, input_tokens: int, output_tokens: int) -> float | No
 
 
 def row_from_agent(agent, thread_id: str, agent_name: str = "chief-of-staff") -> dict | None:
-    """Token accounting from strands event-loop metrics, EXTRACTED only — all
+    """Token accounting from strands event-loop metrics, EXTRACTED only - all
     in-memory reads, no DB. The INSERT is the caller's problem, and where the
     caller runs matters: the flock path extracts on the event loop in a
     cancelled-safe finally, then hands the row to routes/chat.py::_close_turn's threadpool.
     Written inline where it was extracted, one INSERT per member ran on the
-    loop that carries every open SSE stream — a round trip per member, on the
+    loop that carries every open SSE stream - a round trip per member, on the
     thread every concurrent chat shares.
 
     Lives in the service layer, not in routes/chat.py where its callers are,
@@ -137,8 +137,8 @@ def assert_within_budget(agent: str) -> None:
     OFF by default (0). It exists for the unattended runner
     (services/agent_runner.py), where no human is watching the stream. The
     monthly budget finding does not cover that case: it is denominated in
-    DOLLARS, so on the deployment most likely to want a ceiling — keyless, or
-    a subscription cloud where every model is unpriced — it reports "cannot be
+    DOLLARS, so on the deployment most likely to want a ceiling - keyless, or
+    a subscription cloud where every model is unpriced - it reports "cannot be
     measured" and never fires at all.
 
     A human chat turn is watched by the human in it, and capping that would
@@ -172,7 +172,7 @@ def record_chat_usage(
 ) -> None:
     # engagement_id is for turns with NO linkable thread (the agent runner).
     # A chat turn leaves it 0 and attributes through the thread link, which
-    # stays retroactive on purpose — linking a thread bills its past turns.
+    # stays retroactive on purpose - linking a thread bills its past turns.
     db.execute(
         "INSERT INTO usage_log (thread_id, agent_name, model_id, input_tokens,"
         " output_tokens, cycles, latency_ms, cost_usd, created_at, engagement_id,"
@@ -201,7 +201,7 @@ def sole_delegation_engagement(agent: str) -> int:
 
     A wake turn works the agent's whole delegated inbox, so a run is honestly
     attributable only when every open delegated task resolves to the SAME
-    engagement — directly, or through its milestone. One task outside any
+    engagement - directly, or through its milestone. One task outside any
     engagement, or a second engagement, and the answer is 0: '(unlinked)' is
     the honest bucket, never a guess (the docstring rule engagement_costs
     already follows).
@@ -221,12 +221,12 @@ def sole_delegation_engagement(agent: str) -> int:
 
 def usage_summary(since: str = "") -> list[dict]:
     """Per-model totals. `since` bounds the window; the /api/usage card passes
-    the month start so its three sections answer for ONE window — unbounded,
+    the month start so its three sections answer for ONE window - unbounded,
     the by-model rows were all-time under a header naming the month, and the
     card showed three different call counts with no label saying why."""
     where = " WHERE created_at >= ?" if since else ""
     return db.query(
-        "SELECT model_id, COUNT(*) AS calls, SUM(input_tokens) AS input_tokens,"  # noqa: S608 — `where` is a literal above
+        "SELECT model_id, COUNT(*) AS calls, SUM(input_tokens) AS input_tokens,"  # noqa: S608 - `where` is a literal above
         " SUM(output_tokens) AS output_tokens, ROUND(SUM(cost_usd)::numeric, 4) AS cost_usd,"
         " COUNT(*) - COUNT(cost_usd) AS unpriced_calls"
         f" FROM usage_log{where} GROUP BY model_id",
@@ -241,7 +241,7 @@ def engagement_costs(
     thread is unlinked (or predates the link) land in one honest 'unlinked'
     bucket instead of disappearing.
 
-    `since` (ISO date/datetime) overrides the trailing-days window — the
+    `since` (ISO date/datetime) overrides the trailing-days window - the
     budget rule passes the calendar month start, because a month-to-date
     claim backed by a trailing-window receipt names the wrong evidence."""
     from datetime import timedelta
@@ -250,15 +250,15 @@ def engagement_costs(
         since = (datetime.now(UTC) - timedelta(days=days)).isoformat(timespec="seconds")
     # `t.engagement_id IS NULL` first, and not scope.visible_name: the join is
     # LEFT, so an unlinked turn has no engagement row at all, and every tier
-    # test against a NULL side is false — the mask would file every unlinked
+    # test against a NULL side is false - the mask would file every unlinked
     # turn under "other work" and lose the honest bucket the docstring names.
     frag, fp = scope.visible_filter(viewer or scope.NOBODY, "engagements", alias="e")
     # COALESCE(u.engagement_id, t.engagement_id): a row's own attribution (the
-    # agent runner writes it — sole_delegation_engagement) wins over the
+    # agent runner writes it - sole_delegation_engagement) wins over the
     # thread link, and a chat turn with no row-level value keeps attributing
     # through its thread, retroactive link included.
     return db.query(
-        "SELECT CASE WHEN COALESCE(u.engagement_id, t.engagement_id) IS NULL THEN '(unlinked)'"  # noqa: S608 — scope.visible_filter emits only bound marks
+        "SELECT CASE WHEN COALESCE(u.engagement_id, t.engagement_id) IS NULL THEN '(unlinked)'"  # noqa: S608 - scope.visible_filter emits only bound marks
         f" WHEN {frag} THEN e.name ELSE ? END AS engagement,"
         # the id is masked with the name: beside "other work" it named the
         # hidden engagement and its spend anyway. GROUP BY 1, 2 below folds

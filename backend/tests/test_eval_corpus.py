@@ -12,7 +12,7 @@ def test_eval_capture_freetext_correction_is_unscored(client, monkeypatch):
         "/api/feedback",
         json={
             "kind": "capture",
-            "input_text": "decision: x — review by 2026-10-01",
+            "input_text": "decision: x - review by 2026-10-01",
             "output": "decision",
             "verdict": "corrected",
             "correction": "review_by should have been parsed",

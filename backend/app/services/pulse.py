@@ -1,4 +1,4 @@
-"""Team pulse: healthy game mechanics, team-scoped only. Deterministic SQL —
+"""Team pulse: healthy game mechanics, team-scoped only. Deterministic SQL -
 no leaderboards, no individual scores. Seasons are 6-week buckets so nothing
 accrues forever."""
 
@@ -12,7 +12,7 @@ SEASON_DAYS = 42
 
 
 def _today() -> date:
-    """The team's day (config.SKEIN_TZ), not the UTC day — see db.today()."""
+    """The team's day (config.SKEIN_TZ), not the UTC day - see db.today()."""
     return db.today()
 
 
@@ -28,7 +28,7 @@ def season() -> dict:
         # `start` is the DATE, for display and for date columns. `start_ts` is
         # the same boundary as an instant, for the timestamp columns
         # (created_at, resolved_at, closed_at) that every season count filters
-        # on. Bound to the date, those windows begin at UTC midnight — so work
+        # on. Bound to the date, those windows begin at UTC midnight - so work
         # finished in the last evening of a season counts into the next one.
         "start_ts": db.local_midnight_utc(start),
         "days_left": (end - _today()).days,
@@ -37,16 +37,16 @@ def season() -> dict:
 
 def standup_chain() -> dict:
     """Consecutive weekdays where every participating human posted a standup.
-    One shared number — the team holds the chain together.
+    One shared number - the team holds the chain together.
 
     Roster = active humans who posted at least one standup in the last 30 days.
     This keeps 'anonymous' rows, typo'd X-User names, and service accounts from
-    zeroing the chain forever — you join the chain by playing."""
+    zeroing the chain forever - you join the chain by playing."""
     cutoff = db.local_midnight_utc(_today() - timedelta(days=30))
     humans = [
         u["name"]
         for u in db.query(
-            "SELECT u.name FROM users u WHERE u.kind = 'human' AND u.active = 1"  # noqa: S608 — WORKSPACE_ONLY is a scope constant
+            "SELECT u.name FROM users u WHERE u.kind = 'human' AND u.active = 1"  # noqa: S608 - WORKSPACE_ONLY is a scope constant
             " AND u.name != 'anonymous'"
             " AND EXISTS (SELECT 1 FROM standups s WHERE s.author = u.name"
             f"             AND s.{WORKSPACE_ONLY} AND s.created_at >= ?)",
@@ -57,12 +57,12 @@ def standup_chain() -> dict:
         return {"chain": 0, "humans": 0}
     # One range scan, never a per-day substr() query: substr(created_at)
     # defeats every index, so a per-day probe full-scans standups once per
-    # loop step — up to 90 scans per call. 130 days covers the 90 loop steps
+    # loop step - up to 90 scans per call. 130 days covers the 90 loop steps
     # plus the weekend rewind below; the range predicate rides
     # idx_standups_created.
     lookback = db.local_midnight_utc(_today() - timedelta(days=130))
     by_day: dict[str, set[str]] = {}
-    # Bucketed in Python by TEAM day, not by substr(created_at) — that is the
+    # Bucketed in Python by TEAM day, not by substr(created_at) - that is the
     # UTC day, and the loop below walks local dates. Mixed, a standup posted
     # after 20:00 in New York lands in tomorrow's bucket, can never satisfy
     # the day it was written on, and silently resets the team's whole chain.
@@ -70,7 +70,7 @@ def standup_chain() -> dict:
     # the set, it did not become a per-day probe.
     # workspace standups only, like every count on the strip (pulse below)
     for r in db.query(
-        f"SELECT created_at, author FROM standups WHERE {WORKSPACE_ONLY} AND created_at >= ?",  # noqa: S608 — scope constant
+        f"SELECT created_at, author FROM standups WHERE {WORKSPACE_ONLY} AND created_at >= ?",  # noqa: S608 - scope constant
         (lookback,),
     ):
         by_day.setdefault(db.local_day(r["created_at"]), set()).add(r["author"])
@@ -94,10 +94,10 @@ def standup_chain() -> dict:
 
 def blocker_speedrun() -> list[dict]:
     """Average + best clear time per impact tier, this season. Raising blockers
-    is scoring, not failing — only clear times are shown, never who."""
-    start = season()["start_ts"]  # a timestamp column — see season()
+    is scoring, not failing - only clear times are shown, never who."""
+    start = season()["start_ts"]  # a timestamp column - see season()
     rows = db.query(
-        "SELECT impact,"  # noqa: S608 — WORKSPACE_ONLY is a scope constant
+        "SELECT impact,"  # noqa: S608 - WORKSPACE_ONLY is a scope constant
         " COUNT(*) AS cleared,"
         " ROUND(AVG((EXTRACT(epoch FROM resolved_at::timestamptz - created_at::timestamptz) / 86400.0) * 24)::numeric, 1)"
         " AS avg_hours,"
@@ -105,7 +105,7 @@ def blocker_speedrun() -> list[dict]:
         " AS best_hours"
         # resolved_at >= created_at: a row resolved before it was raised is a
         # data fault, and averaged in it printed a negative clear time on the
-        # season strip — the same guard insights._resolve_hours applies
+        # season strip - the same guard insights._resolve_hours applies
         f" FROM blockers WHERE {WORKSPACE_ONLY} AND status = 'resolved' AND resolved_at >= ?"
         " AND resolved_at >= created_at"
         " GROUP BY impact"
@@ -122,27 +122,27 @@ def pulse() -> dict:
     # blocker moved `blockers_open` for readers whose list stayed empty.
     s = season()
     open_blockers = db.query_one(
-        f"SELECT COUNT(*) AS n FROM blockers WHERE {WORKSPACE_ONLY} AND status != 'resolved'"  # noqa: S608 — scope constant
+        f"SELECT COUNT(*) AS n FROM blockers WHERE {WORKSPACE_ONLY} AND status != 'resolved'"  # noqa: S608 - scope constant
     )
     spotted = db.query_one(
-        f"SELECT COUNT(*) AS n FROM blockers WHERE {WORKSPACE_ONLY} AND created_at >= ?",  # noqa: S608 — scope constant
+        f"SELECT COUNT(*) AS n FROM blockers WHERE {WORKSPACE_ONLY} AND created_at >= ?",  # noqa: S608 - scope constant
         (s["start_ts"],),
     )
     lessons = db.query_one(
-        f"SELECT COUNT(*) AS n FROM lessons WHERE {WORKSPACE_ONLY} AND created_at >= ?",  # noqa: S608 — scope constant
+        f"SELECT COUNT(*) AS n FROM lessons WHERE {WORKSPACE_ONLY} AND created_at >= ?",  # noqa: S608 - scope constant
         (s["start_ts"],),
     )
     shipped = db.query_one(
-        f"SELECT COUNT(*) AS n FROM engagements WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope constant
+        f"SELECT COUNT(*) AS n FROM engagements WHERE {WORKSPACE_ONLY}"  # noqa: S608 - scope constant
         " AND status = 'closed' AND closed_at >= ?",
         (s["start_ts"],),
     )
     # milestones too: most six-week seasons close zero engagements, so a
     # counter of engagements alone read 0 over a season where three
-    # milestones landed — a scoreboard that only says failure stops being
+    # milestones landed - a scoreboard that only says failure stops being
     # read. The strip shows the sum and names both parts.
     milestones_shipped = db.query_one(
-        f"SELECT COUNT(*) AS n FROM milestones WHERE {WORKSPACE_ONLY} AND status = 'done'"  # noqa: S608 — scope constant
+        f"SELECT COUNT(*) AS n FROM milestones WHERE {WORKSPACE_ONLY} AND status = 'done'"  # noqa: S608 - scope constant
         " AND completed_at IS NOT NULL AND completed_at >= ?",
         (s["start_ts"],),
     )

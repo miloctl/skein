@@ -1,6 +1,6 @@
 """Field guide: predicates detect real use, unlocks are self-scoped and
 silent-seeded, the coverage signal is nameless. Detail-string predicates are
-pinned here — if a service reworders its activity line, these break loudly
+pinned here - if a service reworders its activity line, these break loudly
 instead of a knot silently going untieable."""
 
 import json
@@ -209,7 +209,7 @@ def test_first_detection_seeds_silently(fresh_db):
     g = fieldguide.guide("ava")
     tied = {c["id"] for c in g["cards"] if c["tied"]}
     assert "capture" in tied
-    # history renders as already-tied with zero ceremony — never "newly"
+    # history renders as already-tied with zero ceremony - never "newly"
     assert g["newly_tied"] == []
 
 
@@ -492,7 +492,7 @@ def test_reports_page_ties_the_read_only_history_knot(client, fresh_db):
 
 def test_reading_a_document_ties_the_agent_document_knot(client, fresh_db):
     """The write is signed by the AGENT, so no ledger predicate can find the
-    person who asked — the honest per-person moment is the read."""
+    person who asked - the honest per-person moment is the read."""
     from app.services import documents, fieldguide
 
     _mint(fresh_db, "tester")
@@ -638,7 +638,7 @@ def test_unadopted_is_nameless_and_respects_grace(fresh_db):
     _mint(fresh_db, "ava")
     # The grace window is measured from each card's own `since`, so a fixed
     # assertion about the DEFAULT grace decays into a failure as the registry
-    # ages past it — the oldest cards crossed 30 days on 2026-08-31 and took
+    # ages past it - the oldest cards crossed 30 days on 2026-08-31 and took
     # this test with them. Compute the span from the oldest card instead: the
     # property worth pinning is that a card inside its window is not reported,
     # not that every shipped card happens to be young.
@@ -675,7 +675,7 @@ def test_chat_ties_on_a_thread_not_a_page_load(fresh_db):
     from app.services import adoption, fieldguide
 
     _mint(fresh_db, "ava")
-    # opening /chat records tool_usage surface=chat — must NOT tie the knot
+    # opening /chat records tool_usage surface=chat - must NOT tie the knot
     adoption.record_use("ava", "chat")
     assert not fieldguide.PREDICATES["chat"]("ava")
     fresh_db.execute(
@@ -684,7 +684,7 @@ def test_chat_ties_on_a_thread_not_a_page_load(fresh_db):
         (fresh_db.now(), fresh_db.now()),
     )
     assert fieldguide.PREDICATES["chat"]("ava")
-    # but CLI/MCP usage does tie offweb — that's the surface itself
+    # but CLI/MCP usage does tie offweb - that's the surface itself
     adoption.record_use("ava", "cli")
     assert fieldguide.PREDICATES["offweb"]("ava")
 
@@ -715,7 +715,7 @@ def test_hint_never_consumes_the_newly_tied_strip(fresh_db):
     capture.capture("todo: seed history", actor="ava")
     fieldguide.guide("ava")  # seed pass
     collab.post_standup(author="ava", yesterday="x", today="y", actor="ava")
-    fieldguide.hint("ava")  # My Day landing — must NOT mark seen
+    fieldguide.hint("ava")  # My Day landing - must NOT mark seen
     assert [n["id"] for n in fieldguide.guide("ava")["newly_tied"]] == [
         "standup",
         "guided_first_week",
@@ -776,7 +776,7 @@ def test_registry_rejects_manager_set_without_role(fresh_db, tmp_path, monkeypat
         "  - id: capture\n"
         "    feature: X\n"
         "    knot: K\n"
-        "    set: manager\n"  # no role: manager — would be pushed as a suggestion
+        "    set: manager\n"  # no role: manager - would be pushed as a suggestion
         "    pitch: p\n"
         "    how: h\n"
         "    link: /x\n"

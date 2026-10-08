@@ -80,7 +80,7 @@ export function PageHelp() {
   // A card that points at the route the reader is already on: "Open X" would
   // close the panel and do nothing. The query goes with it, which is right for
   // the only card that carries one (knots.yaml `bosun`, /chat?as=bosun, read
-  // by a mount effect in thread.tsx that a same-route Link never re-runs) —
+  // by a mount effect in thread.tsx that a same-route Link never re-runs) -
   // narrow this if a card ever links to a page that reads its query live. A
   // fragment still scrolls (lib/hash-target.ts), so an anchor keeps its link.
   const samePage = (link: string) =>
@@ -241,7 +241,7 @@ export function PageHelp() {
               // because thread.tsx reads ?compose= when its composer mounts
               // and nothing remounts. Worse, it would leave ?compose= in the
               // URL for the next thread switch to read, prefilling an
-              // unrelated conversation — the "consumed once" guarantee in
+              // unrelated conversation - the "consumed once" guarantee in
               // docs/FEATURES.md. Hand the text to the mounted composer.
               <button
                 type="button"

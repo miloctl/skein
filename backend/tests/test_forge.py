@@ -146,7 +146,7 @@ def test_text_fallback_requires_a_closing_verb(fresh_db):
     assert forge.match_task(title="closes task 42") == 42
     assert forge.match_task(body="fixes task #42 at last") == 42
     assert forge.match_task(body="Resolved task 42") == 42
-    # a bare #42 is how the forge numbers ITS issues — matching it would
+    # a bare #42 is how the forge numbers ITS issues - matching it would
     # close Skein task 42 for a pull request about Gitea issue 42
     assert forge.match_task(title="fixes #42") is None
     assert forge.match_task(body="see #42") is None
@@ -162,7 +162,7 @@ def test_text_scan_is_bounded_and_linear(fresh_db):
 
     from app.services import forge
 
-    # the verb must MATCH for the ambiguous separators to backtrack at all —
+    # the verb must MATCH for the ambiguous separators to backtrack at all -
     # a fixture without one never reaches the pathological path and passes
     # against the vulnerable pattern too. Measured: 48s on `\s*#?\s*`.
     hostile = "closes task" + " " * 100_000
@@ -438,7 +438,7 @@ def test_the_ledger_never_reads_as_the_teammates_own_edit(signed, fresh_db):
         "SELECT actor, detail FROM activity WHERE action = 'update_task' ORDER BY id DESC LIMIT 1"
     )
     # hash-chained rows can never be corrected, so a secret holder must not be
-    # able to write one attributed to a person — AND `forge` is a system actor
+    # able to write one attributed to a person - AND `forge` is a system actor
     # the feed shows to everyone, so the pusher's name must appear nowhere
     assert row["actor"] == "forge"
     assert "mira" not in row["detail"].lower()
@@ -460,7 +460,7 @@ def test_a_non_http_url_never_reaches_a_task(fresh_db):
     from app import db
     from app.services import forge, work
 
-    # the pull request path passes html_url straight through — _clean_url is
+    # the pull request path passes html_url straight through - _clean_url is
     # the only guard on it, so drive that path, not the rebuilt push URL. A
     # fresh task each time: the write only happens on a real transition.
     for hostile in (
@@ -488,7 +488,7 @@ def test_repeat_pushes_do_not_append_ledger_rows(signed, fresh_db):
     from app.services import work
 
     tid = work.create_task("Fix login")["id"]
-    # a real repo sends a DIFFERENT compare_url every push — the fixture must
+    # a real repo sends a DIFFERENT compare_url every push - the fixture must
     # vary it, or the test proves only that identical input dedupes
     for n in range(3):
         signed("push", _push(f"task/{tid}-x", compare=f"https://git.example/skein/compare/{n}"))
@@ -622,7 +622,7 @@ def test_an_unconfigured_webhook_refuses_before_it_reads_a_body(client, fresh_db
 
 
 def test_a_json_array_payload_is_a_4xx_not_a_500(signed, fresh_db):
-    # parse_gitea calls .get on it — a caller's input must never be a 500
+    # parse_gitea calls .get on it - a caller's input must never be a 500
     assert signed("push", [{"ref": "refs/heads/task/1-x"}]).status_code == 400
 
 
@@ -631,10 +631,10 @@ def test_a_wrong_typed_nested_field_is_never_a_500(signed, fresh_db):
 
     tid = work.create_task("Fix login")["id"]
     # Gitea types every field correctly, so only a caller holding the secret
-    # sends these — and each one reached an AttributeError inside parse_gitea
+    # sends these - and each one reached an AttributeError inside parse_gitea
     # before the _dict/_str boundary, which main.py maps to no 4xx. The
     # suite's other fixtures are all well-typed and never reach these
-    # branches — these cases are the only coverage.
+    # branches - these cases are the only coverage.
     payloads = [
         ("push", {"ref": 1}),
         ("push", {"ref": ["refs/heads/task/1-x"]}),
@@ -694,7 +694,7 @@ def test_a_human_named_like_an_agent_cannot_disarm_the_refusal(signed, fresh_db)
     # ensure_user refuses to CREATE this collision now, so plant it the way a
     # database written before that guard carries it. `users.name` is
     # case-sensitively unique, so both rows coexist, and a lookup that returns
-    # "the first row" gets the human — BINARY order sorts `Scout` first.
+    # "the first row" gets the human - BINARY order sorts `Scout` first.
     from app import db
     from app.services import forge, users, work
 
@@ -791,7 +791,7 @@ def test_the_address_meter_runs_before_the_signature_check(
     from app import ratelimit
 
     monkeypatch.setitem(ratelimit.LIMITS, "forge_addr", 3)
-    # every one of these fails the signature — the meter must still count them
+    # every one of these fails the signature - the meter must still count them
     for _ in range(3):
         assert signed("push", _push("task/1-x"), secret="wrong").status_code == 401
     r = signed("push", _push("task/1-x"), secret="wrong")
@@ -824,7 +824,7 @@ def test_a_task_someone_else_closed_keeps_its_branch_link(signed, fresh_db):
     signed("push", _push(f"task/{tid}-x"))
     work.update_task(tid, status="done", actor="mira")
     out = signed("pull_request", _pr(f"task/{tid}-x", action="closed", merged=True)).json()
-    # no transition left to earn, so nothing is recorded — docs/FEATURES.md
+    # no transition left to earn, so nothing is recorded - docs/FEATURES.md
     # says exactly this, and once claimed the opposite
     assert out["ignored"] == "task is already done"
     assert db.query_one("SELECT forge_url FROM tasks WHERE id = ?", (tid,))["forge_url"].endswith(

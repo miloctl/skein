@@ -8,12 +8,12 @@ iterated it, and the run died on
     TypeError: string indices must be integers, not 'str'
 
 roughly 180 lines into a heredoc, naming neither the request nor the status.
-Two real refusals hid behind that shape — an auth default that differed
+Two real refusals hid behind that shape - an auth default that differed
 between CI and a developer box, and an auth default that MOVED between the
 two core artifacts under test. Both are one-line diagnoses when the status is
 checked at the door.
 
-Import as `from _expect import ok` — each step runs with its own directory on
+Import as `from _expect import ok` - each step runs with its own directory on
 sys.path[0], because it is executed by path under the INSTALLED artifact's
 interpreter, not imported from this repo.
 """

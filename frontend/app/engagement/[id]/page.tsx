@@ -82,7 +82,7 @@ type Brief = {
     skipped_rituals?: string[];
   };
   next_actions: Action[];
-  // how deep into the portfolio queue the server looked before narrowing —
+  // how deep into the portfolio queue the server looked before narrowing -
   // the empty state states this window rather than asserting a fact
   queue_scanned: number;
 };
@@ -121,7 +121,7 @@ export default function EngagementBrief({
 
   // only when there is nothing to show. `load` runs again after a handoff is
   // written, and returning the error page there replaces the whole brief the
-  // reader is standing on with one error line — the trade My Day refuses, and
+  // reader is standing on with one error line - the trade My Day refuses, and
   // for the same reason: a stale page a banner marks as stale beats no page.
   if (error && !b)
     return (
@@ -183,7 +183,7 @@ export default function EngagementBrief({
           {e.project_class} · {e.kind} · {e.status}
           {e.lead ? ` · led by @${e.lead}` : " · no lead"}
         </p>
-        {/* what moved HERE since yesterday, before the inventory below — a
+        {/* what moved HERE since yesterday, before the inventory below - a
             returning reader's first question, answered without reading seven
             cards. Rendered only when something moved: a permanent "nothing
             changed" line is furniture by the second visit. Health movement
@@ -217,7 +217,7 @@ export default function EngagementBrief({
         ) : (
           // an inline write, not a pointer to Chat: the empty state sent the
           // reader to the Chief of Staff, and the default mock provider has
-          // no grammar that records an outcome — the field is one PATCH away
+          // no grammar that records an outcome - the field is one PATCH away
           <form
             className="flex flex-wrap items-center gap-1.5"
             onSubmit={async (ev) => {
@@ -305,7 +305,7 @@ export default function EngagementBrief({
           </>
         ) : (
           // the fourth state, named. engagement_health scores open engagements
-          // only, so a closed one has no colour — and a blank line reads as
+          // only, so a closed one has no colour - and a blank line reads as
           // "green" to anybody who does not know that rule.
           <p className="text-sm text-ink-3">
             Closed engagements are not scored.
@@ -314,7 +314,7 @@ export default function EngagementBrief({
       </Card>
 
       {/* The same rows the portfolio queue ranks, narrowed to this engagement
-          — one evidence model, so the two surfaces cannot recommend different
+          - one evidence model, so the two surfaces cannot recommend different
           things about the same work (services/engagement_brief.py). */}
       <Card title="What this needs">
         {b.next_actions.length === 0 ? (
@@ -322,7 +322,7 @@ export default function EngagementBrief({
           // server narrows the portfolio queue to this engagement after
           // reading a fixed number of rows (services/engagement_brief.py), so
           // on a busy portfolio this engagement's rows can sit behind other
-          // engagements' — and the flat claim contradicted the blockers card
+          // engagements' - and the flat claim contradicted the blockers card
           // two cards up, which was showing an escalation at the time.
           <p className="text-sm text-ink-3">
             Nothing for this engagement is in the top {b.queue_scanned} of the
@@ -361,7 +361,7 @@ export default function EngagementBrief({
         <Card title={`Milestones (${b.milestones.length})`}>
           {b.milestones.length === 0 ? (
             <p className="text-sm text-ink-3">
-              No milestones yet — ask the Chief of Staff in Chat to plan a
+              No milestones yet - ask the Chief of Staff in Chat to plan a
               project.
             </p>
           ) : (
@@ -411,11 +411,11 @@ export default function EngagementBrief({
         </p>
         {b.tasks.length === 0 ? (
           <p className="text-sm text-ink-3">
-            {/* a CLOSED engagement's empty list is history, not an invitation —
+            {/* a CLOSED engagement's empty list is history, not an invitation -
                 "capture one" on an archive asks the reader to add work to a
                 finished thing */}
             {e.status === "closed"
-              ? "No work is open — this engagement is closed."
+              ? "No work is open - this engagement is closed."
               : "No work is open. Capture one with \u2018todo: \u2026\u2019 in quick capture."}
           </p>
         ) : (
@@ -437,7 +437,7 @@ export default function EngagementBrief({
       </Card>
 
       {/* the archive a closed engagement's reader came for: what was done.
-          Active engagements keep this off — their done work has its own
+          Active engagements keep this off - their done work has its own
           surfaces (Recently shipped, flow) and this page is for acting. */}
       {e.status === "closed" && b.done_count > 0 ? (
         <Card title={`Completed work (${b.done_count})`}>
@@ -456,7 +456,7 @@ export default function EngagementBrief({
           </ul>
           {b.done_count > b.done_work.length ? (
             <p className="mt-2 text-xs text-ink-3">
-              {b.done_work.length} of {b.done_count} shown — newest first.
+              {b.done_work.length} of {b.done_count} shown - newest first.
             </p>
           ) : null}
         </Card>
@@ -565,7 +565,7 @@ export default function EngagementBrief({
       </div>
 
       {/* Only for an engagement born from a playbook. The diff is computed
-          against the kickoff snapshot, which nothing else can reconstruct —
+          against the kickoff snapshot, which nothing else can reconstruct -
           milestones move, tasks are added and deleted, and a cancelled ritual
           leaves no row (services/playbooks.py::close_out_diff). */}
       {drift > 0 ? (

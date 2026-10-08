@@ -2,7 +2,7 @@
 
 Two deployment settings make a promotion streak structurally unreachable, and
 under either one the card's "No reviewed proposals yet" reads as "wait" when
-the truth is "change a setting". The card cannot say that on its own — both
+the truth is "change a setting". The card cannot say that on its own - both
 facts live on the server."""
 
 from app import config
@@ -11,7 +11,7 @@ from app.services import delegation
 
 def test_the_gate_being_off_is_named_with_its_fix(fresh_db, monkeypatch):
     """With the gate off, tools/_gate.py takes the direct branch: the write
-    lands and no proposal — so no verdict — is ever created."""
+    lands and no proposal - so no verdict - is ever created."""
     monkeypatch.setattr(config, "AGENT_REVIEW", False)
     msg = delegation.trust_blocked()
     assert "review gate is off" in msg
@@ -20,7 +20,7 @@ def test_the_gate_being_off_is_named_with_its_fix(fresh_db, monkeypatch):
 
 def test_remedy_false_keeps_the_fact_and_drops_the_env_var(fresh_db, monkeypatch):
     """Approvals repeats this sentence on every proposal card, to reviewers
-    who cannot set an env var — the fact stays, the operator instruction goes
+    who cannot set an env var - the fact stays, the operator instruction goes
     (services/review.py passes remedy=False)."""
     monkeypatch.setattr(config, "AGENT_REVIEW", False)
     msg = delegation.trust_blocked(remedy=False)
@@ -80,7 +80,7 @@ def test_one_strong_verdict_clears_the_warning(fresh_db, monkeypatch):
 
 def test_an_override_verdict_does_not_count_as_strong(fresh_db, monkeypatch):
     """trust_scores excludes reviewed_override from streaks, so this must
-    exclude it too — otherwise the card says trust can accrue and it cannot."""
+    exclude it too - otherwise the card says trust can accrue and it cannot."""
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
     _settle(strong=1, override=1)
     assert "strong identity" in delegation.trust_blocked()

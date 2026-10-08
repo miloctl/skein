@@ -7,20 +7,20 @@
 
 **Many strands. One formation.**
 
-A skein is two things: a coil of yarn — many strands wound together so they
-pull as one — and a flock of geese flying in V-formation, where the lead
+A skein is two things: a coil of yarn - many strands wound together so they
+pull as one - and a flock of geese flying in V-formation, where the lead
 rotates and every bird's lift carries the one behind it. That's this team:
 humans and AI agents drafting off each other, earning turns at the front,
 receipts shown at every checkpoint.
 
-Skein is a self-hosted coordination harness for an AI-enabled strike team —
+Skein is a self-hosted coordination harness for an AI-enabled strike team -
 engagements, milestones, tasks, blockers, questions, decisions, standups,
 intake triage, a knowledge base, and a team calendar, shared between people
 and their agents.
 
 Built on the [Strands Agents SDK](https://github.com/strands-agents/sdk-python)
 (backend agents) and [assistant-ui](https://github.com/assistant-ui/assistant-ui)
-(chat frontend). **Works fully without API keys** — every feature has a
+(chat frontend). **Works fully without API keys** - every feature has a
 deterministic core; connecting a model provider (a signed-in Ollama daemon is
 enough) upgrades the experience.
 
@@ -32,7 +32,7 @@ URL is directly linkable.
 | Nav | Routes | What it is |
 |---|---|---|
 | **My Day** | `/` | What changed and what needs *you*, in under 30 seconds |
-| **Chat** | `/chat` | Chief-of-Staff agent, streaming. The mock provider works keyless. Type `/as <persona>` to switch heads — see [The Bench](docs/PERSONAS.md) — or `/flock <flock>` to ask several at one time, see [Flocks](docs/FLOCKS.md) |
+| **Chat** | `/chat` | Chief-of-Staff agent, streaming. The mock provider works keyless. Type `/as <persona>` to switch heads - see [The Bench](docs/PERSONAS.md) - or `/flock <flock>` to ask several at one time, see [Flocks](docs/FLOCKS.md) |
 | **Work** | `/planning` | The Monday ritual in one read: last week's kept-% and carryover, this week's draft, capacity ahead, intake awaiting triage, open threads with people outside the team, one commit |
 | | `/portfolio` | Engagement health (R/Y/G with receipts), weekly commitment line, capacity conflicts, flow metrics, slip forecast, commitments, exec readout |
 | | `/calendar` | Meetings, due dates and time away on a month grid, on the team clock. A meeting lists what came out of it, and its agenda links the records it names |
@@ -40,22 +40,22 @@ URL is directly linkable.
 | | `/insights` | Findings feed with click-through receipts, and team-rolled trends (MTTR, automation ratio, adoption, token spend) |
 | | `/artifacts` | Reports: every digest, week brief, close-out, readout and handoff, rendered |
 | **Inbox** | `/review` | Approve or reject proposed changes. This is the agent approval gate |
-| | `/intake` | Engagement front door — submit → RICE-lite score → accept/defer/decline → what-if staffing |
+| | `/intake` | Engagement front door - submit → RICE-lite score → accept/defer/decline → what-if staffing |
 | | `/ingest` | Paste meeting notes. A deterministic pass turns them into proposals you batch-approve |
-| **Team** | `/agents` | Agents as teammates — mission control, authority matrix, trust scores, agent inboxes |
-| | `/people` | Manager layer — 1:1 briefs and the private feedback journal. Needs strong sign-in. The records leave the `private` schema only in the local database dump, the author's own export, and a merge both accounts agreed to |
+| **Team** | `/agents` | Agents as teammates - mission control, authority matrix, trust scores, agent inboxes |
+| | `/people` | Manager layer - 1:1 briefs and the private feedback journal. Needs strong sign-in. The records leave the `private` schema only in the local database dump, the author's own export, and a merge both accounts agreed to |
 | | `/charter` | Decisions filtered to the charter category, each with a `review_by` date |
 | | `/activity` | The provenance ledger as one sentence per row, hash-chained and tamper-evident |
-| — | `/guide` | [Field guide](docs/FIELD-GUIDE.md) — every shipped feature as a card you tie by using it. The "what's new" surface |
-| — | `/settings` | Name, theme, API key, growth interests, team roster |
-| Ctrl+K anywhere (⌘K on a Mac) | — | Focus search in the top bar |
-| Capture button | — | Quick capture. Freeform text auto-routes to task, question, note, decision, blocker, promise (`promised:`), awaiting (`awaiting:`), request (`req:`), or private feedback (`fb:`) |
+| - | `/guide` | [Field guide](docs/FIELD-GUIDE.md) - every shipped feature as a card you tie by using it. The "what's new" surface |
+| - | `/settings` | Name, theme, API key, growth interests, team roster |
+| Ctrl+K anywhere (⌘K on a Mac) | - | Focus search in the top bar |
+| Capture button | - | Quick capture. Freeform text auto-routes to task, question, note, decision, blocker, promise (`promised:`), awaiting (`awaiting:`), request (`req:`), or private feedback (`fb:`) |
 
 ## Architecture
 
 ```
 backend/   FastAPI + Strands Agents + PostgreSQL (migrations, full text search)
-  ├─ app/services/   ALL business logic — the single write path
+  ├─ app/services/   ALL business logic - the single write path
   ├─ app/routes/     REST (human writes) + /api/chat SSE (agent writes)
   ├─ app/tools/      65 Strands @tool wrappers over the same services
   ├─ app/agents/     Chief of Staff + planner sub-agent + keyless mock agent
@@ -63,7 +63,7 @@ backend/   FastAPI + Strands Agents + PostgreSQL (migrations, full text search)
   ├─ playbooks/      YAML project-class templates (prototype, incident, migration)
   ├─ personas/       the bench: one markdown file per specialist persona
   ├─ flocks/         YAML groups of personas, called with one message
-  └─ data/           gitignored: artifacts/, backups/, exports/ (no database — that is PostgreSQL)
+  └─ data/           gitignored: artifacts/, backups/, exports/ (no database - that is PostgreSQL)
 
 frontend/  Next.js 16 + @assistant-ui/react + Tailwind
 ```
@@ -83,15 +83,15 @@ example.
 
 Key mechanics:
 
-- **Provenance everywhere** — every record carries `origin`
+- **Provenance everywhere** - every record carries `origin`
   (`human | agent | agent_verified`) and `created_by`. Each service mutation
   emits an activity entry.
-- **A tamper-evident ledger** — each chained activity row commits to its content
+- **A tamper-evident ledger** - each chained activity row commits to its content
   and predecessor with SHA-256. The append transaction stores the live tip.
   A nightly job verifies the new suffix and records the verified tip. A daily
   rule verifies the full chain. Detection is not prevention. Read the
   [claim boundaries](docs/FEATURES.md#activity-ledger-claim-boundaries).
-- **Approval gate** — on by default: agent writes become `pending_changes`
+- **Approval gate** - on by default: agent writes become `pending_changes`
   proposals that humans approve in `/review`. Per-(agent, entity) grants in
   the authority matrix open direct writes deliberately; `SKEIN_AGENT_REVIEW=0`
   opts the whole deployment out.
@@ -101,13 +101,13 @@ Key mechanics:
   with lessons surfaced at kickoff, handoff package generation, daily backups,
   engagement health scoring, flow metrics, slip forecasting, auto-drafted
   weekly plans, decision half-life sweeps, versioned context packs.
-- **Authority matrix & trust** — per (agent, entity) authority
+- **Authority matrix & trust** - per (agent, entity) authority
   (`autonomous | notify | review | forbidden`) enforced in the tool gate;
   trust scores computed from review verdicts suggest (never auto-apply)
   promotions. Tasks delegate to agents with a required human sponsor.
-- **LLM layer (connect keys later)** — conversational Chief of Staff, planner
+- **LLM layer (connect keys later)** - conversational Chief of Staff, planner
   that adapts playbooks, digest narration, optional semantic search
-  (`SKEIN_EMBEDDINGS=1` — keyless via `SKEIN_EMBED_PROVIDER=ollama`, or
+  (`SKEIN_EMBEDDINGS=1` - keyless via `SKEIN_EMBED_PROVIDER=ollama`, or
   openai/openai_compatible), token usage accounting per thread/model.
 
 ## Run with Docker (recommended for the team)
@@ -130,14 +130,14 @@ SKEIN_FRONTEND_PORT=3100 docker compose up --build -d   # UI at :3100
 
 The database lives in the `skein-db` volume. Artifacts and daily backups
 live in `skein-data`. Configure via `backend/.env`, which is picked up
-automatically — a backend env change needs only `docker compose up -d`
+automatically - a backend env change needs only `docker compose up -d`
 again, not a rebuild. `SKEIN_HOST`, `SKEIN_API_TOKEN` and
 `SKEIN_FRONTEND_PORT` are baked into the frontend bundle and DO need
 `--build`.
 
 **Ollama in Docker:** a container's `localhost` is not the host, so compose
 overrides `SKEIN_OLLAMA_HOST` to `http://host.docker.internal:11434`
-(mapped to the host gateway) — the host's signed-in Ollama daemon, including
+(mapped to the host gateway) - the host's signed-in Ollama daemon, including
 `*-cloud` models, works from inside the container. **But default Ollama
 installs bind 127.0.0.1 only**, which the gateway can't reach. Either fix the
 daemon (`sudo systemctl edit ollama` → `Environment="OLLAMA_HOST=0.0.0.0"`)
@@ -148,7 +148,7 @@ Ollama API has no authentication, so a wider listen address or the daemon's
 own `OLLAMA_HOST=0.0.0.0` publishes model management to every peer that can
 reach the host.
 
-A combined example — frontend port in use AND a loopback-only Ollama daemon
+A combined example - frontend port in use AND a loopback-only Ollama daemon
 behind the bridge:
 
 ```bash
@@ -167,16 +167,16 @@ container handles this write volume without noticing, and one backend
 container means exactly one scheduler.
 
 **Security model, stated plainly** (report a vulnerability as [SECURITY.md](SECURITY.md) describes): `SKEIN_AUTH_MODE` picks it. Unset, it
-is `api-key` — a deployment that never chose a mode refuses every request
+is `api-key` - a deployment that never chose a mode refuses every request
 rather than trusting a header. `trusted-header` is a trusted name picker
-(`X-User`) for local dev and trusted networks — teammates, not strangers;
+(`X-User`) for local dev and trusted networks - teammates, not strangers;
 the dev entry points (`scripts/skein.sh`, docker-compose, the e2e runner)
 opt into it for you. `SKEIN_API_TOKEN` adds a shared bearer token there, but it is
 baked into the frontend's public JS bundle, so anyone who can load the UI can
-read it — it keeps out network scanners, not people who can reach port 3000.
+read it - it keeps out network scanners, not people who can reach port 3000.
 `api-key` mode accepts a personal `sk-skein-` bearer key or a browser session
 established from one. `oidc` mode validates IdP-issued JWTs in-process, and the web app signs in against
-the same provider with authorization code + PKCE — register it as a public
+the same provider with authorization code + PKCE - register it as a public
 client with `<origin>/auth/callback` as the redirect URI, then set
 `SKEIN_OIDC_CLIENT_ID`. Admin surfaces
 (roster, key visibility, authority, backups, export) are held to
@@ -189,12 +189,12 @@ volume independently.
 
 Known-and-accepted within that model (documented so nobody rediscovers them
 as surprises): the REST write path does not pass through the agent review
-gate or authority matrix — only the tool/MCP paths do — so issue `sk-` keys
+gate or authority matrix - only the tool/MCP paths do - so issue `sk-` keys
 to humans, not to agent processes you want gated. The CI webhook
 (`/api/webhooks/ci`) requires a personal API key or deployment sign-in. A
 shared token with a self-asserted name is not sufficient. If you register a
 CI runner with docker access on the host that runs Skein,
-keep it push-only — untrusted `pull_request` code must never execute on a
+keep it push-only - untrusted `pull_request` code must never execute on a
 production host. Authority levels can only be set by human identities
 (self-service by an agent is refused).
 
@@ -205,16 +205,16 @@ not retain provider tokens or personal keys. Existing browser credentials are
 cleared on upgrade, so users must sign in again. CLI and automation bearer
 keys remain supported. See [Browser sessions](docs/BROWSER-SESSIONS.md).
 
-## Optional integrations — built in, off until configured
+## Optional integrations - built in, off until configured
 
 | Integration | Turns on when | What you get |
 |---|---|---|
 | MCP tools | `SKEIN_MCP_SERVERS` (JSON) | GitHub/Linear/etc. tools attached to the real agent |
 | Personal MCP servers | `SKEIN_CREDENTIAL_KEY` (Fernet key) | seals the tokens people store for their own MCP servers on Settings → Connections; unset, personal servers can be added without a token only |
-| Prebuilt tools | `SKEIN_EXTRA_TOOLS` | Allowlisted [strands-agents-tools](https://github.com/strands-agents/tools) for the real agent: `calculator,current_time,batch,sleep` (keyless). Shell/file/exec tools **and** `http_request`/`use_agent`/`think`/`workflow`/`rss` are deliberately not loadable — see `app/agents/extra_tools.py` for the security rationale |
-| Semantic search | `SKEIN_EMBEDDINGS=1` + `SKEIN_EMBED_PROVIDER` | openai (key) · openai_compatible (base URL) · ollama (keyless) — vectors tagged per model |
+| Prebuilt tools | `SKEIN_EXTRA_TOOLS` | Allowlisted [strands-agents-tools](https://github.com/strands-agents/tools) for the real agent: `calculator,current_time,batch,sleep` (keyless). Shell/file/exec tools **and** `http_request`/`use_agent`/`think`/`workflow`/`rss` are deliberately not loadable - see `app/agents/extra_tools.py` for the security rationale |
+| Semantic search | `SKEIN_EMBEDDINGS=1` + `SKEIN_EMBED_PROVIDER` | openai (key) · openai_compatible (base URL) · ollama (keyless) - vectors tagged per model |
 | OpenTelemetry | `SKEIN_OTEL_ENDPOINT` | Agent traces to Jaeger/Langfuse |
-| API auth | `SKEIN_AUTH_MODE` | `api-key` (default — a personal key on every request) · `trusted-header` (`X-User` name picker for dev / trusted networks; the dev entry points set it) · `oidc` (IdP tokens validated in-process). Admin surfaces are held to `SKEIN_ADMINS` / `SKEIN_OIDC_ADMIN_GROUP`; in `trusted-header` mode with neither set every key holder administers, except renaming, merging and deactivating an account and reading other people's data, which take a listed name in every mode |
+| API auth | `SKEIN_AUTH_MODE` | `api-key` (default - a personal key on every request) · `trusted-header` (`X-User` name picker for dev / trusted networks; the dev entry points set it) · `oidc` (IdP tokens validated in-process). Admin surfaces are held to `SKEIN_ADMINS` / `SKEIN_OIDC_ADMIN_GROUP`; in `trusted-header` mode with neither set every key holder administers, except renaming, merging and deactivating an account and reading other people's data, which take a listed name in every mode |
 | Shared token | `SKEIN_API_TOKEN` | Perimeter bearer token, `trusted-header` mode only |
 
 Notification tiers (immediate / digest / passive) and cross-thread agent
@@ -223,38 +223,38 @@ the agent's prompt) work keyless, in-app.
 
 ## The developer loop
 
-- **Per-teammate API keys** — your FIRST key is minted out-of-band, on the
+- **Per-teammate API keys** - your FIRST key is minted out-of-band, on the
   box: `python -m app.bootstrap_key <you>` (or
   `docker compose exec backend python -m app.bootstrap_key <you>`). Minting
-  via the API requires an *existing* key, deliberately — on X-User identity
+  via the API requires an *existing* key, deliberately - on X-User identity
   alone anyone who can reach the API could become anyone. Once you hold one, later keys
   come from `curl -X POST $URL/api/keys -H 'Authorization: Bearer sk-skein-…'
   -H 'Content-Type: application/json' -d '{"label":"cli"}'`. Store the
-  `sk-skein-…` once — it is never shown again; keys authenticate and
+  `sk-skein-…` once - it is never shown again; keys authenticate and
   *attribute* automation, and satisfy the shared token gate.
 - **`skein` CLI** (stdlib-only): `pipx install ./cli`, then
   `skein config --url … --key …` and
   `skein capture|standup|my-day|tasks|blockers|promises|search|ask|attention|week|review|inbox|answer|worklog|absences|eval|context|model|task start|pr-body`.
-- **`skein model`** — shows the team-default LLM settings and the source of each value. It never shows credentials, URLs, file paths, or parameter values.
-- **`skein eval`** — replays the capture classifier against its labeled
+- **`skein model`** - shows the team-default LLM settings and the source of each value. It never shows credentials, URLs, file paths, or parameter values.
+- **`skein eval`** - replays the capture classifier against its labeled
   feedback corpus (`POST /api/feedback`); exits 1 on regressions.
-- **`skein context --write AGENTS.md`** — emits the versioned team context
+- **`skein context --write AGENTS.md`** - emits the versioned team context
   pack (decisions, health, lessons, conventions) for any agent to load; also
   an MCP resource (`skein://context-pack`).
-- **Git trailers** — `skein install-hooks`; commits with `Closes-Task: #12`
+- **Git trailers** - `skein install-hooks`; commits with `Closes-Task: #12`
   auto-close the task and log the SHA.
-- **CI webhook** — point GitHub Actions (or POST `{repo, branch, status, run_url}`)
+- **CI webhook** - point GitHub Actions (or POST `{repo, branch, status, run_url}`)
   at `/api/webhooks/ci`: a red default-branch build files a deduped high-impact
   blocker; green auto-resolves it.
-- **MCP server** — your *other* AI agents join the platform. Over HTTP,
+- **MCP server** - your *other* AI agents join the platform. Over HTTP,
   with your personal key (writes act as `<you>-mcp` under review). Put this
   in `.mcp.json` and export `SKEIN_API_KEY`, the variable the CLI reads too:
   `{"mcpServers": {"skein": {"type": "http", "url": "https://<api>/api/mcp-server", "headers": {"Authorization": "Bearer ${SKEIN_API_KEY}"}}}}`
   In-cluster stdio:
   `claude mcp add skein -- env SKEIN_MCP_USER=you-mcp /abs/path/to/backend/.venv/bin/python -m app.mcp_server`
-  (a DISTINCT name, never your own — the server reserves it as an agent
+  (a DISTINCT name, never your own - the server reserves it as an agent
   identity, and an agent identity cannot use REST or the private surfaces)
-  (needs the local backend install — Docker-only deployments should `uv venv`
+  (needs the local backend install - Docker-only deployments should `uv venv`
   the backend once on the host for MCP use; run `skein install-hooks` inside
   each work repo you want git-trailer sync in)
   exposes `get_my_day`, `capture`, `create_task`, `log_decision`,
@@ -265,9 +265,9 @@ the agent's prompt) work keyless, in-app.
 
 Ship an engagement → confetti + recap card + team notification. Long-lived
 blockers get a funeral (🪦 "It fought hard. It lost."). The digest opens with
-a date-seeded line the whole team shares — and goes straight-faced whenever
+a date-seeded line the whole team shares - and goes straight-faced whenever
 something is escalated. The dashboard's **Team pulse** tracks season-scoped,
-team-level stats only (standup chain, blocker speedruns, ships, lessons) —
+team-level stats only (standup chain, blocker speedruns, ships, lessons) -
 deliberately no individual leaderboards.
 
 ## Setup
@@ -304,29 +304,29 @@ Model provider in `backend/.env`:
 |---|---|---|
 | `SKEIN_MODEL_PROVIDER` | `mock` \| `ollama` \| `openai` \| `openai_compatible` \| `anthropic` \| `bedrock` | `mock` (no keys needed) |
 | `SKEIN_MODEL_ID` | any model ID, never allowlisted | per provider (below) |
-| `SKEIN_MODEL_BASE_URL` | endpoint for `openai_compatible`; refused on every other provider | — |
-| `SKEIN_MODEL_API_KEY` | explicit key, overriding the provider-native one | — |
-| `SKEIN_MAX_TOKENS` | output cap — reaches anthropic/ollama/bedrock, **not** the OpenAI family | `4096` |
-| `SKEIN_MODEL_PARAMS` | JSON merged into provider parameters (`temperature`, `max_completion_tokens`, …). `model` and `model_id` are refused. Use `SKEIN_MODEL_ID` or the model menu | — |
-| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | credential for the chosen provider | — |
+| `SKEIN_MODEL_BASE_URL` | endpoint for `openai_compatible`; refused on every other provider | - |
+| `SKEIN_MODEL_API_KEY` | explicit key, overriding the provider-native one | - |
+| `SKEIN_MAX_TOKENS` | output cap - reaches anthropic/ollama/bedrock, **not** the OpenAI family | `4096` |
+| `SKEIN_MODEL_PARAMS` | JSON merged into provider parameters (`temperature`, `max_completion_tokens`, …). `model` and `model_id` are refused. Use `SKEIN_MODEL_ID` or the model menu | - |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | credential for the chosen provider | - |
 | `SKEIN_OLLAMA_HOST` | local daemon or `https://ollama.com` | `http://localhost:11434` |
-| `OLLAMA_API_KEY` | only for direct Ollama Cloud (no local daemon) | — |
+| `OLLAMA_API_KEY` | only for direct Ollama Cloud (no local daemon) | - |
 | `SKEIN_AGENT_REVIEW` | `1` routes agent writes through /review | `1` |
-| `SKEIN_MODELS` | optional operator-curated model menu; an administrator picks between its entries on Settings → Model (team) — see [docs/FEATURES.md](docs/FEATURES.md) | — |
-| `SKEIN_MODELS_FILE` | reads that menu from a mounted YAML file instead. `SKEIN_MODEL_PRICES_FILE`, `SKEIN_MODEL_PARAMS_FILE` and `SKEIN_MCP_SERVERS_FILE` do the same for their settings. Setting both forms of one setting is a fault, never a silent winner | — |
+| `SKEIN_MODELS` | optional operator-curated model menu; an administrator picks between its entries on Settings → Model (team) - see [docs/FEATURES.md](docs/FEATURES.md) | - |
+| `SKEIN_MODELS_FILE` | reads that menu from a mounted YAML file instead. `SKEIN_MODEL_PRICES_FILE`, `SKEIN_MODEL_PARAMS_FILE` and `SKEIN_MCP_SERVERS_FILE` do the same for their settings. Setting both forms of one setting is a fault, never a silent winner | - |
 
 Default model per provider: `gpt-oss:120b-cloud` (ollama) · `gpt-5` (openai) ·
 `claude-opus-4-8` (anthropic). **`openai_compatible` and `bedrock` have no
-default** and require `SKEIN_MODEL_ID` — the OpenAI-shaped server decides what
+default** and require `SKEIN_MODEL_ID` - the OpenAI-shaped server decides what
 it serves, and Bedrock's Claude ids need a region-dependent inference-profile
 prefix. `bedrock` needs no key; it uses the ambient AWS credential chain.
 
 `SKEIN_MODEL_BASE_URL` is **refused** on any provider but `openai_compatible`,
-and `openai_compatible` never falls back to `OPENAI_API_KEY` — set
+and `openai_compatible` never falls back to `OPENAI_API_KEY` - set
 `SKEIN_MODEL_API_KEY` explicitly. Both rules exist so a leftover endpoint can
 never redirect a paid provider's key to a third-party host.
 
-**`openai_compatible` covers anything speaking the OpenAI wire format** — vLLM,
+**`openai_compatible` covers anything speaking the OpenAI wire format** - vLLM,
 LM Studio, llama.cpp, OpenRouter, Together, Groq, Azure OpenAI, or a LiteLLM
 Proxy in front of everything else:
 
@@ -425,7 +425,7 @@ deterministic core, `/health` reports `provider_error`, and Team → Agents show
 a red dot with the reason.
 
 **Free real-model tier:** `ollama` needs no API key at all when the box has a
-signed-in Ollama daemon (`ollama signin`) — `*-cloud` model IDs are proxied to
+signed-in Ollama daemon (`ollama signin`) - `*-cloud` model IDs are proxied to
 Ollama Cloud (free tier available), local model IDs run on-box. Verified
 end-to-end: streaming chat, tool calls, and usage accounting.
 
@@ -453,21 +453,21 @@ feed, turn guard, persona bench, per-turn cost and a budget rule).
 
 | Doc | What it is for |
 |---|---|
-| [docs/FEATURES.md](docs/FEATURES.md) | What exists. The reference — read this first |
+| [docs/FEATURES.md](docs/FEATURES.md) | What exists. The reference - read this first |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What is next. The only backlog |
 | [TODO.md](TODO.md) | Debts taken on purpose, each with the condition that repays it |
 | [docs/CORRECTIONS.md](docs/CORRECTIONS.md) | The correction contract every entity must meet |
 | [docs/INSIGHTS.md](docs/INSIGHTS.md) | The findings rules and the small-n discipline behind them |
 | [docs/FIELD-GUIDE.md](docs/FIELD-GUIDE.md) | The field guide ("knots") and its design constraints |
-| [docs/PERSONAS.md](docs/PERSONAS.md) | The Bench — the persona spec |
-| [docs/FLOCKS.md](docs/FLOCKS.md) | Flocks — calling several personas with one message |
+| [docs/PERSONAS.md](docs/PERSONAS.md) | The Bench - the persona spec |
+| [docs/FLOCKS.md](docs/FLOCKS.md) | Flocks - calling several personas with one message |
 | [docs/VISIBILITY.md](docs/VISIBILITY.md) | The private / crew / workspace tier model and crews |
-| [docs/LEXICON.md](docs/LEXICON.md) | One concept, one word — the decided vocabulary |
-| [docs/reviews/](docs/reviews/) | Design rationale — the alternatives that lost, and why. Closed transcripts, indexed in its README. Holds the original phase plan and the 2026-07-24 wave plan |
+| [docs/LEXICON.md](docs/LEXICON.md) | One concept, one word - the decided vocabulary |
+| [docs/reviews/](docs/reviews/) | Design rationale - the alternatives that lost, and why. Closed transcripts, indexed in its README. Holds the original phase plan and the 2026-07-24 wave plan |
 | [docs/brand/](docs/brand/README.md) | The mark, the tokens, and the asset inventory |
 
 ## License
 
-Apache-2.0 — see [LICENSE](LICENSE). [NOTICE](NOTICE) carries the
+Apache-2.0 - see [LICENSE](LICENSE). [NOTICE](NOTICE) carries the
 attribution for the persona definitions adapted from
 [agency-agents](https://github.com/msitarzewski/agency-agents) (MIT).

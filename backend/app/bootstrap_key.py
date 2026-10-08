@@ -1,6 +1,6 @@
 """Out-of-band first-key bootstrap: `python -m app.bootstrap_key <name>`.
 
-Minting via POST /api/keys requires an existing key (StrongUser) — otherwise
+Minting via POST /api/keys requires an existing key (StrongUser) - otherwise
 anyone who can reach the API could mint a key for any identity with one
 X-User header and walk through the private-record boundary. The first key
 per person is
@@ -26,12 +26,12 @@ def main() -> None:
     except ValueError as exc:
         # a reserved or colliding name is the operator's typo, not a crash:
         # the reason belongs on stderr, never a traceback to decode. No
-        # appended imperative — the service message already carries its own
+        # appended imperative - the service message already carries its own
         # ("pick another name"), and one condition gets one wording
         print(f"cannot create '{name}': {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
     result = create_key(name, label, at_server=True)
-    print(f"API key for {name} (shown once — store it now):\n{result['key']}")
+    print(f"API key for {name} (shown once - store it now):\n{result['key']}")
 
 
 if __name__ == "__main__":

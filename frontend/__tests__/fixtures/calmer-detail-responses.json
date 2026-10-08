@@ -3,7 +3,7 @@
     {
       "slug": "backend-architect",
       "name": "Backend Architect",
-      "description": "Design consultations \u2014 schemas, APIs, tradeoffs \u2014 biased to boring technology and reversible choices",
+      "description": "Design consultations - schemas, APIs, tradeoffs - biased to boring technology and reversible choices",
       "emoji": "\ud83c\udfdb\ufe0f",
       "vibe": "Asks what breaks at 10x before admiring what works at 1x.",
       "disclosure": ""
@@ -11,7 +11,7 @@
     {
       "slug": "bosun",
       "name": "Bosun",
-      "description": "Product guidance from Skein's current field guide \u2014 how a feature works and where to find it",
+      "description": "Product guidance from Skein's current field guide - how a feature works and where to find it",
       "emoji": "\ud83e\udea2",
       "vibe": "Knows every line, knot, and useful shortcut aboard.",
       "disclosure": ""

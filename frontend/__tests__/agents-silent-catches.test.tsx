@@ -2,8 +2,8 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 /** The Agents page answers one question: what can the agents do without
- *  asking? Its empty states are CLAIMS — "No reviewed proposals yet",
- *  "Nothing remembered yet", "No rules yet — everything needs approval" —
+ *  asking? Its empty states are CLAIMS - "No reviewed proposals yet",
+ *  "Nothing remembered yet", "No rules yet - everything needs approval" -
  *  and on this page a claim rendered while the data is unknown (loading or
  *  failed) is the most expensive wrong answer in the product: it says the
  *  agents are idle and unarmed when the truth is that nobody knows. */
@@ -36,7 +36,7 @@ describe("the Agents page when every fetch fails", () => {
   it("reports each section instead of claiming it is empty", async () => {
     mode.fail = true;
     render(<AgentsPage />);
-    // each section says so itself — a count hides a miskeyed error record
+    // each section says so itself - a count hides a miskeyed error record
     expect(await screen.findAllByText(/Cannot load the agents list/)).toBeTruthy();
     for (const what of [
       /Cannot load trust scores/,
@@ -61,7 +61,7 @@ describe("the Agents page mid-load", () => {
     try {
       render(<AgentsPage />);
       expect(screen.getAllByText("Loading…").length).toBeGreaterThan(0);
-      // "No rules yet — everything needs approval" mid-load asserts a
+      // "No rules yet - everything needs approval" mid-load asserts a
       // permissive default nobody has checked; same for trust and memory
       for (const claim of CLAIMS) expect(screen.queryByText(claim)).toBeNull();
     } finally {

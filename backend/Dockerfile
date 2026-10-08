@@ -10,7 +10,7 @@ WORKDIR /app
 # pg_dump for services/admin.py::backup. The MAJOR VERSION MUST MATCH OR
 # EXCEED the server's: pg_dump refuses to dump a server newer than itself
 # ("server version 17.x; pg_dump version 16.x"), and the failure lands in the
-# nightly backup job, not at boot — the daily copy stops being written and
+# nightly backup job, not at boot - the daily copy stops being written and
 # job_health only notices at 48h. Debian's own postgresql-client trails the
 # current server release, so this takes the PGDG repo to pin the major
 # deliberately. Bump it together with docker-compose.yml, ci.yml, and the

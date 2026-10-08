@@ -8,7 +8,7 @@
 # One backend image per version. One frontend image per version PER
 # ENVIRONMENT: NEXT_PUBLIC_API_URL and NEXT_PUBLIC_SITE_URL are baked into
 # the bundle at build time (frontend/Dockerfile), so the tag carries the
-# environment name (0.6.13-prod). NEXT_PUBLIC_API_TOKEN is never set here —
+# environment name (0.6.13-prod). NEXT_PUBLIC_API_TOKEN is never set here -
 # it would bake a shared bearer secret into a registry image, and the
 # k8s deployment runs oidc or api-key mode, which do not read it.
 #

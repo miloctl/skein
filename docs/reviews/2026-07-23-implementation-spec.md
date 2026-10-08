@@ -1,6 +1,6 @@
-# Implementation Spec — Skein
+# Implementation Spec - Skein
 
-> **Closed.** All phases 0–4 are BUILT and superseded by reality — this
+> **Closed.** All phases 0–4 are BUILT and superseded by reality - this
 > document is the original build plan, kept for its rationale, data model,
 > and constraints. `docs/FEATURES.md` is the current reference for what
 > exists. As-built deviations from this plan: embeddings are OpenAI vectors
@@ -26,18 +26,18 @@ LLM call.
    impossible to retrofit later.
 4. **Agent writes become proposals.** Once keys exist, mutating agent actions
    go to `pending_changes` for human review instead of writing directly
-   (roadmap #2/#6). The table and review UI are built keyless in Phase 1 —
+   (roadmap #2/#6). The table and review UI are built keyless in Phase 1 -
    humans can also use it for peer review.
 
 ## Keyless dev strategy
 
-- **`SKEIN_MODEL_PROVIDER=mock`** — a third provider: a scripted model that
+- **`SKEIN_MODEL_PROVIDER=mock`** - a third provider: a scripted model that
   needs no network. It pattern-matches simple intents ("plan…", "standup…") to
   tool calls and otherwise echoes. Lets us exercise the full chat → tool →
   stream → UI pipeline in dev and tests with zero credentials.
-- **Full REST write path** — POST/PATCH endpoints for every entity so the
+- **Full REST write path** - POST/PATCH endpoints for every entity so the
   dashboard is a working tool (not read-only) without the agent.
-- **Seed script** (`backend/seed.py`) — realistic demo data for UI work.
+- **Seed script** (`backend/seed.py`) - realistic demo data for UI work.
 
 ## Persistence plan
 
@@ -79,27 +79,27 @@ LLM call.
 
 ## Phases
 
-### Phase 0 — Foundation (do first, ~small)
-1. `git init` + initial commit (this lives under `~/gitea/` — push to Gitea when ready)
+### Phase 0 - Foundation (do first, ~small)
+1. `git init` + initial commit (this lives under `~/gitea/` - push to Gitea when ready)
 2. Migration runner + move current schema to `migrations/001_init.sql`; WAL pragmas
-3. `users` table + `X-User` header convention (single-box trust model for now — see Open Questions)
+3. `users` table + `X-User` header convention (single-box trust model for now - see Open Questions)
 4. Mock model provider; REST write endpoints; shared `app/services/` layer
 5. pytest suite (services + API via TestClient, mock provider for chat) + seed script
 6. Backup/export endpoints
 
-### Phase 1 — Keyless operating system
+### Phase 1 - Keyless operating system
 - Blocker & escalation register (roadmap #7): CRUD + age-based `escalation_at`
   computed by a background sweep (APScheduler, no LLM); dashboard banner
 - Intake & triage queue (#3): form + scored pipeline + disposition reasons
 - `pending_changes` review inbox (#6's substrate): diff-style cards,
   approve/edit/reject; humans use it now, agents route through it later
 - Provenance badges (#10a) across dashboard
-- **My Day / Attention Inbox** (UX #1/#3): pure SQL — blocked-on-you items,
+- **My Day / Attention Inbox** (UX #1/#3): pure SQL - blocked-on-you items,
   due-soon, open questions assigned to you, today's calendar; nav badge count
 - Quick capture (UX #5): Cmd+K → `POST /api/capture` with rule-based
-  classification (keyword heuristics) — agent classifier swaps in later
+  classification (keyword heuristics) - agent classifier swaps in later
 
-### Phase 2 — Compounding structure
+### Phase 2 - Compounding structure
 - Engagements + project classes as first-class records
 - Playbooks: YAML templates + `instantiate` service (deterministic); planner
   agent later *adapts* rather than replaces
@@ -110,29 +110,29 @@ LLM call.
   blockers, pending gates, decisions, unanswered Q&A into a markdown artifact;
   LLM narrative polish is an optional enhancement later
 
-### Phase 3 — Agentic layer (needs API keys)
+### Phase 3 - Agentic layer (needs API keys)
 - Approval gates via Strands interrupts feeding `pending_changes`
 - Semantic memory: embeddings into `sqlite-vec`, hybrid with existing FTS5
 - Daily digest + blocker-detector agent (reuses Phase 1 sweep infra)
 - Specialist sub-agents; cross-thread memory; usage/cost tracking hooks
 - Mock provider stays for CI
 
-### Phase 4 — Surfaces & integrations
+### Phase 4 - Surfaces & integrations
 - MCP (GitHub/Slack/calendar), Slack bot surface, notification tiers,
   OpenTelemetry observability, eval harness
 
 ## Gaps identified beyond the roadmap (now covered above)
 
-1. **Identity/multi-user** — the platform assumed one anonymous user; a strike
+1. **Identity/multi-user** - the platform assumed one anonymous user; a strike
    team needs `users` + attribution (Phase 0). Real authn deferred.
-2. **No git repo / no tests / no migrations** — Phase 0.
-3. **No mock mode** — without it, nothing is testable keyless (Phase 0).
-4. **Dashboard is read-only and static** — REST writes (Phase 0) + polling
+2. **No git repo / no tests / no migrations** - Phase 0.
+3. **No mock mode** - without it, nothing is testable keyless (Phase 0).
+4. **Dashboard is read-only and static** - REST writes (Phase 0) + polling
    refresh now; SSE push later.
-5. **Backups/export** — SQLite is one `rm` away from total loss (Phase 0).
-6. **Background job infra** (APScheduler) — needed by blockers sweep, retro
+5. **Backups/export** - SQLite is one `rm` away from total loss (Phase 0).
+6. **Background job infra** (APScheduler) - needed by blockers sweep, retro
    scheduling, digests; introduced keyless in Phase 1.
-7. **Deployment story** — Dockerfile + compose, deferred until it matters.
+7. **Deployment story** - Dockerfile + compose, deferred until it matters.
 
 ## Accepted tradeoffs
 
@@ -140,7 +140,7 @@ LLM call.
   `playbooks.instantiate` performs many single-connection writes). A crash
   mid-sequence can leave partial state (engagement without all its tasks).
   Accepted for now given the one-connection-per-op design; revisit if it
-  bites — the fix is a shared-connection context manager in `db.py`.
+  bites - the fix is a shared-connection context manager in `db.py`.
 
 ## Open questions (defaults chosen; flag if wrong)
 

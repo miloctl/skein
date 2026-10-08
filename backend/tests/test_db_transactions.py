@@ -208,7 +208,7 @@ def test_read_transaction_holds_one_snapshot(fresh_db):
         writer.join(5)
         after = db.query_row("SELECT COUNT(*) AS n FROM job_runs")["n"]
     assert before == after, "a committed write leaked into an open read snapshot"
-    # and the row really was committed — the snapshot hid it, nothing dropped it
+    # and the row really was committed - the snapshot hid it, nothing dropped it
     assert db.query_row("SELECT COUNT(*) AS n FROM job_runs")["n"] == before + 1
 
 
@@ -362,8 +362,8 @@ def test_index_record_defers_embeds_to_commit(fresh_db, monkeypatch):
 def test_the_helpers_return_their_connections_to_the_pool(fresh_db):
     """A helper that leaks its connection exhausts the pool.
 
-    Under SQLite the same bug leaked file descriptors — 84k open fds measured
-    over 30k queries — because the connection context manager scopes the
+    Under SQLite the same bug leaked file descriptors - 84k open fds measured
+    over 30k queries - because the connection context manager scopes the
     TRANSACTION and never closes. Here the ceiling is the pool: once max_size
     connections are checked out and never returned, the next caller waits for
     PoolTimeout instead of running."""
@@ -467,7 +467,7 @@ def test_nested_savepoints_unwind_their_own_level(fresh_db):
     db.savepoint uses one fixed savepoint name, and the levels DO nest: the
     agent gate wraps direct() in one, and a service under it can open its
     own (engagements, intake). PostgreSQL shadows a re-declared name, so
-    each level unwinds itself — if that ever stopped holding, the inner
+    each level unwinds itself - if that ever stopped holding, the inner
     rollback would take the middle level's writes and queued ledger rows
     with it."""
     from app import db

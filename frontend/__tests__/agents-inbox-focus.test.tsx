@@ -86,7 +86,7 @@ describe("Mission control inbox", () => {
     const button = await screen.findByRole("button", { name: "Open inbox for agent" });
     fireEvent.click(button);
 
-    const heading = await screen.findByRole("heading", { name: "Inbox — agent" });
+    const heading = await screen.findByRole("heading", { name: "Inbox - agent" });
     await waitFor(() => expect(document.activeElement).toBe(heading));
     expect(button.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText(/Read the study and summarize the evidence/)).toBeTruthy();
@@ -97,15 +97,15 @@ describe("Mission control inbox", () => {
     render(<AgentsPage />);
     fireEvent.click(screen.getByRole("button", { name: "Active work" }));
     fireEvent.click(await screen.findByRole("button", { name: "Open inbox for agent" }));
-    expect(await screen.findByRole("heading", { name: "Inbox — agent" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Inbox - agent" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Close inbox for agent" }));
-    expect(screen.queryByRole("heading", { name: "Inbox — agent" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Inbox - agent" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Open inbox for agent" }));
-    await screen.findByRole("heading", { name: "Inbox — agent" });
+    await screen.findByRole("heading", { name: "Inbox - agent" });
     fireEvent.click(screen.getByRole("button", { name: "Specialists" }));
-    expect(screen.queryByRole("heading", { name: "Inbox — agent" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Inbox - agent" })).toBeNull();
   });
 
   it("does not call an absent verified verdict a rejection", async () => {

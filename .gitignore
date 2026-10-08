@@ -9,7 +9,7 @@ __pycache__/
 
 # session scaffolding: the spec/plan/todo a working session writes. The open
 # backlog has ONE home (docs/ROADMAP.md) and a closed plan is archived to
-# docs/reviews/ with a date — a third copy is what the 2026-08-02
+# docs/reviews/ with a date - a third copy is what the 2026-08-02
 # consolidation existed to undo.
 tasks/
 backend/build/
@@ -20,7 +20,7 @@ backend/mutants/
 .coverage
 .coverage.*
 # setuptools metadata that `pip install -e` writes into src/ (the CI
-# extension step runs one) — regenerated on every install, never source
+# extension step runs one) - regenerated on every install, never source
 *.egg-info/
 # an npm command run from the repo root leaves an empty lockfile here: there
 # is no root package.json, and a stray file fails the publish clean-tree

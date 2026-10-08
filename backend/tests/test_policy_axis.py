@@ -255,7 +255,7 @@ def test_share_and_finding_writes_are_judged_on_the_project(fresh_db):
         ("promises", private_promise),
         ("intake_requests", private_intake),
     ):
-        row = fresh_db.query_one(f"SELECT visibility FROM {table} WHERE id = ?", (row_id,))  # noqa: S608 — test literal
+        row = fresh_db.query_one(f"SELECT visibility FROM {table} WHERE id = ?", (row_id,))  # noqa: S608 - test literal
         assert row["visibility"] == scope.PRIVATE, table
     assert fresh_db.query_one("SELECT COUNT(*) AS n FROM finding_dispositions")["n"] == 0
     assert (

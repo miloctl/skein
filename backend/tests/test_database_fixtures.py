@@ -273,7 +273,7 @@ status = pytest.main(sys.argv[1:])
 assert attempts == [], attempts
 raise SystemExit(status)
 """
-    result = subprocess.run(  # noqa: S603 — fixed Python, pytest module and test paths
+    result = subprocess.run(  # noqa: S603 - fixed Python, pytest module and test paths
         [
             sys.executable,
             "-c",
@@ -307,7 +307,7 @@ raise SystemExit(status)
 
 def test_role_contract_normal_skip_happens_before_database_fixtures():
     path = Path(__file__).with_name("test_database_role.py")
-    result = subprocess.run(  # noqa: S603 — fixed Python, pytest module and test path
+    result = subprocess.run(  # noqa: S603 - fixed Python, pytest module and test path
         [sys.executable, "-m", "pytest", "-q", "-n0", "--setup-show", str(path)],
         cwd=path.parents[1],
         env=_offline_env(SKEIN_ROLE_CONTRACT="0"),

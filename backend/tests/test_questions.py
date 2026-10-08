@@ -19,7 +19,7 @@ def test_assign_question_rejects_unknown_user(client):
 
 def test_ingest_question_line_assigns(client):
     client.post("/api/users/growth-interests", json={"interests": "x"}, headers={"X-User": "mira"})
-    r = client.post("/api/ingest", json={"text": "q: mira — did the export finish?"})
+    r = client.post("/api/ingest", json={"text": "q: mira - did the export finish?"})
     pid = r.json()["proposals"][0]["id"]
     client.post(f"/api/review/{pid}/approve", json={})
     q = client.get("/api/questions").json()[0]

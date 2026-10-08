@@ -1,7 +1,7 @@
 """The findings engine, reachable from a conversation.
 
 The deterministic insight engine and the chat agent did not know about each
-other: 19 rules fired daily with receipts, and no tool exposed them — so
+other: 19 rules fired daily with receipts, and no tool exposed them - so
 "what should worry me this week" could not reach the system's own best answer,
 and an agent that tried assembled one out of raw task lists instead.
 
@@ -19,7 +19,7 @@ from app.tools.portfolio import get_attention, get_findings
 
 
 def _unwrap(tool):
-    """The plain function under the strands decorator, whatever its shape —
+    """The plain function under the strands decorator, whatever its shape -
     the same walk tests/test_gate_coverage.py uses."""
     for attr in ("original_function", "_tool_func", "func", "__wrapped__"):
         fn = getattr(tool, attr, None)
@@ -40,7 +40,7 @@ def test_both_tools_are_in_the_registry():
 
 
 def test_findings_come_back_with_their_receipts(client, fresh_db):
-    # an aged open question fires question_aging — the fixture the insights
+    # an aged open question fires question_aging - the fixture the insights
     # suite already proves fires, rather than a row invented here
     q = client.post("/api/questions", json={"question": "still open?"}).json()
     fresh_db.execute(
@@ -57,7 +57,7 @@ def test_findings_come_back_with_their_receipts(client, fresh_db):
 
 def test_findings_bounds_are_clamped_not_trusted(client, fresh_db):
     """Seeded PAST the cap first. With an empty table every assertion here
-    passed against the clamp deleted — `0 <= 50` and `isinstance([], list)`
+    passed against the clamp deleted - `0 <= 50` and `isinstance([], list)`
     are true either way, and `weeks=-5` returning `[]` IS the silent "all
     clear" the comment says must never be invented."""
     from app.services import collab

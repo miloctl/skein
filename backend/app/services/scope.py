@@ -7,12 +7,12 @@ the predicate lives here rather than in each read function that needs it.
 There is no chokepoint in this codebase to hang a filter on: every read is a
 hand-written SELECT in a service, and `db.py` is a transport that never
 inspects SQL. So the design is a fragment plus an inventory that CI checks,
-modeled on `activity.visible_actor_filter` — which is the only precedent, and
+modeled on `activity.visible_actor_filter` - which is the only precedent, and
 which reached three callers on discipline alone.
 
 A count belongs here only when something recomputes it. The two below are
 properties of the schema (four tables carrying both an author column and a
-`created_by`) and of one measured page, not tallies of call sites — those
+`created_by`) and of one measured page, not tallies of call sites - those
 went stale inside a single branch, and a stale number reads as a measurement.
 
 **What makes `private` private is not this filter.** The filter only ever
@@ -22,7 +22,7 @@ admin.export leaves it out, every job reads WORKSPACE_ONLY, `detail` keeps its
 body out of the hash-chained ledger, and `assert_readable_by` refuses to hand
 it to anyone. One egress builder is NOT on that list: handoff.generate_handoff
 runs for a person, so it takes a viewer and narrows the body to the artifact's
-own tier through `scope.audience` — locking it to WORKSPACE_ONLY would break
+own tier through `scope.audience` - locking it to WORKSPACE_ONLY would break
 the crew handoff on purpose. Each of those is a
 separate promise, and a forgotten one is a body somewhere permanent.
 """
@@ -56,7 +56,7 @@ class Viewer:
     """Who is asking, and how well the server knows it.
 
     A bare name is not enough. docs/VISIBILITY.md sets the enforcement bar at
-    STRONG identity — an API key or a validated sign-in — because in
+    STRONG identity - an API key or a validated sign-in - because in
     trusted-header mode a name is whatever the caller typed. Carrying that in
     the type is what makes the bar mechanical: with a plain string, the rule
     lives at every call site as `viewer = user if strong else ""`, and the one
@@ -64,7 +64,7 @@ class Viewer:
     silently.
 
     Built in routes/deps.py and nowhere else. Everything with no human behind
-    it — a scheduled job, an agent tool, an MCP call — passes NOBODY and gets
+    it - a scheduled job, an agent tool, an MCP call - passes NOBODY and gets
     the workspace tier, which is the rule those surfaces need anyway.
     """
 
@@ -73,7 +73,7 @@ class Viewer:
     def __init__(self, name: str, strong: bool):
         # _SYSTEM_ACTORS, not _NOT_A_VIEWER: the two lists disagreed, and this
         # is the half that mattered. `scheduler` is a machine to is_machine and
-        # was a full viewer here — earning an author arm over every row the
+        # was a full viewer here - earning an author arm over every row the
         # scheduler ever wrote. The static set only, never the is_agent lookup:
         # this runs on every request, and an agent-owned key is already refused
         # on REST (routes/deps.py).
@@ -81,7 +81,7 @@ class Viewer:
         self.name = "" if weak else name
         # resolved ONCE per viewer, not once per query. One dashboard load
         # fans out to roughly 27 scoped reads, and db.connect() (db.py) costs
-        # two orders of magnitude more than this SELECT — so per-call it grows
+        # two orders of magnitude more than this SELECT - so per-call it grows
         # the process's scarcest budget by half, for an answer that cannot
         # change mid-request.
         self.crew_ids: list[int] = crews.crews_of(self.name) if self.name else []
@@ -92,7 +92,7 @@ class Viewer:
 
         A WRITE already trusts this name: assert_editable resolves crews from
         exactly the same string, and routes/deps.py has already resolved it.
-        Use this only to REFUSE AN ID — never to return a row. The
+        Use this only to REFUSE AN ID - never to return a row. The
         strong-identity bar guards scoped content, and the link probes this
         serves return no column at all.
 
@@ -112,7 +112,7 @@ class Viewer:
         """An AUDIENCE, not a person: one crew and the workspace tier, with no
         author arm at all. What a document written FOR a crew may contain.
 
-        Built by scope.audience. Nothing else must construct one — a nameless
+        Built by scope.audience. Nothing else must construct one - a nameless
         viewer skips the strong-identity bar this class exists to carry, and
         it is safe here only because it is strictly narrower than the caller
         who is already allowed to write the document.
@@ -138,7 +138,7 @@ def audience(tier: str, crew_id: int | None, writer: Viewer) -> Viewer:
     what the WRITER may see. Both halves matter, and the second one was
     missing: a caller reaches a scoped row through any of three disjuncts, and
     authorship is one of them. Somebody who created a crew engagement and was
-    later removed from the crew still passes the read filter on that ONE row —
+    later removed from the crew still passes the read filter on that ONE row -
     handing them Viewer.for_crew put the whole crew's decisions, questions and
     tasks into a document they generated and can read, which is precisely what
     crews.remove_member promises does not happen.
@@ -207,8 +207,8 @@ def is_machine(actor: str) -> bool:
     return is_agent(actor)
 
 
-# What a JOB reads. A scheduled job has no viewer — "who is this digest for"
-# has no answer — so it reads the workspace tier and nothing else. Spliced as
+# What a JOB reads. A scheduled job has no viewer - "who is this digest for"
+# has no answer - so it reads the workspace tier and nothing else. Spliced as
 # a literal rather than through visible_filter because these are hand-written
 # SQL strings with their own params, and a fragment with a bound parameter
 # would have to be threaded into each one's tuple.
@@ -231,7 +231,7 @@ def resolve_write(visibility: str, crew_id: int, *, actor: str) -> tuple[str, in
     forgotten sink has already written the body somewhere permanent.
 
     A crew tier costs a membership check (crews.assert_writable), and that
-    call belongs INSIDE the caller's transaction — not because the
+    call belongs INSIDE the caller's transaction - not because the
     transaction locks anything on its own (it does not), but because
     assert_writable holds the crew row FOR UPDATE, and a lock taken outside
     the caller's transaction releases before the INSERT it protects. Called
@@ -260,7 +260,7 @@ def detail(tier: str, ident: str, body: str) -> str:
     The ledger is hash-chained: a migration may not UPDATE a row carrying a
     seq (tests/test_migrations.py), and the external anchor log makes
     re-chaining impossible by design. So a body written here is written for
-    good — there is no delete, no redaction, and no later tier change that
+    good - there is no delete, no redaction, and no later tier change that
     takes it back. An identifier is enough to find the row, and the row
     itself carries the tier.
     """
@@ -282,7 +282,7 @@ def assert_readable_by(
     case. capture.py hardcodes `owner=actor` on a blocker and post_standup
     passes `owner=author`, so without it EVERY private capture that classified
     as a blocker was refused, and every private standup with blockers text
-    rolled back whole — naming a remedy ("leave the owner empty") that neither
+    rolled back whole - naming a remedy ("leave the owner empty") that neither
     caller can take.
     """
     if person and person == author:
@@ -309,7 +309,7 @@ def assert_readable_by(
 
 
 def can_read(tier: str, crew_id: int | None, viewer: Viewer, author: str = "") -> bool:
-    """Whether `viewer` may read a row at this tier — the Viewer half of
+    """Whether `viewer` may read a row at this tier - the Viewer half of
     visible_filter, for the places that hold rows in Python rather than SQL.
 
     The three disjuncts are the SAME three visible_filter emits, in the same
@@ -319,7 +319,7 @@ def can_read(tier: str, crew_id: int | None, viewer: Viewer, author: str = "") -
 
     review.list_changes needs it: `pending_changes` rows are not the scoped
     rows, they only quote them, so there is no column to filter on. Anything
-    that CAN filter in SQL must use visible_filter instead — this evaluates
+    that CAN filter in SQL must use visible_filter instead - this evaluates
     one row at a time, and a list of them is N round trips.
     """
     if tier == WORKSPACE:
@@ -337,8 +337,8 @@ def missing(table: str, row_id: int) -> db.NotFound:
     """The one "no such row" sentence, for BOTH the absent row and the row the
     caller may not read.
 
-    They have to be the same string. "you cannot edit #12" — or any wording
-    that only the scoped case produces — answers "does #12 exist", and ids are
+    They have to be the same string. "you cannot edit #12" - or any wording
+    that only the scoped case produces - answers "does #12 exist", and ids are
     sequential integers, so a caller walks 1..n and reads off which ones are
     scoped. That is the fact a private row must not carry. A caller who cannot
     read the row cannot tell the two apart, and absent is the honest answer.
@@ -355,7 +355,7 @@ def missing_text(table: str, row_id: int) -> str:
     A row named in a request BODY (a task's milestone_id, a waiting_on
     target) is a 400: the addressed row exists and the caller sent a value the
     server refuses, so a 404 would claim the wrong thing is absent. It still
-    has to read identically to the addressed case — the two must not be
+    has to read identically to the addressed case - the two must not be
     distinguishable by wording OR by status. Raise
     `ValueError(scope.missing_text(...))` there and `scope.missing(...)` for
     the row in the path.
@@ -369,7 +369,7 @@ def assert_editable(table: str, row: dict, actor: str, *, verb: str = "") -> Non
     `visible_filter` covers the read half. It does nothing for a write, and
     every mutation in this codebase finds its row by a caller-supplied id:
     `UPDATE notes SET ... WHERE id = ?` matches a private note whoever asks.
-    Ids are small integers, so this is not obscurity — it is enumeration.
+    Ids are small integers, so this is not obscurity - it is enumeration.
 
     Editing is not a separate permission here. Any reader of a row may change
     it (this is a coordination harness, not a document store), so the check is
@@ -403,14 +403,14 @@ def assert_editable(table: str, row: dict, actor: str, *, verb: str = "") -> Non
         # leaving the header out.
         #
         # PRIVATE deliberately falls through to the checks below. Nothing ever
-        # hands an agent private work — assert_readable_by refuses a private
-        # assignee, owner and sponsor outright — so a machine reaching one is
+        # hands an agent private work - assert_readable_by refuses a private
+        # assignee, owner and sponsor outright - so a machine reaching one is
         # already wrong.
         return
     author_column = CLASSIFIED.get(table)
     if author_column is None:
-        # KeyError, not ValueError — see visible_filter below for why
-        raise KeyError(f"{table!r} carries no visibility tier — see scope.CLASSIFIED")
+        # KeyError, not ValueError - see visible_filter below for why
+        raise KeyError(f"{table!r} carries no visibility tier - see scope.CLASSIFIED")
     # `actor not in _NOT_A_VIEWER`, the same bar Viewer applies to a reader.
     # Without it every tool call authors rows as the literal "agent", so one
     # agent's private note matched another agent's delete on `author == actor`
@@ -427,7 +427,7 @@ def inherit(row: dict | None) -> tuple[str, int | None]:
 
     Called by delegation.report_progress, delegation.accept_completion and
     comments.add_comment, and by nothing else. Every OTHER parent-to-child crossing threads the pair
-    by hand — collab.post_standup into a blocker, intake._disposition into an
+    by hand - collab.post_standup into a blocker, intake._disposition into an
     engagement, engagements._ship_it into a note, _experiment_lesson into a
     lesson, handoff.generate_handoff into an artifact. So a new crossing is a
     place to REMEMBER the tier, not a call to make: this helper is not the
@@ -461,29 +461,29 @@ def visible_filter(viewer: Viewer, table: str, alias: str = "") -> tuple[str, li
 
     Takes the TABLE, never an author column. There is no single author column
     in this schema, and four tables carry both their real one and a
-    `created_by` that holds the agent slug on the tool path — so a
+    `created_by` that holds the agent slug on the tool path - so a
     column-taking signature let `notes` be filtered on `created_by`, which
     compiles, runs, and hides a private note from the person who wrote it.
     CLASSIFIED is the only place that mapping lives.
 
     Positional `?` marks, because `db.query` takes a tuple.
 
-    A viewer in NO crew is the common case, and `IN ()` is not legal SQL —
+    A viewer in NO crew is the common case, and `IN ()` is not legal SQL -
     the crew disjunct is DROPPED rather than emitted empty, which would be a
     syntax error rather than a filter that matches nothing.
     """
     author_column = CLASSIFIED.get(table)
     if author_column is None:
         # KeyError, not ValueError: app/main.py maps ValueError to 400, and
-        # `table` is a literal at every call site — a miss here is our bug, so
+        # `table` is a literal at every call site - a miss here is our bug, so
         # it has to stay a 500 (CLAUDE.md, "Input errors are 4xx")
-        raise KeyError(f"{table!r} carries no visibility tier — see scope.CLASSIFIED")
+        raise KeyError(f"{table!r} carries no visibility tier - see scope.CLASSIFIED")
     p = f"{alias}." if alias else ""
     parts = [f"{p}visibility = ?"]
     params: list = [WORKSPACE]
     # the author disjunct only when there IS an author. A nameless viewer with
-    # crews is Viewer.for_crew — an AUDIENCE rather than a person (see
-    # scope.audience) — and giving it the author arm would put the writer's
+    # crews is Viewer.for_crew - an AUDIENCE rather than a person (see
+    # scope.audience) - and giving it the author arm would put the writer's
     # own private rows into a document written for somebody else.
     if viewer.name:
         # QUOTED: memories' author column is `user`, which unquoted is
@@ -513,7 +513,7 @@ def visible_name(viewer: Viewer, table: str, column: str, alias: str = "") -> tu
     The capacity surfaces have to aggregate over EVERY tier and still name
     only some of them. A person allocated 60% to a private engagement is 60%
     committed to everybody who plans against them, so filtering the row out
-    makes the total lie — the same argument absences.away_today makes for a
+    makes the total lie - the same argument absences.away_today makes for a
     private PTO day. What must not travel is the engagement's name, which
     string_agg(e.name, …) puts names on /api/capacity, /api/portfolio/conflicts,
     /api/allocations, /api/usage, the exec readout artifact on disk, and the
@@ -573,9 +573,9 @@ CLASSIFIED: dict[str, str] = {
 }
 
 # table -> what a reader calls one row of it. Not `table[:-1]`, which renders
-# "memorie" and "intake_request" — an identifier, underscore included, in a
+# "memorie" and "intake_request" - an identifier, underscore included, in a
 # sentence a person reads. Parity with CLASSIFIED is pinned by
-# tests/test_scope.py::test_every_classified_table_has_a_reader_facing_noun —
+# tests/test_scope.py::test_every_classified_table_has_a_reader_facing_noun -
 # a CLASSIFIED table with no entry here raises KeyError inside scope.missing,
 # which turns every not-found path for that table into a 500.
 NOUN: dict[str, str] = {
@@ -643,8 +643,8 @@ UNSCOPED: dict[str, str] = {
     "session_agents": "cascades off sessions",
     "session_messages": "cascades off sessions",
     "session_multi_agents": "cascades off sessions",
-    "session_offload": "cascades off sessions — offloaded tool-result bytes, one session's own",
-    "feature_unlocks": "self-visible only — the anti-surveillance rule already outranks provenance here",
+    "session_offload": "cascades off sessions - offloaded tool-result bytes, one session's own",
+    "feature_unlocks": "self-visible only - the anti-surveillance rule already outranks provenance here",
     # --- the ledger ---
     "activity": (
         "the chain covers actor and detail in every row's digest, so a"
@@ -655,21 +655,21 @@ UNSCOPED: dict[str, str] = {
         " carries an identifier, never a body."
     ),
     # --- derived: the tier lives on the source row, not the copy ---
-    "embeddings": "derived from search_index — a private row is never indexed, so never embedded",
+    "embeddings": "derived from search_index - a private row is never indexed, so never embedded",
     "search_index": (
         "a private row is never indexed at all (search.index_record, pinned by"
         " test_a_private_row_reaches_the_index_table_itself). A crew row IS"
-        " indexed and this table carries no tier — search.visible_hits reads"
+        " indexed and this table carries no tier - search.visible_hits reads"
         " the tier off each hit's SOURCE row instead"
     ),
     "health_snapshots": (
-        "written by a job, and jobs read the workspace tier only — the same"
+        "written by a job, and jobs read the workspace tier only - the same"
         " rule as forecast_snapshots below. It stores a health LETTER and a"
         " status, never a receipt: receipts quote row titles, and the exec"
         " readout that reads this egresses."
     ),
     "forecast_snapshots": (
-        "written by a job, and jobs read the workspace tier only — the same"
+        "written by a job, and jobs read the workspace tier only - the same"
         " rule that covers job_outcomes below, not a property of milestones"
         " that anything here enforces"
     ),
@@ -704,21 +704,21 @@ UNSCOPED: dict[str, str] = {
         "the crews the filter reads. The table is unscoped, and the member LIST is"
         " shared only inside the crew by the REST door (routes/api.py::_crew_for)"
     ),
-    "allocations": "staffing math — capacity is a team-wide number by design",
+    "allocations": "staffing math - capacity is a team-wide number by design",
     "job_outcomes": (
-        "scheduler telemetry. NOT content-free — run_job stringifies the whole"
-        " job result into detail, and publish_digest returns its markdown — but"
+        "scheduler telemetry. NOT content-free - run_job stringifies the whole"
+        " job result into detail, and publish_digest returns its markdown - but"
         " what lands there is what a job read, and a job reads the workspace"
         " tier only. That rule is the classification here."
     ),
     "job_runs": (
-        "scheduler claims, turn claims, and capture idempotency receipts — a"
+        "scheduler claims, turn claims, and capture idempotency receipts - a"
         " `capture:<user>` row holds the caller's name and a token-charset key,"
         " never capture text; a `chat-turn:<thread>` row holds only the thread id;"
         " forge-delivery and fire:* receipts hold IDs and are kept permanently"
     ),
     "forge_receipts": "provider-namespaced delivery IDs and body digests; task joins must apply the task viewer filter",
-    "rate_hits": "a count per surface, key and minute — a name or an address, no content",
+    "rate_hits": "a count per surface, key and minute - a name or an address, no content",
     "mcp_oauth_flows": (
         "server-bound OAuth ownership and callback nonces, with sealed one-time codes;"
         " expires in minutes, pruned on the lease sweep, excluded from export and backups"
@@ -727,7 +727,7 @@ UNSCOPED: dict[str, str] = {
     "released_names": "a folded name and a time, no content",
     "notification_reads": (
         "a dismissal stamp, not content. The notification it points at carries"
-        " the tier — this row holds a reader's name, a row id and a time."
+        " the tier - this row holds a reader's name, a row id and a time."
     ),
     "pending_changes": (
         "the review queue. A proposal against a scoped row is the open"
@@ -749,7 +749,7 @@ UNSCOPED: dict[str, str] = {
     "users": "the roster. Hiding a teammate's existence is not a tier, it is a different product.",
     "feedback": "pulse votes and feature votes carry no author on purpose (services/feedback.py)",
     "flock_traces": (
-        "slugs, timings and token counts, never message text — and the row"
+        "slugs, timings and token counts, never message text - and the row"
         " names its owner, so flocks.list_traces takes one and filters on it"
     ),
 }

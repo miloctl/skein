@@ -16,7 +16,7 @@ export default defineConfig({
     coverage: {
       // A ratchet just under the measured number, the way the backend's 90
       // tracks its measured 91 (.gitea/workflows/ci.yml). A floor's first
-      // job is stopping a regression, not certifying quality — waiting for
+      // job is stopping a regression, not certifying quality - waiting for
       // a number worth defending leaves the current one defended by
       // nothing. Raise it as coverage rises; never lower it to pass.
       // Measured 56.7% statements on 2026-08-14.

@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *  `not config.AGENT_REVIEW` whatever the authority level, so with the gate
  *  off autonomous, notify and review all mean "acts alone" and only
  *  forbidden stops a write. The page used to state the gate-on rule
- *  unconditionally — a false reassurance about a safety control, in the
+ *  unconditionally - a false reassurance about a safety control, in the
  *  explicit opt-out configuration. */
 
 const gate: {
@@ -42,7 +42,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
         });
       }
       // Settings reads several endpoints and calls .trim()/.map() on their
-      // fields — [] would crash the render before section 4 ever appears
+      // fields - [] would crash the render before section 4 ever appears
       if (path === "/api/users/growth-interests")
         return Promise.resolve({ interests: "" });
       if (path === "/api/whoami")
@@ -61,7 +61,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
           choices: ["sliding", "summarize"],
           applies: true,
         });
-      // the model section reads pick.menu.length — the bare [] fallback
+      // the model section reads pick.menu.length - the bare [] fallback
       // below crashes the render before section 4 ever appears
       if (path === "/api/settings/model")
         return Promise.resolve({
@@ -74,7 +74,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
           applies: false,
           provider: "mock",
         });
-      // the season card reads season.verdicts.settled — same reason as above
+      // the season card reads season.verdicts.settled - same reason as above
       if (path === "/api/review/season")
         return Promise.resolve({
           season: "2026·S6",
@@ -142,7 +142,7 @@ const GATE_OFF_CLAIM = /The review gate is off/;
 // the grants empty state carries the same rule, and said "everything an
 // agent writes needs approval" directly under the corrected paragraph
 const EMPTY_STATE_CLAIM =
-  /No rules yet — everything an agent writes needs approval/;
+  /No rules yet - everything an agent writes needs approval/;
 
 beforeEach(() => {
   gate.on = false;
@@ -161,7 +161,7 @@ describe("the Agents page and the review gate", () => {
     expect(await screen.findByText(GATE_OFF_CLAIM)).toBeTruthy();
     // the reassurance that does not hold in this configuration
     expect(screen.queryByText(GATE_ON_CLAIM)).toBeNull();
-    // and the level label must not promise the checkpoint either — in BOTH
+    // and the level label must not promise the checkpoint either - in BOTH
     // places it renders (the Mission control chip and the Authority grant)
     expect(
       (await screen.findAllByText(/needs approval \(gate off\)/)).length,
@@ -231,12 +231,12 @@ describe("authority identity requirements", () => {
 /** identity.force_review (backend/app/agents/identity.py) outranks the matrix
  *  AND SKEIN_AGENT_REVIEW for a flock member, so the levels this card renders
  *  do not describe a flock turn. refuse_when_consultative REFUSES the four write paths
- *  that skip tools/_gate.py — those never reach the inbox, so a card promising
+ *  that skip tools/_gate.py - those never reach the inbox, so a card promising
  *  only a queue would be false in a new direction. Neither fact depends on the
  *  gate, so the card states them in every configuration. */
 describe("the authority card and a flock member", () => {
   // BOTH clauses, always. "every other level becomes a wait" is false on its
-  // own — forbidden still refuses (_gate.py checks it before force_review) —
+  // own - forbidden still refuses (_gate.py checks it before force_review) -
   // so the not-allowed carve-out is what makes the sentence true, and the
   // refusal clause is what keeps it from promising an inbox entry that the
   // four refuse_when_consultative paths never produce.
@@ -271,7 +271,7 @@ describe("the authority card and a flock member", () => {
 
 /** Settings section 4 is where someone hands an external MCP agent their
  *  workspace. It repeated the gate-on rule unconditionally. A source scan
- *  cannot pin this — it passes even when the condition is inverted — so the
+ *  cannot pin this - it passes even when the condition is inverted - so the
  *  page is rendered and read. */
 describe("Settings when it explains what a connected agent can do", () => {
   it("does not promise a proposal queue while the gate is off", async () => {

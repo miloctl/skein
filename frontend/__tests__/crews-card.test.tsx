@@ -30,7 +30,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
           ? Promise.reject(new Error("crew service exploded"))
           : Promise.resolve(mode.answer());
     },
-    // getUser is deliberately NOT what the card reads — the server-resolved
+    // getUser is deliberately NOT what the card reads - the server-resolved
     // name arrives as a prop. A mock that made them agree would hide that.
     getUser: () => "someone-else",
   };
@@ -104,7 +104,7 @@ describe("CrewsCard", () => {
     expect(screen.queryByLabelText("Add someone to Platform")).toBeNull();
     member.unmount();
 
-    // an administrator can repair a crew they are not in — the server allows
+    // an administrator can repair a crew they are not in - the server allows
     // it, and hiding it strands a crew whose only steward left
     const boss = render(card({ me: "boss", admin: true }));
     await waitFor(() => expect(screen.getByText("Platform")).toBeTruthy());

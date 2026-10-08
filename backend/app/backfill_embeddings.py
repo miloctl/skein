@@ -2,7 +2,7 @@
 `python -m app.backfill_embeddings [--dry-run]`.
 
 Exists because "records re-embed on their next write" is NEVER for the
-write-once entities semantic search is for — notes, decisions, lessons.
+write-once entities semantic search is for - notes, decisions, lessons.
 Without this, enabling embeddings mid-life (or changing SKEIN_EMBED_MODEL,
 which invalidates all vectors by design) leaves the semantic index
 permanently biased toward recently-edited records.
@@ -19,7 +19,7 @@ from .services import search
 def main() -> None:
     dry = "--dry-run" in sys.argv
     if not config.EMBEDDINGS_ENABLED:
-        print("SKEIN_EMBEDDINGS is off — nothing to backfill.", file=sys.stderr)
+        print("SKEIN_EMBEDDINGS is off - nothing to backfill.", file=sys.stderr)
         raise SystemExit(2)
     if config.EMBEDDINGS_ERROR:
         print(f"embeddings misconfigured: {config.EMBEDDINGS_ERROR}", file=sys.stderr)

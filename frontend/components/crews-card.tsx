@@ -21,7 +21,7 @@ export type Crew = {
 
 /** Crew membership. This is what services/scope.py::visible_filter reads:
  *  removing someone here takes away their access to every crew-tier row they
- *  did not write. The copy below has to say so — a card that understates a
+ *  did not write. The copy below has to say so - a card that understates a
  *  privacy boundary is the one wrong claim nobody can take back.
  *
  *  `me` is the SERVER-resolved identity from /api/whoami, never getUser(): a
@@ -56,7 +56,7 @@ export function CrewsCard({
   // every OTHER crew mid-write, pulling them out of the tab order
   const [busy, setBusy] = useState("");
   // Chrome blurs a focused element the moment it is disabled, so every write
-  // dropped focus to document.body — on the very control the reader pressed.
+  // dropped focus to document.body - on the very control the reader pressed.
   // The refused case was worst: the confirm stayed open and unreachable.
   const restoreTo = useRef<HTMLElement | null>(null);
   const introId = useId();
@@ -84,7 +84,7 @@ export function CrewsCard({
   useEffect(load, [load]);
 
   /** Returns whether the write landed. Callers reset their inputs only on
-   *  true — a catch that resolves would clear what the reader typed at the
+   *  true - a catch that resolves would clear what the reader typed at the
    *  exact moment they need it back. */
   const act = async (
     key: string,
@@ -200,7 +200,7 @@ export function CrewsCard({
                 "rounded-lg border p-3 " +
                 // NOT opacity: dimming the container composites every token at
                 // 60% AFTER the theme system has done its work, and measured
-                // 2.3:1 to 3.1:1 in every pack — including `contrast`, the
+                // 2.3:1 to 3.1:1 in every pack - including `contrast`, the
                 // high-contrast one. A deactivated crew keeps working
                 // controls, so the 1.4.3 inactive-component exception does
                 // not apply.
@@ -211,7 +211,7 @@ export function CrewsCard({
             >
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 {/* the badge sits OUTSIDE the heading: inside, the accessible
-                    name of the heading becomes "Platform inactive" — the
+                    name of the heading becomes "Platform inactive" - the
                     badge is a state, not part of what the crew is called */}
                 <CrewHeading className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
                   {crew.name}

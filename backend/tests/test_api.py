@@ -25,7 +25,7 @@ def test_question_answer_flow(client):
     q = client.post(
         "/api/questions", json={"question": "Who owns infra?", "assigned_to": "tester"}
     ).json()
-    # questions render on My Day, not Inbox — the badge counts only Inbox work
+    # questions render on My Day, not Inbox - the badge counts only Inbox work
     assert client.get("/api/attention").json()["inbox"] == 0
     b = client.get("/api/briefing").json()
     assert any(a["kind"] == "question" for a in b["attention"])
@@ -44,7 +44,7 @@ def test_attention_counts_only_inbox_work(client):
 
 def test_attention_count_is_personal_not_the_shared_queue(client):
     """`count` is what the tab title and `skein attention` carry, and both say
-    "waiting on you". It counted the Inbox — a queue anyone may work — so a
+    "waiting on you". It counted the Inbox - a queue anyone may work - so a
     teammate's proposal raised everybody's number and a blocker addressed to
     one person raised nobody's."""
     from app.services import review

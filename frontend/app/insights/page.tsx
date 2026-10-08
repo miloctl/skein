@@ -25,7 +25,7 @@ type Finding = {
 };
 
 /** One object as one reading line: id first as #N, then `key: value` pairs.
- *  Empty values are dropped rather than printed as "key: " — a rule stores
+ *  Empty values are dropped rather than printed as "key: " - a rule stores
  *  whole rows (review_stall keeps its pending proposals) and most columns of
  *  a row say nothing to a reader checking the claim. */
 function evidenceLine(value: Record<string, unknown>): string {
@@ -44,7 +44,7 @@ function Evidence({ receipt }: { receipt: Record<string, unknown> }) {
   if (entries.length === 0) {
     return (
       <p className="mt-1 text-xs text-ink-3">
-        No stored evidence — the message is the whole finding.
+        No stored evidence - the message is the whole finding.
       </p>
     );
   }
@@ -180,7 +180,7 @@ export default function InsightsPage() {
     load();
   }, []);
 
-  // inline follow-up for actions that need one more piece of information —
+  // inline follow-up for actions that need one more piece of information -
   // no browser prompt() anywhere on this page
   const [ask, setAsk] = useState<{ id: number; kind: "dismissed" | "deferred" } | null>(null);
   const [askValue, setAskValue] = useState("");
@@ -284,10 +284,10 @@ export default function InsightsPage() {
         </p>
       )}
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
-        Everything on this page measures the system — rules, jobs, funnels —
+        Everything on this page measures the system - rules, jobs, funnels -
         never individual people.
         {/* the three cards under Management view measure SKEIN (reach,
-            automation share, whether rules earn their keep) — a teammate has
+            automation share, whether rules earn their keep) - a teammate has
             no decision attached to them, and they crowded the cards that
             carry one */}
         {manage
@@ -313,10 +313,10 @@ export default function InsightsPage() {
         ))}
       </div>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      <Card title={view === "team" ? "Team findings — select one for evidence" : "System findings — select one for evidence"}>
+      <Card title={view === "team" ? "Team findings - select one for evidence" : "System findings - select one for evidence"}>
         {findings.length === 0 ? (
           <p className="text-sm text-ink-3">
-            Nothing to report — silence is a valid output. Findings appear here
+            Nothing to report - silence is a valid output. Findings appear here
             (and in the digest) as real usage accrues.
           </p>
         ) : (
@@ -457,7 +457,7 @@ export default function InsightsPage() {
       </Card>
 
       {manage && (
-      <Card title="Rule follow-through — do finding rules earn action?">
+      <Card title="Rule follow-through - do finding rules earn action?">
         {ruleStats.length === 0 ? (
           <p className="text-sm text-ink-3">No findings fired yet.</p>
         ) : (
@@ -474,7 +474,7 @@ export default function InsightsPage() {
                   ` · median ${r.median_days_to_disposition}d to act`}
                 {r.fired >= 3 && r.dismissed === r.dispositioned && r.dismissed > 0 && (
                   <span className="ml-1 text-weld">
-                    · mostly dismissed — a candidate to retire
+                    · mostly dismissed - a candidate to retire
                   </span>
                 )}
               </li>
@@ -485,7 +485,7 @@ export default function InsightsPage() {
       )}
 
       {view === "team" && (
-      <Card title="Weekly check-in — team tally">
+      <Card title="Weekly check-in - team tally">
         {(d.pulse_tally ?? []).length === 0 ? (
           <p className="text-sm text-ink-3">
             No votes yet. The Monday digest asks the question. The Yes and No
@@ -498,7 +498,7 @@ export default function InsightsPage() {
                 {w.week}: Yes {w.up} · No {w.down}
                 <span className="ml-2 text-xs text-ink-3">
                   {w.up + w.down > 0 && w.down > w.up
-                    ? "Skein is adding effort — worth a retro"
+                    ? "Skein is adding effort - worth a retro"
                     : ""}
                 </span>
               </li>
@@ -509,7 +509,7 @@ export default function InsightsPage() {
       )}
 
       {view === "system" && manage && (
-      <Card title="Adoption — the tool's reach">
+      <Card title="Adoption - the tool's reach">
         <p className="text-sm">
           {d.adoption.weekly_active_users}/{d.adoption.team_humans} humans active
           this week
@@ -532,29 +532,29 @@ export default function InsightsPage() {
       )}
 
       {view === "team" && (
-      <Card title={`Blocker clear time — rolling ${m.window_days} days`}>
+      <Card title={`Blocker clear time - rolling ${m.window_days} days`}>
         <p className="text-sm">
           median{" "}
-          <b>{m.current.median_hours !== null ? `${m.current.median_hours}h` : "—"}</b>{" "}
-          · P85 {m.current.p85_hours !== null ? `${m.current.p85_hours}h` : "—"}
+          <b>{m.current.median_hours !== null ? `${m.current.median_hours}h` : "-"}</b>{" "}
+          · P85 {m.current.p85_hours !== null ? `${m.current.p85_hours}h` : "-"}
           <span className="ml-2 text-xs text-ink-3">n={m.current.n}</span>
         </p>
         <p className="text-xs text-ink-3">
           prior window: median{" "}
-          {m.previous.median_hours !== null ? `${m.previous.median_hours}h` : "—"} (n=
+          {m.previous.median_hours !== null ? `${m.previous.median_hours}h` : "-"} (n=
           {m.previous.n})
         </p>
         {(m.impossible_rows ?? 0) > 0 && (
           <p className="mt-1 text-xs text-danger">
             {m.impossible_rows} blocker
             {m.impossible_rows === 1 ? " was" : "s were"} resolved before
-            {m.impossible_rows === 1 ? " it was" : " they were"} raised —
+            {m.impossible_rows === 1 ? " it was" : " they were"} raised -
             excluded from every number here. Check those rows.
           </p>
         )}
         {smallN && (
           <p className="mt-1 text-xs text-weld">
-            Too few blockers for a trend claim (n&lt;8) — numbers shown, verdict
+            Too few blockers for a trend claim (n&lt;8) - numbers shown, verdict
             withheld.
           </p>
         )}
@@ -562,9 +562,9 @@ export default function InsightsPage() {
       )}
 
       {view === "system" && manage && (
-      <Card title="Automation ratio — share of writes made by agents">
+      <Card title="Automation ratio - share of writes made by agents">
         <p className="mb-2 text-xs text-ink-3">
-          Read it next to the rejection rate below — volume only counts if
+          Read it next to the rejection rate below - volume only counts if
           quality holds.
         </p>
         {d.automation_ratio.length === 0 ? (
@@ -578,7 +578,7 @@ export default function InsightsPage() {
                 <span className="text-xs">
                   {r.automation_share !== null
                     ? `${Math.round(r.automation_share * 100)}% agent-written`
-                    : "—"}{" "}
+                    : "-"}{" "}
                   <span className="text-ink-3">of {r.total}</span>
                 </span>
               </li>
@@ -605,7 +605,7 @@ export default function InsightsPage() {
           {d.intake_funnel.declined ?? 0} declined
         </p>
         <p className="text-xs text-ink-3">
-          median {d.intake_funnel.median_days_to_disposition ?? "—"} days to
+          median {d.intake_funnel.median_days_to_disposition ?? "-"} days to
           disposition (n={d.intake_funnel.dispositioned_n})
         </p>
       </Card>
@@ -615,7 +615,7 @@ export default function InsightsPage() {
       <Card title="Forecast calibration">
         {/* The slip forecast gets quoted to stakeholders. snapshot_forecasts
             has recorded every forecast since it shipped so this could be
-            scored, and nothing read the table — a forecast nobody scores is
+            scored, and nothing read the table - a forecast nobody scores is
             a decoration. Withheld under n=8, like every other claim here. */}
         {d.forecast_calibration.n === 0 ? (
           <p className="text-sm text-ink-3">
@@ -623,7 +623,7 @@ export default function InsightsPage() {
                 snapshots, "a milestone must finish first" named the one the
                 team already had */}
             {d.forecast_calibration.finished_milestones > 0
-              ? "No forecast is scored yet. Milestones have finished, but no forecast snapshot preceded them — the daily snapshot job records those."
+              ? "No forecast is scored yet. Milestones have finished, but no forecast snapshot preceded them - the daily snapshot job records those."
               : "No forecast is scored yet. A milestone must finish first, with a forecast snapshot recorded before it."}
           </p>
         ) : (
@@ -640,18 +640,18 @@ export default function InsightsPage() {
             </p>
             <p className="text-xs text-ink-3">
               median error{" "}
-              {d.forecast_calibration.median_error_days ?? "—"}d (signed),{" "}
-              {d.forecast_calibration.median_abs_error_days ?? "—"}d absolute
+              {d.forecast_calibration.median_error_days ?? "-"}d (signed),{" "}
+              {d.forecast_calibration.median_abs_error_days ?? "-"}d absolute
               (n={d.forecast_calibration.n})
             </p>
             {d.forecast_calibration.hit_rate === null ? (
               <p className="mt-1 text-xs text-warn">
-                Too few finished milestones for a rate claim (n&lt;8) — numbers
+                Too few finished milestones for a rate claim (n&lt;8) - numbers
                 shown, verdict withheld.
               </p>
             ) : null}
             <p className="mt-1 text-xs text-ink-3">
-              Scored on the first forecast made for each milestone — the date a
+              Scored on the first forecast made for each milestone - the date a
               stakeholder was given.
             </p>
           </>

@@ -14,7 +14,7 @@ import { ThreadTitle } from "@/components/thread-title";
 it("leaves no chat title in the tab once the chat is gone", async () => {
   const { unmount } = render(<ThreadTitle threadId="t1" />);
   await screen.findByText("interview with Acme on Friday");
-  expect(document.title).toBe("interview with Acme on Friday — Skein");
+  expect(document.title).toBe("interview with Acme on Friday - Skein");
   unmount();
   expect(document.title).toBe("Skein");
 });

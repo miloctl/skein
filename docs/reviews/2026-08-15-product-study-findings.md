@@ -1,4 +1,4 @@
-# Live product study — findings
+# Live product study - findings
 
 **Closed.** Observations from four passes of live use, kept for the evidence
 behind each proposal and for the problems that were seen and deliberately not
@@ -8,7 +8,7 @@ built. Everything actionable left this file: what shipped is in
 
 A finding here describes the product AT THE TIME IT WAS SEEN. Several were
 fixed by the same branch, so a problem stated below is not a claim about
-current behavior — check the code before acting on one.
+current behavior - check the code before acting on one.
 
 ## Study record
 
@@ -44,7 +44,7 @@ The first page opened as `dana`. My Day reported that nothing waited on this use
 
 ## Persona sections
 
-### Manager — mario
+### Manager - mario
 
 #### Month pattern
 
@@ -87,7 +87,7 @@ The manager rejected proposal `#2`. The reason stated that the worklog showed fo
 
 The action succeeded after the reason was shortened. The first reason disabled the action with no explanation.
 
-### Developer — marcus
+### Developer - marcus
 
 #### Month pattern
 
@@ -132,7 +132,7 @@ The journey included one real standup and one real captured task. The captured t
 - Captured task `#25`: `Review monthly usability study findings`.
 - Ran `/briefing` in a new saved chat.
 
-### Team member — ava
+### Team member - ava
 
 #### Month pattern
 
@@ -172,7 +172,7 @@ The journey included one real profile write. Ava saved `usability research, obse
 
 Ava saved growth interests. The page gave immediate and accessible confirmation.
 
-### Reviewer and administrator — dana
+### Reviewer and administrator - dana
 
 #### Month pattern
 
@@ -212,7 +212,7 @@ The journey also checked whether the earlier rejection reached the agent. The re
 
 The rejection traveled to the correct agent inbox with the correct task, sponsor, and reviewer note.
 
-### Agent teammate — built-in `agent`
+### Agent teammate - built-in `agent`
 
 #### Month pattern
 
@@ -358,7 +358,7 @@ The live database applied migration 002. The live Agents page confirmed both Mis
 
 The live ingest flow creates one batch summary instead of a per-proposal notification. The typed notification lifecycle therefore uses PostgreSQL service checks for its final evidence.
 
-## Second pass — updated product
+## Second pass - updated product
 
 ### Study record
 
@@ -392,7 +392,7 @@ The first release improved the page order, audience labels, write receipts, and 
 - Proposals `#4` and `#5` still appear beside pre-migration `Review needed` notifications. The migration cannot infer old links.
 - Historical extension activity still dominates the lower part of My Day.
 
-### Manager — mario
+### Manager - mario
 
 #### Updated month pattern
 
@@ -428,7 +428,7 @@ The screenshot began each result mid-word. The left part of every result was out
 
 This confirms the open mobile-search roadmap defect. Ordinary horizontal-overflow checks do not detect left-side clipping.
 
-### Developer — marcus
+### Developer - marcus
 
 #### Updated month pattern
 
@@ -455,7 +455,7 @@ The developer repeated My Day, task detail, Quick capture, task completion, sear
 
 Marcus captured task `#27`, `Second-pass daily workflow check`. He then marked it done from My Day.
 
-### Team member — ava
+### Team member - ava
 
 #### Updated month pattern
 
@@ -482,7 +482,7 @@ The team member repeated My Day, field-guide, personal setup, calendar-feed, and
 
 Ava opened the updated delegation card and checked her personal setup, growth interests, calendar feed, and agent-connection instructions.
 
-### Reviewer and administrator — dana
+### Reviewer and administrator - dana
 
 #### Updated month pattern
 
@@ -517,7 +517,7 @@ Dana generated the 2026-08-15 Friday close-out and handoff artifact `#5`. Dana a
 
 ### Updated month coverage
 
-#### Week 1 — orient and capture
+#### Week 1 - orient and capture
 
 - Day 1: each human persona opened My Day and checked the personal and team audiences.
 - Day 2: Marcus used Quick capture. Ava checked the capture types and setup instructions.
@@ -525,7 +525,7 @@ Dana generated the 2026-08-15 Friday close-out and handoff artifact `#5`. Dana a
 - Day 4: Mario repeated `/briefing` and recovered by starting a new chat after a stale-thread error.
 - Day 5: the study checked standup, event preparation, notifications, and the field guide.
 
-#### Week 2 — execute and coordinate
+#### Week 2 - execute and coordinate
 
 - Day 6: Marcus opened active work and completed the study task that he captured.
 - Day 7: each daily view kept the owned blocker above ordinary work.
@@ -533,7 +533,7 @@ Dana generated the 2026-08-15 Friday close-out and handoff artifact `#5`. Dana a
 - Day 9: Dana inspected the pending extension proposals and the rejection reason flow.
 - Day 10: Mario checked the capacity, intake, and stakeholder surfaces.
 
-#### Week 3 — adjust and govern
+#### Week 3 - adjust and govern
 
 - Day 11: Planning and the commitment line were checked again.
 - Day 12: engagement drift, decisions, and outcome gaps were checked.
@@ -541,7 +541,7 @@ Dana generated the 2026-08-15 Friday close-out and handoff artifact `#5`. Dana a
 - Day 14: Dana checked Insights and expanded Activity provenance.
 - Day 15: Dana checked Authority, trust, private-data access, Settings, and deployment controls.
 
-#### Week 4 — close and learn
+#### Week 4 - close and learn
 
 - Day 16: the study checked engagement drift and the missing intended outcome.
 - Day 17: Dana generated and read a Friday close-out and an engagement handoff.
@@ -549,7 +549,7 @@ Dana generated the 2026-08-15 Friday close-out and handoff artifact `#5`. Dana a
 - Day 19: each human persona repeated its main daily loop.
 - Day 20: the study ranked residual problems from live evidence instead of roadmap breadth.
 
-### Agent teammate — built-in `agent`
+### Agent teammate - built-in `agent`
 
 #### Updated month pattern
 
@@ -718,7 +718,7 @@ The final suites passed 2,097 backend tests and 316 frontend tests. A second cod
 
 The remaining stale aggregate and pre-migration notifications are still visible. They remain deferred because they need typed repair contracts rather than another display-text filter.
 
-## Third pass — three-to-six-month use
+## Third pass - three-to-six-month use
 
 ### Study record
 
@@ -750,7 +750,7 @@ The current instance contains 32 tasks, 11 proposals, 16 team or personal notifi
 
 The live data already includes test, extension, study, rejected-review, agent-rework, and scheduled-job history. This mix exposed accumulation faults before six calendar months passed.
 
-### Manager and engagement lead — mario
+### Manager and engagement lead - mario
 
 #### What works well
 
@@ -786,7 +786,7 @@ All nine model calls remain under `(unlinked)`. The cost view is honest, but eng
 
 The manager repeated Planning, Health, Reports, both engagement briefs, the Friday close-out control, and My Day notification review.
 
-### Developer and daily task owner — marcus
+### Developer and daily task owner - marcus
 
 #### What works well
 
@@ -819,7 +819,7 @@ Marcus used browser capture, nav search, the task panel, the CLI `attention`, `s
 
 Marcus created task `#32`, delegated it to `agent`, rejected proposal `#10`, then approved corrected proposal `#11`.
 
-### Normal team member — ava
+### Normal team member - ava
 
 #### What works well
 
@@ -846,7 +846,7 @@ The normal-user journey still gives no evidence for a model menu, a new growth s
 
 Ava repeated My Day, the meeting-outcome notice, future PTO, crew visibility, Settings, field-guide progress, and the team notification queue.
 
-### Reviewer and administrator — dana
+### Reviewer and administrator - dana
 
 #### What works well
 
@@ -878,7 +878,7 @@ The current activity-ledger incident remains visible as converted. Its pre-fix t
 
 The reviewer inspected Approvals, Insights, Activity, Authority, trust, Settings, private-surface refusal, and the full agent rework history.
 
-### AI agent teammate — built-in `agent`
+### AI agent teammate - built-in `agent`
 
 #### What works well
 
@@ -913,37 +913,37 @@ This creates a permanent nag for each reject, correct, resubmit, and approve loo
 
 ### Representative six-month cycle
 
-#### Month 1 — adoption and routine
+#### Month 1 - adoption and routine
 
 - People establish My Day, capture, search, standup, chat, and weekly-plan habits.
 - The report list already approaches its five-and-a-half-week visible limit.
 - Linked notification suppression works on the web but not in the CLI.
 
-#### Month 2 — review and notification load
+#### Month 2 - review and notification load
 
 - Weekly rituals, digests, findings, and review notices accumulate.
 - Unread notifications begin leaving the 20-row daily payload while remaining stored.
 - Rejected agent proposals remain in the fixed ten-row inbox window.
 
-#### Month 3 — close-out and handoff
+#### Month 3 - close-out and handoff
 
 - Reports from the first month are no longer reachable from Reports.
 - Engagement close-out and handoffs add more artifacts to the same fixed list.
 - Missing intended outcomes still route managers through an instruction instead of an action.
 
-#### Month 4 — governance renewal
+#### Month 4 - governance renewal
 
 - Decisions and elevated authority grants reach their 90-day review dates.
 - Decisions become stale. Elevated agent authority stays effective and produces a finding.
 - The team must understand that these two review dates have different enforcement behavior.
 
-#### Month 5 — task and history pressure
+#### Month 5 - task and history pressure
 
 - A five-task-per-day team reaches the 500-task Browse response limit.
 - Completed tasks can consume the 500 returned rows because the service applies the status filter after the cap.
 - Mistakes and validation tasks must remain open or count as shipped.
 
-#### Month 6 — recovery after absence
+#### Month 6 - recovery after absence
 
 - Reports, chats, findings, notifications, decisions, requests, and agent notes all have different hidden-history bounds.
 - Search recovers many entity rows, but it does not recover older reports or unread-notification state.

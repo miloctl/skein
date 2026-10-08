@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /** Answer where the ask is read. The question row said "someone is waiting
- *  on the answer" and shipped the reader to Work → Browse to type it —
+ *  on the answer" and shipped the reader to Work → Browse to type it -
  *  blocker and meeting rows on the same card already act in place. */
 
 const mocks = vi.hoisted(() => ({ api: vi.fn() }));
@@ -19,7 +19,7 @@ const briefing = {
       group: "unblock",
       audience: "you",
       label: "question #1: Do we have budget for a usability test round?",
-      reason: "assigned to you and still open — someone is waiting on the answer",
+      reason: "assigned to you and still open - someone is waiting on the answer",
       link: "/dashboard#question-1",
     },
     {
@@ -28,7 +28,7 @@ const briefing = {
       group: "notice",
       audience: "you",
       label: "agent started on task #32",
-      reason: "for you — dismiss when read",
+      reason: "for you - dismiss when read",
       link: "/agents",
     },
     {
@@ -37,7 +37,7 @@ const briefing = {
       group: "notice",
       audience: "you",
       label: "you sponsor task #32",
-      reason: "for you — dismiss when read",
+      reason: "for you - dismiss when read",
       link: "/agents",
     },
   ],
@@ -84,11 +84,11 @@ describe("the question row on My Day", () => {
     render(<MyDay />);
     fireEvent.click(await screen.findByRole("button", { name: /answer…/ }));
     const input = screen.getByLabelText("Answer question #1");
-    fireEvent.keyDown(input, { key: "Enter", target: { value: "Yes — 2 days" } });
+    fireEvent.keyDown(input, { key: "Enter", target: { value: "Yes - 2 days" } });
     await waitFor(() => expect(posts()).toHaveLength(1));
     const [path, opts] = posts()[0];
     expect(path).toBe("/api/questions/1/answer");
-    expect(JSON.parse(opts.body)).toEqual({ answer: "Yes — 2 days" });
+    expect(JSON.parse(opts.body)).toEqual({ answer: "Yes - 2 days" });
   });
 
   it("reassigns in place", async () => {
@@ -110,7 +110,7 @@ describe("the question row on My Day", () => {
 describe("the My Day header count", () => {
   it("names the notices beside the judgment count", async () => {
     // "1 thing needs you" over a card visibly holding three rows read as a
-    // broken count — the notices the count deliberately excludes are named
+    // broken count - the notices the count deliberately excludes are named
     render(<MyDay />);
     expect(await screen.findByText(/1 thing needs you · 2 notices/)).toBeTruthy();
   });

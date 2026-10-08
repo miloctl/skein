@@ -5,7 +5,7 @@ import { useEffect, useId, useState } from "react";
 import { api } from "@/lib/api";
 
 /** Text input with a datalist of existing teammates: picking a known name is
- *  one keystroke + Enter, but free-form stays allowed — new names are how
+ *  one keystroke + Enter, but free-form stays allowed - new names are how
  *  people join the roster on a trusted network. Agents are excluded; leads and
  *  assignees are humans. */
 export function PersonInput(props: React.InputHTMLAttributes<HTMLInputElement>) {

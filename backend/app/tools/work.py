@@ -1,4 +1,4 @@
-"""Milestone/task tools — thin wrappers over app.services.work.
+"""Milestone/task tools - thin wrappers over app.services.work.
 
 Every mutation routes through tools/_gate.py: the (agent, entity) authority
 level decides direct write vs review proposal, and SKEIN_AGENT_REVIEW=1
@@ -148,7 +148,7 @@ def create_task(
         assignee: Team member (human or agent) doing the work.
         priority: One of low, medium, high, urgent.
         due_date: Target date in YYYY-MM-DD format, or empty if none.
-        engagement_id: Engagement to link the task to directly (0 for none) —
+        engagement_id: Engagement to link the task to directly (0 for none) -
             use when the work belongs to an engagement but no milestone fits.
         event_id: The meeting this came out of (an ID from list_events), or 0.
     """
@@ -189,7 +189,7 @@ def update_task(
         priority: One of low, medium, high, urgent.
         due_date: New due date (YYYY-MM-DD).
         description: New description.
-        waiting_on: What this task is stuck behind — 'task:12', 'blocker:3',
+        waiting_on: What this task is stuck behind - 'task:12', 'blocker:3',
             'promise:7', or 'question:5'; '-' clears it.
     """
     payload: dict[str, Any] = {

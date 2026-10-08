@@ -31,7 +31,7 @@ def cancel_for(name: str = "") -> int:
     when `name` is empty (revoke_all_keys: every credential is suspect)."""
     where, params = ("(source = ? OR target = ?)", (name, name)) if name else ("TRUE", ())
     return db.execute_rowcount(
-        f"UPDATE merge_requests SET status = 'cancelled', settled_at = ?"  # noqa: S608 — fixed fragments
+        f"UPDATE merge_requests SET status = 'cancelled', settled_at = ?"  # noqa: S608 - fixed fragments
         f" WHERE status = 'pending' AND {where}",
         (db.now(), *params),
     )

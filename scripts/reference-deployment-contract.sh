@@ -87,8 +87,8 @@ echo "reference-deployment-contract: standard Kustomize render passed"
 
 # Core OpenShift overlays (deploy/k8s). Each assertion pins a decision
 # whose loss reintroduces a concrete failure (named per line), not a
-# style preference — deploy/k8s/README.md carries the reasons.
-# ponytail: global greps over the whole render, not per-resource parsing — a
+# style preference - deploy/k8s/README.md carries the reasons.
+# ponytail: global greps over the whole render, not per-resource parsing - a
 # second resource carrying the same string can mask a regression. Parse by
 # kind/name (yq) if a masked regression ever ships.
 grep -A3 "startupProbe:" "$root/deploy/k8s/base/backend.yaml" | grep -q "path: /health"
@@ -136,7 +136,7 @@ for overlay in example-prod example-dev; do
   grep -q "SKEIN_APP_USER" "$rendered"          # the app connects as that role
   # The backend composes the conninfo from components (config._database_url).
   # A URI built by manifest interpolation breaks on a password holding
-  # @ : / % ? or # — refuse the render if one comes back.
+  # @ : / % ? or # - refuse the render if one comes back.
   grep -q "SKEIN_DB_PASSWORD" "$rendered"
   if grep -Eq 'postgres(ql)?://\$\(' "$rendered"; then
     echo "reference-deployment-contract: interpolated database URI breaks on special-character passwords" >&2

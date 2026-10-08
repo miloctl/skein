@@ -30,7 +30,7 @@ def test_folding_ignores_case(name):
 @given(_names)
 def test_folding_ignores_compatibility_forms(name):
     # a fullwidth or ligature spelling renders as the plain one, so it must
-    # BE the plain one — this is the fullwidth-TEAM case from the docstring
+    # BE the plain one - this is the fullwidth-TEAM case from the docstring
     for form in ("NFC", "NFD", "NFKC", "NFKD"):
         assert fold_identity(unicodedata.normalize(form, name)) == fold_identity(name)
 

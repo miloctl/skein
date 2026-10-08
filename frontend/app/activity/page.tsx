@@ -87,7 +87,7 @@ export default function ActivityPage() {
     }
   };
 
-  // Folded at render over the ACCUMULATED pages, not per fetch — a burst
+  // Folded at render over the ACCUMULATED pages, not per fetch - a burst
   // split across a page boundary must not render as two groups. Keyed on the
   // raw actor, never `who`: `who` collapses every agent to the literal
   // "agent" and would merge two different agents' bursts into one row. The
@@ -116,7 +116,7 @@ export default function ActivityPage() {
             Activity
           </h1>
           <p className="mt-0.5 text-sm text-ink-3">
-            What the agents did, what the system did, and what you did — one
+            What the agents did, what the system did, and what you did - one
             sentence per action. Teammates&apos; rows are not shown here.
           </p>
         </div>
@@ -132,7 +132,7 @@ export default function ActivityPage() {
 
       <WeakIdentityNotice className="mb-3" />
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
-      {/* Before `loaded` this rendered nothing — no rows, no empty state, no
+      {/* Before `loaded` this rendered nothing - no rows, no empty state, no
           spinner. The ledger feed is the largest read in the app, so the
           blank is longest exactly where it is least explicable. */}
       {!loaded && !error && (
@@ -198,7 +198,7 @@ export default function ActivityPage() {
                     <span className="min-w-0 flex-1 break-words text-ink sm:truncate">
                       {e.sentence}
                       <span className="text-ink-3">
-                        {" "}— {run.length} related actions
+                        {" "} - {run.length} related actions
                       </span>
                     </span>
                     <span className="shrink-0 text-xs text-ink-3">
@@ -216,7 +216,7 @@ export default function ActivityPage() {
                       {run.map((entry) => (
                         <p key={entry.seq} className="break-words">
                           {entry.sentence}
-                          {entry.detail ? ` — ${humanize(entry.detail)}` : ""}
+                          {entry.detail ? ` - ${humanize(entry.detail)}` : ""}
                         </p>
                       ))}
                     </div>
@@ -253,12 +253,12 @@ export default function ActivityPage() {
                     {/* wraps at phone width, truncates from sm up. At 360 the
                         row had 174px for a 576px sentence, so two thirds of
                         every line was gone and expanding reveals only `detail`
-                        — a sighted phone reader had no route to the sentence
+                        - a sighted phone reader had no route to the sentence
                         except the Raw toggle. */}
                     <span className="min-w-0 flex-1 break-words text-ink sm:truncate">
                       {e.sentence}
                       {e.detail && (
-                        <span className="text-ink-3"> — {humanize(e.detail)}</span>
+                        <span className="text-ink-3"> - {humanize(e.detail)}</span>
                       )}
                     </span>
                     <span className="shrink-0 text-xs text-ink-3">
@@ -275,7 +275,7 @@ export default function ActivityPage() {
                     >
                       <p className="break-words">
                         {e.sentence}
-                        {e.detail ? ` — ${humanize(e.detail)}` : ""}
+                        {e.detail ? ` - ${humanize(e.detail)}` : ""}
                       </p>
                       {/* In the EXPANDED panel, not the row: the row is a
                           <button>, and a link inside a button is invalid and

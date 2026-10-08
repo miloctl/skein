@@ -1,4 +1,4 @@
-# Feature-round study — roles, horizons, and restrained gamification
+# Feature-round study - roles, horizons, and restrained gamification
 
 **Closed.** This is the record of the second live study of 2026-08-15,
 separate from the four-pass `2026-08-15-product-study-*` set. It produced the
@@ -59,7 +59,7 @@ treated a second score layer as a smell, and every review agent agreed.
 The live study used an isolated frontend and a mock-provider backend. The
 study did not depend on model output.
 
-### First days — new team member
+### First days - new team member
 
 Observed surfaces:
 
@@ -79,7 +79,7 @@ Observed needs:
 - The guide has no section progress, short quest path, or visible next milestone.
 - The new member can see season and system metrics before they understand the work model.
 
-### First weeks — individual contributor
+### First weeks - individual contributor
 
 Observed surfaces:
 
@@ -95,7 +95,7 @@ Observed needs:
 - The season card reports team metrics, but it gives no collective objective or next useful move.
 - Recently shipped work is visible for seven days. A person has no compact personal record across several weeks.
 
-### Weekly rhythm — manager
+### Weekly rhythm - manager
 
 Observed surfaces:
 
@@ -122,7 +122,7 @@ Observed needs:
 - Review has strong evidence but little positive closure after useful work lands.
 - Any game mechanic around reviews must not reward volume or fast approval.
 
-### Months — accumulated history
+### Months - accumulated history
 
 Observed surfaces:
 
@@ -145,10 +145,10 @@ Observed needs:
 
 These concepts were examined and not built. The reasons live only here.
 
-- **Personal Trail** — a self-only season reflection from factual receipts. Rejected: current data cannot support truthful personal attribution, and a partial trail claims completeness it does not have.
-- **Season Quests** — a governed set of collective objectives on the six-week season. Rejected: Pulse metrics are not consistently season-scoped or absence-safe, and the existing standup chain is not PTO-safe.
-- **Assists** — an explicit appreciation action tied to real work. Rejected for this round: Skein has no pairwise recipient privacy model or explicit help records, and inferred recognition data can become a popularity measure.
-- **A larger Knot Trail** — section progress and quest paths over the field guide. Rejected: insufficient evidence for a second progression system beside the existing suggestion.
+- **Personal Trail** - a self-only season reflection from factual receipts. Rejected: current data cannot support truthful personal attribution, and a partial trail claims completeness it does not have.
+- **Season Quests** - a governed set of collective objectives on the six-week season. Rejected: Pulse metrics are not consistently season-scoped or absence-safe, and the existing standup chain is not PTO-safe.
+- **Assists** - an explicit appreciation action tied to real work. Rejected for this round: Skein has no pairwise recipient privacy model or explicit help records, and inferred recognition data can become a popularity measure.
+- **A larger Knot Trail** - section progress and quest paths over the field guide. Rejected: insufficient evidence for a second progression system beside the existing suggestion.
 
 ## Review record
 

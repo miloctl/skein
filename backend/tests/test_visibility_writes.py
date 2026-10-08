@@ -1,7 +1,7 @@
 """The write half of the tier: who may set one, and what a child inherits.
 
 Every REST create body accepts a tier; two UI surfaces offer a picker (quick
-capture and the standup card), and the rest inherit — the blocker a standup
+capture and the standup card), and the rest inherit - the blocker a standup
 forks, the worklog a task carries. Every table has the columns and defaults to
 workspace, so the FILTER is uniform even where the picker is not
 (docs/VISIBILITY.md).
@@ -30,7 +30,7 @@ def test_a_write_defaults_to_workspace(fresh_db):
 
 
 def test_a_crew_write_needs_membership(fresh_db):
-    """assert_writable runs inside the insert's transaction — a caller who is
+    """assert_writable runs inside the insert's transaction - a caller who is
     not in the crew cannot scope a row into it."""
     users.ensure_user("ava")
     users.ensure_user("bo")
@@ -58,7 +58,7 @@ def test_the_crew_check_and_the_insert_are_one_transaction(fresh_db):
 
 
 def test_a_private_row_reaches_its_author_and_nobody_else(client, fresh_db):
-    """private is the author and nobody else — not even a crew they are in."""
+    """private is the author and nobody else - not even a crew they are in."""
     users.ensure_user("ava")
     users.ensure_user("bo")
     cid = _crew()
@@ -108,8 +108,8 @@ def test_a_private_row_reaches_the_index_table_itself(fresh_db):
 
 
 def test_a_crew_row_is_indexed_and_then_withheld_from_a_non_member(fresh_db):
-    """The other half of the same masking pair. A crew row IS indexed — only
-    the private tier is kept out of the table — so search.visible_hits is the
+    """The other half of the same masking pair. A crew row IS indexed - only
+    the private tier is kept out of the table - so search.visible_hits is the
     only thing standing between it and a non-member. Neutering that function
     left 1169 tests green while search(), /ask and the MCP tool all served a
     crew note to anybody.
@@ -161,7 +161,7 @@ def test_a_private_row_stays_out_of_the_export(fresh_db):
 
 def test_a_private_body_never_enters_the_hash_chained_ledger(fresh_db):
     """A migration may not rewrite a row carrying a seq, so a body written
-    here is written for good — no delete, no redaction, no later tier change
+    here is written for good - no delete, no redaction, no later tier change
     takes it back."""
     users.ensure_user("ava")
     work.create_task(title="acquire NewCo for 40m", actor="ava", visibility="private")
@@ -199,7 +199,7 @@ def test_a_crew_tier_without_a_crew_is_refused(fresh_db):
 def test_a_standups_blocker_child_inherits_its_tier(fresh_db):
     """The crossing that leaks on day one otherwise: post_standup lifts its
     blockers text into a NEW blocker row, and a workspace child publishes what
-    the standup was scoped to hide — into the digest, the readout and FTS."""
+    the standup was scoped to hide - into the digest, the readout and FTS."""
     users.ensure_user("ava")
     cid = _crew()
     collab.post_standup(
@@ -241,7 +241,7 @@ def test_a_worklog_on_a_workspace_task_stays_workspace(fresh_db):
 
 def test_an_agent_never_chooses_a_tier(fresh_db):
     """A visibility argument on a tool is a decision with no human in it, and
-    review.approve_change splats a payload straight into the handler — a tier
+    review.approve_change splats a payload straight into the handler - a tier
     in that payload would apply with a reviewer's name on it. No tool passes
     one, so every agent write lands at workspace."""
     import inspect
@@ -258,7 +258,7 @@ def test_an_agent_never_chooses_a_tier(fresh_db):
 def test_the_review_registry_never_receives_a_tier(fresh_db):
     """approve_change calls fn(**payload). Every registry handler would raise
     TypeError on an unexpected key, and review.py catches it and resets the
-    proposal to pending — so a tier-carrying payload boomerangs forever."""
+    proposal to pending - so a tier-carrying payload boomerangs forever."""
     from app.services import capture, review
 
     # capture.plan is the payload the MCP and chat capture paths propose
@@ -428,7 +428,7 @@ def _seed_every_scoped_kind(cid):
     is removed shows up as a leak rather than as an empty list."""
     secret = "ZZSECRETZZ"
     # relative, not a literal date: every findings rule has a window, and a
-    # row that falls outside it makes the surface return [] — which passes the
+    # row that falls outside it makes the surface return [] - which passes the
     # "secret not in output" assertion no matter what the tier filter does
     soon = (datetime.now(UTC).date() + timedelta(days=2)).isoformat()
     # committed to THIS week: weekly.week_view filters on committed_week, and an
@@ -478,7 +478,7 @@ def _seed_every_scoped_kind(cid):
     # and the team_capacity tool, and this seed not allocating is the reason
     # that shipped.
     # OVER 100 in total, because allocation_conflicts only reports a person
-    # above that line — at 60% the surface is empty and the assertion passes
+    # above that line - at 60% the surface is empty and the assertion passes
     # whatever the tier lock does. This is the shape that hid the leak.
     open_eng = engagements.create_engagement("open work", actor="ava")
     engagements.allocate("ava", scoped_eng["id"], 80, actor="ava")
@@ -543,7 +543,7 @@ def test_no_egress_surface_carries_a_scoped_row(client, fresh_db):
 def test_quick_capture_scopes_every_kind_it_routes_to(fresh_db):
     """capture() has seven branches that hand-mirror plan()'s payloads. A
     tier added to one and not the rest applies to some captured kinds and
-    silently not to others — the picker would look like it worked."""
+    silently not to others - the picker would look like it worked."""
     from app.services import capture
 
     users.ensure_user("ava")
@@ -560,7 +560,7 @@ def test_quick_capture_scopes_every_kind_it_routes_to(fresh_db):
     for text, (table, _kind) in cases.items():
         capture.capture(text, actor="ava", visibility="crew", crew_id=cid)
         row = fresh_db.query_one(
-            f"SELECT visibility, crew_id FROM {table} ORDER BY id DESC LIMIT 1"  # noqa: S608 — test table names
+            f"SELECT visibility, crew_id FROM {table} ORDER BY id DESC LIMIT 1"  # noqa: S608 - test table names
         )
         assert row == {"visibility": "crew", "crew_id": cid}, text
 
@@ -845,8 +845,8 @@ def test_composed_task_views_redact_legacy_private_waiting_ids(fresh_db):
 
 def test_a_create_body_exposes_the_tier_its_service_accepts():
     """A create form that omits `visibility` files at the workspace tier no
-    matter what the caller chose, silently. Five did — absence, promise,
-    question, intake and lesson — while the nine beside them carried the pair,
+    matter what the caller chose, silently. Five did - absence, promise,
+    question, intake and lesson - while the nine beside them carried the pair,
     so the omission read as a decision somebody had made.
 
     The invariant is a RELATION, not a list: if the service function a POST
@@ -894,5 +894,5 @@ def test_a_create_body_exposes_the_tier_its_service_accepts():
                 missing.append(f"{fn.name} -> {owner}.{call.func.attr} (body {model})")
     assert not missing, (
         "these POST bodies feed a service that accepts a tier, and do not"
-        f" offer one — so the caller's choice is discarded: {sorted(set(missing))}"
+        f" offer one - so the caller's choice is discarded: {sorted(set(missing))}"
     )

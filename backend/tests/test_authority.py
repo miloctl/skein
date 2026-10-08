@@ -206,7 +206,7 @@ def test_authority_verdicts_need_strong_human_identity(client, fresh_db):
     )
     weak = client.post(f"/api/review/{p['id']}/approve", json={})
     assert weak.status_code == 400 and "strong identity" in weak.json()["detail"]
-    # the dep now refuses the weak agent header outright (403) — the service
+    # the dep now refuses the weak agent header outright (403) - the service
     # guard behind it ("judged by humans") stays as defense in depth
     as_agent = client.post(f"/api/review/{p['id']}/approve", json={}, headers={"X-User": "scribe"})
     assert as_agent.status_code == 403 and "agent identity" in as_agent.json()["detail"]
@@ -363,7 +363,7 @@ def test_trust_scores_streak_suggestion(client, fresh_db):
     from app.services.api_keys import create_key
 
     # the agent has a users row on any running instance, and trust_scores
-    # joins on it — humans propose too (services/ingest.py), and their
+    # joins on it - humans propose too (services/ingest.py), and their
     # approval record must never reach this surface
     users.ensure_user("scribe", kind="agent")
     # promotion streaks count only strong-identity verdicts
@@ -377,7 +377,7 @@ def test_trust_scores_streak_suggestion(client, fresh_db):
     row = next(r for r in trust if r["agent"] == "scribe")
     assert row["approved"] == 5 and row["recent_streak"] == 5
     assert row["last_verified_verdict"] == "approved"
-    # `notify`, because that is the rung review_authority files — a promotion
+    # `notify`, because that is the rung review_authority files - a promotion
     # climbs one, and this line said `autonomous` for as long as it existed
     assert "notify" in row["suggestion"]
 
@@ -426,7 +426,7 @@ def test_authority_half_life(client, fresh_db):
     )
     hits = [f for f in run_findings(actor="t")["findings"] if f["rule_id"] == "authority_stale"]
     assert len(hits) == 1 and "planner-agent" in hits[0]["message"]
-    # forbidden/review grants carry no review_by — the kill switch never expires
+    # forbidden/review grants carry no review_by - the kill switch never expires
     set_authority("planner-agent", "note", "forbidden", actor="manager")
     row = fresh_db.query_row(
         "SELECT review_by FROM agent_authority WHERE agent = 'planner-agent' AND entity = 'note'"
@@ -491,13 +491,13 @@ def test_authority_changes_serialize_the_stale_check_and_kill_switch(fresh_db, m
                 "review",
                 actor="manager",
             )
-        except Exception as exc:  # pragma: no cover — asserted empty below
+        except Exception as exc:  # pragma: no cover - asserted empty below
             errors.append(exc)
 
     def forbid():
         try:
             delegation.set_authority("locked-agent", "task", "forbidden", actor="manager")
-        except Exception as exc:  # pragma: no cover — asserted empty below
+        except Exception as exc:  # pragma: no cover - asserted empty below
             errors.append(exc)
         finally:
             writer_done.set()
@@ -635,7 +635,7 @@ def test_mcp_writes_route_through_the_gate(client, fresh_db, monkeypatch):
     pending = client.get("/api/review?status=pending").json()
     assert pending and pending[0]["proposed_by"] == "code-agent"
 
-    # autonomous grant flips it to direct — and trust history exists
+    # autonomous grant flips it to direct - and trust history exists
     from app.services import delegation
 
     delegation.set_authority("code-agent", "task", "autonomous", actor="tester")
@@ -646,7 +646,7 @@ def test_mcp_writes_route_through_the_gate(client, fresh_db, monkeypatch):
 def test_a_generic_task_proposal_cannot_close_delegated_work(fresh_db):
     """The sponsor-bound acceptance loop was optional: an agent could file a
     plain `task` update instead of submit_for_acceptance, and ANY human could
-    approve it — no sponsor binding, no reason on record, no override marking,
+    approve it - no sponsor binding, no reason on record, no override marking,
     and it counted as a clean approval toward promotion."""
     import pytest
 
@@ -705,7 +705,7 @@ def test_mcp_capture_gates_on_the_classified_entity(fresh_db, monkeypatch):
 
     # and the queued proposal must be APPLICABLE. A payload the registry
     # handler cannot take made every capture fail at apply and reset to
-    # pending, wedging the inbox — a gate that swallows the work is not a gate
+    # pending, wedging the inbox - a gate that swallows the work is not a gate
     review.approve_change(
         out["id"], actor="mira", policy_registry=create_app().state.skein_registry
     )
@@ -713,7 +713,7 @@ def test_mcp_capture_gates_on_the_classified_entity(fresh_db, monkeypatch):
 
 
 def test_every_classified_capture_kind_produces_an_applicable_proposal(fresh_db, monkeypatch):
-    """One case per branch of capture.plan — the payload keys must be the
+    """One case per branch of capture.plan - the payload keys must be the
     registry handler's own kwargs, for every entity capture can route to."""
     import json
 
@@ -744,7 +744,7 @@ def test_every_classified_capture_kind_produces_an_applicable_proposal(fresh_db,
 def test_a_fine_grained_grant_is_not_defeated_by_an_absent_parent(fresh_db):
     """authority_level defaults to 'review' when no row exists, so taking the
     strictest of entity and family root made an ABSENT parent override an
-    explicit child grant — every fine-grained grant became a no-op."""
+    explicit child grant - every fine-grained grant became a no-op."""
     from app.services import delegation, users
     from app.tools._gate import effective_authority
 
@@ -781,7 +781,7 @@ def test_a_level_the_gate_cannot_honour_is_refused(fresh_db):
     """_gate.py takes the review path for ALWAYS_REVIEW entities BEFORE it
     reads the level, so a stored 'autonomous' rendered "delete a note: acts
     alone" on the authority card while every such write still waited for a
-    human — a false badge on the destructive rows. The level is refused now,
+    human - a false badge on the destructive rows. The level is refused now,
     so the lie has no way to be stored."""
     import pytest
 
@@ -822,7 +822,7 @@ def test_the_card_learns_which_entities_always_wait(client, fresh_db):
 
 def test_the_suggestion_names_the_rung_the_code_actually_files(client, fresh_db):
     """`review_authority` climbs one rung to `notify`. The suggestion said
-    `autonomous`, and skipped promotion_blocked entirely — so it offered a
+    `autonomous`, and skipped promotion_blocked entirely - so it offered a
     promotion on task_completion, which is in NO_AUTHORITY and can never be
     filed, and is the entity a delegated agent proposes on most."""
     from app.services import delegation, review, users
@@ -841,7 +841,7 @@ def test_the_suggestion_names_the_rung_the_code_actually_files(client, fresh_db)
 
     # settled rows written straight in: task_completion proposals cannot be
     # APPLIED against a task that does not exist, and the apply path is not
-    # what this pins — the streak is read from the table either way
+    # what this pins - the streak is read from the table either way
     for _ in range(delegation.TRUST_STREAK):
         fresh_db.execute(
             "INSERT INTO pending_changes (entity, action, payload, summary, proposed_by,"

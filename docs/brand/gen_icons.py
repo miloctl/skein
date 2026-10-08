@@ -1,4 +1,4 @@
-"""Rasterize the Skein mark into the icon set. Mirrors frontend/app/icon.svg —
+"""Rasterize the Skein mark into the icon set. Mirrors frontend/app/icon.svg -
 if that path changes, change GLYPH here too."""
 
 from pathlib import Path
@@ -29,7 +29,7 @@ def render(px: int, *, radius_frac: float, glyph_scale: float = 1.0) -> Image.Im
 
 
 def main() -> None:
-    # iOS discards alpha and composites onto black — full bleed, no rounding,
+    # iOS discards alpha and composites onto black - full bleed, no rounding,
     # the home-screen mask supplies the corners.
     apple = render(180, radius_frac=0).convert("RGB")
     apple.save(OUT / "app/apple-icon.png")

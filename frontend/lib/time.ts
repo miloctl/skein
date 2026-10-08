@@ -1,4 +1,4 @@
-/** "3h ago" instead of 2026-07-26T03:21:07+00:00 — humans read this app. */
+/** "3h ago" instead of 2026-07-26T03:21:07+00:00 - humans read this app. */
 export function timeAgo(iso: string | null | undefined): string {
   if (!iso) return "";
   const then = Date.parse(iso);

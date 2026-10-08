@@ -1,6 +1,6 @@
 """Test-image entrypoint. Production images never import this module."""
 
-# ruff: noqa: S101, S310 — assertions and fixed HTTP targets in a test-only image
+# ruff: noqa: S101, S310 - assertions and fixed HTTP targets in a test-only image
 import json
 import os
 import urllib.request
@@ -32,8 +32,8 @@ if (
         "The test database configuration is not allowed. Check the test image environment."
     )
 
-from app.agents import receipts, session_log, team_agent  # noqa: E402 — database ownership first
-from app.services import artifact_files, forge, jobs  # noqa: E402 — database ownership first
+from app.agents import receipts, session_log, team_agent  # noqa: E402 - database ownership first
+from app.services import artifact_files, forge, jobs  # noqa: E402 - database ownership first
 
 UPSTREAM = os.environ["DURABILITY_UPSTREAM"]
 
@@ -154,4 +154,4 @@ jobs.JOBS = (
     ),
 )
 
-from app.main import app  # noqa: E402 — fixtures must be installed before composition
+from app.main import app  # noqa: E402 - fixtures must be installed before composition

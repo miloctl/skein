@@ -1,6 +1,6 @@
 """The admin model pick: stored as (provider, id), honored only while the
 provider and the menu still agree with it, reported when they do not, and
-actually reaching the model the agent builds — a pick the build path ignores
+actually reaching the model the agent builds - a pick the build path ignores
 is worse than no picker (the tuning.py rule)."""
 
 import pytest
@@ -61,7 +61,7 @@ def test_the_menu_serves_merged_prices_and_zero_reads_as_unknown(
 ):
     """G7: the picker compares what accounting will actually charge. A model
     priced only in SKEIN_MODEL_PRICES still shows its price, and a zero pair
-    reads as unknown — an unfilled rate and a real $0 are indistinguishable."""
+    reads as unknown - an unfilled rate and a real $0 are indistinguishable."""
     monkeypatch.setattr(
         config,
         "MODELS",
@@ -107,7 +107,7 @@ def test_clearing_returns_to_the_env_default_not_a_guess(fresh_db, real_provider
 
 
 def test_an_id_outside_the_menu_is_refused_and_never_echoed(fresh_db, real_provider):
-    """The refusal lists the menu instead of the submitted id — the id is
+    """The refusal lists the menu instead of the submitted id - the id is
     caller-supplied, and a refusal must not echo the rejected value."""
     with pytest.raises(ValueError) as e:
         settings.set_model_pick("gpt-x-imaginary", actor="admin")
@@ -133,7 +133,7 @@ def test_a_faulted_menu_refuses_the_pick(fresh_db, monkeypatch):
 
 def test_a_provider_switch_invalidates_the_pick_visibly(fresh_db, real_provider, monkeypatch):
     """The id means nothing on another endpoint, so the pick must fall back
-    to the env default — reported, never hidden, and never guessed."""
+    to the env default - reported, never hidden, and never guessed."""
     settings.set_model_pick("opus", actor="admin")
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "openai")
     assert settings.picked_model() == ""
@@ -145,7 +145,7 @@ def test_a_provider_switch_invalidates_the_pick_visibly(fresh_db, real_provider,
 
 def test_a_menu_shrink_invalidates_the_pick_visibly(fresh_db, real_provider, monkeypatch):
     """Provider-match alone would let a pick survive its model's removal from
-    the menu — the registry-membership check is what this pins."""
+    the menu - the registry-membership check is what this pins."""
     settings.set_model_pick("opus", actor="admin")
     monkeypatch.setattr(config, "MODELS", {"mini": MENU["mini"]})
     assert settings.picked_model() == ""
@@ -164,7 +164,7 @@ def test_the_pick_reaches_the_built_model(fresh_db, real_provider):
 
 
 def test_a_persona_override_wins_over_the_pick(fresh_db, real_provider):
-    """persona > admin pick > env default — and registry tuning follows the
+    """persona > admin pick > env default - and registry tuning follows the
     model that WON, not the picked one."""
     settings.set_model_pick("opus", actor="admin")
     cfg = team_agent._model(model_id="mini").get_config()
@@ -181,7 +181,7 @@ def test_an_unlisted_model_gets_no_registry_tuning(fresh_db, real_provider):
 
 
 def test_persona_temperature_wins_over_the_entry_params(fresh_db, real_provider):
-    """SKEIN_MODEL_PARAMS < entry params < persona — per key."""
+    """SKEIN_MODEL_PARAMS < entry params < persona - per key."""
     settings.set_model_pick("opus", actor="admin")
     cfg = team_agent._model(temperature=0.1).get_config()
     assert cfg["params"]["temperature"] == 0.1
@@ -211,7 +211,7 @@ def test_the_entry_cap_beats_the_global_params_on_the_merge_branches(
         "value": "1 parameter",
         "source": "selected model entry",
     }
-    # and the global knobs still win for an entry that sets no cap — that is
+    # and the global knobs still win for an entry that sets no cap - that is
     # the documented "params reach what we did not model" contract
     assert team_agent._model(model_id="mini").get_config()["max_tokens"] == 512
     settings.set_model_pick("mini", actor="admin")
@@ -225,7 +225,7 @@ def test_the_entry_cap_beats_the_global_params_on_the_merge_branches(
 
 def test_the_env_default_outside_the_menu_warns_on_health(fresh_db, real_provider):
     """The same drift class as a persona model the menu does not list: an id
-    in force that the menu does not govern. Warns, never faults — the menu
+    in force that the menu does not govern. Warns, never faults - the menu
     constrains the admin pick, not the operator's env."""
     assert config.menu_warnings() == ["SKEIN_MODEL_ID is not in the SKEIN_MODELS menu."]
 
@@ -236,14 +236,14 @@ def test_the_env_default_inside_the_menu_is_quiet(fresh_db, real_provider, monke
 
 
 def test_no_menu_means_no_default_warning(fresh_db, monkeypatch):
-    """An absent menu constrains nothing — warning on it would nag every
+    """An absent menu constrains nothing - warning on it would nag every
     deployment that never configured SKEIN_MODELS."""
     monkeypatch.setattr(config, "MODELS", {})
     assert config.menu_warnings() == []
 
 
 def test_a_settings_read_failure_never_stops_the_build(fresh_db, real_provider, monkeypatch):
-    """The env default is a correct model, just not the picked one — a chat
+    """The env default is a correct model, just not the picked one - a chat
     turn must not die because a settings lookup did."""
     from app.services import settings as settings_module
 
@@ -297,7 +297,7 @@ def test_the_model_summary_requires_a_named_reader(fresh_db, real_provider, clie
 
 
 def test_the_get_serves_the_menu_without_entry_params(fresh_db, real_provider, client):
-    """Entry params are operator-authored request bodies — a token parked
+    """Entry params are operator-authored request bodies - a token parked
     there must not reach every signed-in browser."""
     got = client.get("/api/settings/model").json()
     assert {m["id"] for m in got["menu"]} == {"opus", "mini"}

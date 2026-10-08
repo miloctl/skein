@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 /** The sponsor's own definition of done, written at delegation, shown at the
- *  verdict — which is the read it was written for. Absent when the
+ *  verdict - which is the read it was written for. Absent when the
  *  delegation carried none: an empty "What done means:" line would claim a
  *  contract nobody wrote. */
 
@@ -65,7 +65,7 @@ describe("acceptance criteria at the verdict", () => {
     expect(screen.getByText("resolved").parentElement?.textContent).toContain(
       "blocker #3: resolved",
     );
-    // absent and hidden rows read alike — the chip must not confirm existence
+    // absent and hidden rows read alike - the chip must not confirm existence
     expect(screen.getByText("not found").parentElement?.textContent).toContain(
       "task #9999: not found",
     );

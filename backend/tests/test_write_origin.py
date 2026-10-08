@@ -3,7 +3,7 @@
 db.py's hash chain is pinned hard elsewhere (no-op log_activity fails ~80
 tests). What is NOT pinned there is whether writes reach it, and whether they
 carry the origin the caller asked for. Both held only by reading the source:
-hardcoding origin="human" in seven services — the two agent tools included —
+hardcoding origin="human" in seven services - the two agent tools included -
 passed the whole suite, and so did wrapping a log_activity call in `if False:`,
 because the one guard was a regex over *.py text rather than an executed write.
 
@@ -13,7 +13,7 @@ provenance constraint exists to prevent, so it is pinned here by execution.
 Separate from test_provenance.py on purpose: that file pins the chain a reader
 gets BACK (lineage, the verdict, the changes since). This one pins what the
 write PUTS THERE. A file that holds both loses one of them to the next rewrite
-— which is what happened to these three tests once already.
+- which is what happened to these three tests once already.
 """
 
 import sys
@@ -70,7 +70,7 @@ def _origin_rows(tables: list[str]) -> dict[tuple[str, str], str]:
         ]
         assert key_cols, f"{t} has no primary key to identify its rows by"
         key_sql = " || '|' || ".join(f"{c}::text" for c in key_cols)
-        for r in db.query(f"SELECT {key_sql} AS rid, origin FROM {t}"):  # noqa: S608 — from the catalog
+        for r in db.query(f"SELECT {key_sql} AS rid, origin FROM {t}"):  # noqa: S608 - from the catalog
             rows[(t, r["rid"])] = r["origin"]
     return rows
 
@@ -83,7 +83,7 @@ def test_every_agent_tool_records_an_agent_origin(fresh_db):
 
     _seed(fresh_db)
     tables = _origin_tables()
-    assert tables, "no table carries an origin column — the sweep would pass vacuously"
+    assert tables, "no table carries an origin column - the sweep would pass vacuously"
 
     laundered: list[str] = []
     for tool in ALL_TOOLS:
@@ -96,7 +96,7 @@ def test_every_agent_tool_records_an_agent_origin(fresh_db):
         before = _origin_rows(tables)
         try:
             fn(**kwargs)
-        except Exception:  # noqa: S112 — the receipt sweep owns "a tool must not raise"
+        except Exception:  # noqa: S112 - the receipt sweep owns "a tool must not raise"
             continue
         for key, origin in _origin_rows(tables).items():
             if key not in before and origin not in AGENT_ORIGINS:
@@ -112,7 +112,7 @@ def test_rest_write_paths_record_a_human_origin(client, fresh_db):
     client.post("/api/notes", json={"topic": "t", "content": "c"})
     client.post("/api/questions", json={"question": "Who owns infra?"})
     for table in ("tasks", "notes", "questions"):
-        rows = db.query(f"SELECT origin, created_by FROM {table}")  # noqa: S608 — literal tuple
+        rows = db.query(f"SELECT origin, created_by FROM {table}")  # noqa: S608 - literal tuple
         assert rows, f"{table}: the REST write did not land"
         for r in rows:
             assert r["origin"] == "human", f"{table} claims origin={r['origin']!r}"
@@ -134,7 +134,7 @@ def test_rest_write_paths_record_a_human_origin(client, fresh_db):
 )
 def test_a_write_leaves_a_ledger_row(client, fresh_db, path, body, table):
     """Executed, not grepped. The registered-verb test reads *.py source text,
-    so it still passes when the log_activity call is present but unreachable —
+    so it still passes when the log_activity call is present but unreachable -
     an early return or a moved branch stops the ledger silently."""
     before = db.query_row("SELECT COUNT(*) AS n FROM activity")["n"]
     r = client.post(path, json=body)

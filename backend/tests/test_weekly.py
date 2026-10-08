@@ -95,7 +95,7 @@ def test_weekly_draft_and_plan_via_review_inbox(client, fresh_db):
     out = weekly.propose_weekly_plan(actor="scheduler")
     assert out["status"] == "pending"
 
-    # while the proposal waits, the week view names it — the Health card
+    # while the proposal waits, the week view names it - the Health card
     # offered "Draft a plan" beside a pending plan for the SAME week, and the
     # drafter it invited filed a duplicate proposal
     week = client.get("/api/week").json()
@@ -222,7 +222,7 @@ def test_weekly_job_skip_does_not_record_another_success(fresh_db, job_name):
 
 def test_weekly_summary_agrees_with_its_own_count(fresh_db):
     """This summary reaches a reader on My Day, on Approvals, and in a
-    notification. It shipped "1 tasks" — CLAUDE.md requires sentence-form
+    notification. It shipped "1 tasks" - CLAUDE.md requires sentence-form
     text to compute plurals, and a string carrying a number gets no warmth
     allowance to hide behind."""
     from app.services import users, weekly, work

@@ -1840,7 +1840,7 @@ def test_extension_store_schema_collisions_are_refused_before_migration(fresh_db
 def test_an_extension_stores_unqualified_names_stay_in_its_own_schema(fresh_db):
     """search_path is what the SQLite ATTACH authorizer used to be: an
     extension writing `users` gets ITS OWN users table, never the roster. It
-    is the same guarantee and the same limit — SQL that spells out
+    is the same guarantee and the same limit - SQL that spells out
     `public.users` still reaches core, exactly as an in-process module could
     always open any file the process could."""
     import psycopg
@@ -2057,7 +2057,7 @@ def test_a_timed_out_subscriber_cannot_write_after_its_dead_delivery(fresh_db):
 
 def test_same_second_events_deliver_in_emission_order(fresh_db):
     """db.now() carries one-second precision, and the dispatcher ordered
-    equal-second rows by random event UUID — a task's update reached the
+    equal-second rows by random event UUID - a task's update reached the
     subscriber before its creation for roughly half of all pairs."""
     from app import db
     from app.public.events import EventActor, ResourceReference, _emit_event
@@ -2150,7 +2150,7 @@ def test_a_declared_extension_store_joins_the_database_recovery_unit(fresh_db, t
     with TestClient(create_app(settings, (module,)), headers={"X-User": "tester"}):
         result = admin.backup()
 
-    listing = subprocess.run(  # noqa: S603 — fixed argv, no shell
+    listing = subprocess.run(  # noqa: S603 - fixed argv, no shell
         [restore, "--list", result["database_path"]],
         env=admin._pg_env(),
         check=True,

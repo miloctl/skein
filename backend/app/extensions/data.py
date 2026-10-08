@@ -41,7 +41,7 @@ class ExtensionStore:
     STATEMENT-level boundary, not a privilege one: an in-process module runs
     as the Skein process on one connection role, so SQL that NAMES
     `public.tasks` still reaches it. Extensions are trusted code loaded from
-    the deployment's own image — the registry, not this class, is what decides
+    the deployment's own image - the registry, not this class, is what decides
     which ones load.
     """
 

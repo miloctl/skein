@@ -1,7 +1,7 @@
 /** The pre-paint script layout.tsx inlines into <head>.
  *
  *  It runs BEFORE first paint, before React, before any bundle loads, so it
- *  cannot import anything at runtime — it has to be a self-contained string.
+ *  cannot import anything at runtime - it has to be a self-contained string.
  *  That is why the pack ids, colorway ids, storage keys and custom-hue
  *  formulas used to be written out a second time by hand in layout.tsx, where
  *  they drifted from lib/theme.ts twice.
@@ -25,7 +25,7 @@ import {
   THEME_KEY,
 } from "./theme";
 
-// The default id needs no data attribute — globals.css carries it on :root —
+// The default id needs no data attribute - globals.css carries it on :root -
 // so the script only has to recognize the others. Same rule applyPrefs uses.
 const nonDefault = (rows: readonly { id: string }[], fallback: string) =>
   JSON.stringify(rows.map((r) => r.id).filter((id) => id !== fallback));

@@ -7,7 +7,7 @@ export async function copyText(text: string): Promise<boolean> {
       await navigator.clipboard.writeText(text);
       return true;
     } catch {
-      // fall through — permission denied or focus lost
+      // fall through - permission denied or focus lost
     }
   }
   const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;

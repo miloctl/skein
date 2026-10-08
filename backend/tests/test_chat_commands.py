@@ -71,7 +71,7 @@ def test_briefing_separates_personal_reviews_from_the_team_queue(client):
 
     out = _read_chat(client, "/briefing")
     assert "Reviews waiting on you: 1" in out
-    assert "Team queue \\u2014 pending reviews: 1" in out
+    assert "Team queue - pending reviews: 1" in out
 
 
 def test_help_lists_every_command(client):
@@ -96,7 +96,7 @@ def test_command_stream_bridges_exchange(client, monkeypatch):
 def test_command_wrapped_fb_refused_before_bridge(client, monkeypatch):
     calls = []
     monkeypatch.setattr("app.agents.session_log.log_exchange", lambda *a: calls.append(a))
-    out = _read_chat(client, "/remember fb: dana — struggling with the client")
+    out = _read_chat(client, "/remember fb: dana - struggling with the client")
     assert wording.private_feedback_agent_refusal() in out
     assert "struggling with the client" not in out
     assert calls == []
@@ -122,7 +122,7 @@ def test_bridge_skipped_while_agent_turn_in_flight(client, monkeypatch):
 
 def test_a_late_receipt_in_a_command_survives_the_stream(client, monkeypatch):
     """A receipt recorded after a command generator's last yield must reach
-    the stream and the transcript — the post-loop drain mirrors pump()'s, and
+    the stream and the transcript - the post-loop drain mirrors pump()'s, and
     without it the receipt vanishes from all three destinations."""
     from app.agents import commands, receipts
 
@@ -200,7 +200,7 @@ def test_remember_in_a_linked_thread_stays_personal_until_shared(client):
 
     users.ensure_user("bo")  # a second person to approve the shared one
     eid = engagements.create_engagement("Atlas", actor="tester")["id"]
-    # claim the thread, then link it — the same order the UI produces
+    # claim the thread, then link it - the same order the UI produces
     _read_chat(client, "hello")
     client.patch("/api/chats/t", json={"engagement_id": eid})
 
@@ -448,7 +448,7 @@ def test_a_failing_command_never_shows_the_raw_server_error(client, monkeypatch)
         raise psycopg.OperationalError(
             "connection to server at 10.0.0.5 port 5432 failed: role skein"
         )
-        yield {}  # pragma: no cover — makes this an async generator
+        yield {}  # pragma: no cover - makes this an async generator
 
     monkeypatch.setitem(entry, "handler", broken)
     out = _read_chat(client, "/help")

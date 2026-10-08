@@ -17,7 +17,7 @@
 #
 # mutmut 3 mutates module-level functions only. A module whose logic lives
 # in class methods (projection_policy) or constants (slas) reports zero
-# mutants — that is a tool limit, not proof the tests have teeth there.
+# mutants - that is a tool limit, not proof the tests have teeth there.
 set -euo pipefail
 cd "$(dirname "$0")/../backend"
 

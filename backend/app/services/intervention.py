@@ -5,10 +5,10 @@ engagement health, the escalated blocker register, overdue given promises,
 unowned due work, undispositioned findings, stale decisions, and stale WIP.
 Each has its own page, its own ordering and its own vocabulary, and no reader
 has ever seen them ranked against each other. The count is the ARMS below, and
-docs/FEATURES.md states the same seven — a number in two places disagreed once
+docs/FEATURES.md states the same seven - a number in two places disagreed once
 already.
 
-Composition only — no table, no write path, no new habit. Every row here is a
+Composition only - no table, no write path, no new habit. Every row here is a
 row one of those engines already produced, restated in one shape and ordered by
 consequence. The receipt travels with it, so a reader can disagree with the
 ranking without leaving the page.
@@ -25,7 +25,7 @@ from .. import db
 from . import refs, scope, wording
 from .slas import STALE_WIP_DAYS
 
-# What each condition is worth. These are not measurements — they are an
+# What each condition is worth. These are not measurements - they are an
 # ordering the team can argue with, written in one place so the argument has
 # somewhere to happen. The rule they encode: a commitment already broken
 # outranks one about to break, and both outrank a thing that is merely untidy.
@@ -73,8 +73,8 @@ def _age_days(stamp: str | None) -> int:
 def _order(kind: str, *, age: int = 0, reach: int = 0) -> tuple[int, int, int]:
     """The sort key: band, then reach, then age. Higher sorts earlier.
 
-    A tuple, not a sum. Age is capped at 30 days — past that a thing is not
-    getting more urgent, it is getting ignored — and an uncapped term would pin
+    A tuple, not a sum. Age is capped at 30 days - past that a thing is not
+    getting more urgent, it is getting ignored - and an uncapped term would pin
     one forgotten row to the top of its band forever.
     """
     return (_WEIGHT.get(kind, 10), reach, min(age, 30))
@@ -97,7 +97,7 @@ _RESTATED_BY_A_RAW_ARM = frozenset(
 
 # Rules only whoever runs the server can act on. This queue is the Monday
 # meeting's running order, and job_stale is severity high, so a stale cron
-# outranked an overdue promise to a customer — on the seeded team, four of
+# outranked an overdue promise to a customer - on the seeded team, four of
 # the top eight calls were Skein's own plumbing. These rules keep firing and
 # keep their surfaces (Insights, the digest, OperationsCard on /settings);
 # they are only out of the meeting agenda.
@@ -105,12 +105,12 @@ _RESTATED_BY_A_RAW_ARM = frozenset(
 # decision with a decision-maker in the room, not a server condition.
 _SYSTEM_AUDIENCE = frozenset(
     {
-        "job_stale",  # the scheduler did not run — process/config
-        "activity_chain_broken",  # compare ledger against backups — operator
+        "job_stale",  # the scheduler did not run - process/config
+        "activity_chain_broken",  # compare ledger against backups - operator
         "ledger_rows_adopted",  # same remediation path as the chain rule
         "flock_member_failing",  # fix is a persona file and the model it names
         "token_anomaly",  # model-spend telemetry, not assignable work
-        "turn_runaway",  # a runaway agent turn — operator inspects the run
+        "turn_runaway",  # a runaway agent turn - operator inspects the run
     }
 )
 
@@ -139,7 +139,7 @@ def finding_label(rule_id: str) -> str:
 # A finding is minted at most once per ISO week, so a condition that CLEARS
 # mid-week kept presenting as a current call for up to six days: "the review
 # queue is stalled: 3 proposals (#4, #5, #13)" sat high in the Monday order
-# with all three settled — and a manager who checks and finds nothing learns
+# with all three settled - and a manager who checks and finds nothing learns
 # to distrust the queue. Rules whose condition is one cheap read get that
 # read at queue time. Only short-lived, cheaply-verifiable conditions belong
 # here: a windowed trend (rejection_spike, interrupt_load) is true ABOUT its
@@ -151,7 +151,7 @@ def _review_stall_still_true(finding: dict) -> bool:
 
 
 def _question_still_open(finding: dict) -> bool:
-    # status only, by id, boolean out — the finding row already passed the
+    # status only, by id, boolean out - the finding row already passed the
     # queue's own policy read; this decides whether it is STILL a call
     row = db.query_one(
         "SELECT 1 FROM questions WHERE id = ? AND status = 'open'",
@@ -179,7 +179,7 @@ def _still_true(finding: dict) -> bool:
 def _dedupe(rows: list[dict]) -> list[dict]:
     """One row per (entity, id), keeping the strongest band it appeared in.
 
-    The sources overlap by design — a task that is unassigned, due, in progress
+    The sources overlap by design - a task that is unassigned, due, in progress
     and untouched satisfies both the unowned arm and the stale-WIP arm. Left in,
     the manager reads the same task twice inside one ranked list, and the page
     hands React a duplicate key.
@@ -200,20 +200,20 @@ def _dedupe(rows: list[dict]) -> list[dict]:
 def _finding_action(finding: dict) -> str:
     """What to do about a finding.
 
-    The rule's own message ends with its instruction — "conclude it or extend
-    it on purpose", "reconfirm the grant or demote it to review" — and a
+    The rule's own message ends with its instruction - "conclude it or extend
+    it on purpose", "reconfirm the grant or demote it to review" - and a
     generic triage verb in this slot REPLACED it, so the row stated the real
     move in small text and the wrong one in the action line. The triage verbs
     are the fallback for a rule whose message is a statement only.
     """
     message = finding.get("message", "")
-    # the em dash first, then a sentence break: those are the two shapes the
-    # rules use. NOT case-gated — the rules write their instruction in lower
+    # the spaced hyphen first, then a sentence break: those are the two shapes the
+    # rules use. NOT case-gated - the rules write their instruction in lower
     # case ("conclude it or extend it on purpose"), and an isupper() test sent
     # every one of them to the fallback, which is the exact substitution this
     # function exists to stop.
     tail = ""
-    for sep in ("—", ". ", ": "):
+    for sep in (" - ", ". ", ": "):
         if sep in message:
             tail = message.rsplit(sep, 1)[-1].strip().rstrip(".")
             break
@@ -228,7 +228,7 @@ def _finding_receipt(finding: dict) -> str:
     """A finding's stored receipt as one sentence naming its rows.
 
     `findings.receipt` is a JSON object recorded when the rule fired
-    (services/insights.py) — the ids and numbers behind the claim. A key ending
+    (services/insights.py) - the ids and numbers behind the claim. A key ending
     in `_id` whose stem names an entity becomes a reference, so
     `{"promise_id": 1}` reads "promise #1" and services/refs.py resolves it to
     a link. Everything else renders as `key: value`, in the order the rule
@@ -243,7 +243,7 @@ def _finding_receipt(finding: dict) -> str:
         elif isinstance(value, list):
             # a rule may store whole rows here (review_stall keeps its pending
             # proposals). str() on that list printed a page of Python dicts
-            # into the meeting agenda — the count and the ids are the receipt,
+            # into the meeting agenda - the count and the ids are the receipt,
             # the rows themselves stay on /insights.
             ids = [v["id"] for v in value if isinstance(v, dict) and isinstance(v.get("id"), int)]
             named = f" ({', '.join(f'#{i}' for i in ids[:5])})" if ids else ""
@@ -265,7 +265,7 @@ def interventions(
     it exists.
 
     The findings arm is the one unscoped read. `findings` carries no visibility
-    column (001_baseline.sql) — a tier filter there would filter on nothing.
+    column (001_baseline.sql) - a tier filter there would filter on nothing.
     """
     from .insights import list_findings
     from .portfolio import engagement_health
@@ -310,10 +310,10 @@ def interventions(
     #    ranking it against everything else happens only here.
     bfrag, bp = scope.visible_filter(viewer, "blockers", alias="b")
     for b in db.query(
-        f"SELECT b.id, b.title, b.owner, b.impact, b.escalated_at, b.created_at, b.task_id"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT b.id, b.title, b.owner, b.impact, b.escalated_at, b.created_at, b.task_id"  # noqa: S608 - scope.visible_filter emits only bound marks
         # LIMITed before the per-row `downstream` walk below, which costs up
         # to eleven queries each. Unbounded, a register nobody has drained runs
-        # thousands of round trips and then the cap discards almost all of it —
+        # thousands of round trips and then the cap discards almost all of it -
         # the worse the state, the slower the page that exists to fix it.
         # Oldest escalation first: it has been shouting longest.
         f" FROM blockers b WHERE b.status = 'escalated' AND {bfrag}"
@@ -332,7 +332,7 @@ def interventions(
                 "action": (
                     f"Unblock {b['owner']} or take it off them"
                     if b["owner"]
-                    else "Give it an owner — nobody holds this one"
+                    else "Give it an owner - nobody holds this one"
                 ),
                 "receipts": [
                     refs.receipt(
@@ -351,7 +351,7 @@ def interventions(
     # 3. Overdue external promises. The one class of commitment whose reader is
     #    outside the team and cannot be re-planned by talking to each other.
     for p in db.query(
-        f"SELECT id, promise, to_whom, due_date, created_by FROM promises"  # noqa: S608 — module constant
+        f"SELECT id, promise, to_whom, due_date, created_by FROM promises"  # noqa: S608 - module constant
         f" WHERE status = 'open' AND direction = 'given' AND {scope.WORKSPACE_ONLY}"
         " AND due_date IS NOT NULL AND due_date < ? ORDER BY due_date",
         (today,),
@@ -364,7 +364,7 @@ def interventions(
                 "title": p["promise"][:80],
                 "condition": f"promise to {p['to_whom'] or 'the team'} is past its date",
                 "owner": p["created_by"] or "",
-                "action": "Settle it or renegotiate the date — the other side is still waiting",
+                "action": "Settle it or renegotiate the date - the other side is still waiting",
                 "receipts": [refs.receipt(f"promise #{p['id']} was due {p['due_date']}")],
                 "order": _order("promise_overdue", age=_age_days(p["due_date"])),
                 "link": f"/portfolio#promise-{p['id']}",
@@ -375,7 +375,7 @@ def interventions(
     #    this is the only surface that reports it.
     tfrag, tp = scope.visible_filter(viewer, "tasks", alias="t")
     for t in db.query(
-        f"SELECT t.id, t.title, t.due_date FROM tasks t"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT t.id, t.title, t.due_date FROM tasks t"  # noqa: S608 - scope.visible_filter emits only bound marks
         f" WHERE t.assignee = '' AND t.status NOT IN ('done', 'void') AND {tfrag}"
         " AND t.due_date IS NOT NULL AND t.due_date <= ? ORDER BY t.due_date LIMIT 10",
         (*tp, today),
@@ -388,7 +388,7 @@ def interventions(
                 "title": t["title"],
                 "condition": "due and nobody owns it",
                 "owner": "",
-                "action": "Assign it or drop it — until somebody owns it, nobody acts on it",
+                "action": "Assign it or drop it - until somebody owns it, nobody acts on it",
                 "receipts": [refs.receipt(f"task #{t['id']} was due {t['due_date']}")],
                 "order": _order("work_unowned", age=_age_days(t["due_date"])),
                 "link": f"?task={t['id']}",
@@ -400,8 +400,8 @@ def interventions(
     #    the manager to make it twice.
     #    EVERY filter runs before the [:30] budget, not inside the loop: a
     #    row the loop would skip still spends a slot when the slice comes
-    #    first, and a run of already-handled findings — or a deployment with
-    #    thirty stale jobs — silently shortens this arm to nothing.
+    #    first, and a run of already-handled findings - or a deployment with
+    #    thirty stale jobs - silently shortens this arm to nothing.
     #
     #    On _RESTATED_BY_A_RAW_ARM: a rule whose subject a raw arm above
     #    already filed is not filed twice. `promise_due` fires on the same
@@ -433,8 +433,8 @@ def interventions(
                 "title": f["message"],
                 "condition": f"{f['severity']} · {f.get('label') or finding_label(str(f['rule_id']))}",
                 # no owner, ever. `findings.subject` is the dedupe key for the
-                # (rule, subject, week) fire — "anchor:44", "promise-1",
-                # "job:digest" — so rendering it as a person put row keys where
+                # (rule, subject, week) fire - "anchor:44", "promise-1",
+                # "job:digest" - so rendering it as a person put row keys where
                 # every other kind puts a name to go and talk to.
                 "owner": "",
                 "action": _finding_action(f),
@@ -465,7 +465,7 @@ def interventions(
     #    only their OWN (services/briefing.py); the ones whose author has moved
     #    on are the ones with nobody left to notice them.
     for d in db.query(
-        f"SELECT id, title, decided_by, review_by FROM decisions"  # noqa: S608 — module constant
+        f"SELECT id, title, decided_by, review_by FROM decisions"  # noqa: S608 - module constant
         f" WHERE status = 'stale' AND {scope.WORKSPACE_ONLY} ORDER BY review_by NULLS FIRST LIMIT 10"
     ):
         out.append(
@@ -489,7 +489,7 @@ def interventions(
     #    this names the assignee, which is who a count cannot name.
     cutoff = db.local_midnight_utc(db.today() - timedelta(days=STALE_WIP_DAYS))
     for t in db.query(
-        f"SELECT t.id, t.title, t.assignee, t.updated_at FROM tasks t"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT t.id, t.title, t.assignee, t.updated_at FROM tasks t"  # noqa: S608 - scope.visible_filter emits only bound marks
         f" WHERE t.status = 'in_progress' AND {tfrag} AND t.updated_at < ?"
         " ORDER BY t.updated_at LIMIT 10",
         (*tp, cutoff),

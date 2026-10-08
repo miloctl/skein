@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 /** Browse's registers were read-only mirrors: the blocker list offered no
  *  claim, no impact change and no resolve (My Day held the only resolve, for
  *  rows that reached YOUR attention list), and the Milestones card could not
- *  create what it listed — its empty state sent the reader to Chat, where
+ *  create what it listed - its empty state sent the reader to Chat, where
  *  the default mock provider has no such grammar. */
 
 const mocks = vi.hoisted(() => ({ api: vi.fn() }));
@@ -116,7 +116,7 @@ describe("Browse form metadata", () => {
 });
 
 describe("the blocker register", () => {
-  it("changes impact in place — the field that sets the escalation clock", async () => {
+  it("changes impact in place - the field that sets the escalation clock", async () => {
     render(<Dashboard />);
     fireEvent.change(await screen.findByRole("combobox", { name: "Browse register" }), { target: { value: "browse-blockers" } });
     fireEvent.change(await screen.findByLabelText("Impact of blocker #3"), {
@@ -200,7 +200,7 @@ it.each(["assign", "answer"])("returns to question %s after Escape", async (mode
   );
   render(<Dashboard />);
   fireEvent.change(await screen.findByRole("combobox", { name: "Browse register" }), { target: { value: "browse-open-questions" } });
-  fireEvent.click(await screen.findByRole("button", { name: new RegExp(mode === "assign" ? "unassigned — assign" : "answer…") }));
+  fireEvent.click(await screen.findByRole("button", { name: new RegExp(mode === "assign" ? "unassigned - assign" : "answer…") }));
   fireEvent.keyDown(screen.getByLabelText(mode === "assign" ? "Assign this question to" : "Answer this question"), { key: "Escape" });
-  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: new RegExp(mode === "assign" ? "unassigned — assign" : "answer…") })));
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: new RegExp(mode === "assign" ? "unassigned - assign" : "answer…") })));
 });

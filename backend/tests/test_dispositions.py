@@ -44,7 +44,7 @@ def test_dismissed_suppresses_refire_across_weeks(fresh_db):
     fid = _plant_finding(fresh_db)
     assert not _suppressed("aging_wip", "aging_wip")
     disposition_finding(fid, "dismissed", reason="known", actor="m")
-    # next week's run consults (rule_id, subject) history — still suppressed
+    # next week's run consults (rule_id, subject) history - still suppressed
     assert _suppressed("aging_wip", "aging_wip")
     # a different subject of the same rule is untouched
     assert not _suppressed("aging_wip", "other-subject")

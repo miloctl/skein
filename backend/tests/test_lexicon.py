@@ -14,7 +14,7 @@ def _pairs():
 
 def test_every_registry_pair_has_a_phrase():
     """A new entity must not reach a person as a schema word. This is the
-    guard the whole module exists for — without it the fallback quietly
+    guard the whole module exists for - without it the fallback quietly
     renders "update note_delete" in the authority card again."""
     missing = sorted(_pairs() - set(lexicon.CAPABILITY))
     assert missing == [], f"no reader-facing phrase for: {missing}"
@@ -28,7 +28,7 @@ def test_no_phrase_outlives_its_registry_pair():
 
 
 def test_every_phrase_leads_with_a_verb():
-    """A noun cannot express a residual — `blocker` registers create AND
+    """A noun cannot express a residual - `blocker` registers create AND
     resolve, and "a blocker" hid the resolve. Articles are how nouns start,
     so they are what this rejects."""
     offenders = [p for p in lexicon.CAPABILITY.values() if p.split()[0] in {"a", "an", "the"}]

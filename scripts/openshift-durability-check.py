@@ -130,7 +130,7 @@ def main(argv=None):
     ]
 
     def run(*words, input=None):
-        result = subprocess.run(  # noqa: S603 — fixed kubectl operations and explicit target
+        result = subprocess.run(  # noqa: S603 - fixed kubectl operations and explicit target
             [*command, *words],
             input=input,
             capture_output=True,

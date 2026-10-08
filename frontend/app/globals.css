@@ -4,7 +4,7 @@
    SKEIN_FRONTEND_EXTENSIONS before every build; empty means core only. */
 @import "../extensions/generated-sources.css";
 
-/* Skein design language — "The Loom".
+/* Skein design language - "The Loom".
    Warm loom-neutral surfaces, indigo-dye thread accent, weld-ochre signature.
    Borders carry structure, lightness carries elevation; shadows only on
    things that float. */
@@ -33,7 +33,7 @@
   --ok: light-dark(#22754a, #85cd9e);
   --warn: light-dark(#86590e, #dfb362);
   --danger: light-dark(#b23425, #f0998b);
-  /* FILL halves, for white text — the --thread / --thread-solid pair, applied
+  /* FILL halves, for white text - the --thread / --thread-solid pair, applied
      to the status hues. The inks above are tuned to sit ON a surface at 8-10:1
      and are far too light in dark mode to sit UNDER white: --ok measured
      1.87:1 there, on the Approve button. These do not vary by mode, because
@@ -95,14 +95,14 @@
 /* Fabric packs: a different cloth on the same loom. Packs re-weave the
    surfaces, text, texture, and type; colorways (and custom hues) still dye
    the accent threads on top. scripts/check_theme_contrast.py (run by
-   lint.sh) reads the packs out of this file and verifies every accent —
-   the named colorways and all 360 custom hues — against every pack surface
+   lint.sh) reads the packs out of this file and verifies every accent -
+   the named colorways and all 360 custom hues - against every pack surface
    directly, so a new pack is gated the day it ships. Selectors match ANY
    [data-pack] element, not just :root, so the Settings theme cards can
    render live scoped previews of each fabric. */
 
 /* Ledger: cool paper, ruled lines, print-crisp. Square corners, serif
-   headlines, zero shadow — a broadsheet, not a web app. */
+   headlines, zero shadow - a broadsheet, not a web app. */
 [data-pack="ledger"] {
   --font-body: var(--font-geist-sans);
   --font-heading: var(--font-fraunces);
@@ -131,7 +131,7 @@
   );
 }
 
-/* Phosphor: terminal fabric — green-black, scanlines, mono type, square
+/* Phosphor: terminal fabric - green-black, scanlines, mono type, square
    corners, a faint CRT glow instead of shadows */
 [data-pack="phosphor"] {
   --font-body: var(--font-geist-mono);
@@ -164,7 +164,7 @@
 }
 
 /* High contrast: pure black & white, no texture, borders carry everything.
-   An accessibility fabric first — plain name on purpose. */
+   An accessibility fabric first - plain name on purpose. */
 [data-pack="contrast"] {
   --font-body: var(--font-geist-sans);
   --font-heading: var(--font-bricolage);
@@ -181,7 +181,7 @@
   --fabric-texture: none;
 }
 
-/* Atelier: editorial paper — serif body, Fraunces display, generous corners,
+/* Atelier: editorial paper - serif body, Fraunces display, generous corners,
    soft ink shadows, warm gallery-cream by day and aubergine ink by night */
 [data-pack="atelier"] {
   --font-body: var(--font-source-serif);
@@ -206,7 +206,7 @@
     light-dark(rgb(60 40 20 / 0.16), rgb(0 0 0 / 0.55));
 }
 
-/* Claw: command deck — layered charcoal, whisper borders, generous radii,
+/* Claw: command deck - layered charcoal, whisper borders, generous radii,
    coral signature; warm paper by day. Depth comes from surface steps, so the
    texture is only the faint blueprint rule off the approval deck. */
 [data-pack="claw"] {
@@ -235,7 +235,7 @@
   --shadow-float: 0 12px 32px light-dark(rgb(60 42 24 / 0.09), rgb(0 0 0 / 0.4));
 }
 
-/* Hermes: mission console — cream instruments on deep teal, square corners,
+/* Hermes: mission console - cream instruments on deep teal, square corners,
    hairline rules, no resting shadows. Dark surfaces are the cream mixed over
    the canvas at 4/5%, the way the source HUD derives them; day is nous-blue
    paper. */
@@ -275,7 +275,7 @@
 }
 
 /* Display-type voice (TD1): packs set the letterform personality of every
-   font-display site — tracking, case, variable-font axes, glow — without
+   font-display site - tracking, case, variable-font axes, glow - without
    touching a component (unlayered, so it beats the per-site tracking-*). */
 .font-display {
   letter-spacing: var(--display-tracking, -0.01em);
@@ -304,7 +304,7 @@
 }
 
 /* Empty-state flourishes (TD6): each fabric's own way of saying "nothing is
-   wrong" — blinking prompt, blank ruling, a fleuron. Call sites untouched. */
+   wrong" - blinking prompt, blank ruling, a fleuron. Call sites untouched. */
 [data-pack="phosphor"] .loom-idle {
   background: none;
 }
@@ -338,7 +338,7 @@
     )
     0 0 / 6px 6px;
 }
-/* hermes: the badge grain dither — quiet instruments */
+/* hermes: the badge grain dither - quiet instruments */
 [data-pack="hermes"] .loom-idle {
   border-radius: 0;
   background: repeating-conic-gradient(
@@ -361,7 +361,7 @@
 /* The working indicator in an assistant bubble that has no text yet
    (components/thread.tsx). A thinking model streams empty deltas for seconds
    before its first word, and an attached image costs a whole extra model call
-   before that — so the wait is real and the bubble must not sit blank.
+   before that - so the wait is real and the bubble must not sit blank.
    Reduced motion keeps all three dots visible rather than hiding the state. */
 .working-dot {
   animation: working-pulse 1.4s ease-in-out infinite;
@@ -389,7 +389,7 @@
   }
 }
 
-/* accessibility escape — the OS-level "calm/clarity" intent silences every
+/* accessibility escape - the OS-level "calm/clarity" intent silences every
    fabric texture (Phosphor scanlines are a visual-stress pattern, and the
    Hermes dither is finer still). The forced-colors escape lives at the end
    of the file: it must out-cascade the component rules below it. */
@@ -404,7 +404,7 @@
   }
 }
 
-/* Settings theme cards: a swatch of the actual cloth — the pack's own
+/* Settings theme cards: a swatch of the actual cloth - the pack's own
    surface, texture, text color, and (via --font-body) its type */
 .pack-tile {
   background-color: var(--surface-page);
@@ -449,7 +449,7 @@
   --text-xs: var(--fs-xs, 0.75rem);
 }
 
-/* Tailwind's bare `rounded` is a legacy literal — route it through the same
+/* Tailwind's bare `rounded` is a legacy literal - route it through the same
    pack-overridable var as the rest of the radius scale */
 .rounded {
   border-radius: var(--r-sm, 0.25rem);
@@ -555,7 +555,7 @@ html[data-chat-sidebar="collapsed"] #chat-list:not([role="dialog"]) {
 
 html {
   /* short pages (no scrollbar) must not sit a gutter-width right of long
-     ones — reserve the space so page-to-page nav never shifts content */
+     ones - reserve the space so page-to-page nav never shifts content */
   scrollbar-gutter: stable;
   /* Wrapped inline links can extend above the line box scrolled into view.
      Leave a line of clearance so their text and focus outline clear the header. */
@@ -563,7 +563,7 @@ html {
 }
 
 /* iOS Safari zooms the page on focus of any input under 16px and stays
-   zoomed — on touch devices every field renders at 16px instead */
+   zoomed - on touch devices every field renders at 16px instead */
 @media (pointer: coarse) {
   input,
   textarea,
@@ -576,7 +576,7 @@ html {
 
 body {
   background-color: var(--surface-page);
-  /* the warp: faint threads — texture, never pattern; packs re-weave it */
+  /* the warp: faint threads - texture, never pattern; packs re-weave it */
   background-image: var(--fabric-texture);
   color: var(--text-1);
   font-family: var(--font-body), system-ui, sans-serif;
@@ -585,7 +585,7 @@ body {
 /* The search shortcut is ⌘K on an Apple keyboard and Ctrl+K on every other
    one. Both spellings are written into the HTML and CSS drops the wrong one,
    so there is no client-side branch to mismatch on hydration and no flash of
-   the wrong key — lib/theme-boot.ts sets data-os before first paint.
+   the wrong key - lib/theme-boot.ts sets data-os before first paint.
    display:none rather than visibility or opacity, because it must leave the
    accessibility tree too: a screen reader that reads both announces a
    shortcut the reader's keyboard does not have. */
@@ -599,7 +599,7 @@ body {
 /* The native select popup is painted by the browser chrome, not the page.
    With no author style on option, some engines (Firefox on Windows, Chrome
    on a light-theme OS) give the popup a LIGHT panel while the options
-   inherit the page's dark-mode ink — near-white text on white, unreadable
+   inherit the page's dark-mode ink - near-white text on white, unreadable
    (the Delegate-to picker was the report). option background/color is the
    one styling every engine applies inside the popup, so it must stay here
    even though selects in the page render fine without it. */
@@ -619,14 +619,14 @@ select option {
    Both clipped the ring entirely, so a keyboard user could not see where they
    were. This must live HERE, not as a Tailwind utility on the element: the
    rule above is unlayered, and unlayered CSS beats every @layer utilities
-   rule regardless of specificity — an outline-offset-[-2px] class silently
+   rule regardless of specificity - an outline-offset-[-2px] class silently
    loses to it. */
 [data-ring="inset"]:focus-visible {
   outline-offset: -2px;
 }
 
 /* The selvage: the fabric's finished edge, along the bottom of the nav.
-   A whisper, not hazard tape — indigo and ochre threads at low volume.
+   A whisper, not hazard tape - indigo and ochre threads at low volume.
    On Ship It the loom advances one repeat. */
 .selvage {
   height: var(--selvage-h, 2px);
@@ -676,7 +676,7 @@ select option {
   }
 }
 
-/* Team Pulse: the loom band — the one card where the weave speaks up */
+/* Team Pulse: the loom band - the one card where the weave speaks up */
 .loom-band {
   background-image: repeating-linear-gradient(
     135deg,
@@ -685,7 +685,7 @@ select option {
   );
 }
 
-/* The idle loom: the calm state rendered as even resting threads — one
+/* The idle loom: the calm state rendered as even resting threads - one
    indigo strand through loom-neutrals. Beautiful when nothing is wrong. */
 .loom-idle {
   height: 28px;
@@ -745,7 +745,7 @@ select option {
 }
 
 /* The row a deep link landed on announces itself, then quiets. The focus
-   ring alone was easy to miss on a thirteen-section page — this is the
+   ring alone was easy to miss on a thirteen-section page - this is the
    "you are here" the link promised. Applied by lib/hash-target.ts and
    removed on animationend, so a second landing can replay it. */
 .hash-landed {
@@ -780,7 +780,7 @@ select option {
 }
 
 /* the crossfade's pseudo-tree covers the viewport for its duration and, by
-   default, swallows every click under it — a second "Colorway: next" inside
+   default, swallows every click under it - a second "Colorway: next" inside
    that window was lost with no feedback */
 ::view-transition {
   pointer-events: none;
@@ -874,7 +874,7 @@ select option {
 }
 /* The seam between two flock members. --border-strong, not the
    --border-hairline the table cells below use: measured on the bubble it is
-   rgb(30,32,40) against a rgb(25,28,36) surface, so the rule is invisible —
+   rgb(30,32,40) against a rgb(25,28,36) surface, so the rule is invisible -
    and an invisible separator is the one thing this must not be. Preflight's
    currentColor is the other extreme, heavier than every border in the design
    language. */
@@ -894,7 +894,7 @@ select option {
 
 /* Auth gate (components/auth-gate.tsx): six strands settle into the mark's
    formation. The keyframes animate FROM the scatter, so each element's
-   resting style IS the finished composition — reduced motion gets the final
+   resting style IS the finished composition - reduced motion gets the final
    frame by skipping the animation, with no second drawing to keep in sync. */
 .gate-strand {
   transform-box: fill-box;
@@ -930,9 +930,9 @@ body:has([data-first-watch]) [data-first-week] {
   display: none;
 }
 
-/* forced-colors escape — last in the file on purpose: the base component
+/* forced-colors escape - last in the file on purpose: the base component
    rules and the equal-specificity per-pack flourishes above must lose to it
-   on source order. WHCM forces background-color but NOT background-image —
+   on source order. WHCM forces background-color but NOT background-image -
    drop author-colored gradients, and mark the active nav page with an
    underline (text-decoration survives forcing). */
 @media (forced-colors: active) {

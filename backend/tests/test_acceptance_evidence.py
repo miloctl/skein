@@ -3,7 +3,7 @@
 The evidence block puts a task's state and the agent's own worklog beside the
 Approve button. Both are the task's own text, so this file pins the doors: the
 task read takes the viewer's tier filter, and the worklog door opens for the
-sponsor alone — passing the PROPOSER's name there would open a crew worklog to
+sponsor alone - passing the PROPOSER's name there would open a crew worklog to
 whoever happened to load the queue.
 """
 
@@ -48,8 +48,8 @@ def test_the_sponsor_reads_the_worklog_beside_the_verdict(sponsored):
 
 
 def test_a_reader_outside_the_crew_gets_no_task_text(sponsored):
-    """The proposal row can still list — its summary passes `_readable` on its
-    own terms — but the task's title and worklog are a SECOND read of a scoped
+    """The proposal row can still list - its summary passes `_readable` on its
+    own terms - but the task's title and worklog are a SECOND read of a scoped
     row and take their own filter."""
     assert _evidence("outsider") == {}
 
@@ -57,7 +57,7 @@ def test_a_reader_outside_the_crew_gets_no_task_text(sponsored):
 def test_a_crew_member_who_is_not_the_sponsor_reads_no_worklog(sponsored):
     """The tier admits them to the task. The delegation door does not: the
     door is `actor in (delegated_agent, sponsor)`, resolved from the VIEWER's
-    name — passing the proposer's name would open it for every reader."""
+    name - passing the proposer's name would open it for every reader."""
     ev = _evidence("member")
     assert ev["title"] == "Summarize the pricing pages"
     # crew-tier worklog rows are readable by the crew, so this member sees the
@@ -66,7 +66,7 @@ def test_a_crew_member_who_is_not_the_sponsor_reads_no_worklog(sponsored):
 
 
 def test_the_queue_never_emits_an_empty_evidence_object(sponsored):
-    """The KEY is absent or the block is whole — never `{}`.
+    """The KEY is absent or the block is whole - never `{}`.
 
     `{}` is truthy in JavaScript, so the renderer's `c.evidence ? …` guard
     passes and the component reads `.length` of an absent worklog. One
@@ -105,7 +105,7 @@ def test_criteria_row_references_show_their_current_state(fresh_db):
 
     Deterministic display beside the verdict, never a verdict: the sponsor
     still clicks. A named row the viewer cannot see comes back with an empty
-    state — the same one sentence an absent row gets."""
+    state - the same one sentence an absent row gets."""
     from app.services import blockers
 
     users.ensure_user("sponsor")
@@ -241,7 +241,7 @@ def test_the_service_bounds_acceptance_criteria_on_every_door(fresh_db):
 def test_only_the_sponsor_closes_delegated_work(sponsored):
     """The agent half of this guard existed and the human half did not, so any
     teammate who could reach PATCH /api/tasks/{id} closed delegated work with
-    one field — no verdict, no reason on record, no trust signal."""
+    one field - no verdict, no reason on record, no trust signal."""
     with pytest.raises(PermissionError, match="sponsored by sponsor"):
         work.update_task(sponsored["task"], status="done", actor="member")
 

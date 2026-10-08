@@ -1,5 +1,5 @@
 """Daily team digest. Assembly is deterministic (SQL); when a model provider
-is configured with keys, the digest is additionally narrated by the agent —
+is configured with keys, the digest is additionally narrated by the agent -
 otherwise the markdown is published as-is."""
 
 from collections.abc import Callable
@@ -13,30 +13,30 @@ from .slas import DIGEST_STALLED_DAYS
 
 
 def _today() -> date:
-    """The team's day (config.SKEIN_TZ), not the UTC day — see db.today()."""
+    """The team's day (config.SKEIN_TZ), not the UTC day - see db.today()."""
     return db.today()
 
 
 def _stalled_tasks(days: int = DIGEST_STALLED_DAYS) -> list[dict]:
     cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat(timespec="seconds")
     return db.query(
-        f"SELECT * FROM tasks WHERE status = 'in_progress' AND updated_at < ? AND {WORKSPACE_ONLY}",  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM tasks WHERE status = 'in_progress' AND updated_at < ? AND {WORKSPACE_ONLY}",  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         (cutoff,),
     )
 
 
-# Deterministic voice: date-seeded so the whole team sees the same opener —
+# Deterministic voice: date-seeded so the whole team sees the same opener -
 # shared jokes become team rituals. Suppressed when something is on fire.
 OPENERS_CLEAR = (
     "All quiet. Suspiciously quiet. Enjoy it.",
-    "Nothing is on fire. This is not a drill — there is genuinely no drill.",
+    "Nothing is on fire. This is not a drill - there is genuinely no drill.",
     "The board is clean. Someone frame this digest.",
     "Zero escalations. The blockers fear this team.",
     "Green across the board. Ship something before it gets boring.",
 )
 OPENERS_BUSY = (
     "Coffee first. Then the blockers.",
-    "A short list today — sharp, like the team.",
+    "A short list today - sharp, like the team.",
     "The work below is sorted by how much it wants your attention.",
     "Yesterday happened. Here's what it left behind.",
     "One list, no meetings required.",
@@ -45,14 +45,14 @@ OPENERS_BUSY = (
 
 def _opener(has_escalations: bool, all_clear: bool, seed: str) -> str:
     if has_escalations:
-        return ""  # read the room — no jokes during a fire
+        return ""  # read the room - no jokes during a fire
     pool = OPENERS_CLEAR if all_clear else OPENERS_BUSY
     return pool[sum(ord(c) for c in seed) % len(pool)]
 
 
 def build_digest() -> str:
     today = _today().isoformat()
-    lines = [f"# Daily digest — {today}", ""]
+    lines = [f"# Daily digest - {today}", ""]
 
     from .insights import digest_findings
 
@@ -67,7 +67,7 @@ def build_digest() -> str:
             )
         lines.append("")
 
-    esc = db.query(f"SELECT * FROM blockers WHERE status = 'escalated' AND {WORKSPACE_ONLY}")  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+    esc = db.query(f"SELECT * FROM blockers WHERE status = 'escalated' AND {WORKSPACE_ONLY}")  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
     if esc:
         lines.append("## ⛔ Escalated blockers")
         lines += [
@@ -87,7 +87,7 @@ def build_digest() -> str:
         lines.append("")
 
     open_q = db.query(
-        f"SELECT * FROM questions WHERE status = 'open' AND {WORKSPACE_ONLY} ORDER BY id LIMIT 10"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM questions WHERE status = 'open' AND {WORKSPACE_ONLY} ORDER BY id LIMIT 10"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
     )
     if open_q:
         lines.append("## ❓ Unanswered questions")
@@ -99,14 +99,14 @@ def build_digest() -> str:
 
     week = (_today() + timedelta(days=7)).isoformat()
     due = db.query(
-        f"SELECT * FROM milestones WHERE status != 'done' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM milestones WHERE status != 'done' AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
         (week,),
     )
     if due:
         lines.append("## 🎯 Milestones due within a week")
         lines += [
-            f"- #{m['id']} {wording.quoted(m['title'])} — due {m['due_date']} ({m['status']})"
+            f"- #{m['id']} {wording.quoted(m['title'])} - due {m['due_date']} ({m['status']})"
             for m in due
         ]
         lines.append("")
@@ -122,7 +122,7 @@ def build_digest() -> str:
         lines.append(
             "## 🌡️ Weekly pulse\n"
             "- Did Skein reduce or increase coordination effort last week?"
-            " 👍/👎 on the My Day pulse line — counted as a team tally, never per person.\n"
+            " 👍/👎 on the My Day pulse line - counted as a team tally, never per person.\n"
         )
 
     lines.append("## 📋 Today")
@@ -141,7 +141,7 @@ def build_digest() -> str:
 
 
 # LLM enhancement point: the agent layer registers a narrator at startup
-# (agents/narrator.py) — services never import agents, so publishing works
+# (agents/narrator.py) - services never import agents, so publishing works
 # identically when the digest runs without an app process (tests, CLI).
 _narrator: Callable[[str], str] | None = None
 

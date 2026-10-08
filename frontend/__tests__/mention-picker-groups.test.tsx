@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *  this turn. A LEADING @slug is the deterministic handoff (routes/chat.py
  *  rewrites it into the /as form); a mid-sentence slug reaches the bench
  *  through the orchestrator's consult tool, so those rows depend on a real
- *  provider — this file runs with one. mention-picker-keyless.test.tsx pins
+ *  provider - this file runs with one. mention-picker-keyless.test.tsx pins
  *  the mock side, where mid-sentence rows must stay hidden. */
 
 class NoopResizeObserver {
@@ -22,7 +22,7 @@ const { bench, specialist, catalog } = vi.hoisted(() => ({
     {
       slug: "backend-architect",
       name: "Backend Architect",
-      description: "Design consultations — schemas, APIs, tradeoffs — biased to boring technology and reversible choices",
+      description: "Design consultations - schemas, APIs, tradeoffs - biased to boring technology and reversible choices",
       emoji: "🏛️",
     },
   ],
@@ -229,7 +229,7 @@ describe("the @ picker", () => {
 
   it("offers specialists mid-sentence too, on a real provider", async () => {
     // the consult feature's own headline case is "ask @code-reviewer about
-    // tomorrow's plan" — a picker that only helped at position zero made the
+    // tomorrow's plan" - a picker that only helped at position zero made the
     // user type the slug from memory exactly where the feature lives
     render(<Harness />);
     await type("ask @");
@@ -249,7 +249,7 @@ describe("the @ picker", () => {
     expect(names.some((n) => n.includes("ada lovelace"))).toBe(false);
     expect(names.some((n) => n.includes("Brien"))).toBe(false);
     expect(names.some((n) => n.includes("Jos"))).toBe(false);
-    // the bench is kept out of People by kind, not by charset — the slug
+    // the bench is kept out of People by kind, not by charset - the slug
     // tokenizes fine, and it has its own section
     expect(names).not.toContain("@backend-architect");
   });

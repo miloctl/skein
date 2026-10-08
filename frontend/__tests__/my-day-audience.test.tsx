@@ -5,7 +5,7 @@ import recentChanges from "./fixtures/recent-changes.json";
 /** "Needs you" has to mean it.
  *
  *  Every attention row landed under that one heading, including the team's
- *  intake queue and every pending proposal — work nobody had assigned to the
+ *  intake queue and every pending proposal - work nobody had assigned to the
  *  reader. The heading was the product's daily habit, and a heading that
  *  overclaims teaches readers to skim past the rows that really are theirs.
  *  services/briefing.py labels each row with an audience; this pins that the
@@ -111,7 +111,7 @@ describe("My Day", () => {
   });
   it("keeps the shared queues out of the count that says 'needs you'", async () => {
     render(<MyDay />);
-    // one personal row, so the sentence is singular and names ONE thing —
+    // one personal row, so the sentence is singular and names ONE thing -
     // with the intake row counted it read "2 things need you"
     await waitFor(() =>
       expect(screen.getByText(/1 thing needs you/)).toBeTruthy(),

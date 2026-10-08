@@ -202,7 +202,7 @@ export default function PeoplePage() {
 
   useEffect(() => {
     // never under weak identity: both endpoints refuse it, and firing them
-    // rendered the same refusal twice — once per card — over a notes form
+    // rendered the same refusal twice - once per card - over a notes form
     // whose submit was going to collect a third copy
     if (person && strong !== false) load(person);
   }, [person, strong, load, leadStatus, me]);
@@ -240,7 +240,7 @@ export default function PeoplePage() {
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">1:1s</h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
         Private 1:1 prep and feedback journal. Only you can read what you
-        write here — it lives outside search, digests, context packs, exports, and
+        write here - it lives outside search, digests, context packs, exports, and
         every agent surface. A teammate&apos;s brief opens after they accept a 1:1
         pairing, and they see when you last opened it.
       </p>
@@ -261,7 +261,7 @@ export default function PeoplePage() {
                 // reads already_pending, like Settings does for the same call:
                 // ignoring it claimed a fresh request every time, so clicking
                 // twice reported two requests where the backend filed one.
-                // Same wording as Settings — one condition, one wording.
+                // Same wording as Settings - one condition, one wording.
                 const r = await api<{ already_pending: boolean; to_team?: boolean }>(
                   "/api/keys/request",
                   { method: "POST" },
@@ -288,7 +288,7 @@ export default function PeoplePage() {
 
       {/* nothing below the identity banner renders under weak identity: the
           picker fired two requests that both refused, and the notes form
-          collected an entry whose submit was going to refuse too — a wall of
+          collected an entry whose submit was going to refuse too - a wall of
           the same sentence three times, around a dead control */}
       {strong !== false && (
         <>
@@ -550,7 +550,7 @@ export default function PeoplePage() {
               ))}
               {notes?.length === 0 && (
                 <li><EmptyState>
-                  No notes for {person} yet. <code>fb: {person} — …</code> in
+                  No notes for {person} yet. <code>fb: {person} - …</code> in
                   quick capture works too.
                 </EmptyState></li>
               )}

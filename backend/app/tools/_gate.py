@@ -2,9 +2,9 @@
 
 Per (agent, entity) the authority matrix grants: autonomous (direct write),
 notify (direct write + team notification), review (proposal when
-SKEIN_AGENT_REVIEW=1, direct otherwise — the pre-matrix behavior), or
+SKEIN_AGENT_REVIEW=1, direct otherwise - the pre-matrix behavior), or
 forbidden (always refused). An expired elevated grant always returns to review.
-Default is review — agents earn autonomy through approved proposals, they don't
+Default is review - agents earn autonomy through approved proposals, they don't
 start with it.
 
 One thing outranks the matrix: agents/identity.py::force_review, set for the
@@ -39,7 +39,7 @@ from ..services import blockers, lexicon, review, schedule, scope, users, wordin
 from ..services.delegation import authority_status
 
 # irreversible verbs ALWAYS go through the review inbox, even with
-# SKEIN_AGENT_REVIEW off — a prompt-injected agent must never hard-delete
+# SKEIN_AGENT_REVIEW off - a prompt-injected agent must never hard-delete
 # the knowledge base or its own steering evidence without a human verdict
 # (edits stay reversible + old->new logged, so they follow the normal flag)
 ALWAYS_REVIEW = {"note_delete", "memory_forget", "event_cancel", "absence"}
@@ -70,7 +70,7 @@ _FAMILY = {
 
 # Registry entities that LOOK like <root>_<verb> but are not gate families.
 # task_completion is filed by delegation.submit_completion, which never routes
-# through gated_write — it is the sponsor's acceptance proposal, and the
+# through gated_write - it is the sponsor's acceptance proposal, and the
 # delegation trio already honors the `task` kill switch via
 # delegation._check_not_forbidden. Listing it here is a decision on the
 # record, which is what the parity test asks for.
@@ -157,18 +157,18 @@ def _gated_write_locked(
     summary: str = "",
     actor: str = "",
 ) -> str:
-    """One gate for every agent write path (chat tools AND the MCP server) —
+    """One gate for every agent write path (chat tools AND the MCP server) -
     per-agent authority and the review inbox see all agent traffic, so trust
     scores accrue no matter which door the agent came through."""
     actor = actor or agent_identity()
     # an empty update proposal would sail to a reviewer and only fail at
-    # apply ("nothing to update") — bounce it on the agent instead. The
+    # apply ("nothing to update") - bounce it on the agent instead. The
     # destructive ALWAYS_REVIEW verbs legitimately carry empty payloads.
     if action == "update" and not payload and entity not in ALWAYS_REVIEW:
-        return json.dumps({"error": "nothing to change — pass at least one field"})
+        return json.dumps({"error": "nothing to change - pass at least one field"})
     # Same 30/min budget the REST creates use, and keyed on the SAME subject:
     # the human who asked. Keying on the actor alone made it one team-wide
-    # bucket, because the default chat identity is the single name "agent" —
+    # bucket, because the default chat identity is the single name "agent" -
     # person B's write was refused because person A was mid-turn, under a
     # message claiming the cap was per person. Keying on the PAIR fixed that
     # and broke the arithmetic instead: agent identity is per persona, so one
@@ -355,12 +355,12 @@ def _gated_write_locked(
     # outranked by forbidden above (a kill switch never softens into a
     # proposal). Without it a flock member that earned `autonomous` writes
     # directly during a fan-out, so ONE consultative human message becomes N
-    # unreviewed writes — see docs/FLOCKS.md and agents/identity.py.
+    # unreviewed writes - see docs/FLOCKS.md and agents/identity.py.
     if decision.effect == PolicyEffect.PERMIT:
         try:
             # db.savepoint(), because this catch RETURNS: a return leaves the
             # gate's transaction normally, so it COMMITS. A service that wrote
-            # and then raised loses its rollback — supersede_decision marks the
+            # and then raised loses its rollback - supersede_decision marks the
             # old decision superseded, record_decision raises, and the row
             # commits as superseded_by=NULL, the unrecoverable state
             # services/collab.py warns about. The savepoint also keeps the
@@ -371,7 +371,7 @@ def _gated_write_locked(
         # PermissionError as well as ValueError, and for the same reason the
         # policy-context catch above takes both: services/documents.py raises
         # it for the laundering guard and for an upload an agent may not
-        # rewrite. Uncaught, it escapes the gate as a raw tool error — no
+        # rewrite. Uncaught, it escapes the gate as a raw tool error - no
         # receipt in the transcript, and the refusal wording never reaches the
         # model that has to act on it.
         except (ValueError, PermissionError) as exc:

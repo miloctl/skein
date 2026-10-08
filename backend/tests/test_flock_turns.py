@@ -155,7 +155,7 @@ def test_traces_rest_filters(client):
 
 
 def test_flock_cannot_smuggle_fb_past_the_guard(client):
-    out = _read_chat(client, "/flock engineering fb: mira — private thing")
+    out = _read_chat(client, "/flock engineering fb: mira - private thing")
     assert "Feedback notes are private" in out
 
 
@@ -323,7 +323,7 @@ def test_a_flock_turn_costs_one_chat_slot_per_member(client, monkeypatch):
         assert resp.status_code == 429
         assert "The limit for chat" in resp.read().decode()
     # the refused CALL took no slots, but the turn's top-of-route charge
-    # already landed, so 2 remain — enough for a plain turn
+    # already landed, so 2 remain - enough for a plain turn
     assert _read_chat(client, "hello", thread="c3")
     ratelimit.reset()
 
@@ -353,7 +353,7 @@ def test_a_flock_slug_is_reserved_like_a_persona_slug(fresh_db):
 
 def test_a_hung_member_does_not_hold_the_turn(client, fresh_db, monkeypatch):
     """No deadline meant a provider that accepts and never answers pinned the
-    task, a threadpool worker and the SSE stream — four of them per flock."""
+    task, a threadpool worker and the SSE stream - four of them per flock."""
     import asyncio as aio
 
     from app.routes import chat as chat_route
@@ -404,7 +404,7 @@ def test_a_hung_merge_does_not_hold_the_turn(client, fresh_db, monkeypatch):
     # "did not finish", not "did not run": a merge that hit the deadline
     # DID run, and whatever it streamed first is already on screen above
     assert "The merge step did not finish (TimeoutError)" in out
-    # the members are still delivered — only the merge is lost
+    # the members are still delivered - only the merge is lost
     assert "Project Shepherd" in out
     row = fresh_db.query_row("SELECT * FROM flock_traces ORDER BY id DESC")
     assert json.loads(row["synthesis"])["status"] == "failed"
@@ -413,7 +413,7 @@ def test_a_hung_merge_does_not_hold_the_turn(client, fresh_db, monkeypatch):
 def test_a_timed_out_member_still_reports_the_write_it_filed(client, fresh_db, monkeypatch):
     """A receipt for a tool call that already finished must not die with the
     member. The in-loop drain runs on the NEXT stream event, which a hung member
-    never sends, and the drain after the loop is skipped by the raise — so
+    never sends, and the drain after the loop is skipped by the raise - so
     before the drain in the finally, this proposal sat in the review inbox while
     the chat window and the trace row both reported none."""
     import asyncio as aio
@@ -446,7 +446,7 @@ def test_a_timed_out_member_still_reports_the_write_it_filed(client, fresh_db, m
 
 def test_a_member_receipt_carries_no_actor_on_the_wire(client, monkeypatch):
     """A member's receipts drain inside its own section, whose heading already
-    names it — routes/chat.py::_attributed with the member as head strips the
+    names it - routes/chat.py::_attributed with the member as head strips the
     field by construction. An actor here would double-name every member write,
     and its absence is what pins the suppression to the drain site rather
     than to a second rule in the reader."""

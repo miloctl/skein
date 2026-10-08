@@ -72,7 +72,7 @@ def test_the_keyless_path_reports_its_own_write(client):
     """The mock captures through capture.capture, not the tool gate, so nothing
     else would report the write. Before this, the one provider guaranteed to
     work end-to-end was the one where the UI could not state what happened to
-    your data — and the guard would have called a real capture 'nothing filed'."""
+    your data - and the guard would have called a real capture 'nothing filed'."""
     body = client.post(
         "/api/chat", json={"thread_id": "t-mock", "message": "todo: ship the guard"}
     ).text
@@ -88,7 +88,7 @@ def test_the_guard_stays_quiet_on_ordinary_chat(client):
 
 
 def test_the_guard_fires_in_the_stream_when_the_turn_writes_nothing(client, monkeypatch):
-    """A silent turn is simulated by making the agent yield only text — the
+    """A silent turn is simulated by making the agent yield only text - the
     condition the guard exists for, which no provider is guaranteed to produce
     on demand."""
 
@@ -149,7 +149,7 @@ def test_the_reprompt_runs_once_and_only_once(client, monkeypatch):
     body = client.post(
         "/api/chat", json={"thread_id": "t-reprompt", "message": "todo: file me"}
     ).text
-    assert len(calls) == 2  # the message, then the OBJECTION — never a third
+    assert len(calls) == 2  # the message, then the OBJECTION - never a third
     assert calls[0] == "todo: file me"
     assert "capture prefix" in calls[1]  # the objection text reached the agent
     assert '"kind": "nothing"' in body  # still unfiled -> the absence is stated
@@ -182,7 +182,7 @@ def test_a_reprompt_that_files_clears_the_guard(client, monkeypatch):
 
 
 def test_a_failed_write_does_not_tie_the_knot(client, monkeypatch):
-    """A failed receipt silences the guard — it told the truth — but nothing
+    """A failed receipt silences the guard - it told the truth - but nothing
     was filed, so the knot must not tie. `wrote` was the wrong predicate."""
     from app.agents import receipts as receipts_mod
     from app.services import fieldguide

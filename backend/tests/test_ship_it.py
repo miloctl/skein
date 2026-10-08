@@ -8,7 +8,7 @@ def test_the_recap_note_carries_the_closers_origin(fresh_db, origin):
     """_ship_it and _experiment_lesson are called on adjacent lines from the
     same `if freshly_closed:` block. _ship_it hardcoded origin="human", so an
     engagement closed by the agent path wrote the lesson as agent_verified and
-    the recap beside it as human, in one transaction — an auditor filtering
+    the recap beside it as human, in one transaction - an auditor filtering
     notes by origin sees a machine-generated note attributed to a person."""
     from app.services import engagements
 

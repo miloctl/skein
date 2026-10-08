@@ -236,7 +236,7 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
             return {"skipped": "this dispatch window is already claimed", "status": "noop"}
         counts = dict(dispatch_events(registry.events, event_context))
         if counts.get("failed") or counts.get("dead"):
-            # `partial` is what run_job records as an error — without it a
+            # `partial` is what run_job records as an error - without it a
             # night of dead deliveries left /health green.
             return {**counts, "status": "partial"}
         return counts
@@ -248,7 +248,7 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
             trigger={"trigger": "interval", "minutes": 1},
             period_hours=1 / 60,
             # catch_up drained the whole backlog synchronously before the
-            # lifespan yielded — a slow subscriber delayed readiness by its
+            # lifespan yielded - a slow subscriber delayed readiness by its
             # full timeout per event. The one-minute interval covers boot.
             catch_up=False,
         )
@@ -266,7 +266,7 @@ def _start_scheduler(
     process running the same schedule skips what the first one holds.
 
     The hours in JOBS are the hours a person experiences: the 07:00 digest is
-    07:00 where the team works. APScheduler resolves the DST edges — a job at
+    07:00 where the team works. APScheduler resolves the DST edges - a job at
     an hour that a spring-forward skips runs once, not zero times."""
     from apscheduler.schedulers.background import (
         BackgroundScheduler,
@@ -310,7 +310,7 @@ async def lifespan(app: FastAPI):
     settings: AppSettings = app.state.skein_settings
     registry: ExtensionRegistry = app.state.skein_registry
     specs = _job_specs(registry, settings)
-    db.init_db()  # a failed migration MUST abort startup — everything else must not
+    db.init_db()  # a failed migration MUST abort startup - everything else must not
     from .services.users import identity_ownership_conflicts
 
     for conflict in identity_ownership_conflicts():
@@ -384,7 +384,7 @@ async def lifespan(app: FastAPI):
                     f"service identity {identity.subject!r} is already owned: {exc}"
                 ) from exc
     # SKEIN_MCP_USER is operator-supplied, and the obvious thing to type is
-    # your own name — which reserves it as an AGENT identity, and agent
+    # your own name - which reserves it as an AGENT identity, and agent
     # identities are refused on REST and on every private surface. An existing
     # human row is unsafe because it would merge human and machine ownership.
     # Disable MCP and keep REST available when that collision exists.
@@ -415,7 +415,7 @@ async def lifespan(app: FastAPI):
         )
     if config.TZ_ERROR:
         # the rejected value, for whoever runs the server. TZ_ERROR itself is
-        # served on /health and never carries it (config.py::TZ_REJECTED) —
+        # served on /health and never carries it (config.py::TZ_REJECTED) -
         # the same split the auth fault below makes, for the same reason.
         log.warning(
             "time zone is misconfigured (SKEIN_TZ=%r): %s",
@@ -427,7 +427,7 @@ async def lifespan(app: FastAPI):
         # response is served to unauthenticated callers, and an operator who
         # pastes a secret into the wrong variable must not broadcast it
         log.error(
-            "auth is misconfigured (SKEIN_AUTH_MODE=%r): %s — every /api request"
+            "auth is misconfigured (SKEIN_AUTH_MODE=%r): %s - every /api request"
             " is refused until this is fixed",
             settings.auth_mode,
             settings.auth_error,
@@ -439,7 +439,7 @@ async def lifespan(app: FastAPI):
             " deployment is shared, set SKEIN_AUTH_MODE=api-key or oidc."
         )
     # a row holding a system-actor name predates the wall that now refuses it.
-    # The doors refuse the identity, so nothing writes under it — but the
+    # The doors refuse the identity, so nothing writes under it - but the
     # person cannot work until it moves, and moving a person is rename_user's
     # job, not a migration's: it knows all 47 attribution columns and the
     # private notes DB that SQL cannot reach.
@@ -456,7 +456,7 @@ async def lifespan(app: FastAPI):
 
     if settings.api_token and settings.auth_mode != "trusted-header":
         log.warning(
-            "SKEIN_API_TOKEN has no effect with SKEIN_AUTH_MODE=%s — that mode"
+            "SKEIN_API_TOKEN has no effect with SKEIN_AUTH_MODE=%s - that mode"
             " already demands a per-caller credential on every request",
             settings.auth_mode,
         )
@@ -521,7 +521,7 @@ async def lifespan(app: FastAPI):
         # Two SEPARATE thread pools, sized here so the numbers are chosen rather
         # than inherited (config.py documents the measurement). anyio's limiter
         # carries every sync route handler and run_in_threadpool call; the loop's
-        # default executor carries every sync @tool via asyncio.to_thread — left
+        # default executor carries every sync @tool via asyncio.to_thread - left
         # unset it sizes itself min(32, cpu + 4), invisible and host-dependent.
         import asyncio
         from concurrent.futures import ThreadPoolExecutor
@@ -539,9 +539,9 @@ async def lifespan(app: FastAPI):
 
             pools = {name: effective(name) for name in pools}
         except Exception:
-            # operator config never takes down the API — the env values are a
+            # operator config never takes down the API - the env values are a
             # correct sizing, just not the stored one
-            log.exception("could not read the stored pool sizes — using the environment values")
+            log.exception("could not read the stored pool sizes - using the environment values")
         anyio.to_thread.current_default_thread_limiter().total_tokens = pools["thread_pool"]
         asyncio.get_running_loop().set_default_executor(
             ThreadPoolExecutor(max_workers=pools["tool_threads"], thread_name_prefix="skein-tool")
@@ -702,14 +702,14 @@ async def perimeter_auth(request: Request, call_next):
 async def _perimeter_auth(request: Request, call_next):
     """Perimeter gate, by SKEIN_AUTH_MODE. Route dependencies (routes/deps.py)
     resolve WHO the caller is; this layer only refuses requests that carry no
-    valid credential at all — so a future route that forgets a user dependency
+    valid credential at all - so a future route that forgets a user dependency
     is still not open in api-key/oidc mode. /health stays open for container
     checks.
 
     trusted-header mode keeps the historical behavior: open unless
     SKEIN_API_TOKEN sets a shared perimeter token.
     """
-    # calendar.ics: calendar clients can't send headers — the route checks
+    # calendar.ics: calendar clients can't send headers - the route checks
     # its own dedicated ?token= secret.
     # /api/auth/: the sign-in flow itself, which by definition runs before the
     # caller has a credential. Both routes there are written for that (public
@@ -785,7 +785,7 @@ async def _perimeter_auth(request: Request, call_next):
     # The shared token is checked BEFORE the key prefix: an operator whose
     # SKEIN_API_TOKEN happens to begin with the key prefix would otherwise be
     # routed into verify_key and locked out of their own deployment. Here the
-    # order is safe either way — this door only decides pass-or-refuse, and a
+    # order is safe either way - this door only decides pass-or-refuse, and a
     # key that is also the token passes on both branches. routes/deps.py has
     # to check it AFTER verify_key, because it decides identity as well.
     if is_shared_token(auth, request):
@@ -889,9 +889,9 @@ async def _perimeter_auth(request: Request, call_next):
 # JSON payloads compress well at any level; added before CORS so CORS stays
 # outermost. compresslevel=1, not the default 9: gzip runs ON THE EVENT LOOP,
 # and a 251 KB /api/tasks response measured 1.37 ms at level 9 against
-# 0.17 ms at level 1, for 5.7 KB instead of 4.2 KB on the wire — on an
+# 0.17 ms at level 1, for 5.7 KB instead of 4.2 KB on the wire - on an
 # internal deployment the loop time is the scarce resource, not the bytes.
-# added AFTER perimeter_auth so CORS is the OUTERMOST layer — a 401 short-circuit
+# added AFTER perimeter_auth so CORS is the OUTERMOST layer - a 401 short-circuit
 # must still carry Access-Control-Allow-Origin, or the browser reports an
 # opaque CORS failure instead of a readable auth error
 # Malformed input is the caller's error. The rule is the classification, not
@@ -983,7 +983,7 @@ async def database_busy_handler(request: Request, exc: Exception):
     # Serialization failure, deadlock, or an exhausted pool is LOAD, not fault:
     # the same request succeeds on a retry with nothing changed, which is the
     # 503 + Retry-After contract. A 500 here told the operator "bug" and the
-    # client "do not retry" — both wrong. Only the types in db.BUSY_ERRORS
+    # client "do not retry" - both wrong. Only the types in db.BUSY_ERRORS
     # reach this; an ordinary fault (bad SQL) is a ProgrammingError and keeps
     # its 500.
     return JSONResponse(
@@ -1011,7 +1011,7 @@ async def database_operation_error_handler(request: Request, exc: psycopg.Operat
 
 
 async def artifact_unreadable_handler(request: Request, exc: RuntimeError):
-    # The 500 CLASS is right — the row is readable and the FILE is not, which
+    # The 500 CLASS is right - the row is readable and the FILE is not, which
     # is our own state and belongs in the error rate. What was wrong is the
     # SHAPE: with no handler, Starlette answers a bare `Internal Server Error`
     # in text/plain, so the operator instruction inside the message reached
@@ -1019,7 +1019,7 @@ async def artifact_unreadable_handler(request: Request, exc: RuntimeError):
     # always JSON (CLAUDE.md).
     #
     # Handled on ITS OWN CLASS, not on RuntimeError: that would catch every
-    # RuntimeError in the process — Starlette's, anyio's, the SDK's — and put
+    # RuntimeError in the process - Starlette's, anyio's, the SDK's - and put
     # a raw message from one of them into a response body. The four raises
     # this covers are written for a reader; nothing else is.
     logging.getLogger("skein").exception("artifact unreadable", exc_info=exc)
@@ -1044,7 +1044,7 @@ async def unhandled_error_handler(request: Request, exc: Exception):
     """Anything with no handler above, as JSON with NOTHING from the exception.
 
     "An error response is always JSON" (CLAUDE.md) was true for the classes
-    named above and false for every other one — a KeyError or a bad-SQL
+    named above and false for every other one - a KeyError or a bad-SQL
     OperationalError answered `Internal Server Error` in text/plain, and
     lib/api.ts fell back to the status line. The body carries no message on
     purpose: these are unclassified, so the text is as likely to be a
@@ -1089,7 +1089,7 @@ async def public_health(settings: AppSettings | None = None):
     on the perimeter's open list and the backend can sit on a public route,
     so every field here is read by anonymous callers: provider, model, job
     schedule and chain state are deployment topology and stay off it.
-    auth_error is the one fault detail that belongs here — a broken auth
+    auth_error is the one fault detail that belongs here - a broken auth
     config refuses every authenticated request with a 503, so an open
     endpoint is the only place an operator can read the reason.
     """
@@ -1132,7 +1132,7 @@ def health(specs: Sequence[JobSpec] = JOBS, settings: AppSettings | None = None)
         "auth_error": selected.auth_error,
         # like database_warnings: a standing posture fault on the running
         # instance, not only a line in a startup log nobody reopens. Names
-        # the mode, which this response already carries — nothing more.
+        # the mode, which this response already carries - nothing more.
         "auth_warnings": (
             [
                 "SKEIN_AUTH_MODE=trusted-header: identity is the self-asserted"
@@ -1155,7 +1155,7 @@ def health(specs: Sequence[JobSpec] = JOBS, settings: AppSettings | None = None)
         "models_error": config.MODELS_ERROR,
         "model_prices_error": config.MODEL_PRICES_ERROR,
         # personas whose model override the menu does not list, and the env
-        # default itself when the menu omits it — runtime, not lint, because
+        # default itself when the menu omits it - runtime, not lint, because
         # SKEIN_MODELS is env and CI shares no env
         "model_warnings": unlisted_model_warnings() + config.menu_warnings(),
         "embeddings_error": config.EMBEDDINGS_ERROR,
@@ -1164,16 +1164,16 @@ def health(specs: Sequence[JobSpec] = JOBS, settings: AppSettings | None = None)
         "semantic_search": bool(config.EMBED_READY),
         "overlay_errors": config.overlay_errors(),
         # a database superuser is a standing privilege fault, not a config
-        # typo — db.privilege_warnings says what it costs and how to fix it
+        # typo - db.privilege_warnings says what it costs and how to fix it
         "database_warnings": db.privilege_warnings(),
         "identity_ownership_error": identity_ownership_error(),
-        # the EFFECTIVE strategy, not the env default — the toggle overrides it,
+        # the EFFECTIVE strategy, not the env default - the toggle overrides it,
         # and two surfaces disagreeing about one fact is the bug this avoids
         "context_strategy": strategy_override or config.CONTEXT_STRATEGY,
         "context_strategy_origin": "admin" if strategy_override else "env",
         "context_error": config.CONTEXT_STRATEGY_ERROR,
         # the zone the scheduler and every "today" run in, and the fault when
-        # the configured name degraded to UTC — an operator whose rituals fire
+        # the configured name degraded to UTC - an operator whose rituals fire
         # at the wrong hour reads it here first
         "timezone": selected.timezone,
         "timezone_error": config.TZ_ERROR,
@@ -1327,7 +1327,7 @@ def create_app(
     # The full payload, behind identity: not in the perimeter's open list, so
     # api-key and oidc deployments require a credential while trusted-header
     # keeps its historical openness on the trusted network. CurrentUser, not
-    # AdminUser — the team-wide header already shows provider and model to
+    # AdminUser - the team-wide header already shows provider and model to
     # everyone on the roster.
     from .routes.deps import current_user
 

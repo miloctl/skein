@@ -25,7 +25,7 @@ def _mk_blocker(db, title, created_days_ago, resolved_days_ago, escalated=False)
 def test_mttr_windows_and_small_n_gate(fresh_db):
     from app.services import insights
 
-    # 4 blockers in the current window: below the n>=8 gate — no finding
+    # 4 blockers in the current window: below the n>=8 gate - no finding
     for i in range(4):
         _mk_blocker(fresh_db, f"b{i}", 5, 4)
     w = insights.mttr_windows()
@@ -120,7 +120,7 @@ def test_decision_decay_rule(client, fresh_db):
 def test_evidence_gap_fires_on_delegated_work_with_no_worklog(fresh_db, monkeypatch):
     """The trust loop measuring itself: a sponsor accepted an agent's work
     with nothing to audit. A delegated task with a worklog note stays silent,
-    and a plain human task stays silent however it closes — judging every
+    and a plain human task stays silent however it closes - judging every
     person's closing hygiene is what the anti-surveillance rule refuses."""
     from app import config
     from app.services import delegation, insights, users, work
@@ -148,7 +148,7 @@ def test_evidence_gap_fires_on_delegated_work_with_no_worklog(fresh_db, monkeypa
 
 def test_a_persisting_condition_is_one_row_across_weeks(fresh_db, monkeypatch):
     """run_findings mints one row per ISO week while a condition holds, and the
-    feed showed both — the same broken cron as two problems, last week's badge
+    feed showed both - the same broken cron as two problems, last week's badge
     beside this week's blank. One row per (rule, subject) now, and a verdict on
     any week's row travels to the surviving one."""
     from datetime import timedelta
@@ -190,7 +190,7 @@ def test_run_findings_dedupes_within_week(client, fresh_db):
     first = insights.run_findings()
     assert first["new"] >= 1
     second = insights.run_findings()
-    assert second["new"] == 0  # same week, same subjects — silence
+    assert second["new"] == 0  # same week, same subjects - silence
 
     stored = insights.list_findings()
     question = next(f for f in stored if f["rule_id"] == "question_aging")
@@ -274,8 +274,8 @@ def test_automation_ratio_counts_origins(client, fresh_db):
 def test_every_findings_rule_runs(fresh_db):
     """Call each rule DIRECTLY, so a broken one fails here.
 
-    run_findings catches per rule and logs, which is right in production — one
-    broken rule must not take the weekly digest down — but it means a rule
+    run_findings catches per rule and logs, which is right in production - one
+    broken rule must not take the weekly digest down - but it means a rule
     whose SQL no longer parses returns silently forever, and silence is what a
     clean run looks like. Every other test in this file goes through
     run_findings, so none of them can tell the difference. A PostgreSQL

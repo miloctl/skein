@@ -2,7 +2,7 @@
 
 This page is for the person who runs Skein and did not build it. It
 covers the OpenShift deployment (`deploy/k8s/`). The build-time decisions
-and their reasons are in `README.md` in this directory — you do not need
+and their reasons are in `README.md` in this directory - you do not need
 them for routine operation.
 
 An **admin** here means a person named in `SKEIN_ADMINS`, or in the IdP
@@ -30,7 +30,7 @@ Every `oc` command below needs your namespace: add `-n <namespace>`.
 
 Nothing routine. Backups, ledger verification, and cleanup run on an
 internal schedule. CI re-checks the code weekly. A bad model provider or
-a bad config value degrades the feature and reports itself — it does not
+a bad config value degrades the feature and reports itself - it does not
 take the service down. Check `/api/health` monthly. Upgrade when the
 maintainer publishes a release, on your own schedule.
 
@@ -48,7 +48,7 @@ card says so.
 
 ## The monthly check
 
-Open `https://<backend-route-host>/api/health` with a credential — a
+Open `https://<backend-route-host>/api/health` with a credential - a
 personal API key, or a signed-in browser session. The page always returns
 200 when the process and the database are up: the content is the
 diagnosis, not the status code. The open `/health` endpoint answers startup
@@ -63,9 +63,9 @@ Liveness does not depend on database availability. Both probes carry only `ok`, 
 | `provider_error`, `models_error`, `embeddings_error` | `null` | Agent chat degraded to mock. Deterministic features still work. Fix the named model setting when convenient. |
 | `overlay_errors` | `[]` | A persona/playbook/flock ConfigMap did not mount. Check the volume mounts against the `SKEIN_*_DIR` values. |
 | `timezone` / `timezone_error` | your team zone, error `null` | Rituals fire at UTC hours instead of local. Set `SKEIN_TZ` to an IANA `Region/City` name. |
-| `jobs[]` | every entry has `"stale": false`; `last_success` is recent, or `null` on a fresh install (that is not a fault) | The flag sets at twice the job's period — for a daily job, `true` means roughly two days already missed. Read the pod log: `oc logs deployment/skein-backend`. If the log does not explain it, contact the maintainer. |
+| `jobs[]` | every entry has `"stale": false`; `last_success` is recent, or `null` on a fresh install (that is not a fault) | The flag sets at twice the job's period - for a daily job, `true` means roughly two days already missed. Read the pod log: `oc logs deployment/skein-backend`. If the log does not explain it, contact the maintainer. |
 | `activity_chain.unverified` | `0` or a small positive number (rows since the last nightly verify) | A NEGATIVE value means the ledger is shorter than what was already verified. That is truncation. Do not restart anything. Contact the maintainer. |
-| any other `*_error` field | `null` | Read the message — each one names its own fix. If the overlay values do not explain it, contact the maintainer. |
+| any other `*_error` field | `null` | Read the message - each one names its own fix. If the overlay values do not explain it, contact the maintainer. |
 
 ## The agent spend bounds
 
@@ -89,7 +89,7 @@ ConfigMap (`deploy/k8s/overlays/*/kustomization.yaml`);
 **The stop switch.** Settings → AI runtime → "Unattended agent runs"
 pauses the daily runner and the wake queue without a redeploy. A run in
 progress stops at its next step. Queued work stays pending and drains when
-an admin resumes. The switch stops automation only — it does not change
+an admin resumes. The switch stops automation only - it does not change
 what any agent is allowed to do.
 
 ## Upgrade
@@ -204,7 +204,7 @@ If this tool is retired or abandoned, the data is not trapped:
   feedback, generated insights, the activity ledger, usage telemetry, context
   packs, deployment settings, scheduler state, extension schemas, and artifact
   bytes.
-- With no model provider configured the app runs keyless indefinitely —
+- With no model provider configured the app runs keyless indefinitely -
   abandonment degrades nothing except the agent features.
 
 To decommission: copy the latest database dumps and the artifact volume off

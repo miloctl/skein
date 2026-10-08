@@ -260,7 +260,7 @@ def test_a_yaml_only_type_is_refused(monkeypatch, tmp_path):
 
 
 def test_an_empty_file_is_refused_by_shape(monkeypatch, tmp_path):
-    """An empty ConfigMap key must not read as "no menu configured" — the
+    """An empty ConfigMap key must not read as "no menu configured" - the
     operator mounted it on purpose."""
     cfg, _ = _reload(monkeypatch, tmp_path, "SKEIN_MODELS", "")
     assert cfg.MODELS == {}

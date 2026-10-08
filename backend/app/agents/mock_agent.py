@@ -1,7 +1,7 @@
 """Deterministic keyless agent. Speaks the same stream_async event protocol as
 a real Strands Agent. Slash commands come from the shared commands engine
 (also used by the chat route for every provider); freeform text is
-smart-captured — no model, no keys, fully testable."""
+smart-captured - no model, no keys, fully testable."""
 
 import json
 from typing import TYPE_CHECKING
@@ -93,7 +93,7 @@ class MockAgent:
                 yield {
                     "data": (
                         f"Queued {kind} #{result['id']} for human review."
-                        " *(rule-based — `/help` for commands)*"
+                        " *(rule-based - `/help` for commands)*"
                     )
                 }
                 return
@@ -105,7 +105,7 @@ class MockAgent:
                 ),
                 "question": (
                     "Question #{id} logged. Someone owes you an answer now.",
-                    "Filed question #{id}. Unanswered questions age poorly here — by design.",
+                    "Filed question #{id}. Unanswered questions age poorly here - by design.",
                 ),
                 "note": (
                     "Noted as #{id}. The knowledge base grows stronger.",
@@ -128,7 +128,7 @@ class MockAgent:
                 result["kind"], ("Captured as {kind} #{id}.".replace("{kind}", result["kind"]),)
             )
             line = pool[sum(ord(c) for c in text) % len(pool)].format(id=result["id"])
-            yield {"data": f"{line} *(rule-based — `/help` for commands)*"}
+            yield {"data": f"{line} *(rule-based - `/help` for commands)*"}
         except ValueError as exc:
             receipts.record("failed", capture.classify(text), str(exc))
             yield {"data": str(exc)}
@@ -168,7 +168,7 @@ class MockExtensionSpecialist:
 
 
 # One line per member of a keyless flock turn. This pool is one of the five
-# CLAUDE.md commits to keeping in voice — a future author is expected to feed
+# CLAUDE.md commits to keeping in voice - a future author is expected to feed
 # it. Nothing is asked of the reader here, so warmth is allowed.
 _MEMBER_LINES = (
     "I have read it. On a keyless deployment I can hold an opinion, not voice one.",
@@ -200,7 +200,7 @@ class MockFlockMember:
 
 
 class MockSynthesizer:
-    """The keyless merge step. It states the count and stops — a synthesis
+    """The keyless merge step. It states the count and stops - a synthesis
     with no model has nothing to merge, and inventing one would be the
     fabricated answer the mock provider exists to avoid."""
 

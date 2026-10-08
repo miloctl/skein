@@ -47,7 +47,7 @@ afterEach(() => {
 });
 
 // Captured from the disposable seeded mock API as ava.
-const LESSON = { id: 1, engagement_id: null, project_class: "prototype", lesson: "Demo with realistic data — stakeholders don't extrapolate", recommendation: "Budget half a day for demo data", origin: "human", created_by: "ava", created_at: "2026-09-20T18:01:54+00:00", visibility: "workspace", crew_id: null };
+const LESSON = { id: 1, engagement_id: null, project_class: "prototype", lesson: "Demo with realistic data - stakeholders don't extrapolate", recommendation: "Budget half a day for demo data", origin: "human", created_by: "ava", created_at: "2026-09-20T18:01:54+00:00", visibility: "workspace", crew_id: null };
 
 const announce = (anchor: string) => act(() => window.dispatchEvent(new CustomEvent("skein-hash", { detail: { anchor } })));
 
@@ -240,7 +240,7 @@ describe("useHashTarget", () => {
   });
 
   it("pins the row against layout shift until the reader takes over", () => {
-    // the dashboard's collections settle at different speeds — one that
+    // the dashboard's collections settle at different speeds - one that
     // lands AFTER the landing inserts content above the row and pushes it
     // out of view. Each later settle re-scrolls the row back; the reader's
     // first input ends the pinning so it never fights their scroll.

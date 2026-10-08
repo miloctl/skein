@@ -91,7 +91,7 @@ const PICK = {
   menu: [
     {
       id: "opus",
-      label: "Opus — deep work",
+      label: "Opus - deep work",
       detail: "Slow and expensive.",
       max_tokens: 8192,
       context_tokens: 200000,
@@ -166,7 +166,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
           ? Promise.resolve(mode.pick)
           : Promise.reject(
               new Error(
-                "HTTP 400: unknown model — expected one of: mini, opus",
+                "HTTP 400: unknown model - expected one of: mini, opus",
               ),
             );
       }
@@ -255,7 +255,7 @@ describe("the model section", () => {
       ),
     ).toBeTruthy();
     const radio = await screen.findByRole("radio", {
-      name: /Opus — deep work/,
+      name: /Opus - deep work/,
     });
     expect(
       heading.compareDocumentPosition(radio) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -287,7 +287,7 @@ describe("the model section", () => {
   it("renders the menu with each entry's price and context size", async () => {
     mode.pick = PICK;
     renderModelSettings();
-    await screen.findByText(/Opus — deep work/);
+    await screen.findByText(/Opus - deep work/);
     expect(
       screen.getByText(/\$15 in \/ \$75 out per million tokens/),
     ).toBeTruthy();
@@ -312,7 +312,7 @@ describe("the model section", () => {
       override: { ...PICK.override, model_id: "retired-model" },
     };
     renderModelSettings();
-    // the stored id AND the reason, both named — the reader cannot otherwise
+    // the stored id AND the reason, both named - the reader cannot otherwise
     // tell that the model they picked is not the one running
     const warning = await screen.findByText(/is not in use/);
     expect(warning.textContent).toMatch(/retired-model/);
@@ -320,7 +320,7 @@ describe("the model section", () => {
   });
 
   it("keeps a stored pick visible and clearable when the menu vanishes", async () => {
-    // an admin who removes or breaks SKEIN_MODELS still has a stored pick —
+    // an admin who removes or breaks SKEIN_MODELS still has a stored pick -
     // it must stay on screen with its clear button, or the deployment holds
     // state its own settings page cannot see or drop
     mode.pick = {
@@ -366,7 +366,7 @@ describe("the model section", () => {
   });
 
   it("names the model in force when it is outside the menu", async () => {
-    // no radio is checked in this state — without the line, the section
+    // no radio is checked in this state - without the line, the section
     // shows choices under "the model every chat runs on" and never says
     // which model that is
     mode.pick = { ...PICK, model: "env-default", override: null };
@@ -375,7 +375,7 @@ describe("the model section", () => {
     expect(line.textContent).toMatch(/env-default/);
     expect(line.textContent).toMatch(/It is not in the menu\./);
     const radios = [
-      screen.getByRole("radio", { name: /Opus — deep work/ }),
+      screen.getByRole("radio", { name: /Opus - deep work/ }),
       screen.getByRole("radio", { name: /mini/ }),
     ];
     expect(radios.some((r) => (r as HTMLInputElement).checked)).toBe(false);
@@ -385,10 +385,10 @@ describe("the model section", () => {
     mode.pick = PICK;
     mode.post = "refuse";
     renderModelSettings();
-    await screen.findByText(/Opus — deep work/);
+    await screen.findByText(/Opus - deep work/);
     fireEvent.click(screen.getByRole("radio", { name: /mini/ }));
     const status = await screen.findByText(/Not saved\./);
-    // a server that answered 400 is not an unreachable backend — saying so
+    // a server that answered 400 is not an unreachable backend - saying so
     // sends the reader to check a server that is running
     expect(status.textContent).not.toMatch(/unreachable/i);
     mode.post = "ok";
@@ -398,7 +398,7 @@ describe("the model section", () => {
     mode.pick = PICK;
     mode.post = "ok";
     renderModelSettings();
-    await screen.findByText(/Opus — deep work/);
+    await screen.findByText(/Opus - deep work/);
     fireEvent.click(screen.getByRole("radio", { name: /mini/ }));
     await screen.findByText(
       /Saved\. Every chat uses it from its next message\./,
@@ -433,7 +433,7 @@ describe("the model section", () => {
     expect(
       (
         screen.getByRole("radio", {
-          name: /Opus — deep work/,
+          name: /Opus - deep work/,
         }) as HTMLInputElement
       ).disabled,
     ).toBe(true);
@@ -508,7 +508,7 @@ describe("the model section", () => {
     await screen.findByText(/strong identity active as next-boss/);
     await waitFor(() =>
       expect(
-        screen.getByRole("radio", { name: /Opus — deep work/ }),
+        screen.getByRole("radio", { name: /Opus - deep work/ }),
       ).toHaveProperty("checked", true),
     );
 
@@ -669,7 +669,7 @@ describe("the model section", () => {
     };
     renderModelSettings();
     await screen.findByText(/SKEIN_MODELS is unusable/);
-    expect(screen.queryByText(/Opus — deep work/)).toBeNull();
+    expect(screen.queryByText(/Opus - deep work/)).toBeNull();
   });
 
   it("says the setting is not in use on mock, and shows no picker", async () => {
@@ -688,13 +688,13 @@ describe("the model section", () => {
         ).length,
       ).toBeGreaterThan(0),
     );
-    expect(screen.queryByText(/Opus — deep work/)).toBeNull();
+    expect(screen.queryByText(/Opus - deep work/)).toBeNull();
   });
 
   it("carries no warmth, because its lines hold numbers", async () => {
     mode.pick = PICK;
     const { container } = renderModelSettings();
-    await screen.findByText(/Opus — deep work/);
+    await screen.findByText(/Opus - deep work/);
     const text = container.textContent ?? "";
     const ours = text.slice(
       text.indexOf("This section shows the team-default model configuration"),

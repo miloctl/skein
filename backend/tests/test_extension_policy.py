@@ -2785,7 +2785,7 @@ def test_governed_mcp_failure_logs_only_the_exception_class(fresh_db, caplog):
     class Broken(_RemoteTool):
         async def stream(self, tool_use, invocation_state, **kwargs):
             raise RuntimeError(canary)
-            yield  # pragma: no cover — keeps the remote shape an async generator
+            yield  # pragma: no cover - keeps the remote shape an async generator
 
     governed = GovernedMCPTool(Broken(), _mcp_metadata(timeout_seconds=5), "atlas-server")
     events = _run_governed(governed)
@@ -3019,7 +3019,7 @@ def test_a_cancelled_write_leaves_a_completion_unknown_record(fresh_db):
 def test_two_consecutive_timeouts_drop_a_hung_mcp_server(fresh_db):
     """A per-call timeout refuses the call but leaves the hung server
     composed, so every later call pays the full timeout. The second
-    consecutive hit must hand the connection to the reconnect backoff —
+    consecutive hit must hand the connection to the reconnect backoff -
     and a success in between proves the server lives, resetting the count."""
     from app.agents import mcp_tools as mcp_module
     from app.agents.mcp_tools import GovernedMCPTool, _MCPConnection
@@ -3045,7 +3045,7 @@ def test_two_consecutive_timeouts_drop_a_hung_mcp_server(fresh_db):
     remote = Flaky()
     governed = GovernedMCPTool(remote, _mcp_metadata(timeout_seconds=0.01), "atlas-server")
     # a SECOND tool on the same server: strikes count per server, and a hung
-    # server hangs every tool it serves — per-tool counting would make each
+    # server hangs every tool it serves - per-tool counting would make each
     # tool pay the full timeout once before anything trips
     sibling = GovernedMCPTool(FlakySibling(), _mcp_metadata(timeout_seconds=0.01), "atlas-server")
     client = FakeClient()
@@ -3060,7 +3060,7 @@ def test_two_consecutive_timeouts_drop_a_hung_mcp_server(fresh_db):
         remote.hang = True
         assert _run_governed(governed)[-1]["completionStatus"] == "timed_out"
         assert "atlas-server" in mcp_module._connections, (
-            "a success between timeouts proves the server lives — the count must reset"
+            "a success between timeouts proves the server lives - the count must reset"
         )
 
         assert _run_governed(sibling)[-1]["completionStatus"] == "timed_out"
@@ -3620,7 +3620,7 @@ def test_output_schema_judges_the_tool_result_not_the_event_envelope(fresh_db):
     """The REAL delegate (strands MCPAgentTool) yields a ToolResultEvent
     envelope {"type", "tool_result"}, not a bare ToolResult like _RemoteTool
     above. A declared output_schema with required fields must validate the
-    RESULT inside — validated against the envelope, every valid result from a
+    RESULT inside - validated against the envelope, every valid result from a
     real server is refused as invalid output."""
     from strands.types._events import ToolResultEvent
 
@@ -3689,7 +3689,7 @@ def test_output_schema_judges_the_tool_result_not_the_event_envelope(fresh_db):
         good = asyncio.run(
             run(governed({"toolUseId": "mcp-3", "status": "success", "content": []}))
         )
-        # the schema's required key is missing from the RESULT — this one is
+        # the schema's required key is missing from the RESULT - this one is
         # the true invalid-output case and must still be refused
         bad = asyncio.run(run(governed({"toolUseId": "mcp-3", "content": []})))
     finally:
@@ -5220,7 +5220,7 @@ def test_rejection_serializes_current_policy_with_the_verdict(fresh_db):
             assert writer_attempted.wait(5)
             # The relink may COMMIT here. The verdict is re-evaluated against
             # the policy input SAVED with the proposal, not a fresh read of
-            # the task, so a concurrent relink cannot change it — that is what
+            # the task, so a concurrent relink cannot change it - that is what
             # "serializes current policy with the verdict" means, and the
             # rejected status below is the assertion of it. A blocked writer
             # was the old mechanism for the same outcome, not the promise.
@@ -7160,7 +7160,7 @@ def test_stock_composites_filter_or_refuse_denied_projects(fresh_db):
     assert "regulated secret" not in pack
     assert (
         json.loads(attention)["error"]
-        == "this turn has no requester — ask the person what is on them"
+        == "this turn has no requester - ask the person what is on them"
     )
     assert "regulated task secret" not in inbox
     assert "STOCK REGULATED DELEGATION CANARY" not in inbox
@@ -7295,7 +7295,7 @@ def test_a_timed_out_direct_tool_cannot_write_after_its_unknown_completion(fresh
 
 
 def test_unregistered_capability_actions_fail_closed(fresh_db):
-    """The human-origin default answered `permit` for any unknown action —
+    """The human-origin default answered `permit` for any unknown action -
     including every action of a frontend whose backend module is absent, the
     exact case where its UI must stay hidden."""
     with TestClient(create_app(), headers={"X-User": "manager"}) as client:
@@ -7399,7 +7399,7 @@ def test_a_server_deleted_and_added_again_in_one_second_is_a_new_server(fresh_db
 def test_a_personal_remote_write_needs_a_human_even_under_permit(fresh_db, monkeypatch):
     """The owner of a personal server classified nothing, so a PERMIT from the
     engine (here: the authority default with SKEIN_AGENT_REVIEW off) still
-    opens a proposal — and the approval replays against the engine's own
+    opens a proposal - and the approval replays against the engine's own
     decision, so it is not stale."""
     from app import config
     from app.agents.identity import reset_agent_identity, set_agent_identity

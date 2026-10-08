@@ -1,6 +1,6 @@
 """Meeting-notes ingestion: paste raw notes, get review-queue proposals.
 
-Deterministic only — each line runs through the capture grammar; lines that
+Deterministic only - each line runs through the capture grammar; lines that
 match a pattern become pending_changes proposals (NEVER direct writes), the
 rest are returned as unclassified for the human to skim. `fb:` lines are
 counted and skipped: private feedback never transits the team-visible
@@ -21,7 +21,7 @@ _FB_LINE = re.compile(r"^\s*fb:", re.I)
 
 
 def _classify_strict(line: str) -> str | None:
-    """Pattern match only — no note fallback. Unmatched lines are the
+    """Pattern match only - no note fallback. Unmatched lines are the
     human's call, not silent note-spam."""
     for kind, pattern in PATTERNS:
         if pattern.search(line):
@@ -45,7 +45,7 @@ def _payload(kind: str, body: str, actor: str) -> dict:
     if kind == "awaiting":
         # the other direction of the same table (migration 007). Built here
         # rather than reusing capture.py's branch because ingest proposes and
-        # capture writes — the payload has to survive review.unappliable and
+        # capture writes - the payload has to survive review.unappliable and
         # then reach promises.add_promise unchanged at apply time.
         who, rest = split_party(body)
         due, rest = split_by_date(rest or body)
@@ -86,7 +86,7 @@ def _meeting(event_id: int, actor: str, strong: bool) -> dict:
         return {}
     frag, vp = scope.visible_filter(scope.Viewer.for_actor(actor), "events")
     event = db.query_one(
-        f"SELECT visibility, crew_id FROM events WHERE id = ? AND {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT visibility, crew_id FROM events WHERE id = ? AND {frag}",  # noqa: S608 - scope.visible_filter emits only bound marks
         (event_id, *vp),
     )
     if event is None or (not strong and event["visibility"] != scope.WORKSPACE):
@@ -146,7 +146,7 @@ def ingest_notes(text: str, *, actor: str, private: bool = False, event_id: int 
                 break
             line = stripped
         line = line.strip()
-        if _FB_LINE.match(line):  # before the length gate — short fb: lines still count
+        if _FB_LINE.match(line):  # before the length gate - short fb: lines still count
             skipped_private += 1  # counted, flagged, never stored or routed
             continue
         if len(line) < MIN_LINE_CHARS:
@@ -158,7 +158,7 @@ def ingest_notes(text: str, *, actor: str, private: bool = False, event_id: int 
         body = PREFIX.sub("", line).strip() or line
         # Asked BEFORE proposing, and answered by review.py so the agent gate
         # and this ingester cannot drift apart. propose_change would raise on
-        # the same payload, which would abandon the rest of the paste — hand
+        # the same payload, which would abandon the rest of the paste - hand
         # the line back as unclassified instead, because that list is shown to
         # the person who pasted it while they still have the text.
         payload = {**_payload(kind, body, actor), **meeting}

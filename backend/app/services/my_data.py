@@ -130,7 +130,7 @@ def _permitted(table: str, rows: list[dict], policy: ProjectionPolicy) -> list[d
 def list_private(table: str, person: str, policy: ProjectionPolicy) -> list[dict]:
     _kind(table)
     rows = db.query(
-        f"SELECT id, left({LABELS[table]}, 120) AS label, created_at FROM {table}"  # noqa: S608 — table and label from LABELS
+        f"SELECT id, left({LABELS[table]}, 120) AS label, created_at FROM {table}"  # noqa: S608 - table and label from LABELS
         f" WHERE {_private(table)} ORDER BY id DESC LIMIT 200",
         (scope.PRIVATE, person),
     )
@@ -145,7 +145,7 @@ def delete_private(table: str, row_id: int, *, actor: str) -> dict:
     author = _kind(table)
     with db.transaction():
         row = db.query_one(
-            f"SELECT * FROM {table} WHERE id = ? FOR UPDATE",  # noqa: S608 — table from LABELS
+            f"SELECT * FROM {table} WHERE id = ? FOR UPDATE",  # noqa: S608 - table from LABELS
             (row_id,),
         )
         if (
@@ -157,7 +157,7 @@ def delete_private(table: str, row_id: int, *, actor: str) -> dict:
             raise scope.missing(table, row_id)
         for linked, where in _LINKED.get(table, ()):
             if db.query_one(
-                f"SELECT 1 FROM {linked} WHERE {where} LIMIT 1",  # noqa: S608 — names from _LINKED
+                f"SELECT 1 FROM {linked} WHERE {where} LIMIT 1",  # noqa: S608 - names from _LINKED
                 (row_id,),
             ):
                 raise ValueError(
@@ -167,7 +167,7 @@ def delete_private(table: str, row_id: int, *, actor: str) -> dict:
         if table == "tasks":
             # a worklog entry is about its task and has no meaning without it
             db.execute("DELETE FROM task_worklog WHERE task_id = ?", (row_id,))
-        db.execute(f"DELETE FROM {table} WHERE id = ?", (row_id,))  # noqa: S608 — table from LABELS
+        db.execute(f"DELETE FROM {table} WHERE id = ?", (row_id,))  # noqa: S608 - table from LABELS
         if table == "artifacts" and row["path"]:
             artifact_files.delete_after_commit(Path(row["path"]))
         # the id and the kind, never the text: the ledger cannot be rewritten
@@ -184,7 +184,7 @@ def export(person: str, policy: ProjectionPolicy) -> dict:
         if table in OWN_SURFACE:
             continue
         rows = db.query(
-            f"SELECT * FROM {table} WHERE {_private(table)} ORDER BY id",  # noqa: S608 — table from scope.CLASSIFIED
+            f"SELECT * FROM {table} WHERE {_private(table)} ORDER BY id",  # noqa: S608 - table from scope.CLASSIFIED
             (scope.PRIVATE, person),
         )
         records[table] = _permitted(table, rows, policy)

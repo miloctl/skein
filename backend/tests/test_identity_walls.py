@@ -8,14 +8,14 @@ import pytest
 
 
 def test_a_rename_by_someone_else_cannot_touch_the_private_journal(fresh_db):
-    """Every keyholder can rename any roster row — the trusted-network model makes
+    """Every keyholder can rename any roster row - the trusted-network model makes
     them all admins over TEAM data. Moving the private half too let anyone
     merge another person's row into their own name and inherit their 1:1 notes
     and fb: journal, the one dataset teammates are promised they cannot read.
 
     Refused rather than half-completed: rename DELETES the old roster row, so
     a third-party rename that skipped the private half would strand the notes
-    with no supported recovery — the author cannot re-run it as themselves."""
+    with no supported recovery - the author cannot re-run it as themselves."""
 
     from app import db
     from app.services import private_notes, users
@@ -27,7 +27,7 @@ def test_a_rename_by_someone_else_cannot_touch_the_private_journal(fresh_db):
     with pytest.raises(ValueError, match="private 1:1 notes"):
         users.rename_user("alice", "mallory", actor="mallory")
 
-    # refused BEFORE any mutation — no partial write
+    # refused BEFORE any mutation - no partial write
     assert db.query_one("SELECT 1 FROM users WHERE name = 'alice'") is not None
     assert private_notes.list_notes("mallory", "bob") == []
     assert [n["body"] for n in private_notes.list_notes("alice", "bob")] == ["bob is coasting"]
@@ -96,7 +96,7 @@ def test_a_self_directed_merge_onto_a_colleague_is_refused(fresh_db):
 
 def test_an_agent_identity_can_be_freed_by_rename(fresh_db):
     """SKEIN_MCP_USER is operator-supplied and the obvious thing to type is
-    your own name, which reserves it as an AGENT identity — refused on REST and
+    your own name, which reserves it as an AGENT identity - refused on REST and
     on every private surface. This is the documented recovery."""
     from app import db
     from app.services import users

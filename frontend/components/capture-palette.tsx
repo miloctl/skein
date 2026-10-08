@@ -15,7 +15,7 @@ import { notifyAttentionChange } from "@/lib/attention";
 import { opensCapture } from "@/lib/capture-key";
 import { isGated, subscribeGated } from "@/lib/gated";
 
-// mirrors backend/app/services/capture.py PATTERNS — the preview must tell
+// mirrors backend/app/services/capture.py PATTERNS - the preview must tell
 // the truth about where a line will land, so the grammar is afforded, not
 // memorized
 const RULES: [string, RegExp][] = [
@@ -27,7 +27,7 @@ const RULES: [string, RegExp][] = [
   // claim the same sentence. Without this rule the preview said "note" while
   // the backend (services/capture.py) filed a received promise.
   // `waiting for:` and `waiting on` are one phrase to a reader and opposite
-  // entities to the parser, so only the COLON form routes here — the bare
+  // entities to the parser, so only the COLON form routes here - the bare
   // `waiting on` heuristic below still means blocker, and docs/LEXICON.md
   // settles the colon form as a promise
   ["awaiting", /^\s*(awaiting|waiting for):/i],
@@ -55,11 +55,11 @@ function readyToCapture(text: string): boolean {
 
 function previewKind(text: string): string {
   const lines = text.split("\n");
-  // backend hard-rejects fb: buried in multi-line text — the preview must
+  // backend hard-rejects fb: buried in multi-line text - the preview must
   // say so, not claim "task" and then 400
   if (lines.some((l) => /^\s*fb:/i.test(l))) {
     return lines.filter((l) => l.trim()).length > 1
-      ? "⚠ will not file — fb: must be captured alone"
+      ? "⚠ will not file - fb: must be captured alone"
       : "private feedback";
   }
   for (const [kind, re] of RULES) if (re.test(text)) return kind;
@@ -82,7 +82,7 @@ export function CapturePalette() {
   const [open, setOpen] = useState(false);
   const gated = useSyncExternalStore(subscribeGated, isGated, () => false);
   // nav.tsx renders the search box only for a named visitor, and `gated` is a
-  // DIFFERENT condition (the auth gate standing in for the page) — so an
+  // DIFFERENT condition (the auth gate standing in for the page) - so an
   // anonymous visitor reaches this dialog with no search box in the nav. The
   // footer must not send them to a control that is not on their screen.
   const user = useSyncExternalStore(subscribeUser, getUser, () => "anonymous");
@@ -219,7 +219,7 @@ export function CapturePalette() {
     // mounts BELOW the Capture button, so with the old selector the last
     // focusable was always Capture, Tab from it wrapped to the first chip,
     // and the one control that decides who can read the capture was
-    // unreachable by keyboard — every keyboard-only capture went to the
+    // unreachable by keyboard - every keyboard-only capture went to the
     // workspace tier with no way to see the choice existed.
     // Anything focusable added here must match, or it is invisible the same way.
     const focusables = dialogRef.current.querySelectorAll<HTMLElement>(
@@ -271,7 +271,7 @@ export function CapturePalette() {
     }
     // tier IS a dependency: without it the callback closes over the tier as it
     // was when the text last changed, so choosing a crew AFTER typing filed the
-    // capture at workspace — and the picker sits below the textarea, which
+    // capture at workspace - and the picker sits below the textarea, which
     // makes type-then-choose the natural order
   }, [text, busy, tier]);
 
@@ -314,7 +314,7 @@ export function CapturePalette() {
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto overscroll-contain bg-black/30 px-4 py-4 sm:pt-32"
       onClick={() => {
-        // most of a phone screen is backdrop — never discard text the person added
+        // most of a phone screen is backdrop - never discard text the person added
         if (!text.trim() || text === generatedDraftRef.current) {
           generatedDraftRef.current = "";
           setGeneratedDraft("");
@@ -416,15 +416,15 @@ export function CapturePalette() {
         </div>
         <div className="mt-2">
           {/* An `fb:` capture short-circuits in services/capture.py BEFORE the
-              tier is read, into the private schema — one no other code
-              path opens. The tier IS still on the wire — submit sends the
-              whole state — and the server discards it, so a picker reading
+              tier is read, into the private schema - one no other code
+              path opens. The tier IS still on the wire - submit sends the
+              whole state - and the server discards it, so a picker reading
               "Platform only" would state a choice that has no effect. It
               fails safe (more private, not less), which is exactly why it
               would never be noticed. */}
           {previewKind(text) === "private feedback" ? (
             <p className="text-xs text-ink-3">
-              Visible to <span className="text-ink-2">only you</span> — feedback
+              Visible to <span className="text-ink-2">only you</span> - feedback
               is kept out of the shared record, so it takes no other choice.
             </p>
           ) : (
@@ -437,9 +437,9 @@ export function CapturePalette() {
           )}
         </div>
         <div className="mt-3 border-t border-line pt-2 text-[11px] leading-relaxed text-ink-3">
-          Tap a chip or type a prefix — the line above the button always shows
+          Tap a chip or type a prefix - the line above the button always shows
           where your text will land. No prefix files a note. <code>req:</code>{" "}
-          files a request for triage. <code>fb: name — …</code> stays private to you.
+          files a request for triage. <code>fb: name - …</code> stays private to you.
           {/* The read/write split is the reported confusion: this dialog and
               the nav search box look alike and do opposite things. Naming the
               other door here is what keeps a search from being typed into the

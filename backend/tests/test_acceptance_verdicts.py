@@ -14,7 +14,7 @@ def test_acceptance_verdicts_bind_to_the_sponsor(client, fresh_db):
     # a non-sponsor without a reason is refused
     bare = client.post(f"/api/review/{pid}/approve", json={}, headers=_strong(client))
     assert bare.status_code == 400 and "sponsored by mira" in bare.json()["detail"]
-    # with a reason it lands — marked override, reason on the record
+    # with a reason it lands - marked override, reason on the record
     ok = client.post(
         f"/api/review/{pid}/approve",
         json={"note": "mira is on PTO and asked me to close it"},
@@ -25,7 +25,7 @@ def test_acceptance_verdicts_bind_to_the_sponsor(client, fresh_db):
     assert ch["reviewed_override"] == 1
     acts = fresh_db.query("SELECT detail FROM activity WHERE action = 'approve_change'")
     assert any("accepted for mira" in a["detail"] for a in acts)
-    # override verdicts are provenance, not trust — the streak ignores them
+    # override verdicts are provenance, not trust - the streak ignores them
     score = next(
         s
         for s in delegation.trust_scores()
@@ -64,7 +64,7 @@ def test_non_sponsor_reject_needs_a_reason_too(client, fresh_db):
     assert bare.status_code == 400 and "sponsored by mira" in bare.json()["detail"]
     ok = client.post(
         f"/api/review/{pid}/reject",
-        json={"note": "covering for mira — the output is wrong"},
+        json={"note": "covering for mira - the output is wrong"},
         headers=_strong(client),
     )
     assert ok.json()["status"] == "rejected"
@@ -114,7 +114,7 @@ def test_orphaned_acceptance_requires_a_reason_and_feeds_no_streak(client, fresh
     assert bare.status_code == 400 and "orphaned" in bare.json()["detail"]
     ok = client.post(
         f"/api/review/{pid}/reject",
-        json={"note": "task was reassigned — closing the stale submission"},
+        json={"note": "task was reassigned - closing the stale submission"},
         headers=_strong(client),
     )
     assert ok.json()["status"] == "rejected"
@@ -146,7 +146,7 @@ def test_override_verdicts_are_invisible_to_streaks_by_design(client, fresh_db):
     # a non-sponsor override rejection lands between two sponsor approvals
     client.post(
         f"/api/review/{b}/reject",
-        json={"note": "covering — looked off to me"},
+        json={"note": "covering - looked off to me"},
         headers=_strong(client),
     )
     client.post(f"/api/review/{c}/approve", json={}, headers=_strong(client, "mira"))

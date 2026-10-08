@@ -15,7 +15,7 @@ from app.services import insights, schedule, scope
 def _past(
     hours: int, title: str = "Weekly sync", attendees: str = "a, b, c", length: float = 1.0
 ) -> int:
-    """A finished meeting. Naive UTC, which is what `_canon` stores — a bare
+    """A finished meeting. Naive UTC, which is what `_canon` stores - a bare
     `datetime.now()` here would share the bug it is meant to catch."""
     start = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=hours)
     eid = schedule.schedule_event(
@@ -27,8 +27,8 @@ def _past(
         actor="ava",
     )["id"]
     # A meeting is on the calendar BEFORE it runs. Creating a past-dated event
-    # right now is a different thing entirely — a playbook ritual, or a meeting
-    # typed in afterwards — and meetings_awaiting_outcome excludes those on
+    # right now is a different thing entirely - a playbook ritual, or a meeting
+    # typed in afterwards - and meetings_awaiting_outcome excludes those on
     # purpose, so a fixture that skips this pins the wrong rule.
     db.execute(
         "UPDATE events SET created_at = ? WHERE id = ?",
@@ -65,7 +65,7 @@ def test_recording_an_outcome_clears_it(client):
 
 
 def test_none_is_an_answer_too(client):
-    """A meeting that produced nothing is a fact worth having — it is what the
+    """A meeting that produced nothing is a fact worth having - it is what the
     weekly finding counts."""
     eid = _past(schedule.OUTCOME_ASK_AFTER_HOURS + 1)
     client.post(f"/api/events/{eid}/outcome", json={"outcome": "none"})
@@ -198,7 +198,7 @@ def test_a_departed_teammates_meeting_is_still_never_named(client):
 
 def test_an_event_that_is_not_there_is_a_404_not_a_400(client):
     """The id is in the PATH, which scope.missing_text says is the 404 case.
-    db.NotFound subclasses ValueError, so a bare except swallowed it — and the
+    db.NotFound subclasses ValueError, so a bare except swallowed it - and the
     sibling stakeholders route already answers 404 for the same row."""
     assert client.post("/api/events/9999/outcome", json={"outcome": "none"}).status_code == 404
     # a bad VALUE in the body stays a 400: the addressed row exists
@@ -208,7 +208,7 @@ def test_an_event_that_is_not_there_is_a_404_not_a_400(client):
 
 def test_an_ordinary_title_is_not_suppressed_by_a_short_name(client):
     """`name in title` is the trap: a roster holding Ram, Ian and Ana
-    suppressed "Program review", "Alliance sync" and "Analytics review" —
+    suppressed "Program review", "Alliance sync" and "Analytics review" -
     three ordinary titles out of four, and silently, because a suppressed
     finding looks exactly like a team with nothing wrong."""
     from app.services import users
@@ -240,10 +240,10 @@ def test_an_ordinary_title_is_not_suppressed_by_a_short_name(client):
 def test_an_all_day_block_today_is_not_asked_about_during_it(client, monkeypatch):
     """A date-only row sorts before every timestamp on its own day, so the
     four-hour "not during the meeting" guard did nothing for an all-day block
-    — it entered the window at 04:00 UTC, during the day it covers."""
+    - it entered the window at 04:00 UTC, during the day it covers."""
 
     # The clock is FROZEN mid-day. Unfrozen, the bug is `starts_at < now - 4h`,
-    # so a date-only row only enters the window once UTC passes 04:00 — and
+    # so a date-only row only enters the window once UTC passes 04:00 - and
     # this test passed against the broken code on any run before then. A CI
     # job that happens to run overnight gets a green from a test that
     # discriminates nothing.
@@ -278,7 +278,7 @@ def test_a_future_all_day_block_is_silent_when_the_utc_day_has_turned(client, mo
     """`starts_at != today` compared a TEAM-LOCAL date against a naive-UTC
     window. West of about UTC-5 the UTC day rolls over while the local day has
     not, so tomorrow's all-day block entered the window for the last hours of
-    every evening — measured in Los Angeles, Denver, Anchorage and Honolulu.
+    every evening - measured in Los Angeles, Denver, Anchorage and Honolulu.
 
     Patching db.today and the clock together IS that state: 06:00 UTC on the
     10th is 23:00 on the 9th in Denver.

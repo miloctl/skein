@@ -126,7 +126,7 @@ describe("delegated task activation guidance", () => {
     });
     expect(screen.getByText(/is queued/)).toBeTruthy();
 
-    // an unchanged poll must arm the NEXT timer — a one-shot poll passes only
+    // an unchanged poll must arm the NEXT timer - a one-shot poll passes only
     // when the very first tick happens to see the status change
     await act(async () => {
       vi.advanceTimersByTime(2000);
@@ -446,7 +446,7 @@ describe("delegated task activation guidance", () => {
     };
     render(<TaskPeek />);
 
-    // mock is the working keyless default — a fault-shaped "provider is
+    // mock is the working keyless default - a fault-shaped "provider is
     // unavailable" sentence on every delegation reads as breakage
     expect(
       await screen.findByText(

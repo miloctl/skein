@@ -96,7 +96,7 @@ def test_the_flock_command_is_not_the_title(client):
 
 def test_the_derived_title_is_the_guard_that_pending_matches(client):
     """_title_from and pending_auto_title are one contract. Change the derived
-    string without this test and every summary stops firing — silently, since
+    string without this test and every summary stops firing - silently, since
     a thread that never matches simply keeps the title it already had."""
     _read_chat(client, "/as growth-mentor map out a learning goal", thread="tt-9")
     pending = chat_threads.pending_auto_title("tt-9", USER)

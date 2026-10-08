@@ -1,4 +1,4 @@
-"""GET /api/tasks/{id} — the side peek's read.
+"""GET /api/tasks/{id} - the side peek's read.
 
 Every reference to a task in the product (My Day attention items, /ask
 citations, activity rows) named a row and linked to the top of a
@@ -49,7 +49,7 @@ def test_a_missing_task_raises_missing(fresh_db):
 
 def test_an_unreadable_task_answers_exactly_like_an_absent_one(fresh_db):
     """Task ids are sequential integers. If "not yours" and "does not exist"
-    answered differently, a caller could walk the ids and learn which exist —
+    answered differently, a caller could walk the ids and learn which exist -
     the attack services/scope.py::Viewer names."""
     private = work.create_task("salary planning", actor="ava", visibility="private")
 

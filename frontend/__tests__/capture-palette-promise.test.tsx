@@ -1,10 +1,10 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-/** The kind is `promise` end to end (docs/LEXICON.md row 1) — on the wire,
+/** The kind is `promise` end to end (docs/LEXICON.md row 1) - on the wire,
  *  in the preview, and in the confirmation. These strings are assembled at
  *  render time, so the source-text sweep in one-wording.test.ts cannot catch
- *  a revert — only a rendered assertion can. `promised:` and `commitment:`
+ *  a revert - only a rendered assertion can. `promised:` and `commitment:`
  *  both stay accepted as typed input. */
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -54,7 +54,7 @@ describe("quick capture and the promise label", () => {
     });
 
     fireEvent.change(screen.getByLabelText("What to capture"), {
-      target: { value: "fb: dana — clear feedback" },
+      target: { value: "fb: dana - clear feedback" },
     });
     expect(
       screen.getByText("will file as: private feedback (requires strong identity)"),

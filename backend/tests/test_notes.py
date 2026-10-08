@@ -27,7 +27,7 @@ def test_note_edit_delete_and_deindex(client):
 def test_a_delete_that_cannot_deindex_keeps_the_note(client, fresh_db, monkeypatch):
     """All or nothing. Split across transactions, the row delete commits and
     the index delete does not, so the note is gone from `notes` while its FULL
-    body stays queryable through /api/search — unreachable by any delete, and
+    body stays queryable through /api/search - unreachable by any delete, and
     unbounded, where the ledger snapshot delete_note keeps is capped at 300
     chars. Concurrency produces the same split; this reaches it deterministically."""
     from app.services import collab, search
@@ -49,7 +49,7 @@ def test_notes_keyword_filter_ignores_case(client):
     """A person typing a keyword must not have to match the author's capitals.
 
     PostgreSQL LIKE is case-sensitive where SQLite's was not for ASCII, so
-    this silently returned nothing after the engine change — and an empty
+    this silently returned nothing after the engine change - and an empty
     result reads as "no such note", never as "wrong case"."""
     client.post("/api/notes", json={"topic": "Infra", "content": "PostgreSQL vacuum tips"})
     for keyword in ("PostgreSQL", "postgresql", "POSTGRESQL", "postgres", "infra", "INFRA"):

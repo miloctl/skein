@@ -56,7 +56,7 @@ _PARENTS: dict[str, tuple[tuple[str, str], ...]] = {
 
 
 def _parent_is_workspace(table: str, row_id: int) -> bool:
-    row = db.query_one(f"SELECT visibility FROM {table} WHERE id = ?", (row_id,))  # noqa: S608 — table from _PARENTS
+    row = db.query_one(f"SELECT visibility FROM {table} WHERE id = ?", (row_id,))  # noqa: S608 - table from _PARENTS
     return row is not None and row["visibility"] == scope.WORKSPACE
 
 
@@ -73,7 +73,7 @@ def share_with_team(table: str, row_id: int, *, actor: str) -> dict:
         # FOR UPDATE: an edit landing between the check and the write would
         # reindex the row at its old tier (search._is_private)
         row = db.query_one(
-            f"SELECT * FROM {table} WHERE id = ? FOR UPDATE",  # noqa: S608 — table from SHAREABLE
+            f"SELECT * FROM {table} WHERE id = ? FOR UPDATE",  # noqa: S608 - table from SHAREABLE
             (row_id,),
         )
         # scope.missing for a row somebody else wrote: a private one is
@@ -107,7 +107,7 @@ def share_with_team(table: str, row_id: int, *, actor: str) -> dict:
                 " Share that work with the team first, or remove the wait."
             )
         db.execute(
-            f"UPDATE {table} SET visibility = ?, crew_id = NULL WHERE id = ?",  # noqa: S608 — table from SHAREABLE
+            f"UPDATE {table} SET visibility = ?, crew_id = NULL WHERE id = ?",  # noqa: S608 - table from SHAREABLE
             (scope.WORKSPACE, row_id),
         )
         entity, text = SHAREABLE[table]

@@ -1,8 +1,8 @@
 import { defineConfig } from "@playwright/test";
 
 /** Smoke depth only: a real browser walking the real app against a seeded
- *  mock-provider backend. The classes this exists for — data-integrity
- *  illusions and accessibility — are the ones component tests catch only
+ *  mock-provider backend. The classes this exists for - data-integrity
+ *  illusions and accessibility - are the ones component tests catch only
  *  when someone thinks to mock the right failure. Depth stays in
  *  __tests__/; keep this suite at a handful of walks. */
 
@@ -49,7 +49,7 @@ export default defineConfig({
         `SKEIN_MODEL_PROVIDER=mock SKEIN_SCHEDULER=0 SKEIN_E2E_PORT=${API_PORT} ` +
         // EMBEDDINGS off like the provider is mock, and for the same reason: a
         // developer's .env turns them on against a live ollama, and one slow
-        // embed call during seeding blows the 60s health budget below — the
+        // embed call during seeding blows the 60s health budget below - the
         // deterministic stack must not depend on a live model endpoint
         `SKEIN_EMBEDDINGS=0 ` +
         `SKEIN_CORS_ORIGINS=${APP} .venv/bin/python ../scripts/e2e-backend.py'`,
@@ -66,12 +66,12 @@ export default defineConfig({
     },
     {
       // a production build, not `next dev`: Next allows one dev server per
-      // directory, so dev would collide with a running local stack — and
+      // directory, so dev would collide with a running local stack - and
       // the smoke walks what ships. NEXT_PUBLIC_API_URL is baked at build
       // time, which is why the build lives inside this command.
       // THE TRAP: this builds .next-e2e, and `npm run build` builds .next.
       // Editing a component and running `npm run build` does NOT change what
-      // these walks see — with PW_REUSE=1 against an already-started server
+      // these walks see - with PW_REUSE=1 against an already-started server
       // they will keep testing the previous build, and a fix that landed
       // reads as still broken. Drop PW_REUSE to rebuild.
       command:

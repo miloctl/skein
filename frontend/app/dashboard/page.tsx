@@ -99,14 +99,14 @@ function Section({
   rows: Row[];
   render: (r: Row) => React.ReactNode;
   empty: string;
-  // a control that filters or scopes the rows, rendered under the heading —
+  // a control that filters or scopes the rows, rendered under the heading -
   // only the tasks card uses it today
   controls?: React.ReactNode;
   // a focus target for a caller whose action removed the control the reader
   // was on. The HEADING rather than the section, because a screen reader
   // announces its text and the reader learns where they landed.
   headingRef?: React.Ref<HTMLHeadingElement>;
-  // a control that belongs to the card, not to a row — the create forms.
+  // a control that belongs to the card, not to a row - the create forms.
   // Rendered on the empty card too, which is where a create control earns
   // its place.
   footer?: React.ReactNode;
@@ -143,7 +143,7 @@ function Section({
  *  them.
  *
  *  `list_lessons` and its `project_class` filter shipped with the retro loop
- *  and the Season band has counted lessons ever since — but nothing listed
+ *  and the Season band has counted lessons ever since - but nothing listed
  *  one, so the count led nowhere and search rendered a lesson hit as dead
  *  text. A lesson the team cannot re-read is one it pays for twice.
  *
@@ -156,11 +156,11 @@ const LESSON_PAGE = 100;
 function LessonsCard({ hidden, onLoaded, cls, setCls }: { hidden: boolean; onLoaded: (rows: Row[]) => void; cls: string; setCls: (value: string) => void }) {
   // rows carry the filter they belong to. A plain list plus a synchronous
   // clear at the top of the effect is the same idea, but setState directly
-  // inside an effect is what react-hooks/set-state-in-effect forbids — and
+  // inside an effect is what react-hooks/set-state-in-effect forbids - and
   // this shape also survives an out-of-order response without a second guard.
   const [rows, setRows] = useState<{ cls: string; list: Row[] } | null>(null);
   const [error, setError] = useState("");
-  // classes come from the rows themselves — playbooks.py owns the real list
+  // classes come from the rows themselves - playbooks.py owns the real list
   // and a hardcoded copy here would drift the first time one is added
   const [classes, setClasses] = useState<string[]>([]);
 
@@ -207,7 +207,7 @@ function LessonsCard({ hidden, onLoaded, cls, setCls }: { hidden: boolean; onLoa
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 id="browse-lessons-title" className="skein-section-title">
           {/* `list_lessons` is LIMIT 100 with no offset, and nav-search links a
-              hit straight to `#lesson-N` — so past 100 the anchor targets a row
+              hit straight to `#lesson-N` - so past 100 the anchor targets a row
               this card cannot show. Stating the page is the honest half; the
               same shape /artifacts uses for reports. */}
           {list && list.length >= LESSON_PAGE
@@ -292,7 +292,7 @@ function StandupCard({
       </h2>
       {rows.length === 0 ? (
         <p className="text-sm text-ink-3">
-          No standups posted yet — post yours from My Day.
+          No standups posted yet - post yours from My Day.
         </p>
       ) : (
         <ul className="space-y-2">
@@ -301,7 +301,7 @@ function StandupCard({
               <span className="font-medium">{s.author}</span>
               {s.origin !== "human" ? (
                 // the byline is a free-text claim an agent can set, so an
-                // agent-filed standup names its writer beside the byline —
+                // agent-filed standup names its writer beside the byline -
                 // authorship and endorsement stay two separate claims
                 <span className="text-xs text-ink-3">
                   {" "}
@@ -462,7 +462,7 @@ function AbsenceForm({
       />
 </label>
       {/* visible captions: once the row wraps, two bare date inputs are
-          indistinguishable — aria-labels don't help a sighted phone user */}
+          indistinguishable - aria-labels don't help a sighted phone user */}
       <label className="flex flex-col gap-0.5">
         <span className="text-[10px] uppercase tracking-wide text-ink-3">
           from
@@ -587,7 +587,7 @@ type PlanDiff = {
   skipped_rituals: string[];
 };
 
-/** The variance in one line. Counts only — the drafted lesson carries the
+/** The variance in one line. Counts only - the drafted lesson carries the
  *  detail, and a reviewer reads it there rather than inside a close button. */
 function planDiffSummary(d: PlanDiff): string {
   const parts: string[] = [];
@@ -621,7 +621,7 @@ const CONCLUSION_HINTS: Record<string, string> = {
   achieved: "the outcome landed",
   partial: "some of it landed",
   missed: "the outcome did not land",
-  invalidated: "the experiment disproved the idea — on time, that is a win",
+  invalidated: "the experiment disproved the idea - on time, that is a win",
   unmeasured: "closed without measuring the outcome",
   stopped: "halted early on purpose",
 };
@@ -677,7 +677,7 @@ export default function Dashboard() {
   // Escape and cancel remove the panel and put the `close out…` button back.
   // Refocus it by STABLE ID, not through a cached node: React unmounts that
   // button on the very click that opens the panel, so a ref captured from
-  // ev.currentTarget points at a detached element and `focus()` never fires —
+  // ev.currentTarget points at a detached element and `focus()` never fires -
   // the reader lands on <body> at the top of a long page. Same idiom as
   // refocusEdit below, and the setTimeout is load-bearing for the same
   // reason: the button does not exist until React has re-rendered.
@@ -686,11 +686,11 @@ export default function Dashboard() {
   }, []);
   const [draftedLesson, setDraftedLesson] = useState<number | null>(null);
   // A CONCLUSION click removes the trigger with the row, so there is nothing
-  // to restore to — focus lands on the banner the click produced instead,
+  // to restore to - focus lands on the banner the click produced instead,
   // which is also the thing the reader most needs to hear about.
   // `focus:`, not `focus-visible:`, on both of these. Chrome does not match
   // :focus-visible on an element focused PROGRAMMATICALLY when the preceding
-  // interaction was a mouse click — so `outline-none` won and focus teleported
+  // interaction was a mouse click - so `outline-none` won and focus teleported
   // from the clicked button to a paragraph with nothing drawn on it. A
   // tabIndex={-1} target is only ever focused deliberately, so there is no
   // stray-outline cost to the wider selector.
@@ -703,7 +703,7 @@ export default function Dashboard() {
   const [assigning, setAssigning] = useState<number | null>(null);
   const [assigningBlocker, setAssigningBlocker] = useState<number | null>(null);
   const [answering, setAnswering] = useState<number | null>(null);
-  // one needle over title, #id, @assignee, status and priority — the open
+  // one needle over title, #id, @assignee, status and priority - the open
   // list measured 82 rows over a 5,400px page with no way to narrow it
   const [taskFilter, setTaskFilter] = useState("");
   const [editing, setEditing] = useState<{
@@ -724,23 +724,23 @@ export default function Dashboard() {
     percent: "",
   });
 
-  // inline actions re-fetch instead of window.location.reload() — a reload
+  // inline actions re-fetch instead of window.location.reload() - a reload
   // resets focus to the document top and strips a screen-reader user of all
   // context mid-task
   // last-request-wins PER COLLECTION: two quick mutations can refresh
   // disjoint subsets concurrently, so an older result only loses to a newer
-  // refresh that re-requested the SAME collection — discarding the whole
+  // refresh that re-requested the SAME collection - discarding the whole
   // older snapshot would leave its collections stale with nothing left in
   // flight to refetch them (the user's own edit would look like a lost save)
   const generation = useRef(0);
   const collectionGen = useRef<Record<string, number>>({});
-  // collections whose LAST refresh failed — the error banner stays up until
+  // collections whose LAST refresh failed - the error banner stays up until
   // every one of them is redelivered, so a success over other collections
   // cannot mask a failure that left these stale
   const failedNames = useRef<Set<string>>(new Set());
   // an inline mutation refreshes ONLY the collections it changed (the write
   // endpoints answer with summaries, not rows, so local patching is not an
-  // option) — the full 13-endpoint sweep is for mount and retry. Every
+  // option) - the full 13-endpoint sweep is for mount and retry. Every
   // handler adds "activity" (every service write logs there) and pulse
   // rides along (blocker/engagement/standup writes move its numbers).
   const refresh = useCallback((names: string[]) => {
@@ -758,7 +758,7 @@ export default function Dashboard() {
         // scope the failure to collections still claimed by THIS refresh:
         // ones a newer refresh re-claimed are that refresh's to deliver or
         // fail, so this failure is obsolete for them. Stale claims are
-        // harmless to leave — each resolution compares against its own g,
+        // harmless to leave - each resolution compares against its own g,
         // and generations are never reused.
         const mine = names.filter((e) => collectionGen.current[e] === g);
         if (mine.length > 0) {
@@ -770,7 +770,7 @@ export default function Dashboard() {
       .then((p) => {
         if (g === generation.current) setPulse(p);
       })
-      .catch(() => {}); // pulse is decorative — its failure must not blank the page
+      .catch(() => {}); // pulse is decorative - its failure must not blank the page
   }, []);
   const load = useCallback(() => refresh(COLLECTIONS), [refresh]);
   useEffect(load, [load]);
@@ -783,7 +783,7 @@ export default function Dashboard() {
     setTimeout(() => focusVisible(document.getElementById(`edit-${kind}-${id}`)), 0);
 
   const addAbsence = async (draft: Record<string, unknown>) => {
-    // absences feed capacity's "away" markers — both must refresh together
+    // absences feed capacity's "away" markers - both must refresh together
     await api("/api/absences", { method: "POST", body: JSON.stringify(draft) });
     refresh(["absences", "capacity", "activity"]);
   };
@@ -915,7 +915,7 @@ export default function Dashboard() {
           });
   const recentlyShipped = shippedRecently(data.tasks);
 
-  // full-page error only before the first successful load — after that a
+  // full-page error only before the first successful load - after that a
   // failed refresh keeps the data on screen with a banner (My Day idiom)
   if (error && Object.keys(data).length === 0) {
     return (
@@ -958,14 +958,14 @@ export default function Dashboard() {
         Browse
       </h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
-        Everything the team tracks — edit inline wherever you see it.
+        Everything the team tracks - edit inline wherever you see it.
       </p>
       {error && (
         <p
           role="alert"
           className="mb-4 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
         >
-          Refresh failed ({error}) — showing the previous state.
+          Refresh failed ({error}) - showing the previous state.
           <button onClick={load} className="min-h-6 min-w-6 ml-2 underline">
             retry
           </button>
@@ -999,7 +999,7 @@ export default function Dashboard() {
       </label>
       <div className="min-w-0 space-y-4">
         {/* Focus moves HERE after a close that drafted something (the effect
-            beside bannerRef), which is what reads it out — a region mounted
+            beside bannerRef), which is what reads it out - a region mounted
             and filled in the same tick is not a change to an existing live
             region, so role=status alone would announce nothing on most screen
             readers. The role stays for the ones that do handle it, and
@@ -1031,7 +1031,7 @@ export default function Dashboard() {
           headingRef={engagementsRef}
           title="Engagements"
           rows={data.engagements ?? []}
-          empty="No engagements — accept a request (Inbox → Requests) or start one from a playbook."
+          empty="No engagements - accept a request (Inbox → Requests) or start one from a playbook."
           render={(e) => (
             <li
               key={e.id}
@@ -1151,7 +1151,7 @@ export default function Dashboard() {
                               : null;
                           setDraftedLesson(drafted);
                           // A close with no variance drafts NOTHING, which is
-                          // the ordinary case — no banner renders, so the
+                          // the ordinary case - no banner renders, so the
                           // banner-focus effect never fires and focus was left
                           // on <body>. The trigger unmounts with the row, so
                           // the fallback is the list's own heading.
@@ -1160,7 +1160,7 @@ export default function Dashboard() {
                           setClosing(null);
                           setPlanDiff(null);
                           // closing removes the engagement's allocations from
-                          // capacity and ships a recap note — both render here
+                          // capacity and ships a recap note - both render here
                           refresh([
                             "engagements",
                             "capacity",
@@ -1172,7 +1172,7 @@ export default function Dashboard() {
                         }
                       }}
                       title={CONCLUSION_HINTS[c]}
-                      aria-label={`${c} — close out ${e.name}`}
+                      aria-label={`${c} - close out ${e.name}`}
                       className="rounded bg-raised px-2 py-0.5 hover:bg-line"
                     >
                       {c}
@@ -1223,7 +1223,7 @@ export default function Dashboard() {
                   it: resolve lived on My Day (and only for rows that reached
                   the reader's attention list), an unowned row stayed unowned
                   unless somebody used the API by hand, and impact was frozen
-                  at capture's default `medium` — which is the field that sets
+                  at capture's default `medium` - which is the field that sets
                   the escalation clock (services/blockers.py). */}
               {b.status !== "resolved" && (
                 <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-ink-3">
@@ -1235,7 +1235,7 @@ export default function Dashboard() {
                         autoFocus
                         name="assign-blocker"
                         aria-label={`Give blocker #${b.id} an owner`}
-                        placeholder="teammate's name — Enter to assign"
+                        placeholder="teammate's name - Enter to assign"
                         onKeyDown={(ev) => {
                           if (ev.key === "Escape") {
                             setAssigningBlocker(null);
@@ -1248,7 +1248,7 @@ export default function Dashboard() {
                             blockerPatch(Number(b.id), { owner: who });
                         }}
                         onChange={(ev) => {
-                          // a mouse-picked datalist suggestion must commit too —
+                          // a mouse-picked datalist suggestion must commit too -
                           // picks arrive as insertReplacementText (or undefined
                           // inputType in Firefox), typing as insertText
                           const t = (ev.nativeEvent as InputEvent).inputType;
@@ -1328,7 +1328,7 @@ export default function Dashboard() {
           footer={
             // The write half of capacity. Five surfaces read allocation math
             // (this card, Health conflicts, Planning weeks-ahead, intake
-            // what-ifs) and NOTHING in the product wrote one — the table
+            // what-ifs) and NOTHING in the product wrote one - the table
             // behind "can we take this on" was reachable only by hand-made
             // API calls.
             <div className="mt-3 space-y-1.5 text-xs">
@@ -1354,7 +1354,7 @@ export default function Dashboard() {
                     }}
                     // py-1 takes this to 24px tall, which WCAG 2.5.8 target
                     // size requires. At text-xs it is 16px, and two allocation
-                    // rows 6px apart put their centres 22px apart — under the
+                    // rows 6px apart put their centres 22px apart - under the
                     // 24px spacing exception, so both rows failed the axe scan
                     // in e2e/responsive.spec.ts. Two allocations on one
                     // engagement is what reproduces it.
@@ -1719,7 +1719,7 @@ export default function Dashboard() {
           empty={
             taskFilter.trim()
               ? "No open task matches the filter."
-              : "No open tasks — open quick capture and type 'todo: …'."
+              : "No open tasks - open quick capture and type 'todo: …'."
           }
           controls={
             <div className="mb-3">
@@ -1730,7 +1730,7 @@ export default function Dashboard() {
                 id="task-filter"
                 value={taskFilter}
                 onChange={(e) => setTaskFilter(e.target.value)}
-                placeholder="filter — title, #id, @name, status, priority"
+                placeholder="filter - title, #id, @name, status, priority"
                 className="w-full max-w-xs rounded-lg border border-line-strong bg-transparent px-2 py-1 text-xs outline-none focus:border-thread-solid"
               />
               <p role="status" className="mt-1 text-xs text-ink-3">
@@ -1810,7 +1810,7 @@ export default function Dashboard() {
           hidden={selected !== "browse-recently-shipped"}
           title="Recently shipped"
           // The Tasks section above hides done work, so a merge that closes a
-          // task removes it and its forge link in the same second — the one
+          // task removes it and its forge link in the same second - the one
           // moment worth showing had no surface. Independent of the
           // commitment line ON PURPOSE: Health's week plan lists done work
           // only when it was committed to a week, which is most of it missing.
@@ -1882,7 +1882,7 @@ export default function Dashboard() {
                         autoFocus
                         name="assign-question"
                         aria-label="Assign this question to"
-                        placeholder="teammate's name — Enter to assign"
+                        placeholder="teammate's name - Enter to assign"
                         onKeyDown={(ev) => {
                           if (ev.key === "Escape") {
                             setAssigning(null);
@@ -1895,7 +1895,7 @@ export default function Dashboard() {
                             assignTo(Number(q.id), who);
                         }}
                         onChange={(ev) => {
-                          // a mouse-picked datalist suggestion must commit too —
+                          // a mouse-picked datalist suggestion must commit too -
                           // picks arrive as insertReplacementText (or undefined
                           // inputType in Firefox), typing as insertText
                           const t = (ev.nativeEvent as InputEvent).inputType;
@@ -1924,7 +1924,7 @@ export default function Dashboard() {
                         autoFocus
                         name="answer-question"
                         aria-label="Answer this question"
-                        placeholder="the answer — Enter to record it"
+                        placeholder="the answer - Enter to record it"
                         onKeyDown={async (ev) => {
                           if (ev.key === "Escape") {
                             setAnswering(null);
@@ -1965,11 +1965,11 @@ export default function Dashboard() {
                       ) : (
                         <button
                           id={`edit-question-assign-${q.id}`}
-                          aria-label={`unassigned — assign… question #${q.id}: ${q.question}`}
+                          aria-label={`unassigned - assign… question #${q.id}: ${q.question}`}
                           onClick={() => setAssigning(Number(q.id))}
                           className="min-h-6 min-w-6 underline hover:text-ink-2"
                         >
-                          unassigned — assign…
+                          unassigned - assign…
                         </button>
                       )}
                       <button
@@ -2155,7 +2155,7 @@ export default function Dashboard() {
                 <p className="font-display text-[30px]/none font-semibold text-ink">
                   {pulse.standup_chain.chain}{" "}
                   {/* the unit sits INLINE with the number, so it reads as a
-                    phrase and must agree — the (s) allowance covers standalone
+                    phrase and must agree - the (s) allowance covers standalone
                     stat labels, not "1 days" set in 30px type */}
                   <span className="ml-1 text-sm font-normal text-ink-3">
                     {pulse.standup_chain.chain === 1 ? "day" : "days"}
@@ -2180,7 +2180,7 @@ export default function Dashboard() {
                     season where three milestones landed, and a scoreboard
                     that only says failure stops being read */}
                 <p className="text-xs text-ink-3">
-                  shipped this season — milestones and closed engagements
+                  shipped this season - milestones and closed engagements
                 </p>
               </div>
               <div>
@@ -2195,7 +2195,7 @@ export default function Dashboard() {
                   className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.season_totals.blockers_open > 0 ? "bg-danger" : "bg-line-strong"}`}
                 />
                 <p className="text-xs text-ink-3">
-                  blockers spotted — spotting one is a win
+                  blockers spotted - spotting one is a win
                 </p>
               </div>
               <div>
@@ -2215,7 +2215,7 @@ export default function Dashboard() {
                 {pulse.blocker_speedrun
                   .map(
                     (s) =>
-                      `${s.impact} — avg ${s.avg_hours}h (fastest ${s.best_hours}h)`,
+                      `${s.impact} - avg ${s.avg_hours}h (fastest ${s.best_hours}h)`,
                   )
                   .join(" · ")}
               </p>

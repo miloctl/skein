@@ -131,7 +131,7 @@ def dispatch_events(
     after the side effect and before the delivery receipt is stored.
     """
     if not contributions:
-        # No subscriber is composed AT ALL — the extension is disabled or the
+        # No subscriber is composed AT ALL - the extension is disabled or the
         # composition is core-only. Finalizing here consumed every pending
         # event, so a disable/re-enable cycle silently lost the backlog. Leave
         # the rows for the composition that can deliver them; retention prunes
@@ -142,7 +142,7 @@ def dispatch_events(
         # one-second precision, and the random UUID tiebreak delivered a
         # task's update before its creation for same-second pairs. seq is
         # insertion order within the second, and the created_at prefix keeps
-        # idx_extension_outbox_delivery in play — a bare ORDER BY seq was a
+        # idx_extension_outbox_delivery in play - a bare ORDER BY seq was a
         # full-table scan every minute.
         "SELECT * FROM extension_outbox WHERE status = 'pending' ORDER BY created_at, seq LIMIT ?",
         (limit,),

@@ -111,7 +111,7 @@ def lock_fences(conn: db.DictConnection) -> tuple[datetime, ...]:
     deadlines = []
     for table, token in _guards.get():
         row = conn.execute(
-            f"SELECT lease_until::timestamptz AS deadline FROM {table}"  # noqa: S608 — table validated by held
+            f"SELECT lease_until::timestamptz AS deadline FROM {table}"  # noqa: S608 - table validated by held
             " WHERE lease_token = %s AND lease_owner = %s"
             " AND NULLIF(lease_until, '')::timestamptz > clock_timestamp() FOR UPDATE",
             (token, PROCESS_ID),
@@ -158,7 +158,7 @@ def renew() -> int:
                 continue
             with db.transaction():
                 renewed += db.execute_rowcount(
-                    f"WITH renewable AS (SELECT lease_token FROM {table}"  # noqa: S608 — closed tuple
+                    f"WITH renewable AS (SELECT lease_token FROM {table}"  # noqa: S608 - closed tuple
                     " WHERE lease_owner = ? AND lease_token = ANY(?)"
                     " AND NULLIF(lease_until, '')::timestamptz > clock_timestamp()"
                     " FOR UPDATE SKIP LOCKED)"
@@ -261,7 +261,7 @@ def stop(timeout: float = 5.0) -> None:
         for table in LEASED_TABLES:
             with db.transaction():
                 db.execute(
-                    f"UPDATE {table} SET lease_until = '2000-01-01T00:00:00+00:00'"  # noqa: S608 — closed tuple
+                    f"UPDATE {table} SET lease_until = '2000-01-01T00:00:00+00:00'"  # noqa: S608 - closed tuple
                     " WHERE lease_owner = ? AND lease_token != '' AND lease_until != ''",
                     (PROCESS_ID,),
                 )

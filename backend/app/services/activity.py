@@ -7,19 +7,19 @@ Two verifications, on purpose:
   app_settings). Cheap, runs nightly, keeps /health honest about freshness.
 - verify_chain() walks everything. An anchor is a claim about the past, so an
   incremental run can never notice an edit to a row it already passed. The
-  daily findings rule therefore pays for the full walk — that is the run that
+  daily findings rule therefore pays for the full walk - that is the run that
   answers "is the ledger intact", and it is the one an operator acts on.
 
 Rows can sit OUTSIDE the chain: pre-036 rows never carried a seq, and
 db.log_activity records a row unchained when a standalone chained append fails
-(a business write must not 500 over bookkeeping). The nightly job ADOPTS them —
+(a business write must not 500 over bookkeeping). The nightly job ADOPTS them -
 assigns each the tail seq and hash, appends one chained receipt naming the
 rows, and lowers the unchained baseline to what remains. Adoption attests
 content from that moment on, never provenance: an adopted row cannot be edited
 or deleted silently afterwards, which an unchained row always could.
 
 The receipt is the audit trail, and it names TWO counts: rows adopted, and rows
-EXPECTED — the pre-chain baseline plus the fallback appends this process
+EXPECTED - the pre-chain baseline plus the fallback appends this process
 recorded (db.UNCHAINED_FALLBACKS). Adopted above expected is a row nothing here
 wrote. A count is what a machine can check: pointed at the server log instead,
 an operator who found one genuine warning cleared every row adopted that night,
@@ -38,7 +38,7 @@ app_settings.
 The ANCHOR LOG covers that case. Each successful nightly verification appends
 the verified tip (seq + digest) to a file beside the backups AND,
 independently, to the same file on SKEIN_BACKUP_MIRROR. The daily findings
-rule replays every line ever anchored — from BOTH files — against the ledger
+rule replays every line ever anchored - from BOTH files - against the ledger
 as it exists now, so a re-forge or a truncation has to contradict a record
 made on an earlier day, and deleting or rewriting the local log is caught by
 the mirror's copy of the same lines. Honest limits, in order of sharpness:
@@ -69,7 +69,7 @@ LEGACY_UNCHAINED = "activity_chain_legacy"
 
 def _settings(*keys: str) -> dict[str, str]:
     marks = ", ".join("?" for _ in keys)
-    rows = db.query(f"SELECT key, value FROM app_settings WHERE key IN ({marks})", keys)  # noqa: S608 — keys hardcoded, id is a bound mark
+    rows = db.query(f"SELECT key, value FROM app_settings WHERE key IN ({marks})", keys)  # noqa: S608 - keys hardcoded, id is a bound mark
     return {r["key"]: r["value"] for r in rows}
 
 
@@ -413,7 +413,7 @@ def _anchor_log_paths() -> list:
     """The local log beside the backups, plus the same file on the mirror.
 
     APPENDED to independently, never copied. A copy would let a truncated
-    local file overwrite the mirror's longer history — and the mirror's
+    local file overwrite the mirror's longer history - and the mirror's
     history is the record the local file is compared against after a break.
     """
     from .admin import _backups_dir, mirror_dir
@@ -507,7 +507,7 @@ def recorded_backup_digests(name: str) -> set[str]:
     """Every digest the anchor logs hold for one backup file name.
 
     More than one value for the same name means a log disagrees with its
-    mirror — the caller must treat the file as unverified.
+    mirror - the caller must treat the file as unverified.
     """
     digests: set[str] = set()
     for path in _anchor_log_paths():
@@ -549,7 +549,7 @@ def _lowest_anchored_baseline() -> int | None:
 
 
 def record_anchor() -> dict:
-    """Append the last VERIFIED tip to the anchor log(s) — one line per tip.
+    """Append the last VERIFIED tip to the anchor log(s) - one line per tip.
 
     Reads the app_settings anchor rather than the live tail: the tail may
     contain rows written since verification ran, and anchoring an unverified
@@ -561,8 +561,8 @@ def record_anchor() -> dict:
     check is PER FILE, so a mirror that was unmounted last night still gets
     the line the local file already has.
 
-    A failed append is logged and skipped — the mirror is a mounted path that
-    is allowed to be absent — but every file failing means the tip goes
+    A failed append is logged and skipped - the mirror is a mounted path that
+    is allowed to be absent - but every file failing means the tip goes
     unanchored, which the job outcome records via the return value.
     """
     seq, digest = _anchor()
@@ -585,7 +585,7 @@ def record_anchor() -> dict:
         try:
             # no mkdir here, deliberately. _backups_dir() already creates the
             # local dir, and manufacturing the MIRROR directory would build the
-            # mount point on the local disk when the NAS is unmounted — the
+            # mount point on the local disk when the NAS is unmounted - the
             # append would then succeed onto the wrong disk and be shadowed
             # when the real mount returns, a silent hole in the history whose
             # continuity is the whole point. Let a missing mount raise.
@@ -596,7 +596,7 @@ def record_anchor() -> dict:
                 current.append(str(path))
         except OSError:
             log.warning("could not append the chain anchor to %s", path, exc_info=True)
-    # anchored reports what actually landed or was already on record — a night
+    # anchored reports what actually landed or was already on record - a night
     # where every append failed must not read as a success in the job outcome
     return {"anchored": seq if written or current else 0, "files": written, "current": current}
 
@@ -607,26 +607,26 @@ def adopt_unchained(actor: str = "scheduler") -> dict:
     One transaction holding db.py's activity advisory lock across read-tail,
     the updates, and the receipt, so no chained append can interleave and take
     a seq this function is about to assign. Only seq-NULL
-    rows are ever touched — a row that carries a seq is immutable history.
+    rows are ever touched - a row that carries a seq is immutable history.
 
     A smuggled row is adopted exactly like a lock-timeout fallback, on
     purpose: the two are indistinguishable from the database alone, and
     refusing to adopt meant one fallback row alarmed forever.
 
-    The receipt names BOTH numbers — rows chained, and fallbacks this server
-    recorded (db.UNCHAINED_FALLBACKS) — because the count is the only part a
+    The receipt names BOTH numbers - rows chained, and fallbacks this server
+    recorded (db.UNCHAINED_FALLBACKS) - because the count is the only part a
     machine can check. Told to grep the log instead, an operator who found
     one genuine "activity chain append failed" warning stood down for the
     whole night, and one receipt covers every row adopted that night: a
     smuggled row rode out on a real fallback's warning. `adopted` above
     `recorded` is a row nothing in this process wrote. It raises the bar
-    rather than closing the hole — an attacker who can write `activity` can
-    write `app_settings` too — but it removes the reasoning that cleared N
+    rather than closing the hole - an attacker who can write `activity` can
+    write `app_settings` too - but it removes the reasoning that cleared N
     rows on the evidence for one.
 
     The baseline is LOWERED to the new unchained count (0), never raised.
     check_anchor_log alarms on a baseline above the lowest ever anchored, so
-    lowering is the one safe direction — and without it the old baseline
+    lowering is the one safe direction - and without it the old baseline
     becomes an allowance: `unchained > legacy` with legacy 3 admits three
     smuggled rows silently.
     """
@@ -708,10 +708,10 @@ def nightly_verify() -> dict:
     tail, then anchor the verified tip.
 
     Adoption runs FIRST so tonight's anchor covers the adopted rows and the
-    06:50 findings walk sees a healed chain — ordered the other way, every
+    06:50 findings walk sees a healed chain - ordered the other way, every
     fallback row raised one false HIGH tamper finding before the heal.
 
-    Anchoring only on ok is the point — after a break, appending would anchor
+    Anchoring only on ok is the point - after a break, appending would anchor
     a digest the verification just refused to bless.
     """
     prior_seq, _ = _anchor()
@@ -750,7 +750,7 @@ def check_anchor_log() -> dict:
 
     This is the check the in-DB marks cannot make: a whole-chain re-forge that
     also rewrites app_settings passes verify_chain, but every anchored row's
-    digest changed with the rewrite — content or lineage — so it no longer
+    digest changed with the rewrite - content or lineage - so it no longer
     matches what was recorded on the night it was verified.
 
     Reads the local file AND the mirror copy when one is configured and
@@ -990,7 +990,7 @@ def chain_health() -> dict:
 # action -> (past-tense verb phrase, salience). Salience tracks consequence:
 # destructive and security-relevant actions are loud, ordinary writes are
 # normal, system bookkeeping is quiet. An action missing here renders as an
-# honest generic row — never a fabricated sentence — so a new log_activity
+# honest generic row - never a fabricated sentence - so a new log_activity
 # call degrades instead of breaking, and the registry lives next to the
 # ledger it names.
 VERBS: dict[str, tuple[str, str]] = {
@@ -1050,7 +1050,7 @@ VERBS: dict[str, tuple[str, str]] = {
     "edit_intake": ("edited an intake request", "normal"),
     "accept_without_engagement": ("accepted a request without an engagement", "normal"),
     "delegate_task": ("delegated a task", "normal"),
-    # The actor is the SCHEDULER, not the agent — the scheduler is what the
+    # The actor is the SCHEDULER, not the agent - the scheduler is what the
     # feed shows to every viewer, and an agent name here would put one
     # agent's row in front of the whole team under a system actor's exemption.
     # So the verb names what the scheduler did, and the agent is in the
@@ -1131,12 +1131,12 @@ VERBS: dict[str, tuple[str, str]] = {
     "plan_snapshot": ("recorded the plan an engagement started with", "quiet"),
     "generate_handoff": ("generated a handoff package", "normal"),
     # quiet: attaching a file to your own chat turn is not the team's news,
-    # and the detail carries no title — the row names the artifact id and its
+    # and the detail carries no title - the row names the artifact id and its
     # size, never the filename, which is caller-controlled text going into a
     # hash-chained ledger that cannot be edited afterwards
     "upload_file": ("attached a file", "quiet"),
     # loud like every other destruction, and the detail names the id and the
-    # size it freed, never the filename — that is caller-controlled text going
+    # size it freed, never the filename - that is caller-controlled text going
     # into a ledger that cannot be edited afterwards
     "delete_file": ("deleted an attached file", "loud"),
     "create_document": ("wrote a document", "normal"),
@@ -1188,7 +1188,7 @@ SYSTEM_ACTORS = ("system", "scheduler", "team", "forge")
 
 def visible_actor_filter(viewer: str) -> tuple[str, list]:
     """SQL fragment limiting rows to the viewer's own strand: their actor,
-    agent identities, and the known system processes. Default-CLOSED — an
+    agent identities, and the known system processes. Default-CLOSED - an
     actor this cannot classify is hidden, never shown as system."""
     from .users import person_agent_visible
 
@@ -1209,11 +1209,11 @@ def feed(viewer: str, limit: int = 50, before: int = 0) -> dict:
 
     SCOPE IS THE POINT, and it is enforced here in the service, not in a
     route: the feed shows agent and system actors plus the viewer's OWN rows.
-    Another human's rows never appear — person-level data is for planning the
+    Another human's rows never appear - person-level data is for planning the
     future, not for watching colleagues (the anti-surveillance rule). There
     is deliberately no way to pass a different person.
 
-    Covers chained rows only (seq is the cursor — monotonic and gap-free by
+    Covers chained rows only (seq is the cursor - monotonic and gap-free by
     construction: `id` is outside the digest, so ordering by it would let the
     visible timeline disagree with the verified one).
 
@@ -1221,7 +1221,7 @@ def feed(viewer: str, limit: int = 50, before: int = 0) -> dict:
     feed at its adoption time and not at its own created_at. On the first run
     after an upgrade that puts every pre-036 row at the top of the page, dated
     years ago. That is a consequence of paginating on seq, and the receipt
-    beside them says what happened — but it surprises a reader, so it is
+    beside them says what happened - but it surprises a reader, so it is
     written down here rather than left to be discovered.
     """
     limit = max(1, min(int(limit), 200))
@@ -1233,16 +1233,16 @@ def feed(viewer: str, limit: int = 50, before: int = 0) -> dict:
         params.append(before)
     # idx_activity_seq must stay the plan for this query. Given the choice the
     # planner can pick idx_activity_actor and sort afterwards, and the visible
-    # actor set is most of the table — that plan re-sorts nearly the whole
+    # actor set is most of the table - that plan re-sorts nearly the whole
     # ledger on every page. The seq index already IS the sort order, so
     # walking it descending stops at `limit` rows however large the ledger
     # grows. The index is partial on seq IS NOT NULL, which is why the WHERE
     # above keeps that predicate: without it the index does not apply. It
     # lives in core_migrations/001_baseline.sql; dropping it costs a full sort
-    # here, silently. There is no INDEXED BY to force it — PostgreSQL has no
+    # here, silently. There is no INDEXED BY to force it - PostgreSQL has no
     # planner hint, so the shape of the query is the whole lever.
     rows = db.query(
-        f"SELECT seq, actor, action, detail, created_at FROM activity"  # noqa: S608 — placeholders built above
+        f"SELECT seq, actor, action, detail, created_at FROM activity"  # noqa: S608 - placeholders built above
         f" WHERE {where} ORDER BY seq DESC LIMIT ?",
         (*params, limit + 1),
     )
@@ -1255,7 +1255,7 @@ def feed(viewer: str, limit: int = 50, before: int = 0) -> dict:
         elif row["actor"] in agents:
             who = "agent"
         else:
-            who = "system"  # allowlisted literals only — nothing else gets here
+            who = "system"  # allowlisted literals only - nothing else gets here
         entries.append(
             {
                 "seq": row["seq"],

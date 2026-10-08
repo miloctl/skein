@@ -69,7 +69,7 @@ from .work import (
 # context strategy, the model pick, and the tuning knobs change what every
 # chat costs and how the deployment behaves, and an agent that can move them
 # can be talked into moving them. Those setters are REST + AdminUser only
-# (routes/api.py) — do not add a wrapper here.
+# (routes/api.py) - do not add a wrapper here.
 ALL_TOOLS = [
     read_artifact,
     create_document,

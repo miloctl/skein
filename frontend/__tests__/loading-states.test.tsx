@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 /** A list page has THREE states, not two. Starting from [] makes "still
- *  loading", "nothing here", and "the load failed" render identically —
+ *  loading", "nothing here", and "the load failed" render identically -
  *  and the empty state is a claim ("nothing is waiting on you"), so showing
  *  it before the answer arrives OR next to a failure is a lie the reader
  *  acts on. Review, Intake and Charter all shipped that way;
@@ -73,7 +73,7 @@ describe("a list page whose load failed", () => {
         // approved section), so match all, not one
         expect((await screen.findAllByText(/queue service exploded/)).length).toBeGreaterThan(0);
         expect(screen.queryByText("Loading…")).toBeNull();
-        // failure and "nothing here" are different answers — never both.
+        // failure and "nothing here" are different answers - never both.
         // Charter shipped rendering its empty claim beside the error.
         expect(screen.queryByText(claim)).toBeNull();
       } finally {

@@ -68,7 +68,7 @@ def _private_rows(table: str, name: str) -> tuple[str, tuple]:
         return 'SELECT id FROM memories WHERE "user" = ?', (name,)
     column = scope.CLASSIFIED[table]
     return (
-        f'SELECT id FROM {table} WHERE visibility = ? AND "{column}" = ?',  # noqa: S608 — table and column from scope.CLASSIFIED
+        f'SELECT id FROM {table} WHERE visibility = ? AND "{column}" = ?',  # noqa: S608 - table and column from scope.CLASSIFIED
         (scope.PRIVATE, name),
     )
 
@@ -110,7 +110,7 @@ def holdings(name: str) -> dict[str, int]:
     from .private_notes import author_note_count
 
     counts = {
-        kind: int(db.query_row(f"SELECT COUNT(*) AS n FROM ({sql}) AS held", params)["n"])  # noqa: S608 — sql from _queries
+        kind: int(db.query_row(f"SELECT COUNT(*) AS n FROM ({sql}) AS held", params)["n"])  # noqa: S608 - sql from _queries
         for kind, (sql, params) in _queries(name).items()
     }
     counts["journal_notes"] = author_note_count(name)
@@ -172,11 +172,11 @@ def erase(name: str, *, actor: str = "scheduler") -> dict[str, int]:
             if table == "engagements":
                 for link in _ENGAGEMENT_LINKS:
                     db.execute(
-                        f"UPDATE {link} SET engagement_id = NULL WHERE engagement_id = ANY(?)",  # noqa: S608 — table from _ENGAGEMENT_LINKS
+                        f"UPDATE {link} SET engagement_id = NULL WHERE engagement_id = ANY(?)",  # noqa: S608 - table from _ENGAGEMENT_LINKS
                         (ids,),
                     )
             rows = db.query(
-                f"DELETE FROM {table} WHERE id = ANY(?) RETURNING *",  # noqa: S608 — table from _ORDER
+                f"DELETE FROM {table} WHERE id = ANY(?) RETURNING *",  # noqa: S608 - table from _ORDER
                 (ids,),
             )
             if table == "artifacts":

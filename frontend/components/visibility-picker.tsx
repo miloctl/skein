@@ -30,9 +30,9 @@ export function VisibilityPicker({
   allowPrivate?: boolean;
 }) {
   // Three states, and they are three because two lost information:
-  //   null  — still loading
-  //   false — the request FAILED, so the crew list is not known
-  //   []    — answered, and this caller is in no crew
+  //   null - still loading
+  //   false - the request FAILED, so the crew list is not known
+  //   [] - answered, and this caller is in no crew
   // Collapsing false into [] made a failed fetch indistinguishable from a
   // real answer, and the reconciliation below then widened a crew row to the
   // whole roster on a network blip.
@@ -55,7 +55,7 @@ export function VisibilityPicker({
       // `false`, not `[]`: an empty array means "you are in no crew", and the
       // reconciliation below reads it as "the crew you picked is gone" and
       // widens the row to the whole roster. A failed request must never do
-      // that — the caller chose a tier and a network blip silently undoing it
+      // that - the caller chose a tier and a network blip silently undoing it
       // is the one direction that costs a reader their privacy.
       .catch(() => live && setCrews(false));
     return () => {
@@ -72,7 +72,7 @@ export function VisibilityPicker({
   // This REQUESTS the correction, it cannot enforce it: a parent that ignores
   // onChange still holds the stale crew while the select reads "everyone on
   // the roster". Both call sites pass their setState directly, so the two
-  // agree today — a new caller that filters or debounces onChange brings the
+  // agree today - a new caller that filters or debounces onChange brings the
   // original defect back.
   //
   // onChange through a ref: callers pass an inline arrow, so depending on it
@@ -150,14 +150,14 @@ export function VisibilityPicker({
 //
 // /api/crews returns ACTIVE crews only. A row scoped to a deactivated crew
 // therefore never resolves a name and the badge reads "one crew only" for
-// good — crews.crews_of still returns that crew, so the row itself stays
+// good - crews.crews_of still returns that crew, so the row itself stays
 // readable to its members.
 let crewNames: Promise<Record<number, string>> | null = null;
 
 // Dropped on the same signal lib/api.ts drops its GET cache. Both the identity
 // picker and the API-key writer dispatch "storage", and without this a crew
 // renamed in Settings kept its old name in every badge for the rest of the
-// session — the badge would then disagree with the picker that set it.
+// session - the badge would then disagree with the picker that set it.
 if (typeof window !== "undefined") {
   window.addEventListener("storage", () => {
     crewNames = null;
@@ -170,7 +170,7 @@ function useCrewName(crewId?: number): string {
   // mounted picks up a renamed crew instead of holding the old name for the
   // session. It is not a retry: after a failed /api/crews every mounted badge
   // reads "one crew only" until some writer dispatches "storage" (an identity
-  // change, an API-key write, a theme change — lib/theme.ts shares the
+  // change, an API-key write, a theme change - lib/theme.ts shares the
   // channel). A user who does none of those never recovers without a reload.
   const [tick, setTick] = useState(0);
   useEffect(() => {

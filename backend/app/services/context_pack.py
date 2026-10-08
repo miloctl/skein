@@ -1,5 +1,5 @@
-"""Team context pack: a versioned, deterministic org-brain — active decisions,
-engagement state, lessons, conventions — assembled from the record. Emitted as
+"""Team context pack: a versioned, deterministic org-brain - active decisions,
+engagement state, lessons, conventions - assembled from the record. Emitted as
 markdown so any agent (Claude Code, custom, MCP) can load the team's context
 without asking anyone. Versions only bump when the content actually changes."""
 
@@ -18,7 +18,7 @@ def build_pack(
     resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
     viewer: scope.Viewer = scope.NOBODY,
 ) -> str:
-    """Assemble the pack body. Pure read — same data in, same text out.
+    """Assemble the pack body. Pure read - same data in, same text out.
 
     The body is always the workspace tier, because a crew member reads the
     workspace too. `crew_id` APPENDS that crew's own rows as a final section
@@ -78,33 +78,33 @@ def build_pack(
 
     lines.append("## Standing decisions (cite these; supersede, don't ignore)")
     decisions = db.query(
-        f"SELECT * FROM decisions WHERE status = 'active' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM decisions WHERE status = 'active' AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " ORDER BY id DESC LIMIT 25"
     )
     decisions = policy_context.filter_resource_rows(
         "decision", decisions, scope.NOBODY, resource_filter
     )
     for d in decisions:
-        line = f"- **{wording.flatten(d['title'])}** — {wording.flatten(d['decision'])}"
+        line = f"- **{wording.flatten(d['title'])}** - {wording.flatten(d['decision'])}"
         if d["review_by"]:
             line += f" *(review by {d['review_by']})*"
         lines.append(line)
     if not decisions:
         lines.append("- none recorded")
     stale = db.query(
-        f"SELECT * FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " ORDER BY id DESC LIMIT 5"
     )
     stale = policy_context.filter_resource_rows("decision", stale, scope.NOBODY, resource_filter)
     if stale:
         lines.append("")
-        lines.append("Stale (past review-by — confirm before relying on):")
+        lines.append("Stale (past review-by - confirm before relying on):")
         lines += [f"- #{d['id']} {wording.flatten(d['title'])}" for d in stale]
     lines.append("")
 
     lines.append("## Lessons the team already paid for")
     lessons = db.query(
-        f"SELECT * FROM lessons WHERE {WORKSPACE_ONLY} ORDER BY id DESC LIMIT 15"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM lessons WHERE {WORKSPACE_ONLY} ORDER BY id DESC LIMIT 15"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
     )
     if resource_filter is not None:
         contexts = policy_context.resource_contexts(
@@ -128,7 +128,7 @@ def build_pack(
 
     lines.append("## Conventions")
     conventions = db.query(
-        f"SELECT * FROM notes WHERE topic LIKE 'convention%' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM notes WHERE topic LIKE 'convention%' AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " ORDER BY id DESC LIMIT 15"
     )
     conventions = policy_context.filter_resource_rows(
@@ -141,7 +141,7 @@ def build_pack(
 
     lines.append("## Open questions nobody has answered")
     questions = db.query(
-        f"SELECT * FROM questions WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM questions WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " ORDER BY id DESC LIMIT 10"
     )
     questions = policy_context.filter_resource_rows(
@@ -177,21 +177,21 @@ def build_engagement_pack(
     viewer: scope.Viewer = scope.NOBODY,
     resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
 ) -> str:
-    """Scoped pack for ONE engagement — what a delegated agent needs and
+    """Scoped pack for ONE engagement - what a delegated agent needs and
     nothing else: cheaper tokens, less noise, cleaner blast radius. Generated
     on demand (unversioned; versioning is for the org-brain)."""
     # Filtered by the CALLER. An agent tool and the MCP server pass NOBODY,
-    # which is the workspace tier — the rule those surfaces need. A crew
+    # which is the workspace tier - the rule those surfaces need. A crew
     # member gets their own engagement. Locked to the workspace tier instead,
     # a crew member saw the engagement in GET /api/engagements and got "not
-    # found" asking for its pack — a correct refusal with a misleading
+    # found" asking for its pack - a correct refusal with a misleading
     # sentence (services/handoff.py states the same pair).
     efrag, ep = scope.visible_filter(viewer, "engagements")
     mfrag, mp = scope.visible_filter(viewer, "milestones")
     tfrag, tp = scope.visible_filter(viewer, "tasks", "t")
     lfrag, lp = scope.visible_filter(viewer, "lessons")
     eng = db.query_one(
-        f"SELECT * FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 - scope.visible_filter emits only bound marks
         (engagement_id, *ep),
     )
     if not eng:
@@ -216,7 +216,7 @@ def build_engagement_pack(
         ]
     lines.append("## Milestones")
     milestones = db.query(
-        f"SELECT * FROM milestones WHERE engagement_id = ? AND {mfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM milestones WHERE engagement_id = ? AND {mfrag}"  # noqa: S608 - scope.visible_filter emits only bound marks
         " ORDER BY due_date IS NULL, due_date",
         (engagement_id, *mp),
     )
@@ -227,7 +227,7 @@ def build_engagement_pack(
     )
     lines += [
         f"- [{m['status']}] #{m['id']} {wording.flatten(m['title'])}"
-        + (f" — due {m['due_date']}" if m["due_date"] else "")
+        + (f" - due {m['due_date']}" if m["due_date"] else "")
         for m in milestones
     ] or ["- none recorded"]
     lines.append("")
@@ -236,7 +236,7 @@ def build_engagement_pack(
 
     tasks = work.consistent_task_rows(
         db.query(
-            f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 - scope.visible_filter emits only bound marks
             " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
             " AND t.status NOT IN ('done', 'void')"
             " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
@@ -252,7 +252,7 @@ def build_engagement_pack(
         if t["assignee"]:
             line += f" (@{wording.flatten(t['assignee'])})"
         if t["waiting_on_type"]:
-            line += f" — waiting on {t['waiting_on_type']} #{t['waiting_on_id']}"
+            line += f" - waiting on {t['waiting_on_type']} #{t['waiting_on_id']}"
         lines.append(line)
     if not tasks:
         lines.append("- none recorded")
@@ -269,7 +269,7 @@ def build_engagement_pack(
     lines.append("")
     lines.append("## Lessons from this class")
     lessons = db.query(
-        f"SELECT * FROM lessons WHERE {lfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM lessons WHERE {lfrag}"  # noqa: S608 - scope.visible_filter emits only bound marks
         " AND (engagement_id = ? OR project_class = ?) ORDER BY id DESC LIMIT 10",
         (*lp, engagement_id, eng["project_class"]),
     )
@@ -282,12 +282,12 @@ def build_engagement_pack(
     lines.append("")
     lines.append("## Standing decisions that bind this work")
     decisions = db.query(
-        f"SELECT * FROM decisions WHERE status = 'active' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM decisions WHERE status = 'active' AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " ORDER BY id DESC LIMIT 10"
     )
     decisions = policy_context.filter_resource_rows("decision", decisions, viewer, resource_filter)
     lines += [
-        f"- **{wording.flatten(d['title'])}** — {wording.flatten(d['decision'])}" for d in decisions
+        f"- **{wording.flatten(d['title'])}** - {wording.flatten(d['decision'])}" for d in decisions
     ] or ["- none recorded"]
     return "\n".join(lines)
 
@@ -300,7 +300,7 @@ def _crew_section(
     """One crew's own rows, appended to the workspace body.
 
     A crew pack is handed to an agent and written to disk, so it holds the
-    CREW tier and never the private one — private has no reader but its
+    CREW tier and never the private one - private has no reader but its
     author, and a pack has no author to be.
     """
     from . import crews
@@ -316,19 +316,19 @@ def _crew_section(
         (
             "Decisions",
             "decision",
-            f"SELECT * FROM decisions WHERE status = 'active' AND {scoped} ORDER BY id DESC LIMIT 25",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
-            lambda r: f"- **{wording.flatten(r['title'])}** — {wording.flatten(r['decision'])}",
+            f"SELECT * FROM decisions WHERE status = 'active' AND {scoped} ORDER BY id DESC LIMIT 25",  # noqa: S608 - `scoped` is a module-local literal with one bound mark
+            lambda r: f"- **{wording.flatten(r['title'])}** - {wording.flatten(r['decision'])}",
         ),
         (
             "Conventions",
             "note",
-            f"SELECT * FROM notes WHERE topic LIKE 'convention%' AND {scoped} ORDER BY id DESC LIMIT 15",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
+            f"SELECT * FROM notes WHERE topic LIKE 'convention%' AND {scoped} ORDER BY id DESC LIMIT 15",  # noqa: S608 - `scoped` is a module-local literal with one bound mark
             lambda r: f"- {wording.flatten(r['topic'])}: {wording.flatten(r['content'])}",
         ),
         (
             "Open questions",
             "question",
-            f"SELECT * FROM questions WHERE status = 'open' AND {scoped} ORDER BY id DESC LIMIT 10",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
+            f"SELECT * FROM questions WHERE status = 'open' AND {scoped} ORDER BY id DESC LIMIT 10",  # noqa: S608 - `scoped` is a module-local literal with one bound mark
             lambda r: (
                 f"- #{r['id']} {wording.flatten(r['question'])} (asked by {wording.flatten(r['asked_by'])})"
             ),
@@ -336,7 +336,7 @@ def _crew_section(
         (
             "Open work",
             "task",
-            f"SELECT * FROM tasks WHERE status NOT IN ('done', 'void') AND {scoped} ORDER BY id DESC LIMIT 25",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
+            f"SELECT * FROM tasks WHERE status NOT IN ('done', 'void') AND {scoped} ORDER BY id DESC LIMIT 25",  # noqa: S608 - `scoped` is a module-local literal with one bound mark
             lambda r: (
                 f"- [{r['status']}] #{r['id']} {wording.flatten(r['title'])} (@{r['assignee'] or 'unassigned'})"
             ),
@@ -417,7 +417,7 @@ def _store_pack(body: str, *, actor: str, crew_id: int) -> dict:
             last = latest_pack(crew_id)
             if last is None:
                 raise ValueError(
-                    "context pack vanished during concurrent publish — retry"
+                    "context pack vanished during concurrent publish - retry"
                 ) from None
             return {
                 "version": last["version"],
@@ -438,14 +438,14 @@ def publish_pack(
 ) -> dict:
     """Version the pack; no-op if nothing changed since the last version.
 
-    Each crew versions independently — v3 of the Platform pack has nothing to
+    Each crew versions independently - v3 of the Platform pack has nothing to
     do with v3 of the team pack, and a shared counter would bump every crew's
     version whenever any one of them published.
 
     Gated on the VIEWER for a crew pack, matching get_pack. Publishing takes
     the crew id off a query string and writes that crew's decisions,
     conventions, questions and open work to an artifact file, then bumps the
-    version every member cites — so gating the read at strong identity and the
+    version every member cites - so gating the read at strong identity and the
     write at a self-asserted name made publish the weaker door to the same
     rows. assert_writable stays as well: it is the one that refuses a
     DEACTIVATED crew, which get_pack deliberately allows for reading.
@@ -466,7 +466,7 @@ def get_pack(
 
     The crew pack is gated on the VIEWER, not on `actor`. A crew pack's body
     is _crew_section's decisions, conventions, questions and tasks verbatim,
-    which makes this a scoped READ — and docs/VISIBILITY.md decision 3 sets
+    which makes this a scoped READ - and docs/VISIBILITY.md decision 3 sets
     that bar at strong identity. Resolved from the bare name, `X-User: ava`
     with no credential read any crew's pack, because in trusted-header mode
     the name is whatever the caller typed. Viewer blanks a weak identity, so
@@ -487,7 +487,7 @@ def get_pack(
             return transient
         last = latest_pack(crew_id)
         if last is None:
-            raise ValueError("context pack publish produced no pack — retry")
+            raise ValueError("context pack publish produced no pack - retry")
     return _served(last, crew_id, viewer, resource_filter)
 
 

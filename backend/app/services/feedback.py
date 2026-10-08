@@ -1,10 +1,10 @@
 """Eval corpus: thumbs and corrections on platform output become labeled
 examples. `eval_capture` replays the capture classifier against its own
-correction history — run it before changing the rules (or a model prompt)."""
+correction history - run it before changing the rules (or a model prompt)."""
 
 from .. import db
 
-# pulse: the weekly one-question check — "did Skein reduce coordination
+# pulse: the weekly one-question check - "did Skein reduce coordination
 # effort this week?" (up/down + optional note in correction). Team-aggregated
 # only; never displayed per person.
 KINDS = ("chat", "capture", "proposal", "finding", "pulse")
@@ -33,7 +33,7 @@ def record_feedback(
     # pulse votes are DESIGNED anonymous: no created_by, and the ledger gets
     # neither actor nor verdict (on a 6-person team, actor-without-verdict is
     # still deanonymizable against the tally). A documented narrowing of the
-    # provenance norm — the vote is honest only if it can't be attributed.
+    # provenance norm - the vote is honest only if it can't be attributed.
     stored_by = "" if kind == "pulse" else actor
     fid = db.execute(
         "INSERT INTO feedback (kind, input, output, verdict, correction,"
@@ -63,7 +63,7 @@ def list_feedback(kind: str = "", *, reader: str = "", admin: bool = False) -> l
         where += " AND kind = ?" if where else " WHERE kind = ?"
         params.append(kind)
     return db.query(
-        f"SELECT {_COLS} FROM feedback{where} ORDER BY id DESC LIMIT 100",  # noqa: S608 — keys hardcoded, values are bound marks
+        f"SELECT {_COLS} FROM feedback{where} ORDER BY id DESC LIMIT 100",  # noqa: S608 - keys hardcoded, values are bound marks
         tuple(params),
     )
 
@@ -86,7 +86,7 @@ def eval_capture() -> dict:
     """Replay the rule-based classifier over the labeled capture corpus.
     'up' rows assert the recorded output was right; 'corrected' rows carry
     the right answer. Only rows whose expected label is a capture kind are
-    machine-checkable — free-text corrections ("review_by should have been
+    machine-checkable - free-text corrections ("review_by should have been
     parsed") are surfaced as unscored, not counted as regressions forever."""
     from .capture import classify
 
@@ -119,7 +119,7 @@ def eval_capture() -> dict:
 
 def pulse_tally(weeks: int = 8) -> list[dict]:
     """Team-aggregated weekly pulse: up = Skein reduced coordination effort,
-    down = it added effort. Counts only — never who said what (the one burden
+    down = it added effort. Counts only - never who said what (the one burden
     signal telemetry can't measure honestly if people feel watched)."""
     rows = db.query(
         "SELECT created_at, verdict FROM feedback WHERE kind = 'pulse' ORDER BY id DESC LIMIT 500"
@@ -128,7 +128,7 @@ def pulse_tally(weeks: int = 8) -> list[dict]:
 
     buckets: dict[str, dict] = {}
     for r in rows:
-        # local day, not substr(created_at) — the ISO week these roll into
+        # local day, not substr(created_at) - the ISO week these roll into
         # is rendered beside weekly.current_week(), which is local
         iso = date.fromisoformat(db.local_day(r["created_at"])).isocalendar()
         wk = f"{iso.year}-W{iso.week:02d}"

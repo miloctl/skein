@@ -16,11 +16,11 @@ from .scope import WORKSPACE_ONLY
 
 # groups, in display order: decide (what needs a call), unblock (what's
 # stuck), commit (what you promised), review (what awaits your verdict),
-# notice (worth knowing) — the frontend renders them in this order.
+# notice (worth knowing) - the frontend renders them in this order.
 #
 # Every item also carries `audience`: "you" for a row addressed to this reader
 # by name (assigned, owned, authored, notified) and "team" for a shared queue
-# anyone may work. The distinction is load-bearing, not decoration — a heading
+# anyone may work. The distinction is load-bearing, not decoration - a heading
 # that says "needs you" over rows nobody assigned to the reader teaches them to
 # discount the whole page, and that page is the product's daily habit.
 def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
@@ -42,7 +42,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 # anything" is a question about what it was FOR
                 "reason": (
                     f"it ran {db.local_moment(ev['starts_at'])} and no outcome is recorded"
-                    + (f" — agenda: {ev['agenda'][:60]}" if ev["agenda"] else "")
+                    + (f" - agenda: {ev['agenda'][:60]}" if ev["agenda"] else "")
                     + (
                         f". {wording.count(ev['linked'], 'item')} came out of it"
                         if ev.get("linked")
@@ -64,7 +64,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "group": "unblock",
                 "audience": "you",
                 "label": f"question #{q['id']}: {q['question'][:80]}",
-                "reason": "assigned to you and still open — someone is waiting on the answer",
+                "reason": "assigned to you and still open - someone is waiting on the answer",
                 # the ROW, not the page. Bare /dashboard dropped the reader at
                 # the top of thirteen sections holding a number to hunt for.
                 # The `question-N` id is on the row in app/dashboard/page.tsx
@@ -80,7 +80,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "group": "unblock",
                 "audience": "you",
                 "label": f"blocker #{b['id']}: {b['title']}",
-                "reason": f"you own it (impact {b['impact']}) — it escalates on a clock",
+                "reason": f"you own it (impact {b['impact']}) - it escalates on a clock",
                 "link": f"/dashboard#blocker-{b['id']}",
             }
         )
@@ -92,7 +92,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "group": "review",
                 "audience": "you" if p.get("requested_by") == user else "team",
                 "label": f"proposal #{p['id']}: {p['summary']}",
-                "reason": f"proposed by {p['proposed_by']} — applies only after a human verdict",
+                "reason": f"proposed by {p['proposed_by']} - applies only after a human verdict",
                 "link": f"/review?id={p['id']}",
             }
         )
@@ -104,19 +104,19 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "group": "decide",
                 "audience": "team",
                 "label": f"intake #{r['id']}: {r['title']}",
-                "reason": "needs an accept, defer, or decline — the requester reads the reason",
+                "reason": "needs an accept, defer, or decline - the requester reads the reason",
                 "link": "/intake",
             }
         )
     for d in db.query(
         # decided_by = the reader, the same filter rituals.week_open uses for
         # the same sentence. "reconfirm it or supersede it" is an instruction,
-        # and only the person who made a call can say it still holds — without
+        # and only the person who made a call can say it still holds - without
         # this every stale decision on the team landed on every My Day, so the
         # group read as somebody else's homework and got skipped wholesale.
         # Team-wide stale decisions have their own reader: the manager
         # intervention queue (services/intervention.py).
-        f"SELECT id, title FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT id, title FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " AND decided_by = ? ORDER BY id LIMIT 5",
         (user,),
     ):
@@ -127,7 +127,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "group": "decide",
                 "audience": "you",
                 "label": f"decision #{d['id']}: {d['title']}",
-                "reason": "past its review-by date — reconfirm it or supersede it",
+                "reason": "past its review-by date - reconfirm it or supersede it",
                 # anchored, not the bare page: /charter renders the charter
                 # category by default, and a general decision sent there
                 # landed on a list that never contained it. The anchor is what
@@ -142,9 +142,9 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
         #
         # created_by = the reader, matching rituals.week_open. Without it the
         # group said "you promised" about every open workspace promise on the
-        # team — the same commitment shown to ten people, nine of whom cannot
+        # team - the same commitment shown to ten people, nine of whom cannot
         # settle it.
-        f"SELECT id, promise, due_date, audience FROM promises"  # noqa: S608 — scope filters emit only bound marks
+        f"SELECT id, promise, due_date, audience FROM promises"  # noqa: S608 - scope filters emit only bound marks
         f" WHERE status = 'open' AND direction = 'given' AND {WORKSPACE_ONLY}"
         " AND created_by = ? AND due_date IS NOT NULL AND due_date <= ?"
         # NULLS FIRST is not decoration: PostgreSQL sorts NULL LAST on an
@@ -164,7 +164,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "label": f"promise #{c['id']}: {c['promise'][:80]}",
                 "reason": (
                     f"{'OVERDUE since' if overdue else 'due'} {c['due_date']}"
-                    + (" — a promise to the team" if c["audience"] == "team" else "")
+                    + (" - a promise to the team" if c["audience"] == "team" else "")
                 ),
                 "link": f"/portfolio#promise-{c['id']}",
             }
@@ -185,9 +185,9 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "label": _ellipsize(n["message"], 100)
                 + (f" (+{similar} similar)" if similar else ""),
                 "reason": (
-                    "for the whole team — dismiss when read"
+                    "for the whole team - dismiss when read"
                     if n["user"] == "team"
-                    else "for you — dismiss when read"
+                    else "for you - dismiss when read"
                 ),
                 "link": n["link"] or "/",
             }
@@ -200,14 +200,14 @@ def _ellipsize(text: str, limit: int) -> str:
     space-free run (URL, token) hard-cuts at the limit instead."""
     if len(text) <= limit:
         return text
-    cut = text[: limit - 1].rsplit(" ", 1)[0].rstrip(" ·—-")
+    cut = text[: limit - 1].rsplit(" ", 1)[0].rstrip(" ·-")
     return cut + "…"
 
 
 def _coalesce(notifications: list[dict]) -> list[tuple[dict, int]]:
     """Stack near-duplicates ("claude ingested meeting notes: …" × 3) into one
     entry with a count; dismissing it surfaces the next on reload. Short
-    prefixes stay separate — "🚢 Shipped: A" and "🚢 Shipped: B" are distinct
+    prefixes stay separate - "🚢 Shipped: A" and "🚢 Shipped: B" are distinct
     events, not duplicates."""
     grouped: dict[str, list[dict]] = {}
     for n in notifications:
@@ -226,7 +226,7 @@ _UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 
 def _standup_suggestion(user: str, since: str) -> str:
     """Derive "yesterday" from what actually happened instead of asking for
-    it — the minimum daily ask is one 'today' line plus blockers if any."""
+    it - the minimum daily ask is one 'today' line plus blockers if any."""
     rows = db.query(
         "SELECT action, detail FROM activity WHERE actor = ? AND created_at >= ?"
         " AND action NOT IN ('delete_chat', 'rename_chat', 'move_chat', 'request_key')"
@@ -245,7 +245,7 @@ def _human_digest(rows: list[dict]) -> list[dict]:
     chat-housekeeping rows (coalesced to one line per actor) and never show
     raw UUIDs in a human digest. Scans every input row (the query caps at 40)
     so the tidy tally is honest, then caps the combined output at 20.
-    NOTE: emits synthetic rows (string id "tidy-<actor>", empty created_at) —
+    NOTE: emits synthetic rows (string id "tidy-<actor>", empty created_at) -
     consumers must not parse ids as ints or sort by created_at."""
     out: list[dict] = []
     tidied: dict[str, int] = {}
@@ -273,7 +273,7 @@ def _scoped_recent(user: str, since: str) -> list[dict]:
 
     actor_sql, params = visible_actor_filter(user)
     return db.query(
-        f"SELECT * FROM activity WHERE created_at >= ? AND {actor_sql}"  # noqa: S608 — placeholders
+        f"SELECT * FROM activity WHERE created_at >= ? AND {actor_sql}"  # noqa: S608 - placeholders
         " ORDER BY COALESCE(seq, 0) DESC, id DESC LIMIT 40",
         (since, *params),
     )
@@ -310,7 +310,7 @@ def my_day(
     name alone, `X-User: ava` with no credential returned Ava's private task
     and blocker titles, which is the one thing docs/VISIBILITY.md decision 3
     refuses. The filter also expires access the moment somebody leaves a crew
-    — membership is checked at the write, and this read outlives it.
+    - membership is checked at the write, and this read outlives it.
     """
     from .work import redact_task_relationships
 
@@ -319,11 +319,11 @@ def my_day(
     local_today = db.today()
     today = local_today.isoformat()
     week = (local_today + timedelta(days=7)).isoformat()
-    # created_at is a UTC timestamp, so this bound is an instant, not a date —
+    # created_at is a UTC timestamp, so this bound is an instant, not a date -
     # a bare local date here would start the window at UTC midnight and drop
     # the evening's work west of UTC (db.local_midnight_utc)
     yesterday = db.local_midnight_utc(local_today - timedelta(days=1))
-    # the label `committed_week` stores (services/weekly.py) — the reader's
+    # the label `committed_week` stores (services/weekly.py) - the reader's
     # own commitment for THIS week is what leads their task list below
     iso = local_today.isocalendar()
     this_week = f"{iso.year}-W{iso.week:02d}"
@@ -367,7 +367,7 @@ def my_day(
             meetings_awaiting_outcome(viewer), viewer, resource_filter
         ),
         "open_questions": db.query(
-            f"SELECT * FROM questions WHERE status = 'open' AND assigned_to = ? AND {q_f}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"SELECT * FROM questions WHERE status = 'open' AND assigned_to = ? AND {q_f}"  # noqa: S608 - scope.visible_filter emits only bound marks
             " ORDER BY id",
             (user, *q_p),
         ),
@@ -375,12 +375,12 @@ def my_day(
         # service scans past rows this viewer or workplace policy cannot read.
         "pending_reviews": pending_reviews,
         "your_blockers": db.query(
-            f"SELECT * FROM blockers WHERE status != 'resolved' AND owner = ? AND {b_f}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"SELECT * FROM blockers WHERE status != 'resolved' AND owner = ? AND {b_f}"  # noqa: S608 - scope.visible_filter emits only bound marks
             " ORDER BY created_at",
             (user, *b_p),
         ),
         "intake_to_triage": db.query(
-            f"SELECT id, title, requester, status, score FROM intake_requests"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            f"SELECT id, title, requester, status, score FROM intake_requests"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
             f" WHERE {WORKSPACE_ONLY} AND status IN ('submitted', 'scored')"
             " ORDER BY score DESC LIMIT 10"
         ),
@@ -391,16 +391,16 @@ def my_day(
         # by which copy of the predicate it happened to use.
         # The blocker exclusion, HERE and not in _attention: a blocker the
         # reader owns is already an attention row with the resolve control on
-        # it, and its escalation notice restated that row one section down —
+        # it, and its escalation notice restated that row one section down -
         # blocker #1 rendered three times on one page. It must ride the query
         # because the route path strips source_entity/source_id from every
         # row (notifications._public_row) before _attention runs again.
-        # The subquery carries {b_f} — the SAME filter your_blockers splices —
+        # The subquery carries {b_f} - the SAME filter your_blockers splices -
         # so the exclusion matches the attention row exactly: a blocker the
         # viewer cannot read is not an attention row, and its notice must
         # stay.
         "notifications": db.query(
-            f"SELECT * FROM notifications WHERE {notifications.UNREAD_FOR}"  # noqa: S608 — module constant with bound marks
+            f"SELECT * FROM notifications WHERE {notifications.UNREAD_FOR}"  # noqa: S608 - module constant with bound marks
             " AND NOT (source_entity = 'blocker' AND source_id IN"
             f"  (SELECT id FROM blockers WHERE status != 'resolved' AND owner = ? AND {b_f}))"
             " ORDER BY id DESC LIMIT 20",
@@ -409,11 +409,11 @@ def my_day(
     }
     # One notice per source row, newest wins. A delegation writes "you
     # sponsor task #32" and the agent's claim writes "agent started on task
-    # #32" minutes later — two notices about one task, and _coalesce cannot
+    # #32" minutes later - two notices about one task, and _coalesce cannot
     # stack them because their message prefixes differ. HERE and not in
     # _attention, because the route path strips source_entity from every row
     # (notifications._public_row) before _attention reruns. Dismissing the
-    # survivor surfaces the older one on the next load — the same
+    # survivor surfaces the older one on the next load - the same
     # deliberate resurface _coalesce has (test_briefing_coalesces_and_
     # resurfaces_on_dismiss).
     seen_sources: set[tuple[str, int]] = set()
@@ -440,7 +440,7 @@ def my_day(
         "attention_total": sum(
             1 for a in attention if a["audience"] == "you" and a["group"] != "notice"
         ),
-        # honest total alongside the LIMITed list — the header must not read
+        # honest total alongside the LIMITed list - the header must not read
         # "50 things need you" while the nav badge says 300
         "pending_reviews_total": pending_total,
         # The label `committed_week` stores, sent rather than recomputed in the
@@ -463,7 +463,7 @@ def my_day(
             #
             # But the commitment is NOT the first key. `urgent` is the word
             # this team reserves for "drop what you are doing", and an overdue
-            # date is a commitment already broken — a Monday plan capped at
+            # date is a commitment already broken - a Monday plan capped at
             # five per person would otherwise bury both at position six, and
             # the surface would be telling the reader to finish the plan while
             # the plan is what changed. `flow_metrics` treats unplanned work as
@@ -474,7 +474,7 @@ def my_day(
             # costs more to leave than to finish.
             "tasks": redact_task_relationships(
                 db.query(
-                    "SELECT * FROM tasks WHERE assignee = ?"  # noqa: S608 — scope.visible_filter emits only bound marks
+                    "SELECT * FROM tasks WHERE assignee = ?"  # noqa: S608 - scope.visible_filter emits only bound marks
                     f" AND status IN ('todo', 'in_progress', 'blocked') AND {t_f}"
                     " ORDER BY CASE WHEN priority = 'urgent'"
                     "   OR (due_date IS NOT NULL AND due_date < ?) THEN 0 ELSE 1 END,"
@@ -493,13 +493,13 @@ def my_day(
             ),
             # The tier filter wraps BOTH arms. The unowned arm was already
             # workspace-locked; the named-assignee arm was not, and it is a
-            # read that outlives the membership check made at the write — a
+            # read that outlives the membership check made at the write - a
             # crew task assigned to somebody stayed on their My Day after they
             # left the crew, with SELECT * carrying title and description.
             #
             # assignee IN (?, '') is deliberate: an unowned task that is due is
             # everyone's business. The '' arm reaches every reader, and
-            # assert_readable_by only ever checked a NAMED assignee — so this
+            # assert_readable_by only ever checked a NAMED assignee - so this
             # arm takes the workspace lock, or an unowned crew task lands on
             # the whole roster's My Day. LIMIT is not deliberate: unbounded,
             # a team with thousands of stale overdue rows served every one of
@@ -508,7 +508,7 @@ def my_day(
             # the least urgent. Reads idx_tasks_assignee_due (001_baseline.sql).
             "due_soon": redact_task_relationships(
                 db.query(
-                    "SELECT * FROM tasks WHERE status NOT IN ('done', 'void') AND due_date IS NOT NULL"  # noqa: S608 — scope.visible_filter emits only bound marks
+                    "SELECT * FROM tasks WHERE status NOT IN ('done', 'void') AND due_date IS NOT NULL"  # noqa: S608 - scope.visible_filter emits only bound marks
                     f" AND due_date <= ? AND {t_f}"
                     f" AND (assignee = ? OR (assignee = '' AND {WORKSPACE_ONLY}))"
                     " ORDER BY due_date NULLS FIRST LIMIT 50",
@@ -520,21 +520,21 @@ def my_day(
         },
         "team": {
             "recently_shipped": db.query(
-                f"SELECT id, name, closed_at FROM engagements WHERE status = 'closed'"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+                f"SELECT id, name, closed_at FROM engagements WHERE status = 'closed'"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
                 f" AND {WORKSPACE_ONLY} AND closed_at >= ?",
                 (db.local_midnight_utc(local_today - timedelta(days=2)),),
             ),
             # owner != user: a blocker the reader owns is already a "Needs
-            # you" row with the resolve button — repeating it in Team today
+            # you" row with the resolve button - repeating it in Team today
             # showed the owner the same blocker twice on one page. Everyone
             # else still sees it here, which is what a team card is for.
             "escalated_blockers": db.query(
-                f"SELECT * FROM blockers WHERE status = 'escalated' AND owner != ?"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+                f"SELECT * FROM blockers WHERE status = 'escalated' AND owner != ?"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
                 f" AND {WORKSPACE_ONLY} ORDER BY created_at",
                 (user,),
             ),
             "todays_events": team_day_events(local_today),
-            # scoped like /activity: your own strand plus agents and system —
+            # scoped like /activity: your own strand plus agents and system -
             # My Day must not be the surface where colleagues watch each other
             "recent_activity": _human_digest(_scoped_recent(user, yesterday)),
         },
@@ -549,7 +549,7 @@ def my_day(
         # filtered by review.pending_changes_summary, under the REVIEW policy.
         # Re-running the briefing policy over the same rows judges them by the
         # wrong surface, and the count below it (attention_count) filters once
-        # — a second pass here is how the badge and the list disagree.
+        # - a second pass here is how the badge and the list disagree.
         if mixed_filter is not None and review_filter is None:
             needs["pending_reviews"] = mixed_filter(needs["pending_reviews"])
         from .notifications import policy_filter as filter_notifications
@@ -593,7 +593,7 @@ def attention_count(
 ) -> dict:
     """Two numbers, because two readers ask two different questions.
 
-    `inbox` is the nav badge on Inbox and counts ONLY what lives there —
+    `inbox` is the nav badge on Inbox and counts ONLY what lives there -
     proposals awaiting a verdict and requests awaiting triage. Counting a
     blocker or a question here made the badge promise things the destination
     does not show (a 3 that lands on an empty page).
@@ -602,12 +602,12 @@ def attention_count(
     them: assigned open questions, owned unresolved blockers, own promises due
     inside a week, own stale decisions, and proposals they asked for. It is
     what the tab title and `skein attention` carry, and both of those say
-    "waiting on you" — a sentence the Inbox number cannot honestly make.
+    "waiting on you" - a sentence the Inbox number cannot honestly make.
 
     It MUST equal `my_day`'s `attention_total`, which the header prints: the
     two are read side by side, on a tab and the page that tab opens. Every arm
-    below therefore mirrors an arm of `_attention` — the same predicate AND the
-    same cap — with one stated exception on the proposal arm below.
+    below therefore mirrors an arm of `_attention` - the same predicate AND the
+    same cap - with one stated exception on the proposal arm below.
     `test_attention_count_matches_the_page` holds the pair together.
 
     `yours` takes the VIEWER as well as the name, because keying on the
@@ -641,7 +641,7 @@ def attention_count(
         keep(
             "question",
             db.query(
-                f"SELECT * FROM questions WHERE status = 'open' AND assigned_to = ? AND {q_f}",  # noqa: S608 — scope.visible_filter emits only bound marks
+                f"SELECT * FROM questions WHERE status = 'open' AND assigned_to = ? AND {q_f}",  # noqa: S608 - scope.visible_filter emits only bound marks
                 (user, *q_p),
             ),
         )
@@ -649,7 +649,7 @@ def attention_count(
         keep(
             "blocker",
             db.query(
-                f"SELECT * FROM blockers WHERE status != 'resolved' AND owner = ? AND {b_f}",  # noqa: S608 — scope.visible_filter emits only bound marks
+                f"SELECT * FROM blockers WHERE status != 'resolved' AND owner = ? AND {b_f}",  # noqa: S608 - scope.visible_filter emits only bound marks
                 (user, *b_p),
             ),
         )
@@ -658,18 +658,18 @@ def attention_count(
         keep(
             "intake",
             db.query(
-                "SELECT id, title, requester, status, score FROM intake_requests"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+                "SELECT id, title, requester, status, score FROM intake_requests"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
                 f" WHERE {WORKSPACE_ONLY} AND status IN ('submitted', 'scored')"
                 " ORDER BY score DESC LIMIT 10"
             ),
         )
     )
     row = db.query_one(
-        "SELECT"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        "SELECT"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         # Notifications are counted by NEITHER arm, and that is the whole
         # reason this returns the same number My Day prints. `_attention` files
-        # every notification under `notice` — "worth knowing", not "waiting on
-        # you" — and My Day's header excludes that group. A tab reading "(12)"
+        # every notification under `notice` - "worth knowing", not "waiting on
+        # you" - and My Day's header excludes that group. A tab reading "(12)"
         # over a page saying nothing is waiting is the same broken promise this
         # split exists to fix, one surface further out. The notifications that
         # DO carry an obligation raise this count through the row behind them:
@@ -686,7 +686,7 @@ def attention_count(
     )
     # `chats` is a third number with its own reader: the Chat nav badge.
     # It counts unread private shared-chat messages plus pending invitations
-    # — things waiting on the Chat page — and folds into NEITHER arm above:
+    # - things waiting on the Chat page - and folds into NEITHER arm above:
     # `inbox` promises the Approvals queue and `yours` must equal My Day's
     # header, and a chat message is in neither place. viewer.name is "" for a
     # weak identity, so its badge reads 0 (weak identities cannot open

@@ -30,7 +30,7 @@ def test_an_ordinary_result_is_still_ok(fresh_db):
 
 def test_a_row_carrying_a_status_column_cannot_forge_a_state(fresh_db):
     """Only our own literals are honored. A job that returns a database row
-    with a `status` column — a task, a blocker — must not be able to mark
+    with a `status` column - a task, a blocker - must not be able to mark
     itself failed, or a sweep's own data would drive the scheduler's health."""
     jobs.run_job(_spec("probe-row", lambda: {"status": "blocked"}))
     assert (
@@ -41,7 +41,7 @@ def test_a_row_carrying_a_status_column_cannot_forge_a_state(fresh_db):
 
 def test_a_quiet_night_is_not_a_fault(fresh_db, monkeypatch):
     """Nothing delegated, already ran today, mock provider, a budget ceiling
-    doing its job — the fleet is healthy and the scheduler must say so, or
+    doing its job - the fleet is healthy and the scheduler must say so, or
     every quiet night reads as an incident and the signal stops being read."""
     from conftest import _delegated_task
 
@@ -87,7 +87,7 @@ def test_a_fleet_that_could_not_build_reports_error(fresh_db, monkeypatch):
     from app.services import agent_runner
 
     # a REAL delegated task, so sweep() and _due() read the rows they read in
-    # production — a faked inbox row has no sponsor and the sweep raises on it
+    # production - a faked inbox row has no sponsor and the sweep raises on it
     _delegated_task(fresh_db)
     monkeypatch.setattr(config, "AGENT_RUNNER", ["scout"])
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")

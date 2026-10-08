@@ -5,7 +5,7 @@
   ],
   "negative": [
     {
-      "prompt": "Production broke right after the deploy \u2014 coordinate the response now.",
+      "prompt": "Production broke right after the deploy - coordinate the response now.",
       "owner": "incident-commander"
     }
   ]

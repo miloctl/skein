@@ -621,7 +621,7 @@ class WorkItems:
             return 0
         # Serialize the whole check-then-insert for THIS key. Two commands
         # carrying the same idempotency key both read "no receipt" otherwise,
-        # both write, and the loser dies on the receipts primary key — which
+        # both write, and the loser dies on the receipts primary key - which
         # is a 500 on a request whose entire purpose was to be safe to repeat.
         # Keyed on the receipt, so unrelated commands never wait on each other.
         db.name_lock(db.LOCK_RECEIPT, f"{context.receipt_namespace}|{key}")
@@ -1448,7 +1448,7 @@ class WorkItems:
         self._require_issued_context(context)
         try:
             # One transaction over the authoritative target lookup, the
-            # policy decision, and the mutation — with the target row HELD
+            # policy decision, and the mutation - with the target row HELD
             # inside it (policy_context.hold_resource), because a read alone
             # locks nothing. A concurrent relink cannot then move the task
             # under a stricter policy between the check and the write.

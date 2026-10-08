@@ -5,14 +5,14 @@
  *  the half that knows which surface renders one row of each kind.
  *
  *  Kept in step with `TARGETS` in services/refs.py. A word the backend sends
- *  and this file does not know renders as plain text — the safe direction. The
+ *  and this file does not know renders as plain text - the safe direction. The
  *  reverse invents a link to a page that cannot show the row, which is worse
  *  than the id the reader started with.
  */
 export type EntityRef = { entity: string; id: number; title?: string };
 
 /** A receipt as the API sends it: the sentence first, always.
- *  A reader must be able to act on the words without following anything —
+ *  A reader must be able to act on the words without following anything -
  *  the same sentence goes into artifacts on disk, where no link exists. */
 export type Receipt = { message: string; refs: EntityRef[] };
 
@@ -23,15 +23,15 @@ const HREF: Record<string, (id: number) => string> = {
   // This href is the address the peek READS, not a link anybody may render:
   // TaskPeek syncs on `popstate` and `skein-peek`, and neither a `next/link`
   // nor a bare `<a>` produces the second one. Render a task reference with
-  // `PeekLink`, which pushes the state and announces it — components/receipt.tsx
+  // `PeekLink`, which pushes the state and announces it - components/receipt.tsx
   // is the caller this rule exists for.
   task: (id) => `?task=${id}`,
   // one ROW, not the card that holds it. These four named the section
   // (`#milestones`, `#blockers`, `#questions`, `#promises`) and no element
   // ever carried those ids, so the fragment did nothing and the reader landed
   // at the top of a thirteen-section page holding an id to hunt for. The
-  // spellings live with the rows — app/dashboard/page.tsx and
-  // app/portfolio/page.tsx — and a rename there must change these lines too.
+  // spellings live with the rows - app/dashboard/page.tsx and
+  // app/portfolio/page.tsx - and a rename there must change these lines too.
   milestone: (id) => `/dashboard#milestone-${id}`,
   blocker: (id) => `/dashboard#blocker-${id}`,
   question: (id) => `/dashboard#question-${id}`,
@@ -55,7 +55,7 @@ export function refHref(ref: EntityRef): string {
 /** Split a receipt into text runs and reference runs, in reading order.
  *
  *  Returns runs rather than markup: the caller builds React elements, and a
- *  receipt quotes titles people wrote — treating it as markup would make every
+ *  receipt quotes titles people wrote - treating it as markup would make every
  *  producer of a receipt an injection sink (the same rule the artifact renderer
  *  and the search snippet follow).
  */

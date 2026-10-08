@@ -66,7 +66,7 @@ def _socket_timeout(model):
 def test_every_provider_bounds_its_socket(monkeypatch, provider):
     """An unbounded socket outlives the deadline in routes/chat.py. plan_project
     is a sync @tool, so strands runs it via asyncio.to_thread, and cancelling
-    that await orphans the THREAD — it keeps reading a stalled socket while
+    that await orphans the THREAD - it keeps reading a stalled socket while
     holding a slot in the event loop's default executor (min(32, cpu+4), so
     eight on a 4-vCPU box). Ollama's own default is None, so for the keyless
     default provider this is the only bound its socket will ever have."""
@@ -80,8 +80,8 @@ def test_every_provider_bounds_its_socket(monkeypatch, provider):
 def test_the_socket_outlives_the_turn_deadline():
     """Ordering invariant, and the whole reason READ_TIMEOUT_S is the larger
     number. MEMBER_TIMEOUT_S must be what fires on a live-but-slow provider. If
-    the socket bound were smaller, a cold model load — which sends no bytes for
-    as long as it takes to page the weights in — would die as a failed member
+    the socket bound were smaller, a cold model load - which sends no bytes for
+    as long as it takes to page the weights in - would die as a failed member
     on every first request after a restart."""
     from app.routes.chat import MEMBER_TIMEOUT_S
 
@@ -171,7 +171,7 @@ def _reload_config(monkeypatch, **env):
     """Reload config against ONLY the env this test sets.
 
     config calls load_dotenv() at import, so a plain reload would pull in the
-    developer's backend/.env — these tests would then pass or fail depending
+    developer's backend/.env - these tests would then pass or fail depending
     on whose machine they run on. Neutralise dotenv and clear every model var
     first, so the reload sees exactly what is passed in.
     """
@@ -372,7 +372,7 @@ def test_ollama_cloud_model_id_passes_untouched(monkeypatch, restore_config):
 
 def test_openai_key_never_leaks_to_a_third_party_endpoint(monkeypatch, restore_config):
     """The whole reason openai_compatible is a separate provider. A paid
-    OPENAI_API_KEY must not be posted to whatever host the operator named —
+    OPENAI_API_KEY must not be posted to whatever host the operator named -
     and it IS set on any box using semantic search."""
     monkeypatch.setenv("OPENAI_API_KEY", "sk-REAL-PAID-KEY")
     _reload_config(
@@ -406,8 +406,8 @@ def test_base_url_is_refused_where_it_does_not_belong(monkeypatch, restore_confi
 def test_a_provider_that_cannot_answer_without_a_key_degrades_to_mock(
     monkeypatch, restore_config, provider, key_env
 ):
-    """Unchecked, the fault surfaces once per chat as raw SDK internals — a 401
-    body with the provider's request id — while /health reports no error at
+    """Unchecked, the fault surfaces once per chat as raw SDK internals - a 401
+    body with the provider's request id - while /health reports no error at
     all. Degrading at boot is what makes MODEL_PROVIDER_ERROR the one place to
     look."""
     monkeypatch.delenv(key_env, raising=False)

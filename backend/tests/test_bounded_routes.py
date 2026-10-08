@@ -2,7 +2,7 @@
 
 `docs/CORRECTIONS.md` rule 5 names three bounds and only the PATCH-vs-create
 parity check was enforced by a test. A review found real gaps behind the other
-two, and the gaps were found by hand — which means the next one gets found by
+two, and the gaps were found by hand - which means the next one gets found by
 hand too, or not at all.
 
 This walks the route table and requires every MUTATING route to either call
@@ -40,7 +40,7 @@ def _calls_the_check(fn) -> bool:
     """
     try:
         src = textwrap.dedent(inspect.getsource(fn))
-    except (OSError, TypeError):  # pragma: no cover — a C-level endpoint
+    except (OSError, TypeError):  # pragma: no cover - a C-level endpoint
         return False
     try:
         tree = ast.parse(src)
@@ -77,7 +77,7 @@ def _routes():
 
     FastAPI wraps an included router in `_IncludedRouter` rather than
     flattening it into `app.routes`, so a walk that only reads `app.routes`
-    sees the four doc endpoints and nothing else — and a census that finds
+    sees the four doc endpoints and nothing else - and a census that finds
     zero routes passes while covering nothing.
     """
 
@@ -172,7 +172,7 @@ def test_the_exemption_list_does_not_rot():
 
 def test_the_agent_door_cannot_write_what_the_rest_door_refuses(client):
     """The service capped nothing, so an agent or MCP caller wrote a title the
-    PATCH route then refused to edit — a row the system wrote that its own UI
+    PATCH route then refused to edit - a row the system wrote that its own UI
     cannot fix. Both doors now read the same two constants."""
     from app.services import work
 
@@ -237,7 +237,7 @@ def test_ingest_never_stores_a_proposal_that_cannot_be_approved(client):
 
 def test_captured_request_cannot_store_a_detail_the_rest_door_refuses(client):
     """Capture accepts 10,000 characters and passed the whole body through as
-    the intake detail, which routes/api.py::IntakeIn caps at 4,000 — so a
+    the intake detail, which routes/api.py::IntakeIn caps at 4,000 - so a
     captured request stored a row its own edit form refuses."""
     from app.services import intake
 
@@ -249,10 +249,10 @@ def test_captured_request_cannot_store_a_detail_the_rest_door_refuses(client):
 
 def test_the_census_actually_walked_the_table():
     """The walk above reads through `_IncludedRouter`. If FastAPI changes that
-    shape again, every assertion here passes over an empty list — a census that
+    shape again, every assertion here passes over an empty list - a census that
     covers nothing looks exactly like a clean one."""
     keys = [key for key, _ in _routes()]
-    assert len(keys) > 60, f"only {len(keys)} mutating routes found — the walk is broken"
+    assert len(keys) > 60, f"only {len(keys)} mutating routes found - the walk is broken"
     assert "POST /api/tasks" in keys
 
 

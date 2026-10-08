@@ -1,4 +1,4 @@
-"""Scheduling tools — thin wrappers over app.services.schedule."""
+"""Scheduling tools - thin wrappers over app.services.schedule."""
 
 import json
 from typing import Any
@@ -134,7 +134,7 @@ def list_events(from_date: str = "", limit: int = 25) -> str:
 @tool
 def cancel_event(event_id: int) -> str:
     """Remove an event from the shared calendar. A hard delete, so it is
-    ALWAYS a proposal for human review — like other destructive verbs.
+    ALWAYS a proposal for human review - like other destructive verbs.
 
     Args:
         event_id: ID of the event to cancel.

@@ -111,7 +111,7 @@ def test_dispatch_passes_as_through_to_route():
 
 
 def test_as_cannot_smuggle_fb_past_the_guard(client):
-    out = _read_chat(client, "/as growth-mentor fb: mira — private thing")
+    out = _read_chat(client, "/as growth-mentor fb: mira - private thing")
     assert "Feedback notes are private" in out
 
 
@@ -228,7 +228,7 @@ def test_an_unparseable_overlay_stem_reserves_no_bench_name(tmp_path, monkeypatc
 
 
 def test_the_default_agent_turn_carries_the_requester(client, fresh_db, monkeypatch):
-    """The default path set no requester — the one path most turns take. A
+    """The default path set no requester - the one path most turns take. A
     proposal from the Chief of Staff then reached the review inbox with no
     requested_by, so a team reviewer could not tell whose chat produced it,
     and the gate's per-person write bucket had no person to key on."""

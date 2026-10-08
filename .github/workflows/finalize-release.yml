@@ -94,7 +94,7 @@ jobs:
     environment: release-finalization
     # GITHUB_TOKEN is a GitHub App token. Even with contents: write, GitHub
     # refuses a tag whose commit changes .github/workflows/* unless that App
-    # has the separate Workflows permission — which workflow permissions:
+    # has the separate Workflows permission - which workflow permissions:
     # cannot grant. The protected environment supplies a narrowly-held PAT
     # instead; the automatic token needs read access only.
     permissions:
@@ -149,7 +149,7 @@ jobs:
           git tag -d "$TAG"
           # A concurrent finalizer may have won the race after the first
           # ls-remote. Accept only its identical annotated tag. If no remote
-          # tag exists, keep the original push failure as the diagnosis — an
+          # tag exists, keep the original push failure as the diagnosis - an
           # unconditional fetch used to add a misleading "couldn't find remote
           # ref" after a credential refusal.
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then

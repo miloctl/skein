@@ -24,7 +24,7 @@ BOARD_FIELDS = {
 
 
 def _set(db, task_id, column, value):
-    db.execute(f"UPDATE tasks SET {column} = ? WHERE id = ?", (value, task_id))  # noqa: S608 — test-controlled column
+    db.execute(f"UPDATE tasks SET {column} = ? WHERE id = ?", (value, task_id))  # noqa: S608 - test-controlled column
 
 
 def _ids(rows):

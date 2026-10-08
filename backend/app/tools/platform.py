@@ -374,7 +374,7 @@ def search_workspace(query: str) -> str:
 @tool
 def edit_blocker(blocker_id: int, title: str = "", detail: str = "", owner: str = "") -> str:
     """Correct an open blocker's wording or owner ('-' clears detail/owner).
-    Resolved blockers are history and refuse edits — resolve_blocker is the
+    Resolved blockers are history and refuse edits - resolve_blocker is the
     verb for closing one.
 
     Args:
@@ -387,7 +387,7 @@ def edit_blocker(blocker_id: int, title: str = "", detail: str = "", owner: str 
         k: v for k, v in {"title": title, "detail": detail, "owner": owner}.items() if v
     }
     if not payload:
-        return json.dumps({"error": "nothing to change — pass at least one field"})
+        return json.dumps({"error": "nothing to change - pass at least one field"})
     return gated_write(
         "blocker_edit",
         "update",
@@ -412,7 +412,7 @@ def edit_intake_request(request_id: int, title: str = "", detail: str = "") -> s
     """
     payload: dict[str, Any] = {k: v for k, v in {"title": title, "detail": detail}.items() if v}
     if not payload:
-        return json.dumps({"error": "nothing to change — pass title and/or detail"})
+        return json.dumps({"error": "nothing to change - pass title and/or detail"})
     return gated_write(
         "intake_edit",
         "update",
@@ -435,14 +435,14 @@ def update_engagement(
     timebox_end: str = "",
     kill_criteria: str = "",
 ) -> str:
-    """Update an engagement — status, rename (propagates to milestone labels),
+    """Update an engagement - status, rename (propagates to milestone labels),
     lead, summary, or close it. Closing requires a conclusion (achieved /
     partial / missed / invalidated / unmeasured / stopped) in the SAME call.
 
     Args:
         engagement_id: ID of the engagement.
         status: New status (proposed/active/closing/closed).
-        name: New name — must be unique.
+        name: New name - must be unique.
         summary: Updated summary.
         lead: New lead.
         conclusion: Honest outcome, required when closing.
@@ -465,11 +465,11 @@ def update_engagement(
         if v
     }
     if not payload:
-        return json.dumps({"error": "nothing to change — pass at least one field"})
+        return json.dumps({"error": "nothing to change - pass at least one field"})
     if payload.get("status") == "closed" and not payload.get("conclusion"):
         return json.dumps(
             {
-                "error": "closing needs a conclusion in the same call — one of"
+                "error": "closing needs a conclusion in the same call - one of"
                 " achieved/partial/missed/invalidated/unmeasured/stopped"
             }
         )

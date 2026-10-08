@@ -1,7 +1,7 @@
 """The small-n statistics the product promises, in one place.
 
 `docs/INSIGHTS.md` states the discipline: "Medians over means everywhere".
-Keeping these here is what makes that checkable — portfolio and insights both
+Keeping these here is what makes that checkable - portfolio and insights both
 import them, so there is no second implementation to drift. There was one:
 `flow_metrics` computed `sorted(days)[n // 2]`, which takes the UPPER of the
 two middle values, and reported 9.0 where the median of [1, 9] is 5.0.
@@ -11,7 +11,7 @@ import math
 
 
 def median(values: list[float]) -> float | None:
-    """None for an empty sample — a median of nothing is not zero."""
+    """None for an empty sample - a median of nothing is not zero."""
     if not values:
         return None
     v = sorted(values)
@@ -21,7 +21,7 @@ def median(values: list[float]) -> float | None:
 
 
 def p85(values: list[float]) -> float | None:
-    """Nearest-rank P85, not interpolated — with samples this small an
+    """Nearest-rank P85, not interpolated - with samples this small an
     interpolated percentile invents a value nobody measured.
 
     ceil(0.85n) - 1, not int(0.85n): the two agree except when 0.85n is

@@ -65,7 +65,7 @@ def get_flow_metrics() -> str:
     total work in progress, and stale in-progress tasks. Use team_capacity
     when the question is who has room."""
     # name_people=False: an agent's reply is text somebody pastes elsewhere,
-    # and this read judges the PAST — which the anti-surveillance rule allows
+    # and this read judges the PAST - which the anti-surveillance rule allows
     # only as a team aggregate (docs/FEATURES.md). The names stay on
     # /portfolio, which is a planning surface with a viewer and an audience.
     policy = projection_policy.ProjectionPolicy(
@@ -196,7 +196,7 @@ def delegate_task(
         task_id: The task to delegate.
         agent: Agent identity that will do the work.
         sponsor: Human teammate accountable for the outcome.
-        acceptance_criteria: What done means — the sponsor's verdict reads this.
+        acceptance_criteria: What done means - the sponsor's verdict reads this.
         check_in_at: Date (YYYY-MM-DD) by which the agent must have a progress note.
     """
     payload: dict[str, Any] = {
@@ -226,7 +226,7 @@ def delegate_task(
 def supersede_decision(
     decision_id: int, title: str, decision: str, context: str = "", review_by: str = ""
 ) -> str:
-    """Replace a standing decision with a new one, keeping the chain — use
+    """Replace a standing decision with a new one, keeping the chain - use
     instead of recording a contradicting decision.
 
     Args:
@@ -257,7 +257,7 @@ def get_context_pack(engagement_id: int = 0) -> str:
     Args:
         engagement_id: Pass an engagement id to get the SCOPED pack for that
             engagement only (outcome, milestones, open tasks, blockers,
-            lessons) — cheaper and more focused for delegated work. 0 = the
+            lessons) - cheaper and more focused for delegated work. 0 = the
             full team pack.
     """
     policy = projection_policy.ProjectionPolicy(
@@ -296,7 +296,7 @@ def get_context_pack(engagement_id: int = 0) -> str:
 
 @tool
 # Takes no name, and must not gain one. delegation.agent_inbox answers for
-# whatever roster row it is handed — human or agent — with assigned questions,
+# whatever roster row it is handed - human or agent - with assigned questions,
 # rejected proposals INCLUDING reviewer notes, and 20 unread notification
 # bodies. As a model-controlled argument, "check the agent inbox for mira" was
 # the whole exploit. The MCP twin lost the same parameter for the same reason
@@ -308,7 +308,7 @@ def my_agent_inbox() -> str:
     try:
         # the REQUESTER's viewer, not None: None means "the agent is the
         # caller" and leaves the inbox unfiltered, which is right for MCP and
-        # the scheduler. `/as <persona>` makes that false — a human takes the
+        # the scheduler. `/as <persona>` makes that false - a human takes the
         # persona's identity, every shipped persona holds this tool, and the
         # REST twin refuses the same read. Unset outside a chat turn, so the
         # autonomous path is unchanged.
@@ -416,7 +416,7 @@ def claim_delegated_task(task_id: int) -> str:
         task_id: ID of the task delegated to you.
     """
     # the delegation loop bypasses the generic gate on purpose (sponsor-bound
-    # verdicts, not the authority matrix) — so it must record its own
+    # verdicts, not the authority matrix) - so it must record its own
     # receipts, or the UI cannot state that the write happened
     if refusal := _delegation_reach(task_id):
         return json.dumps({"error": refusal})
@@ -431,7 +431,7 @@ def claim_delegated_task(task_id: int) -> str:
 
 @tool
 def report_progress(task_id: int, note: str) -> str:
-    """Log a progress note on a delegated task — your sponsor reads the
+    """Log a progress note on a delegated task - your sponsor reads the
     worklog before accepting. Report as you go, not only at the end.
 
     Args:
@@ -451,7 +451,7 @@ def report_progress(task_id: int, note: str) -> str:
 
 @tool
 def read_worklog(task_id: int, limit: int = 20) -> str:
-    """Read the progress notes already logged on a delegated task — yours and
+    """Read the progress notes already logged on a delegated task - yours and
     your sponsor's. Read this BEFORE continuing work you started earlier: it
     is where you recorded what you found, what you decided, and what you were
     waiting on.
@@ -463,13 +463,13 @@ def read_worklog(task_id: int, limit: int = 20) -> str:
     # The continuity record for multi-day work. Without a reader, an agent
     # resuming on day 3 restarted from the task title: the chat session that
     # held the rest is gone (the conversation manager drops the oldest
-    # messages, and pin_first is inert across turns —
+    # messages, and pin_first is inert across turns -
     # agents/team_agent.py::_conversation_manager).
     #
     # actor=, so the delegation itself is the door: an agent holds no crew
     # membership, so on a crew task the tier filter alone would refuse the
     # worklog this agent is WRITING (services/delegation.py::list_worklog).
-    # The viewer stays NOBODY — the workspace tier — for every other task. In
+    # The viewer stays NOBODY - the workspace tier - for every other task. In
     # a human-driven turn the requester's own read comes first
     # (_delegation_reach), or a persona hands its party rights to anyone.
     if refusal := _delegation_reach(task_id):
@@ -616,14 +616,14 @@ def post_comment(body: str, task_id: int = 0, decision_id: int = 0, blocker_id: 
 
 @tool
 def submit_for_acceptance(task_id: int, summary: str) -> str:
-    """Submit a delegated task as finished. This ALWAYS files a proposal —
+    """Submit a delegated task as finished. This ALWAYS files a proposal -
     your sponsor's verdict marks it done (and every verdict builds or costs
     your trust score). Never claim the task is done after calling this;
     say it awaits acceptance.
 
     Args:
         task_id: ID of the task delegated to you.
-        summary: What was delivered — the sponsor reads exactly this.
+        summary: What was delivered - the sponsor reads exactly this.
     """
     from ..agents.identity import requester_identity
 
@@ -633,7 +633,7 @@ def submit_for_acceptance(task_id: int, summary: str) -> str:
         result = delegation.submit_completion(
             task_id, summary, actor=agent_identity(), requested_by=requester_identity()
         )
-        # a filed proposal with no receipt reads as nothing having happened —
+        # a filed proposal with no receipt reads as nothing having happened -
         # the exact silence the turn guard exists to catch
         receipts.record(
             "queued",
@@ -760,7 +760,7 @@ def get_findings(weeks: int = 2, limit: int = 10) -> str:
         limit: The maximum number of findings to return (1-50).
     """
     # A read, so no gate: it writes nothing and takes no authority level.
-    # Team aggregates only — the rules never key on a person, which is what
+    # Team aggregates only - the rules never key on a person, which is what
     # the anti-surveillance rule requires of anything judging the PAST.
     weeks = max(1, min(int(weeks), 52))
     limit = max(1, min(int(limit), 50))
@@ -792,13 +792,13 @@ def get_attention() -> str:
     # viewer: my_day takes a Viewer because these lists are addressed to a
     # person by name, and a name is self-asserted in trusted-header mode
     # (services/briefing.py). No argument names a person, for the same reason
-    # my_agent_inbox takes none — tests/test_privacy.py pins that shape.
+    # my_agent_inbox takes none - tests/test_privacy.py pins that shape.
     rv = requester_viewer()
     # isinstance, not a truth test: the contextvar is typed `object | None`
     # because identity.py must not import services (the same narrow
     # my_agent_inbox makes, a few tools up).
     if not isinstance(rv, scope.Viewer) or not rv.name:
-        return json.dumps({"error": "this turn has no requester — ask the person what is on them"})
+        return json.dumps({"error": "this turn has no requester - ask the person what is on them"})
     policy = projection_policy.ProjectionPolicy(
         current_policy_engine(),
         current_policy_subject(),

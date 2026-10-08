@@ -10,7 +10,7 @@ from app.services import stats
 
 def test_median_is_a_median_not_the_upper_middle():
     """flow_metrics used sorted(days)[n // 2], which returns the UPPER of the
-    two middle values — a systematically inflated cycle time on every even-n
+    two middle values - a systematically inflated cycle time on every even-n
     window, on the headline number of /portfolio and the exec readout."""
     assert stats.median([1.0, 9.0]) == 5.0
     assert stats.median([1.0, 2.0, 3.0, 4.0]) == 2.5
@@ -88,7 +88,7 @@ def test_slip_forecast_uses_the_median_so_one_outlier_cannot_move_it(fresh_db):
 
 def test_insights_returns_no_person_keyed_rows(fresh_db):
     """docs/FEATURES.md: 'no person-keyed insight endpoints exist'. adoption()
-    carried active_users — per-person action counts over a PAST window, which
+    carried active_users - per-person action counts over a PAST window, which
     is the leaderboard input the anti-surveillance rule refuses."""
     from app.services import adoption, insights, users
 
@@ -113,7 +113,7 @@ def test_the_two_rolling_windows_are_the_same_width(fresh_db):
 
     from app.services import blockers, insights
 
-    # the service windows in UTC, so the fixture must seed in UTC too — local
+    # the service windows in UTC, so the fixture must seed in UTC too - local
     # date.today() drifts a day whenever the two calendars disagree, and the
     # boundary count then reads 27 or 29 instead of 28
     today = insights._today()
@@ -130,7 +130,7 @@ def test_the_two_rolling_windows_are_the_same_width(fresh_db):
 
 def test_a_blocker_resolved_before_it_was_raised_never_reaches_a_median(fresh_db):
     """A negative duration is a data fault, not a fast resolve. Averaged in,
-    the card printed "median -8.5h" — the wrongest possible receipt on the
+    the card printed "median -8.5h" - the wrongest possible receipt on the
     surface whose creed is that one wrong receipt discredits its rule. The
     row is excluded and COUNTED, so the card can say the data needs eyes."""
     from app.services import blockers, insights
@@ -139,7 +139,7 @@ def test_a_blocker_resolved_before_it_was_raised_never_reaches_a_median(fresh_db
     blockers.resolve_blocker(good["id"], actor="ava")
     bad = blockers.raise_blocker("imported sideways", owner="ava", actor="ava")
     blockers.resolve_blocker(bad["id"], actor="ava")
-    # created AFTER resolved, both inside the rolling window — the shape an
+    # created AFTER resolved, both inside the rolling window - the shape an
     # imported backup or a hand-edited timestamp actually produces
     fresh_db.execute(
         "UPDATE blockers SET created_at = (now() + interval '1 day')::text WHERE id = ?",
@@ -159,7 +159,7 @@ def test_a_blocker_resolved_before_it_was_raised_never_reaches_a_median(fresh_db
 
 def test_the_season_counts_milestones_as_ships(fresh_db):
     """Most six-week seasons close zero engagements, so a counter of
-    engagements alone read 0 over a season where milestones landed — a
+    engagements alone read 0 over a season where milestones landed - a
     scoreboard that only says failure stops being read."""
     from app.services import pulse, users, work
 

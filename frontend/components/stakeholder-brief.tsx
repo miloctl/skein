@@ -19,7 +19,7 @@ export function StakeholderBrief({ eventId }: { eventId: number }) {
     | null
   >(null);
   // a THIRD state. `[]` is what a meeting with no outside attendee returns,
-  // so a failure written as `[]` renders "nothing is open" — a claim about the
+  // so a failure written as `[]` renders "nothing is open" - a claim about the
   // world manufactured from a transport failure, read by somebody walking into
   // the room.
   const [err, setErr] = useState("");
@@ -46,7 +46,7 @@ export function StakeholderBrief({ eventId }: { eventId: number }) {
     <div className="ml-1.5 text-xs text-ink-3">
       {/* the trigger STAYS mounted and toggles. Unmounting it on activation
           dropped a keyboard reader's focus to <body>, and left a failed fetch
-          with no control at all — no retry and no way back. Collapsing clears
+          with no control at all - no retry and no way back. Collapsing clears
           nothing, so re-opening after a failure refetches (threads is still
           null). */}
       <button

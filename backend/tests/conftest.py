@@ -9,11 +9,11 @@ os.environ["SKEIN_DATA_DIR"] = tempfile.mkdtemp(prefix="skein-test-")
 os.environ["SKEIN_SCHEDULER"] = "0"
 # The suite exercises the X-User doors, so it opts into trusted-header the
 # same way scripts/skein.sh does. The SHIPPED default is api-key (fail
-# closed) — test_auth_modes.py pins it by booting a fresh process with the
+# closed) - test_auth_modes.py pins it by booting a fresh process with the
 # variable set empty, which this line would otherwise mask.
 os.environ["SKEIN_AUTH_MODE"] = "trusted-header"
 os.environ["SKEIN_MODEL_PROVIDER"] = "mock"
-# The SHIPPED default is gate ON (fail closed, like the auth mode above) —
+# The SHIPPED default is gate ON (fail closed, like the auth mode above) -
 # test_gate_coverage.py pins that by booting a fresh process. The suite pins
 # it off because most direct-write tests predate the flip and exercise the
 # opt-out branch; gate-on paths monkeypatch config.AGENT_REVIEW to True.
@@ -236,7 +236,7 @@ def _reset_telemetry_buffers(monkeypatch):
     """Process-local perf state must not cross test databases: a detect()
     timestamp from one test would let hint() skip detection against the next
     test's fresh db, and a buffered tool_usage count would land in the wrong
-    database (or never land — tests assert counts right after record_use, so
+    database (or never land - tests assert counts right after record_use, so
     the 30s buffer is zeroed to flush per call). Receipts too: a box left
     set by one test's chat turn collects a later test's gate writes in the
     same worker, and whichever test drains next fails on the leftovers. The
@@ -268,7 +268,7 @@ def _worker_db(worker_id, testrun_uid):
     A database PER TEST would be correct and far too slow: CREATE DATABASE ...
     TEMPLATE costs ~100 ms against the ~0.3 ms file copy the SQLite fixture
     used, and 2000 of them is minutes. Per worker, migrations run once and
-    fresh_db truncates between tests instead — which keeps real COMMIT
+    fresh_db truncates between tests instead - which keeps real COMMIT
     semantics, unlike wrapping each test in a transaction that never commits
     (db.on_commit callbacks would then never fire).
     """
@@ -289,14 +289,14 @@ def _worker_db(worker_id, testrun_uid):
         config.DATABASE_URL, config.DATABASE_ERROR = url, ""
         # The ENV too, not just the module attribute: several tests reload
         # app.config to exercise a boot-time fault, and a reload re-reads
-        # SKEIN_DATABASE_URL — pointing the worker back at the developer's own
+        # SKEIN_DATABASE_URL - pointing the worker back at the developer's own
         # database, where init_db then re-applies the baseline over a live schema.
         os.environ["SKEIN_DATABASE_URL"] = url
         db.close_pool()
         db.init_db()
         # The exact shape init_db produces. fresh_db drops anything a test adds on
         # top, so a test that creates a table (scope's `probe`) cannot collide with
-        # the next test in the same worker — under SQLite each test had its own
+        # the next test in the same worker - under SQLite each test had its own
         # file and could not.
         _BASELINE_TABLES.clear()
         _BASELINE_TABLES.update(
@@ -331,7 +331,7 @@ def fresh_db(tmp_path, monkeypatch, _worker_db):
     from app import config, db
 
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
-    # SESSIONS_DIR is derived from DATA_DIR at import — left unpatched, session
+    # SESSIONS_DIR is derived from DATA_DIR at import - left unpatched, session
     # files persist across tests within a worker while the DB resets, and a
     # test that restores a reused thread id reads a previous test's session
     monkeypatch.setattr(config, "SESSIONS_DIR", tmp_path / "sessions")

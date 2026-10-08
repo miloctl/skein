@@ -79,8 +79,8 @@ def table_of(entity: str) -> str:
 def resource_row(entity: str, entity_id: int) -> dict | None:
     """Load one row through the closed policy resource table map.
 
-    Deliberately takes NO row lock. This read RENDERS — a notification body
-    and its provenance snapshot — and its consistency comes from the caller's
+    Deliberately takes NO row lock. This read RENDERS - a notification body
+    and its provenance snapshot - and its consistency comes from the caller's
     transaction, which has already written (and so already holds) the row it
     is describing. Locking here as well inverts the lock order against a
     concurrent update of the same task and deadlocks. The read that AUTHORIZES
@@ -104,7 +104,7 @@ def hold_resource(entity: str, entity_id: int) -> None:
     first, the activity-chain lock last, which is the order that keeps this
     out of every deadlock cycle. The enforcement entry points
     (enforce_mutation_policy for REST, mcp_server._policy_refusal for MCP) do
-    that, and so must the services that call it directly — blockers, review,
+    that, and so must the services that call it directly - blockers, review,
     delegation, webhooks, core_tools, public/work and routes/api all do
     today. A read that merely
     RENDERS (a notification body, an event payload) must NOT call it: those run
@@ -731,7 +731,7 @@ def resource_contexts(
         selected = _TABLES.get(entity)
         if selected is not None and selected[1] in ("", "project_class"):
             # one IN query per entity, the same SQL shape existing_scoped uses
-            # per row — an artifact naming twenty decisions must not cost
+            # per row - an artifact naming twenty decisions must not cost
             # twenty PK lookups inside one read transaction
             table, project_source = selected
             visible, params = scope.visible_filter(viewer, table, "value")

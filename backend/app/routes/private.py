@@ -1,5 +1,5 @@
 """Author-private surfaces: 1:1 prep briefs and the private notes/feedback
-journal. Everything here requires strong identity (StrongUser) — the
+journal. Everything here requires strong identity (StrongUser) - the
 X-User header is never enough. No agent tool, MCP tool, or review-registry
 entry may reference these records."""
 
@@ -31,7 +31,7 @@ def get_notes(user: StrongUser, person: str = ""):
 def post_note(body: NoteIn, user: StrongUser):
     # its own bucket (app/ratelimit.py): rows here are excluded from portable
     # export, FTS, and every agent surface, so a flood is invisible to every
-    # other guard — and sharing the `write` budget would let a busy planning
+    # other guard - and sharing the `write` budget would let a busy planning
     # session lock a person out of their own 1:1 notes
     ratelimit.check("private", user)
     return private_notes.add_note(user, body.person, body.body, kind=body.kind)

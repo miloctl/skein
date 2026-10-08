@@ -63,7 +63,7 @@ def test_a_refused_capture_does_not_burn_its_key(client):
 
 
 def test_a_capture_without_a_key_still_files(client):
-    """Older CLIs and the web composer send no key — at-least-once stays."""
+    """Older CLIs and the web composer send no key - at-least-once stays."""
     for _ in range(2):
         assert client.post("/api/capture", json={"text": "note: same twice"}).status_code == 200
     assert len(client.get("/api/notes").json()) == 2
@@ -97,7 +97,7 @@ def test_explicit_capture_prefix_needs_a_body(client, fresh_db, text):
 
 def test_q_capture_assigns_known_user(client):
     client.post("/api/users/growth-interests", json={"interests": "x"}, headers={"X-User": "mira"})
-    r = client.post("/api/capture", json={"text": "q: mira — where do the traces land?"})
+    r = client.post("/api/capture", json={"text": "q: mira - where do the traces land?"})
     assert r.status_code == 200
     q = client.get("/api/questions").json()[0]
     assert q["assigned_to"] == "mira"
@@ -105,7 +105,7 @@ def test_q_capture_assigns_known_user(client):
 
 
 def test_q_capture_unknown_name_stays_text(client):
-    r = client.post("/api/capture", json={"text": "q: zorblatt — is this a person?"})
+    r = client.post("/api/capture", json={"text": "q: zorblatt - is this a person?"})
     assert r.status_code == 200
     q = client.get("/api/questions").json()[0]
     assert q["assigned_to"] == ""
@@ -113,7 +113,7 @@ def test_q_capture_unknown_name_stays_text(client):
 
 
 def test_decision_capture_parses_review_by(client):
-    client.post("/api/capture", json={"text": "decision: SVG only — review by 2026-10-01"})
+    client.post("/api/capture", json={"text": "decision: SVG only - review by 2026-10-01"})
     d = client.get("/api/decisions").json()[0]
     assert d["review_by"] == "2026-10-01"
     assert "review by" not in d["title"]

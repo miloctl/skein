@@ -59,7 +59,7 @@ def replace_expected(
         f"{relative} does not contain the expected release text:"
         f" {old_count}x {old!r} (expected {count}), {new_count}x {new!r}"
         f" (expected 0). A pre-existing match on the new version is usually a"
-        f" compatibility bound the release is crossing — see RELEASING.md,"
+        f" compatibility bound the release is crossing - see RELEASING.md,"
         f" 'When the release crosses a minor boundary'."
     )
 
@@ -88,7 +88,7 @@ def promote_changelog(root: Path, version: str, today: date) -> None:
     body = text[body_start:next_release].strip()
     target_headings = list(
         re.finditer(
-            rf"^## {re.escape(version)} — [0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}$",
+            rf"^## {re.escape(version)} - [0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}$",
             text,
             re.MULTILINE,
         )
@@ -119,7 +119,7 @@ def promote_changelog(root: Path, version: str, today: date) -> None:
     if not all(required):
         raise ReleaseError("CHANGELOG.md Unreleased must contain all three sections and items.")
     next_slot = "## Unreleased\n\n### Contracts\n\n### Behavior\n\n### Operations\n\n"
-    promoted = f"## {version} — {today.isoformat()}\n\n{body}\n\n"
+    promoted = f"## {version} - {today.isoformat()}\n\n{body}\n\n"
     path.write_text(text[:start] + next_slot + promoted + text[next_release + 1 :])
 
 

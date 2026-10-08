@@ -7,7 +7,7 @@ import Link from "next/link";
 import { Card } from "@/components/card";
 
 // The cap the card STATES, and the one it asks for. A list that silently
-// truncates reads as "this is everything" — the same rule the stakeholder
+// truncates reads as "this is everything" - the same rule the stakeholder
 // card on this page follows by putting its cap in the title.
 const QUEUE_CAP = 12;
 import { PeekLink } from "@/components/task-peek";
@@ -74,11 +74,11 @@ type Cockpit = {
     due_date: string | null;
   }[];
   health: { id: number; name: string; health: string; status: string }[];
-  // `from` is non-null by the time it reaches here — the service drops a
+  // `from` is non-null by the time it reaches here - the service drops a
   // first-ever score, which is not a change (services/planning.py)
   health_changes: { id: number; name: string; from: string; to: string }[];
   // the open task whose finish releases the most other work. null when
-  // nothing waits on anything — a zeroed row would be a sentence about work
+  // nothing waits on anything - a zeroed row would be a sentence about work
   // that does not exist (services/planning.py)
   top_unblocking_move: {
     id: number;
@@ -108,7 +108,7 @@ type Week = {
     forge_url?: string;
   }[];
   // the Monday job's plan for this week, when one sits unjudged in Approvals
-  // (weekly.py). The card offers the review instead of the drafter then —
+  // (weekly.py). The card offers the review instead of the drafter then -
   // drafting again files a second proposal for the same week.
   pending_proposal?: { id: number; summary: string } | null;
 };
@@ -127,7 +127,7 @@ const HEALTH_TONE: Record<string, string> = {
 
 /** The one-click half of a queue row's named move, beside the prose that
  *  names it. Every row stated its action ("Assign it or drop it") and
- *  offered nothing but a link away — the manager left the queue they were
+ *  offered nothing but a link away - the manager left the queue they were
  *  working to do what the row asked. Only the kinds whose move is a single
  *  existing write get a control; the rest keep their link.
  */
@@ -156,7 +156,7 @@ function QueueActions({ q, onDone }: { q: Intervention; onDone: () => void }) {
         <PersonInput
           id={`queue-assign-${q.entity_id}`}
           name={`queue-assign-${q.entity_id}`}
-          placeholder="teammate's name — Enter to assign"
+          placeholder="teammate's name - Enter to assign"
           onKeyDown={(ev) => {
             const who = (ev.target as HTMLInputElement).value.trim();
             if (ev.key === "Enter" && who)
@@ -169,7 +169,7 @@ function QueueActions({ q, onDone }: { q: Intervention; onDone: () => void }) {
               );
           }}
           onChange={(ev) => {
-            // a mouse-picked datalist suggestion must commit too — picks
+            // a mouse-picked datalist suggestion must commit too - picks
             // arrive as insertReplacementText (or undefined inputType in
             // Firefox), typing as insertText (app/dashboard/page.tsx)
             const t = (ev.nativeEvent as InputEvent).inputType;
@@ -217,7 +217,7 @@ function QueueActions({ q, onDone }: { q: Intervention; onDone: () => void }) {
         <button
           disabled={busy}
           onClick={() =>
-            // empty review_by: the service pushes the date out 90 days — it
+            // empty review_by: the service pushes the date out 90 days - it
             // never removes the half-life (services/collab.py)
             run(
               api(`/api/decisions/${q.entity_id}/reconfirm`, {
@@ -231,7 +231,7 @@ function QueueActions({ q, onDone }: { q: Intervention; onDone: () => void }) {
         >
           reconfirm 90 days
         </button>
-        {/* supersede needs the successor's text — the row's title link
+        {/* supersede needs the successor's text - the row's title link
             already lands on the decision's own charter row, where that
             editor lives */}
       </span>
@@ -275,7 +275,7 @@ function InterventionRow({ q, onDone }: { q: Intervention; onDone: () => void })
     <li key={`${q.entity}${q.entity_id}`}>
       <div className="flex flex-wrap items-baseline gap-x-2">
         {/* a task row opens the peek over this page, like every
-            other task reference in the product — a raw href here was
+            other task reference in the product - a raw href here was
             a full navigation that cost the manager their place in
             the queue they were working */}
         {q.entity === "task" ? (
@@ -466,7 +466,7 @@ export default function Planning() {
 
       {/* `load` re-runs after the week-open brief is filed, and a failure
           there left every number on this page standing with nothing saying
-          they were stale — read aloud in a meeting. Same sentence as My Day
+          they were stale - read aloud in a meeting. Same sentence as My Day
           and the engagement brief, which is the point (docs/LEXICON.md). */}
       {error && (
         <p className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs text-danger">
@@ -477,7 +477,7 @@ export default function Planning() {
 
       <p className="text-sm text-ink-3">
         The week, in the order the meeting runs it. Every number here also
-        lives on its own page — this is the running order, not a second copy.
+        lives on its own page - this is the running order, not a second copy.
       </p>
       <nav
         aria-label="Planning agenda"
@@ -562,7 +562,7 @@ export default function Planning() {
         ) : null}
       </AgendaSection>
 
-      {/* 2 — what needs a call, ranked, AFTER last week's result. The
+      {/* 2 - what needs a call, ranked, AFTER last week's result. The
           running order is load-bearing (this file's header, and
           services/planning.py): a room that opens on remediation commits the
           week before anyone has read whether the last one landed. Numbered
@@ -603,7 +603,7 @@ export default function Planning() {
         )}
       </AgendaSection>
 
-      {/* 3 — what the week already holds, and whether it fits */}
+      {/* 3 - what the week already holds, and whether it fits */}
       <AgendaSection id="planning-this-week" title={`This week (${d.week.week})`}>
         {d.week.committed > 0 ? (
           <>
@@ -631,7 +631,7 @@ export default function Planning() {
                       rel="noopener noreferrer"
                       aria-label={`Code for task #${t.id}: ${t.title} (opens a new tab)`}
                       // inline-block: a done row is struck through, and an
-                      // ancestor's line-through paints over descendants —
+                      // ancestor's line-through paints over descendants -
                       // the merged pull request is the most live thing here
                       className="ml-2 inline-block text-xs text-ink-3 underline hover:text-ink-2"
                     >
@@ -685,10 +685,10 @@ export default function Planning() {
           <ul className="mt-2 space-y-1 text-xs text-ink-3">
             {(draft.skipped_absent ?? []).map((s) => (
               <li key={s.person} className="text-weld">
-                {s.person} skipped — away {s.away_days} weekday{s.away_days === 1 ? "" : "s"} that week
+                {s.person} skipped - away {s.away_days} weekday{s.away_days === 1 ? "" : "s"} that week
               </li>
             ))}
-            {draft.items.length === 0 && <li>Nothing to draft — assign some tasks first.</li>}
+            {draft.items.length === 0 && <li>Nothing to draft - assign some tasks first.</li>}
             {draft.items.map((i) => (
               <li key={i.task_id}>
                 #{i.task_id} {i.title} @{i.assignee}
@@ -716,7 +716,7 @@ export default function Planning() {
         <RoutinesCard />
       </SupportingSection>
 
-      {/* 4 — the weeks after this one. Accepting work today against today's
+      {/* 4 - the weeks after this one. Accepting work today against today's
           numbers is how a conflict gets noticed on the day it arrives. */}
       <SupportingSection id="planning-weeks-ahead" title="The weeks ahead">
         <div className="overflow-x-auto">
@@ -738,7 +738,7 @@ export default function Planning() {
                   {/* `people` carries every allocated person and their
                       percent; `over` is derived from it as the subset above
                       100. The table read only `over`, so a week where three
-                      people sat at 95% looked identical to an empty one —
+                      people sat at 95% looked identical to an empty one -
                       which is the staffing call this card exists to make. */}
                   <td className="py-1 pr-3">
                     {w.people.length ? (
@@ -757,14 +757,14 @@ export default function Planning() {
                         ))}
                       </span>
                     ) : (
-                      <span className="text-ink-3">—</span>
+                      <span className="text-ink-3">-</span>
                     )}
                   </td>
                   <td className="py-1">
                     {w.away.length ? (
                       w.away.map((a) => `${a.person} (${a.kind})`).join(", ")
                     ) : (
-                      <span className="text-ink-3">—</span>
+                      <span className="text-ink-3">-</span>
                     )}
                   </td>
                 </tr>
@@ -828,7 +828,7 @@ export default function Planning() {
         </Card>
       ) : null}
 
-      {/* what the team is AWAITING (docs/LEXICON.md row 1a — `waiting on`
+      {/* what the team is AWAITING (docs/LEXICON.md row 1a - `waiting on`
           is blocker vocabulary, and capture-palette.tsx routes the bare
           phrase there). Beside the triage queue rather than in it: these are
           not decisions to make, they are people to chase.
@@ -856,7 +856,7 @@ export default function Planning() {
           <p className="mt-2 text-xs text-ink-3">
             Skein chases an overdue one once a day. If two chases get no
             answer, it tells the team once, and it names nobody. Capture one
-            with &ldquo;awaiting: acme corp — the signed SOW by
+            with &ldquo;awaiting: acme corp - the signed SOW by
             YYYY-MM-DD&rdquo;.
           </p>
         </SupportingSection>
@@ -898,7 +898,7 @@ export default function Planning() {
         </SupportingSection>
       ) : null}
 
-      {/* 6 — which way the portfolio moved. Split from the stale-decisions
+      {/* 6 - which way the portfolio moved. Split from the stale-decisions
           card: one card held both and its title named only the decisions, so
           a reader scanning the agenda by title never found the health list. */}
       <SupportingSection id="planning-portfolio-health" title="Portfolio health">
@@ -933,7 +933,7 @@ export default function Planning() {
         ) : null}
         {/* Where the portfolio stands, under where it moved. The movement
             list answers "what changed" and is silent about an engagement
-            that has been red all month — the one most likely to need the
+            that has been red all month - the one most likely to need the
             meeting's attention. */}
         {d.health.length > 0 ? (
           <>
@@ -989,7 +989,7 @@ export default function Planning() {
 
       {/* the one write the ritual ends with. Manager-gated like the same
           button on Work → Health: the brief notifies the whole roster, and
-          this page carried it ungated while Health gated it — one broadcast,
+          this page carried it ungated while Health gated it - one broadcast,
           two rules. */}
       <AgendaSection id="planning-close" title="Close the meeting">
         {!manage ? (
@@ -1003,7 +1003,7 @@ export default function Planning() {
             try {
               // the ritual is claim-guarded per ISO week and RETURNS
               // {skipped} rather than raising, so the success path ran on a
-              // run that sent nothing — and the copy below invites the second
+              // run that sent nothing - and the copy below invites the second
               // click that produces it
               const out = await api<{ skipped?: string }>(
                 "/api/rituals/week-open",

@@ -70,7 +70,7 @@ def parse_github_actions(payload: dict) -> dict | None:
         status = "success"
     elif conclusion in ("failure", "timed_out"):
         status = "failure"
-    else:  # cancelled, skipped, action_required, neutral, stale — not a red build
+    else:  # cancelled, skipped, action_required, neutral, stale - not a red build
         return None
     return {
         "repo": (payload.get("repository") or {}).get("full_name", ""),

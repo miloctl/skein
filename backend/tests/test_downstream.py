@@ -39,13 +39,13 @@ def test_the_chain_counts_past_the_first_hop(client):
     _waits(client, c, f"task:{b}")
 
     got = client.get(f"/api/tasks/{a}").json()
-    # b directly, c behind it — the direct list stays one hop, the count does not
+    # b directly, c behind it - the direct list stays one hop, the count does not
     assert [t["id"] for t in got["unblocks"]] == [b]
     assert got["unblocks_total"] == 2
 
 
 def test_a_blocker_edge_is_not_counted_as_released_work(client):
-    """`blockers.task_id` names the task the blocker BLOCKS — raise_blocker
+    """`blockers.task_id` names the task the blocker BLOCKS - raise_blocker
     sets that task to 'blocked'. Counting through it claimed that finishing
     the task released other work, while the same blocker was what stopped
     that task from finishing at all. Resolving a blocker is a blocker verb."""
@@ -76,7 +76,7 @@ def test_a_finished_waiter_is_not_counted_as_released(client):
 
 def test_a_cycle_terminates_without_claiming_it_was_capped(client):
     """`waiting_on` is free-form: nothing stops A waiting on B waiting on A.
-    A cycle is closed by the visited set, not by the depth cap — so the walk
+    A cycle is closed by the visited set, not by the depth cap - so the walk
     returns a true count rather than a capped one, and `depth_capped` stays
     false because nothing was left uncounted."""
     a, b = _task(client, "a"), _task(client, "b")
@@ -114,7 +114,7 @@ def test_a_chain_of_exactly_the_cap_is_not_called_truncated(client):
 
 
 def test_the_walk_is_viewer_scoped_at_every_hop(client):
-    """A task nobody may read must not be countable through the chain — a bare
+    """A task nobody may read must not be countable through the chain - a bare
     count would leak that it exists."""
     from app import db
 

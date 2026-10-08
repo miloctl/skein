@@ -118,7 +118,7 @@ def test_overlay_wins_a_slug_collision(fresh_db, tmp_path, monkeypatch):
 
 
 def test_no_overlay_keeps_the_stock_roster_exactly(fresh_db):
-    """Equality, not subset — a leaked overlay would show up as an extra slug."""
+    """Equality, not subset - a leaked overlay would show up as an extra slug."""
     from app.services import playbooks
 
     slugs = {p["slug"] for p in playbooks.list_playbooks()}

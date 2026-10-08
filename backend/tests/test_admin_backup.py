@@ -29,7 +29,7 @@ def _pg_restore() -> str:
 def _dump_list(path, admin) -> str:
     import subprocess
 
-    return subprocess.run(  # noqa: S603 — fixed argv, no shell
+    return subprocess.run(  # noqa: S603 - fixed argv, no shell
         [_pg_restore(), "--list", str(path)],
         env=admin._pg_env(),
         check=True,
@@ -339,7 +339,7 @@ def test_backup_filesystem_lock_blocks_another_process(fresh_db, monkeypatch):
     from app.services import admin
 
     lock_path = admin._backups_dir() / ".backup.lock"
-    holder = subprocess.Popen(  # noqa: S603 — fixed interpreter and literal program
+    holder = subprocess.Popen(  # noqa: S603 - fixed interpreter and literal program
         [
             sys.executable,
             "-c",
@@ -483,7 +483,7 @@ def test_restore_drill_recovers_one_database_unit_and_requires_artifact_volume(
         private_notes._schema_ready = False
 
         env = admin._pg_env()
-        load = subprocess.run(  # noqa: S603 — fixed argv, no shell
+        load = subprocess.run(  # noqa: S603 - fixed argv, no shell
             [
                 restore,
                 "--dbname",
@@ -539,12 +539,12 @@ def test_restore_drill_recovers_one_database_unit_and_requires_artifact_volume(
 def test_backup_digest_rides_the_anchor_log(fresh_db):
     """The dump rests on a writable volume, and only the ledger self-verifies
     at restore. The anchor logs carry the file digest so alteration at rest is
-    detectable — without disturbing the chain lines they already hold."""
+    detectable - without disturbing the chain lines they already hold."""
     from app import db
     from app.services import activity, admin
 
     db.log_activity("tester", "probe", "one chained row")
-    # the 03:30 job body: verify, then anchor the verified tip — verify_chain
+    # the 03:30 job body: verify, then anchor the verified tip - verify_chain
     # alone never advances the anchor, so record_anchor would write nothing
     assert activity.nightly_verify()["ok"] is True
 
@@ -631,7 +631,7 @@ def test_mirror_only_recovery_is_explicitly_partial(scratch_db, tmp_path, monkey
         private_notes._schema_ready = False
 
         env = admin._pg_env()
-        load = subprocess.run(  # noqa: S603 — fixed argv, no shell
+        load = subprocess.run(  # noqa: S603 - fixed argv, no shell
             [
                 _pg_restore(),
                 "--dbname",

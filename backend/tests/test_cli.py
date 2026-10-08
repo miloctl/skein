@@ -40,7 +40,7 @@ def test_my_day_renders_the_shared_attention_projection(monkeypatch, capsys, tmp
                 "group": "review",
                 "audience": "you",
                 "label": "proposal #9: update the task",
-                "reason": "proposed by agent — applies only after a human verdict",
+                "reason": "proposed by agent - applies only after a human verdict",
             },
             {
                 "group": "commit",
@@ -52,7 +52,7 @@ def test_my_day_renders_the_shared_attention_projection(monkeypatch, capsys, tmp
                 "group": "notice",
                 "audience": "you",
                 "label": "The deploy is complete.",
-                "reason": "for you — dismiss when read",
+                "reason": "for you - dismiss when read",
             },
             {
                 "group": "decide",
@@ -222,7 +222,7 @@ def test_cli_settle_says_promise(monkeypatch, capsys):
 
 def test_the_commit_hook_fires_on_a_dash_m_commit(tmp_path):
     """git's $2 is "message" for `git commit -m`, which is how most commits
-    are written and the case where the trailer helps most — nobody sees an
+    are written and the case where the trailer helps most - nobody sees an
     editor to add it by hand. Skipping every non-empty source skipped exactly
     that. merge and squash stay skipped: their message is assembled from other
     commits, and a trailer there would claim this commit closed the task."""
@@ -235,9 +235,9 @@ def test_the_commit_hook_fires_on_a_dash_m_commit(tmp_path):
     repo.mkdir()
     # a branch with NO commits yet: `git init`, then `skein task start`, then
     # the first commit. rev-parse cannot resolve HEAD here, so the hook reads
-    # symbolic-ref instead — otherwise it misses the commit that starts the work.
+    # symbolic-ref instead - otherwise it misses the commit that starts the work.
     subprocess.run(
-        ["git", "init", "-q", "-b", "task/42-do-the-thing"],  # noqa: S607 — git/sh on PATH, tmp_path repo
+        ["git", "init", "-q", "-b", "task/42-do-the-thing"],  # noqa: S607 - git/sh on PATH, tmp_path repo
         cwd=repo,
         capture_output=True,
     )
@@ -245,8 +245,8 @@ def test_the_commit_hook_fires_on_a_dash_m_commit(tmp_path):
     def message_after(source: str) -> str:
         msg = tmp_path / "MSG"
         msg.write_text("wire it up\n")
-        subprocess.run(  # noqa: S603 — git/sh on PATH, tmp_path repo
-            ["sh", str(hook), str(msg), source],  # noqa: S607 — git/sh on PATH, tmp_path repo
+        subprocess.run(  # noqa: S603 - git/sh on PATH, tmp_path repo
+            ["sh", str(hook), str(msg), source],  # noqa: S607 - git/sh on PATH, tmp_path repo
             cwd=repo,
             check=False,
         )
@@ -269,14 +269,14 @@ def test_the_commit_hook_ignores_a_branch_that_names_no_task(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(
-        ["git", "init", "-q", "-b", "main"],  # noqa: S607 — git/sh on PATH, tmp_path repo
+        ["git", "init", "-q", "-b", "main"],  # noqa: S607 - git/sh on PATH, tmp_path repo
         cwd=repo,
         capture_output=True,
     )
     msg = tmp_path / "MSG"
     msg.write_text("unrelated work\n")
-    subprocess.run(  # noqa: S603 — git/sh on PATH, tmp_path repo
-        ["sh", str(hook), str(msg), ""],  # noqa: S607 — git/sh on PATH, tmp_path repo
+    subprocess.run(  # noqa: S603 - git/sh on PATH, tmp_path repo
+        ["sh", str(hook), str(msg), ""],  # noqa: S607 - git/sh on PATH, tmp_path repo
         cwd=repo,
         check=False,
     )
@@ -336,7 +336,7 @@ def test_attention_porcelain_says_nothing_when_nothing_waits(monkeypatch, capsys
 
 
 def test_attention_is_silent_and_short_when_the_server_is_down(monkeypatch, capsys, tmp_path):
-    """The real failure is api_quiet returning None, not raising — it catches
+    """The real failure is api_quiet returning None, not raising - it catches
     everything. What must hold: no output, no raise, and a SHORT timeout,
     because a host that drops packets never refuses the connection and the
     caller waits the whole budget on every keystroke."""
@@ -357,7 +357,7 @@ def test_attention_is_silent_and_short_when_the_server_is_down(monkeypatch, caps
 def test_a_failed_attention_is_remembered_so_the_prompt_stops_asking(monkeypatch, capsys, tmp_path):
     """The cache gates on its MTIME. Writing only on success left the file
     untouched, so the age check never applied and a dead backend was retried
-    on every prompt — a stall per keystroke, forever."""
+    on every prompt - a stall per keystroke, forever."""
     cli = _load_cli()
     monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
     calls = {"n": 0}
@@ -370,7 +370,7 @@ def test_a_failed_attention_is_remembered_so_the_prompt_stops_asking(monkeypatch
     cli.cmd_attention(Namespace(porcelain=True))
     cli.cmd_attention(Namespace(porcelain=True))
     cli.cmd_attention(Namespace(porcelain=True))
-    assert calls["n"] == 1, "the failure was not stamped — every prompt asks again"
+    assert calls["n"] == 1, "the failure was not stamped - every prompt asks again"
     assert capsys.readouterr().out == ""
 
 
@@ -542,7 +542,7 @@ def test_a_failed_flush_keeps_everything_it_did_not_send(monkeypatch, tmp_path):
 
 
 def test_the_hook_reads_only_a_real_task_number(tmp_path):
-    """Three definitions of a task branch exist — this hook, BRANCH_RE, and
+    """Three definitions of a task branch exist - this hook, BRANCH_RE, and
     services/forge.py. `task/12abc` was accepted by the shell one alone, which
     would have closed task 12 from an unrelated branch."""
     import subprocess
@@ -554,15 +554,15 @@ def test_the_hook_reads_only_a_real_task_number(tmp_path):
     def trailer_for(branch: str) -> str:
         repo = tmp_path / branch.replace("/", "_")
         repo.mkdir()
-        subprocess.run(  # noqa: S603 — git/sh on PATH, tmp_path repo
-            ["git", "init", "-q", "-b", branch],  # noqa: S607 — git/sh on PATH, tmp_path repo
+        subprocess.run(  # noqa: S603 - git/sh on PATH, tmp_path repo
+            ["git", "init", "-q", "-b", branch],  # noqa: S607 - git/sh on PATH, tmp_path repo
             cwd=repo,
             capture_output=True,
         )
         msg = repo / "MSG"
         msg.write_text("work\n")
-        subprocess.run(  # noqa: S603 — git/sh on PATH, tmp_path repo
-            ["sh", str(hook), str(msg), ""],  # noqa: S607 — git/sh on PATH, tmp_path repo
+        subprocess.run(  # noqa: S603 - git/sh on PATH, tmp_path repo
+            ["sh", str(hook), str(msg), ""],  # noqa: S607 - git/sh on PATH, tmp_path repo
             cwd=repo,
             check=False,
         )
@@ -576,7 +576,7 @@ def test_the_hook_reads_only_a_real_task_number(tmp_path):
 
 def test_the_hook_leaves_an_existing_trailer_alone(tmp_path):
     """A hand-written `Refs-Task: #42` must not gain a `Closes-Task: #42`
-    beneath it — that turns a commit which REFERENCED a task into one that
+    beneath it - that turns a commit which REFERENCED a task into one that
     closes it. The guard used a GNU-only BRE alternation, which BSD grep reads
     as a literal pipe."""
     import subprocess
@@ -587,14 +587,14 @@ def test_the_hook_leaves_an_existing_trailer_alone(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(
-        ["git", "init", "-q", "-b", "task/42-slug"],  # noqa: S607 — git/sh on PATH, tmp_path repo
+        ["git", "init", "-q", "-b", "task/42-slug"],  # noqa: S607 - git/sh on PATH, tmp_path repo
         cwd=repo,
         capture_output=True,
     )
     msg = repo / "MSG"
     msg.write_text("work\n\nRefs-Task: #42\n")
-    subprocess.run(  # noqa: S603 — git/sh on PATH, tmp_path repo
-        ["sh", str(hook), str(msg), ""],  # noqa: S607 — git/sh on PATH, tmp_path repo
+    subprocess.run(  # noqa: S603 - git/sh on PATH, tmp_path repo
+        ["sh", str(hook), str(msg), ""],  # noqa: S607 - git/sh on PATH, tmp_path repo
         cwd=repo,
         check=False,
     )
@@ -723,7 +723,7 @@ def test_a_corrupt_line_does_not_wedge_the_queue(monkeypatch, tmp_path):
 
 def test_a_capture_made_during_a_flush_is_not_destroyed(monkeypatch, tmp_path):
     """The flush used to read the file and then truncate it. Anything a second
-    shell appended in between was gone — the opposite direction from the
+    shell appended in between was gone - the opposite direction from the
     duplication the at-least-once note calls safe."""
     cli = _load_cli()
     monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
@@ -760,12 +760,12 @@ def test_the_commit_hook_references_a_task_and_never_closes_it(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(
-        ["git", "init", "-q", "-b", "task/5-thing"],  # noqa: S607 — git on PATH
+        ["git", "init", "-q", "-b", "task/5-thing"],  # noqa: S607 - git on PATH
         cwd=repo,
         check=True,
     )
-    out = subprocess.run(  # noqa: S603 — sh on PATH, tmp_path repo
-        ["sh", str(hook), str(msg)],  # noqa: S607 — sh on PATH
+    out = subprocess.run(  # noqa: S603 - sh on PATH, tmp_path repo
+        ["sh", str(hook), str(msg)],  # noqa: S607 - sh on PATH
         cwd=repo,
         capture_output=True,
         text=True,
@@ -791,7 +791,7 @@ def test_installing_hooks_never_destroys_one_that_is_already_there(tmp_path):
     mine.write_text("#!/bin/sh\n# hand written, years of tweaks\n")
     (hooks / "post-commit").write_text("#!/bin/sh\n# also mine\n")
     subprocess.run(
-        ["git", "init", "-q"],  # noqa: S607 — git on PATH
+        ["git", "init", "-q"],  # noqa: S607 - git on PATH
         cwd=tmp_path,
         check=True,
     )
@@ -808,7 +808,7 @@ def test_installing_hooks_never_destroys_one_that_is_already_there(tmp_path):
 
 def test_the_outbox_does_not_retry_a_host_this_process_already_missed(monkeypatch, tmp_path):
     """The flush runs after every command. Against a dead host it paid a
-    second full timeout re-sending the row the command had just queued — 30
+    second full timeout re-sending the row the command had just queued - 30
     seconds for `skein capture`, the command that exists so a thought is
     never lost."""
     cli = _load_cli()
@@ -817,8 +817,8 @@ def test_the_outbox_does_not_retry_a_host_this_process_already_missed(monkeypatc
 
     # Through api_quiet with a dead transport, NOT by calling
     # _mark_unreachable() by hand: setting the flag myself pins only that the
-    # flush READS it. Both call sites could be deleted — restoring the full
-    # 30-second double timeout — and a hand-set flag would still pass.
+    # flush READS it. Both call sites could be deleted - restoring the full
+    # 30-second double timeout - and a hand-set flag would still pass.
     import urllib.error
 
     tries = []

@@ -2,12 +2,12 @@ import { Fragment } from "react";
 
 /** The search shortcut, spelled for the reader's keyboard.
  *
- *  `⌘K` is the token this product writes everywhere it names the shortcut —
+ *  `⌘K` is the token this product writes everywhere it names the shortcut -
  *  in JSX, in `fieldguide/knots.yaml`, and in the onboarding hints the
  *  backend sends. It is not what every reader presses. The binding is
  *  `metaKey || ctrlKey` (nav-search.tsx), which is ⌘K on an Apple keyboard
  *  and Ctrl+K on the rest, and a Windows reader who read ⌘ as the Windows
- *  key reported the feature as unusable — Win+K opens the Cast panel there,
+ *  key reported the feature as unusable - Win+K opens the Cast panel there,
  *  so the one hint meant to teach the shortcut named a key that does
  *  something else.
  *
@@ -36,8 +36,8 @@ export function Shortcut() {
 /** The token as written on the wire and in YAML. */
 const SHORTCUT_TOKEN = "⌘K";
 
-/** Server prose that renders as a plain string — the fieldguide `pitch:` and
- *  `how:` lines and the onboarding hints — with the token swapped for the
+/** Server prose that renders as a plain string - the fieldguide `pitch:` and
+ *  `how:` lines and the onboarding hints - with the token swapped for the
  *  reader's keyboard. Text with no token passes through untouched. */
 export function ShortcutText({ text }: { text: string }) {
   const parts = String(text ?? "").split(SHORTCUT_TOKEN);

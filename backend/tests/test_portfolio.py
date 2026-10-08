@@ -143,7 +143,7 @@ def test_wait_satisfied_queries_cover_every_waiting_on_type():
 
 
 def test_the_team_flow_numbers_count_only_what_the_team_can_see(client):
-    """flow_metrics has no viewer — every caller is team-wide or egressing
+    """flow_metrics has no viewer - every caller is team-wide or egressing
     (the exec readout, the interrupt_load finding, the cockpit, the agent
     tool). Counting private work put rows the audience cannot find into a
     number presented to them as theirs."""

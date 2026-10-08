@@ -67,7 +67,7 @@ jobs:
     services:
       # Same major as docker-compose.yml and the Dockerfile's pg_dump. The
       # suite builds a template database and clones it per test, which needs a
-      # real server — there is no in-process substitute the way SQLite was.
+      # real server - there is no in-process substitute the way SQLite was.
       postgres:
         image: postgres:17-alpine@sha256:d4bb0a8c1b7bb2e29f976d099e7bfb9a5d8858cffe9e46b35cd302cd1f1f8168
         env:

@@ -1,7 +1,7 @@
 {
   "positive": [
     "Should we split the billing service out or keep one schema? Walk me through the tradeoffs.",
-    "Design consultation: new API shape for exports \u2014 what breaks at 10x and which choice is reversible?"
+    "Design consultation: new API shape for exports - what breaks at 10x and which choice is reversible?"
   ],
   "negative": [
     {

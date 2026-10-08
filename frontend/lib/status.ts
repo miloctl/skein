@@ -2,7 +2,7 @@
  *
  *  36 call sites used window.alert(), which is worse than it looks: after a
  *  few dialogs browsers offer "prevent this page from creating more dialogs",
- *  and once that is ticked every later failure is swallowed in silence — the
+ *  and once that is ticked every later failure is swallowed in silence - the
  *  app looks like it is working while writes fail. alert() also blocks, steals
  *  focus, and queues serially when several requests fail together.
  *

@@ -2,7 +2,7 @@
  *
  *  components/auth-gate.tsx renders INSTEAD of the page, but the nav shell
  *  around it and the two overlays mounted beside that shell in app/layout.tsx
- *  are not its children — they keep rendering, and both overlays out-rank
+ *  are not its children - they keep rendering, and both overlays out-rank
  *  the gate on z-index. `?task=12` in a digest link opened an aria-modal dialog on top of
  *  the gate, and the Capture button opened a box that could only ever answer
  *  401. A

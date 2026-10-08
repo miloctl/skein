@@ -63,7 +63,7 @@ describe("the attached files card", () => {
   it("asks before it destroys anything", async () => {
     render(<AttachedFilesCard />);
     fireEvent.click(await screen.findByRole("button", { name: "Delete roof.md" }));
-    // the first click only arms it — no request has gone out yet
+    // the first click only arms it - no request has gone out yet
     expect(mocks.api).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Delete for good" }));
     await waitFor(() =>

@@ -29,7 +29,7 @@ type FileList = {
 
 /** The one surface that shows a person their own attached files.
  *
- *  An upload is private, so it appears nowhere else — not in Reports, not in
+ *  An upload is private, so it appears nowhere else - not in Reports, not in
  *  search, not in export. Without this card the quota is a wall with no door:
  *  the refusal says to delete a file, and nothing tells the reader which
  *  files they have. */
@@ -133,7 +133,7 @@ export function AttachedFilesCard({
             </span>
           </div>
           {/* the meter is decoration over the sentence above it, which is the
-              accessible copy — a second reading of the same numbers */}
+              accessible copy - a second reading of the same numbers */}
           <div
             aria-hidden="true"
             className="h-1.5 overflow-hidden rounded-full bg-raised"

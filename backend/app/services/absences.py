@@ -1,5 +1,5 @@
 """Availability ledger: PTO / on-call / focus windows. A person away for
-half the week is a capacity swing the staffing math must see — capacity,
+half the week is a capacity swing the staffing math must see - capacity,
 conflicts, the weekly draft, and what-if staffing all consult this table."""
 
 import re
@@ -62,7 +62,7 @@ def add_absence(
         raise ValueError("ends_on must not be before starts_on")
     # an open-ended window would zero someone out of planning forever
     if (date.fromisoformat(ends_on) - date.fromisoformat(starts_on)).days > 180:
-        raise ValueError("windows are capped at 180 days — enter long leave in chunks")
+        raise ValueError("windows are capped at 180 days - enter long leave in chunks")
     own = person == (requester or actor)
     if visibility is None:
         visibility = scope.PRIVATE
@@ -71,7 +71,7 @@ def add_absence(
         tier, crew = scope.resolve_write(visibility, crew_id, actor=actor)
         # CLASSIFIED keys absences on `person`, not on the filer. Without this,
         # a filer could scope a colleague's window to a tier where NOBODY can
-        # read it — not the filer (wrong author column) and not the subject —
+        # read it - not the filer (wrong author column) and not the subject -
         # while it still moves that person's capacity. The person away is
         # the author for this check: their own private window is readable by
         # them whoever typed it.
@@ -151,7 +151,7 @@ def delete_absence(absence_id: int, *, actor: str = "system") -> dict:
     return {
         "id": absence_id,
         "deleted": True,
-        # echo what was destroyed — a CLI caller with a transposed digit
+        # echo what was destroyed - a CLI caller with a transposed digit
         # must see whose window just vanished
         "person": row["person"],
         "kind": row["kind"],
@@ -169,17 +169,17 @@ LIST_LIMIT = 200
 def list_absences(
     person: str = "", from_date: str = "", viewer: scope.Viewer = scope.NOBODY
 ) -> list[dict]:
-    """Upcoming-and-current by default — history stays queryable via from_date."""
+    """Upcoming-and-current by default - history stays queryable via from_date."""
     cutoff = from_date or db.today().isoformat()  # vs ends_on, a date column
     frag, vp = scope.visible_filter(viewer, "absences")
     if person:
         return db.query(
-            f"SELECT * FROM absences WHERE person = ? AND ends_on >= ? AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"SELECT * FROM absences WHERE person = ? AND ends_on >= ? AND {frag}"  # noqa: S608 - scope.visible_filter emits only bound marks
             " ORDER BY starts_on LIMIT ?",
             (person, cutoff, *vp, LIST_LIMIT),
         )
     return db.query(
-        f"SELECT * FROM absences WHERE ends_on >= ? AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM absences WHERE ends_on >= ? AND {frag}"  # noqa: S608 - scope.visible_filter emits only bound marks
         " ORDER BY starts_on, person LIMIT ?",
         (cutoff, *vp, LIST_LIMIT),
     )
@@ -201,11 +201,11 @@ def away_today(kind: str = "pto") -> dict[str, str]:
     # precedence below compares against the REAL kind on the left, so a
     # private PTO day still outranks an advisory one and the capacity math
     # does not move. The right-hand comparand is the MASKED value already
-    # stored — correct in every ordering, but a new sentinel that collides
+    # stored - correct in every ordering, but a new sentinel that collides
     # with a real kind would break it.
     today = db.today().isoformat()  # vs starts_on/ends_on, date columns
     rows = db.query(
-        "SELECT person, kind, visibility FROM absences"  # noqa: S608 — TEAM_SEES_DATES is a module constant
+        "SELECT person, kind, visibility FROM absences"  # noqa: S608 - TEAM_SEES_DATES is a module constant
         f" WHERE starts_on <= ? AND ends_on >= ? AND {TEAM_SEES_DATES}",
         (today, today),
     )
@@ -224,7 +224,7 @@ def weekday_overlap(person: str, week_monday: date) -> int:
     rows = db.query(
         # a window whose kind is hidden counts like PTO: filtering on the
         # kind told the week draft which hidden windows are PTO
-        "SELECT starts_on, ends_on FROM absences WHERE person = ?"  # noqa: S608 — TEAM_SEES_DATES is a module constant
+        "SELECT starts_on, ends_on FROM absences WHERE person = ?"  # noqa: S608 - TEAM_SEES_DATES is a module constant
         " AND (kind = 'pto' OR visibility <> 'workspace')"
         f" AND starts_on <= ? AND ends_on >= ? AND {TEAM_SEES_DATES}",
         (person, week_days[-1].isoformat(), week_days[0].isoformat()),

@@ -1,4 +1,4 @@
-"""Daily retention pruning. activity is the provenance ledger — kept
+"""Daily retention pruning. activity is the provenance ledger - kept
 forever; everything pruned here is derivable telemetry, already-consumed
 claims/notifications, or a copy of content that outlived its reason.
 
@@ -55,7 +55,7 @@ EXPORT_FILE_DAYS = 14
 # (PRUNE_LABEL), pruned by cascade with its parent (CASCADED), or kept with
 # the reason (KEPT). tests/test_retention.py enumerates the live schema
 # against these maps, so a new table fails CI until its migration author
-# records the decision — silence would default it to kept-forever unread.
+# records the decision - silence would default it to kept-forever unread.
 _USER_DELETED = "user-deleted content: removal is a person's decision, never an age prune"
 _CHAT_LIFECYCLE = "chat lifecycle owns deletion (delete_thread and folder operations)"
 _DERIVED = "derived from content: rebuilt on demand, rows leave with their entity"
@@ -158,7 +158,7 @@ def prune(*, actor: str = "scheduler") -> dict:
         return {"skipped": "already pruned today", "status": "noop"}
     # tool_usage is deliberately absent: one row per (day, user, surface), so
     # a year of a ten-person team is a few thousand rows, and the adoption
-    # trend is the read it exists for — pruning it deletes the trend.
+    # trend is the read it exists for - pruning it deletes the trend.
     # usage_log rows are the platform's cost history (spend per thread and
     # engagement over time), not derivable from anything else: only the
     # requester's name leaves them, below.
@@ -186,8 +186,8 @@ def prune(*, actor: str = "scheduler") -> dict:
         ),
         # "read" means read_at for a personal row and a `notification_reads`
         # row for a 'team' one (009). A prune that tests read_at alone makes
-        # every team announcement immortal — mark_read never stamps that
-        # column on a shared record — and drags its dismissal rows along with
+        # every team announcement immortal - mark_read never stamps that
+        # column on a shared record - and drags its dismissal rows along with
         # it, so the two tables grow together and forever. A team row is
         # prunable once EVERY active human has dismissed it: one straggler
         # keeps it, which is the same promise the unread query makes them.
@@ -195,8 +195,8 @@ def prune(*, actor: str = "scheduler") -> dict:
             "DELETE FROM notifications WHERE created_at < ? AND ("
             " (\"user\" != 'team' AND read_at IS NOT NULL)"
             # read_at counts for a team row too. `mark_read_matching` stamps it
-            # when the THING a notification points at is settled — a fact about
-            # the world, not about one reader — and that write also hides the
+            # when the THING a notification points at is settled - a fact about
+            # the world, not about one reader - and that write also hides the
             # row from every unread list, so nobody can ever add the per-person
             # dismissal the arm below waits for. Without this disjunct every
             # "Review needed: #N" notification the product sends is permanent.
@@ -210,7 +210,7 @@ def prune(*, actor: str = "scheduler") -> dict:
             (_cutoff(READ_NOTIFICATION_DAYS),),
         ),
         # This also expires capture idempotency receipts (`capture:<user>`),
-        # so an outbox row re-sent after the horizon files a duplicate —
+        # so an outbox row re-sent after the horizon files a duplicate -
         # at-least-once, the safe direction, and old enough to notice.
         # Forge redeliveries and annual firings outlive the telemetry horizon.
         # Their small receipt rows grow permanently: pruning them permits an
@@ -277,7 +277,7 @@ def prune(*, actor: str = "scheduler") -> dict:
         ),
     }
     # this detail renders verbatim in the My Day feed, so it is a sentence,
-    # not a payload — json.dumps put a raw dict in front of every reader
+    # not a payload - json.dumps put a raw dict in front of every reader
     # `exports` is files on disk, not a table, so its label stays out of
     # PRUNE_LABEL, which tests/test_retention.py holds to the live schema.
     # A key with no label raises KeyError here, and the whole job fails on

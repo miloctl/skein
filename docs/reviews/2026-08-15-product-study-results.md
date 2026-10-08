@@ -1,4 +1,4 @@
-# Live product study — delivered improvements
+# Live product study - delivered improvements
 
 **Closed.** What the study actually shipped across the three
 `proposed-features` commits, written at delivery. `docs/FEATURES.md` is the

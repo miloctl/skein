@@ -81,7 +81,7 @@ _busy: set[str] = set()
 # The per-call timeout bounds TIME, not volume: a server that streams inside
 # its deadline can still hand the model megabytes, blowing the context or
 # silently burning SKEIN_AGENT_DAILY_TOKENS on an unattended run. Measured in
-# str() characters, not encoded bytes — multibyte content can carry up to 4x
+# str() characters, not encoded bytes - multibyte content can carry up to 4x
 # this in bytes, an accepted looseness for a volume bound.
 _RESULT_MAX_BYTES = 256 * 1024
 _TIMEOUT_TRIP = 2
@@ -148,7 +148,7 @@ def _drop_connection(server_id: str, reason: str, client: Any = None) -> None:
             _tools = None
         # Seed the backoff HERE: without a retry_at in the future, the next
         # mcp_tools() call treats this server as ready and reconnects in the
-        # FOREGROUND — inside an agent build, on a chat turn, against the
+        # FOREGROUND - inside an agent build, on a chat turn, against the
         # server just proven broken (the exact hold the background-retry
         # comment in mcp_tools() forbids).
         _retry_state[server_id] = (1, time.monotonic() + _RETRY_BASE_SECONDS)
@@ -307,7 +307,7 @@ class GovernedMCPTool(AgentTool):
         # A personal server's write needs a human even under PERMIT: its
         # owner classified nothing, and the authority matrix has no mcp-tool
         # level that could relax it (delegation.set_authority refuses the
-        # entity). The engine's decision object stays as decided —
+        # entity). The engine's decision object stays as decided -
         # services/review.py recomputes the approval fingerprint from it, and
         # a substituted REVIEW decision would stale every approval.
         # The database calls run on a worker thread (asyncio.to_thread copies
@@ -505,8 +505,8 @@ class GovernedMCPTool(AgentTool):
         # eventually drop a healthy server.
         with _lock:
             _timeout_strikes.pop(self.server_id, None)
-        # The SDK delegate yields a ToolResultEvent ENVELOPE — a dict shaped
-        # {"type": "tool_result", "tool_result": {...}} — and the declared
+        # The SDK delegate yields a ToolResultEvent ENVELOPE - a dict shaped
+        # {"type": "tool_result", "tool_result": {...}} - and the declared
         # output_schema describes the RESULT inside. Validating the envelope
         # refused every valid result from a schema with required fields, and
         # passed everything for a bare {"type": "object"}.
@@ -581,7 +581,7 @@ def _first_use_approved(server: str, tool: str, version: str) -> bool:
     Annotations are the server's own claim: a hostile server labels an
     exfiltration tool read-only, and the model can be steered to pass
     private context as its arguments. One approval per (server, tool,
-    version) — a changed input contract is a new tool."""
+    version) - a changed input contract is a new tool."""
     from .. import db
 
     return (
@@ -693,7 +693,7 @@ def _system_not_ready(server: str) -> MCPServerNotReady:
     try:
         threading.Thread(target=mcp_tools, daemon=True, name="skein-mcp-retry").start()
     except RuntimeError:
-        log.warning("MCP load thread failed to start — MCP will retry")
+        log.warning("MCP load thread failed to start - MCP will retry")
     wait = math.ceil(retry[1] - time.monotonic()) if retry else 0
     if wait > 0:
         return MCPServerNotReady(
@@ -1028,21 +1028,21 @@ def _server_entries() -> list[tuple[str, dict]]:
     try:
         servers = json.loads(config.MCP_SERVERS)
     except ValueError:
-        log.warning("SKEIN_MCP_SERVERS is not valid JSON — MCP disabled")
+        log.warning("SKEIN_MCP_SERVERS is not valid JSON - MCP disabled")
         return []
     if not isinstance(servers, list):
-        log.warning("SKEIN_MCP_SERVERS must be a JSON list — MCP disabled")
+        log.warning("SKEIN_MCP_SERVERS must be a JSON list - MCP disabled")
         return []
 
     entries = []
     seen: set[str] = set()
     for position, server in enumerate(servers, 1):
         if not isinstance(server, dict):
-            log.warning("MCP server entry %d is not a JSON object — omitted", position)
+            log.warning("MCP server entry %d is not a JSON object - omitted", position)
             continue
         server_id = str(server.get("name") or "").strip()
         if not server_id or server_id in seen:
-            log.warning("MCP server entry %d needs a unique stable name — omitted", position)
+            log.warning("MCP server entry %d needs a unique stable name - omitted", position)
             continue
         seen.add(server_id)
         entries.append((server_id, server))
@@ -1080,7 +1080,7 @@ def _finish_load(server_ids: set[str], configured_ids: set[str], generation: int
         # retryable. Publishing an empty terminal cache makes recovery require
         # a process restart. The class is enough: configured URLs and remote
         # response bodies must not enter platform logs.
-        log.warning("MCP configuration failed to load — MCP will retry (%s)", type(exc).__name__)
+        log.warning("MCP configuration failed to load - MCP will retry (%s)", type(exc).__name__)
 
     close_after: list[Any] = []
     with _lock:
@@ -1255,7 +1255,7 @@ def open_personal(server_id: str, server: dict, *, background: bool = False) -> 
                 del _opening[server_id]
                 _schedule_retry(server_id)
         _release_slot(owner)
-        log.warning("MCP retry thread failed to start — MCP will retry (%s)", type(exc).__name__)
+        log.warning("MCP retry thread failed to start - MCP will retry (%s)", type(exc).__name__)
     return True
 
 
@@ -1444,12 +1444,12 @@ def mcp_tools(reserved_names: set[str] | None = None) -> list:
         except RuntimeError as exc:
             # start() fails under thread exhaustion. Only _finish_load resets
             # _loading, so leaving it set parks every retry until a process
-            # restart — and the raise would reach build_agent and kill a chat
+            # restart - and the raise would reach build_agent and kill a chat
             # turn over a dead integration.
             with _lock:
                 _loading = False
             log.warning(
-                "MCP retry thread failed to start — MCP will retry (%s)",
+                "MCP retry thread failed to start - MCP will retry (%s)",
                 type(exc).__name__,
             )
         return _without_reserved(current, reserved)
@@ -1487,7 +1487,7 @@ def _connect_servers(
             if tier == PERSONAL:
                 # re-checked at every connect, not only at add time: the
                 # host can resolve somewhere else once the row exists.
-                # Redirects are refused for the same reason — the checked
+                # Redirects are refused for the same reason - the checked
                 # host could 307 the JSON-RPC POST to loopback or metadata.
                 from ..services.mcp_servers import check_url
 

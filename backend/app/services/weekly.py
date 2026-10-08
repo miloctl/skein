@@ -1,5 +1,5 @@
 """Weekly commitment line: the team commits tasks to an ISO week, and a
-Monday job drafts the plan as a pending-changes proposal — the same review
+Monday job drafts the plan as a pending-changes proposal - the same review
 inbox humans already work, so the plan is approved, not imposed."""
 
 import json
@@ -24,7 +24,7 @@ def week_view(week: str = "") -> dict:
         raise ValueError("week must look like 2026-W31")
     tasks = redact_task_relationships(
         db.query(
-            "SELECT t.*, m.title AS milestone_title FROM tasks t"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            "SELECT t.*, m.title AS milestone_title FROM tasks t"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
             # the milestone lock rides the ON clause, not the WHERE: in the WHERE it
             # would drop every task with no milestone and turn the join INNER
             # (services/scope.py::visible_filter names this placement)
@@ -46,7 +46,7 @@ def week_view(week: str = "") -> dict:
         "tasks": tasks,
         # The Monday job may have ALREADY proposed this week's plan
         # (propose_weekly_plan below). Without this the Health card said
-        # "Nothing committed yet — draft a plan" while that proposal sat
+        # "Nothing committed yet - draft a plan" while that proposal sat
         # pending in Approvals, and the drafter it invited filed a duplicate.
         # id and summary only: the summary is built from workspace-tier task
         # titles, the same tier every row of this view already carries.
@@ -92,14 +92,14 @@ def draft_plan(week: str = "") -> dict:
         away_days = weekday_overlap(h["name"], week_monday)
         if away_days >= 3:
             # committing tasks to someone away most of the week sets the
-            # kept-% up to lie — skip them, say so
+            # kept-% up to lie - skip them, say so
             skipped.append({"person": h["name"], "away_days": away_days})
             continue
         rows = db.query(
             # the workspace tier: the draft is one plan for the whole team,
             # proposed to a reviewer who is in nobody's crew in particular,
             # and every item carries its task title
-            "SELECT id, title, priority, due_date FROM tasks"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            "SELECT id, title, priority, due_date FROM tasks"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
             f" WHERE assignee = ? AND {WORKSPACE_ONLY} AND status IN ('todo', 'in_progress')"
             " AND (committed_week IS NULL OR committed_week != ?)"
             " ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
@@ -133,7 +133,7 @@ def apply_plan(
     if not committed:
         # "could not be committed", not "is gone": scope.missing gives the
         # absent row and the unreadable row one sentence on purpose, so this
-        # cannot tell them apart — and it must not claim the deletion.
+        # cannot tell them apart - and it must not claim the deletion.
         raise ValueError(
             "no task in the plan can be committed. Draft the week again from current tasks."
         )
@@ -162,12 +162,12 @@ def _propose_weekly_plan_locked(*, actor: str) -> dict:
     from .review import propose_change
 
     names = ", ".join(f"#{i['task_id']}" for i in draft["items"][:10])
-    # the reviewer must see who was left out and why — a silent skip reads
+    # the reviewer must see who was left out and why - a silent skip reads
     # as "covered everyone"
     skipped = ""
     if draft["skipped_absent"]:
         who = ", ".join(f"{s['person']} ({s['away_days']}d)" for s in draft["skipped_absent"])
-        skipped = f" — skipped for absence: {who}"
+        skipped = f" - skipped for absence: {who}"
     return propose_change(
         "weekly_plan",
         "create",

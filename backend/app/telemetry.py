@@ -13,8 +13,8 @@ def _require_redaction_token() -> None:
     """Make the strands tracer redact conversation content by default.
 
     Without a `gen_ai_unredacted_attributes=` token the tracer emits full
-    prompts, replies, and system instructions as span attributes — including
-    private-classification content — into a collector that sits outside every
+    prompts, replies, and system instructions as span attributes - including
+    private-classification content - into a collector that sits outside every
     Skein access control. The empty list means "redact everything sensitive";
     an operator who accepts the exposure appends attribute names (or a
     trailing-* glob) after the `=`.

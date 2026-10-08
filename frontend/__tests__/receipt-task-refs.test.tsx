@@ -9,7 +9,7 @@ import { ReceiptLine } from "@/components/receipt";
  *  is already on, and it syncs on `popstate` and the `skein-peek` event alone
  *  (components/task-peek.tsx). A `next/link` navigates with pushState and
  *  announces neither, so a link-rendered task reference moves the address bar
- *  and opens nothing at all — on every receipt in the app.
+ *  and opens nothing at all - on every receipt in the app.
  *
  *  Asserted through the EVENT rather than the rendered tag: what matters is
  *  that the panel is told, and a future rewrite that keeps an anchor but fires

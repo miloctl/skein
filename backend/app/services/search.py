@@ -3,7 +3,7 @@ when configured.
 
 `index_record` is called by every service on write, so the index is always
 current. Embeddings are a pluggable enhancement gated on config.EMBED_READY
-(SKEIN_EMBEDDINGS=1 plus a valid SKEIN_EMBED_PROVIDER setup — openai,
+(SKEIN_EMBEDDINGS=1 plus a valid SKEIN_EMBED_PROVIDER setup - openai,
 openai_compatible, or ollama): vectors are stored alongside and blended into
 results; otherwise hybrid search degrades cleanly to full-text-only.
 """
@@ -20,7 +20,7 @@ _SHORT_ID = re.compile(r"^(?:#(\d{1,18})|([a-z_]+)(?:\s+#?|#)(\d{1,18}))$", re.A
 
 
 def _short_id_hit(q: str) -> dict | None:
-    """`#42` / `task 42` / `blocker #3` jump straight to the row — the forms
+    """`#42` / `task 42` / `blocker #3` jump straight to the row - the forms
     /ask citations (`entity #id`) and git trailers (`#12`) put in front of
     people. Bare `#N` means task, matching what the trailers mean by it.
     The index row IS the kind list: an unknown word or missing id falls
@@ -72,7 +72,7 @@ def _tier_of(entity: str, entity_id: int) -> tuple[str, int | None] | None:
     if table is None or table not in scope.CLASSIFIED:
         return None
     row = db.query_one(
-        f"SELECT visibility, crew_id FROM {table} WHERE id = ?",  # noqa: S608 — constant map
+        f"SELECT visibility, crew_id FROM {table} WHERE id = ?",  # noqa: S608 - constant map
         (entity_id,),
     )
     return (row["visibility"], row["crew_id"]) if row else None
@@ -89,10 +89,10 @@ def visible_hits(hits: list[dict], viewer: "scope.Viewer", reader: str = "") -> 
 
     The index carries no tier of its own. Adding one would mean reindexing
     every row on any visibility change, and the tier would then be a second
-    copy that can go stale — so it is read off the source rows instead.
+    copy that can go stale - so it is read off the source rows instead.
 
     Without this every crew row was world-readable through search, /ask, the
-    MCP search_workspace tool, and the by-id fetch — which voids every filter
+    MCP search_workspace tool, and the by-id fetch - which voids every filter
     the list endpoints apply.
 
     One query per TABLE, not per hit: this filters BEFORE the `limit * 4`
@@ -109,7 +109,7 @@ def visible_hits(hits: list[dict], viewer: "scope.Viewer", reader: str = "") -> 
         marks = ", ".join("?" for _ in ids)
         author = scope.CLASSIFIED[table]
         for r in db.query(
-            f'SELECT id, visibility, crew_id, "{author}" AS author FROM {table}'  # noqa: S608 — table and column from constant maps, ids are bound marks; quoted because memories' `user` is CURRENT_USER unquoted
+            f'SELECT id, visibility, crew_id, "{author}" AS author FROM {table}'  # noqa: S608 - table and column from constant maps, ids are bound marks; quoted because memories' `user` is CURRENT_USER unquoted
             f" WHERE id IN ({marks})",
             tuple(ids),
         ):
@@ -124,7 +124,7 @@ def visible_hits(hits: list[dict], viewer: "scope.Viewer", reader: str = "") -> 
         if row is None:
             # the source row is GONE and this is a stale index entry. Only
             # note, event and memory deindex on delete, so the other ten
-            # entities reach here — and a hit whose row cannot be tier-checked
+            # entities reach here - and a hit whose row cannot be tier-checked
             # must not be served.
             continue
         if table == "memories" and row[2] and row[2] != reader:
@@ -139,23 +139,23 @@ def _is_private(entity: str, entity_id: int) -> bool:
 
     Looked up HERE rather than passed in by each of the 20 callers. A
     parameter is a thing a call site can forget, and a forgotten one puts the
-    body in the FTS index — where /ask, semantic search, the MCP
+    body in the FTS index - where /ask, semantic search, the MCP
     search_workspace tool and the by-id fetch all read it, and where deleting
     the row later does not take back what was already served. One SELECT on a
-    primary key — inside the caller's transaction where there is one, and on
+    primary key - inside the caller's transaction where there is one, and on
     its own connection where there is not (intake.submit_request indexes after
     its transaction closes).
     """
     table = _ENTITY_TABLE.get(entity)
     if table is None or table not in scope.CLASSIFIED:
         return False
-    row = db.query_one(f"SELECT visibility FROM {table} WHERE id = ?", (entity_id,))  # noqa: S608 — constant map
+    row = db.query_one(f"SELECT visibility FROM {table} WHERE id = ?", (entity_id,))  # noqa: S608 - constant map
     return row is not None and row["visibility"] == scope.PRIVATE
 
 
 def index_record(entity: str, entity_id: int, title: str, body: str) -> None:
     # (entity, entity_id) is the upsert key and carries the UNIQUE index the
-    # ON CONFLICT clause needs — dropping that index turns every reindex into
+    # ON CONFLICT clause needs - dropping that index turns every reindex into
     # a duplicate row rather than an update.
     # tsv is a GENERATED column: nothing here writes it, and nothing may, or
     # the index and the text beside it can disagree.
@@ -174,11 +174,11 @@ def index_record(entity: str, entity_id: int, title: str, body: str) -> None:
         )
     # The embed is an HTTP round-trip of up to ~5s. Callers run index_record
     # inside db.transaction() (review.approve_change, playbooks.instantiate,
-    # intake.disposition) — inline, the round-trip would hold the caller's
+    # intake.disposition) - inline, the round-trip would hold the caller's
     # transaction open for its duration, and every row it has written stays
     # locked against concurrent updates. Deferred to after commit it holds
     # nothing, and a rollback drops the embed along with the row it would have
-    # described. The index write above stays inside the transaction — it is
+    # described. The index write above stays inside the transaction - it is
     # the authoritative index.
     text = f"{title}\n{body}"
     if not db.on_commit(lambda: _maybe_embed(entity, entity_id, text)):
@@ -186,7 +186,7 @@ def index_record(entity: str, entity_id: int, title: str, body: str) -> None:
 
 
 def deindex_record(entity: str, entity_id: int) -> None:
-    """Hard-deleted rows must leave the index too — search and /ask must
+    """Hard-deleted rows must leave the index too - search and /ask must
     never cite a record that no longer exists. The vector goes with it: an
     orphaned embedding can't leak content (snippets come from search_index),
     but it outranks live records and silently burns a semantic result slot
@@ -251,9 +251,9 @@ def ask(
     reader: str = "",
 ) -> dict:
     """Q&A with receipts: deterministic FTS answer where every snippet cites
-    its row (entity #id), findings-style. Degrades honestly keyless — an LLM
+    its row (entity #id), findings-style. Degrades honestly keyless - an LLM
     synthesis can be layered on top later, but the citations ARE the answer.
-    NOTE for any future UI: snippets contain literal <b> markup from FTS —
+    NOTE for any future UI: snippets contain literal <b> markup from FTS -
     render as text or strip it; never innerHTML indexed user content."""
     # viewer forwarded to BOTH searches: taking the parameter and dropping it
     # left /ask serving every crew and private row through the one surface
@@ -261,7 +261,7 @@ def ask(
     hits = search(q, limit, viewer=viewer, row_filter=row_filter, reader=reader)
     note = ""
     if not hits:
-        # natural phrasing rarely matches as a phrase — fall back to OR of
+        # natural phrasing rarely matches as a phrase - fall back to OR of
         # the meaningful words, rank-ordered, and say so
         tokens = q.split()
         words = [w for w in tokens if len(w) > 2 and w.strip(".,;:!?").lower() not in _STOPWORDS]
@@ -279,9 +279,9 @@ def ask(
                 reader=reader,
             )
             if hits:
-                note = "no exact match — loosely related results (word overlap)"
+                note = "no exact match - loosely related results (word overlap)"
     if not hits:
-        note = "nothing indexed matches — try different words"
+        note = "nothing indexed matches - try different words"
     return {
         "question": q,
         "citations": [
@@ -305,7 +305,7 @@ def search(
     entity: str = "",
     reader: str = "",
 ) -> list[dict]:
-    """`terms` matches ANY of the given words instead of q as a phrase —
+    """`terms` matches ANY of the given words instead of q as a phrase -
     ask()'s fallback when the phrase itself found nothing. `entity` limits
     the match to one kind of record BEFORE the limit applies: filtered after,
     rows of other kinds take every slot (memory.recall)."""
@@ -323,7 +323,7 @@ def search(
         expr = "phraseto_tsquery('english', ?)"
         params = (q,)
     hits = db.query(
-        f"WITH q AS (SELECT {expr} AS query)"  # noqa: S608 — expr is a fixed string repeated per term; every value is bound
+        f"WITH q AS (SELECT {expr} AS query)"  # noqa: S608 - expr is a fixed string repeated per term; every value is bound
         " SELECT entity, entity_id, title,"
         " ts_headline('english', body, q.query,"
         " 'StartSel=<b>, StopSel=</b>, MaxWords=18, MinWords=6, MaxFragments=1')"
@@ -384,7 +384,7 @@ def search(
 
 
 # --- optional embedding layer (activates when configured) -------------------
-# Provider-aware via config.EMBED_*: openai, openai_compatible, or ollama —
+# Provider-aware via config.EMBED_*: openai, openai_compatible, or ollama -
 # all speak the OpenAI /v1/embeddings shape, so one client covers them.
 # Gates read config at CALL time, not import: an import-time value copy is the
 # stale-binding bug chat.py had, and it breaks config reloads in tests.
@@ -416,7 +416,7 @@ def _embeddable(pairs: list[tuple[str, int]]) -> set[tuple[str, int]]:
         marks = ", ".join("?" for _ in ids)
         author = scope.CLASSIFIED[table]
         for r in db.query(
-            f'SELECT id, visibility, "{author}" AS author FROM {table} WHERE id IN ({marks})',  # noqa: S608 — constant maps; ids are bound marks
+            f'SELECT id, visibility, "{author}" AS author FROM {table} WHERE id IN ({marks})',  # noqa: S608 - constant maps; ids are bound marks
             tuple(ids),
         ):
             addressed = table == "memories" and bool(r["author"])
@@ -442,7 +442,7 @@ def _maybe_embed(entity: str, entity_id: int, text: str) -> None:
         )
         _embed_warned = False
     except Exception as exc:
-        # best-effort by design — FTS remains authoritative — but not silent:
+        # best-effort by design - FTS remains authoritative - but not silent:
         # a dead endpoint with valid config is otherwise invisible (/health
         # only reports CONFIG faults). Once per outage, not per write. The
         # missing row is the repair queue: embed_missing (the embed-reconcile
@@ -462,7 +462,7 @@ def _embed(text: str) -> list[float]:
 
     timeout/max_retries are the load-bearing part: index_record runs
     synchronously inside EVERY service write, and the openai default is
-    connect=5s read=600s with 2 retries — a hung endpoint would cost ~30
+    connect=5s read=600s with 2 retries - a hung endpoint would cost ~30
     MINUTES per write and a firewalled one ~17s. Bounded here, the worst
     case is ~5s once, and connection-refused fails in milliseconds.
     """
@@ -498,7 +498,7 @@ def missing_embeddings_count() -> int:
 def embed_missing(limit: int = 0, on_error=None) -> tuple[int, int]:
     """Embed every indexed row without a current-model vector; (done, failed).
 
-    The absence of an embeddings row IS the pending state — _maybe_embed is
+    The absence of an embeddings row IS the pending state - _maybe_embed is
     best-effort, so a provider outage leaves gaps this query finds. Rows are
     independent and the upsert idempotent, so a concurrent run (job beside a
     manual backfill) double-embeds at worst. Shared by the embed-reconcile
@@ -549,7 +549,7 @@ def embed_missing(limit: int = 0, on_error=None) -> tuple[int, int]:
 
 def semantic_search(q: str, limit: int = 10, entity: str = "") -> list[dict]:
     """Cosine-similarity search over stored vectors; empty without embeddings.
-    Only vectors from the CURRENT model are compared — similarity across two
+    Only vectors from the CURRENT model are compared - similarity across two
     embedding spaces is noise, so a model change invalidates rather than
     poisons (stale rows are re-embedded on the record's next write)."""
     if not config.EMBED_READY:
@@ -560,11 +560,11 @@ def semantic_search(q: str, limit: int = 10, entity: str = "") -> list[dict]:
         # Python on every request. Known and DEFERRED, not overlooked:
         # There is no vector index here (pgvector is not installed), so the
         # real fix is a cached matrix
-        # with write invalidation or a bounded candidate set — its own
+        # with write invalidation or a bounded candidate set - its own
         # change. Gated behind EMBED_READY (off by default), so the keyless
         # deployment never pays it.
         rows = db.query(
-            "SELECT entity, entity_id, vector FROM embeddings WHERE model = ?"  # noqa: S608 — a fixed fragment; the entity is bound
+            "SELECT entity, entity_id, vector FROM embeddings WHERE model = ?"  # noqa: S608 - a fixed fragment; the entity is bound
             + (" AND entity = ?" if entity else ""),
             (config.EMBED_MODEL, *([entity] if entity else [])),
         )
@@ -579,7 +579,7 @@ def semantic_search(q: str, limit: int = 10, entity: str = "") -> list[dict]:
 
     # json.loads INSIDE the guard, not below it. A corrupt embeddings.vector is
     # our own state, and JSONDecodeError subclasses ValueError, which main.py
-    # maps to 400 — telling the caller their query was invalid when it was not,
+    # maps to 400 - telling the caller their query was invalid when it was not,
     # with a raw parser message as the fix. Skip the bad row: one unreadable
     # vector must not take down search and /ask for every query.
     scored = []

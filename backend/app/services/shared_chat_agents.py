@@ -124,7 +124,7 @@ class _AudiencePolicy(PolicyEngine):
     def decide(self, request):
         from ..extensions.policy import PolicyDecision, PolicyEffect
 
-        # "none" here is a read check that omitted tool= — permits_resource is
+        # "none" here is a read check that omitted tool= - permits_resource is
         # the only producer of it. Intersect it too, or a future
         # SHARED_CHAT_TOOLS entry that forgets tool= reads as the requester
         # alone and skips every other participant's workplace rules.
@@ -376,7 +376,7 @@ def _progress_writer(run: dict) -> Callable[..., None]:
     """A strands callback_handler that publishes the reply streamed so far.
 
     Guarded by lease_token and status: a reclaimed or timed-out turn must not
-    write over a row another process now owns. A failed write is dropped —
+    write over a row another process now owns. A failed write is dropped -
     progress is a courtesy, the stored message is the reply."""
     from . import chat_threads
 
@@ -425,7 +425,7 @@ def _receipt_text(rows: list[dict]) -> str:
         else:
             line = f"Change failed: {entity}"
         if detail:
-            line += f" — {detail}"
+            line += f" - {detail}"
         lines.append(f"> {line}")
     return "\n\n".join(lines)
 
@@ -728,7 +728,7 @@ def _run_claim(
     except Exception:
         session_lock.release()
         return "failed", "worker_start_failed", []
-    # From here the turn thread owns session_lock and execution_lease — its
+    # From here the turn thread owns session_lock and execution_lease - its
     # finally releases both, even on timeout. _process_run must not release
     # either after this point, or a queued run for the same (thread, agent)
     # writes the same model session while the timed-out turn is still in it.

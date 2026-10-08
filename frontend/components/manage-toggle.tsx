@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from "react";
 
 /** Skein has no roles (trusted-network model), so manager-grade controls are gated by
- *  intent instead: a per-browser toggle. Off by default — a developer never
+ *  intent instead: a per-browser toggle. Off by default - a developer never
  *  carries the manager cockpit unless they ask for it. Scope control, NOT
  *  authorization: the endpoints behind it are ordinary CurrentUser writes;
  *  only authority editing requires strong administrator identity server-side. */
@@ -42,7 +42,7 @@ export function ManageToggle() {
     >
       Management view: {on ? "On" : "Off"}
       <span className="sr-only">
-        — shows or hides triage verdicts, readouts, and authority editing in
+        - shows or hides triage verdicts, readouts, and authority editing in
         this browser. It does not grant permissions
       </span>
     </button>

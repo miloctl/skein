@@ -134,7 +134,7 @@ describe("OperationsCard", () => {
       },
     ];
     render(<OperationsCard />);
-    expect(await screen.findByText(/failed — last attempt/i)).toBeTruthy();
+    expect(await screen.findByText(/failed - last attempt/i)).toBeTruthy();
     expect(screen.queryByText(/The loom hums/)).toBeNull();
   });
 

@@ -8,7 +8,7 @@ import { PeekLink } from "@/components/task-peek";
 /** One deterministic receipt, with its row references as links.
  *
  *  Health, findings and the planning cockpit all state their evidence as a
- *  sentence naming exact rows — "milestone #4 'Cutover' overdue since
+ *  sentence naming exact rows - "milestone #4 'Cutover' overdue since
  *  2026-08-01". The words are unchanged and stay first; the reference becomes
  *  a link in place, so the reader opens the milestone instead of hunting for
  *  it by id on a page of them.
@@ -31,7 +31,7 @@ export function ReceiptLine({
         if (!("ref" in run)) return <span key={i}>{run.text}</span>;
         // A TASK opens the peek, and only PeekLink can open it. `next/link`
         // navigates with pushState and dispatches no event, while TaskPeek
-        // syncs on `popstate` and `skein-peek` alone — so a <Link href="?task=5">
+        // syncs on `popstate` and `skein-peek` alone - so a <Link href="?task=5">
         // changed the address bar and opened nothing, on every receipt this
         // app renders. It is not the same bug as the raw <a> on /review: that
         // one reloaded the page, this one does nothing at all.
@@ -47,7 +47,7 @@ export function ReceiptLine({
           );
         const href = refHref(run.ref);
         // an entity this build cannot render lands nowhere rather than on a
-        // page that does not hold it — the id still reads
+        // page that does not hold it - the id still reads
         if (!href) return <span key={i}>{run.text}</span>;
         return (
           <Link

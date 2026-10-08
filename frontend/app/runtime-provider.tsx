@@ -33,7 +33,7 @@ const MAX_ATTACHMENTS = 5;
 /** Uploads the file when the message is SENT, not when it is picked.
  *
  *  Picking would leave a stored file behind for every attachment a person
- *  reconsiders, and remove() would need a delete endpoint to clean up — one
+ *  reconsiders, and remove() would need a delete endpoint to clean up - one
  *  that does not exist, because deleting a stored file is a destructive write
  *  that belongs behind human review.
  *
@@ -44,7 +44,7 @@ const MAX_ATTACHMENTS = 5;
  *  the browser's message state or the stored transcript. */
 function makeAttachmentAdapter(): AttachmentAdapter {
   // add() runs per picked file and send() per sent one, so the composer's own
-  // count is not visible here — this tracks what has been staged since the
+  // count is not visible here - this tracks what has been staged since the
   // adapter was built (one per thread, RuntimeProvider's useMemo).
   let count = 0;
   return {
@@ -87,7 +87,7 @@ function makeAttachmentAdapter(): AttachmentAdapter {
         // REPORTED as well as thrown. Throwing is what keeps the composer's
         // draft (aui restores text and attachments when send() rejects), but
         // the rejection then travels into useComposerSend's fire-and-forget
-        // call and dies unhandled — so the backend's usable sentence ("the
+        // call and dies unhandled - so the backend's usable sentence ("the
         // file is larger than 8 MB") reached the console and nowhere a person
         // looks.
         // A late upload refusal must not become the next identity's status.
@@ -114,7 +114,7 @@ function makeAttachmentAdapter(): AttachmentAdapter {
       };
     },
     async remove() {
-      // nothing is stored until send(), so there is nothing to take back —
+      // nothing is stored until send(), so there is nothing to take back -
       // only the staged count, so a removed file frees its slot
       count = Math.max(0, count - 1);
     },
@@ -162,7 +162,7 @@ function makeAdapter(threadId: string): ChatModelAdapter {
       if (!res.ok || !res.body) {
         // the body carries the usable message ("The limit for chat is 20 per
         // minute per person. Wait 34 seconds, then send the request again.",
-        // length caps) — surface it, not just the code
+        // length caps) - surface it, not just the code
         let detail = "";
         try {
           const parsed = await res.json();
@@ -205,7 +205,7 @@ function makeAdapter(threadId: string): ChatModelAdapter {
         else if (event.type === "masthead") {
           // the nameplate is kept until the first word: yielded alone it is a
           // text part, and a message WITH a part suppresses the Empty slot
-          // components/thread.tsx puts the working indicator in — so a
+          // components/thread.tsx puts the working indicator in - so a
           // persona turn sits behind a bare nameplate for the whole model wait
           acc += event.text;
           return null;
@@ -233,7 +233,7 @@ function makeAdapter(threadId: string): ChatModelAdapter {
             // empty text deltas for seconds before its first word (measured
             // at 4.4s on glm-5.2, 70 empty frames), and yielding those makes
             // a message with an empty text part. That renders as an empty
-            // bubble and — because the message HAS a part — suppresses the
+            // bubble and - because the message HAS a part - suppresses the
             // Empty slot components/thread.tsx puts the working indicator in.
             if (handle(chunk) !== null && acc) {
               shown = true;
@@ -256,7 +256,7 @@ function makeAdapter(threadId: string): ChatModelAdapter {
           yield { content: [{ type: "text", text: acc }] };
         }
       } finally {
-        // sidebar refresh even when the stream was stopped/aborted — the
+        // sidebar refresh even when the stream was stopped/aborted - the
         // backend keeps the partial exchange, so the list must update too
         window.dispatchEvent(new Event("skein-chat-activity"));
       }
@@ -381,10 +381,10 @@ function ThreadHydrator({ threadId, children }: { threadId: string; children: Re
   return <HistoryContext.Provider value={{ saved, before, loading, error, loadOlder }}>{children}</HistoryContext.Provider>;
 }
 
-/** A write receipt states what actually happened to your data — the gate
+/** A write receipt states what actually happened to your data - the gate
  *  reports it, so it is a fact rather than something the model claimed.
  *  `actor` arrives only when the server decided it says something new
- *  (routes/chat.py::_attributed) — a consulted specialist's write in the
+ *  (routes/chat.py::_attributed) - a consulted specialist's write in the
  *  orchestrator's turn. Exported for the pairing test that keeps this
  *  renderer and the stored transcript (chat.py::_receipt_line) telling the
  *  same story per kind. */
@@ -399,16 +399,16 @@ export function receiptLine(e: {
   const actor = e.actor ? ` (${e.actor})` : "";
   const head =
     e.kind === "queued"
-      ? `**Queued for review** — ${e.entity}${ref}${actor} needs a human verdict`
+      ? `**Queued for review** - ${e.entity}${ref}${actor} needs a human verdict`
       : e.kind === "wrote"
         ? `**Wrote ${e.entity}${ref}${actor}**`
         : e.kind === "refused"
-          ? `**Refused** — Skein prevented ${e.actor || "this agent"} from writing ${e.entity}`
+          ? `**Refused** - Skein prevented ${e.actor || "this agent"} from writing ${e.entity}`
           : e.kind === "nothing"
             ? `**Filed nothing**`
             : e.kind === "unnotified"
-              ? `**Not notified** — ${e.entity}`
-              : `**Not written** — ${e.entity}${actor}`;
+              ? `**Not notified** - ${e.entity}`
+              : `**Not written** - ${e.entity}${actor}`;
   const tail = e.detail ? `: ${e.detail}` : "";
   const link =
     e.kind === "queued" && e.ref ? ` · [open in Inbox](/review)` : "";

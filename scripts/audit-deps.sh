@@ -12,7 +12,7 @@ mode="${1:-all}"
 
 # npm audit consults a registry endpoint that answers 503 now and then. A
 # 503 is not an advisory: retry it, then fail closed. A real advisory (exit 1
-# with a report) fails at once — the retry never turns a finding into a pass.
+# with a report) fails at once - the retry never turns a finding into a pass.
 npm_audit() {
     local dir="$1" attempt errors
     errors="$(mktemp)"

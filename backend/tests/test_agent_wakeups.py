@@ -369,7 +369,7 @@ def test_wake_session_ids_cannot_be_claimed_or_forged_from_chat(fresh_db, monkey
     _mint(fresh_db, "backend-architect", "agent")
 
     # the runner's session id carries ':', which the chat thread-id charset
-    # refuses — so no caller can claim it and restore the agent's unattended
+    # refuses - so no caller can claim it and restore the agent's unattended
     # conversation
     with pytest.raises(ValueError):
         chat_threads.claim_thread("wake:backend-architect:1", "mallory")

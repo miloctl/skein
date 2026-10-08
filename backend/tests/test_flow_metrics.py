@@ -37,8 +37,8 @@ def test_slas_constants_wired():
 
 
 def test_accepted_delegated_work_counts_in_flow(fresh_db):
-    """A sponsor's acceptance is the ONLY way a delegated task closes — the
-    forge refuses to — so if it does not stamp completed_at, every delegated
+    """A sponsor's acceptance is the ONLY way a delegated task closes - the
+    forge refuses to - so if it does not stamp completed_at, every delegated
     task a team finishes is invisible to cycle time and throughput."""
     from app.services import delegation, portfolio, users, work
 

@@ -124,7 +124,7 @@ const LEVEL_LABEL: Record<string, string> = {
  *  An expired elevated grant still waits for a human, and `forbidden` still
  *  stops a write. A bare "needs approval" on a current review grant promises a
  *  checkpoint the deployment does not run. gateOn is null while the status
- *  fetch is unsettled — say nothing rather than guess. */
+ *  fetch is unsettled - say nothing rather than guess. */
 const levelLabel = (
   level: string,
   gateOn: boolean | null,
@@ -135,7 +135,7 @@ const levelLabel = (
   if (level === "forbidden") return LEVEL_LABEL.forbidden;
   // _gate.py takes the review path for ALWAYS_REVIEW entities BEFORE it reads
   // the level, so any other level here means "needs approval" whatever is
-  // stored — and a row that renders "acts alone" over a destructive write is
+  // stored - and a row that renders "acts alone" over a destructive write is
   // the worst lie this card can tell
   if (always) return "needs approval (always)";
   if (forcedReview) return "needs approval";
@@ -230,15 +230,15 @@ export default function Agents() {
   const inboxGeneration = useRef(0);
   const inboxHeading = useRef<HTMLHeadingElement>(null);
   // Every section here must distinguish "unknown" from "empty". Several
-  // empty states are CLAIMS — "No reviewed proposals yet", "Nothing
-  // remembered yet", "No rules yet — everything needs approval" — and on
+  // empty states are CLAIMS - "No reviewed proposals yet", "Nothing
+  // remembered yet", "No rules yet - everything needs approval" - and on
   // the page whose job is telling you what the agents may do alone, a claim
   // rendered while the data is unknown is the most expensive wrong answer
   // in the product. Same shape as portfolio.
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const load = useCallback(() => {
-    // one wording for a failed SECTION, matching app/portfolio/page.tsx —
+    // one wording for a failed SECTION, matching app/portfolio/page.tsx -
     // loadError() names the whole page, which is wrong when one card failed
     const fail = (key: string, what: string) => (e: Error) =>
       setErrors((cur) => ({
@@ -374,7 +374,7 @@ export default function Agents() {
         <ManageToggle />
       </div>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
-        The bench, mission control, authority, and trust — agents earn autonomy
+        The bench, mission control, authority, and trust - agents earn autonomy
         through review verdicts. Humans hold every switch.
       </p>
       {errors.status && (
@@ -398,15 +398,15 @@ export default function Agents() {
               }
             />
             {status.provider_error
-              ? `Model misconfigured — ${status.provider_error}. Running deterministic until it is fixed.`
+              ? `Model misconfigured - ${status.provider_error}. Running deterministic until it is fixed.`
               : status.provider === "mock"
-                ? "Deterministic mode — no AI model connected. Chat commands and quick capture still work."
+                ? "Deterministic mode - no AI model connected. Chat commands and quick capture still work."
                 : `Model: ${status.model} (${status.provider})`}
           </span>
           <span>
             {status.review_gate
-              ? "Review gate on — every agent write waits in Inbox → Approvals"
-              : "Review gate off — current grants write directly. Expired elevated grants still wait."}
+              ? "Review gate on - every agent write waits in Inbox → Approvals"
+              : "Review gate off - current grants write directly. Expired elevated grants still wait."}
           </span>
           </p>
           {/* Settings can override the strategy despite an env fault, so the
@@ -534,7 +534,7 @@ export default function Agents() {
             )
           ) : agents.length === 0 ? (
             <p className="text-sm text-ink-3">
-              No agent identities yet — delegate a task or let the chat agent
+              No agent identities yet - delegate a task or let the chat agent
               write something.
             </p>
           ) : missionAgents.length === 0 ? (
@@ -574,7 +574,7 @@ export default function Agents() {
                   </div>
                   <p className="text-xs text-ink-3">
                     {a.open_tasks === 0 && a.pending_proposals === 0
-                      ? "idle — nothing assigned, nothing pending"
+                      ? "idle - nothing assigned, nothing pending"
                       : `${a.open_tasks} open task${a.open_tasks === 1 ? "" : "s"} · ${a.pending_proposals} pending proposal${a.pending_proposals === 1 ? "" : "s"}`}
                     {a.last_seen && ` · last seen ${timeAgo(a.last_seen)}`}
                   </p>
@@ -619,7 +619,7 @@ export default function Agents() {
               tabIndex={-1}
               className="mb-3 skein-section-title text-ink-3"
             >
-              Inbox — {inboxFor}
+              Inbox - {inboxFor}
             </h2>
             <WeakIdentityNotice className="mb-2" />
             {inbox === null ? (
@@ -669,7 +669,7 @@ export default function Agents() {
                 <ul className="text-xs text-ink-2">
                   {inbox.rejected_proposals.map((p) => (
                     <li key={p.id}>
-                      #{p.id} {p.summary} — “{p.review_note || "no note"}”
+                      #{p.id} {p.summary} - “{p.review_note || "no note"}”
                     </li>
                   ))}
                   {inbox.rejected_proposals.length === 0 && (
@@ -698,7 +698,7 @@ export default function Agents() {
         )}
 
         <div className={mode === "authority" ? "contents" : "hidden"}>
-        <Card title="Authority — what each agent can do alone">
+        <Card title="Authority - what each agent can do alone">
           <p className="mb-2 text-xs text-ink-3">
             {gateOn === null ? (
               "Checking whether the review gate is on…"
@@ -716,7 +716,7 @@ export default function Agents() {
                 {/* rendered from the served ALWAYS_REVIEW set, never typed here:
                   a hand-written list drifts from _gate.py the moment either
                   the set or a capability phrase changes, and this one already
-                  had — it said "cancel an event" after the phrase became
+                  had - it said "cancel an event" after the phrase became
                   "delete an event from the calendar" */}
                 {alwaysReview.length > 0 && (
                   <>
@@ -732,7 +732,7 @@ export default function Agents() {
           </p>
           {/* OUTSIDE the gate ternary and outside the alwaysReview guard above:
             identity.force_review outranks both the matrix and
-            SKEIN_AGENT_REVIEW, so this holds in every configuration — including
+            SKEIN_AGENT_REVIEW, so this holds in every configuration - including
             while the gate state is still unknown. Folded into the ALWAYS_REVIEW
             sentence it would also vanish whenever /api/agents/entities fails,
             which has nothing to do with whether the rule is true. */}
@@ -758,13 +758,13 @@ export default function Agents() {
               return grants.length === 0 ? (
                 <p className="text-sm text-ink-3">
                   {/* what "no rules" MEANS inverts with the gate, same as the
-                  paragraph above — an unqualified "needs approval" here
+                  paragraph above - an unqualified "needs approval" here
                   contradicted it on the same screen */}
                   {gateOn === null
                     ? "No rules yet."
                     : gateOn
-                      ? "No rules yet — everything an agent writes needs approval."
-                      : "No rules yet — so nothing on this page limits an agent."}
+                      ? "No rules yet - everything an agent writes needs approval."
+                      : "No rules yet - so nothing on this page limits an agent."}
                 </p>
               ) : (
                 <ul className="mb-2 space-y-1 text-sm">
@@ -775,7 +775,7 @@ export default function Agents() {
                     >
                       <span className="min-w-0 flex-1">
                         <span className="font-medium">{g.agent}</span>
-                        {/* "on {entity}" cannot take a verb phrase — the label
+                        {/* "on {entity}" cannot take a verb phrase - the label
                         names the capability, so the frame supplies no
                         preposition of its own */}
                         <span className="text-ink-3">
@@ -852,7 +852,7 @@ export default function Agents() {
               )}
               <span className="text-xs text-ink-3">New rule:</span>
               {/* the record-type list failed to load, so the select below is
-                showing its fallback — say so, or the reader reads a short
+                showing its fallback - say so, or the reader reads a short
                 list as "these are the only record types" */}
               {errors.entities && (
                 <span className="w-full text-xs text-danger">
@@ -923,7 +923,7 @@ export default function Agents() {
           )}
         </Card>
 
-        <Card title="Trust — earned from review verdicts">
+        <Card title="Trust - earned from review verdicts">
           {/* without this the card contradicts itself: services/delegation.py
             counts a streak only from reviewed_strong verdicts, so an agent
             reads "1/1 approved (100%) · streak 0" and the manager has no way
@@ -939,12 +939,12 @@ export default function Agents() {
               rows too, not only on the empty case: verdicts that cannot count
               still create rows, so a filled card can be just as stuck. */}
           {/* Whether anything wakes an agent at all. Empty is the default and
-              must be VISIBLE rather than assumed — an operator who turned the
+              must be VISIBLE rather than assumed - an operator who turned the
               runner on in .env and mistyped a name sees the same empty page
               as one who never turned it on. */}
           {/* `?.` on a field this page does not own: a status payload without
               it renders nothing here rather than throwing, and a throw takes
-              the authority matrix and the whole page down with it — one card
+              the authority matrix and the whole page down with it - one card
               must never cost the page (same rule as the spend card). */}
           {status?.runner_agents ? (
             <p className="mb-2 text-xs text-ink-3">
@@ -973,7 +973,7 @@ export default function Agents() {
             <p className="text-sm text-ink-3">Loading…</p>
           ) : trust.length === 0 ? (
             <p className="text-sm text-ink-3">
-              No reviewed proposals yet — trust is earned in Inbox → Approvals.
+              No reviewed proposals yet - trust is earned in Inbox → Approvals.
             </p>
           ) : (
             <ul className="space-y-2 text-sm">
@@ -1030,10 +1030,10 @@ export default function Agents() {
         </Card>
 
         {manage && (
-          <Card title="Season readout — the trust loop">
+          <Card title="Season readout - the trust loop">
             {/* the posture note's exit trigger calls the season-end decision
                 "a read, not a debate" (docs/ROADMAP.md). This card is that
-                read — zeros included, because zeros ARE the trigger. */}
+                read - zeros included, because zeros ARE the trigger. */}
             {errors.season ? (
               failed("season")
             ) : season === null ? (
@@ -1047,7 +1047,7 @@ export default function Agents() {
                 </p>
                 <p>
                   <span className="tabular-nums">{season.verdicts.settled}</span>{" "}
-                  verdict{season.verdicts.settled === 1 ? "" : "s"} settled —{" "}
+                  verdict{season.verdicts.settled === 1 ? "" : "s"} settled - {" "}
                   {season.verdicts.approved} approved ·{" "}
                   {season.verdicts.rejected} rejected ·{" "}
                   <span
@@ -1098,7 +1098,7 @@ export default function Agents() {
         </div>
 
         <Card
-          title="Team memory — steers agent chats (personal ones only their owner's)"
+          title="Team memory - steers agent chats (personal ones only their owner's)"
           className={mode === "memory" ? "" : "hidden"}
         >
           <WeakIdentityNotice className="mb-2" />
@@ -1108,7 +1108,7 @@ export default function Agents() {
             <p className="text-sm text-ink-3">Loading…</p>
           ) : memories.length === 0 ? (
             <p id="memories-empty" tabIndex={-1} className="text-sm text-ink-3">
-              Nothing remembered yet — /remember in chat adds one.
+              Nothing remembered yet - /remember in chat adds one.
             </p>
           ) : (
             <ul className="space-y-1.5 text-sm">
@@ -1280,7 +1280,7 @@ export default function Agents() {
             makes even a 3-member turn scroll. A full-width card mid-grid
             also strands its neighbour alone in the left column. */}
         <Card
-          title="Flocks — the last turns, as they ran"
+          title="Flocks - the last turns, as they ran"
           className={mode === "flocks" ? "md:col-span-2" : "hidden"}
         >
           {/* the installed flocks as DOORS, like the bench cards above: a
@@ -1299,7 +1299,7 @@ export default function Agents() {
                     <span className="font-medium">{f.slug}</span>
                     <span className="text-ink-3">Ask group</span>
                     <span className="sr-only">
-                      — open chat with /flock {f.slug} ready to send
+                      - open chat with /flock {f.slug} ready to send
                     </span>
                   </Link>
                 </li>
@@ -1324,7 +1324,7 @@ export default function Agents() {
           ) : (
             /* the LIST scrolls, not the page: five turns of diagram is more
                than a viewport, and this card is a look-back, not the page's
-               subject. tabIndex makes the box scrollable by keyboard — it
+               subject. tabIndex makes the box scrollable by keyboard - it
                holds no focusable child, and an engine that does not focus
                scrollers on its own leaves the older turns unreachable. */
             <ul
@@ -1344,7 +1344,7 @@ export default function Agents() {
                   </div>
                   {/* the diagram scrolls inside its own box: the page body must
                     never scroll sideways on a phone. tabIndex makes that box
-                    reachable — it holds nothing focusable, and an engine that
+                    reachable - it holds nothing focusable, and an engine that
                     does not focus scrollers on its own (Safari) leaves a
                     keyboard-only reader unable to reach the right-hand
                     members at all. */}

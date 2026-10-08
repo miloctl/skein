@@ -1,7 +1,7 @@
 # Deploying Skein
 
 This file covers the docker-compose deployment. For OpenShift/Kubernetes
-with ArgoCD, use `deploy/k8s/` — its README carries the topology
+with ArgoCD, use `deploy/k8s/` - its README carries the topology
 constraints, the restore procedure, and the identity-provider checklist.
 The private-repo split below applies to both.
 
@@ -16,9 +16,9 @@ next place without a fork.
 your-skein-deploy/
 ├── backend.env                 # becomes backend/.env on the box
 ├── docker-compose.override.yml # overlay mounts, ports, mirror volume
-├── playbooks/                  # your playbooks (*.yaml) — SKEIN_PLAYBOOKS_DIR
-├── personas/                   # your bench (*.md, pack.json) — SKEIN_PERSONAS_DIR
-├── flocks/                     # your flocks (*.yaml) — SKEIN_FLOCKS_DIR
+├── playbooks/                  # your playbooks (*.yaml) - SKEIN_PLAYBOOKS_DIR
+├── personas/                   # your bench (*.md, pack.json) - SKEIN_PERSONAS_DIR
+├── flocks/                     # your flocks (*.yaml) - SKEIN_FLOCKS_DIR
 └── README.md                   # box facts: ports in use, mirror target,
                                 # runner name, bridge services
 ```
@@ -46,14 +46,14 @@ services:
 ```
 
 `/api/health` reports `overlay_errors` when an overlay variable points at a
-directory that is not mounted — check it after the first start.
+directory that is not mounted - check it after the first start.
 
 ## CI on a self-hosted Gitea
 
 `.gitea/workflows/ci.yml` derives the clone URL from the runtime context. It
 needs two repository secrets: `CI_CHECKOUT_USER` (the token owner's
 username) and `CI_CHECKOUT_TOKEN` (a read-scoped access token). If your
-runner shares a host with a live deployment, keep the workflow push-only —
+runner shares a host with a live deployment, keep the workflow push-only -
 untrusted `pull_request` code must never execute there.
 
 ## Upgrading

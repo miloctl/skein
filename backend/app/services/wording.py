@@ -11,7 +11,7 @@ import re
 
 
 def count(n: int, word: str) -> str:
-    """`3 tasks` / `1 task`. Regular -s plurals only — pass the plural form
+    """`3 tasks` / `1 task`. Regular -s plurals only - pass the plural form
     yourself for anything irregular."""
     return f"{n} {word}{'' if n == 1 else 's'}"
 
@@ -81,7 +81,7 @@ def quoted(text: str, width: int = 0) -> str:
     """User text on its way into a generated sentence, wrapped in the quoted frame.
 
     services/refs.py treats a single-quoted span as a row title and never
-    parses a reference out of one — a task called "chase decision #4 approval"
+    parses a reference out of one - a task called "chase decision #4 approval"
     must not link decision #4 from a report that never referenced it. Every
     generator that writes user free text after an entity reference has to wrap
     it here, not hand-quote: the frame only holds while the span's own

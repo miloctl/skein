@@ -25,17 +25,17 @@ below describe the branch as audited, before those commits.
 
 ## 1. Executive verdict
 
-**Verdict B — Real and usable, but broader than necessary** (and, on the
+**Verdict B - Real and usable, but broader than necessary** (and, on the
 one axis that matters most for adoption, *narrower* than the domain needs).
 
 The boundary is real. A clean-room extension ("Northstar Workplace
 Extension"), written outside the repository from the published
 documentation and installed artifacts only, exercised all thirteen mandated
-capabilities — namespaced route, scheduled job, integration adapter with a
+capabilities - namespaced route, scheduled job, integration adapter with a
 fake remote, custom policy rule, governed read tool, review-gated write
 tool, specialist, versioned event subscriber, extension-owned data store
 with its own migration stream, versioned content overlay, frontend
-navigation entry, dashboard card, and capability-aware hiding — with
+navigation entry, dashboard card, and capability-aware hiding - with
 **zero core-source modifications, zero internal imports in shipped code,
 and zero direct core-database access**. Forged command contexts, policy
 escalation attempts, duplicate identifiers, and incompatible version ranges
@@ -67,7 +67,7 @@ What keeps it out of Verdict A:
    that cannot exist.
 4. **Coverage is task-first.** `WorkItems` exposes 3 operations against a
    63-service-file domain; the outbox carries 2 event types. The first
-   ambitious workplace extension will still need a core contribution — but
+   ambitious workplace extension will still need a core contribution - but
    it arrives at a contract to extend, not a fork to maintain.
 5. **No real release pair exists.** The upgrade rehearsal is genuine (two
    source trees 17k lines apart, byte-identical private artifact across the
@@ -147,34 +147,34 @@ probes are retained under `…/scratchpad/r4-security/`.
 - **Public packages**: `app.extensions` (42 exported symbols), `app.public`
   (12), `@skein/extension-api` (9), plus `app.main.create_app` →
   **~64 public symbols**.
-- **Contribution slots: 14** — backend 12 (routes, jobs, lifecycle,
+- **Contribution slots: 14** - backend 12 (routes, jobs, lifecycle,
   policies, identities, service_identities, contexts, tools, specialists,
   events, migrations, workflow_actions) + frontend 2 (navigation,
   dashboardCards).
 - **Execution-context types: 8**, five structurally identical (subject,
-  policy, `WorkItems`, namespace, correlation id) — deliberately separated
+  policy, `WorkItems`, namespace, correlation id) - deliberately separated
   per runtime; none is a service locator.
 - **Registries: 2** (backend `ExtensionRegistry`, frontend
   `lib/extensions/registry.ts`). **Lifecycle hooks: 1 slot**
   (startup/shutdown pair), consumed by no extension anywhere.
-- **Manifest schemas: 3** — `SkeinModule` (5 required compatibility fields
+- **Manifest schemas: 3** - `SkeinModule` (5 required compatibility fields
   + 12 slot tuples, all validated at composition), `FrontendExtension`
   (5 required + 2 slots, validated at registry build), and `extension.toml`
   (**not runtime-load-bearing**: read only by core-repo tests and release
   scripts).
 - **Required compatibility fields: 5 per manifest** (`module_id`/`id`,
-  `version`, `extension_api`, `minimum_core`, `maximum_core_exclusive`) —
+  `version`, `extension_api`, `minimum_core`, `maximum_core_exclusive`) -
   all enforced (backend `registry.py:443-455`, frontend `registry.ts:43-50`).
 - **Extension-specific configuration concepts**: private composition root
   calling `create_app(modules=…)`, `SKEIN_FRONTEND_EXTENSIONS` build-time
   allowlist, versioned frontend host artifact or Dockerfile `host` stage,
-  deployment overlays — plus the **undocumented** operational set
+  deployment overlays - plus the **undocumented** operational set
   (`SKEIN_DATA_DIR`, `SKEIN_SCHEDULER`, auth-mode vars, import-time env
   binding).
 - **Smallest working extension** (one route + one dashboard card): ~7 files.
 - **Concepts before the first route/card: ~20**, including three
   policy-action namespaces evaluated on one write (`skein.rest.*`, the
-  declared domain action, `work.task.*`) — the doc explains two of the
+  declared domain action, `work.task.*`) - the doc explains two of the
   three well.
 - **Execution layers, registration → served write: ~9–10**, with 3
   independent policy evaluations; each traced layer has an articulable
@@ -199,7 +199,7 @@ Evidence table (condensed; per-symbol detail in the R2 review):
 
 Backend: 10 shipped source files, **513 LOC** (`src/northstar/`), plus 38
 LOC packaging/content and 720 LOC tests/composition. Frontend: 3 files,
-**112 LOC**. Total ≈ **1,345 LOC** — comparable to Atlas (1,716 total, 891
+**112 LOC**. Total ≈ **1,345 LOC** - comparable to Atlas (1,716 total, 891
 source). All 13 required capabilities and all mandated test categories are
 present; 23/23 tests pass against installed wheels; strict mypy is clean
 against the PEP 561 core wheel.
@@ -209,12 +209,12 @@ against the PEP 561 core wheel.
 16 gaps + 2 contradictions (full log: R1's `3A-doc-gaps.md`). Highest
 impact:
 
-1. No API/field reference for any contribution dataclass — constructors are
+1. No API/field reference for any contribution dataclass - constructors are
    discoverable only from source or the wheel.
 2. Event type names (`skein.task.created`/`.updated`) appear in no document
    or export; discovered by reading outbox rows after a silent failure.
 3. No documented way to trigger outbox delivery or to invoke a governed
-   tool or job in tests — yet the "Required tests" section mandates exactly
+   tool or job in tests - yet the "Required tests" section mandates exactly
    those tests.
 4. Operational env vars undocumented; config binds at import time; the
    installed-wheel default DB path resolves inside site-packages.
@@ -226,10 +226,10 @@ impact:
 
 - Core wheel (644 KB): `py.typed` present; all 20 migration SQL files
   inside; personas/flocks/playbooks/fieldguide ship as wheel data resolved
-  via `sysconfig` — **nothing requires the source tree**. `create_app()`
+  via `sysconfig` - **nothing requires the source tree**. `create_app()`
   from the wheel alone boots with the mock provider (`/health` 200).
 - `@skein/extension-api` tarball: exactly 3 files (`index.js`, `index.d.ts`,
-  `package.json`); its only import is `react` — fully self-contained, no
+  `package.json`); its only import is `react` - fully self-contained, no
   `../../lib` reach-back.
 - The frontend host archive works: `npm ci` inside it succeeds and a
   production build with `SKEIN_FRONTEND_EXTENSIONS=@northstar/skein-extension`
@@ -257,7 +257,7 @@ Forbidden-import grep of shipped Northstar source: **none**. Shipped code
 imports only `app.extensions`, `app.public`, `app.main.create_app`,
 `@skein/extension-api`, and `react`. The Northstar **tests** required 3
 internal imports (`app.extensions.tools.execute_tool`/`ToolCallContext`,
-`app.public.events.dispatch_events`, `app.state.skein_registry`) — the
+`app.public.events.dispatch_events`, `app.state.skein_registry`) - the
 basis of blocker-adjacent finding H1 (§18). Core files changed to add the
 clean-room extension: **zero**. Hard-coded registry edits: **zero**.
 Workplace conditionals in core: **zero**.
@@ -295,11 +295,11 @@ Workplace conditionals in core: **zero**.
 
 Global state encountered: `app.state.skein_registry`; a contextvar policy
 engine with a core-rules-only `_DEFAULT_ENGINE` fallback
-(`extensions/policy.py:401-405`) — fail-open for *workplace* rules if a
+(`extensions/policy.py:401-405`) - fail-open for *workplace* rules if a
 future entry point forgets `set_policy_engine`; process-global weak-ref
-identity registries in `public/work.py` (the enforcement mechanism itself —
+identity registries in `public/work.py` (the enforcement mechanism itself -
 probed sound); import-time config binding. Duplicated metadata: route
-method+path written twice (decorator vs `RouteOperationContribution` —
+method+path written twice (decorator vs `RouteOperationContribution` -
 validated, so drift fails fast at startup); namespaces re-typed in every
 contribution name; core version range duplicated across backend module and
 frontend manifest (by design). The one removable-looking layer (triple
@@ -308,7 +308,7 @@ domain-write, but only two of the three namespaces are documented well.
 
 ## 11. Core-adoption findings
 
-Core substantially lives on the boundary — the strongest evidence is
+Core substantially lives on the boundary - the strongest evidence is
 subtractive, not additive:
 
 - All 6 core routers are `RouteContribution`s in the `skein.core` module
@@ -321,14 +321,14 @@ subtractive, not additive:
   (`routes/api.py:69`, `extensions/fastapi.py:379-388`), and ~35 core read
   sites row-filter through the composed engine.
 - Core playbooks execute contributed workflow actions
-  (`routes/api.py:3038`) — load-bearing, not parallel.
+  (`routes/api.py:3038`) - load-bearing, not parallel.
 - Core's own `Card`/`EmptyState` are re-exports **from**
   `@skein/extension-api` (`frontend/components/card.tsx` is 3 lines).
 
 Asymmetries: core tools are policy-gated by the same engine
 (`tools/_gate.py:204`) but bypass the `ToolContribution` harness (no
 pydantic I/O schemas, no per-tool timeout, a different review-proposal
-shape — `services/review.py:117` vs `:254`); core jobs skip the window
+shape - `services/review.py:117` vs `:254`); core jobs skip the window
 claim and thread-pool timeout; `skein.core.agent-run` is special-cased
 (with an honest comment) to receive the trusted registry; core frontend
 nav/cards are static JSX while the registry carries extension items only.
@@ -365,22 +365,22 @@ retained):
 - **Collisions: enforced** at build time for contribution names, model-tool
   names, service subjects, and `(method,path)` including the core
   namespace; extensions confined under `/api/extensions/{module_id}`.
-- **Frontend hiding is presentation-only** — `/api/capabilities` derives
+- **Frontend hiding is presentation-only** - `/api/capabilities` derives
   from the same engine and says so; the backend enforces independently.
 - **Failure isolation: fail-closed.** A raising startup handler rolls back
   started modules and prevents app start (deliberate; only *shutdown*
-  tolerance is documented — a gap). One faulty job cannot block the
+  tolerance is documented - a gap). One faulty job cannot block the
   scheduler loop; a throwing subscriber is bounded to dead-letter.
 - **Review integrity: enforced.** Resource and policy re-checked at verdict
   time; content digests bind playbook approvals; legacy contract-version-0
   rows fail closed; reviewers must be human and hold any policy-named
   approver groups/capabilities.
 
-Gaps — all Low within the documented trust model, which
+Gaps - all Low within the documented trust model, which
 `docs/EXTENSIONS.md:785-786` states honestly ("In-process modules are
 trusted code with the same operating-system permissions as Skein"):
 
-- **L1**: `ExtensionStore`'s core-path refusal is a path-string check —
+- **L1**: `ExtensionStore`'s core-path refusal is a path-string check -
   bypassed in probes via hardlink and `ATTACH DATABASE`. The doc sentence
   "The store refuses both core database paths" reads as a guarantee it is
   not. Soften the wording; optionally deny `SQLITE_ATTACH` via an
@@ -390,10 +390,10 @@ trusted code with the same operating-system permissions as Skein"):
   no escalation beyond the caller).
 - **L3**: task `title`/`description` reach policy-rule code and the durable
   review store; document this exposure.
-- **L4**: no default four-eyes — the human who prompted an agent can
+- **L4**: no default four-eyes - the human who prompted an agent can
   approve its proposal unless a workplace policy names approver groups.
 - **I1**: `MigrationContribution.store` is a Protocol, not necessarily an
-  `ExtensionStore` — a hostile store could target core tables (inside the
+  `ExtensionStore` - a hostile store could target core tables (inside the
   trust model; note beside L1).
 
 Core migrations 012–020 respect the append-only and activity hash-chain
@@ -422,19 +422,19 @@ Atlas action; the mid-workflow-approval scenario is the only thing
 routes+policy cannot already do. Specialists-as-code duplicates a concern
 the persona/flock content machinery already handled declaratively. The
 API-to-consumer line ratio is ≈6:1, though most enforcement lines are
-security invariants any correct implementation would need — the padding is
+security invariants any correct implementation would need - the padding is
 in the export list and manifest fields, not the enforcement machinery.
 
 ## 14. Upgradeability findings
 
 What was actually executed (R5): `reference-extension-contract.sh` exit 0
-in 38s — clean-venv installs from wheels, old-core (0.1.0) rejection with
+in 38s - clean-venv installs from wheels, old-core (0.1.0) rejection with
 the exact `ExtensionValidationError`, installed startup on both cores, a
 real Atlas sync on both, migrations 018–020 applied by `db.init_db()`,
 identity-audit claim/rename flows including a genuine collision quarantine,
 pending reviews created on 0.2.0 and approved on 0.2.1, strict mypy against
 the installed wheel, fresh-vs-upgraded schema equality.
-`reference-frontend-contract.sh` exit 0 in 53s — the same packed Atlas
+`reference-frontend-contract.sh` exit 0 in 53s - the same packed Atlas
 tarball built on two pinned host trees (`952ff3a` vs HEAD, tree-hash
 drift-guarded), byte-compared compiled output, bare-Node consumer check.
 
@@ -442,12 +442,12 @@ The 0.2.0→0.2.1 mechanism, precisely: core 0.2.0 = `git archive d611d79`
 (an ancestor on this branch); core "0.2.1" = tar-copy of the working tree
 with `sed` on the version string; a guard asserts the two backend trees
 differ (they differ by 17,226 insertions across 100 files). The private
-Atlas wheel is installed once and never reinstalled across the core swap —
+Atlas wheel is installed once and never reinstalled across the core swap -
 byte-identical by construction. So the rehearsal is genuinely
 **two distinct source trees**, but a synthetic **version identity**: no
 commit, tag, or release ever carried 0.2.1; the repo has zero release tags;
 `upgrade-path.sh` self-skips ("no v* release tag") everywhere, including
-CI. CI runs all four contract scripts but only on push to main — this
+CI. CI runs all four contract scripts but only on push to main - this
 branch's contracts have never run in CI.
 
 Compatibility metadata is enforced at both ends (backend
@@ -466,17 +466,17 @@ the dimension at 8; the conservative score lands at 7 (§17).
 
 | Capability | Implemented mechanism | Simplest credible alternative | Justified or excessive |
 |---|---|---|---|
-| Routes | In-process namespaced routers + per-operation policy contract | External service on the REST API | **Justified** — shared identity/policy/provenance cannot be replicated externally; triple policy evaluation is heavy |
-| Jobs | `JobContribution` + window claims + service identities + timeouts | External cron + REST client | **Borderline** — Atlas's sync would work as cron+REST; justified only by policy and single-flight integration |
-| Policy | Narrow-only combining engine, scoped rules | None credible (config cannot express org rules) | **Justified** — the feature's core value; deny>review>permit is well designed |
-| Identity mapping | Callable mapper + resolver callbacks + `resolves_groups` tri-state | Declarative group→role config table | **Partially excessive** — Atlas's mapper is a 5-line groups check; only verdict-time refresh genuinely needs code |
-| Governed tools | `ToolContribution` + typed schemas + review resume + resource resolver | MCP server (already supported, with governed metadata) | **Partially justified** — overlaps MCP; the differentiator (target-project classification) is real but narrow |
-| Specialists | Code contribution of pure data | **Content overlay** — personas/flocks already exist | **Excessive as a code slot** — a persona schema referencing registered tools would have covered it |
-| Events | Durable outbox + retry budgets + dead-letter + visibility tiers | Polling the activity feed / webhooks | **Justified** — the correct reliable-integration pattern; but only 2 event types exist |
-| Extension data | `ExtensionStore` (142 LOC): path guard + digest-checked migrations | Extension opens its own SQLite (it is trusted code) | **Justified as a guardrail** — thin, cheap, optional |
-| Workflow actions | 853-line 4-step engine + grants + owner-thread dispatcher | Approval-gated playbooks (policy on `playbook.create`) + extension routes | **Weakest ROI** — one consumer; the largest single complexity item |
-| Content overlays | `schema_version: 1` strict schema | Already configuration | **Justified** — cheap tightening |
-| Frontend nav/cards | Build-time static composition, 2 slots, policy-gated visibility | Link-out / separate app | **Justified and genuinely minimal** — the most disciplined part of the branch |
+| Routes | In-process namespaced routers + per-operation policy contract | External service on the REST API | **Justified** - shared identity/policy/provenance cannot be replicated externally; triple policy evaluation is heavy |
+| Jobs | `JobContribution` + window claims + service identities + timeouts | External cron + REST client | **Borderline** - Atlas's sync would work as cron+REST; justified only by policy and single-flight integration |
+| Policy | Narrow-only combining engine, scoped rules | None credible (config cannot express org rules) | **Justified** - the feature's core value; deny>review>permit is well designed |
+| Identity mapping | Callable mapper + resolver callbacks + `resolves_groups` tri-state | Declarative group→role config table | **Partially excessive** - Atlas's mapper is a 5-line groups check; only verdict-time refresh genuinely needs code |
+| Governed tools | `ToolContribution` + typed schemas + review resume + resource resolver | MCP server (already supported, with governed metadata) | **Partially justified** - overlaps MCP; the differentiator (target-project classification) is real but narrow |
+| Specialists | Code contribution of pure data | **Content overlay** - personas/flocks already exist | **Excessive as a code slot** - a persona schema referencing registered tools would have covered it |
+| Events | Durable outbox + retry budgets + dead-letter + visibility tiers | Polling the activity feed / webhooks | **Justified** - the correct reliable-integration pattern; but only 2 event types exist |
+| Extension data | `ExtensionStore` (142 LOC): path guard + digest-checked migrations | Extension opens its own SQLite (it is trusted code) | **Justified as a guardrail** - thin, cheap, optional |
+| Workflow actions | 853-line 4-step engine + grants + owner-thread dispatcher | Approval-gated playbooks (policy on `playbook.create`) + extension routes | **Weakest ROI** - one consumer; the largest single complexity item |
+| Content overlays | `schema_version: 1` strict schema | Already configuration | **Justified** - cheap tightening |
+| Frontend nav/cards | Build-time static composition, 2 slots, policy-gated visibility | Link-out / separate app | **Justified and genuinely minimal** - the most disciplined part of the branch |
 
 Correctly kept as configuration/content/external: static templates,
 prompts, flock groups, environment values, secrets, untrusted integrations
@@ -501,7 +501,7 @@ Full reports are in the session transcripts; scratch evidence under
 Reviewer verdict sentences: R1 "the boundary is real from outside the repo…
 but the documentation and test-invocation surfaces are not external-grade";
 R2 "architecturally disciplined, symbolically padded"; R3 "a real
-composition seam, and core substantially lives on it — not decorative";
+composition seam, and core substantially lives on it - not decorative";
 R4 "pass, pre-merge, within the documented trust boundary"; R5
 "separate-repo viability: yes, demonstrated; upgradeability
 designed and contract-tested, not demonstrated across releases".
@@ -538,7 +538,7 @@ Diagnostic counts (evidence, not optimization targets):
 
 ## 18. Blocker and severity-ranked findings
 
-**Blockers: none** — every mandated audit stage completed.
+**Blockers: none** - every mandated audit stage completed.
 
 **HIGH**
 
@@ -565,7 +565,7 @@ Diagnostic counts (evidence, not optimization targets):
   (`SKEIN_DATA_DIR`, `SKEIN_SCHEDULER`, auth modes, import-time binding,
   site-packages default DB path). (R1)
 - M2. Atlas frontend `devDependencies` uses
-  `file:../../../frontend/packages/extension-api` — the canonical private
+  `file:../../../frontend/packages/extension-api` - the canonical private
   starting point fails `npm install` outside the monorepo; contracts never
   exercise real npm resolution; the image build needs
   `--legacy-peer-deps`. (R5)
@@ -576,7 +576,7 @@ Diagnostic counts (evidence, not optimization targets):
   on any future entry point that forgets `set_policy_engine`
   (`extensions/policy.py:401-405`). (R3)
 - M5. Core tools bypass the `ToolContribution` harness (no I/O schemas, no
-  timeout, different review-proposal shape) — two execution disciplines to
+  timeout, different review-proposal shape) - two execution disciplines to
   keep aligned. (R3)
 - M6. Pre-release compatibility shims (legacy resolver inference, digest
   backfills, untagged digests, `resolves_groups: None`) become permanent at
@@ -584,7 +584,7 @@ Diagnostic counts (evidence, not optimization targets):
 - M7. Rehearsal fixtures are synthetic: `deps._resolve` monkeypatched,
   "legacy" rows hand-INSERTed rather than produced by running old code.
   (R5)
-- M8. No mechanical import wall — the boundary holds by docs, mypy contract
+- M8. No mechanical import wall - the boundary holds by docs, mypy contract
   scripts, and 263 contract tests, not a mechanism. Consistent with the
   trusted-code model, but worth stating. (R3)
 - M9. Three policy-action namespaces per extension write; the doc explains
@@ -606,7 +606,7 @@ Diagnostic counts (evidence, not optimization targets):
 
 The 12 consumed contribution slots (routes, jobs, policies, identities,
 service identities, contexts, tools, specialists*, events, migrations +
-`ExtensionStore`, workflow actions*, frontend nav/cards) — *with the
+`ExtensionStore`, workflow actions*, frontend nav/cards) - *with the
 narrowing notes below; the `WorkItems` facade with unforgeable
 command-context binding; the policy engine with monotonic combination
 (core's own authority matrix now lives inside it); the durable review
@@ -624,7 +624,7 @@ five enforced); PEP 561 wheel + host-archive packaging.
   `policy_input_from_data`).
 - `IdentityContribution.resolves_groups`: collapse the `None`
   legacy-inference branch; require an explicit boolean pre-release.
-- `ToolContribution.receipt`/`provenance`: single-legal-value fields —
+- `ToolContribution.receipt`/`provenance`: single-legal-value fields -
   remove the fields, keep the behavior.
 - `ContextContribution.version`, `SpecialistContribution.version`,
   `EventContribution.version`: bind to receipts/fingerprints or drop.
@@ -635,7 +635,7 @@ five enforced); PEP 561 wheel + host-archive packaging.
 ## 21. Abstractions that should be deferred or removed
 
 - **Remove from `app.public`**: `WorkflowEngine`, `WorkflowContext`,
-  `WorkflowResult` — "source compatibility with early packages" that cannot
+  `WorkflowResult` - "source compatibility with early packages" that cannot
   exist before the first release; keep internal.
 - **Defer to 1.1**: `LifecycleContribution` (no consumer anywhere; fails
   the doc's own slot-admission rule) and `SkeinModule.requires` +
@@ -650,7 +650,7 @@ five enforced); PEP 561 wheel + host-archive packaging.
 
 | Need | Today's answer | Severity |
 |---|---|---|
-| Public command on a non-task entity (blocker, promise, decision, engagement…) | Core contribution, or degrade to REST-as-client (loses transactions/receipts/idempotency) | HIGH — first non-trivial integration hits it |
+| Public command on a non-task entity (blocker, promise, decision, engagement…) | Core contribution, or degrade to REST-as-client (loses transactions/receipts/idempotency) | HIGH - first non-trivial integration hits it |
 | Domain event beyond `skein.task.created/updated` | Core contribution; otherwise poll | HIGH |
 | Frontend slot beyond nav + dashboard card (detail panel, page, form, notification) | Core contribution (documented as deliberate) | MEDIUM |
 | Workflow timers, parallel branches, service-level escalation | Extension-owned external service | MEDIUM |
@@ -662,13 +662,13 @@ while core grows the surface.
 
 ## 23. Final verdict category
 
-**Verdict B — real and usable, but broader than necessary** at the symbol
+**Verdict B - real and usable, but broader than necessary** at the symbol
 level, under-documented for true external authorship, and narrower than
 the domain at the command/event level. Not A (three conservative scores
 below the 8 floor: minimality 7, usability 6, ROI 6; mandated tests need
 internal imports; compatibility evidence stops short of real releases).
 Not C (no tested capability required internals, monorepo assumptions, or
-core modifications in shipped code — the clean-room slice worked
+core modifications in shipped code - the clean-room slice worked
 end-to-end from built artifacts). Not D (the external-author experiment,
 packaging, and enforcement evidence all exist and pass). Not E (nothing
 resembles a fork: zero core edits, zero copied source, zero internal
@@ -677,10 +677,10 @@ imports in shipped code).
 ## 24. Confidence level
 
 **High** on boundary reality, core adoption, security enforcement, and
-packaging mechanics — all verified by execution (clean-room build from
+packaging mechanics - all verified by execution (clean-room build from
 wheels, negative probes, 550+ extension tests run, two contract scripts run
 to exit 0). **Medium** on: deployment/images contracts (kubectl and docker
-unavailable on this host; assessed by source reading — CI provisions both,
+unavailable on this host; assessed by source reading - CI provisions both,
 but only post-merge), live-browser rendering of the extension card (build
 + registry verified; no browser session), OIDC group refresh and MCP tool
 paths (read, not executed), and fork-risk fractions (based on surface
@@ -706,17 +706,17 @@ list).
 4. Fix the Atlas frontend `file:` devDependency and exercise real npm
    resolution of the packed package in the frontend contract. (Clears M2.)
 5. Grow `WorkItems` and the event catalog past task-only far enough that a
-   representative second extension (not Atlas) ships without a core PR —
+   representative second extension (not Atlas) ships without a core PR -
    ideally an independently authored one. (Lifts ROI; hardens reality
    to 9.)
 6. Cut a real tagged release, then a second compatible release, and run the
    upgrade rehearsal across the published artifact pair (`upgrade-path.sh`
    stops self-skipping; CI runs contracts on PRs too). (Upgradeability to
-   8 — the cap without multi-release production history.)
+   8 - the cap without multi-release production history.)
 7. Address the security wording items (L1 `ExtensionStore` guarantee, L3
    policy-input content exposure, L4 four-eyes default) and the
    `_DEFAULT_ENGINE` fail-open fallback (M4).
 
 Items 1–4 and 7 are days of work and belong before merge. Items 5–6 are
-post-merge roadmap by nature — which is why the honest ceiling for this
+post-merge roadmap by nature - which is why the honest ceiling for this
 branch today is Verdict B.

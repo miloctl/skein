@@ -78,13 +78,13 @@ const STATUS_COLORS: Record<string, string> = {
  *
  *  Deterministic: current and forward allocation, upcoming time away, and the
  *  person's own declared growth interests, which are shown as context and never
- *  as a score — services/portfolio.py::what_if states that rule.
+ *  as a score - services/portfolio.py::what_if states that rule.
  */
 function WhatIf({ requestId }: { requestId: number }) {
   // null until the roster answers, so a failed load cannot render as "nobody
   // is on the roster". An empty chip row beside a disabled button is the same
   // sentence as a real empty team, and this card exists to ask a capacity
-  // question — silently unable to ask it is the worst of the three states.
+  // question - silently unable to ask it is the worst of the three states.
   const [people, setPeople] = useState<string[] | null>(null);
   const [peopleErr, setPeopleErr] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
@@ -156,8 +156,8 @@ function WhatIf({ requestId }: { requestId: number }) {
               // the projection is computed FROM these inputs, so it stops
               // being an answer the moment they change. Left standing, the
               // rows read as a projection of the chips now on screen: a
-              // triager who raised 50% to 80% saw Ava at 90% — the number for
-              // 50 — and accepted the request on it.
+              // triager who raised 50% to 80% saw Ava at 90% - the number for
+              // 50 - and accepted the request on it.
               setOut(null);
               setPicked((p) => (p.includes(n) ? p.filter((x) => x !== n) : [...p, n]));
             }}
@@ -210,7 +210,7 @@ function WhatIf({ requestId }: { requestId: number }) {
               className={p.overcommitted ? "text-danger" : "text-ink-2"}
             >
               @{p.person}: {p.current_percent}% → {p.projected_percent}%
-              {p.overcommitted ? " — over capacity" : ""}
+              {p.overcommitted ? " - over capacity" : ""}
               {p.upcoming_absence ? ` · away ${p.upcoming_absence}` : ""}
               {/* self-declared, shown as context and never as a match score
                   (services/users.py::set_growth_interests) */}
@@ -225,7 +225,7 @@ function WhatIf({ requestId }: { requestId: number }) {
 
 export default function IntakePage() {
   // null until the fetch settles. Starting at [] rendered an empty list for
-  // "still loading", "nothing here", and "the load failed" alike — three
+  // "still loading", "nothing here", and "the load failed" alike - three
   // states, one blank screen.
   const [reqs, setReqs] = useState<Req[] | null>(null);
   const [form, setForm] = useState({
@@ -264,7 +264,7 @@ export default function IntakePage() {
     }
   };
 
-  // triage happens in inline panels — one open at a time, no browser prompts
+  // triage happens in inline panels - one open at a time, no browser prompts
   type PanelMode = "score" | "accepted" | "deferred" | "declined";
   const [panel, setPanel] = useState<{ id: number; mode: PanelMode } | null>(
     null,
@@ -287,7 +287,7 @@ export default function IntakePage() {
   /** Takes the ROW, not the id: re-scoring opened on 3/3/3/3 and threw away
    *  the numbers already on record, so correcting one of the four meant
    *  remembering and retyping the other three. An unscored row is stored as
-   *  0/0/0/1 (migration 001), which the 1-5 inputs cannot represent — those
+   *  0/0/0/1 (migration 001), which the 1-5 inputs cannot represent - those
    *  open on the neutral 3s instead. `score > 0` is the same test the row's
    *  RICE chip uses to decide it has been scored at all. */
   const openPanel = (r: Req, mode: PanelMode) => {
@@ -445,7 +445,7 @@ export default function IntakePage() {
             ).length === 1
               ? " awaits"
               : "s await"}{" "}
-            triage — turn on <b>Management view</b> at the top of this page to score and
+            triage - turn on <b>Management view</b> at the top of this page to score and
             decide.
           </p>
         )}
@@ -454,7 +454,7 @@ export default function IntakePage() {
       )}
       {reqs !== null && reqs.length === 0 && !error && (
         <EmptyState>
-          No requests yet. Anyone on the team can file one above — it lands here
+          No requests yet. Anyone on the team can file one above - it lands here
           for triage, not in someone&apos;s direct messages.
         </EmptyState>
       )}
@@ -547,7 +547,7 @@ export default function IntakePage() {
                 onKeyDown={(e) => e.key === "Escape" && setPanel(null)}
               >
                 <p className="mb-2 text-xs text-ink-2">
-                  1–5 each. Score = reach × impact × confidence ÷ effort —
+                  1–5 each. Score = reach × impact × confidence ÷ effort -
                   higher effort lowers it.
                 </p>
                 <div className="flex flex-wrap items-end gap-3">
@@ -604,12 +604,12 @@ export default function IntakePage() {
                 <input
                   autoFocus
                   name="verdict-reason"
-                  aria-label="Reason — the requester sees it"
+                  aria-label="Reason - the requester sees it"
                   value={verdict.reason}
                   onChange={(e) =>
                     setVerdict({ ...verdict, reason: e.target.value })
                   }
-                  placeholder={`Reason for "${panel.mode.replace("ed", "ing").replace("accepting", "accepting this")}" — the requester sees it`}
+                  placeholder={`Reason for "${panel.mode.replace("ed", "ing").replace("accepting", "accepting this")}" - the requester sees it`}
                   className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1.5 text-sm outline-none focus:border-thread-solid"
                 />
                 {panel.mode === "accepted" && (
@@ -632,7 +632,7 @@ export default function IntakePage() {
                           })
                         }
                       />
-                      🧪 timeboxed experiment — invalidated on time is a
+                      🧪 timeboxed experiment - invalidated on time is a
                       success, not a slip
                     </label>
                     {verdict.experiment && (
@@ -678,7 +678,7 @@ export default function IntakePage() {
                           onChange={(e) =>
                             setVerdict({ ...verdict, lead: e.target.value })
                           }
-                          placeholder="who owns it? — teammates suggested"
+                          placeholder="who owns it? - teammates suggested"
                           className="mt-0.5 block rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
                         />
                       </label>

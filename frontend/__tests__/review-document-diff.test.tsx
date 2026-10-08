@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 /** A document edit's payload is a quote and its replacement, so the card
- *  showed "—" beside the new text. It now shows the change as lines against
+ *  showed a lone dash beside the new text. It now shows the change as lines against
  *  the revision the proposal was filed on, and warns when the head moved. */
 
 const row = {

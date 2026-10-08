@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The one list of lint gates. .gitea/workflows/ci.yml calls this script with a
-# mode argument — add a gate here and it runs locally and on push with no
+# mode argument - add a gate here and it runs locally and on push with no
 # second edit. Do not restate a gate in ci.yml.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -18,6 +18,15 @@ esac
 # without this fallback every gate below fails there with "No such file".
 if [ -d backend/.venv/bin ]; then
     export PATH="$PWD/backend/.venv/bin:$PATH"
+fi
+
+echo "== typography =="
+# Authored text joins clauses with a hyphen. The two parsers of text a person
+# types keep the em-dash as an escape (services/capture.py, private_notes.py),
+# and frontend/AGENTS.md is written by `next dev`, so it is not ours to edit.
+if git grep -n -- $'\xe2\x80\x94' -- ':!frontend/AGENTS.md'; then
+    echo "lint.sh: em-dash found in the files above. Replace it with a hyphen (-)." >&2
+    exit 1
 fi
 
 if [ "$mode" != "frontend" ]; then
@@ -58,7 +67,7 @@ if [ "$mode" != "backend" ]; then
     # eslint does not typecheck, so a type error reaches main with every gate
     # green. CLAUDE.md tells a person to run `npm run build`; this makes the
     # gate enforce it, at a fraction of a full build's cost. CI's frontend job
-    # sets SKIP_TSC=1 because its `next build` step typechecks the same files —
+    # sets SKIP_TSC=1 because its `next build` step typechecks the same files -
     # set it anywhere else and type errors reach main unchecked.
     if [ "${SKIP_TSC:-0}" != "1" ]; then
         echo "== typescript =="

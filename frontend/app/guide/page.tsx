@@ -47,7 +47,7 @@ export default function GuidePage() {
   const [setFilter, setSetFilter] = useState<"all" | Knot["set"]>("all");
 
   // One fetch per actual identity. `me` transitions "anonymous"→<name> at
-  // hydration while getUser() (the X-User header) is the same both times —
+  // hydration while getUser() (the X-User header) is the same both times -
   // an unguarded [me] effect fetches twice, and the FIRST response consumes
   // "newly tied" server-side while the second (now empty) wins the render.
   // Keying on the header value fetches once, yet still refetches on a real
@@ -124,7 +124,7 @@ export default function GuidePage() {
 
       {me === "anonymous" && (
         <p className="mb-4 rounded-xl border border-weld/40 bg-weld/10 p-4 text-sm text-weld">
-          The guide is per-person — pick your name in{" "}
+          The guide is per-person - pick your name in{" "}
           <Link href="/settings" className="font-medium underline">
             Settings
           </Link>{" "}
@@ -134,7 +134,7 @@ export default function GuidePage() {
 
       {guide && !guide.known && me !== "anonymous" && (
         <p className="mb-4 rounded-xl border border-line bg-raised p-4 text-sm text-ink-2">
-          Skein has not seen you write anything yet — the guide starts
+          Skein has not seen you write anything yet - the guide starts
           tying itself after your first capture. Untied is where everyone
           starts.
         </p>
@@ -245,7 +245,7 @@ export default function GuidePage() {
           return (
             <section key={s.key} className="mb-8">
               <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
-                {s.title} <span className="normal-case">— {s.knot}</span>
+                {s.title} <span className="normal-case"> - {s.knot}</span>
               </h2>
               <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {cards.map((c) => (
@@ -268,13 +268,13 @@ export default function GuidePage() {
                       <ShortcutText text={c.pitch} />
                     </p>
                     {/* how: stays after the card ties. It is the only place
-                        some grammars are written down — the search card
-                        teaches `#42` — and hiding it on first use deletes the
+                        some grammars are written down - the search card
+                        teaches `#42` - and hiding it on first use deletes the
                         documentation exactly when someone starts using it.
                         ink-2, not ink-3: a tied card sits on surface-raised,
                         where 12px ink-3 measures 4.48:1 and misses AA. */}
                     {/* knots.yaml writes the ⌘K token, and `how:` is where
-                        several grammars are documented at all — the key it
+                        several grammars are documented at all - the key it
                         names must be the one on the reader's keyboard */}
                     <p className="mb-2 text-xs text-ink-2">
                       <ShortcutText text={c.how} />

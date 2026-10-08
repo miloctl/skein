@@ -1,6 +1,6 @@
 """Agents as first-class teammates: task delegation with a human sponsor,
 an authority matrix per (agent, entity), a mission-control view, and trust
-scores computed from the review inbox — promotion is suggested, never automatic."""
+scores computed from the review inbox - promotion is suggested, never automatic."""
 
 import json
 from collections.abc import Callable
@@ -66,13 +66,13 @@ def delegate_task(
     sponsor_row = db.query_one("SELECT kind FROM users WHERE name = ? AND active = 1", (sponsor,))
     if not sponsor_row or sponsor_row["kind"] != "human":
         raise ValueError(
-            "sponsor must be an active human teammate — the sponsor"
+            "sponsor must be an active human teammate - the sponsor"
             " receives the acceptance proposal, so a typo here means nobody does"
         )
     # an agent naming itself is not a delegation, it's a land-grab; the
     # human-approved proposal path (origin agent_verified) stays open
     if agent.strip() == actor and origin != "agent_verified":
-        raise ValueError("an agent cannot delegate a task to itself — propose it instead")
+        raise ValueError("an agent cannot delegate a task to itself - propose it instead")
     # set_active(False) settles the queued wake; this keeps the next
     # delegation from queueing a new one for an identity that is gone
     if not is_active(agent):
@@ -134,7 +134,7 @@ def delegate_task(
                 " Pick a crew, or make this task visible to everyone on the roster."
             )
         # The notification quotes this title. The hold above is what makes the
-        # read, the mutation and the notice one serialized unit — the
+        # read, the mutation and the notice one serialized unit - the
         # transaction alone would not, because a plain SELECT locks nothing.
         scope.assert_readable_by(
             task["visibility"],
@@ -193,7 +193,7 @@ def _check_not_forbidden(actor: str) -> None:
     The forbidden kill switch still stops the complete delegated loop.
     """
     if authority_level(actor, "task") == "forbidden":
-        raise ValueError(f"'{actor}' is forbidden on tasks — ask a human to lift it")
+        raise ValueError(f"'{actor}' is forbidden on tasks - ask a human to lift it")
 
 
 def _assert_readable_or_missing(task: dict, actor: str, task_id: int) -> None:
@@ -201,7 +201,7 @@ def _assert_readable_or_missing(task: dict, actor: str, task_id: int) -> None:
     not exist, UNLESS the actor could read it anyway.
 
     The informative refusals below ("not delegated to you", "written by its
-    delegate or sponsor only") are worth keeping — they tell a legitimate
+    delegate or sponsor only") are worth keeping - they tell a legitimate
     caller what went wrong. They are also a 400 where an absent id gives a
     404, so on a row the caller cannot read the pair reports existence, and
     ids are sequential (services/scope.py::Viewer.for_actor names the attack).
@@ -219,7 +219,7 @@ def _assert_readable_or_missing(task: dict, actor: str, task_id: int) -> None:
 
 def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
     """The agent picks up its delegated task: todo -> in_progress. Direct
-    (not review-gated) — status motion on the agent's own delegation is
+    (not review-gated) - status motion on the agent's own delegation is
     reversible and the sponsor is told."""
     refuse_when_consultative("claim delegated tasks")
     _check_not_forbidden(actor)
@@ -233,7 +233,7 @@ def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
             _assert_readable_or_missing(task, actor, task_id)
             raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
         if task["status"] not in ("todo", "blocked"):
-            raise ValueError(f"task #{task_id} is {task['status']} — nothing to claim")
+            raise ValueError(f"task #{task_id} is {task['status']} - nothing to claim")
         db.execute(
             "UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ?",
             (db.now(), task_id),
@@ -268,9 +268,9 @@ def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
 
 
 def report_progress(task_id: int, note: str, *, actor: str, origin: str = "agent") -> dict:
-    """Append a worklog entry — the agent's running account, readable by the
+    """Append a worklog entry - the agent's running account, readable by the
     sponsor before the acceptance verdict. Additive, so direct (like standups)
-    — but only for the parties in the loop: the worklog is evidence the
+    - but only for the parties in the loop: the worklog is evidence the
     sponsor judges on, so nobody else may write into it."""
     note = note.strip()
     if not note:
@@ -293,7 +293,7 @@ def report_progress(task_id: int, note: str, *, actor: str, origin: str = "agent
         _assert_readable_or_missing(task, actor, task_id)
         raise ValueError(f"task #{task_id}'s worklog is written by its delegate or sponsor only")
     if task["status"] == "done":
-        raise ValueError(f"task #{task_id} is done — its worklog is history now")
+        raise ValueError(f"task #{task_id} is done - its worklog is history now")
     tier, cid = scope.inherit(task)
     now = db.now()
     # A note is the task moving. Needs a call, the flow metrics, the Monday
@@ -317,14 +317,14 @@ def list_worklog(
     """The worklog on a task, for a reader who may see it.
 
     `actor` is the delegation door, and it exists because READ has to match
-    WRITE. report_progress lets exactly two identities write here — the task's
-    delegated_agent and its sponsor — and gates on those columns alone. With
+    WRITE. report_progress lets exactly two identities write here - the task's
+    delegated_agent and its sponsor - and gates on those columns alone. With
     only the tier filter, an agent delegated a CREW task could write notes it
     could not read back, and got `no task #N` for a task it was working.
 
     An agent holds no crew membership (crews.add_member refuses agent
     identities), so no Viewer built from its name would ever reach that row.
-    Passing an unfiltered `1 = 1` instead — the shape agent_inbox uses — would
+    Passing an unfiltered `1 = 1` instead - the shape agent_inbox uses - would
     reach EVERY private worklog by walking sequential ids, so the door is the
     delegation itself, checked per task, and nothing wider.
 
@@ -335,7 +335,7 @@ def list_worklog(
     # (app/mcp_server.py) did not. A negative LIMIT is refused outright,
     # so an unclamped value pulls every note on the task into a context window.
     limit = max(1, min(int(limit or 50), 50))
-    # A party to the delegation reads it whatever the tier says — the write
+    # A party to the delegation reads it whatever the tier says - the write
     # rule in report_progress, applied to the read. Resolved from the task's
     # own columns, per task, so it can never widen into "agents read
     # everything".
@@ -345,11 +345,11 @@ def list_worklog(
         party = row is not None and actor in (row["delegated_agent"], row["sponsor"])
     # the existence check takes the same filter as the worklog below, so an
     # unreadable task answers exactly like an absent one. Unfiltered, a
-    # private task returned 200 [] and an absent id returned 404 — which reads
+    # private task returned 200 [] and an absent id returned 404 - which reads
     # off which ids exist, for sequential integers (scope.Viewer.for_actor).
     tfrag, tp = scope.visible_filter(viewer, "tasks")
     if not party and not db.query_one(
-        f"SELECT id FROM tasks WHERE id = ? AND {tfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT id FROM tasks WHERE id = ? AND {tfrag}",  # noqa: S608 - scope.visible_filter emits only bound marks
         (task_id, *tp),
     ):
         raise scope.missing("tasks", task_id)
@@ -361,15 +361,15 @@ def list_worklog(
 
         door, door_params = delegate_door(task_row) if task_row else ("1 = 0", [])
         return db.query(
-            f"SELECT * FROM task_worklog WHERE task_id = ? AND {door} ORDER BY id DESC LIMIT ?",  # noqa: S608 — bound marks
+            f"SELECT * FROM task_worklog WHERE task_id = ? AND {door} ORDER BY id DESC LIMIT ?",  # noqa: S608 - bound marks
             (task_id, *door_params, limit),
         )
     # the worklog is the task's own text, and its parent may be invisible to
-    # this reader — the child has to be filtered on its own tier, not the
+    # this reader - the child has to be filtered on its own tier, not the
     # task's existence check above
     frag, vp = scope.visible_filter(viewer, "task_worklog")
     return db.query(
-        f"SELECT * FROM task_worklog WHERE task_id = ? AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM task_worklog WHERE task_id = ? AND {frag}"  # noqa: S608 - scope.visible_filter emits only bound marks
         " ORDER BY id DESC LIMIT ?",
         (task_id, *vp, limit),
     )
@@ -396,19 +396,19 @@ def accept_completion(
     task_id: int, summary: str = "", *, actor: str = "", origin: str = ""
 ) -> dict:
     """Registry apply target for task_completion proposals: the sponsor's
-    approval IS the acceptance — mark done, close the loop."""
+    approval IS the acceptance - mark done, close the loop."""
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
         raise scope.missing("tasks", task_id)
     # TerminalReject, never ValueError, for both conditions below: neither can
     # become true again, and approve_change resets a plain ValueError to
-    # pending — so the proposal boomerangs on every future verdict and the
+    # pending - so the proposal boomerangs on every future verdict and the
     # queue can only be cleared by a hand rejection. work.py settles the
     # sponsor's own direct close before it ever reaches here; what remains is
     # the close that came some other way.
     if task["status"] == "done":
         raise db.TerminalReject(f"task #{task_id} is already done")
-    # a reassignment between submit and verdict voids the proposal — the
+    # a reassignment between submit and verdict voids the proposal - the
     # acceptance must be for work the proposer still owns
     if actor and task["delegated_agent"] != actor:
         raise db.TerminalReject(f"task #{task_id} is no longer delegated to '{actor}'")
@@ -460,11 +460,11 @@ def accept_completion(
 
 
 def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: str = "") -> dict:
-    """File the acceptance proposal. ALWAYS a proposal (never direct) — the
+    """File the acceptance proposal. ALWAYS a proposal (never direct) - the
     sponsor's verdict is the whole point of the loop, and every verdict is a
     labeled trust signal for this agent."""
     if not summary.strip():
-        raise ValueError("say what was done — the sponsor reads this summary")
+        raise ValueError("say what was done - the sponsor reads this summary")
     # guarded like the rest of the trio even though the outcome is already a
     # proposal: this one pings the sponsor at `immediate` tier and takes the
     # one-pending-proposal slot below, so a member asked for an opinion would
@@ -475,13 +475,13 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
 
     # ONE transaction for the proposal and its sponsor snapshot (db.transaction
     # nests). Written after the commit, a lock timeout on the UPDATE left the
-    # proposal filed, the sponsor un-notified and the column unset — and the
+    # proposal filed, the sponsor un-notified and the column unset - and the
     # agent's retry then hit the duplicate guard above, telling it to wait for
     # a verdict nobody had been asked for.
     with db.transaction():
         # Hold the task: this files a proposal and pings the sponsor with a
         # policy snapshot derived from the task's engagement, but writes no
-        # task row of its own — so without the hold a concurrent relink lands
+        # task row of its own - so without the hold a concurrent relink lands
         # between the read and the notice, and the sponsor is told about a
         # project the task no longer belongs to.
         from . import policy_context
@@ -503,7 +503,7 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
         if dup:
             raise ValueError(
                 f"task #{task_id} already awaits acceptance (proposal #{dup['id']})"
-                " — wait for the sponsor's verdict"
+                " - wait for the sponsor's verdict"
             )
         p = propose_change(
             "task_completion",
@@ -511,7 +511,7 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
             {"summary": summary.strip()},
             # scope.detail, not an f-string: this summary is served by
             # GET /api/review, by my_day's pending_reviews, and by rituals'
-            # week-close artifact on disk — so a crew task's title reached the
+            # week-close artifact on disk - so a crew task's title reached the
             # roster three ways. This call passes notify_team=False, so the team
             # notification is NOT one of them.
             summary=scope.detail(
@@ -525,7 +525,7 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
             notify_team=False,
             requested_by=requested_by,
         )
-        # the sponsor AT SUBMISSION, in its own column and never in `payload` —
+        # the sponsor AT SUBMISSION, in its own column and never in `payload` -
         # that column is the apply argument list (010_sponsor_at_submission.sql).
         # Verdict authority stays with the CURRENT sponsor by design; this is
         # what lets the review card say when those two differ.
@@ -585,15 +585,15 @@ def _set_authority_locked(
     if level not in LEVELS:
         raise ValueError(f"level must be one of {LEVELS}")
     # streak-filed proposals pin the from-level: a stale proposal must never
-    # override what a human set in the meantime — above all the kill switch
+    # override what a human set in the meantime - above all the kill switch
     current = authority_level(agent, entity)
     if expected_current and current != expected_current:
         raise ValueError(
             f"{agent}/{entity} is now '{current}',"
-            f" not '{expected_current}' — this proposal is stale. Re-run the review"
+            f" not '{expected_current}' - this proposal is stale. Re-run the review"
         )
     # the kill switch must not be self-serviceable: an agent identity (e.g. a
-    # key issued to one) can never grant or lift authority — humans only
+    # key issued to one) can never grant or lift authority - humans only
     actor_row = db.query_one("SELECT kind FROM users WHERE name = ?", (actor,))
     if (actor_row and actor_row["kind"] == "agent") or actor == agent:
         raise ValueError("authority levels are set by humans, not by the agent itself")
@@ -601,20 +601,20 @@ def _set_authority_locked(
     from .review import _registry
 
     if entity not in _registry():
-        raise ValueError(f"unknown entity — one of {sorted(_registry())}")
+        raise ValueError(f"unknown entity - one of {sorted(_registry())}")
     # routes/api.py hides these from the picker because no agent tool passes
     # them to the gate. Validating there but not here let a direct POST store
-    # a grant the picker cannot produce and the gate never reads — a row on
+    # a grant the picker cannot produce and the gate never reads - a row on
     # the authority card naming a power that does not exist.
     if entity in NO_AUTHORITY:
-        raise ValueError(f"'{entity}' carries no authority level — no agent tool writes it")
+        raise ValueError(f"'{entity}' carries no authority level - no agent tool writes it")
     # _gate.py takes the review path for these BEFORE it reads the level, so
     # storing autonomous or notify renders "acts alone" on a destructive row
     # while every such write still waits for a human. Refuse the level rather
     # than display a correction: an unrepresentable state cannot be displayed
     # wrongly.
     if entity in ALWAYS_REVIEW and level in ("autonomous", "notify"):
-        raise ValueError(f"'{entity}' always waits for a human — set it to 'review' or 'forbidden'")
+        raise ValueError(f"'{entity}' always waits for a human - set it to 'review' or 'forbidden'")
     # Authority can govern an existing specialist, service, or MCP agent.
     # It must not change that agent's durable identity owner. A new name is a
     # generic delegated agent and uses the strict reservation path.
@@ -694,7 +694,7 @@ def authority_matrix(agent: str = "") -> list[dict]:
 
 def trust_blocked(remedy: bool = True) -> str:
     """Why no trust CAN accrue, or "" when it can. An empty trust card reads
-    as "nobody has proposed anything yet" — but two deployment settings make
+    as "nobody has proposed anything yet" - but two deployment settings make
     the streak structurally unreachable, and under those the card is telling
     an operator to wait for something that will never arrive.
 
@@ -704,7 +704,7 @@ def trust_blocked(remedy: bool = True) -> str:
     `remedy=False` drops the SKEIN_AGENT_REVIEW instruction and keeps the
     fact. The instruction is an operator's, and Approvals repeats this
     sentence on EVERY proposal card to an audience that cannot act on an env
-    var — the second case's remedy stays, because "sign in before you
+    var - the second case's remedy stays, because "sign in before you
     approve" is the reviewer's own move."""
     if not config.AGENT_REVIEW:
         # Expired elevated grants still wait for a verdict. Current grants take
@@ -741,20 +741,20 @@ def trust_blocked(remedy: bool = True) -> str:
 
 
 def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
-    """Approval stats per (proposer, entity) from pending_changes — every
+    """Approval stats per (proposer, entity) from pending_changes - every
     review verdict is already a labeled trust signal.
 
     `pairs` narrows the work to the (proposer, entity) rows a caller will
-    actually read. The per-pair loop below runs TWO queries each — the recent
-    verdicts and the authority level — so an unfiltered call costs twice every
+    actually read. The per-pair loop below runs TWO queries each - the recent
+    verdicts and the authority level - so an unfiltered call costs twice every
     pair the deployment has ever settled, a cost that grows with its age. The
     authority scan the suggestion needs is hoisted out of the loop below;
     inside it, that would be a third. The Approvals queue asks about
     the handful on one page (services/review.py::_trust_by_pair).
 
     AGENTS ONLY, and the filter lives HERE rather than in a caller. Humans
-    are in `pending_changes` too — services/ingest.py files every pasted line
-    under the person who pasted it — so an unfiltered read is one teammate's
+    are in `pending_changes` too - services/ingest.py files every pasted line
+    under the person who pasted it - so an unfiltered read is one teammate's
     approval rate, rejection streak and settled count in front of the whole
     roster. That is person-level data judging the PAST, which is the one
     thing the anti-surveillance rule forbids (docs/INSIGHTS.md: no
@@ -765,7 +765,7 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
     # too. A routine's acceptances are counted apart (ROUTINE_JOIN), and a
     # pair whose only verdicts came from routines still has its row.
     rows = db.query(
-        "SELECT p.proposed_by AS agent, p.entity,"  # noqa: S608 — ROUTINE_JOIN is a module constant
+        "SELECT p.proposed_by AS agent, p.entity,"  # noqa: S608 - ROUTINE_JOIN is a module constant
         " COUNT(*) FILTER (WHERE rt.routine_id IS NULL) AS proposed,"
         " COUNT(*) FILTER (WHERE p.status = 'approved' AND rt.routine_id IS NULL) AS approved,"
         " COUNT(*) FILTER (WHERE p.status = 'rejected' AND rt.routine_id IS NULL) AS rejected,"
@@ -782,14 +782,14 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
         rows = [r for r in rows if (r["agent"], r["entity"]) in pairs]
     # ONE scan for the whole loop. The suggestion below asks
     # promotion_blocked per row, and unprefetched that is a full scan of the
-    # authority proposals per pair — the Approvals page went from 122 queries
+    # authority proposals per pair - the Approvals page went from 122 queries
     # to 202 the moment agents started earning streaks.
     judged = _judged_pairs(_authority_cutoff())
     from .lexicon import REVIEW_ONLY
 
     review_only = {entity for entity, _action in REVIEW_ONLY}
     for r in rows:
-        # promotion suggestions count only strong-identity verdicts — a
+        # promotion suggestions count only strong-identity verdicts - a
         # spoofed X-User must not be able to walk an agent to autonomous.
         # A review-only extension entity has no streak: set_authority refuses
         # it, so a filed promotion wedges in the queue, and a personal MCP
@@ -801,7 +801,7 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
             # no routine verdicts: five weekly acceptances of one sweep are one
             # piece of work judged five times, not five judgments in a row
             else db.query(
-                f"SELECT p.status FROM pending_changes p {ROUTINE_JOIN}"  # noqa: S608 — ROUTINE_JOIN is a module constant
+                f"SELECT p.status FROM pending_changes p {ROUTINE_JOIN}"  # noqa: S608 - ROUTINE_JOIN is a module constant
                 " WHERE p.proposed_by = ? AND p.entity = ?"
                 " AND p.status != 'pending' AND p.reviewed_strong = 1"
                 " AND p.reviewed_override = 0 AND rt.routine_id IS NULL"
@@ -833,7 +833,7 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
         r["review_expired"] = authority["review_expired"]
         # The rung review_authority ACTUALLY files, and the same predicate it
         # asks. This said "autonomous" where a promotion climbs one rung to
-        # `notify`, and it skipped promotion_blocked entirely — so it offered
+        # `notify`, and it skipped promotion_blocked entirely - so it offered
         # a promotion on task_completion, which is in NO_AUTHORITY and can
         # never be filed, and that is the entity a delegated agent proposes on
         # most.
@@ -843,7 +843,7 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
         # it and 73 without. Reorder these and the agents page pays a query per
         # pair for an answer it discards.
         r["suggestion"] = (
-            f"{streak} straight approvals — consider promoting to notify"
+            f"{streak} straight approvals - consider promoting to notify"
             if streak >= TRUST_STREAK
             and r["configured_level"] == "review"
             and not promotion_blocked(r["agent"], r["entity"], r["configured_level"], judged)
@@ -863,9 +863,9 @@ def _authority_cutoff() -> str:
 def _judged_pairs(cutoff: str) -> set[tuple[str, str]]:
     """(agent, entity) with an authority proposal pending or freshly rejected.
 
-    ONE scan. `pending_changes WHERE entity='authority'` is unindexed —
+    ONE scan. `pending_changes WHERE entity='authority'` is unindexed -
     idx_pending_changes_proposer_entity is on (proposed_by, entity) and cannot
-    serve it — and it carries a json.loads per row, so running it per pair
+    serve it - and it carries a json.loads per row, so running it per pair
     inside a loop costs the whole table times the roster.
     """
     return {
@@ -886,12 +886,12 @@ def promotion_blocked(
     ONE definition, because two surfaces act on it: `review_authority` files
     the proposal, and the Approvals queue tells a reviewer that the next
     approval will file one. A restatement in either place is a promise the
-    other does not keep — `task_completion` is the highest-volume entity a
+    other does not keep - `task_completion` is the highest-volume entity a
     delegated agent proposes on, and it can never be promoted at all.
 
     `judged` is the pre-scanned set from _judged_pairs, for a caller in a
     loop. Without it every call re-scans the authority proposals, so a page
-    showing N pairs pays N table scans — the N+1 this module removed from
+    showing N pairs pays N table scans - the N+1 this module removed from
     trust_scores, reintroduced one function over.
     """
     from ..tools._gate import ALWAYS_REVIEW
@@ -923,7 +923,7 @@ def promotion_blocked(
 
 def _authority_recently_judged(agent: str, entity: str) -> bool:
     """A pending authority proposal, or one a human declined inside 28 days.
-    Refiling either is nagging, so `review_authority` stays silent — and the
+    Refiling either is nagging, so `review_authority` stays silent - and the
     queue must not advertise what the job will decline to file."""
     cutoff = (datetime.now(UTC) - timedelta(days=28)).isoformat(timespec="seconds")
     for p in db.query(
@@ -941,7 +941,7 @@ def review_authority(*, actor: str = "scheduler", auth_mode: str = "") -> dict:
     """A2: turn earned trust into FILED PROPOSALS instead of a buried hint.
     Promotions climb one rung (review -> notify) on a strong-verdict approval
     streak; demotions to review fire on a strong-verdict rejection streak.
-    The system only proposes — a human approves, and agents can never
+    The system only proposes - a human approves, and agents can never
     approve anything, so there is no self-promotion path."""
     # Approving one takes an administrator (review.approve_change), and a
     # filed proposal nobody can approve waits under a notice that says to
@@ -953,11 +953,11 @@ def review_authority(*, actor: str = "scheduler", auth_mode: str = "") -> dict:
         return {"filed": 0, "proposals": []}
     filed = []
     # don't refile what's pending, and don't nag weekly about what a human
-    # just declined — a rejection buys 28 days of silence for that pair
-    # the same set promotion_blocked consults, built once and handed down —
+    # just declined - a rejection buys 28 days of silence for that pair
+    # the same set promotion_blocked consults, built once and handed down -
     # two definitions of "recently judged" is how they drift apart
     seen = _judged_pairs(_authority_cutoff())
-    # authority levels only mean something on entities the gate consults —
+    # authority levels only mean something on entities the gate consults -
     # the meta entities in NO_AUTHORITY would mint nonsense agent rows if
     # proposed. `trust_scores` is agents-only in the service now, so no
     # is_agent filter is needed here.
@@ -998,7 +998,7 @@ def review_authority(*, actor: str = "scheduler", auth_mode: str = "") -> dict:
             summary=f"authority: {r['agent']}/{r['entity']}"
             f" {r['configured_level']} -> {target} ({why})"
             + (
-                " — notify means direct writes with an FYI, no pre-review"
+                " - notify means direct writes with an FYI, no pre-review"
                 if target == "notify"
                 else ""
             ),
@@ -1013,7 +1013,7 @@ def review_authority(*, actor: str = "scheduler", auth_mode: str = "") -> dict:
         notify(
             "team",
             f"{len(filed)} authority change{'' if len(filed) == 1 else 's'}"
-            " proposed from review history —"
+            " proposed from review history -"
             " promote or demote in Inbox → Approvals.",
             tier="digest",
             link="/review",
@@ -1062,12 +1062,12 @@ def agent_inbox(
     allow_unclassified: bool = True,
 ) -> dict:
     """Ambient inbox: everything an agent should look at when it wakes up.
-    Deterministic — the same view a human gets from my_day, agent-shaped.
+    Deterministic - the same view a human gets from my_day, agent-shaped.
 
-    `viewer=None` means the agent is reading its OWN inbox — the tool door
-    passes agent_identity(), the MCP door passes its ACTOR — and the rows stay
+    `viewer=None` means the agent is reading its OWN inbox - the tool door
+    passes agent_identity(), the MCP door passes its ACTOR - and the rows stay
     unfiltered: a crew task delegated to an agent is work that agent has to
-    see, and crews.add_member refuses an agent identity — so a Viewer built
+    see, and crews.add_member refuses an agent identity - so a Viewer built
     from an agent's own name carries no crews and would strip exactly those
     rows (the workspace ones would still come back, which is what makes the
     loss easy to miss).
@@ -1075,7 +1075,7 @@ def agent_inbox(
     GET /api/agents/{agent}/inbox is the other door. It takes the agent name
     off the URL and answers any CurrentUser (another person's `<name>-mcp`
     inbox only its owner and administrators), so it passes the CALLER's viewer
-    — without one, a human read every crew task title delegated to any agent
+    - without one, a human read every crew task title delegated to any agent
     by walking the roster of agent names.
     """
     if not db.query_one("SELECT id FROM users WHERE name = ?", (agent,)):
@@ -1085,7 +1085,7 @@ def agent_inbox(
     tfrag, tp = ("1 = 1", []) if viewer is None else scope.visible_filter(viewer, "tasks")
     qfrag, qp = ("1 = 1", []) if viewer is None else scope.visible_filter(viewer, "questions")
     tasks = db.query(
-        "SELECT id, title, description, status, priority, sponsor, due_date,"  # noqa: S608 — scope.visible_filter emits only bound marks
+        "SELECT id, title, description, status, priority, sponsor, due_date,"  # noqa: S608 - scope.visible_filter emits only bound marks
         " acceptance_criteria, check_in_at,"
         " milestone_id, engagement_id FROM tasks"
         f" WHERE delegated_agent = ? AND status NOT IN ('done', 'void') AND {tfrag}"
@@ -1121,7 +1121,7 @@ def agent_inbox(
             )
         ]
     questions = db.query(
-        "SELECT id, question, asked_by FROM questions WHERE assigned_to = ?"  # noqa: S608 — scope.visible_filter emits only bound marks
+        "SELECT id, question, asked_by FROM questions WHERE assigned_to = ?"  # noqa: S608 - scope.visible_filter emits only bound marks
         f" AND status = 'open' AND {qfrag} ORDER BY id",
         (agent, *qp),
     )
@@ -1212,7 +1212,7 @@ def agent_inbox(
     )
     if viewer is not None:
         notifications = [{k: v for k, v in n.items() if k != "message"} for n in notifications]
-    # The agent's own last note per open task — the continuity an agent
+    # The agent's own last note per open task - the continuity an agent
     # resuming on a later day has nowhere else to get. Its chat session does
     # not carry it: the conversation manager drops the oldest messages and
     # pin_first is inert across turns (agents/team_agent.py). Without this,
@@ -1220,7 +1220,7 @@ def agent_inbox(
     #
     # Own notes only, and the REST door gets none: this is the agent's
     # working memory, and GET /api/agents/{agent}/inbox takes the agent name
-    # off the URL and answers any CurrentUser — the same reason `message`
+    # off the URL and answers any CurrentUser - the same reason `message`
     # is stripped from notifications above. read_worklog is the full record,
     # filtered on its own tier.
     last_notes: list[dict] = []
@@ -1229,7 +1229,7 @@ def agent_inbox(
         # bare `note` beside MAX(id) is a grouping error, and an engine that
         # accepts it is free to answer with any row in the group.
         last_notes = db.query(
-            "SELECT DISTINCT ON (task_id) task_id, id, note, created_at"  # noqa: S608 — the interpolation below emits bound marks only
+            "SELECT DISTINCT ON (task_id) task_id, id, note, created_at"  # noqa: S608 - the interpolation below emits bound marks only
             " FROM task_worklog"
             f" WHERE author = ? AND task_id IN ({','.join('?' * len(tasks))})"
             " ORDER BY task_id, id DESC",

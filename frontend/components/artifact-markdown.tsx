@@ -7,9 +7,9 @@
  *  reads its text from assistant-ui's message-part context and takes no text
  *  prop, so it cannot render a string; pulling in a parser instead would add a
  *  dependency to render a handful of constructs. Those are the whole grammar
- *  the generators emit — `#`/`##`/`###` headings, `- ` bullets nested one
+ *  the generators emit - `#`/`##`/`###` headings, `- ` bullets nested one
  *  level, blank-line paragraphs, `> quotes`, ``` fences, and inline
- *  `**bold**`, `*italic*` and `code` — checked against
+ *  `**bold**`, `*italic*` and `code` - checked against
  *  services/{digest,readout,rituals,handoff,context_pack}.py. Anything else in
  *  the file renders as its own literal text rather than vanishing, so a
  *  generator that grows a table shows a reader raw pipes instead of nothing.
@@ -19,14 +19,14 @@
  *  text, promise wording), so treating it as HTML would make every generator
  *  an injection sink. Same reason nav-search parses FTS5's <b> into runs. A
  *  ```mermaid fence is the ONE exception, and it is quarantined in
- *  components/mermaid-diagram.tsx — read the comment there before touching
+ *  components/mermaid-diagram.tsx - read the comment there before touching
  *  it. Every other fence renders as literal text in a <pre>. */
 
 import { MermaidDiagram } from "@/components/mermaid-diagram";
 
 /** Splits on `**bold**`, `` `code` `` and `*italic*` in one pass. A capturing
  *  split alternates plain, marked, plain… so the run's KIND is its index
- *  parity — no second scan that could disagree with the first. An unclosed
+ *  parity - no second scan that could disagree with the first. An unclosed
  *  marker matches nothing and stays literal, which is what a reader should
  *  see. Bold is FIRST in the alternation: `*` would otherwise eat the opening
  *  half of `**bold**` and leave a stray asterisk. */

@@ -82,7 +82,7 @@ def test_bootstrap_role_runs_skein_without_database_create(monkeypatch, tmp_path
         shell = shutil.which("bash")
         assert shell, "bash must be installed for the role bootstrap drill"
         for _ in range(2):
-            subprocess.run(  # noqa: S603 — fixed shell and repository script
+            subprocess.run(  # noqa: S603 - fixed shell and repository script
                 [shell, str(script)],
                 env=env,
                 check=True,
@@ -141,7 +141,7 @@ def test_bootstrap_role_runs_skein_without_database_create(monkeypatch, tmp_path
         result = admin.backup()
         restore = shutil.which("pg_restore")
         assert restore, "pg_restore must be installed for the role backup drill"
-        listing = subprocess.run(  # noqa: S603 — absolute pg_restore path
+        listing = subprocess.run(  # noqa: S603 - absolute pg_restore path
             [restore, "--list", result["database_path"]],
             env=admin._pg_env(),
             check=True,

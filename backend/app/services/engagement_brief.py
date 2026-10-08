@@ -4,14 +4,14 @@ An engagement's context was spread across seven surfaces. Its outcome lived on
 Browse, its health on Work → Health, its blockers in the register, its
 decisions on Charter, its reports on Reports, its agent work on Team → Agents,
 and its plan drift only appeared at close. Answering "how is Atlas going" meant
-touring all seven and assembling the answer by hand — which is the work this
+touring all seven and assembling the answer by hand - which is the work this
 product exists to remove, done by the person it exists to help.
 
 The engagement CONTEXT PACK already compiles most of this, and it is the right
 output for an agent: markdown, on demand, cheap tokens. It is the wrong output
 for a screen, where a reader needs to open the milestone the health receipt
 names. This is the same composition returning rows instead of prose, so the two
-cannot drift about what an engagement is — both read the same services.
+cannot drift about what an engagement is - both read the same services.
 
 Composition only. No table, no write path. Every number here keeps its own home.
 """
@@ -28,7 +28,7 @@ TASK_CAP = 50
 
 # How deep into the portfolio queue this brief looks before narrowing. The
 # queue is ranked across every engagement, so a shallow window silently drops
-# this engagement's rows behind another's — and the card would then say nothing
+# this engagement's rows behind another's - and the card would then say nothing
 # is escalated directly above a blocker card showing one that is.
 QUEUE_SCAN = 50
 
@@ -55,14 +55,14 @@ def brief(
 
     efrag, ep = scope.visible_filter(viewer, "engagements")
     eng = db.query_one(
-        f"SELECT * FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 - scope.visible_filter emits only bound marks
         (engagement_id, *ep),
     )
     if not eng:
         raise scope.missing("engagements", engagement_id)
 
     # health and its movement come from the SAME pass every other surface
-    # reads, filtered to this engagement — a second computation here would be
+    # reads, filtered to this engagement - a second computation here would be
     # a second definition of red
     health = next(
         (
@@ -82,7 +82,7 @@ def brief(
     lfrag, lp = scope.visible_filter(viewer, "lessons")
 
     milestones = db.query(
-        f"SELECT * FROM milestones WHERE engagement_id = ? AND {mfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM milestones WHERE engagement_id = ? AND {mfrag}"  # noqa: S608 - scope.visible_filter emits only bound marks
         " ORDER BY due_date IS NULL, due_date",
         (engagement_id, *mp),
     )
@@ -95,7 +95,7 @@ def brief(
     tasks = redact_task_relationships(
         consistent_task_rows(
             db.query(
-                f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+                f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 - scope.visible_filter emits only bound marks
                 f" AND {engagement_member_sql()}"
                 " AND t.status NOT IN ('done', 'void')"
                 " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
@@ -111,7 +111,7 @@ def brief(
         resource_filter,
     )
     tasks = policy_context.filter_resource_rows("task", tasks, viewer, resource_filter)
-    # what an agent is carrying right now, with its own last note — the
+    # what an agent is carrying right now, with its own last note - the
     # continuity a sponsor has nowhere else to read without opening each task.
     #
     # ONE query for every note, not one per task: `list_worklog` costs two or
@@ -127,7 +127,7 @@ def brief(
     # engagement's size.
     delegated_rows = consistent_task_rows(
         db.query(
-            f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 - scope.visible_filter emits only bound marks
             " AND (t.engagement_id = ? OR t.milestone_id IN"
             "      (SELECT id FROM milestones WHERE engagement_id = ?))"
             " AND t.status NOT IN ('done', 'void') AND t.delegated_agent != ''"
@@ -150,7 +150,7 @@ def brief(
     # extra read costs one column.
     all_task_rows = consistent_task_rows(
         db.query(
-            f"SELECT t.id FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"SELECT t.id FROM tasks t WHERE {tfrag}"  # noqa: S608 - scope.visible_filter emits only bound marks
             " AND (t.engagement_id = ? OR t.milestone_id IN"
             "      (SELECT id FROM milestones WHERE engagement_id = ?))"
             " AND t.status NOT IN ('done', 'void')",
@@ -165,7 +165,7 @@ def brief(
     blockers = _linked_blockers(engagement_id, viewer)
     blockers = policy_context.filter_resource_rows("blocker", blockers, viewer, resource_filter)
     lessons = db.query(
-        f"SELECT * FROM lessons WHERE {lfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM lessons WHERE {lfrag}"  # noqa: S608 - scope.visible_filter emits only bound marks
         " AND (engagement_id = ? OR project_class = ?) ORDER BY id DESC LIMIT 10",
         (*lp, engagement_id, eng["project_class"]),
     )
@@ -183,7 +183,7 @@ def brief(
     )
     since = db.local_midnight_utc(db.today() - timedelta(days=1))
     tasks_done = db.query_one(
-        f"SELECT COUNT(*) AS n FROM tasks t WHERE {tfrag}{_ON_ENGAGEMENT}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT COUNT(*) AS n FROM tasks t WHERE {tfrag}{_ON_ENGAGEMENT}"  # noqa: S608 - scope.visible_filter emits only bound marks
         " AND t.completed_at >= ?",
         (*tp, engagement_id, engagement_id, since),
     )
@@ -204,7 +204,7 @@ def brief(
 
     # A CLOSED engagement's page is an archive, and it showed none of the
     # work: eighteen finished tasks rendered as "No work is open. Capture one
-    # with 'todo:'" — an invitation to add work to a closed engagement, over
+    # with 'todo:'" - an invitation to add work to a closed engagement, over
     # the history a reader came for. Recent done tasks, newest first, capped
     # like the open list; absent for active engagements, whose done work has
     # its own surfaces (Recently shipped, flow metrics).
@@ -212,13 +212,13 @@ def brief(
     done_count = 0
     if eng["status"] == "closed":
         row = db.query_one(
-            f"SELECT COUNT(*) AS c FROM tasks t WHERE {tfrag}{_ON_ENGAGEMENT}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"SELECT COUNT(*) AS c FROM tasks t WHERE {tfrag}{_ON_ENGAGEMENT}"  # noqa: S608 - scope.visible_filter emits only bound marks
             " AND t.status = 'done'",
             (*tp, engagement_id, engagement_id),
         )
         done_count = (row or {}).get("c", 0)
         done_work = db.query(
-            f"SELECT t.id, t.title, t.assignee, t.completed_at FROM tasks t"  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"SELECT t.id, t.title, t.assignee, t.completed_at FROM tasks t"  # noqa: S608 - scope.visible_filter emits only bound marks
             f" WHERE {tfrag}{_ON_ENGAGEMENT} AND t.status = 'done'"
             f" ORDER BY t.completed_at DESC NULLS LAST, t.id DESC LIMIT {TASK_CAP}",
             (*tp, engagement_id, engagement_id),
@@ -252,7 +252,7 @@ def brief(
         "artifacts": artifacts,
         # {} for an engagement that was not born from a playbook. The snapshot
         # is written at KICKOFF (`playbooks.instantiate`), so this is live
-        # drift, not a post-mortem — which is the point: a plan the team can
+        # drift, not a post-mortem - which is the point: a plan the team can
         # still act on. Named rather than omitted, because an absent key reads
         # as "no drift" and "we never snapshotted a plan" is a different fact.
         "plan_diff": close_out_diff(engagement_id, viewer, resource_filter=resource_filter),
@@ -282,7 +282,7 @@ def _delegated(tasks: list[dict], viewer: scope.Viewer) -> list[dict]:
     worklog row inherits the task's tier at write time (`scope.inherit`), and
     reading through the parent instead would trust a link rather than a filter.
     The delegation door `list_worklog` opens for a sponsor is deliberately NOT
-    reproduced here — this list is a summary line, and a reader who needs the
+    reproduced here - this list is a summary line, and a reader who needs the
     log opens the task panel, which carries the door.
     """
     from .. import db
@@ -299,13 +299,13 @@ def _delegated(tasks: list[dict], viewer: scope.Viewer) -> list[dict]:
     ids = [t["id"] for t in delegated]
     latest: dict[int, dict] = {}
     # ONE row per task, chosen in SQL. Reading every note and keeping the last
-    # in Python pulled a month of an agent's progress notes — up to 2000
-    # characters each — to render fifty lines. The tier filter is INSIDE the
+    # in Python pulled a month of an agent's progress notes - up to 2000
+    # characters each - to render fifty lines. The tier filter is INSIDE the
     # subquery as well: computing MAX(id) over unfiltered rows and filtering
     # after would drop the note entirely whenever the newest one is a row this
     # viewer cannot read.
     for row in db.query(
-        f"SELECT w.task_id, w.note, w.created_at FROM task_worklog w"  # noqa: S608 — marks are bound, visible_filter emits only bound marks
+        f"SELECT w.task_id, w.note, w.created_at FROM task_worklog w"  # noqa: S608 - marks are bound, visible_filter emits only bound marks
         f" WHERE w.task_id IN ({marks}) AND {outer}"
         f" AND w.id = (SELECT MAX(x.id) FROM task_worklog x"
         f"             WHERE x.task_id = w.task_id AND {inner})",
@@ -353,7 +353,7 @@ def _mine(
     }
     kept = [r for r in queue if r["entity_id"] in mine.get(r["entity"], set())]
     # A finding DOES carry an engagement when its rule wrote one into the
-    # receipt — `plan_drift` and `experiment_overdue` both do, and
+    # receipt - `plan_drift` and `experiment_overdue` both do, and
     # `intervention.py` links those rows straight to this page for that reason.
     # Dropping them made the two headline fixes disagree at the seam: the
     # manager followed a drift row here and read "nothing in the queue belongs

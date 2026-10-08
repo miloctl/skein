@@ -138,8 +138,8 @@ describe("the 1:1 identity boundary", () => {
   });
 
   it("fires nothing and renders no dead control under weak identity", async () => {
-    // Before this, picking a teammate fired two requests that both refused —
-    // the same sentence rendered twice — over a notes form whose submit was
+    // Before this, picking a teammate fired two requests that both refused -
+    // the same sentence rendered twice - over a notes form whose submit was
     // going to collect a third copy. Under weak identity the banner is the
     // whole page state.
     render(<PeoplePage />);
@@ -183,7 +183,7 @@ describe("the 1:1 identity boundary", () => {
       await screen.findByText(/Private notes require strong identity/),
     ).toBeTruthy();
     expect(screen.queryByText("private launch note")).toBeNull();
-    // the downgrade removes the picker too — nothing below the banner
+    // the downgrade removes the picker too - nothing below the banner
     // renders under weak identity
     expect(screen.queryByRole("button", { name: "dana" })).toBeNull();
   });

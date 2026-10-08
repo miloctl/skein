@@ -2,8 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 /** The delegation contract's first slice: what done means and when to check
- *  in, written where the delegation is made. Both optional — a delegation
- *  without them is what every delegation was before — and the inputs appear
+ *  in, written where the delegation is made. Both optional - a delegation
+ *  without them is what every delegation was before - and the inputs appear
  *  only after an agent is picked, so they are not two mystery fields on
  *  every task panel. */
 

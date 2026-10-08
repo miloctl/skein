@@ -60,7 +60,7 @@ export function SharedChatList({
       setInvitations(nextInvitations);
       setError("");
     } catch (caught) {
-      // A failed LIST fetch is a load, not an action — same wording as the
+      // A failed LIST fetch is a load, not an action - same wording as the
       // sibling sidebar loads.
       if (current === generation.current) setError(loadError(caught));
     }

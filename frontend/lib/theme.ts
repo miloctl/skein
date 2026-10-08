@@ -36,31 +36,31 @@ export const PACKS = [
   {
     id: "ledger",
     label: "Ledger",
-    subtitle: "Broadsheet — ruled, square, serif",
+    subtitle: "Broadsheet - ruled, square, serif",
     accent: "madder",
   },
   {
     id: "phosphor",
     label: "Phosphor",
-    subtitle: "Terminal — mono, scanlines, glow",
+    subtitle: "Terminal - mono, scanlines, glow",
     accent: "verdigris",
   },
   {
     id: "atelier",
     label: "Atelier",
-    subtitle: "Editorial — serif, soft, gallery",
+    subtitle: "Editorial - serif, soft, gallery",
     accent: "madder",
   },
   {
     id: "claw",
     label: "Claw",
-    subtitle: "Command deck — charcoal, coral",
+    subtitle: "Command deck - charcoal, coral",
     accent: "coral",
   },
   {
     id: "hermes",
     label: "Hermes",
-    subtitle: "Mission console — cream on teal",
+    subtitle: "Mission console - cream on teal",
     accent: "bone",
   },
   {
@@ -105,7 +105,7 @@ export const CUSTOM_DEFAULT = { thread: 264, weld: 65 };
 // it, what it must stay legible against, and the (lightness, chroma) it wears
 // in each mode. Only the hue varies.
 //
-//   on: "surface"  the token is INK — swept against every pack surface
+//   on: "surface"  the token is INK - swept against every pack surface
 //   on: "white"    the token is a solid FILL under white text (bg-thread-solid)
 //
 // scripts/check_theme_contrast.py PARSES this table (it does not copy it) and
@@ -158,7 +158,7 @@ function customCss(threadHue: number, weldHue: number): Record<string, string> {
   return css;
 }
 
-// storage can throw (blocked third-party contexts, some private modes) —
+// storage can throw (blocked third-party contexts, some private modes) -
 // theme prefs must never take the page down with them
 function read(key: string): string | null {
   try {
@@ -209,7 +209,7 @@ export function getPack(): string {
 
 /** `fade: false` skips the crossfade (the Settings page, where a fade on the
  *  control just clicked reads as lag). `accent: true` also takes the pack's
- *  signature colorway, in the SAME paint — two setters back to back start two
+ *  signature colorway, in the SAME paint - two setters back to back start two
  *  view transitions, and the second skips the first mid-fade. */
 export type ApplyOpts = { fade?: boolean; accent?: boolean };
 
@@ -249,12 +249,12 @@ export function applyPrefs() {
 }
 
 // The mobile address bar reads <meta name="theme-color">, but the page colour
-// is a function of the pack as well as the appearance — #faf9f6 under loom,
+// is a function of the pack as well as the appearance - #faf9f6 under loom,
 // #f2f5ef under phosphor, #ffffff under contrast. The static pair in
 // layout.tsx's viewport export would be visibly wrong for most packs on the
 // one device where the bar is actually visible, so read the resolved colour
 // back out of the DOM after applying prefs.
-// Exported because applyPrefs does NOT run on a normal page load — the
+// Exported because applyPrefs does NOT run on a normal page load - the
 // pre-paint script in layout.tsx sets the data attributes and applyPrefs only
 // fires on a setter, a cross-tab storage event, or profile adoption.
 // ThemeSync calls this on mount to cover the ordinary case.
@@ -281,7 +281,7 @@ const ADOPTED_KEY = "skein-adopted";
 // then runs the callback, so every DOM write of the change must happen
 // inside it: the same-tab "storage" event is dispatched there too, because
 // ThemeSync answers it with applyPrefs, and dispatched synchronously after
-// startViewTransition it restyled the page before the snapshot — old and
+// startViewTransition it restyled the page before the snapshot - old and
 // new frames identical, no visible fade, and the input block for nothing.
 // Reduced motion is honored in globals.css on the ::view-transition
 // pseudo-elements, not here.
@@ -306,7 +306,7 @@ function applyAndPing({ fade = true }: ApplyOpts = {}) {
 
 // --- profile sync: the theme follows the person, not the browser ---------
 // Every change auto-saves to the profile (debounced); a browser with no
-// local prefs adopts the profile on load. Local prefs win locally — they
+// local prefs adopts the profile on load. Local prefs win locally - they
 // were set deliberately in that browser and immediately re-save anyway.
 
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -359,13 +359,13 @@ if (typeof window !== "undefined") {
   });
 }
 
-/** Shareable theme code (TP5): the whole theme is ~5 JSON fields — validate
+/** Shareable theme code (TP5): the whole theme is ~5 JSON fields - validate
  *  a pasted blob and apply it through the normal setters. */
 export function applyThemeCode(code: string, opts: ApplyOpts = {}): boolean {
   try {
     const t = JSON.parse(code);
     if (typeof t !== "object" || t === null) return false;
-    // validate EVERYTHING before the first write — a rejected code must
+    // validate EVERYTHING before the first write - a rejected code must
     // leave zero residue, and every present field must be reproducible
     const packOk = PACKS.some((p) => p.id === t.pack);
     const colorOk = COLORWAYS.some((c) => c.id === t.colorway);
@@ -403,7 +403,7 @@ export function themeCode(): string {
 }
 
 // "no opinion yet" = no local keys, OR the keys came from adopting the TEAM
-// default (not a human choice) — a personal profile may still supersede that
+// default (not a human choice) - a personal profile may still supersede that
 function browserHasOpinion(): boolean {
   const hasKeys = Boolean(
     read(THEME_KEY) ||

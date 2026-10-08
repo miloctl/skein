@@ -6,7 +6,7 @@ from app.services import mentions, users
 
 
 class _Quiet:
-    """An agent turn that answers and writes nothing — the case the warning
+    """An agent turn that answers and writes nothing - the case the warning
     exists for. Unreachable through MockAgent, which smart-captures every
     freeform message and therefore always files something."""
 
@@ -56,13 +56,13 @@ def test_a_turn_that_wrote_something_stays_quiet(client):
 
 
 def test_an_unknown_name_is_not_warned_about(client):
-    # a real token that reaches the roster and misses — "@ noon" never becomes
+    # a real token that reaches the roster and misses - "@ noon" never becomes
     # a token at all, so it would pass without the roster lookup ever running
     assert turn_guard.unnotified("ping @nobody-on-this-roster", wrote=False) is None
 
 
 def test_a_self_mention_is_not_a_miss(client):
-    """scan drops the actor — a self-mention is not directed attention — so
+    """scan drops the actor - a self-mention is not directed attention - so
     reporting one tells the author to file something that notifies nobody."""
     users.ensure_user("tester")
     assert turn_guard.unnotified("remind @tester to check it", wrote=False, actor="tester") is None
@@ -86,7 +86,7 @@ def test_many_mentions_are_capped(client):
 
 
 def test_the_invoked_persona_is_not_reported_unreached(client):
-    """A leading @slug IS the delivery for that name — warning about it would
+    """A leading @slug IS the delivery for that name - warning about it would
     contradict the answer the reader is looking at."""
     users.ensure_user("backend-architect", kind="agent")
     # the message MUST contain the mention, or this passes with `invoked`
@@ -102,7 +102,7 @@ def test_the_invoked_persona_is_not_reported_unreached(client):
 
 def test_a_specialist_mention_offers_the_ask_route(client):
     """A filed row reaches an agent too, so the capture prefix alone is not
-    wrong — it answers "ask @slug about tomorrow" with instructions for filing
+    wrong - it answers "ask @slug about tomorrow" with instructions for filing
     a task. The specialist can answer instead, and only it can."""
     users.ensure_user("backend-architect", kind="agent")
     users.ensure_user("mira")
@@ -118,7 +118,7 @@ def test_a_specialist_mention_offers_the_ask_route(client):
 
 def test_the_invoked_specialist_is_not_offered_as_a_route(client):
     """`invoked` is filtered out of `named`, and the advice must filter it the
-    same way — otherwise a turn answered BY the specialist tells the reader to
+    same way - otherwise a turn answered BY the specialist tells the reader to
     go and ask that specialist."""
     users.ensure_user("backend-architect", kind="agent")
     users.ensure_user("mira")
@@ -166,7 +166,7 @@ def test_a_leading_at_person_is_not_an_invocation(client):
     # the absence of text the backend never emits
     assert "no persona" not in out
     # the saved turn either warned about the unreached mention or filed a row
-    # that reaches mira — one of the two must hold, in _receipt_line's exact
+    # that reaches mira - one of the two must hold, in _receipt_line's exact
     # casing ("Not notified" never matched, so this line asserted nothing)
     saved = _last_saved(client, "cm-4")
     assert "not notified: mira" in saved or "wrote " in saved
@@ -182,7 +182,7 @@ def test_a_bare_at_slug_with_no_message_is_ordinary_text(client):
 
 def test_punctuation_after_the_slug_still_invokes(client):
     """A comma or a newline after the slug is ordinary composer typing, and
-    partition(" ") saw neither — the specialist was not invoked AND the guard
+    partition(" ") saw neither - the specialist was not invoked AND the guard
     then warned that it had not been notified."""
     assert "Growth Mentor" in _read_chat(client, "@growth-mentor, plan a goal?", thread="cm-6")
     assert "Growth Mentor" in _read_chat(client, "@growth-mentor\nplan a goal?", thread="cm-7")

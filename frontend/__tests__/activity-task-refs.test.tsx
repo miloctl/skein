@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
  *
  *  Keyed on the ACTION, because the entity word lives in the sentence the
  *  verb registry produces and NOT in `detail`. These cases are taken from
- *  real rows on a running deployment — an earlier version of this test used
+ *  real rows on a running deployment - an earlier version of this test used
  *  invented strings like "blocker #3 'staging down' is escalated", passed,
  *  and shipped a parser that opened the task panel on a blocker id. */
 
@@ -18,7 +18,7 @@ describe("a task reference in an activity row", () => {
     expect(taskRef("report_progress", "#10 vendor replied")).toBe(10);
   });
 
-  it("never links another entity's id — REAL rows, all bare #N", () => {
+  it("never links another entity's id - REAL rows, all bare #N", () => {
     expect(taskRef("escalate_blocker", "#5 blocked on WW vendor (open 24h)")).toBeNull();
     expect(taskRef("mint_key", "#29 bootstrap")).toBeNull();
     expect(taskRef("ask_question", "#5")).toBeNull();

@@ -12,12 +12,12 @@
 #     default and every request 401'd.
 #   * v0.2.3 defaults SKEIN_AUTH_MODE to trusted-header and HEAD defaults it
 #     to api-key. With neither pinned, the prior-core leg authenticated and
-#     the next-core leg did not — a default MOVING between the two artifacts
+#     the next-core leg did not - a default MOVING between the two artifacts
 #     under test, reported as an extension failure.
 #
 # Both are the same defect: an ambient input to a rehearsal that claims to be
 # isolated. Pinning them is what makes this script answer the question it
-# says it answers — whether ONE unchanged extension spans a core range —
+# says it answers - whether ONE unchanged extension spans a core range -
 # instead of quietly also answering "did a default move?". Default drift is a
 # real question, but it belongs to a deployment contract, not to this one.
 #
@@ -29,7 +29,7 @@
 #
 # CLOSED by default: the whole SKEIN_* namespace is blanked and only the
 # handful below is set back. A setting added to config.py tomorrow cannot
-# leak into a rehearsal without an edit here — the opposite of a list that
+# leak into a rehearsal without an edit here - the opposite of a list that
 # protects what somebody remembered to add to it.
 skein_hermetic_env() {
     # The one input a CALLER legitimately supplies: which server to create
@@ -46,7 +46,7 @@ skein_hermetic_env() {
     export SKEIN_DATABASE_URL="$database_url"
     unset PYTHONPATH PYTHONHOME
     export PYTHONNOUSERSITE=1
-    # trusted-header, so both artifacts under test authenticate identically —
+    # trusted-header, so both artifacts under test authenticate identically -
     # see the v0.2.3-vs-HEAD note above. The rehearsal drives the X-User door
     # the same way scripts/skein.sh and tests/conftest.py do.
     export SKEIN_AUTH_MODE=trusted-header

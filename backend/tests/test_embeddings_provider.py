@@ -249,7 +249,7 @@ def test_health_reports_the_embeddings_fault(monkeypatch, restore_config):
 
 def test_deindex_removes_the_vector_too(monkeypatch, fresh_db):
     """A deleted record's orphaned vector outranks live records and silently
-    burns a semantic result slot per query — found live: a deleted note beat
+    burns a semantic result slot per query - found live: a deleted note beat
     a live one 0.727 to 0.646 and search() dropped the hit on the missing
     search_index row, shrinking results with no error."""
     calls: list[dict] = []
@@ -265,7 +265,7 @@ def test_deindex_removes_the_vector_too(monkeypatch, fresh_db):
 
 def test_service_write_survives_a_dead_endpoint(monkeypatch, fresh_db, caplog):
     """The production promise behind the except-pass: index_record must land
-    the FTS row even when the embeddings endpoint is down — and say so once,
+    the FTS row even when the embeddings endpoint is down - and say so once,
     not once per write, and not never."""
     calls: list[dict] = []
     monkeypatch.setattr("openai.OpenAI", _fake_openai(calls, raise_on_create=True))
@@ -341,7 +341,7 @@ def test_backfill_embeds_only_missing_rows(monkeypatch, fresh_db, capsys):
     backfill_embeddings.main()
     out = capsys.readouterr().out
     assert "2 to embed" in out and "embedded 2, failed 0" in out
-    # exactly two new embed calls — the covered row was not re-embedded
+    # exactly two new embed calls - the covered row was not re-embedded
     assert len([c for c in calls if "input" in c]) == embed_calls_before + 2
     for eid in (90010, 90011, 90012):
         row = db.query_one(
@@ -385,7 +385,7 @@ def test_backfill_refuses_when_misconfigured(monkeypatch):
 
 
 def test_a_corrupt_vector_costs_one_result_not_the_search(monkeypatch, fresh_db, caplog):
-    """JSONDecodeError subclasses ValueError, which main.py maps to 400 — an
+    """JSONDecodeError subclasses ValueError, which main.py maps to 400 - an
     unguarded json.loads here once answered every /api/search query with
     "your input is invalid" over a row only we could have corrupted."""
     calls: list[dict] = []

@@ -51,7 +51,7 @@ describe("Settings when /api/whoami fails", () => {
 });
 
 describe("the chat runtime's history load", () => {
-  it("keeps no swallowed catch — a rejection is a real failure there", () => {
+  it("keeps no swallowed catch - a rejection is a real failure there", () => {
     // the brand-new-thread case resolves [] instead of rejecting, so any
     // .catch(() => {}) in this file is a saved transcript rendered as blank
     const source = readFileSync(

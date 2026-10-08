@@ -2655,7 +2655,7 @@ the results file records:
    resolution for the private wheel; `prepack` recompiles dist; the Atlas
    client requires HTTPS for bearer traffic and refuses redirects.
 6. Version truth: core is 0.2.1 in its committed metadata, and the upgrade
-   rehearsal compares the committed 0.2.0 tree (`00f71ad`) with real HEAD —
+   rehearsal compares the committed 0.2.0 tree (`00f71ad`) with real HEAD -
    the `sed` version synthesis is gone.
 
 Two audit findings are deferred to `docs/ROADMAP.md` with their reasons:

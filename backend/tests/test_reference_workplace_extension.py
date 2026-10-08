@@ -776,7 +776,7 @@ def test_http_adapter_uses_the_deployment_secret(monkeypatch):
 
     class Opener:
         # The adapter opens through its redirect-refusing opener, never the
-        # module-level urlopen — patching the opener keeps that pinned.
+        # module-level urlopen - patching the opener keeps that pinned.
         def open(self, request, timeout):
             calls.append((request, timeout))
             if request.get_method() == "GET":

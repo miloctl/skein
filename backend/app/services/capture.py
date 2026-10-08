@@ -8,7 +8,7 @@ from typing import Any
 from .. import db
 from . import blockers, collab, promises, scope, wording, work
 
-# explicit prefixes first, content heuristics second — a typed prefix always
+# explicit prefixes first, content heuristics second - a typed prefix always
 # wins ("req: blocked on X" is a request, not a blocker)
 PATTERNS = [
     ("question", re.compile(r"^\s*(q:|question:)", re.I)),
@@ -16,7 +16,7 @@ PATTERNS = [
     ("decision", re.compile(r"^\s*(decision:|decided\b)", re.I)),
     ("promise", re.compile(r"^\s*(promised?:|commitment:)", re.I)),
     # the other direction, and its own prefix rather than a flag on `promised:`
-    # — the person typing is recording somebody ELSE's commitment, and one
+    # - the person typing is recording somebody ELSE's commitment, and one
     # prefix that means two opposite things is the mistake this grammar exists
     # to avoid
     ("awaiting", re.compile(r"^\s*(awaiting:|waiting for:)", re.I)),
@@ -54,7 +54,7 @@ def capture_body(text: str) -> str:
     return body
 
 
-# `q: mira — where do we log?` assigns to mira — same person-separator grammar
+# `q: mira - where do we log?` assigns to mira - same person-separator grammar
 # as fb:, but only when the name matches an active user (else it stays text).
 # The known-user gate is LOAD-BEARING: with re.S the person group can span
 # newlines, and only the gate keeps arbitrary text from becoming an assignee.
@@ -64,24 +64,24 @@ _Q_ASSIGN = re.compile(
     re.S,
 )
 # A sentence that happens to carry a dash starts with one of these; a party
-# name does not. "the redlines — soon" must stay one body, or the chaser
+# name does not. "the redlines - soon" must stay one body, or the chaser
 # nudges about a party called "the redlines".
 _NOT_A_NAME = frozenset(
     ("the", "a", "an", "this", "that", "these", "those", "we", "they", "it", "our", "his", "her")
 )
 # `decision: … review by 2026-10-01` feeds the half-life sweep
 _REVIEW_BY = re.compile(r"[\s,;\u2014\u2013-]*\breview by\s+(?P<date>\d{4}-\d{2}-\d{2})\s*$", re.I)
-# `awaiting: legal — the redlines by 2026-09-01`. The date is what the chaser
+# `awaiting: legal - the redlines by 2026-09-01`. The date is what the chaser
 # runs on, so a received promise with no date is recorded and never nudged.
 _BY_DATE = re.compile(r"[\s,;\u2014\u2013-]*\bby\s+(?P<date>\d{4}-\d{2}-\d{2})\s*$", re.I)
 
 
 def split_party(body: str) -> tuple[str, str]:
-    """(who, rest) for `awaiting: legal — the redlines`.
+    """(who, rest) for `awaiting: legal - the redlines`.
 
     Takes the name whether or not it matches the roster, unlike
     split_assignee. The party we wait on is usually a vendor, a customer or
-    another team — services/promises.py::add_promise records the same reason
+    another team - services/promises.py::add_promise records the same reason
     for not checking `to_whom` against crew membership. An assignee has to be
     a real person because work is handed TO them; this name is only ever
     quoted back in a nudge.
@@ -89,8 +89,8 @@ def split_party(body: str) -> tuple[str, str]:
     m = _Q_ASSIGN.match(body)
     if m:
         who = m.group("person").strip()
-        # A separator inside a sentence is not a name: "the redlines — soon".
-        # Word count plus a leading-article check, NOT "no spaces" — the
+        # A separator inside a sentence is not a name: "the redlines - soon".
+        # Word count plus a leading-article check, NOT "no spaces" - the
         # parties this exists for are "acme corp" and "the vendor's counsel",
         # and rejecting every multi-word name dropped `to_whom` on the exact
         # rows services/stakeholders.py is built to gather.
@@ -142,7 +142,7 @@ def classify(text: str) -> str:
 
 def is_private_feedback(text: str) -> bool:
     """Does this text carry an fb: line? Any surface that could route text to
-    a team-visible record must refuse first — chat, the session bridge, ingest
+    a team-visible record must refuse first - chat, the session bridge, ingest
     and MCP all ask here rather than importing the private module, so the
     privacy canary in test_privacy can stay a strict source-level rule."""
     from . import private_notes
@@ -158,7 +158,7 @@ def plan(text: str, *, actor: str = "system", origin: str = "human") -> tuple[st
     handler's own kwargs. A generic {"text": ...} was applicable by nothing:
     every captured proposal failed at apply and reset to pending, wedging the
     review inbox forever. capture() takes its kind from this function, so the
-    two paths cannot classify the same text differently — but its branch
+    two paths cannot classify the same text differently - but its branch
     calls mirror these payloads by hand, so a key change here must be made
     there too. test_authority.py::
     test_every_classified_capture_kind_produces_an_applicable_proposal pins
@@ -234,7 +234,7 @@ def capture(
     text = text.strip()
     if not text:
         raise ValueError("nothing to capture")
-    # fb: short-circuits BEFORE classification — feedback never becomes a
+    # fb: short-circuits BEFORE classification - feedback never becomes a
     # team-visible, FTS-indexed record. Human-only, strong-identity-only;
     # no index_record, no activity log (the audit lives in the private schema).
     # Line-oriented and fail-closed: an fb: line buried in a multi-line
@@ -248,12 +248,12 @@ def capture(
     if any(private_notes.FB_GUARD.match(ln) for ln in text.splitlines()):
         if len(text.splitlines()) > 1:
             raise ValueError(
-                "fb: lines must be captured alone — they are private and the"
+                "fb: lines must be captured alone - they are private and the"
                 " rest of a capture is team-visible. Use /ingest for"
                 " multi-line notes (fb: lines are skipped there)."
             )
         if origin != "human":
-            raise ValueError("feedback notes are human-only — agents cannot write them")
+            raise ValueError("feedback notes are human-only - agents cannot write them")
         if not strong_auth:
             raise ValueError(wording.strong_identity_required("Private feedback"))
         person, body = private_notes.parse_feedback(text)  # raises on bad format
@@ -305,7 +305,7 @@ def capture(
             **tier,
         )
     elif kind == "request":
-        # requests arrive where people already type — route them into intake
+        # requests arrive where people already type - route them into intake
         # instead of letting them die as notes
         from . import intake
 

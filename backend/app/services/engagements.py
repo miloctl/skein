@@ -9,7 +9,7 @@ from .search import index_record
 
 STATUSES = ("proposed", "active", "closing", "closed")
 KINDS = ("delivery", "experiment")
-# closing an engagement requires an honest conclusion — "shipped" is evidence
+# closing an engagement requires an honest conclusion - "shipped" is evidence
 # of output, not of value; an invalidated experiment can be a success
 CONCLUSIONS = ("achieved", "partial", "missed", "invalidated", "unmeasured", "stopped")
 
@@ -207,7 +207,7 @@ def _update_engagement_locked(
     freshly_closed = status == "closed" and current["status"] != "closed"
     if freshly_closed and not (conclusion or current["conclusion"]):
         raise ValueError(
-            f"closing needs a conclusion — one of {CONCLUSIONS}."
+            f"closing needs a conclusion - one of {CONCLUSIONS}."
             " 'invalidated' is a fine outcome for an experiment. 'unmeasured' is honest too."
         )
     fields = {
@@ -220,7 +220,7 @@ def _update_engagement_locked(
             ("conclusion", conclusion),
             ("outcome", outcome),
             # extending a timebox on purpose is the answer to the
-            # experiment_overdue finding — it must be possible via the API
+            # experiment_overdue finding - it must be possible via the API
             ("timebox_end", timebox_end),
             ("kill_criteria", kill_criteria),
         ]
@@ -228,11 +228,11 @@ def _update_engagement_locked(
     }
     if not fields:
         raise ValueError("nothing to update")
-    # "-" clears any clearable field — same convention as tasks/milestones;
+    # "-" clears any clearable field - same convention as tasks/milestones;
     # a mis-set timebox must be removable, not only movable
     if fields.get("timebox_end") == "-" and current["kind"] == "experiment":
         raise ValueError(
-            "experiments keep a timebox — move the date instead of clearing"
+            "experiments keep a timebox - move the date instead of clearing"
             " it, or close the experiment with a conclusion"
         )
     for clearable, empty in (
@@ -247,7 +247,7 @@ def _update_engagement_locked(
     if freshly_closed:
         fields["closed_at"] = db.now()  # re-closing must not re-fire ship-it
     sets = ", ".join(f"{k} = ?" for k in fields)
-    # rename propagation rides the same transaction AFTER all validation — a
+    # rename propagation rides the same transaction AFTER all validation - a
     # rejected PATCH must never leave milestones labeled with a name no
     # engagement has
     with db.transaction():
@@ -257,7 +257,7 @@ def _update_engagement_locked(
                 (name, engagement_id),
             )
         db.execute(
-            f"UPDATE engagements SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded
+            f"UPDATE engagements SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 - keys hardcoded
             (*fields.values(), db.now(), engagement_id),
         )
     db.log_activity(actor, "update_engagement", f"#{engagement_id} {status or 'edited'}")
@@ -288,7 +288,7 @@ def _update_engagement_locked(
         # roster member, and a count that included private tasks told them
         # how much hidden work a colleague holds
         open_tasks = db.query_one(
-            f"SELECT COUNT(*) AS n FROM tasks WHERE {scope.WORKSPACE_ONLY}"  # noqa: S608 — scope constant
+            f"SELECT COUNT(*) AS n FROM tasks WHERE {scope.WORKSPACE_ONLY}"  # noqa: S608 - scope constant
             " AND status NOT IN ('done', 'void')"
             " AND (engagement_id = ? OR milestone_id IN"
             " (SELECT id FROM milestones WHERE engagement_id = ?))",
@@ -300,7 +300,7 @@ def _update_engagement_locked(
         from .notifications import notify
 
         for owner in db.query(
-            f"SELECT created_by, COUNT(*) AS n FROM tasks WHERE NOT ({scope.WORKSPACE_ONLY})"  # noqa: S608 — scope constant
+            f"SELECT created_by, COUNT(*) AS n FROM tasks WHERE NOT ({scope.WORKSPACE_ONLY})"  # noqa: S608 - scope constant
             " AND status NOT IN ('done', 'void') AND (engagement_id = ? OR milestone_id IN"
             " (SELECT id FROM milestones WHERE engagement_id = ?)) GROUP BY created_by",
             (engagement_id, engagement_id),
@@ -316,7 +316,7 @@ def _update_engagement_locked(
             notify(
                 "team",
                 f"Engagement #{engagement_id} closed with {open_tasks['n']}"
-                f" open task{'' if open_tasks['n'] == 1 else 's'} — rehome or close"
+                f" open task{'' if open_tasks['n'] == 1 else 's'} - rehome or close"
                 f" {'it' if open_tasks['n'] == 1 else 'them'}.",
                 tier="digest",
                 link="/dashboard",
@@ -349,14 +349,14 @@ def _playbook_lesson(engagement_id: int, *, actor: str) -> int:
     verdict is what earns it a place the next kickoff will read.
 
     WORKSPACE TIER ONLY, and checked here rather than left to fail inside the
-    diff. `close_out_diff` reads with NOBODY — the drafted lesson becomes a
+    diff. `close_out_diff` reads with NOBODY - the drafted lesson becomes a
     proposal, and a proposal assembled from rows the drafter had to be
     privileged to see is how a scoped title reaches a reviewer. So a crew or
     private engagement gets no draft. `drafts_lesson` on the plan-diff
     endpoint reports that to the close-out control, which is what keeps the
     panel from promising a lesson nobody will get.
 
-    Returns the proposal id, or 0 when there is nothing to say — not a
+    Returns the proposal id, or 0 when there is nothing to say - not a
     playbook engagement, a scoped one, or a plan that held. Never raises: a
     close must not fail because the lesson could not be drafted.
     """
@@ -418,7 +418,7 @@ def _playbook_lesson_locked(engagement_id: int, *, actor: str) -> int:
 
 
 def _experiment_lesson(engagement_id: int, *, actor: str, origin: str) -> None:
-    """Closing an experiment auto-drafts a lesson — the whole point of
+    """Closing an experiment auto-drafts a lesson - the whole point of
     running one is what it taught."""
     eng = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
     if not eng:
@@ -445,7 +445,7 @@ def _ship_it(engagement_id: int, *, actor: str, origin: str = "human") -> None:
 
 def _ship_it_locked(engagement_id: int, *, actor: str, origin: str) -> None:
     """The Ship It moment: recap card + team notification when an engagement
-    closes. Deterministic — all counts from SQL."""
+    closes. Deterministic - all counts from SQL."""
     eng = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
     if not eng:
         return
@@ -459,29 +459,29 @@ def _ship_it_locked(engagement_id: int, *, actor: str, origin: str) -> None:
             )
             or {}
         ).get("d")
-        # same-day closes skip the duration — "— 0 days" reads as a bug
+        # same-day closes skip the duration - "- 0 days" reads as a bug
         days = f"{int(delta)} days" if delta else ""
     # workspace rows only: the recap is one line for the whole team, and a
     # crew or private row counted here is a row its readers cannot open
     ws = f"'{scope.WORKSPACE}'"
     stats = {
         "milestones": db.query_row(
-            f"SELECT COUNT(*) AS n FROM milestones WHERE visibility = {ws} AND engagement_id = ?",  # noqa: S608 — scope constant
+            f"SELECT COUNT(*) AS n FROM milestones WHERE visibility = {ws} AND engagement_id = ?",  # noqa: S608 - scope constant
             (engagement_id,),
         ),
-        # BOTH link paths — direct tasks.engagement_id and via milestones —
+        # BOTH link paths - direct tasks.engagement_id and via milestones -
         # the same predicate the open-task warning above uses; an engagement
         # worked without milestones must not recap as zero
         "tasks_done": db.query_row(
-            f"SELECT COUNT(*) AS n FROM tasks t WHERE t.visibility = {ws} AND t.status = 'done'"  # noqa: S608 — scope constant
+            f"SELECT COUNT(*) AS n FROM tasks t WHERE t.visibility = {ws} AND t.status = 'done'"  # noqa: S608 - scope constant
             " AND (t.engagement_id = ? OR t.milestone_id IN"
             " (SELECT id FROM milestones WHERE engagement_id = ?))",
             (engagement_id, engagement_id),
         ),
-        # scoped to THIS engagement's linked blockers — the recap must be honest
+        # scoped to THIS engagement's linked blockers - the recap must be honest
         # (a time-window count silently absorbed unrelated blockers)
         "blockers_survived": db.query_row(
-            "SELECT COUNT(*) AS n FROM blockers b JOIN tasks t ON t.id = b.task_id"  # noqa: S608 — scope constant
+            "SELECT COUNT(*) AS n FROM blockers b JOIN tasks t ON t.id = b.task_id"  # noqa: S608 - scope constant
             f" WHERE b.visibility = {ws} AND b.status = 'resolved' AND (t.engagement_id = ? OR t.milestone_id IN"
             " (SELECT id FROM milestones WHERE engagement_id = ?))",
             (engagement_id, engagement_id),
@@ -489,10 +489,10 @@ def _ship_it_locked(engagement_id: int, *, actor: str, origin: str) -> None:
     }
     if eng["kind"] == "experiment":
         # an invalidated hypothesis that finished on time is a success
-        head = f"🧪 **Experiment concluded: {name}** — {eng['conclusion'] or 'unmeasured'}"
+        head = f"🧪 **Experiment concluded: {name}** - {eng['conclusion'] or 'unmeasured'}"
     else:
         head = f"🚢🪿 **Shipped: {name}**"
-    # zero-valued stats are noise in a celebration line — say only what happened
+    # zero-valued stats are noise in a celebration line - say only what happened
     parts = [
         f"{stats['milestones']['n']} milestones" if stats["milestones"]["n"] else "",
         f"{stats['tasks_done']['n']} tasks done" if stats["tasks_done"]["n"] else "",
@@ -501,7 +501,7 @@ def _ship_it_locked(engagement_id: int, *, actor: str, origin: str) -> None:
         else "",
     ]
     tail = " · ".join(p for p in parts if p)
-    recap = head + (f" — {days}" if days else "") + (f" · {tail}" if tail else "")
+    recap = head + (f" - {days}" if days else "") + (f" · {tail}" if tail else "")
     from .collab import save_note
     from .notifications import notify
 
@@ -523,7 +523,7 @@ def _ship_it_locked(engagement_id: int, *, actor: str, origin: str) -> None:
     )
     # the note renders markdown; notifications land on plain-text surfaces.
     # "team" is every person on the roster, so a scoped closure is not
-    # announced at all — the crew reads it on the note above.
+    # announced at all - the crew reads it on the note above.
     if eng["visibility"] == scope.WORKSPACE:
         event = "concluded" if eng["kind"] == "experiment" else "shipped"
         notify(
@@ -542,12 +542,12 @@ def list_engagements(status: str = "", viewer: scope.Viewer = scope.NOBODY) -> l
     frag, vp = scope.visible_filter(viewer, "engagements")
     if status:
         rows = db.query(
-            f"SELECT * FROM engagements WHERE status = ? AND {frag} ORDER BY id DESC LIMIT 200",  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"SELECT * FROM engagements WHERE status = ? AND {frag} ORDER BY id DESC LIMIT 200",  # noqa: S608 - scope.visible_filter emits only bound marks
             (status, *vp),
         )
     else:
         rows = db.query(
-            f"SELECT * FROM engagements WHERE {frag} ORDER BY status = 'closed', id DESC LIMIT 200",  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"SELECT * FROM engagements WHERE {frag} ORDER BY status = 'closed', id DESC LIMIT 200",  # noqa: S608 - scope.visible_filter emits only bound marks
             tuple(vp),
         )
     # One query for every engagement's allocations, not one per engagement:
@@ -558,7 +558,7 @@ def list_engagements(status: str = "", viewer: scope.Viewer = scope.NOBODY) -> l
     marks = ",".join("?" * len(rows))
     grouped: dict[int, list[dict]] = {r["id"]: [] for r in rows}
     for a in db.query(
-        "SELECT engagement_id, person, percent, starts_on, ends_on FROM allocations"  # noqa: S608 — marks below are generated ?s, never caller input
+        "SELECT engagement_id, person, percent, starts_on, ends_on FROM allocations"  # noqa: S608 - marks below are generated ?s, never caller input
         f" WHERE engagement_id IN ({marks})",
         tuple(r["id"] for r in rows),
     ):
@@ -594,7 +594,7 @@ def allocate(
     # (services/scope.py::Viewer.for_actor names the attack)
     afrag, ap = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
     if not db.query_one(
-        f"SELECT id FROM engagements WHERE id = ? AND {afrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT id FROM engagements WHERE id = ? AND {afrag}",  # noqa: S608 - scope.visible_filter emits only bound marks
         (engagement_id, *ap),
     ):
         raise scope.missing("engagements", engagement_id)
@@ -619,15 +619,15 @@ def allocate(
 
 
 def deallocate(allocation_id: int, *, actor: str = "system") -> dict:
-    """Allocations were append-only — one fat-fingered percent permanently
+    """Allocations were append-only - one fat-fingered percent permanently
     skewed capacity, conflicts, and what-if staffing."""
     # gated on the ENGAGEMENT, like allocate: `allocations` carries no tier of
     # its own (scope.UNSCOPED), so without this any caller could walk
-    # allocation ids and delete staffing off an engagement they cannot read —
+    # allocation ids and delete staffing off an engagement they cannot read -
     # and read its existence off the refusal while doing it.
     dfrag, dp = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements", "e")
     row = db.query_one(
-        "SELECT a.person, a.engagement_id, a.percent FROM allocations a"  # noqa: S608 — scope.visible_filter emits only bound marks
+        "SELECT a.person, a.engagement_id, a.percent FROM allocations a"  # noqa: S608 - scope.visible_filter emits only bound marks
         f" JOIN engagements e ON e.id = a.engagement_id AND {dfrag}"
         " WHERE a.id = ?",
         (*dp, allocation_id),
@@ -663,13 +663,13 @@ def list_allocations(
     )
     if engagement_id:
         return db.query(
-            f"SELECT {columns} FROM allocations a"  # noqa: S608 — scope fragments emit only bound marks
+            f"SELECT {columns} FROM allocations a"  # noqa: S608 - scope fragments emit only bound marks
             " JOIN engagements e ON e.id = a.engagement_id WHERE a.engagement_id = ?"
             " ORDER BY a.id DESC LIMIT ?",
             (*fp, *np, engagement_id, limit),
         )
     return db.query(
-        f"SELECT {columns} FROM allocations a"  # noqa: S608 — scope fragments emit only bound marks
+        f"SELECT {columns} FROM allocations a"  # noqa: S608 - scope fragments emit only bound marks
         " JOIN engagements e ON e.id = a.engagement_id WHERE e.status != 'closed'"
         " ORDER BY a.id DESC LIMIT ?",
         (*fp, *np, limit),
@@ -683,13 +683,13 @@ def capacity(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     Absence-aware: people away today carry an `away` marker so the math is
     read with the right eyes (a PTO'd 80% is not 80%).
 
-    The percent sums over every tier and the NAME is masked per row — see
+    The percent sums over every tier and the NAME is masked per row - see
     scope.visible_name for why the total must stay honest.
     """
     today = db.today().isoformat()  # vs absences.starts_on/ends_on, date columns
     name, np = scope.visible_name(viewer, "engagements", "e.name", alias="e")
     rows = db.query(
-        "SELECT a.person, SUM(a.percent) AS total_percent,"  # noqa: S608 — scope.visible_name emits only bound marks
+        "SELECT a.person, SUM(a.percent) AS total_percent,"  # noqa: S608 - scope.visible_name emits only bound marks
         f" string_agg({name} || ' (' || a.percent || '%)', ', ') AS detail"
         " FROM allocations a JOIN engagements e ON e.id = a.engagement_id"
         " WHERE e.status != 'closed'"
@@ -724,7 +724,7 @@ def record_lesson(
     # a lesson to an engagement they cannot read
     lfrag, lp = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
     if engagement_id and not db.query_one(
-        f"SELECT id FROM engagements WHERE id = ? AND {lfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT id FROM engagements WHERE id = ? AND {lfrag}",  # noqa: S608 - scope.visible_filter emits only bound marks
         (engagement_id, *lp),
     ):
         raise ValueError(scope.missing_text("engagements", engagement_id))
@@ -758,11 +758,11 @@ def list_lessons(
     frag, vp = scope.visible_filter(viewer, "lessons")
     if project_class:
         return db.query(
-            f"SELECT * FROM lessons WHERE project_class = ? AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"SELECT * FROM lessons WHERE project_class = ? AND {frag}"  # noqa: S608 - scope.visible_filter emits only bound marks
             " ORDER BY id DESC LIMIT ?",
             (project_class, *vp, limit),
         )
     return db.query(
-        f"SELECT * FROM lessons WHERE {frag} ORDER BY id DESC LIMIT ?",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM lessons WHERE {frag} ORDER BY id DESC LIMIT ?",  # noqa: S608 - scope.visible_filter emits only bound marks
         (*vp, limit),
     )

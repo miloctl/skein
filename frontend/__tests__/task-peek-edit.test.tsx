@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /** The peek is "the one landing place for every task reference" and carried
  *  exactly one control (Delegate). Changing a status or a due date meant
- *  leaving for Browse, whose edit row holds three of these fields — and
+ *  leaving for Browse, whose edit row holds three of these fields - and
  *  marking a task done existed only on My Day, for your own tasks. */
 
 const mocks = vi.hoisted(() => ({ api: vi.fn() }));
@@ -107,7 +107,7 @@ describe("editing from the task panel", () => {
     );
     render(<TaskPeek />);
     fireEvent.click(await screen.findByRole("button", { name: /edit…/ }));
-    // the sponsor's verdict is the only path that ends a delegation — a
+    // the sponsor's verdict is the only path that ends a delegation - a
     // status select here collects an edit the server refuses
     expect(screen.queryByLabelText("Status")).toBeNull();
     expect(screen.queryByRole("button", { name: /mark done/ })).toBeNull();

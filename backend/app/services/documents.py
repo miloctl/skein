@@ -2,7 +2,7 @@
 
 The other half of services/uploads.py: a person attaches a file, an agent
 produces one. Both are `artifacts` rows under the same containment root, and
-the split is what keeps them honest — an UPLOAD is never rewritten. An agent
+the split is what keeps them honest - an UPLOAD is never rewritten. An agent
 asked to revise one writes a new document that records the upload in
 `derived_from`, so the person's own file is still the file they attached, and
 "undo" costs nothing because the source never moved.
@@ -65,7 +65,7 @@ def _check_source(source_id: int) -> None:
     Refused rather than clamped: a private document would have to carry its
     source's OWNER to stay reachable, and a row whose created_by is a person
     who did not write it is a worse lie than a refusal. The agent can still
-    answer about the file in the chat turn — that answer goes to the one
+    answer about the file in the chat turn - that answer goes to the one
     person who attached it, which is the reader who was always allowed it.
 
     An unshared source reads as absent (scope.missing): any other refusal
@@ -109,7 +109,7 @@ def create_document(
     # approval repeats on every try, and the reader learns nothing
     efrag, ep = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
     if engagement_id and not db.query_one(
-        f"SELECT id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 - scope.visible_filter emits only bound marks
         (engagement_id, *ep),
     ):
         raise ValueError(scope.missing_text("engagements", engagement_id))
@@ -120,7 +120,7 @@ def create_document(
         # the author has left
         tier, cid = scope.resolve_write(visibility, crew_id, actor=actor)
         # The row is inserted before the file, because the file is named after
-        # the row id — see services/uploads.py::save_upload for the same
+        # the row id - see services/uploads.py::save_upload for the same
         # ordering and the same reason.
         row = db.query_row(
             "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at,"
@@ -147,7 +147,7 @@ def create_document(
         artifact_id = int(row["id"])
         # "id" as well as "artifact_id": tools/_gate.py stamps the receipt ref
         # from result["id"] and review.py stamps the proposal's lineage from
-        # it. Absent, both silently become 0 — a receipt with no reference is
+        # it. Absent, both silently become 0 - a receipt with no reference is
         # dropped from the transcript rather than reported wrong.
         return {"id": artifact_id, "artifact_id": artifact_id, "title": clean_title}
 
@@ -169,7 +169,7 @@ def _document_row(artifact_id: int) -> dict:
     if row["kind"] != "document":
         # Named, not a generic refusal: an agent told only "no" retries with
         # the same id. An upload is a person's own file and is never rewritten
-        # — the revision path is a new document carrying derived_from.
+        # - the revision path is a new document carrying derived_from.
         raise PermissionError(
             f"artifact #{artifact_id} is not a document, so it cannot be changed."
             " If it is a file somebody attached, answer in the conversation instead."
@@ -353,7 +353,7 @@ def _editable_row(artifact_id: int, actor: str) -> dict:
 def _readable_document(artifact_id: int, viewer: scope.Viewer) -> dict:
     frag, vp = scope.visible_filter(viewer, "artifacts")
     row = db.query_one(
-        f"SELECT * FROM artifacts WHERE id = ? AND {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM artifacts WHERE id = ? AND {frag}",  # noqa: S608 - scope.visible_filter emits only bound marks
         (artifact_id, *vp),
     )
     if not row:
@@ -579,7 +579,7 @@ def edit_document(
 ) -> dict:
     """Replace one exact run of text in a document.
 
-    `origin` is the review applier's contract — see create_document above.
+    `origin` is the review applier's contract - see create_document above.
 
     A whole-body rewrite would let a model that read half a file replace all
     of it, so the edit states what it expects to find. A match that is not

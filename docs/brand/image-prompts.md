@@ -1,8 +1,8 @@
-# gpt-image-2 prompts — Skein brand atmosphere
+# gpt-image-2 prompts - Skein brand atmosphere
 
 Generate **atmosphere only**. The logo mark and every icon are authored as SVG
 (`frontend/components/mark.tsx`, `frontend/app/icon.svg`) and composited in
-afterward — never generated. See `docs/brand/README.md` for why.
+afterward - never generated. See `docs/brand/README.md` for why.
 
 ## Size rules
 
@@ -16,7 +16,7 @@ divisible by 16, aspect ratio ≤ 3:1, and total pixels are between 655,360 and
 | README banner | `1920x640` | scale to 1280w, crop to 1280x400 |
 | OG card | `1200x640` | crop to 1200x630 |
 
-## Palette — app tokens, not the site's
+## Palette - app tokens, not the site's
 
 The docs site historically used a different indigo/gold. Always use these:
 
@@ -45,7 +45,7 @@ topology; no decorative "knot-like" form; no infinity loop.
 ```
 
 The knot ban is not stylistic. `backend/fieldguide/knots.yaml` is a correct
-26-knot marlinspike taxonomy, and image models cannot tie knots — they produce
+26-knot marlinspike taxonomy, and image models cannot tie knots - they produce
 plausible tangles with incoherent topology. A fake knot next to that file is a
 fake receipt in a product whose thesis is receipts. Knots belong to the field
 guide; the product's visual vocabulary is **strand, V, formation**.
@@ -53,19 +53,19 @@ guide; the product's visual vocabulary is **strand, V, formation**.
 ## Craft notes
 
 - Say **"flat printed ink"**, **"screen print"**, **"die-cut"**, or
-  **"letterpress"**. Never say "vector" — it summons microstock gradient meshes.
+  **"letterpress"**. Never say "vector" - it summons microstock gradient meshes.
 - **Occupy the slot instead of negating it.** "No background" summons a
   background; "one flat even field of `#faf9f6`" does not.
 - **Depth from line weight and spacing, never from blur.** State the mechanism
   positively or the exclusion list loses about half the time.
 - Generate `n=4` per prompt before rewriting. Sample variance exceeds prompt
   variance.
-- Iterate with the **edit endpoint**, not a fresh prompt — re-prompting loses
+- Iterate with the **edit endpoint**, not a fresh prompt - re-prompting loses
   the composition you liked.
 
 ---
 
-# 1. Landing hero — 1600x896
+# 1. Landing hero - 1600x896
 
 For `docs/site/index.html`. The site has real light and dark themes; an
 atmospheric hero cannot split the difference, so generate both.
@@ -73,7 +73,7 @@ atmospheric hero cannot split the difference, so generate both.
 ## 1-LIGHT
 
 ```
-A wide, quiet illustration in a restrained technical print style — flat printed
+A wide, quiet illustration in a restrained technical print style - flat printed
 ink on paper, precise and hand-ruled, in the manner of a fine screen print.
 
 Background: one flat, completely even field of warm off-white paper (#faf9f6)
@@ -86,11 +86,11 @@ thirty lines enter low at the lower left, widely spaced and very thin, and rise
 across the frame toward the upper right, where they draw closer together and
 grow slightly heavier. In three or four places along the sweep, two or three
 adjacent lines converge and run together as a single heavier line for a short
-distance, then separate again and continue — strands plying and releasing. The
+distance, then separate again and continue - strands plying and releasing. The
 lines never cross each other; they only converge and part.
 
 Colour: every line is deep indigo blue (#3b4dbf), except exactly three lines
-that are burnt amber (#935a1c) — one at the leading tip of the formation and
+that are burnt amber (#935a1c) - one at the leading tip of the formation and
 two more deep inside the pack.
 
 Depth comes from line weight and spacing alone, never from blur: lines lowest
@@ -111,7 +111,7 @@ charts; a border or frame; any knot, tangle, spaghetti loop, or impossible
 over-under topology.
 ```
 
-**Going for:** strands travelling and briefly plying — the formation implied,
+**Going for:** strands travelling and briefly plying - the formation implied,
 never drawn.
 **Failure mode:** "atmospheric" summons bloom and bokeh, which will read as
 AI-generated next to the site's hairline-ruled CSS. Discard rather than edit
@@ -128,27 +128,27 @@ Same prompt with three substitutions:
 
 ---
 
-# 2. README banner — SUPERSEDED, the banner is now authored
+# 2. README banner - SUPERSEDED, the banner is now authored
 
-> Kept as a record of why. v2 fixed what v1 broke — the band came back a
-> constant 175px thick with even 23-26px gaps and no fraying — but three
+> Kept as a record of why. v2 fixed what v1 broke - the band came back a
+> constant 175px thick with even 23-26px gaps and no fraying - but three
 > rounds could not produce a single over-under crossing. The model drew
 > flat X's: two strands meeting and carrying on, no break in the one
 > behind. See `docs/brand/gen_banner.py` and the rationale in
 > `docs/brand/README.md`.
 
-# 2-OLD. README banner — v2
+# 2-OLD. README banner - v2
 
 **Why v1 was replaced.** The first version asked for ~30 hairlines "at a
 consistent 24-degree angle" that "converge and run together." The model read
-the whole description as one-point perspective and drew a vanishing-point fan
-— technically clean, but it says *telecom*, not *formation*. The strands never
+the whole description as one-point perspective and drew a vanishing-point fan -
+technically clean, but it says *telecom*, not *formation*. The strands never
 plied, and at high density the lines frayed and wandered (and the dark variant
 produced solid filled wedges where lines should be).
 
 Three fixes below: perspective is banned by name, the strand count drops to
 ~12 so each one is individually followable, and the crossings are specified as
-**over-under position swaps** rather than "convergence" — which is the word
+**over-under position swaps** rather than "convergence" - which is the word
 that caused the problem.
 
 Generate `1920x640`, scale to 1280 wide, crop to `1280x400`.
@@ -156,7 +156,7 @@ Generate `1920x640`, scale to 1280 wide, crop to `1280x400`.
 ## 2-LIGHT-v2
 
 ```
-A very wide banner illustration in a restrained technical print style — flat
+A very wide banner illustration in a restrained technical print style - flat
 printed ink on paper, drawn with a pen and a ruler, mechanically precise.
 
 Background: one flat, completely even field of warm off-white paper (#faf9f6)
@@ -169,11 +169,11 @@ point and do not fan out. They run as a parallel band across the frame.
 Draw exactly twelve long straight strands. All twelve run left to right across
 the full width of the frame, rising very gently at about 12 degrees. They are
 evenly spaced, roughly equal in weight, and stay parallel to one another for
-most of their length — the band keeps a constant thickness from left edge to
+most of their length - the band keeps a constant thickness from left edge to
 right edge. It does not widen, narrow, or bunch.
 
 At four evenly spaced points along the band, one adjacent PAIR of strands
-crosses over each other and swaps places — the upper strand passes down and
+crosses over each other and swaps places - the upper strand passes down and
 under, the lower strand passes up and over, they trade positions, and then both
 continue on parallel as before. Each crossing is a small, tidy, deliberate X
 about as wide as the gap between two strands. At every crossing the strand
@@ -184,7 +184,7 @@ through, undisturbed.
 Every strand is deep indigo blue (#3b4dbf), of even hairline-to-two-pixel
 weight, perfectly straight between crossings, with no wobble, no waver, no
 fraying, and no bunching. Except the topmost strand, which is dark burnt umber
-(#935a1c) — a deep muted brown-ochre, not orange, not gold, not yellow — and
+(#935a1c) - a deep muted brown-ochre, not orange, not gold, not yellow - and
 which runs slightly ahead of and above the other eleven.
 
 All twelve strands sit inside the middle 55 percent of the frame height. The
@@ -204,13 +204,13 @@ over-under topology.
 ```
 
 **Going for:** a flat band of strands that stays a band, with four legible
-places where two strands trade position. That swap is the whole brand idea —
+places where two strands trade position. That swap is the whole brand idea -
 the lead rotates, and the formation holds.
 
 **Failure mode:** it reintroduces perspective anyway. Check first that the band
 is the same thickness at both edges; if it tapers, discard. Second check: count
 the crossings and confirm the behind-strand actually breaks. A crossing drawn
-as a merge or a shaded overlap is a reject — that is the v1 failure returning.
+as a merge or a shaded overlap is a reject - that is the v1 failure returning.
 
 **If the crossings will not come:** generate the band clean with no crossings
 at all, then use the **edit endpoint** with a mask over one crossing site and
@@ -220,17 +220,17 @@ this far better than a fresh prompt.
 
 ## 2-DARK-v2
 
-Same prompt, three substitutions. Note the background is a **warm** near-black
-— v1 came back at a cooler, darker `#0e0e0e`, which would not sit flush with
+Same prompt, three substitutions. Note the background is a **warm** near-black -
+v1 came back at a cooler, darker `#0e0e0e`, which would not sit flush with
 the site's dark paper:
 
-- Background → `one flat, completely even field of warm near-black (#141311) — a soft warm charcoal, not pure black and not a cool grey`
+- Background → `one flat, completely even field of warm near-black (#141311) - a soft warm charcoal, not pure black and not a cool grey`
 - Strand colour → `soft periwinkle (#a7b5f2)`
 - Lead strand → `warm sand (#d9a15e)`
 
 ---
 
-# 2-OLD. README banner — v1 (superseded)
+# 2-OLD. README banner - v1 (superseded)
 
 Scale to 1280 wide, crop to `1280x400`. Gitea renders README images against
 both light and dark page backgrounds, so give the banner an **opaque ground**
@@ -243,7 +243,7 @@ bottom bands.
 
 ```
 A very wide banner illustration, minimal and precise, in a restrained technical
-print style — flat printed ink on paper.
+print style - flat printed ink on paper.
 
 Background: one flat, completely even field of warm off-white paper (#faf9f6)
 filling the entire frame edge to edge. No vignette, no gradient, no soft or
@@ -260,7 +260,7 @@ the left edge the lines are few, long, and widely spaced. Travelling right they
 multiply and draw progressively closer together, and in the right third several
 adjacent lines converge and run as single heavier lines before parting again.
 The formation is densest at the right edge. The lines never cross one another.
-One single line — the leading one at the top of the formation — is burnt amber
+One single line - the leading one at the top of the formation - is burnt amber
 (#935a1c).
 
 Line weights run hairline to three pixels, crisp and mechanically even, never
@@ -289,18 +289,18 @@ Same substitutions as 1-DARK: `#141311` field, `#a7b5f2` lines, `#d9a15e` lead.
 
 ---
 
-# 3. OG / social card — generate 1200x640
+# 3. OG / social card - generate 1200x640
 
 Crop to `1200x630`. Lower priority: the app is served on a trusted LAN at
 `http://${SKEIN_HOST}:3000`, so external crawlers cannot reach it and the card
 will rarely unfurl. Worth having for screenshots and completeness.
 
-The wordmark, tagline, and mark are composited afterward in HTML/SVG — the
+The wordmark, tagline, and mark are composited afterward in HTML/SVG - the
 generated art must leave room and contain no text.
 
 ```
 A wide flat editorial illustration on warm off-white paper (#faf9f6), in a
-restrained Swiss print style — precise, quiet, built from thin ruled lines.
+restrained Swiss print style - precise, quiet, built from thin ruled lines.
 
 Composition: the left 55 percent of the frame is almost entirely empty paper,
 deliberately reserved as clean negative space. Nothing crosses into it except
@@ -312,7 +312,7 @@ same 24-degree upward angle, opening toward the upper right and converging
 toward the left. Near the right edge the lines are many, evenly spaced and
 parallel. Travelling left they thin out, draw together, and the last several
 converge into a single line that tapers to nothing before reaching the middle
-of the frame. Exactly three lines are burnt amber (#935a1c) — one at the
+of the frame. Exactly three lines are burnt amber (#935a1c) - one at the
 leading tip and two trailing; every other line is deep indigo blue (#3b4dbf).
 Hairline to two-pixel weights, crisp and mechanically even. The lines never
 cross one another.

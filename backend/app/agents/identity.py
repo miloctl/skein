@@ -1,7 +1,7 @@
 """Per-request agent identity for the chat tool surface.
 
 The chat route sets the acting identity here per request, and every chat
-tool reads it — a tool that hardcodes actor="agent" collapses every
+tool reads it - a tool that hardcodes actor="agent" collapses every
 chat-side agent into one identity, and the per-agent authority matrix and
 trust scores cannot tell a persona from the default Chief of Staff.
 Contextvars propagate through the async call chain, so concurrent chats
@@ -68,7 +68,7 @@ def strong_requester() -> str:
 # A tool cannot build one: scope.Viewer carries the strong-identity bar and is
 # constructed in routes/deps.py alone, so a tool that resolved its own would
 # either bypass the bar or, from a machine name, come back empty. And it
-# cannot be skipped — `/as <persona>` lets a HUMAN take an agent identity, so
+# cannot be skipped - `/as <persona>` lets a HUMAN take an agent identity, so
 # "the agent is reading its own inbox" stops being true the moment a person is
 # driving the turn. Unset (None) means nobody is: MCP and the scheduler, where
 # the agent really is the caller.
@@ -127,7 +127,7 @@ def force_review() -> bool:
     specialist (docs/FLOCKS.md, docs/PERSONAS.md): both turns are
     consultative, and one human message must not become N unreviewed writes
     because the agents earned autonomy one at a time. tools/_gate.py and
-    refuse_when_consultative below are the only readers — a write path that
+    refuse_when_consultative below are the only readers - a write path that
     reaches neither is ungoverned in both modes."""
     return _force_review.get()
 
@@ -148,7 +148,7 @@ def set_workspace_only_tools(on: bool) -> Token:
 
 
 def refuse_when_consultative(action: str) -> None:
-    """Guard for the write paths that skip tools/_gate.py BY DESIGN — the
+    """Guard for the write paths that skip tools/_gate.py BY DESIGN - the
     delegation trio, a delegate's comment on its own task, and the handoff
     generator (tests/test_gate_coverage.py holds that list). The gate is the
     only place force_review turns a write into a proposal, so a path that
@@ -164,17 +164,17 @@ def refuse_when_consultative(action: str) -> None:
     if _force_review.get():
         raise ValueError(
             f"this agent was asked for an opinion, not for work, and does not {action}"
-            " — ask the agent directly in its own chat"
+            " - ask the agent directly in its own chat"
         )
 
 
 # Per-turn consult budget. The bench roster sits in the orchestrator's prompt,
-# so the MODEL chooses how many specialists run in one turn — the only number
+# so the MODEL chooses how many specialists run in one turn - the only number
 # in the product that multiplies model spend and is not written by an operator
 # (services/flocks.py records why a flock's member count is file-declared).
 # The route seeds the budget from the specialists the USER named
 # (routes/chat.py::_consult_budget); this bounds the ones it did not name. The
-# rate limiter is charged per call inside the tool, not up front — unlike a
+# rate limiter is charged per call inside the tool, not up front - unlike a
 # flock, whose member count is known before the stream opens.
 MAX_CONSULTS_PER_TURN = 2
 
@@ -194,7 +194,7 @@ def start_consults(budget: int = MAX_CONSULTS_PER_TURN) -> None:
 
 def reset_consults() -> None:
     """Close the turn's budget. Without this a box set by one turn survives
-    into the next context that shares it — tests share worker threads, so
+    into the next context that shares it - tests share worker threads, so
     conftest resets it the way it resets receipts."""
     _consults.set(None)
 

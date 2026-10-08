@@ -4,7 +4,7 @@ turns, beside the operator's SKEIN_MCP_SERVERS list (agents/mcp_tools.py).
 A personal server carries no governance block. Its tools are classified
 from the server's own annotations; every write it offers needs a human
 review whatever the policy engine permits, and a read runs only after one
-human approved that tool once — the person adding a server must not be the
+human approved that tool once - the person adding a server must not be the
 one deciding how much to trust it. The token is sealed under
 SKEIN_CREDENTIAL_KEY and never leaves this module unsealed except into the
 connection that uses it."""
@@ -241,7 +241,7 @@ def mark_oauth_sign_in(sid: int, required: bool) -> None:
 
 def load_oauth(sid: int) -> tuple[str, str]:
     """(tokens JSON, client JSON), each '' when absent or sealed under a
-    key that changed — then the next sign-in replaces it."""
+    key that changed - then the next sign-in replaces it."""
     row = db.query_one(
         "SELECT oauth_tokens_sealed, oauth_client_sealed FROM mcp_servers WHERE id = ?", (sid,)
     )

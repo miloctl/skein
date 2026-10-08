@@ -29,13 +29,13 @@ def brief(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
 
     # Health that MOVED. `health_changes` compares against the most recent
     # snapshot at or before `since`, so a colour that has been red all month
-    # is correctly silent here — it is not news, and the manager queue is
+    # is correctly silent here - it is not news, and the manager queue is
     # where a standing condition belongs.
     for moved in health_changes(engagement_health(viewer, as_of=today), start):
         worse = _WORSE.get((moved["from"] or "", moved["to"]))
         # a FIRST score of green is not news. Every engagement is unscored
         # until the daily snapshot job has run once, so without this the first
-        # brief on a fresh deployment is a list of every green engagement —
+        # brief on a fresh deployment is a list of every green engagement -
         # the exact wall of already-true rows this surface exists to avoid.
         if not moved["from"] and moved["to"] == "green":
             continue
@@ -79,7 +79,7 @@ def brief(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
     )
     window = (since, until, sorted(_SYSTEM_AUDIENCE), since)
     findings = db.query(
-        "SELECT * FROM " + eligible + " WHERE rule_id <> ?"  # noqa: S608 — fixed SQL, values bound
+        "SELECT * FROM " + eligible + " WHERE rule_id <> ?"  # noqa: S608 - fixed SQL, values bound
         " ORDER BY CASE severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1"
         " WHEN 'low' THEN 2 ELSE 3 END, created_at, id LIMIT ?",
         (*window, ADOPTION_RULE, FINDING_CAP + 1),
@@ -89,7 +89,7 @@ def brief(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
     # made the first week's summary incomplete, which cannot be marked reviewed.
     # One finding per card means the field guide's size bounds this read.
     adoption = db.query(
-        "SELECT id, severity, subject FROM " + eligible + " WHERE rule_id = ?"  # noqa: S608 — fixed SQL, values bound
+        "SELECT id, severity, subject FROM " + eligible + " WHERE rule_id = ?"  # noqa: S608 - fixed SQL, values bound
         " ORDER BY created_at, id",
         (*window, ADOPTION_RULE),
     )
@@ -144,7 +144,7 @@ def brief(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
     # A promise crosses its due date at the next team midnight. Using start
     # as the due-date floor drops promises that became overdue on the first day.
     for p in db.query(
-        f"SELECT id, promise, to_whom, due_date FROM promises"  # noqa: S608 — module constant
+        f"SELECT id, promise, to_whom, due_date FROM promises"  # noqa: S608 - module constant
         f" WHERE status = 'open' AND direction = 'given' AND {scope.WORKSPACE_ONLY}"
         " AND due_date IS NOT NULL AND due_date < ? AND due_date >= ?"
         " ORDER BY due_date, id",
@@ -169,9 +169,9 @@ def brief(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
     tfrag, tp = scope.visible_filter(viewer, "tasks", alias="t")
     for c in db.query(
         # the task carries the tier and this quotes its TITLE, so the join side
-        # takes its own filter — being the sponsor is not the same fact as
+        # takes its own filter - being the sponsor is not the same fact as
         # being able to read the row, and only one of them governs a title
-        "SELECT p.id, p.entity_id, t.title FROM pending_changes p"  # noqa: S608 — scope.visible_filter emits only bound marks
+        "SELECT p.id, p.entity_id, t.title FROM pending_changes p"  # noqa: S608 - scope.visible_filter emits only bound marks
         f" JOIN tasks t ON t.id = p.entity_id AND {tfrag}"
         " WHERE p.entity = 'task_completion' AND p.status = 'pending'"
         " AND t.sponsor = ? AND p.created_at >= ? AND p.created_at < ?"

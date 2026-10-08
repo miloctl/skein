@@ -1,6 +1,6 @@
 """Local effect recorder, OAuth MCP server, HTTP router and per-pod DB links."""
 
-# ruff: noqa: S101, S104 — test assertions and container-internal listeners
+# ruff: noqa: S101, S104 - test assertions and container-internal listeners
 import http.client
 import json
 import os

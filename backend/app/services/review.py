@@ -117,7 +117,7 @@ def unappliable(entity: str, payload: dict, action: str = "create", *, entity_id
 
     A proposal is stored now and applied LATER, through the same service the
     REST door uses. A payload the service will refuse becomes a row that can
-    only ever be rejected, and the reviewer is told why at the verdict — long
+    only ever be rejected, and the reviewer is told why at the verdict - long
     after whoever wrote it could fix it. Worse, the row is already in the queue
     when the bound ships, so a deploy strands it.
 
@@ -136,7 +136,7 @@ def unappliable(entity: str, payload: dict, action: str = "create", *, entity_id
     from .work import DESCRIPTION_LEN, TITLE_LEN
 
     # _apply splats a REGISTRY entity's payload beside actor= and origin=, so
-    # a payload carrying either key is a TypeError at apply — the generic
+    # a payload carrying either key is a TypeError at apply - the generic
     # handler resets the row to pending and the proposal boomerangs in the
     # queue forever. extension_* payloads are never splatted (their apply uses
     # the stored invocation); their fixed public keys just never collide.
@@ -150,7 +150,7 @@ def unappliable(entity: str, payload: dict, action: str = "create", *, entity_id
         + (("change_id",) if document_write else ())
     ):
         if reserved in payload:
-            return f"the payload cannot carry '{reserved}' — the review records it"
+            return f"the payload cannot carry '{reserved}' - the review records it"
     if entity == "task":
         from .work import validate_task_fields
 
@@ -302,16 +302,16 @@ def _propose_change_locked(
     reg = _registry()
     extension_entity = (entity, action) in lexicon.REVIEW_ONLY
     if entity not in reg and not extension_entity:
-        raise ValueError(f"unknown entity — one of {sorted(reg)}")
+        raise ValueError(f"unknown entity - one of {sorted(reg)}")
     supported = action == "create" if extension_entity else action in reg[entity]
     if action not in ("create", "update") or not supported:
-        raise ValueError(f"unsupported action for {entity} — create or update")
+        raise ValueError(f"unsupported action for {entity} - create or update")
     if action == "update" and not entity_id:
         raise ValueError("entity_id required for updates")
-    # a proposal a reviewer must read is bounded like any other write —
+    # a proposal a reviewer must read is bounded like any other write -
     # oversized payloads would also fail at apply and wedge in the queue
     if len(json.dumps(payload)) > 20_000:
-        raise ValueError("proposal payload too large — keep it under 20k characters")
+        raise ValueError("proposal payload too large - keep it under 20k characters")
     if review_visibility not in scope.TIERS:
         raise ValueError("review visibility must be private, crew, or workspace")
     if review_visibility == scope.CREW and not review_crew_id:
@@ -464,11 +464,11 @@ def propose_extension_invocation(
 
 def _check_reviewer(actor: str) -> None:
     """Verdicts are human work. No tool exposes approve/reject, but the REST
-    path resolves any X-User — an agent identity must be refused here too."""
+    path resolves any X-User - an agent identity must be refused here too."""
     from .users import is_agent
 
     if is_agent(actor):
-        raise ValueError(f"'{actor}' is an agent identity — proposals are judged by humans")
+        raise ValueError(f"'{actor}' is an agent identity - proposals are judged by humans")
 
 
 def _check_separation(change: dict, actor: str) -> None:
@@ -642,7 +642,7 @@ def _withdraws(change: dict, actor: str, strong: bool) -> bool:
 
 def _sponsor_of(change: dict) -> str:
     """The task's CURRENT sponsor for a task_completion proposal ('' for
-    everything else) — looked up at verdict time, so a re-delegation moves
+    everything else) - looked up at verdict time, so a re-delegation moves
     the verdict to the new sponsor."""
     if change["entity"] != "task_completion" or not change["entity_id"]:
         return ""
@@ -651,7 +651,7 @@ def _sponsor_of(change: dict) -> str:
 
 
 def _sponsor_override(change: dict, actor: str, note: str) -> str:
-    """Acceptance verdicts belong to the sponsor — they judged the work, so
+    """Acceptance verdicts belong to the sponsor - they judged the work, so
     their verdict is the trust label. Anyone else may still act, but only
     with a reason on record (the sponsor is away, gone, or asked them to),
     and the verdict is marked an override so it never feeds a streak.
@@ -664,16 +664,16 @@ def _sponsor_override(change: dict, actor: str, note: str) -> str:
         return ""
     if not sponsor:
         # reassignment cleared the delegation: nobody sponsors this proposal
-        # anymore, so NO verdict on it is a trust signal — reason required
+        # anymore, so NO verdict on it is a trust signal - reason required
         if not note.strip():
             raise ValueError(
-                f"task #{change['entity_id']}'s delegation was cleared —"
+                f"task #{change['entity_id']}'s delegation was cleared -"
                 " judging this orphaned acceptance needs a note saying why"
             )
         return "orphaned delegation"
     if not note.strip():
         raise ValueError(
-            f"task #{change['entity_id']} is sponsored by {sponsor} — acting"
+            f"task #{change['entity_id']} is sponsored by {sponsor} - acting"
             " for them needs a note saying why (it goes on the record)"
         )
     return sponsor
@@ -707,7 +707,7 @@ def _assert_judgeable(change: dict, viewer: scope.Viewer) -> None:
     proposal that does not exist.
 
     `_readable` hides these from the queue and `change_diff` returns no diff,
-    but the VERDICT endpoints took a bare id — so a caller in no crew could
+    but the VERDICT endpoints took a bare id - so a caller in no crew could
     walk ids and approve a proposal whose payload then overwrote a crew note's
     content, or applied a note_delete / memory_forget / event_cancel. The
     apply runs as `change["proposed_by"]`, an agent slug, and scope.is_machine
@@ -767,7 +767,7 @@ def approve_change(
     # cannot race a durable approval. Nested service transactions join this
     # one. The boundary is the transaction plus the target-row hold that
     # _approve_change_locked takes once it knows what the proposal is about
-    # (services/policy_context.py::hold_resource) — a read alone locks
+    # (services/policy_context.py::hold_resource) - a read alone locks
     # nothing.
     with db.transaction():
         result = _approve_change_locked(
@@ -795,14 +795,14 @@ def _settle_vanished(change: dict, actor: str, missing: str) -> _ApprovalFailure
     db.execute(
         "UPDATE pending_changes SET status = 'rejected', reviewed_by = ?, reviewed_at = ?,"
         " reviewed_strong = 0, review_note = ? WHERE id = ?",
-        (actor, db.now(), f"auto-rejected — target vanished: {missing}", change["id"]),
+        (actor, db.now(), f"auto-rejected - target vanished: {missing}", change["id"]),
     )
     db.log_activity(actor, "reject_change", f"#{change['id']} (target vanished)")
     _clear_review_ping(change["id"])
     return _ApprovalFailure(
         ValueError(
             f"could not apply {change['entity']}.{change['action']}: {missing}"
-            " — proposal auto-rejected (its target no longer exists)"
+            " - proposal auto-rejected (its target no longer exists)"
         )
     )
 
@@ -904,7 +904,7 @@ def _approve_change_locked(
         if not administrator:
             raise PermissionError(wording.not_administrator(actor, "approve an authority change"))
 
-    # resolve the handler BEFORE claiming — a stale entity/action must not
+    # resolve the handler BEFORE claiming - a stale entity/action must not
     # leave the row marked approved with nothing applied
     is_extension = (change["entity"], change["action"]) in lexicon.REVIEW_ONLY
     executor = extension_executor
@@ -978,7 +978,7 @@ def _approve_change_locked(
                 # authority alone applies as the REVIEWER: the verdict is the
                 # substantive act (this path already requires a strong
                 # administrator), and `updated_by`/the ledger answer "who
-                # granted this" — a streak-filed promotion otherwise records
+                # granted this" - a streak-filed promotion otherwise records
                 # the scheduler as the granter of a human-authorized elevation.
                 if change["entity"] == "authority":
                     author = actor
@@ -1010,7 +1010,7 @@ def _approve_change_locked(
     except db.NotFound as exc:
         # the proposal's own target vanished (event cancelled via REST, row
         # hard-deleted): re-approving can never succeed, so a pending reset
-        # would boomerang forever — settle it as rejected, on the record
+        # would boomerang forever - settle it as rejected, on the record
         return _settle_vanished(change, actor, str(exc))
     except db.TerminalReject as exc:
         # a permanent policy block (an agent's own delegated-done proposal):
@@ -1020,20 +1020,20 @@ def _approve_change_locked(
         # reviewed_strong is cleared with it. `_claim` stamped the reviewer's
         # own strength a moment ago, and the demotion streak counts consecutive
         # strong non-override rejections (services/delegation.py::trust_scores)
-        # — so an automatic settle of a moot proposal would read as a human
+        # - so an automatic settle of a moot proposal would read as a human
         # judging the agent's work badly, and walk it down a rung for work
         # nobody rejected.
         db.execute(
             "UPDATE pending_changes SET status = 'rejected', reviewed_strong = 0,"
             " review_note = ? WHERE id = ?",
-            (f"auto-rejected — {exc}", change_id),
+            (f"auto-rejected - {exc}", change_id),
         )
         db.log_activity(actor, "reject_change", f"#{change_id} (not applicable)")
         _clear_review_ping(change_id)
         return _ApprovalFailure(ValueError(f"could not apply and auto-rejected: {exc}"))
     except Exception as exc:
         # ANY OTHER failure (IntegrityError, lock timeout, stale state)
-        # resets the claim — an approved-but-never-applied proposal would
+        # resets the claim - an approved-but-never-applied proposal would
         # vanish from the queue. The reviewer's note survives the reset.
         busy = isinstance(exc, db.BUSY_ERRORS)
         from ..agents.mcp_tools import MCPServerNotReady
@@ -1446,7 +1446,7 @@ def _current_extension_review(
 
 
 def _clear_review_ping(change_id: int) -> None:
-    """The review is handled — its "Review needed" ping must not keep
+    """The review is handled - its "Review needed" ping must not keep
     nagging. Called AFTER the apply succeeds (a failed apply resets the
     proposal to pending and must keep its notification unread)."""
     from .notifications import mark_pending_change_read, mark_read_matching
@@ -1673,7 +1673,7 @@ _DIFF_TABLES = {
 # omits the two entities whose payload is not a column set: task_completion
 # carries a free-text work summary, question_assign carries an assignee.
 # _readable needs the TARGET, and reading it off _DIFF_TABLES let both of
-# those bypass the tier check entirely — every reader saw a crew task's
+# those bypass the tier check entirely - every reader saw a crew task's
 # acceptance payload in the review queue, on the dashboard, and in the stats.
 _TARGET_TABLE = {
     **_DIFF_TABLES,
@@ -1681,7 +1681,7 @@ _TARGET_TABLE = {
     "task_completion": "tasks",
     "question_assign": "questions",
     # every CREATE. These have no target row yet, so _DIFF_TABLES never needed
-    # them — but the tier the row WOULD take is in the payload, and without an
+    # them - but the tier the row WOULD take is in the payload, and without an
     # entry here _readable had nothing to look up and kept the proposal, body
     # and all, for every reader.
     "task": "tasks",
@@ -1709,7 +1709,7 @@ _TARGET_TABLE = {
 # `delegation` is the case: delegate_task(task_id=...) changes a task that has
 # its own tier, so there is nothing to declare in the payload and nothing in
 # `entity_id`, which propose_change only requires for updates. Reading neither,
-# such a proposal was shown to every reader AND judgeable by them — a
+# such a proposal was shown to every reader AND judgeable by them - a
 # non-member approved a delegation of a crew task they cannot see.
 #
 # Each value lists (table, payload key) pairs, and the first key the payload
@@ -1738,7 +1738,7 @@ _UNTARGETED = {
     "authority": "an agent's permission matrix, which carries no tier",
 }
 
-# columns worth showing a reviewer when a proposal would DESTROY the row —
+# columns worth showing a reviewer when a proposal would DESTROY the row -
 # an empty payload must never mean an uninformed verdict
 _DESTRUCTIVE_VIEW = {
     "note_delete": ("topic", "content"),
@@ -1778,7 +1778,7 @@ def change_diff(
     Filtered on the TARGET row, not on the proposal. `pending_changes` carries
     no tier of its own (scope.UNSCOPED) and this endpoint is CurrentUser, so
     an unfiltered read here handed any reader the current body of a private
-    note or memory verbatim — _DESTRUCTIVE_VIEW renders `content` and `topic`
+    note or memory verbatim - _DESTRUCTIVE_VIEW renders `content` and `topic`
     for exactly the two entities whose deletion always files a proposal.
     A reader who cannot see the row gets no diff at all: the proposed half is
     the payload, which for an edit holds the new body.
@@ -1796,7 +1796,7 @@ def change_diff(
         return {"id": change_id, "diff": None}
     frag, fp = scope.visible_filter(viewer, table) if table in scope.CLASSIFIED else ("1 = 1", [])
     row = db.query_one(
-        f"SELECT * FROM {table} WHERE id = ? AND {frag}",  # noqa: S608 — table from constant map, and scope.visible_filter emits only bound marks
+        f"SELECT * FROM {table} WHERE id = ? AND {frag}",  # noqa: S608 - table from constant map, and scope.visible_filter emits only bound marks
         (change["entity_id"], *fp),
     )
     if not row:
@@ -1804,7 +1804,7 @@ def change_diff(
     payload = json.loads(change["payload"])
     if change["entity"] == "document_edit":
         # artifacts has no `old` or `new` column, so the generic field diff
-        # shows "—" beside the new text. The row filter above already ran,
+        # shows a lone dash beside the new text. The row filter above already ran,
         # so only a reader of the document sees its lines.
         from .documents import proposal_diff
 
@@ -1833,7 +1833,7 @@ def mark_seen(
     actor: str = "system",
     viewer: scope.Viewer = scope.NOBODY,
 ) -> dict:
-    """The review UI calls this when a human loads pending proposals —
+    """The review UI calls this when a human loads pending proposals -
     first-seen (claim_at) starts the active-review clock, so review burden
     can be measured as seen→verdict instead of created→verdict (which is
     dominated by queue wait, not human effort)."""
@@ -1843,7 +1843,7 @@ def mark_seen(
         return {"seen": 0}
     marks = ", ".join("?" for _ in batch)
     rows = db.query(
-        f"SELECT * FROM pending_changes WHERE id IN ({marks}) AND status = 'pending'",  # noqa: S608 — placeholders built above
+        f"SELECT * FROM pending_changes WHERE id IN ({marks}) AND status = 'pending'",  # noqa: S608 - placeholders built above
         tuple(batch),
     )
     readable = [int(row["id"]) for row in _readable(rows, viewer)]
@@ -1851,7 +1851,7 @@ def mark_seen(
         return {"seen": 0}
     readable_marks = ", ".join("?" for _ in readable)
     n = db.execute_rowcount(
-        f"UPDATE pending_changes SET claim_at = ?"  # noqa: S608 — placeholders built above
+        f"UPDATE pending_changes SET claim_at = ?"  # noqa: S608 - placeholders built above
         f" WHERE id IN ({readable_marks}) AND status = 'pending' AND claim_at IS NULL",
         (db.now(), *readable),
     )
@@ -1920,7 +1920,7 @@ def stranded_proposals(auth_mode: str = "") -> list[dict]:
 def review_stats(viewer: scope.Viewer = scope.NOBODY, *, admin: bool = False) -> dict:
     """The review inbox as a flywheel: every verdict is a labeled example.
     These stats show which proposal types earn trust and which waste reviewer
-    time — the input to authority-matrix decisions."""
+    time - the input to authority-matrix decisions."""
     by_entity = db.query(
         "SELECT entity,"
         " COUNT(*) AS proposed,"
@@ -1941,7 +1941,7 @@ def review_stats(viewer: scope.Viewer = scope.NOBODY, *, admin: bool = False) ->
     )
     from . import users
 
-    # people out, everything else in — NOT `is_agent`, which drops the system
+    # people out, everything else in - NOT `is_agent`, which drops the system
     # actors as well: review_authority files every promotion under `scheduler`,
     # which owns no users row, so the whole authority entity disappears from
     # this table. Another person's `<name>-mcp` is left out on purpose, so
@@ -1975,7 +1975,7 @@ def review_stats(viewer: scope.Viewer = scope.NOBODY, *, admin: bool = False) ->
         )
         if r["m"] is not None
     )
-    # the shared primitive, not a third inline copy — services/stats.py exists
+    # the shared primitive, not a third inline copy - services/stats.py exists
     # because two of these had already drifted apart
     from . import stats
 
@@ -1996,11 +1996,11 @@ def season_readout(viewer: str = "", *, admin: bool = False) -> dict:
     The posture note's exit trigger (docs/ROADMAP.md) ends the dogfooding
     season with a decision it calls "a read, not a debate": if the trust
     rows, promotions, and delegations still read zero, the agent surface
-    narrows. Nothing rendered that read — pulse seasons count standups and
-    ships, and review stats are all-time — so the season verdict meant
+    narrows. Nothing rendered that read - pulse seasons count standups and
+    ships, and review stats are all-time - so the season verdict meant
     assembling four surfaces by hand.
 
-    Counts only, never row text, so no visibility tier applies — the same
+    Counts only, never row text, so no visibility tier applies - the same
     line review_stats draws for its aggregates.
 
     The exit trigger reads HAND work. A routine's acceptances repeat one
@@ -2022,7 +2022,7 @@ def season_readout(viewer: str = "", *, admin: bool = False) -> dict:
     # the season and the trust rows cannot disagree about which is which
     verdicts = (
         db.query_one(
-            "SELECT COUNT(*) FILTER (WHERE rt.routine_id IS NULL) AS settled,"  # noqa: S608 — ROUTINE_JOIN is a module constant
+            "SELECT COUNT(*) FILTER (WHERE rt.routine_id IS NULL) AS settled,"  # noqa: S608 - ROUTINE_JOIN is a module constant
             " COUNT(*) FILTER (WHERE p.status = 'approved' AND rt.routine_id IS NULL) AS approved,"
             " COUNT(*) FILTER (WHERE p.status = 'rejected' AND rt.routine_id IS NULL) AS rejected,"
             " COUNT(*) FILTER (WHERE p.reviewed_strong = 1 AND rt.routine_id IS NULL) AS strong,"
@@ -2038,7 +2038,7 @@ def season_readout(viewer: str = "", *, admin: bool = False) -> dict:
     )
     proposed = (
         db.query_one(
-            "SELECT COUNT(*) FILTER (WHERE rt.routine_id IS NULL) AS hand,"  # noqa: S608 — ROUTINE_JOIN is a module constant
+            "SELECT COUNT(*) FILTER (WHERE rt.routine_id IS NULL) AS hand,"  # noqa: S608 - ROUTINE_JOIN is a module constant
             " COUNT(*) FILTER (WHERE rt.routine_id IS NOT NULL) AS routine"
             f" FROM pending_changes p {ROUTINE_JOIN} WHERE p.created_at >= ?",
             (since,),
@@ -2078,7 +2078,7 @@ def season_readout(viewer: str = "", *, admin: bool = False) -> dict:
     by_agent = [
         r
         for r in db.query(
-            "SELECT p.proposed_by,"  # noqa: S608 — ROUTINE_JOIN is a module constant
+            "SELECT p.proposed_by,"  # noqa: S608 - ROUTINE_JOIN is a module constant
             " COUNT(*) FILTER (WHERE rt.routine_id IS NULL) AS proposed,"
             " COUNT(*) FILTER (WHERE p.status = 'approved' AND rt.routine_id IS NULL) AS approved,"
             " COUNT(*) FILTER (WHERE p.status = 'rejected' AND rt.routine_id IS NULL) AS rejected,"
@@ -2088,7 +2088,7 @@ def season_readout(viewer: str = "", *, admin: bool = False) -> dict:
             " GROUP BY p.proposed_by ORDER BY proposed DESC",
             (since,),
         )
-        # people out, system actors in — review_stats states why is_agent
+        # people out, system actors in - review_stats states why is_agent
         # would be the wrong filter here
         if not is_human(r["proposed_by"])
         and person_agent_visible(r["proposed_by"], viewer, admin=admin)
@@ -2222,7 +2222,7 @@ def _target_tier(change: dict) -> tuple[str, int | None, str] | str | None:
     if row_id:
         author = scope.CLASSIFIED[table]
         row = db.query_one(
-            f'SELECT visibility, crew_id, "{author}" AS author FROM {table} WHERE id = ?',  # noqa: S608 — table and column from constant maps; quoted because memories' `user` is CURRENT_USER unquoted
+            f'SELECT visibility, crew_id, "{author}" AS author FROM {table} WHERE id = ?',  # noqa: S608 - table and column from constant maps; quoted because memories' `user` is CURRENT_USER unquoted
             (row_id,),
         )
         return (
@@ -2233,7 +2233,7 @@ def _target_tier(change: dict) -> tuple[str, int | None, str] | str | None:
 
     # a create with no parent row: the tier it WOULD land at is declared here.
     # Absent because the caller chose none, and absent because the caller never
-    # selected the payload column — both mean workspace, and neither can
+    # selected the payload column - both mean workspace, and neither can
     # disclose a body the reader is not already being shown.
     return _declared_tier(table, payload)
 
@@ -2280,7 +2280,7 @@ def _governing_tiers(rows: list[dict]) -> list[tuple[str, int | None, str] | str
         marks = ", ".join("?" for _ in ids)
         author = scope.CLASSIFIED[table]
         for row in db.query(
-            f'SELECT id, visibility, crew_id, "{author}" AS author FROM {table}'  # noqa: S608 — table and column come from constant maps; quoted because memories' `user` is CURRENT_USER unquoted
+            f'SELECT id, visibility, crew_id, "{author}" AS author FROM {table}'  # noqa: S608 - table and column come from constant maps; quoted because memories' `user` is CURRENT_USER unquoted
             f" WHERE id IN ({marks})",
             tuple(ids),
         ):
@@ -2322,7 +2322,7 @@ def _readable(rows: list[dict], viewer: scope.Viewer) -> list[dict]:
     """Drop proposals whose target row the viewer may not read.
 
     `pending_changes` carries no tier of its own (scope.UNSCOPED) and this
-    list returns the whole row — `payload` parsed, and a `summary` that four
+    list returns the whole row - `payload` parsed, and a `summary` that four
     producers build out of the row's own text (delegation.submit_completion,
     tools/collab.py::delete_note, tools/memory.py::forget_memory,
     tools/schedule.py::cancel_event). Served unfiltered to every CurrentUser,
@@ -2333,12 +2333,12 @@ def _readable(rows: list[dict], viewer: scope.Viewer) -> list[dict]:
     change, so a redacted entry is a verdict taken blind. The crew keeps
     seeing its own.
 
-    An entity with no tier at all (weekly_plan, authority, playbook) stays —
+    An entity with no tier at all (weekly_plan, authority, playbook) stays -
     those carry no row to be scoped by, and defaulting them out would empty
     the queue the whole review flow runs on.
 
     Eight readers quote `summary` or `payload` out of this table and each has
-    to call this explicitly — GET /api/review, briefing.my_day,
+    to call this explicitly - GET /api/review, briefing.my_day,
     delegation.agent_inbox, review_stats, the handoff, the week-close ritual,
     and the two insights rules that write into findings.receipt. They do not
     arrive here on their own.
@@ -2352,7 +2352,7 @@ def _readable(rows: list[dict], viewer: scope.Viewer) -> list[dict]:
         elif not isinstance(tier, tuple):
             # "gone": the target row is DELETED. We cannot prove the viewer
             # could read it and the summary still quotes it, so this fails
-            # closed — anything else makes deleting the row the way to
+            # closed - anything else makes deleting the row the way to
             # publish it.
             continue
         elif scope.can_read(tier[0], tier[1], viewer, tier[2]):
@@ -2518,7 +2518,7 @@ def pending_changes_summary(
     """The first visible page and exact total from one queue scan.
 
     ponytail: the total is exact, so the scan reads and policy-filters EVERY
-    pending row — cost grows with queue depth, on the two hottest polled
+    pending row - cost grows with queue depth, on the two hottest polled
     endpoints (`/api/attention`, `/api/briefing`). Exactness is the point:
     services/briefing.py::attention_count must equal what My Day prints, and
     an estimate makes the badge lie. If a deployment ever files pending rows
@@ -2570,7 +2570,7 @@ def _settled_changes_page(
             params.append(status)
         params.append(_REVIEW_SCAN_BATCH)
         rows = db.query(
-            f"SELECT * FROM pending_changes {where} ORDER BY id DESC LIMIT ?",  # noqa: S608 — where contains only static clauses
+            f"SELECT * FROM pending_changes {where} ORDER BY id DESC LIMIT ?",  # noqa: S608 - where contains only static clauses
             tuple(params),
         )
         if not rows:
@@ -2621,7 +2621,7 @@ def list_changes(
     if invocation_ids:
         marks = ",".join("?" for _ in invocation_ids)
         sql = (
-            "SELECT change_id, status, error_code FROM extension_review_invocations"  # noqa: S608 — controlled placeholders
+            "SELECT change_id, status, error_code FROM extension_review_invocations"  # noqa: S608 - controlled placeholders
             f" WHERE change_id IN ({marks})"
         )
         execution = {int(row["change_id"]): row for row in db.query(sql, tuple(invocation_ids))}
@@ -2648,13 +2648,13 @@ def list_changes(
         if stored := execution.get(int(r["id"])):
             r["execution_status"] = stored["status"]
             r["execution_error_code"] = stored["error_code"]
-        # the UI shows whose verdict this is — acceptance belongs to the sponsor
+        # the UI shows whose verdict this is - acceptance belongs to the sponsor
         if r["entity"] == "task_completion":
             r["sponsor"] = _sponsor_of(r)
             # the KEY is absent when there is no evidence, never an empty
             # object: `{}` is truthy in JavaScript, so the renderer's
             # `c.evidence ? <AcceptanceEvidence …>` guard passes and the
-            # component reads `.length` of an absent worklog — one deleted or
+            # component reads `.length` of an absent worklog - one deleted or
             # unreadable task takes down the whole Approvals list, which is the
             # surface where that proposal gets cleaned up
             evidence = _acceptance_evidence(r, viewer)
@@ -2678,7 +2678,7 @@ def list_changes(
 
 
 # How many worklog notes ride along with an acceptance proposal. The sponsor
-# needs the shape of the work and its latest state, not the whole log — the
+# needs the shape of the work and its latest state, not the whole log - the
 # panel behind the task link holds all of it (frontend/components/task-peek).
 _EVIDENCE_NOTES = 5
 
@@ -2732,7 +2732,7 @@ def _criteria_refs(
         marks = ",".join("?" for _ in ids)
         visible, params = scope.visible_filter(viewer, table)
         rows = db.query(
-            f"SELECT id, status FROM {table} WHERE id IN ({marks}) AND {visible}",  # noqa: S608 — closed table map, controlled marks, scope fragment
+            f"SELECT id, status FROM {table} WHERE id IN ({marks}) AND {visible}",  # noqa: S608 - closed table map, controlled marks, scope fragment
             (*ids, *params),
         )
         states.update({(entity, int(row["id"])): str(row["status"]) for row in rows})
@@ -2757,12 +2757,12 @@ def _acceptance_evidence(change: dict, viewer: scope.Viewer) -> dict:
     back and votes from memory. `fieldguide/knots.yaml` tells them to do
     exactly that walk.
 
-    Read through `delegation.list_worklog`, which carries the delegation door —
+    Read through `delegation.list_worklog`, which carries the delegation door -
     a sponsor may read the log of the task they sponsor whether or not a tier
     filter reaches it. Returns {} rather than raising when the task is gone or
     unreadable: a proposal whose task was deleted must still be rejectable, and
     the queue is the surface where that clean-up happens. The caller drops the
-    key entirely on {} — see list_changes for why an empty object is not safe
+    key entirely on {} - see list_changes for why an empty object is not safe
     to send.
     """
     from .delegation import list_worklog
@@ -2772,13 +2772,13 @@ def _acceptance_evidence(change: dict, viewer: scope.Viewer) -> dict:
         return {}
     # viewer-filtered, like every other read of a scoped table. The proposal
     # row already passed `_readable`, but that tests the SUMMARY's target and
-    # this query returns the task's own title and forge link — a second read
+    # this query returns the task's own title and forge link - a second read
     # needs its own filter or it is a second door onto the same row.
     tfrag, tp = scope.visible_filter(viewer, "tasks")
     task = db.query_one(
         # acceptance_criteria is the sponsor's own definition of done, written
-        # at delegation — the verdict below is the read it was written for
-        "SELECT id, title, status, delegated_agent, forge_url,"  # noqa: S608 — scope.visible_filter emits only bound marks
+        # at delegation - the verdict below is the read it was written for
+        "SELECT id, title, status, delegated_agent, forge_url,"  # noqa: S608 - scope.visible_filter emits only bound marks
         " acceptance_criteria FROM tasks"
         f" WHERE id = ? AND {tfrag}",
         (task_id, *tp),
@@ -2795,7 +2795,7 @@ def _acceptance_evidence(change: dict, viewer: scope.Viewer) -> dict:
     try:
         # actor = the VIEWER's own name, never the proposer's. The proposer is
         # the delegated agent, and passing its name would open the delegation
-        # door on behalf of whoever happened to load the queue — a crew
+        # door on behalf of whoever happened to load the queue - a crew
         # worklog served to a reviewer outside the crew. Passed this way the
         # door opens for exactly one reader, the sponsor, which is the same
         # pair report_progress lets write.
@@ -2808,7 +2808,7 @@ def _acceptance_evidence(change: dict, viewer: scope.Viewer) -> dict:
     except db.NotFound:
         # A SCOPE refusal only, never a bare Exception: the reviewer still has
         # to be able to REJECT a proposal whose task went private or vanished,
-        # and this surface is where that clean-up happens — but a real database
+        # and this surface is where that clean-up happens - but a real database
         # fault swallowed here renders as "no notes were filed" beside live
         # Approve controls, which is a different sentence with a different
         # meaning.
@@ -2826,13 +2826,13 @@ def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
     The reviewer judged every proposal blind: approval rate and streak were
     computed already and lived two pages away on /agents, so the one screen
     where the number decides something was the one screen without it. Read
-    from `delegation.trust_scores` rather than recomputed — a second
+    from `delegation.trust_scores` rather than recomputed - a second
     definition of "streak" that disagreed with the promotion job would be
     worse than none.
 
     Scoped to the pairs the page actually shows. `trust_scores` runs a
     per-pair lookup for every pair in the settled history, so an unfiltered
-    call cost 123 queries to render a queue that needed one — the cost grew
+    call cost 123 queries to render a queue that needed one - the cost grew
     with the deployment's age rather than with the page.
     """
     from .delegation import (
@@ -2845,7 +2845,7 @@ def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
     )
     from .users import is_agent
 
-    # Why no streak CAN form, when none can — the same sentence Team → Agents
+    # Why no streak CAN form, when none can - the same sentence Team → Agents
     # renders above its trust card. In trusted-header mode (the default) a
     # verdict is weak, so `recent_streak` is 0 for everyone: without this the
     # row read "8 of 8 approved (100%) · no run of approvals", which states a
@@ -2853,7 +2853,7 @@ def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
     # line could never appear. An operator's fix, not a wait.
     # remedy=False: this sentence rides every proposal card, and the env-var
     # instruction inside the full version is the operator's, not the
-    # reviewer's — Team → Agents keeps the version that says the fix.
+    # reviewer's - Team → Agents keeps the version that says the fix.
     blocked = trust_blocked(remedy=False)
     # one scan for the whole page: promotion_blocked below would otherwise
     # re-read every authority proposal per row (services/delegation.py)
@@ -2862,7 +2862,7 @@ def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
     for t in trust_scores(wanted):
         # AGENT proposers only. Ingest files proposals under the person who
         # pasted the notes (services/ingest.py, origin='human'), and /review is
-        # team-visible — so keying this on the proposer alone would put one
+        # team-visible - so keying this on the proposer alone would put one
         # teammate's approval history in front of the whole roster, which is
         # person-level data judging the PAST. The anti-surveillance rule is
         # enforced in the service layer, not by hoping a caller filters.
@@ -2884,7 +2884,7 @@ def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
             "level": t.get("effective_level", t["current_level"]),
             # said at the verdict, where the approval that earns it happens.
             # Only when this verdict is the one that closes the streak AND a
-            # promotion is actually available from here — trust_scores makes
+            # promotion is actually available from here - trust_scores makes
             # the same `review` check for its own suggestion.
             # asks delegation, never restates its rule: promotion_blocked
             # refuses the ALWAYS_REVIEW and NO_AUTHORITY entities and stays

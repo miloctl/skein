@@ -63,7 +63,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
       if (mode.fail) return Promise.reject(new Error("this surface requires an administrator"));
       if (path === "/api/settings/tuning") return Promise.resolve(KNOBS);
       // the section is AdminUser, and the page only asks for it once identity
-      // resolves strong — a never-settling whoami leaves it unfetched
+      // resolves strong - a never-settling whoami leaves it unfetched
       if (path === "/api/whoami")
         return Promise.resolve({
           user: "boss",
@@ -91,7 +91,7 @@ describe("the deployment-limits section", () => {
     await screen.findByText(/Agent tool thread pool/);
     const restart = screen.getByText(/read at startup/);
     expect(restart.textContent).toMatch(/applies after a restart/);
-    // the live knob must not carry that sentence — implying a restart is
+    // the live knob must not carry that sentence - implying a restart is
     // needed sends an administrator to bounce a server for nothing
     const chat = screen.getByText(/One flock turn spends one slot per member/);
     expect(chat.textContent).not.toMatch(/restart/);

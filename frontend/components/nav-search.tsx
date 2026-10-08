@@ -74,7 +74,7 @@ function Snippet({ text }: { text: string }) {
 
 /** entity -> the page that lists it, for every indexed entity except task,
  *  which opens the peek instead. An entity missing here renders as dead
- *  text, which is the exact complaint this table exists to close —
+ *  text, which is the exact complaint this table exists to close -
  *  services/search.py::_ENTITY_TABLE is the list to mirror when a new entity
  *  is indexed. */
 const ENTITY_PAGE: Record<string, string> = {
@@ -93,7 +93,7 @@ const ENTITY_PAGE: Record<string, string> = {
 };
 
 /** `#42` and `task 42` already jump straight to the row server-side, and the
- *  peek is where a task belongs — so a task hit opens the panel instead of
+ *  peek is where a task belongs - so a task hit opens the panel instead of
  *  dropping the reader on a page to hunt for it. Every other entity is a
  *  link to the page that lists it. */
 function EntityLink({
@@ -122,7 +122,7 @@ function EntityLink({
       </PeekLink>
     );
   // Rows that carry a DOM id get an anchor, and lib/hash-target.ts focuses it
-  // once the destination's fetch settles — the rows are not in the DOM when
+  // once the destination's fetch settles - the rows are not in the DOM when
   // the browser's own scroll fires, so the fragment alone does nothing. The id
   // spellings live with the rows (`charter-entry-N` in app/charter/page.tsx,
   // the rest in app/dashboard/page.tsx and app/portfolio/page.tsx) and a
@@ -139,7 +139,7 @@ function EntityLink({
   };
   const anchor = ANCHOR[entity] ?? "";
   // an engagement has its OWN page, so the hit lands on the engagement rather
-  // than on the list that contains it — typing an engagement's name into
+  // than on the list that contains it - typing an engagement's name into
   // search is the most literal form of "how is Atlas going" there is. A note
   // opens alone on /notes (app/notes/page.tsx): the list there holds only the
   // newest page, so an anchor to an older note would name no element. An
@@ -253,7 +253,7 @@ function HitRow({ hit, onDone }: { hit: Hit; onDone: () => void }) {
 function CaptureHint() {
   return (
     <p className="mt-1 text-xs text-ink-3">
-      To file a new record, use quick capture &mdash; the Capture button in
+      To file a new record, use quick capture - the Capture button in
       the top bar.
     </p>
   );
@@ -280,7 +280,7 @@ export function NavSearch() {
   const canOpen = useRef(false);
 
   // ⌘K focuses search. It is the command-palette convention every other
-  // product follows, and it used to open quick capture here — a box that
+  // product follows, and it used to open quick capture here - a box that
   // WRITES a row, next to a box that reads. The listener is unconditional
   // because the box is always mounted in the nav.
   useEffect(() => {
@@ -400,7 +400,7 @@ export function NavSearch() {
   return (
     // flex-1 min-w-0 below `sm`, a fixed box above it. This field is the last
     // thing added to the phone header, and at a fixed 144px the row needed
-    // 385px of a 360px viewport — the logo, the name and the capture button
+    // 385px of a 360px viewport - the logo, the name and the capture button
     // were all sized before it existed. Flexing rather than picking a smaller
     // number is what keeps it correct in every theme pack: phosphor and
     // atelier raise --fs-xs, so a width that fits Loom overflows those two.
@@ -438,7 +438,7 @@ export function NavSearch() {
         // "or ? to ask" promised a question-answerer and delivered a second
         // pass over the same keyword index. Once semantic hits blend into
         // search() itself, the two return the SAME rows for a natural
-        // question — measured — so the prefix no longer earns a place in a
+        // question - measured - so the prefix no longer earns a place in a
         // 208px box. It still works, and the field guide still teaches it,
         // where there is room to say what it actually does.
         placeholder="Search"
@@ -483,7 +483,7 @@ export function NavSearch() {
               role="region"
               aria-label="Search results"
               // a landmark announces NOTHING when it appears, so pressing Enter
-              // was met with silence — no result count, no "nothing matches", no
+              // was met with silence - no result count, no "nothing matches", no
               // error. Not a combobox: activation here is Tab-then-Enter, and the
               // role would promise arrow-key navigation that does not exist.
               aria-live="polite"
@@ -495,7 +495,7 @@ export function NavSearch() {
                 <p className="text-sm text-danger">{error}</p>
               ) : answer ? (
                 <>
-                  {/* every answer is snippets citing a row — the product never
+                  {/* every answer is snippets citing a row - the product never
                       asserts a fact it cannot point at */}
                   {answer.citations.length === 0 ? (
                     <>

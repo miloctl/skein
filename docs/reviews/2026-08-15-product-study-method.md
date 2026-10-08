@@ -1,11 +1,11 @@
-# Live product study — method
+# Live product study - method
 
 **Closed.** This is the method record for the four-pass study that produced
 the three `proposed-features` commits (`9a1502a`, `11ebd16`, `7819100`) and
 the pre-merge fixes on top of them. The findings, proposals and delivery
 record are the three sibling `2026-08-15-product-study-*` files. Every
 surviving proposal moved to `docs/ROADMAP.md` under "From the live product
-study (2026-08-15)". Read this file for HOW the study was run — it is the
+study (2026-08-15)". Read this file for HOW the study was run - it is the
 repeatable part.
 
 ## Goal
@@ -27,17 +27,17 @@ Then select and build improvements that have clear evidence from the study.
 
 ## Personas
 
-1. **Manager** — plans the week, checks health, handles requests, reviews proposals, and prepares reports.
-2. **Developer** — starts work, records progress, handles blockers, searches context, and closes tasks.
-3. **Team member** — posts standups, captures work, checks personal priorities, and prepares for meetings.
-4. **Reviewer and administrator** — manages approvals, agents, settings, backups, identity, and policy controls.
-5. **Agent teammate** — reads its inbox, claims delegated work, reports progress, and submits work for acceptance.
+1. **Manager** - plans the week, checks health, handles requests, reviews proposals, and prepares reports.
+2. **Developer** - starts work, records progress, handles blockers, searches context, and closes tasks.
+3. **Team member** - posts standups, captures work, checks personal priorities, and prepares for meetings.
+4. **Reviewer and administrator** - manages approvals, agents, settings, backups, identity, and policy controls.
+5. **Agent teammate** - reads its inbox, claims delegated work, reports progress, and submits work for acceptance.
 
 ## Month simulation
 
 The study uses representative workdays. Each day includes real navigation and a real read or write when safe.
 
-### Week 1 — Start and orient
+### Week 1 - Start and orient
 
 - Day 1: sign in, use onboarding, read My Day, and inspect the field guide.
 - Day 2: capture tasks, questions, decisions, blockers, promises, and requests.
@@ -45,7 +45,7 @@ The study uses representative workdays. Each day includes real navigation and a 
 - Day 4: use chat, personas, flocks, search, and ask.
 - Day 5: post a standup, inspect notifications, and close the week.
 
-### Week 2 — Execute and coordinate
+### Week 2 - Execute and coordinate
 
 - Day 6: start tasks and record work.
 - Day 7: create and resolve a blocker.
@@ -53,7 +53,7 @@ The study uses representative workdays. Each day includes real navigation and a 
 - Day 9: submit agent work and review the proposal.
 - Day 10: inspect capacity, intake, and stakeholder threads.
 
-### Week 3 — Adjust and govern
+### Week 3 - Adjust and govern
 
 - Day 11: change the weekly plan and inspect carryover.
 - Day 12: record a decision and review its half-life.
@@ -61,7 +61,7 @@ The study uses representative workdays. Each day includes real navigation and a 
 - Day 14: inspect findings, trends, activity, and provenance.
 - Day 15: inspect authority, trust, crews, themes, and deployment settings.
 
-### Week 4 — Close and learn
+### Week 4 - Close and learn
 
 - Day 16: inspect engagement drift and close-out data.
 - Day 17: generate and read reports and handoffs.
@@ -124,7 +124,7 @@ Completion requires four working files: the method, the findings, the
 proposals, and the delivered result. The study wrote them at the repository
 root under the names used throughout this file (`PLAN.md`, `findings.md`,
 `proposals.md`, `new_features.md`). They are archived here as
-`2026-08-15-product-study-*` — a repeat drafts at the root and archives the
+`2026-08-15-product-study-*` - a repeat drafts at the root and archives the
 same way when the work closes.
 
 Completion also requires passing checks, live browser evidence, and an accurate list of skipped proposals.
@@ -146,7 +146,7 @@ backlog nobody reads.
 - The typed notification lifecycle passed focused and full automated checks.
 - Deferred proposals: recorded in `proposals.md` and `new_features.md`.
 
-## Second pass — updated product
+## Second pass - updated product
 
 ### Goal
 
@@ -201,7 +201,7 @@ The aggregate notification repair and direct engagement-outcome action remain se
 - Live finding conversion: task `#31` opened from Insights with source, priority, and assignment intact.
 - Live terminology: the chip and prefix both used `awaiting`.
 
-## Third pass — three-to-six-month use
+## Third pass - three-to-six-month use
 
 ### Objective
 
@@ -287,7 +287,7 @@ Focused regressions now cover each correction.
 - CLI My Day, task slices, and review cursor: passed.
 - One parallel backend run hit an unrelated workflow deadline timing failure. That test passed in a direct serial rerun. The complete serial suite then passed.
 
-## Fourth pass — pre-merge review of the branch
+## Fourth pass - pre-merge review of the branch
 
 ### Objective
 
@@ -305,14 +305,14 @@ The diff was 85 files and about 3,800 inserted lines. One reviewer cannot hold
 that carefully, so the work splits by LENS, not by directory. Three reviewers
 run at the same time, each with the whole diff and one question:
 
-1. **Backend correctness** — locking discipline and lock ordering, error
+1. **Backend correctness** - locking discipline and lock ordering, error
    classification (4xx against 500 against 429/503), the service-layer write
    rule, provenance, migration rules, pagination edges, and whether each new
    test fails against the unfixed code.
-2. **Frontend correctness** — state and effect bugs, contract match against the
+2. **Frontend correctness** - state and effect bugs, contract match against the
    backend routes the same branch adds, accessibility on rewritten pages, and
    test quality. This reviewer runs the frontend suite and the production build.
-3. **Comments and user-visible wording** — every added comment checked AGAINST
+3. **Comments and user-visible wording** - every added comment checked AGAINST
    the call chain it describes, plus ASD-STE100 compliance on functional copy.
 
 Three is the number because there are three questions, not because three is a

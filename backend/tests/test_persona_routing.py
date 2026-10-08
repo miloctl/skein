@@ -4,7 +4,7 @@ consult_specialist and the @-picker route on bench descriptions alone, so
 description quality IS routing quality. Each bench persona owns a case file
 in tests/eval_routing/ with positive prompts (asks it must win) and negative
 prompts (asks a named other persona must beat it on). The scorer is
-deterministic TF-IDF over the live descriptions — keyless, so this runs in
+deterministic TF-IDF over the live descriptions - keyless, so this runs in
 the normal suite. Ported from the agent-skills evals runner (JS), Python so
 one toolchain runs it.
 
@@ -25,7 +25,7 @@ RANK1_FLOOR = 1.0
 
 _SUFFIXES = ("ing", "ers", "er", "es", "ed", "s")
 
-# the validator's stopword floor plus the filler that dominates typed asks —
+# the validator's stopword floor plus the filler that dominates typed asks -
 # without this, "what" and "before" outscore every domain term
 _STOPWORDS = personas._DESCRIPTION_STOPWORDS | frozenset(
     [
@@ -111,7 +111,7 @@ def _load_cases() -> dict[str, dict]:
 
 
 def test_every_bench_persona_has_a_case_file():
-    """A persona without cases is a persona whose routing nobody measured —
+    """A persona without cases is a persona whose routing nobody measured -
     adding to the bench means adding to this corpus."""
     bench = {p["slug"] for p in personas.list_personas()}
     cases = set(_load_cases())

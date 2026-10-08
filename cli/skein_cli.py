@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""skein — the team platform from your terminal. Stdlib only.
+"""skein - the team platform from your terminal. Stdlib only.
 
 Setup:
     skein config --url http://localhost:8000 --key sk-skein-... [--user you]
@@ -219,7 +219,7 @@ def api(
     except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
         _mark_unreachable()
         reason = getattr(exc, "reason", None) or exc
-        sys.exit(_printable(f"error: cannot reach {url} ({reason}) — run `skein config --url ...`"))
+        sys.exit(_printable(f"error: cannot reach {url} ({reason}) - run `skein config --url ...`"))
     except (json.JSONDecodeError, UnicodeDecodeError):
         # A proxy login page or the frontend URL answers 200 with HTML.
         sys.exit(
@@ -247,8 +247,8 @@ def api_quiet(
     silent: the prompt segment and the outbox flush.
 
     An HTTPError comes back AS the exception, not as None. The two mean
-    opposite things — a 4xx is the server's verdict and will be the same
-    verdict forever, while a transport failure is worth retrying — and
+    opposite things - a 4xx is the server's verdict and will be the same
+    verdict forever, while a transport failure is worth retrying - and
     collapsing them made `skein capture` queue a rejected write and promise
     to file it, then retry that row in front of every later capture for good.
     """
@@ -259,7 +259,7 @@ def api_quiet(
     except (urllib.error.URLError, TimeoutError, ConnectionError):
         # TRANSPORT only. The bare `except` below also catches a
         # JSONDecodeError from a live server answering 200 with a proxy error
-        # page — marking that unreachable suppressed the flush AND queued a
+        # page - marking that unreachable suppressed the flush AND queued a
         # capture the server had already accepted, which duplicates on the
         # next run.
         _mark_unreachable()
@@ -270,7 +270,7 @@ def api_quiet(
 
 # Set when a call in THIS process failed to reach the server at all. The
 # outbox flush runs after every command, and against a dead host it paid a
-# second full timeout re-sending the row the command had just queued — 30
+# second full timeout re-sending the row the command had just queued - 30
 # seconds for `skein capture`, the command that exists so a thought is never
 # lost. A transport failure already answers the only question the flush asks.
 _UNREACHABLE = False
@@ -308,7 +308,7 @@ def _queue(path: str, body: dict, *, connection: dict | None = None) -> None:
     A row leaves the file only after the server accepts it, so a crash
     between the accept and the rewrite re-sends it. The capture body carries
     the `capture_key` minted at cmd_capture, and the server files a repeated
-    key as nothing — the re-send answers "duplicate" and the row retires.
+    key as nothing - the re-send answers "duplicate" and the row retires.
     The connection fingerprint binds delivery to the original destination
     and identity. Legacy entries without that ownership stay saved for manual
     resubmission, because their destination cannot be reconstructed safely.
@@ -514,7 +514,7 @@ def cmd_capture(args):
             # the next CLI process gets a fresh flag and can try the outbox.
             _mark_unreachable()
             _queue("/api/capture", body, connection=connection)
-            print("saved locally — it files on your next command that reaches the server")
+            print("saved locally - it files on your next command that reaches the server")
             return
         # The server refused it permanently. Re-run through api() so the
         # command exits with the normal error and never promises a future file.
@@ -525,7 +525,7 @@ def cmd_capture(args):
         # a dead server or a train tunnel is the failure this whole command
         # exists to prevent, so it is parked rather than refused.
         _queue("/api/capture", body, connection=connection)
-        print("saved locally — it files on your next command that reaches the server")
+        print("saved locally - it files on your next command that reaches the server")
         return
     print(f"captured as {got['kind']} #{got['id']}")
 
@@ -566,7 +566,7 @@ def cmd_my_day(args):
         # SKEIN_URL change the identity without `skein config`, which is the
         # only place that deletes the cache.
         if owner != _queue_owner(_connection()):
-            sys.exit("no cached briefing yet — run `skein my-day` once with the server up")
+            sys.exit("no cached briefing yet - run `skein my-day` once with the server up")
         age = int((time.time() - cached.stat().st_mtime) // 60)
         # the age is the point: a cached briefing is yesterday's decisions
         # unless it says otherwise
@@ -586,7 +586,7 @@ def cmd_my_day(args):
     }
     shown_reviews = sum(1 for item in attention if item.get("group") == "review")
     extra_reviews = max(0, int(b.get("pending_reviews_total") or 0) - shown_reviews)
-    out = [f"# My Day — {b['user']}, {b['date']}\n", "## Needs you"]
+    out = [f"# My Day - {b['user']}, {b['date']}\n", "## Needs you"]
     if yours:
         for item in yours:
             out.append(f"  [{group_labels.get(item['group'], item['group'])}] {item['label']}")
@@ -670,7 +670,7 @@ def cmd_search(args):
     hits = api("GET", "/api/search?q=" + urllib.parse.quote(" ".join(args.query)))
     for h in hits:
         snippet = re.sub(r"</?b>", "", h["snippet"])
-        print(f"[{h['entity']} #{h['entity_id']}] {h['title']} — {snippet}")
+        print(f"[{h['entity']} #{h['entity_id']}] {h['title']} - {snippet}")
     if not hits:
         print("no matches")
 
@@ -682,7 +682,7 @@ def cmd_ask(args):
     out = api("GET", "/api/ask?q=" + urllib.parse.quote(" ".join(args.question)))
     for c in out["citations"]:
         snippet = re.sub(r"</?b>", "", c["snippet"])
-        print(f"[{c['ref']}] {c['title']} — {snippet}")
+        print(f"[{c['ref']}] {c['title']} - {snippet}")
     # printed after the citations, never instead of them: the note says the
     # answer is loose, and a reader who saw only the note would think there
     # were no rows at all
@@ -698,7 +698,7 @@ def cmd_attention(args):
     The cache gates on its MTIME, not on its contents, so a FAILED call is
     remembered too. Writing only on success left the file untouched, the age
     check never applied, and a dropped-packet host was retried on every
-    keystroke — a 15-second stall per prompt, forever.
+    keystroke - a 15-second stall per prompt, forever.
     """
     cache = CONFIG_PATH.parent / "attention.cache"
     try:
@@ -759,7 +759,7 @@ def cmd_eval(args):
     unscored = out.get("unscored", [])
     if not out["cases"] and not unscored:
         print(
-            "no labeled capture feedback yet — POST /api/feedback with"
+            "no labeled capture feedback yet - POST /api/feedback with"
             " kind=capture, verdict=up|corrected to build the corpus"
         )
         return
@@ -770,7 +770,7 @@ def cmd_eval(args):
         print(f"  ? #{u['id']} unscored (free-text correction): {u['note'][:70]}")
     if not out["cases"] and unscored:
         print(
-            "warning: nothing machine-checkable — corrections must be a kind label"
+            "warning: nothing machine-checkable - corrections must be a kind label"
             " (question/blocker/decision/promise/task/note) to gate regressions"
         )
     if out["mismatches"]:
@@ -946,7 +946,7 @@ def cmd_context(args):
         except (OSError, UnicodeDecodeError) as exc:
             sys.exit(_file_error(args.write, exc))
         # the engagement pack is generated on demand and carries no version
-        # (routes/api.py) — printing pack["version"] raised KeyError AFTER the
+        # (routes/api.py) - printing pack["version"] raised KeyError AFTER the
         # file was already written, so the caller got the file and a traceback
         version = f" v{pack['version']}" if "version" in pack else ""
         print(f"wrote context pack{version} to {args.write}")
@@ -974,7 +974,7 @@ def cmd_week(args):
         print(f"committed {out['committed']} task(s) to {out['week']}")
         return
     w = api("GET", "/api/week")
-    kept = f" — {w['kept_percent']}% done" if w["kept_percent"] is not None else ""
+    kept = f" - {w['kept_percent']}% done" if w["kept_percent"] is not None else ""
     print(f"# {w['week']}: {w['done']}/{w['committed']} committed tasks done{kept}")
     for t in w["tasks"]:
         mark = "x" if t["status"] == "done" else " "
@@ -998,7 +998,7 @@ def cmd_promises(args):
         kind = "awaiting" if received else c["audience"]
         print(f"[{c['status']}] #{c['id']} {c['promise']}{who}{due} ({kind})")
     if not rows:
-        print('no open promises — capture one with `skein capture "promised: ..."`')
+        print('no open promises - capture one with `skein capture "promised: ..."`')
 
 
 def cmd_absences(args):
@@ -1038,7 +1038,7 @@ def cmd_absences(args):
     if rows:
         print("# away (current + upcoming)")
     for a in rows:
-        note = f" — {a['note']}" if a["note"] else ""
+        note = f" - {a['note']}" if a["note"] else ""
         print(f"#{a['id']} {a['person']}: {a['kind']} {a['starts_on']} → {a['ends_on']}{note}")
     if not rows:
         print("nobody is scheduled away")
@@ -1062,7 +1062,7 @@ def _print_proposal(c, diff=None):
 
 def _field(value):
     if value is None or value == "":
-        return "—"
+        return "-"
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False)
     return str(value)
@@ -1076,7 +1076,7 @@ def cmd_review(args):
         if keyless and not load_config().get("user"):
             sys.exit(
                 "error: configure who you are first (`skein config --user you`"
-                " or --key) — an anonymous verdict helps nobody"
+                " or --key) - an anonymous verdict helps nobody"
             )
         if args.action == "approve":
             # print what the verdict applies BEFORE it lands; a pending row
@@ -1099,7 +1099,7 @@ def cmd_review(args):
         if keyless:
             print(
                 "note: verdict recorded, but without your API key it will"
-                " never feed promotion/demotion streaks — `skein config --key`"
+                " never feed promotion/demotion streaks - `skein config --key`"
             )
         return
     after = int(getattr(args, "after", 0) or 0)
@@ -1113,7 +1113,7 @@ def cmd_review(args):
         print(f"\nMore proposals can follow. Run `skein review --after {rows[-1]['id']}`.")
     if rows and keyless:
         print(
-            "\nnote: no API key configured — verdicts still land (and count in"
+            "\nnote: no API key configured - verdicts still land (and count in"
             " approval rates), but only key-authenticated ones feed"
             " promotion/demotion streaks"
         )
@@ -1141,7 +1141,7 @@ def cmd_inbox(args):
     for q in box["open_questions"]:
         print(f"  ? #{q['id']} {q['question']} (from {q['asked_by']})")
     for r in box["rejected_proposals"]:
-        print(f"  ✗ proposal #{r['id']} {r['summary']} — {r['review_note'] or 'no note'}")
+        print(f"  ✗ proposal #{r['id']} {r['summary']} - {r['review_note'] or 'no note'}")
     for n in box["notifications"]:
         print(f"  🔔 {n['message']}")
     if not any(
@@ -1161,7 +1161,7 @@ skein sync-commit || true
 # $2 is git's SOURCE: "" for an editor commit, "message" for -m/-F, "template"
 # for -t, and "merge"/"squash" for those. Skipping every non-empty source
 # skipped `git commit -m`, which is how most commits are written and the case
-# where the trailer helps most — nobody sees an editor to add it by hand. Only
+# where the trailer helps most - nobody sees an editor to add it by hand. Only
 # merge and squash are skipped, where the message is assembled from other
 # commits and a trailer would claim this commit closed the task.
 COMMIT_MSG_HOOK = """#!/bin/sh
@@ -1177,16 +1177,16 @@ case "$branch" in
 esac
 # the digits must END the segment or be followed by - or /. Without the
 # boundary `task/12abc` claimed task 12, which neither BRANCH_RE nor
-# services/forge.py accepts — three definitions, and this was the outlier.
+# services/forge.py accepts - three definitions, and this was the outlier.
 id=$(printf '%s' "$branch" | sed -n -e 's|^task/\\([0-9][0-9]*\\)$|\\1|p' -e 's|^task/\\([0-9][0-9]*\\)[-/].*|\\1|p')
 [ -n "$id" ] || exit 0
 # -E, not a BRE alternation: `\\|` is a GNU extension that BSD grep reads as
-# a literal pipe, so the guard never fired there — and a hand-written
+# a literal pipe, so the guard never fired there - and a hand-written
 # `Refs-Task: #42` then got a `Closes-Task: #42` appended, turning a commit
 # that REFERENCED a task into one that closes it.
 grep -qiE '^(Closes|Refs)-Task:' "$1" && exit 0
 # REFS, not CLOSES. Every commit on a task branch gets this trailer, and most
-# of them are work in progress — `Closes-Task:` here marked the task done and
+# of them are work in progress - `Closes-Task:` here marked the task done and
 # stamped completed_at on the first "wip" commit, which then fed cycle time,
 # throughput and the interrupt-load finding with a lie. `skein pr-body` emits
 # Closes-Task where a merge genuinely ends the work.
@@ -1195,7 +1195,7 @@ exit 0
 """
 
 # A prompt segment. Runs `skein attention --porcelain`, which never blocks and
-# never errors — a prompt that can hang the terminal is worse than no count.
+# never errors - a prompt that can hang the terminal is worse than no count.
 #
 # No emoji: this text leaves Skein's own surfaces (CLAUDE.md), and a terminal
 # without an emoji font renders a box on every prompt line, in typography we
@@ -1233,12 +1233,12 @@ def cmd_install_hooks(args):
     wrote = False
     for name, body in (("post-commit", HOOK), ("prepare-commit-msg", COMMIT_MSG_HOOK)):
         path = hooks / name
-        # An existing hook is somebody's configuration — commitizen, gitlint
-        # and husky all own these two slots — and overwriting it loses work
+        # An existing hook is somebody's configuration - commitizen, gitlint
+        # and husky all own these two slots - and overwriting it loses work
         # that cannot be recovered. Refuse, name the file, and let the reader
         # decide. --force is the way to say "I know".
         if path.exists() and not getattr(args, "force", False) and body not in path.read_text():
-            print(f"kept {path} — a hook is already there. Use --force to replace it.")
+            print(f"kept {path} - a hook is already there. Use --force to replace it.")
             continue
         path.write_text(body)
         path.chmod(0o755)
@@ -1257,22 +1257,22 @@ BRANCH_RE = re.compile(r"^task/(\d+)(?:-|$)")
 
 
 def _slug(title: str, words: int = 6) -> str:
-    """A branch-safe tail. Lowercase, hyphens, no run of them — git refuses a
+    """A branch-safe tail. Lowercase, hyphens, no run of them - git refuses a
     ref with `..`, a trailing dot or a space, and the forge reads only the
     number anyway."""
     parts = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-").split("-")
     # capped: a loose ref is a FILE, and a path component over 255 bytes is
-    # ENAMETOOLONG — one pasted URL in a title was enough. The forge reads
+    # ENAMETOOLONG - one pasted URL in a title was enough. The forge reads
     # only the number, so the tail is a convenience.
     return "-".join([p for p in parts if p][:words])[:60].rstrip("-")
 
 
 def _git(*args: str) -> str:
     # argv, never a shell string, and every caller passes literal git
-    # subcommands — the only interpolated value is a branch name built here.
+    # subcommands - the only interpolated value is a branch name built here.
     got = subprocess.run(["git", *args], capture_output=True, text=True)  # noqa: S603
     if got.returncode != 0:
-        sys.exit(f"error: git {' '.join(args)} failed — {got.stderr.strip()}")
+        sys.exit(f"error: git {' '.join(args)} failed - {got.stderr.strip()}")
     return got.stdout.strip()
 
 
@@ -1284,9 +1284,9 @@ def cmd_task_start(args):
     branch = f"task/{args.task_id}-{_slug(task['title'])}".rstrip("-")
     # show-ref --verify refs/heads/…, never rev-parse: rev-parse resolves ANY
     # ref, so a TAG named task/7-x took the "already a branch" path and left
-    # HEAD detached — after which the commit hook adds no trailer and pr-body
+    # HEAD detached - after which the commit hook adds no trailer and pr-body
     # refuses the branch, both silently.
-    existing = subprocess.run(  # noqa: S603 — argv, not a shell string; branch is built above
+    existing = subprocess.run(  # noqa: S603 - argv, not a shell string; branch is built above
         ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
         capture_output=True,
         text=True,
@@ -1424,7 +1424,7 @@ def main():
     c.set_defaults(fn=cmd_search)
 
     c = sub.add_parser(
-        "ask", help="ask the workspace a question — answers cite the rows they came from"
+        "ask", help="ask the workspace a question - answers cite the rows they came from"
     )
     c.add_argument("question", nargs="+")
     c.set_defaults(fn=cmd_ask)
@@ -1566,7 +1566,7 @@ def main():
     if args.cmd == "review" and args.action in ("approve", "reject") and args.id is None:
         p.error(f"review {args.action} requires a proposal id")
     if args.cmd == "review" and args.action == "reject" and not args.note:
-        p.error("review reject requires -m — the proposer reads the reason")
+        p.error("review reject requires -m - the proposer reads the reason")
     try:
         args.fn(args)
         # AFTER the command, not before: the command itself is the proof the

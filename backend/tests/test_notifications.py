@@ -482,7 +482,7 @@ def test_denied_rows_cannot_starve_a_permitted_notification(fresh_db):
 
 def test_migration_005_retargets_old_row_links_and_nothing_else(fresh_db):
     """Notification links are stored at write time, so rows from before the
-    row-level deep links still pointed at a page top — a question notice
+    row-level deep links still pointed at a page top - a question notice
     pointed at "/", My Day itself. The repair touches only the two retargeted
     kinds and only the two old page-top links."""
     from pathlib import Path

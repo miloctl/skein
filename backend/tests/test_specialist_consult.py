@@ -3,8 +3,8 @@ answers, under whose identity, and what the user is told.
 
 The tool is a closure inside build_agent and is never in ALL_TOOLS, so the
 registry sweeps in test_gate_coverage.py do not reach it. Everything they
-would have enforced — returns a JSON string, never raises, leaves an honest
-receipt — is pinned here instead.
+would have enforced - returns a JSON string, never raises, leaves an honest
+receipt - is pinned here instead.
 """
 
 import asyncio
@@ -48,7 +48,7 @@ def real_provider(fresh_db, monkeypatch):
     MockAgent before any tool is created on the mock provider, so the consult
     tool does not exist at all until the provider looks real."""
     # Import the route BEFORE anything patches build_agent. _run_consult
-    # reaches services/tuning.py::member_deadline, which imports routes/chat —
+    # reaches services/tuning.py::member_deadline, which imports routes/chat -
     # and chat.py binds `from ..agents.team_agent import build_agent` at import
     # time. First-imported under a patch, chat keeps the test's lambda for the
     # life of the worker and every later chat test gets it instead of MockAgent.
@@ -157,7 +157,7 @@ def test_the_bench_roster_reaches_the_system_prompt(real_provider):
     for slug in personas.bench_slugs():
         assert f"`{slug}`" in agent.system_prompt
     assert "consult_specialist is how you reach one" in agent.system_prompt
-    # the cap the model is told is the cap take_consult enforces — a literal
+    # the cap the model is told is the cap take_consult enforces - a literal
     # in the prompt text drifts the moment identity.py changes the number
     from app.agents.identity import MAX_CONSULTS_PER_TURN
 
@@ -435,7 +435,7 @@ def test_the_specialist_is_built_stateless_under_its_own_identity(real_provider,
     assert seen["acting"] == "code-reviewer", "writes would be signed by the orchestrator"
     # Without this the specialist can write DIRECTLY when the deployment opts
     # out of SKEIN_AGENT_REVIEW, while its own prompt says every write becomes a
-    # proposal — and it reports a pending change that already landed.
+    # proposal - and it reports a pending change that already landed.
     assert seen["review"] is True
 
 
@@ -453,7 +453,7 @@ def test_the_context_argument_reaches_the_specialist(real_provider, monkeypatch)
 
 
 def test_a_consult_does_not_leak_identity_back_to_the_orchestrator(real_provider, monkeypatch):
-    """Called directly, with no task boundary to copy the context — which is
+    """Called directly, with no task boundary to copy the context - which is
     the point. strands' DEFAULT executor gives each tool call its own task and
     would hide a missing restore; a sequential executor, or a direct call like
     this one, would leave the orchestrator acting as the specialist for the
@@ -485,7 +485,7 @@ def test_the_identity_is_restored_even_when_the_specialist_fails(real_provider, 
 
         async def stream_async(self, message):
             raise RuntimeError("down")
-            yield  # pragma: no cover — makes this an async generator
+            yield  # pragma: no cover - makes this an async generator
 
     monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: Boom())
 
@@ -526,7 +526,7 @@ def test_a_specialist_that_fails_reports_the_class_not_the_provider_body(
 
         async def stream_async(self, message):
             raise RuntimeError("sk-live-abcd leaked request_id=42")
-            yield  # pragma: no cover — makes this an async generator
+            yield  # pragma: no cover - makes this an async generator
 
     monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: Boom())
     out = json.loads(asyncio.run(_drain(consult("code-reviewer", "q")))[-1])
@@ -554,7 +554,7 @@ def test_a_specialist_build_failure_logs_only_the_exception_class(
 
 def test_the_turn_budget_stops_an_unbounded_fan_out(real_provider, monkeypatch):
     """The bench roster is in the prompt, so the MODEL picks how many
-    specialists run — the one spend multiplier in the product not written by
+    specialists run - the one spend multiplier in the product not written by
     an operator."""
     agent = team_agent.build_agent("t-budget")
     consult = _consult_tool(agent)
@@ -648,14 +648,14 @@ def test_a_consulted_answer_reaches_the_user_under_one_heading(client, monkeypat
     assert out.count(card["name"]) == 1, "one heading for one consult, not one per chunk"
     assert "Tomorrow is thin." in out and "Ship the migration." in out
     assert "That is their read." in out
-    # the saved transcript must say what the stream said — chat.py builds it
+    # the saved transcript must say what the stream said - chat.py builds it
     # separately, so the two can drift
     saved = client.get("/api/chats/cs-1/messages", headers={"X-User": "tester"}).json()[-1]
     assert card["name"] in saved["content"] and "Ship the migration." in saved["content"]
 
 
 def test_a_specialist_that_answered_is_not_reported_unreached(client, monkeypatch):
-    """The turn writes nothing, so the mention guard would fire — but the
+    """The turn writes nothing, so the mention guard would fire - but the
     specialist answered in this chat, which is the most direct delivery there
     is. Reporting it unreached contradicts the answer above the receipt."""
     from app.routes import chat as chat_route
@@ -713,7 +713,7 @@ def test_the_budget_counts_the_specialists_the_user_named(client):
     assert _consult_budget("no names here") == MAX_CONSULTS_PER_TURN
     assert _consult_budget("ask @mira") == MAX_CONSULTS_PER_TURN, "a person buys no budget"
     assert _consult_budget("@code-reviewer") == MAX_CONSULTS_PER_TURN, "never below the floor"
-    # a bench slug counts BEFORE it has a users row — names_in could not see
+    # a bench slug counts BEFORE it has a users row - names_in could not see
     # one, and the first consult of a specialist is exactly that case
     assert _consult_budget("@code-reviewer @backend-architect @growth-mentor") == 3
 
@@ -834,7 +834,7 @@ def test_a_planner_that_raises_still_records_the_spend(real_provider, monkeypatc
 
 
 def test_a_specialist_that_dies_mid_answer_keeps_what_it_said(real_provider, monkeypatch):
-    """A truncated answer must reach the user AND say it is truncated —
+    """A truncated answer must reach the user AND say it is truncated -
     otherwise the sentence just stops and nothing marks why."""
     agent = team_agent.build_agent("t-partial")
     consult = _consult_tool(agent)
@@ -857,7 +857,7 @@ def test_a_specialist_that_dies_mid_answer_keeps_what_it_said(real_provider, mon
 def test_a_specialist_that_never_answers_hits_the_deadline(real_provider, monkeypatch):
     """The deadline bounds the SPECIALIST. Wrapped around the yield loop it
     would instead cancel this generator mid-suspension, and strands would
-    record a toolUse with no toolResult — which 400s the thread for good."""
+    record a toolUse with no toolResult - which 400s the thread for good."""
     from app.services import tuning
 
     monkeypatch.setattr(tuning, "member_deadline", lambda: 0.05)
@@ -876,7 +876,7 @@ def test_a_specialist_that_never_answers_hits_the_deadline(real_provider, monkey
     monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: Hangs())
     events = asyncio.run(_drain(consult("code-reviewer", "q")))
 
-    assert isinstance(events[-1], str), "the LAST yield is the tool result — it must exist"
+    assert isinstance(events[-1], str), "the LAST yield is the tool result - it must exist"
     assert "before the deadline" in json.loads(events[-1])["error"]
 
 
@@ -933,7 +933,7 @@ def test_a_closed_generator_still_records_the_spend(real_provider, monkeypatch, 
 def test_the_strands_wrapper_always_receives_a_tool_result(real_provider, monkeypatch):
     """Through the REAL decorator, not the unwrapped function: the last yield
     becomes the tool result (strands/tools/decorator.py), and a result must
-    exist on the failure paths too — a toolUse persisted without a toolResult
+    exist on the failure paths too - a toolUse persisted without a toolResult
     400s the thread on a strict provider."""
     from strands.types._events import ToolResultEvent
 
@@ -959,7 +959,7 @@ def test_the_strands_wrapper_always_receives_a_tool_result(real_provider, monkey
 
 def test_specialist_receipts_ride_the_consult_channel(real_provider, monkeypatch):
     """A receipt travels the same queue as the specialist's text, so it
-    renders inside the section that names its author — placement by data.
+    renders inside the section that names its author - placement by data.
     The shared box stays EMPTY: a receipt in both places would render twice.
     Run in a create_task like strands does, so the isolated box lives in a
     real context copy."""
@@ -997,12 +997,12 @@ def test_specialist_receipts_ride_the_consult_channel(real_provider, monkeypatch
 def test_a_stopped_consult_spills_its_receipts_to_the_shared_box(real_provider, monkeypatch):
     """The stop button closes the generator before the channel drains run.
     deisolate spills the stranded receipts into the shared box, where the
-    close-out drain renders them actor-suffixed — late, but never lost.
+    close-out drain renders them actor-suffixed - late, but never lost.
 
     The consult runs in its own task (the shared box must be PROVABLY the one
-    the caller reads — iterated directly, isolate rebinds the caller's own
+    the caller reads - iterated directly, isolate rebinds the caller's own
     context and the test measures the isolated box, which passes with the
-    spillway deleted), and aclose arrives from ANOTHER task — the foreign
+    spillway deleted), and aclose arrives from ANOTHER task - the foreign
     finalization context test_flock_turns.py pins for an abandoned stream,
     where a contextvars Token restore raises and loses everything."""
     from app.agents import receipts
@@ -1038,7 +1038,7 @@ def test_a_stopped_consult_spills_its_receipts_to_the_shared_box(real_provider, 
 
 def test_a_consult_cannot_steal_another_agents_receipt(real_provider, monkeypatch):
     """The reason the box is isolated at all: the consult drains beside its
-    own text, and without isolation that drain empties the SHARED box —
+    own text, and without isolation that drain empties the SHARED box -
     a receipt some other agent already left there would ride this channel
     and render under this specialist's heading, attributed to an agent that
     never touched it."""
@@ -1062,7 +1062,7 @@ def test_a_consult_cannot_steal_another_agents_receipt(real_provider, monkeypatc
 
 
 def test_a_rate_limited_consult_returns_the_refusal(real_provider, monkeypatch):
-    """RETURNED, never raised — a raise aborts a turn that already spent
+    """RETURNED, never raised - a raise aborts a turn that already spent
     tokens. And the refusal must reach the model, or it retries forever."""
     from app import ratelimit
 
@@ -1082,7 +1082,7 @@ def test_a_rate_limited_consult_returns_the_refusal(real_provider, monkeypatch):
 
 def test_a_held_slug_returns_the_error_instead_of_raising(real_provider, monkeypatch):
     """ensure_user refuses a bench slug a human already holds. The refusal is
-    a tool ERROR, not an exception — the wrapper turns a raise into an SDK
+    a tool ERROR, not an exception - the wrapper turns a raise into an SDK
     string with the message embedded."""
     from app.services import users as users_svc
 
@@ -1172,7 +1172,7 @@ def test_a_consulted_write_carries_the_specialist_identity(real_provider, monkey
 
 class _LateFiler:
     """An orchestrator whose specialist's write lands AFTER the consult
-    section closed — the timing that motivates the actor field. The gate runs
+    section closed - the timing that motivates the actor field. The gate runs
     in a threadpool the stream cannot see, so the receipt drains under the
     orchestrator's framing, where placement attributes it to the wrong head."""
 
@@ -1192,7 +1192,7 @@ class _LateFiler:
 
 def test_a_late_receipt_still_names_the_specialist(client, monkeypatch):
     """Placement is timing luck; the actor is data. A proposal that drains
-    under the Chief of Staff's framing must still say who signed it — the
+    under the Chief of Staff's framing must still say who signed it - the
     transcript is append-only, so a wrong attribution here is permanent."""
     from app.routes import chat as chat_route
 
@@ -1234,7 +1234,7 @@ def test_a_saved_refusal_keeps_the_specialist_actor(client, monkeypatch):
 
 def test_the_turn_heads_own_receipts_stay_unattributed(client, monkeypatch):
     """Differs-only: stamping every plain-turn receipt with the head's name
-    adds noise to the path where attribution says nothing new — and "agent"
+    adds noise to the path where attribution says nothing new - and "agent"
     is the contextvar default, not a name a reader knows."""
     from app.routes import chat as chat_route
 
@@ -1266,7 +1266,7 @@ def test_a_receipt_after_the_final_drain_is_not_dropped(client, monkeypatch):
             yield {"data": "Consulting."}
 
     monkeypatch.setattr(chat_route, "build_agent", lambda *a, **k: Quiet())
-    # the straggler lands while the turn guard runs — after pump, before close
+    # the straggler lands while the turn guard runs - after pump, before close
     real_unfiled = turn_guard.unfiled
 
     def late_write(message, wrote):
@@ -1284,7 +1284,7 @@ def test_a_receipt_after_the_final_drain_is_not_dropped(client, monkeypatch):
 
 def test_a_channel_receipt_renders_inside_the_section_unsuffixed(client, monkeypatch):
     """Placement by data: the receipt chip lands between the specialist's
-    heading and the orchestrator's framing, and carries no "(slug)" suffix —
+    heading and the orchestrator's framing, and carries no "(slug)" suffix -
     the heading above it already names the author. It still counts as this
     turn's write, so the unfiled guard stays quiet."""
     from app.routes import chat as chat_route
@@ -1333,7 +1333,7 @@ def test_a_channel_receipt_renders_inside_the_section_unsuffixed(client, monkeyp
 
 def test_deisolate_from_another_turns_context_does_not_rebind_it(real_provider, monkeypatch):
     """The guard on deisolate's restore. An abandoned stream is finalized in
-    whatever context runs it last — which can be ANOTHER turn's. An unguarded
+    whatever context runs it last - which can be ANOTHER turn's. An unguarded
     set(prev) would repoint that turn's box at this turn's, and every receipt
     it records afterwards would land in a stranger's transcript."""
     from app.agents import receipts
@@ -1355,7 +1355,7 @@ def test_deisolate_from_another_turns_context_does_not_rebind_it(real_provider, 
             receipts.start()  # a DIFFERENT turn's box, in this task's context
             # recorded BEFORE the close: an unguarded restore repoints this
             # context at turn A's box, and a drain that follows the same
-            # wrong pointer still sees its own later writes — only a receipt
+            # wrong pointer still sees its own later writes - only a receipt
             # already in turn B's real box exposes the swap by going missing
             receipts.record("queued", "task", "turn B, before the close", 30, actor="agent")
             await gen.aclose()  # finalizes turn A's consult in turn B's context

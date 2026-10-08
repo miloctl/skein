@@ -71,7 +71,7 @@ const statusWord = (s: string) =>
 /** var() names, NOT Tailwind utility names. `--line-strong` and `--ink-3` are
  *  the utility spellings (`border-line-strong`, `text-ink-3`); the custom
  *  properties are these. globals.css uses `@theme inline`, so the utility
- *  spellings are never emitted into :root — an unresolvable stroke computes to
+ *  spellings are never emitted into :root - an unresolvable stroke computes to
  *  `none` and the whole diagram loses its lines with no error anywhere. */
 const STROKE_EDGE = "var(--border-strong)";
 const STATUS_STROKE: Record<string, string> = {
@@ -142,7 +142,7 @@ export function FlockDiamond({ trace }: { trace: FlockTrace }) {
   const slowest = Math.max(0, ...members.map((m) => m.ms));
   const answered = members.filter((m) => m.status === "ok").length;
   /** Wall clock is the slowest member, but SPEND is every member added up
-   *  plus the merge — the number a flock's cost ceiling is read against.
+   *  plus the merge - the number a flock's cost ceiling is read against.
    *  flock_traces has carried per-member tokens since flocks shipped and
    *  nothing drew them, so a 3-member turn looked as cheap as a 1-member one. */
   const tokensOf = (m: { tokens_in: number; tokens_out: number }) =>
@@ -153,7 +153,7 @@ export function FlockDiamond({ trace }: { trace: FlockTrace }) {
   /** A mock turn reports no usage at all: routes/chat.py fills these from the
    *  provider's usage metadata and leaves them at 0 otherwise. "0 tokens"
    *  against a turn the reader just watched run is a claim, not a
-   *  measurement — and the keyless deployment is the one that must work. Say
+   *  measurement - and the keyless deployment is the one that must work. Say
    *  nothing there instead. */
   const metered = turnTokens > 0;
   const tokenWords = (n: number) =>

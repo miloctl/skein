@@ -10,7 +10,7 @@ export type ChatThread = {
 
 /** Single-flight chat list, shared by ChatSidebar and ThreadTitle: one
  *  "skein-chat-activity" event costs ONE /api/chats request, however many
- *  consumers listen. Same shape as authConfig() in lib/auth.ts — a failed
+ *  consumers listen. Same shape as authConfig() in lib/auth.ts - a failed
  *  read is not cached, so the next call retries. */
 let cache: Promise<ChatThread[]> | null = null;
 
@@ -33,7 +33,7 @@ export function chatThreads(refresh = false): Promise<ChatThread[]> {
 
 if (typeof window !== "undefined") {
   // These listeners register at import time, BEFORE any consumer's
-  // effect-registered listener for the same events — listeners fire in
+  // effect-registered listener for the same events - listeners fire in
   // registration order, so a consumer reacting to the event always
   // refetches, never re-reads the stale promise.
   window.addEventListener("skein-chat-activity", () => {

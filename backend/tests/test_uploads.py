@@ -3,7 +3,7 @@
 An upload is the first content a caller sends that is neither prose nor a
 form field: the bytes, the filename and the claimed type are all attacker
 controlled, and the file is read back by a browser. These pin the four places
-that matters — what may be stored, where it lands, who reads it back, and
+that matters - what may be stored, where it lands, who reads it back, and
 what a reader's browser is told to do with it.
 """
 
@@ -63,7 +63,7 @@ def test_the_server_names_the_file_not_the_caller(client):
 
     The row id names the file, so traversal has nothing to steer. The stored
     name is checked against the id rather than against a sanitized version of
-    what the caller sent — sanitizing is what this must not have to rely on.
+    what the caller sent - sanitizing is what this must not have to rely on.
     """
     aid = _upload(client, "../../../etc/passwd.txt", b"x").json()["id"]
     row = db.query_one("SELECT path FROM artifacts WHERE id = ?", (aid,))
@@ -282,7 +282,7 @@ def test_no_agent_tool_can_delete_a_file(fresh_db):
 
 
 def test_a_stored_path_outside_the_artifact_root_is_refused(fresh_db):
-    """The containment check is not about save_upload — it is about a restored
+    """The containment check is not about save_upload - it is about a restored
     or hand-edited row turning a stored string into a read of anything the
     server user can open."""
     aid = db.execute(
@@ -296,8 +296,8 @@ def test_a_stored_path_outside_the_artifact_root_is_refused(fresh_db):
 
 
 def test_a_row_whose_file_is_gone_is_not_a_404(client):
-    """The row is readable and the FILE is not: that is our own state — a
-    missing volume — and it belongs in the error rate, not in a sentence
+    """The row is readable and the FILE is not: that is our own state - a
+    missing volume - and it belongs in the error rate, not in a sentence
     telling the reader no such file exists."""
     aid = _upload(client, "notes.md", b"# plan").json()["id"]
     row = db.query_one("SELECT * FROM artifacts WHERE id = ?", (aid,))
